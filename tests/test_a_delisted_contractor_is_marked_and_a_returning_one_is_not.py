@@ -51,7 +51,7 @@ def _log_somewhere_harmless(tmp_path, monkeypatch):
     the owner's live log, interleaved with a real crawl's output, where they read as the
     crawl refusing to mark departures.
 
-    The behaviour predates this file, so it is recorded as `OP-32` rather than changed
+    The behaviour predates this file, so it is recorded as `OP-41` rather than changed
     here. What this fixture fixes is the part these tests are responsible for.
     """
     from scrapex import contractors

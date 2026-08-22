@@ -632,7 +632,7 @@ resume is explained in its module docstring in terms of **requests**:
 > anyway is not a resume.
 
 Every word of that is the right intent. The check sits in `store`
-([scrapex/snapshotcrawl.py:156](../scrapex/snapshotcrawl.py)), which is the
+([scrapex/snapshotcrawl.py:164](../scrapex/snapshotcrawl.py)), which is the
 walker's `on_page` — called **after** the fetch. So the resume saves the INSERT and
 saves no request at all, and the docstring's own justification is the one thing it
 does not deliver. Recorded as [OP-21](BACKLOG.md).

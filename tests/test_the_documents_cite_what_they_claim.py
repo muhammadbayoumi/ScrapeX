@@ -104,19 +104,19 @@ PINNED = (
     # REQ-21's nested audit. The whole request is that `Sum N_child` is compared
     # against the PARENT, and these are the two lines that make it so -- one that
     # sizes the parent, one that refuses cells outside it before a request is spent.
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1012,
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1019,
      "whole = size_cell(fetch, partition, base_url, parent)"),
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1005, "raise NotASubdivision("),
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1012, "raise NotASubdivision("),
     ("docs/REQUESTS.md", "scrapex/pagesource.py", 146,
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
-    ("docs/STATE.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "scrapex/webui/app.py", 1466, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
     ("docs/RULINGS.md", "scrapex/webui/app.py", 1466, '"latest_extension_version": VERSION'),
-    ("docs/RULINGS.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
@@ -144,8 +144,8 @@ PINNED = (
     # a reader sent one line off reads `store`'s docstring, agrees with it, and
     # concludes the entry is wrong. If someone moves this check into the walk, the
     # entry is answered and this row should go with it.
-    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 156, "if page.url in seen:"),
-    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 156, "if page.url in seen:"),
+    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 164, "if page.url in seen:"),
+    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 164, "if page.url in seen:"),
     # OP-22 / LESSONS §2 · one database, and where it is. That section described
     # the pre-collapse split layout in the present tense until 2026-08-20, so the
     # line naming the single file is worth holding still.
@@ -173,11 +173,11 @@ PINNED = (
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 940, "def _bind_log_streams("),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 976, "def _bind_log_streams("),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
-    ("docs/BACKLOG.md", "packaging/engine_entry.py", 19, "def known_commands("),
+    ("docs/BACKLOG.md", "packaging/engine_entry.py", 18, "def known_commands("),
     # OP-36 · THE PRECEDENT, and it is the only one of these that survived the fix.
     # Four rows here used to pin the `-m scrapex.cli` lines in relaunch.py,
     # native.py and autostart.py -- they were holding a DEFECT still, so that a

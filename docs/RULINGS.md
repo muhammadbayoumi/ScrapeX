@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:477`, again in `scrapex/webui/app.py:1459`, drawn by
+(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1466`, drawn by
 `extension/app.js:595` and `:629`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
@@ -149,6 +149,22 @@ was recommended once and it was wrong: it re-welds exactly what PLATFORM-PLAN
 Decision 21 unwelded (PR #112), whose "Done when" is *"the other number
 untouched"*. The two ship down separate paths — Google reviews the extension,
 nobody reviews the engine.
+
+> **PARTLY BUILT 2026-08-22, AND THE DELAY COST THE SAME 54px TWICE.** This ruling was
+> given on 2026-08-16 and the advert stayed in the code. On 2026-08-22 a schema change
+> moved `VERSION` to 0.3.0 for a legitimate reason under
+> [R-35](#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one),
+> and **three panel layout tests failed with the identical 54px this ruling had already
+> measured** — because `version_report` still read
+> `bool(missing) or is_older(extension_version, VERSION)`, two questions welded into one
+> verdict. The `is_older` half is gone: the GATE ("this extension lacks a capability it
+> needs", a fact the engine owns) stays, and the ADVERT ("a newer extension exists",
+> which is Chrome's answer) does not. Two tests pin the distinction from both sides.
+>
+> **STILL OWED, so it does not go missing for another six days:**
+> `latest_extension_version`, `LATEST_SOURCE` and `UPDATE_INSTRUCTIONS` are named above as
+> also going, and each needs a coordinated change in `extension/app.js`, which reads them.
+> They were not smuggled in behind a one-line fix to the harm.
 
 **Apply:** its own pull request, with a guard that fails if the engine ever
 answers for the extension's head again.
@@ -416,7 +432,15 @@ rule wastes a session.
 
 ### R-37 · The agent does not merge. The main programmer does
 
-**2026-08-21 · process · supersedes [R-18](#r-18--merge-it-when-it-is-green)**
+**2026-08-21 · process · ~~active~~ SUPERSEDED the same day by [R-42](#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)**
+
+> **Kept in full because its DIAGNOSIS is what R-42 is built on.** Merge order
+> across parallel sessions really is invisible to a single session. What R-42
+> changes is the remedy: name the one session that can see it, rather than
+> blinding all of them. Everything below about what a report must say still
+> governs a SECONDARY session.
+
+**supersedes [R-18](#r-18--merge-it-when-it-is-green)**
 
 > «واترك الدمج للمبرمج الرئيسيى»
 
@@ -908,6 +932,282 @@ displayed. **A number nothing checks is worse than no number.**
 
 **If any of the four is not what he meant, this entry is the one to correct** — in
 particular part 3, which is the only one with a security consequence.
+
+### R-38 · `R-19`'s five groups are a TAXONOMY plus a link table, not five datasets — shape D
+
+**2026-08-21 · data model · refines [R-19](#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json), and overrules the study's own recommendation**
+
+> «شكل تخزين مجموعات R-19 الخمس … أيّها؟» → **«D — تصنيف خالص + جدول ربط مخصَّص»**
+
+`R-19` ruled child tables over JSON and every measurement upheld it. What it did not
+settle was *how* — [the study](R19-CHILD-TABLES-MEASURED.md) put five shapes side by side
+and recommended **F**, a child dataset per group inside `generic_record` whose value
+references `classification_node`. **He chose D**: the taxonomy plus a bespoke link table.
+
+**He is right, and the recommendation was wrong for a reason worth writing down.** F's
+headline argument was that it reuses machinery the warehouse already contains. Measured
+on the live warehouse the same day:
+
+| the machinery F would be the first tenant of | rows |
+|---|---|
+| `classification_node` | **0** |
+| `classification_scheme` | **0** |
+| `dataset_relationship` | **0** |
+| `relationship_field_pair` | **0** |
+
+**Existing machinery that has never carried a row is not an asset.** This one session
+proved that three times: `is_enabled` called itself *"the gate navigation must call"* and
+had zero callers; `record_absences` had zero callers; and the slice scope was *"built,
+tested, and never used"* and turned out to be **wrong** — 17 cards paired against 34
+URLs. The recommendation weighed whether the machinery EXISTED. What matters is whether
+it RUNS.
+
+**And F pays a full record's overhead for a two-integer join row.** Measured per row of
+`generic_record`: `data_json` averages **1,049 bytes**, `record_key` is a 64-character
+SHA-256, `content_hash` another 64, plus two timestamps, a status and four foreign keys.
+A membership fact — *this contractor holds this node* — is two integers. At the study's
+~500K rows that is the measured 4.7×, and it is conservative.
+
+**"It inherits the lifecycle" was not true either:**
+
+    retention.py     16 references to price_observation, 0 to generic_record
+    compaction.py     7 references to price_observation, 0 to generic_record
+
+The contractor dataset has no retention today. F would have added five more datasets to
+that same gap rather than inheriting a solution.
+
+**A fourth reason, which crosses [R-40](#r-40--dec-10-is-built-before-the-profile-crawl-not-after-it):**
+F routes five groups through `approve_candidate`, the function that answers
+`recovered=True` and writes nothing. D writes directly, so idempotency is one constraint
+— `UNIQUE (contractor, node)` — correct by construction instead of by later repair.
+
+**WHAT D MUST NOT LOSE, and it is one line.** F's one surviving advantage was that
+`generic_record.source_snapshot_id NOT NULL` makes provenance **enforced by the schema**
+rather than remembered. The link table carries the same column under the same constraint.
+Then D is 4.7× smaller *and* provenance is still enforced.
+
+**What D genuinely costs:** bespoke work in the export, the API, the panel and the CLI,
+because a link table is not a dataset and nothing reads it for free. Noted rather than
+discounted — and `O-2`, whether the contractor entity belongs in the mbiX workbook at
+all, is parked by him, so the export half of that cost is not owed yet.
+
+---
+
+### R-39 · muqawil is registered `listing_plus_slice`, and one city is crawled before eleven hours are spent
+
+**2026-08-21 · crawl scope · answers the registration `PLATFORM-PLAN` Decision 23 left to him**
+
+> «نطاق زحف مقاول مسجَّل listing_only … ماذا أُسجِّل؟» → **«listing_plus_slice لمدينة واحدة أوّلاً»**
+
+The profile pages carry the ~28 columns the listing does not, and the full crawl is
+**34,834 pages — 11.1 hours**, measured over 87 minutes of real six-worker crawling at
+52.5 pages a minute. He chose to see one city first.
+
+**The city is read off the listing card, so a slice costs nothing to select.** Measured
+from the live warehouse, the cities that a first slice could be:
+
+| city | contractors | profile pages | at 1.14 s a page |
+|---|---|---|---|
+| RIYADH | 5,406 | 10,812 | ~3.4 h |
+| JEDDAH | 2,206 | 4,412 | ~1.4 h |
+| DAMMAM | 739 | 1,478 | ~28 min |
+| AL MADINAH AL MUNAWWARAH | 499 | 998 | ~19 min |
+| TABUK | 191 | 382 | ~7 min |
+
+**A DEFECT THIS RULING EXPOSED BEFORE IT WAS IMPLEMENTED.** A slice is named in the
+language of the page — `MuqawilPageSource.belongs_to_slice` says so — and measured
+against the committed fixtures:
+
+    en page, slice 'RIYADH'  → 3 of 4 cards match
+    en page, slice 'الرياض'  → 0 of 4
+    ar page, slice 'RIYADH'  → 0 of 4
+    ar page, slice 'الرياض'  → 3 of 4
+
+So a single `crawl_slice` value matches **one locale's pages only**. The frontier still
+comes out correct, because `detail_rows` yields both locales' profile URLs for a matched
+row — but every Arabic listing row is counted as *outside the slice*, which makes the
+report a lie, and the whole slice would depend on the English pages happening to be on
+disk. The frontier scan is therefore restricted to the locale the slice is named in, and
+the report says which.
+
+---
+
+### R-40 · DEC-10 is built BEFORE the profile crawl, not after it
+
+**2026-08-21 · idempotency · closes [DEC-10](BACKLOG.md) as a decision**
+
+> «هل نبنيه قبل زحفة الملفّات؟» → **«نعم، قبل الزحفة»**
+
+`approve_candidate`'s idempotency key is `(snapshot, locator)` plus the schema hash, so a
+**corrected** parser re-run over stored pages returns `recovered=True` and changes not one
+row. On the listing that was survivable — the pages are cheap to re-read. On 34,834
+profile pages it is not: a parser defect found after the crawl costs **11 hours of
+re-fetching** to fix what should be minutes of re-parsing.
+
+**That is a direct contradiction of why the seam exists.**
+`docs/GENERIC-FETCH-SEAM.md` separates fetching from interpreting precisely so that a
+wrong parse costs minutes; an idempotency key that refuses to rewrite a corrected row
+hands the cost straight back.
+
+**It is also the one open item that changes the COST of the remaining work rather than
+its scope**, which is why building it first is not sequencing preference. `R-38`'s link
+table depends on it twice over: the five groups are parsed from the same profile pages,
+and a first parse of a five-level taxonomy is unlikely to be the last.
+
+The route already proven on live data — wipe and re-approve from disk, which took
+`generic_record` from 1,172 to 13,892 with zero network on 2026-08-21 — stays available.
+It works and it destroys history every time, which is what a row-aware key replaces.
+
+---
+
+### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
+
+**2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
+
+> «الفكرة انى اريد توحيد او دمج قواعد البيانات … افضل طريقة هى حفظها على drive وقبل
+> التطوير فى الجهاز الاخر ينزلها ويدمجها معه من ثم يحفظها … وعند العودة لك مرة اخرى
+> سيكون هناك مصدر واحد للحقيقة هو drive»
+
+`CLAUDE.md` exists because everything saying *where the work stood* lived under one
+machine's home directory. It fixed that for code, decisions and state — **and said nothing
+about the data**, which is the half that cannot be committed. This is that half.
+
+**BOTH MACHINES HAVE DEVELOPED muqawil**, which is what rules out the obvious answer:
+neither file may be copied over the other, because each holds work the other does not.
+`R-24` already says upgrade rather than replace; this is the same rule between two
+machines instead of two versions.
+
+### What made it buildable, and it was not obvious
+
+*"Merge them"* is not an operation on two SQLite files. Every primary key is an
+autoincrement, so **both machines hold a `page_snapshot_id = 1` for a different page** —
+merging naively means remapping every key and every foreign key pointing at one, which is
+[OP-30](BACKLOG.md) at a far larger scale. Measured 2026-08-22, three natural keys exist and
+that is what changes the answer:
+
+| table | natural key | measured |
+|---|---|---|
+| `generic_page_snapshot` | `(source_url, content_hash)` | 20,379 rows, **20,379 distinct** |
+| `dataset_sighting` | `(dataset_key, external_id)` | UNIQUE in the schema |
+| `generic_record` | `(dataset_definition_id, record_key)` | UNIQUE in the schema |
+
+**ONLY THE EVIDENCE TRAVELS, AND THAT IS THE WHOLE DESIGN.** A snapshot is a page as it was
+fetched and a sighting is what the site showed and when — neither can be recomputed.
+Everything else is rebuilt by `--approve` with **no network**: records, revisions,
+ingestions, the taxonomy and its 15,559 memberships. So nothing that carries a primary key
+ever crosses, and no id is ever remapped.
+
+**EVERY COLUMN MERGES WITH `min` OR `max` AND NONE WITH `+`.** The first implementation
+summed `seen_count`, and three merges of the same file took one id from **4 to 8 to 12 to
+16** while the module's own docstring called the operation idempotent — caught because a
+test looked at the value instead of the row count. Summing is wrong on the *first* merge
+too: two machines crawling the same listing observe the same site state, so their counts are
+two observations of one fact.
+
+### The lock, which his plan was missing
+
+Download → work → upload has nothing stopping both machines doing it on the same day, and
+**the second upload silently wins**; Drive keeps versions but cannot merge them. That is
+`R-37`'s parallel-session problem one level down, and worse, because no CI sees it.
+
+So a warehouse records which machine holds it — `scrapex_meta.checkout_holder`, beside the
+`account_owner` that `R-34` already put there, so no migration — and `scrapex
+merge-warehouse` refuses to write into a copy somebody else holds. Re-claiming your own is
+allowed, because a session that died mid-merge has to pick the same copy back up.
+
+**A SHIPPED COMMAND, NOT A SCRIPT.** `scrapex merge-warehouse --status / --machine /
+--release / --from`. `contractors.py` exists because every piece of the first warehouse's
+pipeline was committed with no invocation, so the other machine could read how it worked
+and could not run it. Seventeen tests, and the one that matters most asserts that merging
+three times changes no VALUE.
+
+---
+
+### R-42 · One PRIMARY session merges; every other session is SECONDARY and asks
+
+**2026-08-21 · process · supersedes [R-37](#r-37--the-agent-does-not-merge-the-main-programmer-does)**
+
+> «اريد تعديل القاعدة بحيث ان هناك جلسة اساسية وجلسات فرعية · الجلسة الاساسية هى الجلسة
+> التى تستطيع الدمج بينما الجلسات الفرعية لا · يمكن ان تسالنى اذا كنت جلسة اساسية ام
+> فرعية لتحدد هذا الامر»
+
+`R-37` removed the merge from every session because **merge order across parallel
+sessions is not a thing any single session can see**. That diagnosis was right and
+nothing here contradicts it. What it got wrong is the remedy: it solved a problem of
+COORDINATION by removing a CAPABILITY, so the cost R-18 was written against came
+straight back — a green branch idles until he happens to be at a keyboard.
+
+**THE FIX IS TO NAME WHO COORDINATES.** Exactly one session is PRIMARY and may merge.
+Every other session is SECONDARY: it builds, pushes, reports, and stops. The blindness
+`R-37` identified is real, so it is answered by making one session the one that can see
+— not by blinding all of them.
+
+### How a session knows, and it is the whole of the rule
+
+**IT ASKS. IT NEVER INFERS, AND IT NEVER ASSUMES.** He named the mechanism himself:
+*«يمكن ان تسالنى اذا كنت جلسة اساسية ام فرعية»*. There is no other source — being
+first, being busy, holding the open pull request, or having merged earlier in the same
+session prove nothing about which session he is treating as primary right now.
+
+**AND THE DEFAULT IS SECONDARY.** Until he answers, a session is secondary. That is the
+only safe direction: a secondary session that was really primary costs one message,
+while a primary session that was really secondary is the bad merge `R-37` was written
+about — and `main` has no branch protection, so nothing downstream would catch it.
+
+**ONE, NOT "AT MOST ONE PER MACHINE".** He works from two machines and two accounts
+(`CLAUDE.md`), and two primaries on two machines is exactly the parallel-merge problem
+under a new name.
+
+**THE ANSWER IS PER SESSION AND IS NOT A REPOSITORY FACT.** It cannot be committed —
+which session is primary changes with the day and is not true of the code. So it is
+asked in the session that needs it, and it does not carry to the next one. A session
+resuming from a summary that does not record the answer asks again.
+
+### What does not change
+
+`R-37`'s reading of the report stands in full for a secondary session: name every check,
+every failure, and **whether each failure ran at all**. `R-18`'s reading of *green*
+stands for the primary one — a `SKIPPED` required check is not satisfied, an absent run
+is not a red one, and a tick from before the last push describes a tree nobody is
+merging. `R-22` still requires the full suite before a pull request opens.
+
+**AND THE GUARD MATTERS MORE NOW, NOT LESS.** Returning the merge to a session returns
+its judgement to the gate, so the failures a person should not have to hunt for must be
+mechanical. `tests/test_the_registers_cannot_collide.py` was built the same day and
+immediately caught two real collisions between `#244` and the branch beside it — `R-36`
+and `R-37` claimed twice, and `OP-32` claimed twice — every one of them green,
+mergeable, and invisible to git. Branch protection on `main` is still absent and still
+his to switch on.
+
+---
+
+### R-41 · A multi-valued group is named by a DECLARED per-site map, never by position or by its heading
+
+**2026-08-21 · extraction · answers a question the measurement raised**
+
+> «كيف تُسمّى المجموعات الخمس؟» → **«خريطة مُعلَنة لكل موقع»**
+
+`R-38` needs to know which group a row belongs to, and neither obvious answer works.
+Measured against the committed profile:
+
+| candidate rule | why it fails |
+|---|---|
+| the detector's own name | it returns `Table 1` … `Table 5` — position, which moves when a section does |
+| the nearest heading | **three of the five tables sit under one heading** |
+| the column signature | two tables carry the same `الإسم / القيمة` pair, and three are **empty** for this contractor, so there are no columns to read |
+
+So each site declares it, the way `CARD_FIELDS` and `PROFILE_FIELD_ORDER` already declare
+what a listing and a profile publish. Explicit, tested against a committed fixture, and
+unchanged when the site moves a section.
+
+**And the heading rule fails for a second reason that would have been worse.** The
+interests card is titled `Interests` in English and **`الأنشطة`** — "Activities" — in
+Arabic. Not a translation. A heading-based rule read 25 nodes from the English profile and
+**0 from the Arabic**, which is `DSN-05`'s failure again: a locale-dependent selector that
+silently produces nothing for half the data.
+
+**The price, stated:** one declaration per group per site. That is the cost of a rule that
+cannot drift, and this file already records what the alternative costs.
 
 ---
 

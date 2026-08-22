@@ -36,7 +36,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "muqawil"
 
 @pytest.fixture(autouse=True)
 def _log_somewhere_harmless(tmp_path, monkeypatch):
-    """`say` appends to the owner's real crawl log otherwise — `OP-32`."""
+    """`say` appends to the owner's real crawl log otherwise — `OP-41`."""
     from scrapex import contractors
 
     monkeypatch.setattr(contractors, "LOG", tmp_path / "contractors.log")
@@ -354,3 +354,107 @@ def test_the_stored_profile_is_labelled_as_a_profile(conn, monkeypatch):
     details(conn, get_directory(None), _fetch_recording([]), None, "p1")
 
     assert seen == ["muqawil.org/detail", "muqawil.org/detail"]
+
+
+# ---- a slice is named in ONE language, and the scan has to know that ----------
+#
+# `R-39` RECORDS THE MEASUREMENT THAT PRODUCED THIS. `belongs_to_slice` compares the
+# slice value against the card's own city text, and the card is in the page's language:
+#
+#     en page, slice 'RIYADH'  -> 3 of 4 cards match
+#     en page, slice 'الرياض'  -> 0 of 4
+#     ar page, slice 'RIYADH'  -> 0 of 4
+#     ar page, slice 'الرياض'  -> 3 of 4
+#
+# Scanning every stored page against one value therefore counts every row of the OTHER
+# locale as "outside the slice". The frontier still came out right — `detail_rows` yields
+# both locales' profile URLs for a matched row — but the report was false, and the whole
+# slice depended on the matching locale's pages happening to be on disk.
+
+def _both_locales_stored(conn) -> None:
+    for locale in ("en", "ar"):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot (source_url, html_content, "
+            " content_hash, crawl_run_ref) VALUES (?,?,?,'listing-1')",
+            (f"https://muqawil.org/{locale}/contractors?page=1",
+             (FIXTURES / f"listing-{locale}.html").read_text(encoding="utf-8"),
+             f"h-{locale}"))
+    conn.commit()
+
+
+def test_the_other_locales_rows_are_not_counted_as_outside_the_slice(conn):
+    """THE FALSE REPORT THIS FIXES. With both locales on disk and an English slice, the
+    Arabic page's rows are not the answer to "how many did we skip" — they were never
+    asked the question."""
+    from scrapex.contractors import detail_frontier
+
+    _registered(conn, "listing_plus_slice", "RIYADH")
+    _both_locales_stored(conn)
+
+    urls, outside = detail_frontier(conn, get_directory(None),
+                                    CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
+
+    english_only, english_outside = detail_frontier(
+        conn, get_directory(None), CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
+    assert urls == english_only
+    # The committed listing has four cards, three of them Riyadh — so exactly one row is
+    # genuinely outside the slice, not one plus the whole Arabic page.
+    assert outside == english_outside == 1
+
+
+def test_the_frontier_is_the_same_whichever_language_the_slice_is_named_in(conn):
+    """THE PROOF THAT SCANNING ONE LOCALE LOSES NOTHING: a matched row yields BOTH
+    locales' profile URLs, so naming the slice in Arabic must produce the identical
+    frontier."""
+    from scrapex.contractors import detail_frontier
+
+    _registered(conn, "listing_plus_slice", "RIYADH")
+    _both_locales_stored(conn)
+
+    english = detail_frontier(conn, get_directory(None),
+                              CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
+    arabic = detail_frontier(conn, get_directory(None),
+                             CrawlScope.LISTING_PLUS_SLICE, "الرياض")
+
+    assert english == arabic
+    assert english[0], "and it is not empty, or this proves nothing"
+
+
+def test_a_slice_that_matches_nothing_says_how_many_rows_it_looked_at(conn):
+    """A CITY WITH NO CONTRACTORS AND A SLICE NAMED IN THE WRONG LANGUAGE both produce an
+    empty frontier, and the examined count is what tells them apart."""
+    from scrapex.contractors import detail_frontier
+
+    _registered(conn, "listing_plus_slice", "ATLANTIS")
+    _both_locales_stored(conn)
+
+    urls, examined = detail_frontier(conn, get_directory(None),
+                                     CrawlScope.LISTING_PLUS_SLICE, "ATLANTIS")
+
+    assert urls == []
+    assert examined == 8, ("four CARDS on each of the two stored pages — rows, not "
+                           "URLs, which is two per card on this site")
+
+
+def test_a_slice_matching_in_two_locales_is_refused(conn):
+    """THE COUNTS WOULD BE THE SUM OF TWO DIFFERENT QUESTIONS. A value that matches in
+    both languages is either a name written the same way in both — which is possible —
+    or a marker that has moved. Adding them up would hide either."""
+    from scrapex.contractors import detail_frontier
+
+    _registered(conn, "listing_plus_slice", "RIYADH")
+    # The SAME English page stored under both locale paths, which is what a value
+    # matching in two locales looks like from disk.
+    listing = (FIXTURES / "listing-en.html").read_text(encoding="utf-8")
+    for locale in ("en", "ar"):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot (source_url, html_content, "
+            " content_hash, crawl_run_ref) VALUES (?,?,?,'listing-1')",
+            (f"https://muqawil.org/{locale}/contractors?page=1", listing, f"h{locale}"))
+    conn.commit()
+
+    with pytest.raises(ValueError) as raised:
+        detail_frontier(conn, get_directory(None),
+                        CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
+
+    assert "more than one locale" in str(raised.value)

@@ -444,7 +444,7 @@ anyway is not a resume."* The implementation checks the resume in the wrong plac
 
 ```
 scrapex/snapshotcrawl.py:154   def store(page: FetchedPage) -> None:
-scrapex/snapshotcrawl.py:156       if page.url in seen:
+scrapex/snapshotcrawl.py:164       if page.url in seen:
 ```
 
 `store` is the walker's `on_page`, and `PageWalker.walk` calls it **after**
@@ -1009,7 +1009,7 @@ has data consequences:
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
 
-### OP-32 · The test suite writes into the owner's live crawl log
+### OP-41 · The test suite writes into the owner's live crawl log
 
 **Found 2026-08-21, by reading the log to check on a crawl.**
 
@@ -1178,7 +1178,7 @@ then the only engine that runs on this machine is that worktree's.
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:940`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:976`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
@@ -1213,7 +1213,7 @@ for the machine the owner is not sitting at.
 **The diagnosis, kept as written.** Found while diagnosing `OP-32`; it is the SAME
 defect, one layer along.
 
-`packaging/engine_entry.py:19` hand-maintains the set of subcommands the frozen
+`packaging/engine_entry.py:18` hand-maintains the set of subcommands the frozen
 binary will forward to the CLI. Anything not in it is assumed to be Chrome and goes
 to `serve()` — which waits on stdin and prints nothing. The set lists **12**
 commands. `scrapex.cli.build_parser()` has **24**:
@@ -2049,6 +2049,12 @@ What was considered and is worse:
 TEXT. That is a migration plus every reader of the column.
 
 ### DEC-10 · "Fix the parser and re-run over the snapshots" does not actually work
+
+> **RULED 2026-08-21 — [R-40](RULINGS.md#r-40--dec-10-is-built-before-the-profile-crawl-not-after-it):
+> built BEFORE the profile crawl.** On 34,834 profile pages a parser defect found
+> afterwards costs 11 hours of re-fetching to fix what should be minutes of
+> re-parsing, which is a direct contradiction of why the seam exists. Kept here
+> rather than deleted, because the measurement below is what produced the ruling.
 The seam's stated product is that a wrong parse is re-run against stored snapshots with
 nothing re-fetched (`GENERIC-FETCH-SEAM.md`). **It was tried on 2026-08-20 and wrote
 nothing at all.**

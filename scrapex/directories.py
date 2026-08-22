@@ -67,16 +67,60 @@ class Directory:
     candidate: Callable[..., Any]
     #: `() -> PartitionedListing`.
     partition_factory: Callable[[], Any] = field(repr=False)
+    #: How this directory's DETAIL pages are read, or `None` for a directory whose
+    #: detail pages nothing interprets yet. Separate from `candidate` because a listing
+    #: card and a profile page are two different documents with two different declared
+    #: field sets — `CARD_FIELDS` against `PROFILE_FIELD_ORDER` — and one callable
+    #: taking both would have to guess which it was handed.
+    profiles: ProfileReader | None = None
 
     def partition(self) -> Any:
         return self.partition_factory()
+
+
+@dataclass(frozen=True)
+class ProfileReader:
+    """Everything needed to turn one directory's DETAIL pages into rows and memberships.
+
+    THREE CALLABLES AND A NAME, and they are grouped because they are useless apart: the
+    candidate produces the flat row, the groups say what repeats, and the locator finds
+    each group on the page. `R-41` put the declaration in the site's own module, so this
+    carries references to it rather than copies of it.
+
+    THE SCHEME NAME IS HERE AND NOT IN `taxonomy.py` because it is the SITE's vocabulary
+    — `classification_scheme.scheme_type='source'` says so — and the module that stores
+    trees has no business naming one site's.
+    """
+
+    #: `(english_html, arabic_html, *, contractor_id) -> TableCandidate`.
+    candidate: Callable[..., Any]
+    #: The declared multi-valued groups, from `R-41`'s map.
+    groups: tuple[Any, ...]
+    #: `(html, group_key) -> element | None`.
+    locate: Callable[..., Any]
+    #: What the site calls its own vocabulary, in both languages.
+    scheme_name: str
+    scheme_name_ar: str
+    #: ITS OWN DATASET, AND THIS IS NOT A DETAIL. A profile publishes 21 declared fields
+    #: and a listing card 28, so putting both under one `dataset_key` makes every profile
+    #: look like a SUBSET of the approved listing schema — which `R-31` correctly refuses,
+    #: or worse would retire the listing's live version and drop columns the site still
+    #: publishes. `Directory.dataset_key`'s own comment already said a site can publish
+    #: more than one dataset; this is that sentence being true.
+    dataset_key: str = "contractor_profiles"
+    dataset_name: str = "Contractor profiles"
 
 
 def _muqawil() -> Directory:
     # Imported inside the function so a `directories` import does not drag the whole
     # muqawil parser in. It matters for the CLI: `cli.py` builds its parser on every
     # invocation, and `scrapex status` should not pay for a parser it never uses.
-    from .extract.muqawil import bilingual_listing_candidate
+    from .extract.muqawil import (
+        MULTI_VALUED_GROUPS,
+        bilingual_listing_candidate,
+        bilingual_profile_candidate,
+        locate_group,
+    )
     from .sites.muqawil import MuqawilPartition
 
     return Directory(
@@ -87,6 +131,17 @@ def _muqawil() -> Directory:
         identity_field="contractor_id",
         candidate=bilingual_listing_candidate,
         partition_factory=MuqawilPartition,
+        profiles=ProfileReader(
+            candidate=bilingual_profile_candidate,
+            groups=MULTI_VALUED_GROUPS,
+            locate=locate_group,
+            # THE SITE'S OWN WORDS. `Interests` in English and `الأنشطة` in Arabic,
+            # which `R-41` measured are not translations of each other — so both are
+            # recorded rather than one being derived from the other.
+            scheme_name="Interests",
+            scheme_name_ar="الأنشطة",
+            dataset_key="contractor_profiles",
+            dataset_name="Contractor profiles"),
     )
 
 

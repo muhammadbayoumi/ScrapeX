@@ -255,6 +255,38 @@ def _approved_ingestion(
     ).fetchone()
 
 
+def _rows_unchanged(conn: sqlite3.Connection, dataset_id: int,
+                   rows: list[dict], record_keys: list[str]) -> bool:
+    """Would writing these rows change anything? Read from what is already stored.
+
+    THE SAME COMPARISON THE WRITE PATH MAKES, and deliberately the same expression:
+    `already.get(record_key) == content_hash`, where `content_hash` is
+    `_digest(_canonical(row))`. Two ways of deciding "unchanged" is one way of deciding
+    it and one liability, and this one runs BEFORE the upsert for the reason that path
+    already records — once the row is written, `content_hash` holds the new value and
+    the question can no longer be asked.
+
+    A ROW THIS DATASET HAS NEVER SEEN COUNTS AS CHANGED, and it needs no extra check to
+    say so: `stored.get(key)` is `None` for a key that was never written, and `None`
+    never equals a digest. A `len(stored) != len(record_keys)` guard was written here
+    first and a mutation deleted it with every test still passing — the second line today
+    that read like protection and could not fail. The comparison below is what protects
+    this, and it is the only thing that does.
+    """
+    if not record_keys:
+        return True
+    holes = ",".join("?" * len(record_keys))
+    stored = {
+        found["record_key"]: found["content_hash"]
+        for found in conn.execute(
+            "SELECT record_key, content_hash FROM generic_record "
+            f" WHERE dataset_definition_id = ? AND record_key IN ({holes})",
+            (dataset_id, *record_keys))
+    }
+    return all(stored.get(key) == _digest(_canonical(row))
+               for row, key in zip(rows, record_keys, strict=True))
+
+
 def _retire_or_refuse(conn: sqlite3.Connection, active_version_id: int,
                       approval: CandidateApproval) -> None:
     """A GROWN schema opens a new version; a SHRUNK one is still refused.
@@ -454,13 +486,28 @@ def approve_candidate(
                 "This table candidate was already approved with a different identity "
                 "or schema. Open the existing dataset instead of approving it again."
             )
-        result = _dataset_public(conn, int(recovered["dataset_definition_id"]))
-        result.update({
-            "schema_version_id": int(recovered["schema_version_id"]),
-            "generic_ingestion_id": int(recovered["generic_ingestion_id"]),
-            "recovered": True,
-        })
-        return result
+        # DEC-10 / `R-40`: SAME REQUEST IS NOT SAME ROWS. Everything checked above is
+        # about identity and shape, and none of it moves when a parser is CORRECTED — so
+        # a fixed parse of the same page matched here, answered `recovered=True` and
+        # wrote nothing. On 34,834 profile pages that would cost a re-crawl to repair
+        # what should be a re-parse, which is precisely what the fetch/interpret seam
+        # exists to prevent.
+        #
+        # ASKED OF THE ROWS THEMSELVES, AND NO COLUMN WAS ADDED FOR IT. The first
+        # attempt put a `rows_hash` on `generic_ingestion` and that table is
+        # append-only in BOTH directions and UNIQUE on `(snapshot, locator)` — so the
+        # digest would have been unwritable after the first insert, and there can never
+        # be a second ingestion for one page. `generic_record.content_hash` already
+        # holds exactly this fact per row, and the write path below already reads it.
+        if _rows_unchanged(conn, int(recovered["dataset_definition_id"]),
+                           rows, record_keys):
+            result = _dataset_public(conn, int(recovered["dataset_definition_id"]))
+            result.update({
+                "schema_version_id": int(recovered["schema_version_id"]),
+                "generic_ingestion_id": int(recovered["generic_ingestion_id"]),
+                "recovered": True,
+            })
+            return result
 
     site = catalog.register_site(
         conn,
@@ -559,18 +606,32 @@ def approve_candidate(
                 "content_hash) VALUES (?,?,?,?,?)",
                 (record_id, schema_version_id, snapshot_id, data_json, content_hash),
             )
-    ingestion = conn.execute(
-        "INSERT INTO generic_ingestion "
-        "(dataset_definition_id, schema_version_id, source_snapshot_id, "
-        "source_locator, record_count) VALUES (?,?,?,?,?)",
-        (dataset_id, schema_version_id, snapshot_id, candidate.locator, len(rows)),
-    )
+    if recovered is None:
+        ingestion_id = int(conn.execute(
+            "INSERT INTO generic_ingestion "
+            "(dataset_definition_id, schema_version_id, source_snapshot_id, "
+            "source_locator, record_count) VALUES (?,?,?,?,?)",
+            (dataset_id, schema_version_id, snapshot_id, candidate.locator,
+             len(rows)),
+        ).lastrowid)
+    else:
+        # NO SECOND INGESTION, AND THE SCHEMA IS WHAT SAYS SO: `generic_ingestion` is
+        # UNIQUE on `(source_snapshot_id, source_locator)` and append-only in both
+        # directions. That is right — "this page was ingested" happened once and is not
+        # revisable. A re-parse changes the ROWS, and their history lives in
+        # `generic_record_revision`, which is where a changed value belongs.
+        ingestion_id = int(recovered["generic_ingestion_id"])
     result = _dataset_public(conn, dataset_id)
     result.update({
         "site_profile_id": int(site["site_profile_id"]),
         "schema_version_id": schema_version_id,
-        "generic_ingestion_id": int(ingestion.lastrowid),
+        "generic_ingestion_id": ingestion_id,
         "recovered": False,
+        # NAMED SEPARATELY FROM `recovered`, because a caller counting re-parses and a
+        # caller counting no-ops are asking different questions. `scrapex contractors
+        # --approve` prints the recovered count out loud so a run that repaired nothing
+        # cannot be mistaken for one that did; this is the other half of that report.
+        "reparsed": recovered is not None,
     })
     return result
 

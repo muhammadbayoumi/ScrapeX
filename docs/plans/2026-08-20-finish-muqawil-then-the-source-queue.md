@@ -127,7 +127,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 | 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope — **defect fixed**; the walk moves into item 5 | ~2 h so far | Built and tested; wiring it is what makes a partial re-read addressable. |
 | 5 | The profile crawl — **wired**; 34,834 pages, measured at **11.1 h** to run | ~3 h | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
-| 6 | `R-19` — **reader built**; the write awaits his ruling AND profile pages | ~2 h so far | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
+| 6 | ~~`R-19`~~ **DONE as shape D** — reader, taxonomy, link table | ~5 h | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
 
 **So: about a day and a half of work, plus roughly eighteen hours of crawling that runs
 unattended.** Two of the six are under an hour each and one of those is already ruled.
@@ -295,10 +295,31 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 - [x] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
       profile page that happens to omit a box must not produce a different schema.
       **#235.**
-- [~] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
-      كلّها». **The READING is built; the WRITING waits on him, and on pages that do not
-      exist yet.**
-      Two things block the write and neither is engineering. (1)
+- [x] **`R-19`: child tables for all five groups — BUILT, as shape D** — «جداول أبناء
+      للخمس كلّها».
+      **RULED 2026-08-21, [R-38](../RULINGS.md#r-38--r-19s-five-groups-are-a-taxonomy-plus-a-link-table--not-five-datasets--shape-d).**
+      He chose **D** — a taxonomy plus a link table — over the study's recommended F, and
+      the recommendation was wrong: F's argument was that it reuses machinery this
+      warehouse already contains, and `classification_node`, `classification_scheme`,
+      `dataset_relationship` and `relationship_field_pair` hold **zero rows between
+      them**. Machinery that has never carried a row is not an asset.
+      Migration 0009 adds `generic_record_node` — `WITHOUT ROWID`, keyed
+      `(record, node, group_key)` so idempotency is a constraint and not a later repair,
+      with `source_snapshot_id NOT NULL` carrying across F's one real advantage.
+      `scrapex/taxonomy.py` is `ensure_scheme` / `ensure_path` / `link` / `memberships`.
+      **Proved on the committed profile:** 25 memberships over 25 nodes, depths
+      `{1:3, 2:5, 3:17}`; a second contractor holding the same activities adds **not one
+      node**; a second identical pass writes nothing. Thirteen tests, **seven mutations
+      killed**.
+      **`group_key` IS IN THE PRIMARY KEY** because the licensed-activities values come
+      from the same activity vocabulary as the interests tree, so one node can be held as
+      both — and a key without it would merge two different facts silently.
+      **And "is it new" is answered by a counter, not a clock.** The first `link` compared
+      `first_seen_at = last_seen_at`; both are second-resolution, so a second identical
+      pass reported all 25 as new. `seen_count` — which `dataset_sighting` already carries
+      for the same reason — is returned by the upsert instead.
+
+      *Kept because it is why this shape and not another:* (1)
       [R19-CHILD-TABLES-MEASURED](../R19-CHILD-TABLES-MEASURED.md) recommends **shape F**
       — a child dataset per group whose value references `classification_node` — and its
       own last line reads *"Not built. Awaiting his ruling."* Building either shape ahead
@@ -459,8 +480,11 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       not 363 KB**, 0.91 GB → 19.4 MB.
 - [ ] **`O-2`** — does the contractor entity belong in the mbiX workbook, or stay
       engine-only until it has proved itself?
-- [ ] **`DEC-10`** — the row-aware idempotency key. Without it a corrected parser
-      re-run over stored snapshots returns `recovered=True` and writes nothing.
+- [x] **`DEC-10` — RULED 2026-08-21, [R-40](../RULINGS.md#r-40--dec-10-is-built-before-the-profile-crawl-not-after-it):
+      built BEFORE the profile crawl.** It is the one open item that changed the COST of
+      the remaining work rather than its scope: on 34,834 pages a parser defect found
+      after the crawl costs 11 hours of re-fetching to repair what should be minutes of
+      re-parsing — which hands back exactly what the seam exists to save.
 
 ---
 

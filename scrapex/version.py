@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 
 class Surface(StrEnum):
@@ -141,7 +141,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         # The setting is only the DEFAULT. The per-source choice lives on the
         # source itself (SourceEntry.robots), which is why the panel control
         # named here is on the source editor and not the Settings page.
-        commit="",
+        #
+        # FILLED IN WHEN 0.3.0 ARRIVED, and read out of `git log` as the ledger
+        # requires rather than remembered: `git log -S robots_per_source --reverse`
+        # names `adf31b2`, "robots.txt becomes the owner's decision, per site (#153)"
+        # — which is also the commit that last moved VERSION before this one. It was
+        # allowed to be empty only while `since` equalled `VERSION`.
+        commit="adf31b2",
     ),
     Capability(
         key="crawl_parallel_sources",
@@ -495,7 +501,34 @@ def version_report(extension_version: str | None = None) -> dict:
     if extension_version is None:
         return report
     missing = missing_capabilities(extension_version)
-    report["outdated"] = bool(missing) or is_older(extension_version, VERSION)
+    # `R-07`: THE GATE STAYS AND THE ADVERT GOES — and this line was the advert.
+    #
+    # It read `bool(missing) or is_older(extension_version, VERSION)`, two different
+    # questions welded into one verdict:
+    #
+    #   bool(missing)   THE GATE. This extension lacks a capability it needs, derived
+    #                   from the ledger. A fact the engine owns, and it stays.
+    #   is_older(…)     THE ADVERT. "A newer extension exists" — which is Chrome's
+    #                   answer and never the engine's, because the engine knows only its
+    #                   OWN number. `R-07` says it goes.
+    #
+    # RULED 2026-08-16 AND NOT DONE, and the cost arrived twice. That ruling records the
+    # defect being "found by trying the bump and reverting it the same day": the moment
+    # `VERSION` moves past `extension/manifest.json`, every panel is told it is out of
+    # date, and the notice is 54px of vertical space that clips the profile card's legal
+    # line at 320x440. Measured then; measured again on 2026-08-22, when a schema change
+    # moved VERSION to 0.3.0 for a legitimate reason and three panel layout tests failed
+    # with the SAME 54px — because the advert was still here.
+    #
+    # NOT FIXED BY BUMPING THE MANIFEST, which `R-07` forbids in as many words: that
+    # re-welds what PLATFORM-PLAN Decision 21 unwelded, and the two ship down separate
+    # paths — Google reviews the extension, nobody reviews the engine.
+    #
+    # STILL OWED FROM `R-07`, so it does not go missing for another six days:
+    # `latest_extension_version`, `LATEST_SOURCE` and `UPDATE_INSTRUCTIONS` are named
+    # there as also going. Each needs a coordinated change in `extension/app.js`, which
+    # reads them — so they are not smuggled in behind this one-line fix to the harm.
+    report["outdated"] = bool(missing)
     report["missing"] = [
         {"key": capability.key, "since": capability.since,
          "summary": capability.summary}

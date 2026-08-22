@@ -361,13 +361,27 @@ class MuqawilPageSource:
 
         icon = cards[row_index].select_one(f".info-icon span.{_CITY_ICON}")
         if icon is None:
-            # The card carries no city. NOT an answer of False, which would
-            # quietly drop a contractor from every slice and read as a smaller
-            # city rather than as a layout that moved.
-            raise SliceNotSupported(
-                f"no {_CITY_ICON} on card {row_index} of {page.url} — the "
-                "listing's city marker has moved, and a slice cannot be "
-                "chosen from a page that no longer publishes one")
+            # A CARD WITH NO CITY IS IN NO NAMED CITY. Not an exception, and the two
+            # versions of this that raised were both wrong on real pages.
+            #
+            # IT RAISED ON ANY MISSING ICON FIRST, on the reasoning that a moved marker
+            # must not read as a smaller city — sound, but unable to tell a moved marker
+            # from a contractor that publishes no location. One such card ended a crawl
+            # that had already closed four cells with `D = 0`.
+            #
+            # THEN IT RAISED ONLY WHEN NO CARD ON THE PAGE HAD ONE, which looked like the
+            # measurable distinction and is not. `region_id=0` is muqawil's
+            # no-location partition — the same fact `#234` recorded when its 74 pages
+            # taught a schema of 21 fields against a declared 22 — and measured
+            # 2026-08-21: `region_id=0` pages carry **17 and 20 cards with ZERO city
+            # icons**, while `region_id=1` pages carry 20 of 20. A whole page without a
+            # city is a legitimate state on this site.
+            #
+            # SO THE MOVED-MARKER SIGNAL DOES NOT LIVE HERE. It cannot be seen from one
+            # card or from one page; it is "the slice matched nothing anywhere", and
+            # `detail_frontier` already reports exactly that — the rows it examined
+            # against the rows it matched.
+            return False
 
         box = icon.find_parent(class_="info-box")
         value = box.select_one(".info-value") if box else None

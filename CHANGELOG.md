@@ -10,11 +10,18 @@ work predates this file, the commit that built it — evidence read out of
 record of what was done; this file answers a narrower question: which version
 has it.
 
+## 0.3.0
+
+Minimum supported extension: `0.2.2`.
+
+No new capabilities. Fixes and internal change only — an extension and an engine that spoke to each other before this version still do.
+
+
 ## 0.2.2
 
 Minimum supported extension: `0.2.2`.
 
-- **robots_per_source** — Read what a site's robots.txt asks of a crawler, then decide per source: follow the tool default, obey that site, or write a rule for it alone. _Runs in: panel, engine._
+- **robots_per_source** (adf31b2) — Read what a site's robots.txt asks of a crawler, then decide per source: follow the tool default, obey that site, or write a rule for it alone. _Runs in: panel, engine._
 
 ## 0.2.0
 

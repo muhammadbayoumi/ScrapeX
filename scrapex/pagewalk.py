@@ -85,12 +85,20 @@ class PageWalker:
         self._fetched_any = False
 
     def walk(self, base_url: str, scope: CrawlScope, *, slice_of: str = "",
-             max_requests: int | None = None, on_page: OnPage | None = None) -> WalkReport:
+             max_requests: int | None = None, on_page: OnPage | None = None,
+             listing_phase_only: bool = False) -> WalkReport:
         """Fetch what the scope allows, and no more.
 
         `max_requests` is a ceiling the caller sets, not a default: a walk that
         silently stopped at some built-in number would report a partial crawl as
         a complete one. When it bites, `stopped_early` says so.
+
+        `listing_phase_only` IS NOT A SECOND SCOPE, and the distinction is the whole
+        reason it can exist without breaking `snapshotcrawl`'s rule that the scope comes
+        from the database and nowhere else. The scope says how deep a crawl of the SOURCE
+        may go. This says which PHASE is running — and the partitioned listing crawl is
+        the listing phase by construction: it partitions, witnesses and counts listing
+        pages, and no detail page takes part in any of its proofs.
         """
         # REFUSED BEFORE THE FIRST REQUEST. `plan_scope` raises SliceRequired
         # for a slice scope with no slice named, and asking it here means the
@@ -109,7 +117,14 @@ class PageWalker:
             if on_page is not None:
                 on_page(page)
 
-            if scope is CrawlScope.LISTING_ONLY:
+            if scope is CrawlScope.LISTING_ONLY or listing_phase_only:
+                # `listing_phase_only` STOPPED A REAL CRAWL FROM BEING BROKEN BY A
+                # CONFIGURATION CHANGE. On 2026-08-21 `site_profile.crawl_scope` was set
+                # to `listing_plus_slice` while a partitioned listing crawl was running —
+                # the scope is read per cell, not once per run — so cell five began
+                # asking `belongs_to_slice` about listing rows it had no interest in, and
+                # a single card without a city ended the run after four cells had closed
+                # with D=0.
                 continue
             for detail in self._details_wanted(page, scope, slice_of, report):
                 if self._over(report, max_requests):

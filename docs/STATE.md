@@ -1,10 +1,114 @@
 # State — where the work stands
 
-**Last updated: 2026-08-21 (morning).** `main` is at `e5af340` (#238).
+**Last updated: 2026-08-22.** `main` is at `afb8648` (#244). #243, #245 and #244 are
+merged.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
+
+---
+
+## RESUME HERE — written for the other machine, 2026-08-22
+
+He works from two machines and asked to continue from the other one, which has neither
+this session's context nor this warehouse. Everything below is the whole handover.
+
+### The code and the decisions are in the repository. The DATA is not.
+
+**Merged and done:** the six muqawil engineering items (#245), four rulings of his
+executed (`R-38`…`R-41`), and the engine release gate (#244).
+
+**His warehouse on THIS machine, measured after the profile approval:**
+
+| | |
+|---|---|
+| the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
+| `generic_record` | **16,411** — 15,707 listing rows + 704 profiles |
+| `generic_page_snapshot` | **20,379** (~203 MB of bodies), 1,424 of them Dammam profiles |
+| `classification_node` | **214** nodes, depths `{1: 8, 2: 20, 3: 186}` |
+| `generic_record_node` | **15,559** memberships — `R-38` proved on real data |
+| datasets | `contractors` and `contractor_profiles` |
+| schema | **v9** (`0009` = the link table) |
+
+**That ratio is the whole of `R-38`:** 15,559 memberships share 214 nodes. Shape A would
+have stored 15,559 repeated strings; the study measured that at 4.7x and it is
+conservative.
+
+### What the other machine can do with NO database at all
+
+Two of the four next steps need nothing but this repository — the tests run on committed
+fixtures, never on his warehouse:
+
+1. **Workers for `--details`.** Measured: the Dammam profile crawl ran at **9.03 s a
+   page** single-threaded, so the full 34,834-page crawl is **87 hours**. The listing
+   crawl measured 1.14 s a page with six workers. Adding workers here is the difference
+   between 87 hours and about 14, and it is the same work already done for
+   `crawl_partition`. **`R-39` records 11.1 h and that figure is WRONG** — it was measured
+   with six workers and applied to a single-threaded command.
+2. **Branch protection on `main`.** Measured: `protected: False`, 404 on the protection
+   endpoint. Require the check suite, require branches up to date, forbid direct pushes.
+   His to switch on, and it is what makes `ac3a5af` — which left `main` red for two days
+   with no pull request — impossible rather than merely regretted.
+
+### What needs the data, and his plan for moving it
+
+3. **The full profile crawl** — 34,834 pages. Belongs on whichever machine holds the
+   warehouse.
+4. **The remaining four groups of `R-19`.** Only `interests` is wired, and
+   `contractors.write_groups` records why for each of the others: licensed activities
+   carry both languages in one unseparated string and one of six rows is already truncated
+   on the site's side; the two contractor lists are relations rather than classifications
+   and are empty on every page measured; contract counts are two scalars that belong in
+   the flat row.
+
+**HIS RULING ON THE TWO WAREHOUSES, 2026-08-22.** Both machines have developed muqawil, so
+the databases must be **merged**, with Drive as the single source of truth for DATA while
+the repository stays the single source of truth for CODE. **Do not copy either file over
+the other** — each holds work the other does not, and `R-24` says upgrade rather than
+replace.
+
+The merge is defined, and it is defined because the natural keys exist — measured
+2026-08-22:
+
+    generic_page_snapshot   20,379 rows, 20,379 distinct (source_url, content_hash)
+    dataset_sighting        UNIQUE (dataset_key, external_id) in the schema
+    generic_record          UNIQUE (dataset_definition_id, record_key) in the schema
+
+So: dedupe snapshots on their natural key; merge sightings taking min `first_seen_at`, max
+`last_seen_at`, **summed** `seen_count`, max `last_absent_at`; and **delete and rebuild
+everything derived** with `--approve` rather than merging it. That last clause is what
+makes the whole thing tractable — no primary key is ever remapped, and the operation is
+commutative and idempotent, so it does not matter which machine runs it or how often.
+
+**BUILT 2026-08-22 — `scrapex merge-warehouse`** ([R-43](RULINGS.md#r-43--drive-is-the-single-source-of-truth-for-data-the-repository-stays-it-for-code)).
+
+    scrapex merge-warehouse --status                      # who holds it
+    scrapex merge-warehouse --machine work-laptop         # take it
+    scrapex merge-warehouse --machine work-laptop --from <downloaded.db>
+    scrapex merge-warehouse --release                     # hand it back
+
+The lock lives in `scrapex_meta.checkout_holder`, beside the `account_owner` that `R-34`
+already put there, so it needs no migration and an older warehouse answers "nobody" rather
+than failing to open. Seventeen tests, and the one that matters asserts that merging three
+times changes no VALUE — the first implementation summed `seen_count` and took one id from
+4 to 8 to 12 to 16 while claiming to be idempotent.
+
+**The order on the other machine:** download from Drive → `--machine <name> --from
+<downloaded.db>` → `contractors --approve --run-ref <ref>` for each run whose pages
+arrived → work → upload → `--release`.
+
+**AND THE UPLOAD IS THE PANEL'S, NOT THE CLI'S** — his ruling of 2026-08-11 removed
+`scrapex/gdrive.py` and gave every Google operation to the extension. `scrapex/bundle.py`
+builds a bundle containing `warehouse.db`, taken through sqlite3's own backup API;
+`extension/drive.js` uploads it resumably to a `ScrapeX backups` folder with a
+`latest.json` pointer and three kept. The panel button is **`drive-backup`**.
+
+> **DO NOT PRESS `drive-restore` ON THE OTHER MACHINE.** Restore REPLACES the live
+> warehouse — `registry.engine.restore` displaces it and says so — so it would lose the
+> muqawil and products work that machine has and this one does not. It sits beside
+> `drive-backup` in the same card. **Backup here, download there, MERGE.** That distinction
+> is the whole of `R-43`, and the destructive path is one button away from it.
 
 **For what the owner has asked for and where each request stands, see
 [REQUESTS.md](REQUESTS.md).** This file tracks the *work in flight*; that one
@@ -600,11 +704,52 @@ with nothing stored for them. Their written conditions were measured, not quoted
 
 > **And the reason given for lighting them was wrong, so it is corrected here
 > rather than deleted.** This file used to say lighting them "makes `/datasets`
-> appear in navigation". It does not. `is_enabled` has **no production caller** in
-> the engine or the panel, and there is no `/datasets` route — measured, not
-> assumed. What the flags govern is what `/api/features` **publishes**, so lighting
-> one is a *claim* about a capability rather than a switch that reveals it. The
-> capability itself already works without them: `/source/contractors` serves today.
+> appear in navigation". It does not, and there is no `/datasets` route — measured,
+> not assumed.
+>
+> **SUPERSEDED 2026-08-21 (#245): they are switches now.** The paragraph above went
+> on to say `is_enabled` has *"no production caller"*, which was true and is the
+> defect item 3 of the six closed. The two callers are the two ADVERTISEMENTS, and
+> they are not symmetrical: `_dataset_rows` puts a dataset in the source listing the
+> panel draws, and `scrapex contractors --approve` is a shipped user-facing command
+> since `REQ-24`. **The API routes stay outside the flags on purpose** — they are
+> mounted on 127.0.0.1 so the slice can be exercised, and gating them would make a
+> flag a kill switch for development instead of a switch over what is announced. A
+> test asserts that distinction on the route table, because it is the line a later
+> reader would tidy away.
+
+### The six that finish muqawil, merged 2026-08-21 (#245)
+
+His instruction after #243: run the six remaining muqawil engineering items in order.
+Five are done. The sixth is built as far as a ruling of his allows.
+
+| | item | outcome |
+|---|---|---|
+| 1 | `status = 'unavailable'` on a departed row | **done** — the whole chain had no caller, not even `record_absences` |
+| 2 | the cost of sizing, in the output | **done** — computed, not the `~112` a module header remembered |
+| 3 | `is_enabled` becomes a switch | **done** — two callers, and the routes stay outside |
+| 4 | the slice scope | **the defect is fixed**; the walk moved into item 5 |
+| 5 | the profile crawl | **wired, not run** — 34,834 pages, measured at **11.1 h** |
+| 6 | `R-19` child tables | **the reader only** — the write is his to rule |
+
+**Item 6's two blockers are not engineering.**
+[R19-CHILD-TABLES-MEASURED](R19-CHILD-TABLES-MEASURED.md) recommends shape F and its own
+last line says *"Not built. Awaiting his ruling"*; and the content comes from profile
+pages, of which **none is stored**, because the registration is `listing_only`.
+
+**Three written premises that measurement contradicted, all recorded where they were
+written:**
+
+| the premise | what was measured |
+|---|---|
+| the slice scope is "built, tested, never used" | it was also **wrong** — 17 cards paired against 34 URLs, and 17 indices pointed past the last card |
+| the profile's five `<table>`s "are exactly" `R-19`'s five groups | five tables, **none of them Interests** — which is the biggest group, and not a table at all |
+| the profile crawl is ~17.4 h | **11.1 h**, over 87 minutes of real six-worker crawling |
+
+**And a new sub-question of his to answer:** how are the five groups NAMED? The table
+detector returns `Table 1`…`Table 5`, and three of the five share one nearest heading —
+so neither position nor the heading above them answers it. Whichever shape is ruled needs
+that rule, and it does not exist.
 
 **Four questions are open and are his** — O-1 to O-4 in
 [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).
@@ -784,8 +929,8 @@ written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
-[scrapex/version.py:477](../scrapex/version.py) and
-[scrapex/webui/app.py:1459](../scrapex/webui/app.py), drawn by
+[scrapex/version.py:483](../scrapex/version.py) and
+[scrapex/webui/app.py:1466](../scrapex/webui/app.py), drawn by
 [extension/app.js:599](../extension/app.js) and `:633`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

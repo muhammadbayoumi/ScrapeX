@@ -111,6 +111,42 @@ def _cmd_database_status(args: argparse.Namespace) -> int:
     return 0 if all(item["ok"] for item in health.values()) else 1
 
 
+def _cmd_merge_warehouse(args) -> int:
+    """`R-42`-era plumbing for his two machines: one warehouse, one holder at a time.
+
+    A SHIPPED COMMAND AND NOT A SCRIPT, which is the lesson `contractors.py` was written
+    to fix — every piece of the pipeline that built the first warehouse was committed and
+    none of it had an invocation, so the other machine could read how it worked and could
+    not run it. That is the exact failure this command exists to end.
+    """
+    from .warehousemerge import claim, holder, merge, release
+
+    registry = DatabaseRegistry.defaults() if not args.registry else         DatabaseRegistry.from_pointer(Path(args.registry))
+    conn = registry.engine.connect()
+    try:
+        if args.status:
+            who = holder(conn)
+            print(f"{registry.engine.path}")
+            print(f"held by: {who!r}" if who else "held by: nobody")
+            return 0
+        if args.release:
+            release(conn)
+            print("released — the other machine may claim it now")
+            return 0
+        if not args.machine:
+            print("--machine names which machine is taking the warehouse; a claim with "
+                  "no name holds nothing", file=sys.stderr)
+            return 2
+        claim(conn, args.machine)
+        if not args.source:
+            print(f"claimed by {args.machine!r}")
+            return 0
+        print(merge(conn, args.source, machine=args.machine))
+        return 0
+    finally:
+        conn.close()
+
+
 def _cmd_backup_databases(args: argparse.Namespace) -> int:
     registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
     result = registry.backup_bundle(Path(args.folder))
@@ -1094,6 +1130,20 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("database-status", help="show the database's health")
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_database_status)
+
+    p = sub.add_parser(
+        "merge-warehouse",
+        help="merge another machine's engine database into this one (evidence only). Use THIS and never restore-database for a second machine: restore replaces, this adds")
+    p.add_argument("--from", dest="source",
+                   help="the other machine's database file, downloaded from Drive")
+    p.add_argument("--machine", help="which machine is taking the warehouse")
+    p.add_argument("--claim", action="store_true",
+                   help="take the warehouse without merging anything")
+    p.add_argument("--release", action="store_true",
+                   help="hand it back so the other machine may claim it")
+    p.add_argument("--status", action="store_true", help="say who holds it")
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_merge_warehouse)
 
     p = sub.add_parser("backup-databases", help="back up the engine database")
     p.add_argument("--folder", required=True, help="folder that will receive the backup")
