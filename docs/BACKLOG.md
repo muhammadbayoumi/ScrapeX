@@ -1133,8 +1133,8 @@ What arrives is the build from **before** `_first_run` existed:
 | bare invocation there | `4386d25:packaging/engine_entry.py:62` → `return serve()` — the native host. **A citation of a past commit**: today's line 62 is a comment |
 | `_first_run` landed | `7a067c5`, 2026-08-09T19:09+03:00 — **six hours after the release** |
 | `--splash` landed | `756fa39`, 2026-08-10 |
-| `scrapex/version.py:76` | `VERSION = "0.2.2"` |
-| engine tags in the repo | `engine-v0.2.1`. That is the whole list. |
+| `scrapex/version.py:76` | `VERSION = "0.3.0"` — 0.2.2 when this was written, 0.3.0 since #247 |
+| engine tags in the repo | `engine-v0.2.1`. That is the whole list, re-checked 2026-08-22. |
 
 **Measured on the published artifact, twice, on 2026-08-21.** Stdin closed: zero
 bytes, exit 0 — the window opens and vanishes. Stdin held open, as a real console
@@ -1158,9 +1158,43 @@ this guard accepting a data root that was named but never assigned.
 0.2.1"* — and filed it as a **wording** defect about the two meanings of
 "installed". The numbers were the finding: the release had not happened.
 
-**Next action, and it is his:** `git tag engine-v0.2.2 && git push origin engine-v0.2.2`.
-Track 3 in [STATE.md](STATE.md) holds `VERSION` at 0.2.2 behind `R-07`, so the number
-is already right and nothing needs bumping to release it.
+**Next action, and it is his:** `git tag engine-v0.3.0 && git push origin engine-v0.3.0`.
+Nothing needs bumping — `scrapex/version.py:76` already carries the number, and the
+tag is derived from it rather than chosen.
+
+> **STILL OPEN A DAY LATER, AND THE INSTRUCTION HAD GONE STALE WHILE IT WAITED.**
+> He reported it again on 2026-08-22 — *«المحرك الموجود على github 0.2.1»* — with the
+> panel reading `Latest version 0.2.1 · Available to install`. **Nothing is broken
+> anywhere on that path, and this is the third time that sentence has had to be
+> written about it.** `extension/releases.js:32` reads
+> `ScrapeX/json/version.json` from the hub, `extension/app.js:3514` prints the
+> `version` it finds, the workflow writes that same field
+> (`.github/workflows/release-engine.yml:344`), and
+> `tests/test_the_two_release_paths.py:276` already pins the writer's output to the
+> reader's input. The manifest says 0.2.1 because 0.2.1 is the only engine tag that
+> exists.
+>
+> **What HAD broken is this entry's own next action.** It said `engine-v0.2.2` while
+> `VERSION` had moved to 0.2.2 at `adf31b2` and then to **0.3.0** at `e963269`
+> (2026-08-22, #247, a schema change under `R-35`). The release workflow's first
+> step is `test "$tag" = "$version"`, so the release the documents were telling him
+> to cut would have been **refused before anything was built**. Six copies of
+> `engine-v0.2.2` across `STATE.md`, `REQUESTS.md` and this file — two of them the
+> whole command to copy, three the sentence telling him to cut it, one a note about
+> a past failure — and nothing compared any of them with the source. Corrected here,
+> and guarded by
+> `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`: an
+> engine tag named as an *instruction* must equal `VERSION`, while a tag named in
+> narrative prose is left alone so history is not rewritten to keep a test green.
+> **It found all six on the untouched documents before a single mutation was
+> tried.**
+>
+> **The limit of that guard, stated rather than discovered later:** it proves the
+> tag he is told to push is the tag the workflow accepts. It cannot prove a release
+> was cut, because nothing committed here knows what the hub holds — the tag list is
+> absent from a `fetch-depth: 1` checkout and the hub is a network fetch, and either
+> would turn this into a guard that skips or flakes. `Q-16` asks whether he wants a
+> scheduled workflow that does look.
 
 ### OP-33 · ~~The owner's own warehouse is ahead of `main`, so the engine refuses to start on his machine~~ — FIXED 2026-08-21 by #243
 
@@ -1461,9 +1495,10 @@ now on.** It passed every run before 12:00Z, which is why #235 merged green.
 
 **Why it blocks the release.** `.github/workflows/release-engine.yml` runs the whole
 suite in *"The engine must pass its own tests before it is shipped"* **before** it
-builds. So `git tag engine-v0.2.2` fails at that step, and `OP-32` — the thing the
-owner actually asked for — cannot ship until this is repaired. `R-18` (merge it when
-it is green) is also unsatisfiable for every open pull request while this stands.
+builds. So the release failed at that step whatever it was tagged, and `OP-32` — the
+thing the owner actually asked for — could not ship until this was repaired. `R-18`
+(merge it when it is green) was also unsatisfiable for every open pull request while
+it stood.
 
 **The repair, which preserves what the test means.** Its intent is *one* row first
 appeared in the newest crawl and the others predate it. The `last_seen_at` lines two
@@ -1534,9 +1569,9 @@ why `OP-36` had to be fixed first** — before that, the helper a frozen engine
 spawned was a silent native messaging host and would have waited for ever.
 
 **Next action, and it belongs after a release rather than before one:** cut
-`engine-v0.2.2`, then implement the swap against a binary that exists. The order
-is not a preference — the first artifact that can exercise any of this is the
-next release.
+`engine-v0.3.0` (`OP-32` — the number comes from `scrapex/version.py:76`, never from
+a document), then implement the swap against a binary that exists. The order is not
+a preference — the first artifact that can exercise any of this is the next release.
 
 ### OP-40 · His warehouse has moved ahead of `main` again — v9 now, and this is the third time
 
@@ -2366,6 +2401,27 @@ classifications, so `dataset_relationship` — which now has its first tenant �
 their home rather than the taxonomy. Options: build them now at 2 rows; wait until the
 34,834-page crawl finishes and re-measure, which costs nothing because the snapshots
 keep the evidence; or rule them out and record it.
+
+**Q-16 · Should something in CI go red when the PUBLISHED engine falls behind the
+source?** Asked because `OP-32` has now been reported twice, thirteen days and two
+`VERSION` bumps after the only release that exists (`engine-v0.2.1`, commit
+`4386d25`, 2026-08-09). The repository can prove that the tag he is
+*told* to push is the tag the workflow accepts — that guard is built and named in
+`OP-32`. It cannot prove a release happened: the tag list is absent from a
+`fetch-depth: 1` checkout and the hub is a network fetch, so a test that looked would
+either skip silently or flake, and both are worse than not looking.
+
+**Three shapes.** (a) **Nothing** — releasing is manual by PLATFORM-PLAN Decision 4,
+and a red build over a decision he has not taken is a build that trains him to ignore
+red. (b) **A scheduled workflow** that fetches the hub manifest weekly and fails when
+it is behind `scrapex/version.py:VERSION`, naming the tag command. It cannot flake the
+suite because it is not in it — but it stays red every week until he tags, which is
+the crying-wolf failure `tests/test_the_published_documents_are_checked_not_announced.py`
+warns about in its own words. (c) **A step in the release path only**, which is where
+it already is: the dispatch run prints `published says 0.2.1 / this run says 0.3.0`.
+
+*No recommendation is offered, because the answer depends on how often he intends to
+release — and that is the thing only he knows.*
 
 **Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
 Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6
