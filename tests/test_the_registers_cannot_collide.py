@@ -93,12 +93,23 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
 #: pull request merges** — a reservation left behind is a permanent hole nobody owns.
 RESERVED: dict[str, dict[int, str]] = {
-    "R": {},
-    "REQ": {},
-    # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
-    # gone with it — which is the rule the comment above states: a row left behind is a
-    # permanent hole nobody owns.
-    "OP": {},
+    # THE HOLES THIS BRANCH DELIBERATELY LEFT, 2026-08-22. It was branched before
+    # #251/#252 merged and is ordered to land behind #253 and #254, so it stepped
+    # around every number those two hold. Each was VERIFIED by reading the branch
+    # rather than taken from a list: `git show <branch>:docs/<file>` for each
+    # candidate id across every remote branch.
+    #
+    # AND THE VERIFICATION FOUND ONE THE HANDOVER HAD MISSED: `REQ-30` was already
+    # ON MAIN (#252, the duplicated `⋮`), not merely reserved — so this branch's
+    # request moved to REQ-32 rather than the REQ-31 it was told to take, because
+    # #254 holds 31. That is precisely the failure this file exists for, caught by
+    # running it instead of trusting the number.
+    "R": {45: "#254 feat/the-profile-page-becomes-columns — the site is the only "
+              "source of truth; this branch's ruling moved to R-46"},
+    "REQ": {31: "#254 feat/the-profile-page-becomes-columns; this branch's request "
+                "moved to REQ-32 (REQ-30 is already on main from #252)"},
+    "OP": {43: "#254 feat/the-profile-page-becomes-columns; this branch's two moved "
+               "to OP-44/OP-45 (OP-42 is already on main from #252)"},
     "DEC": {},
 }
 

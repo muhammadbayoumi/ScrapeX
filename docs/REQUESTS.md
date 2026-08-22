@@ -86,6 +86,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
 | [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
+| [REQ-32](#req-32--open-a-session-that-starts-on-the-drive-plan) | Open a session that starts on the Drive plan | **Planned** — [the plan](plans/2026-08-22-drive-without-a-server.md) exists and Phase 0 is built; Phases 1–5 hold behind `Q-19`–`Q-23` | 2026-08-22 |
 
 ---
 
@@ -1393,6 +1394,45 @@ is now over-broad by one entry. Recorded as `OP-42` in
 [BACKLOG.md](BACKLOG.md#op-42--a-generic-dataset-card-offers-no-actions-at-all-and-one-of-the-six-would-work),
 not folded into this fix, because it changes what the panel offers rather than
 where it paints.
+## REQ-32 · Open a session that starts on the Drive plan
+**Captured 2026-08-22 · Ruled ([R-46](RULINGS.md#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time)) · Planned — [plans/2026-08-22-drive-without-a-server.md](plans/2026-08-22-drive-without-a-server.md)**
+
+> «افتح جلسة session تبدا فى خطة drive»
+
+**IT CHANGED HIS OWN RULING OF THE SAME DAY, AND THAT IS WHY IT IS RECORDED RATHER
+THAN SIMPLY ACTED ON.** Hours earlier he had ruled «أرجئ كلّ شىء — أكمل مقاول» —
+[R-44](RULINGS.md#r-44--no-sync-server-and-no-backup-encryption-for-now-and-the-sync-work-is-deferred-behind-muqawil)
+decision 4, defer the whole of the sync work behind muqawil. Opening this track is
+the amendment, so under **C4** R-44 stays where it is, marked, pointing at
+[R-46](RULINGS.md#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time),
+and saying what changed: the deferral now covers only work that costs crawl time,
+not the design and not the defects that are true regardless. His other three
+decisions — no server, no encryption yet, solo now — are untouched and are the
+frame the plan is written inside.
+
+**What the request is for, from the record and not invented.** `R-43` already ruled
+that Drive is the single source of truth for DATA and the repository for CODE, and
+`R-44` recorded the design answer he asked to be kept for when he returned: automatic
+sync **is** achievable with no server, as an append-only log of small immutable
+per-device files — never the SQLite file itself. This is the plan for that.
+
+**Delivered in the session he said it:** the plan, phased with a gate on every
+phase; Phase 0 built and mutation-proven; four audit claims corrected; the three
+populations re-measured against his live warehouse; and four questions that are his.
+
+**AND IT FOUND SOMETHING HE HAS TO SEE BEFORE ANY OF THE PLAN MATTERS.**
+`warehousemerge.merge` has **no INSERT for any price table**, so the command he was
+told to run silently discards the other machine's **92,740 price observations** —
+append-only by trigger, spanning 2014-05-19 to 2026-08-16, with `raw_snapshot`
+holding 0 rows so nothing can recompute them. Whether it has already happened is not
+knowable from this machine, because the merge writes no ledger row anywhere; it is
+recoverable because the table is append-only; and ~15 lines stop it. `OP-46`, and
+the plan opens with it rather than burying it in a phase.
+
+**The measurement that reframed the rest.** 56 tables, 506,464 rows. The
+conflict-prone data — everything a person edits by hand and could edit twice — is
+**566 rows, 0.11%**, so the thing a no-server design has to arbitrate is one-tenth
+of one percent of the file.
 
 ---
 
