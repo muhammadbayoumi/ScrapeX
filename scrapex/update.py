@@ -146,6 +146,15 @@ def fetch_and_verify(
     running hash, and a mock that returns bytes in one lump would not exercise
     it at all.
     """
+    if not installer.from_known_host:
+        # SEPARATE FROM THE DIGEST REFUSAL, and before it, because it is a
+        # different fault with a different answer: a digest mismatch means the
+        # download was corrupted or substituted, and this means the manifest is
+        # pointing somewhere we do not publish to. Refused before a byte is
+        # requested, so the user's address is never sent to that host at all.
+        raise UpdateRefused(
+            f"That release wants the installer fetched from a host ScrapeX does "
+            f"not publish to, so nothing was downloaded: {installer.url}")
     if not installer.verifiable:
         raise UpdateRefused(
             "This release publishes no SHA-256 for its installer, so a download "

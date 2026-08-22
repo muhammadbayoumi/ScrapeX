@@ -53,6 +53,38 @@ PUBLIC_HOME = f"https://github.com/{PUBLIC_REPO}"
 #: the add-in's as ours would report a confident, wrong version.
 PRODUCT = "scrapex-engine"
 
+#: THE ONLY HOSTS AN INSTALLER MAY BE FETCHED FROM, and the reason is narrower
+#: than it looks. The published SHA-256 proves the CONTENT arrived whole; it
+#: proves nothing about WHERE it was fetched from. A manifest that was mistaken,
+#: edited, or served through a compromised path could name any URL, and the
+#: engine would dutifully request it — sending a user's IP somewhere neither of
+#: us chose, before any digest is computed.
+#:
+#: `github.com` is where a release asset lives; `raw.githubusercontent.com` is
+#: where the manifest lives and is allowed in case an installer is ever served
+#: beside it. GitHub redirects an asset download to `objects.githubusercontent
+#: .com`, and that is fine: what is checked is the URL WE decide to request, not
+#: where the host we trust then sends us.
+#:
+#: CodeQL taught this the useful way. It flagged `"raw.githubusercontent.com" in
+#: url` in a test as `py/incomplete-url-substring-sanitization` — correctly,
+#: because that substring matches `https://evil.example/raw.githubusercontent
+#: .com/...` too. The test was not a security control; the absence of this check
+#: WAS the gap, and it was found by fixing the alert rather than by dismissing it.
+ALLOWED_INSTALLER_HOSTS = frozenset({
+    "github.com",
+    "raw.githubusercontent.com",
+})
+
+#: And the scheme. Held as its own constant rather than written into the check,
+#: because the two are patched together by the tests that need a local server —
+#: and a test that quietly reaches into a boolean expression to relax it would be
+#: much harder to see than one that names both policies at the top.
+#:
+#: A digest survives an eavesdropper; `http://` still hands the whole download to
+#: anyone on the path and tells them what the user is installing.
+ALLOWED_INSTALLER_SCHEMES = frozenset({"https"})
+
 #: Its own timeout, held apart from anything else the engine does. A stalled
 #: fetch to a third party must never delay the thing the owner asked for.
 CHECK_TIMEOUT_S = 4.0
@@ -75,6 +107,30 @@ class Installer:
     sha256: str
 
     @property
+    def from_known_host(self) -> bool:
+        """Is this URL one we would ever publish to?
+
+        Parsed and compared EXACTLY, never by substring. `urlsplit().hostname`
+        is lower-cased and strips any port and credentials, so
+        `raw.githubusercontent.com.evil.example` and
+        `https://evil.example/raw.githubusercontent.com/x.exe` both answer False
+        — which a substring check would not.
+
+        HTTPS is required as well. A digest survives an eavesdropper, but an
+        `http://` installer URL hands the whole download to anyone on the path
+        and tells them what the user is installing.
+        """
+        from urllib.parse import urlsplit
+
+        try:
+            parts = urlsplit(self.url)
+        except ValueError:
+            return False
+        if parts.scheme.lower() not in ALLOWED_INSTALLER_SCHEMES:
+            return False
+        return (parts.hostname or "").lower() in ALLOWED_INSTALLER_HOSTS
+
+    @property
     def verifiable(self) -> bool:
         """Is there enough here to refuse a bad download?
 
@@ -83,7 +139,8 @@ class Installer:
         thing that makes an updater acceptable before code signing exists, so an
         installer without one is reported and NOT offered for automatic update.
         """
-        return bool(self.url) and len(self.sha256) == 64
+        return (bool(self.url) and len(self.sha256) == 64
+                and self.from_known_host)
 
 
 @dataclass(frozen=True)

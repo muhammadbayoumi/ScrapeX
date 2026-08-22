@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -60,10 +61,16 @@ def test_the_manifest_url_the_engine_builds_is_the_one_the_panel_builds():
     """Built from the repo constant in both places, so this checks the shape too."""
     engine_url = release.manifest_url(29_000_000).split("?")[0]
     assert engine_url == release.VERSION_MANIFEST
-    assert "raw.githubusercontent.com" in engine_url, (
+    # PARSED AND COMPARED EXACTLY, not by substring. CodeQL flagged the previous
+    # version of this line as `py/incomplete-url-substring-sanitization` and was
+    # right to: `"raw.githubusercontent.com" in url` also matches
+    # `https://evil.example/raw.githubusercontent.com/...`. This assertion is
+    # stronger for the same reason the alert was correct.
+    assert urlsplit(engine_url).hostname == "raw.githubusercontent.com", (
         "the engine reads the manifest from somewhere other than raw."
         "githubusercontent.com — api.github.com allows 60 requests an hour per "
         "IP, which one office behind one address exhausts")
+    assert urlsplit(engine_url).scheme == "https"
     assert release.VERSION_MANIFEST.split("/main/")[-1] in WORKFLOW
 
 
@@ -179,3 +186,73 @@ def test_the_check_timeout_is_its_own_and_is_short():
     assert release.DOWNLOAD_TIMEOUT_S > release.CHECK_TIMEOUT_S * 10, (
         "the installer download shares the check's timeout, so a real 70 MB "
         "fetch on a home connection will be cut off as though it had stalled")
+
+
+# ---- the installer origin, on the REAL policy: nothing patched below this line
+
+@pytest.mark.parametrize("url,allowed", [
+    ("https://github.com/muhammadbayoumi/mbiX-hub/releases/download/"
+     "engine-v0.2.1/scrapex-engine.exe", True),
+    ("https://raw.githubusercontent.com/x/y/scrapex-engine.exe", True),
+    # Case in a hostname is not significant, and refusing this would refuse a
+    # legitimate manifest written by a different tool.
+    ("https://GITHUB.COM/x/scrapex-engine.exe", True),
+    # THE FOUR A SUBSTRING CHECK LETS THROUGH, which is the whole point.
+    ("https://raw.githubusercontent.com.evil.example/x.exe", False),
+    ("https://evil.example/raw.githubusercontent.com/x.exe", False),
+    ("https://github.com.evil.example/x.exe", False),
+    ("https://user:pw@evil.example/github.com/x.exe", False),
+    # Scheme, separately: a digest survives an eavesdropper, but http hands the
+    # download to anyone on the path and tells them what is being installed.
+    ("http://github.com/x/scrapex-engine.exe", False),
+    ("file:///C:/Windows/System32/scrapex-engine.exe", False),
+    ("", False),
+])
+def test_an_installer_url_is_checked_by_host_and_not_by_substring(url, allowed):
+    """`py/incomplete-url-substring-sanitization`, answered rather than silenced.
+
+    CodeQL raised it against `"raw.githubusercontent.com" in url` in this file.
+    That line was a test assertion, so it was not itself exploitable — but the
+    alert pointed at a real gap: **nothing checked that the installer URL the
+    engine is told to fetch belongs to us.** The published digest proves the
+    content arrived whole and says nothing about where the request went, so a
+    mistaken or edited manifest could send a user's address to any host.
+
+    These are the cases that separate a parsed host comparison from a substring
+    one. Every False here is a URL `"github.com" in url` would have accepted.
+    """
+    installer = release.Installer(name="scrapex-engine.exe", url=url,
+                                  bytes=1, sha256="a" * 64)
+    assert installer.from_known_host is allowed
+
+
+def test_the_origin_check_is_part_of_being_verifiable():
+    """So a caller cannot satisfy the digest rule and skip the origin one.
+
+    `verifiable` is what `update.fetch_and_verify` and the API's
+    `can_self_update` both consult. If the origin check sat beside it rather than
+    inside it, every one of those call sites would have to remember to ask twice.
+    """
+    off_host = release.Installer(name="x.exe", url="https://evil.example/x.exe",
+                                 bytes=1, sha256="a" * 64)
+    assert off_host.from_known_host is False
+    assert off_host.verifiable is False, (
+        "an installer from an unknown host reports itself verifiable, so the "
+        "digest alone would be treated as enough")
+
+
+def test_the_allowlist_is_not_empty_and_not_a_wildcard():
+    """A guard that can be widened to everything is not a guard.
+
+    An empty set refuses every real release (and would look like "the update
+    endpoint is broken"); a `*` or a bare suffix would accept the near-misses
+    above. Both are the ways this constant gets ruined in a hurry.
+    """
+    assert release.ALLOWED_INSTALLER_HOSTS, "the allowlist is empty"
+    assert "github.com" in release.ALLOWED_INSTALLER_HOSTS
+    for entry in release.ALLOWED_INSTALLER_HOSTS:
+        assert "*" not in entry and not entry.startswith("."), (
+            f"{entry!r} is a pattern rather than a host; the check compares "
+            f"hostnames exactly and a pattern here would never match anything")
+    assert release.ALLOWED_INSTALLER_SCHEMES == frozenset({"https"}), (
+        "the engine would fetch an installer over something other than https")

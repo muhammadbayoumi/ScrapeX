@@ -84,6 +84,30 @@ class _Host(BaseHTTPRequestHandler):
         pass
 
 
+@pytest.fixture(autouse=True)
+def _local_origin_is_allowed_here(monkeypatch):
+    """Let these tests fetch from 127.0.0.1 over http, and say so out loud.
+
+    Production refuses both: `release.ALLOWED_INSTALLER_HOSTS` is github.com and
+    raw.githubusercontent.com, and `ALLOWED_INSTALLER_SCHEMES` is https alone —
+    because the published digest proves the CONTENT arrived whole and proves
+    nothing about WHERE it was fetched from.
+
+    The policy is patched HERE, at the top, by name, rather than by handing
+    `fetch_and_verify` a parameter that relaxes it. A parameter would exist in
+    production too, and the moment one exists it becomes the path somebody takes.
+    The real policy is asserted unpatched in
+    `test_the_engine_reads_the_same_release_feed.py`, on the near-miss hosts a
+    substring check would have let through.
+    """
+    from scrapex import release as release_mod
+
+    monkeypatch.setattr(release_mod, "ALLOWED_INSTALLER_HOSTS",
+                        frozenset({"127.0.0.1"}))
+    monkeypatch.setattr(release_mod, "ALLOWED_INSTALLER_SCHEMES",
+                        frozenset({"http"}))
+
+
 @pytest.fixture
 def host():
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Host)
@@ -326,3 +350,34 @@ def test_the_swap_plan_names_what_it_would_overwrite(monkeypatch, tmp_path):
     # to exit before renaming, or Windows refuses and the install half-happens.
     joined = " | ".join(plan["steps"])
     assert joined.index("waits for this process to exit") < joined.index("rename")
+
+
+def test_an_installer_from_a_host_we_do_not_publish_to_is_refused(host, tmp_path,
+                                                                 monkeypatch):
+    """THE GAP CodeQL POINTED AT, closed in production rather than in the test.
+
+    Its alert was `py/incomplete-url-substring-sanitization` against
+    `"raw.githubusercontent.com" in url` in a sibling test. That assertion was
+    not a security control — but the ABSENCE of one was the real finding: nothing
+    checked that the URL the engine is told to fetch belongs to us. The digest
+    proves the content arrived whole; it says nothing about where the request
+    went, and a mistaken or edited manifest could send a user's address anywhere.
+
+    Refused BEFORE a byte is requested, which is why this asserts on an empty
+    directory as well as on the message.
+    """
+    from scrapex import release as release_mod
+
+    # Undo the fixture: this test wants the real policy.
+    monkeypatch.setattr(release_mod, "ALLOWED_INSTALLER_HOSTS",
+                        frozenset({"github.com"}))
+    monkeypatch.setattr(release_mod, "ALLOWED_INSTALLER_SCHEMES",
+                        frozenset({"https"}))
+
+    with pytest.raises(update_mod.UpdateRefused) as refused:
+        update_mod.fetch_and_verify(
+            _installer(host, "/good"), "0.3.0", into=tmp_path)
+
+    assert "does not publish to" in str(refused.value)
+    assert list(tmp_path.iterdir()) == [], (
+        "an off-host installer was fetched before being refused")
