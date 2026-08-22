@@ -158,6 +158,15 @@ RESERVED: dict[str, dict[int, str]] = {
     # YOUR branch, and declaring them here is what satisfies it — that is what this table
     # is, and it was nearly missed on 2026-08-22 because the assignment named the guard
     # without naming the mechanism.
+    # 49..52 ADDED 2026-08-22 by `feat/the-source-page-moves-into-the-extension`, which
+    # took OP-53..59 over the top of them and so created the hole it is declaring. 51 and
+    # 52 are verifiable — `#258` is open and its branch is on `origin`. 49 and 50 rest on
+    # the same unpushed Drive renumber as 45 above, so re-check them rather than
+    # inheriting them.
+    #
+    # Each row is deleted by whichever pull request follows its holder's merge, per the
+    # rule above — NOT by this branch, which merges before both and would otherwise leave
+    # a real hole undeclared.
     "OP": {
         45: "branch claude/drive-without-a-server",
         # 49 AND 50 ARE NEW ON THIS BRANCH AND NOT NEW IN THE WORLD. The Drive

@@ -17,7 +17,7 @@ Eleven rows, and not one of the directory's own 28 fields among them.
 
 SECOND, HIDING ONE DID NOTHING AT ALL. `dataset_table_payload` built its columns
 from `field_definition` and never read `dataset_field`, so the arrangement saved
-and the screen did not change. That is the defect `extension/datatable.js`
+and the screen did not change. That is the defect the panel's `datatable.js`
 already warns about in its own comment — *"dragging a column saved, reloaded the
 page, and changed nothing on screen because the grid was reading its own copy"* —
 arriving from the other direction.

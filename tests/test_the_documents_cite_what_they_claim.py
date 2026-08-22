@@ -152,7 +152,7 @@ PINNED = (
     ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
     # OP-2's two worker_alive computations, one of which the fix never reached.
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1554, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2542, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2598, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
@@ -227,7 +227,7 @@ PINNED = (
     # the fix. #255 then inserted above it again. Four pull requests, none wrong on
     # its own base -- which is why the number is re-read out of the file on every
     # rebase and never adjusted by arithmetic. This rebase re-read all four.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2787, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2843, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1048,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
