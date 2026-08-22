@@ -92,6 +92,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
 | [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
+| [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 
 ---
 
@@ -1738,3 +1739,72 @@ which also records the half he did not have to decide because the code already h
 what a broken parser looks like (`R-31`) — so it is one CARD over two datasets, joined by
 the relationship he already had confirmed. And the second number stops being a population:
 704 of 17,304 is **coverage**, which is what `--coverage` already computes.
+
+---
+
+## REQ-38 · The backup must check its own digest, and the panel must be able to finish the build
+**Captured 2026-08-22 · Not built**
+
+> «ضع طلب بتصليح هذا العيب … اتوماتكيا فى المستقبل»
+
+He said it after being shown that the first real backup of his warehouse had to be built
+with `curl --max-time 3600` and its digest compared **by hand**. He is right that a
+safeguard a person has to remember is not a safeguard.
+
+### The three defects, measured 2026-08-22 on a 1.18 GB warehouse
+
+**1 · THE DIGEST IS WRITTEN AND NEVER READ.** `extension/drive.js` puts `sha256` into
+`latest.json` on upload and nothing on `main` ever compares it again — the download path
+checks a **byte count** and nothing else. A file that arrived complete and corrupt passes.
+Two bytes swapped inside a 309 MB zip is exactly the failure the digest is for, and it is
+the one case the byte count cannot see.
+
+**2 · THE PANEL'S BUTTON CANNOT FINISH, AND FAILS DESTRUCTIVELY.**
+`extension/app.js` sends `POST /api/bundle` with **no `deadlineMs`**, so it matches no
+policy in `extension/startup.js` and takes the `localMutation` default of **10,000 ms**.
+The build measured **73 seconds** on this machine and would be minutes on a slower disk —
+so the client aborts, always.
+
+**And the abort does not stop the engine**: `/api/bundle`'s handler is a synchronous `def`
+running in a threadpool, so it keeps going and writes the whole archive. Measured today:
+a **309,589,440-byte** zip plus a **4,386,341-byte** panel pack that **nothing ever
+deletes** — `scrapex/storage.py` prunes `scrapex-engine.*backup*` and these are named
+`scrapex-bundle-*`. So every press of a button that cannot succeed leaves 314 MB behind on
+a disk that is 95% full, and reports failure.
+
+**3 · THE SIZE FIGURES IN THE CODE ARE STALE BY TEN TIMES.** `scrapex/bundle.py`,
+`scrapex/webui/app.py`, `extension/drive.js` and `scrapex/backupschedule.py` all describe
+this archive as **33–40 MB**. It is **309 MB**. Every one of those numbers was written
+when the warehouse was 112 MB, and one of them is inside the very docstring that explains
+why the upload had to become resumable.
+
+### What "automatically" has to mean here
+
+- **The engine hashes the archive it just wrote and the reply carries it** — it already
+  does this correctly, which is why the hand-check succeeded: `aabf5c26…` matched, first
+  time, on both files. The gap is entirely on the *reading* side.
+- **The download verifies the digest before anything is allowed to use the file**, and
+  says which evidence it had — Drive's own `sha256Checksum`, a local re-hash, or none.
+  Reporting *"verified by size only"* is honest; treating an absent digest as a pass is
+  not.
+- **The button gets a deadline that fits the work**, or the route stops being
+  synchronous. A 10-second clock on a job that measured 73 seconds is not a timeout, it
+  is a guarantee of failure.
+- **A build that is abandoned cleans up after itself**, or the pruner learns the name it
+  actually writes. Two hundred failed presses is 63 GB of orphans on a full disk.
+- **The stale numbers get a guard**, not a correction: a comment saying 40 MB will be
+  wrong again the next time the warehouse doubles, and this class has already cost a red
+  `main` today through a different register.
+
+### What exists to build on, so this is not a rewrite
+
+`claude/drive-without-a-server` (`e00711d`, pushed, no PR) already adds `PRAGMA
+quick_check` before a bundle is written and a `files.get` that compares Drive's own
+`sha256Checksum` against the manifest, reporting which evidence it had. **It does not fix
+the deadline** — `git show` on that commit touches none of `extension/startup.js`,
+`extension/backend.js`, or the call site. So the branch closes defect 1 and leaves defects
+2 and 3 open, and merging it does not make the button work.
+
+**Filed while the workaround is still fresh**, which is the point: the manual procedure
+that produced tonight's backup is written down in the same session, so this request can be
+measured against something that actually ran rather than against a description of it.
