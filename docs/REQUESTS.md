@@ -87,6 +87,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
+| [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
 
 ---
 
@@ -1451,3 +1452,54 @@ that reading the price rows by position instead of by label goes red.
 **What is left is his:** `Q-17` (the readiness level, empty on 1,490 of 1,500 rows, and
 the three activities whose English the site itself publishes wrongly) and `Q-18` (do the
 two contractor-relation groups still get tables at 2 rows in 2,419 pages).
+
+---
+
+## REQ-32 · Fixed columns, and everything else in the row's own card
+**Captured 2026-08-22 · Ruled ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) · Not built**
+
+> «فى كاتوجرى المنتجات كنا مثبتين اعمدة محددة فى الجدول واى معلومة زيادة عند الضغط على
+> الصف يظهر كارد تحتها ونضع فيه المعلومة · نفس الشى اريده فى كاتوجرى المقاولون · لان
+> المقاولون سيكون هناك عدة مصادر له فى المستقبل · الفائدة اى ان معلومة مثل مستوى
+> الجاهزيّة لا داعى لوضعها فى عمود خاص فى الجدول ولكن عند الضغط على صف معين وهو يحملها
+> تظهر فى الكارد الخاص بالمقاول»
+
+He said this answering `Q-17`, which had offered him a migration or nothing. He refused
+both framings: the field is **stored** and it is simply not a **column**.
+
+**HIS REASON IS ABOUT THE FUTURE, NOT ABOUT THIS FIELD.** `المقاولون` is a category and
+it will have several sources — Balady, the UAE registries, the Gulf and Egypt sources
+queued in [STATE.md](STATE.md) Track 5. A column is a promise every source in the
+category must keep, so a table whose columns are the union of every source's extras
+grows a column per source and a NULL per row. That is measured, not hypothetical: on the
+products side madar reached **59 variation axes, 33 of them non-empty on under 1% of
+rows**, and he asked three times to have them moved.
+
+**AND HE REMEMBERS THIS AS BUILT. It is half built, and not the half he needs.** Measured
+2026-08-22 across `extension/` and `scrapex/webui/`:
+
+| piece | state |
+|---|---|
+| a per-row card under a clicked row | **does not exist on either surface** — no `rowFormatter`, no expansion handler |
+| which fields are columns, for PRODUCTS | **built** — `/api/promotable/{source_key}`, `fields.promotable_attributes` / `set_promotion`, over `source_product_attribute` |
+| which fields are columns, for DATASETS | **not built**; `field_definition` is where it belongs |
+| the grid both surfaces ship | **Tabulator** — row expansion is a native feature, so this is a feature to use rather than a library to add |
+| the contractors' extras themselves | **already stored** in `generic_record.data_json`; nothing needs re-crawling |
+
+So the products category has the fixed-columns half and no card; the contractors category
+has neither half and its data is already on disk.
+
+**What it will take, in the order the dependencies fall:**
+
+1. **A row card for a DATASET table** — Tabulator's row expansion, rendering every field
+   the row carries that is not a visible column. This is the piece he actually asked for
+   and it unblocks nothing else, so it can go first.
+2. **Column visibility for datasets** — the `field_definition` equivalent of
+   `set_promotion`, so *which* fields are columns becomes his choice rather than the
+   parser's declaration order.
+3. **The same card for the products category**, which already has step 2.
+4. **The readiness level** — one value in that card. It stops being a schema question the
+   moment the card exists, which is why `Q-17` is closed rather than deferred.
+
+**Not started.** `REQ-31` (the profile parser) is what is in flight, and this is the
+surface it feeds.

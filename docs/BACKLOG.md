@@ -2335,6 +2335,14 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
+**~~Q-17~~ · RULED 2026-08-22 — see [R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card).**
+He refused both options this question offered. **We never translate** — where the site
+publishes no usable English, the node keeps its Arabic identity and no English name.
+And the readiness level is **neither a column nor discarded**: fixed columns in the
+table, everything else in the **row's own card**, because contractors will have several
+sources and a column is a promise every source must keep. The question is kept below,
+unedited, because the answer is only legible beside what was asked (**C4**).
+
 **Q-17 · The licences: a readiness level almost nobody publishes, and three activities the site names wrongly in English.**
 Two decisions in one place because they are the same table.
 *(a)* `مستوى الجاهزية` is **empty on 1,490 of 1,500 rows** — five distinct values across
