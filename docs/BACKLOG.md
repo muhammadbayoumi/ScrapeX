@@ -1751,6 +1751,17 @@ One live row, no greyed rows — which is his other ruling of the same day, reco
 under `REQ-36`: a menu of dead entries is the "button that cannot work" this menu's
 own comment already rejected.
 
+**ONE ROW TODAY IS NOT A CONTRADICTION OF `R-47`, which arrived while this was open.**
+That ruling gives the muqawil card **two crawl options**, and this menu offers none —
+because `POST /api/jobs` answers 404 for a dataset key, measured. The two fit together
+rather than fighting: `R-47` says what the card must eventually offer, and the
+mechanism built here is what makes adding it safe. A crawl entry cannot be added
+without declaring the route it drives and a proof of what that route does with a
+dataset key, and the guard fails until the proof holds — so the day a panel path to a
+dataset crawl exists, the entry can be added and *cannot* be added before. That is the
+opposite failure mode from the one this entry is about, and it is guarded in the same
+place.
+
 **And the hole this entry predicted was real.** It said the guard "currently points
 the other way" because the harness stub had no dataset-kind source. Adding one made
 `test_dataset_action_opens_the_workspace_directly` fail immediately — 2 triggers
@@ -2179,7 +2190,8 @@ Two do not, and neither failure has anything to do with datasets:
 | **Recent changes** | `/source/{key}#changes` | the page renders, and **`id="changes"` exists nowhere in the repository** — `grep -rn 'id="changes"' scrapex/ extension/` returns nothing. The fragment is ignored, so the entry lands at the top of the source page |
 
 **The changes page it should be opening already exists**: `GET /changes?source_key=`
-is a real route (`scrapex/webui/app.py:1223`) and answers 200. So this is a wrong
+is a real route (`scrapex/webui/app.py:1285`, re-derived at `31c369e`; #257 moved
+it from 1223) and answers 200. So this is a wrong
 URL rather than a missing feature — one line, but it changes what a card does on
 his screen, which is why it was recorded instead of fixed inside a PR about the
 three dots.
@@ -2216,6 +2228,17 @@ Measured directly, with the panel driven against a stub carrying the dataset:
     Run screen rows:  LONG_AR(enabled) SHORT(enabled) NOT_READY(disabled)
                       contractors(ENABLED)
     Source manager:   "4 of 4", four cards, every card's only button "Edit"
+
+**AND `R-47` NOW DECIDES WHAT THE RIGHT ANSWER IS, which it did not when this entry
+was written.** It landed with #257 and rules that muqawil is **one card with two crawl
+options** — the listing sweep and the profile sweep, which "run, resume and approve
+separately". So the Run screen offering a dataset a single checkbox is not merely
+broken, it is the wrong shape: there is no one crawl to tick. The fix is a card that
+offers the two, and it needs a panel path to a dataset crawl, which does not exist
+(`REQ-24` shipped `scrapex contractors` as a CLI command and says the panel path is
+still missing). `_dataset_rows` still ends `GROUP BY d.dataset_definition_id`
+(`scrapex/webui/app.py:694`, re-derived at `31c369e`), so the ruling is recorded and
+not yet built.
 
 **Note what the Run screen already knows how to do**: `NOT_READY` is rendered
 DISABLED with "Not supported yet" on it, because `implemented` is false. So the
