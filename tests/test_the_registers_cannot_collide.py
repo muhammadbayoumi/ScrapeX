@@ -98,7 +98,22 @@ RESERVED: dict[str, dict[int, str]] = {
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
-    "OP": {},
+    #
+    # SEVEN AT ONCE ON 2026-08-22, which is the most this dict has ever held and is
+    # worth saying out loud: five branches were open on the same afternoon and each
+    # claimed numbers this one cannot see. Verified with the coordinator rather than
+    # guessed, and every row names its owner so it can be deleted the day that owner
+    # merges. If a row here outlives its branch it becomes the permanent hole the
+    # comment above warns about — delete it, do not renew it.
+    "OP": {
+        44: "#255 — the muqawil freshness line",
+        45: "the Drive branch",
+        46: "#256",
+        47: "#256",
+        48: "#256",
+        49: "the Drive branch",
+        50: "the Drive branch",
+    },
     "DEC": {},
 }
 

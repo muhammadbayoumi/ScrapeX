@@ -1195,7 +1195,7 @@ def test_finance_tab_sits_immediately_above_workspace(open_panel):
     # WHETHER A DATASET BELONGS ON THIS SCREEN AT ALL IS AN OPEN QUESTION, not a
     # thing this line settles: the manager's only per-card control is Edit, which
     # drives `/api/sources/{key}/edit`, and that route resolves manifest keys only
-    # — measured 404 for a dataset. Recorded as `OP-45` in docs/BACKLOG.md rather
+    # — measured 404 for a dataset. Recorded as `OP-52` in docs/BACKLOG.md rather
     # than fixed here, because it changes what a screen offers and that is his
     # call. Do not "tidy" this back to 3 by removing the dataset from the stub:
     # that is the hole that let a false rule pass for ten days.

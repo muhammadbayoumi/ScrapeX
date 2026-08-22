@@ -1660,7 +1660,7 @@ Recorded as `Q-15`.
 
 **Status: CLOSED. Fixed the same day it was recorded, because he read the same
 screenshot and asked for it in his own words: «ال 3 نقاط لا تظهر فى كارد مقاول» —
-`REQ-33` in [REQUESTS.md](REQUESTS.md#req-33--the-three-dots-do-not-appear-on-a-contractor-card).**
+captured as `REQ-36`.**
 
 **What shipped, and it is not the narrow fix this entry proposed.** The entry
 suggested "a per-entry predicate rather than gating the whole menu on `kind`". A
@@ -1682,11 +1682,11 @@ cannot silently stop matching.
 | `sheet` | `GET /api/export/{key}` | 404 `no source called 'contractors'` | no |
 | `update` | `POST /api/jobs` | 404 `unknown source_key` | no |
 | `pause` | `POST /api/sources/{key}/active` | 404 `unknown source` | no |
-| `settings` | `GET /sources/{key}` | 404 — **and the route does not exist for anyone**, see `OP-44` | no |
+| `settings` | `GET /sources/{key}` | 404 — **and the route does not exist for anyone**, see `OP-51` | no |
 | `changes` | `GET /source/{key}` | 200, and **no changes section on the page** | no |
 
 One live row, no greyed rows — which is his other ruling of the same day, recorded
-under `REQ-34`: a menu of dead entries is the "button that cannot work" this menu's
+under `REQ-36`: a menu of dead entries is the "button that cannot work" this menu's
 own comment already rejected.
 
 **And the hole this entry predicted was real.** It said the guard "currently points
@@ -1694,7 +1694,7 @@ the other way" because the harness stub had no dataset-kind source. Adding one m
 `test_dataset_action_opens_the_workspace_directly` fail immediately — 2 triggers
 against 3 cards — so the false rule was executed for the first time on 2026-08-22.
 The stub carries a dataset permanently now, which is what stops it recurring, and
-it surfaced two more places the same way: `OP-44` and `OP-45`.
+it surfaced two more places the same way: `OP-51` and `OP-52`.
 
 **The original entry is kept below in full, because its diagnosis is what the fix
 was built on.**
@@ -1754,11 +1754,11 @@ with a hit test to prove it, and this one changes what the panel offers, which i
 the owner's call under `R-32`'s reading of what a dataset is.
 
 
-### OP-44 · Two of the six source-menu entries lead nowhere, and not only for datasets
+### OP-51 · Two of the six source-menu entries lead nowhere, and not only for datasets
 
 **Status: OPEN. Measured 2026-08-22 while proving which actions a dataset card may
-offer — these two are broken for PRICE sources too, which is why they are here and
-not folded into `OP-42`.**
+offer for `REQ-36` — these two are broken for PRICE sources too, which is why they
+are here and not folded into `OP-42`.**
 
 Every entry of `SOURCE_ACTIONS` was called against a running engine. Four behave.
 Two do not, and neither failure has anything to do with datasets:
@@ -1787,10 +1787,11 @@ that file asserts. Nothing yet asserts that an entry offered on a PRICE card rea
 something, and that is the guard this entry is asking for.
 
 
-### OP-45 · A dataset appears on two more screens whose only controls cannot touch it
+### OP-52 · A dataset appears on two more screens whose only controls cannot touch it
 
-**Status: OPEN. Measured 2026-08-22, and found by the stub rather than by reading —
-this is what the dataset-kind row in `tools/panel_harness.py` bought.**
+**Status: OPEN. Measured 2026-08-22 while building `REQ-36`, and found by the stub
+rather than by reading — this is what the dataset-kind row in
+`tools/panel_harness.py` bought.**
 
 `OP-42` was about the Data screen's cards. The same `kind: "dataset"` row shows the
 same class of defect on two others, both driven from the same `/api/sources` listing:
