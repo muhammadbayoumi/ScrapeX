@@ -1988,12 +1988,21 @@ so it covers whatever the second repeated consumer turns out to be.
 a component five surfaces consume, and doing that while one of them is being restyled is
 how two correct branches produce one broken screen.
 
-### OP-48 · Two raw numbers are copies of the layer tokens, and a comment is all that holds them equal
+### OP-48 · The layer scale is transcribed by hand on both sides of the boundary, and a comment is all that holds it equal
 
 **Status: OPEN — recording, not fixing. Found 2026-08-22 by the DRY review of `#252`.**
 Of the three findings that review produced this is the one to build first: the fix is a
-two-value substitution that cannot change a pixel, and the thing it removes is tied to a
-defect he photographed the same day.
+three-value substitution that cannot change a pixel, and the thing it removes is tied to
+a defect he photographed the same day.
+
+**THE ARGUMENT, BEFORE ANY INDIVIDUAL VIOLATION.** The extension and the engine each
+transcribe the layer scale **by hand**, and the two sheets share nothing but
+`tokens.css`. So changing a layer is not editing a token — it is editing a token and then
+remembering that two unrelated stylesheets also spell its value out, one of them on the
+other side of a boundary the two surfaces cannot import across. That is the defect. The
+three rules below are only how it shows today, and a guard scoped to either surface alone
+would go green with the other still wrong — `OP-18`'s shape exactly, and the same failure
+as a parameterised test that matches nothing: green because it looked in one place.
 
 **Cited by selector for `extension/app.css`, by line elsewhere** — that file was under
 concurrent edit on 2026-08-22 and every rule below it shifts when the card block above
@@ -2010,9 +2019,10 @@ complete set, measured at `451468d` by matching a bare integer equal to any of t
 | `.workspace-menu-backdrop` | `extension/app.css` | `z-index: 20` | `--z-overlay` |
 | `.workspace-menu-button` | [scrapex/webui/static/webui.css:81](../scrapex/webui/static/webui.css#L81) | `z-index:10` | `--z-sticky` |
 
-The third one crosses a surface, which is worth noticing on its own: the same token scale
-is copied by hand on **both** sides of the extension/engine boundary, so a scale change
-has to be chased through two sheets that share nothing but `tokens.css`.
+**How the third row was found is part of the finding.** The static guard below was first
+written scoped to `extension/app.css`. Checking whether that scope was the whole set —
+rather than assuming it — produced `.workspace-menu-button` on the engine's side. The
+scope was the bug, not the count.
 
 **`.modal-veil` already depends on the first equality, and its own comment says so.** It
 uses `z-index: calc(var(--z-modal) + 10)` and explains why: *"--z-modal is 30 and the
