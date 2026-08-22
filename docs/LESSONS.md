@@ -1771,3 +1771,103 @@ its own base, `#251` had already moved the symbol, and `main` went red between t
 merges with no conflict for git to find, because no file was changed by both. Re-read
 the number out of the file at the new base on every rebase. Never adjust it by
 arithmetic, and never carry it.
+
+---
+
+## 13 · A test named in a docstring is a citation, and nothing was checking it
+
+**The documents are guarded and the tests were not.** `R-15` put every `file:line`
+in `CLAUDE.md`, `ENGINEERING.md` and `docs/` behind
+`tests/test_the_documents_cite_what_they_claim.py`. A test docstring saying *"this
+is why, see `test_foo`"* is the same kind of claim and had nothing behind it at all.
+
+**THE DATES ARE THE ARGUMENT, and they kill the obvious excuse.**
+`test_the_engine_overflow_trigger_has_no_visible_resting_container` was added by
+`8796fb5` on **2026-08-10** and removed by `ce80886` on **2026-08-20**, when the
+Engine page's overflow menu became action rows and the trigger it measured stopped
+existing. **Three references outlived it.** A ten-day-old test accumulated three
+dangling citations within two days of dying. Nobody can call that neglect over a
+long period: they were wrong almost immediately, and nothing noticed.
+
+**And the number in the first draft of that sentence was "nine months", written
+from an assumption and corrected by running `git log` before it was pushed.** That
+is the fourth time in one afternoon a session caught its own claim by measuring it
+rather than by being contradicted. Measure the thing you are about to assert, even
+when — especially when — it is only the connective tissue of a sentence.
+
+### `settle_view` is the case that proves the class, not an example of it
+
+The worst of the three was in the docstring of `settle_view`
+([tests/test_panel_dom.py:147](../tests/test_panel_dom.py#L147)) — a helper used at
+four call sites, one of them the guard `#252` added. Its docstring **is** the entire
+evidentiary basis for the wait: 20/20 runs reading the box mid-animation, 7/20
+failing outright, height `47.99999237060547` = 48 − 2⁻¹⁷ at one float32 ulp. Every
+one of those numbers was measured against the deleted test, so a reader who doubted
+the wait had **nothing they could re-run**.
+
+Its own first line reads *"a wait with no visible cause is a wait the next reader
+deletes."*
+
+**A docstring that argues for its own necessity, on evidence nobody can check, is
+exactly what this class produces.** It reads as the most careful thing in the file
+and it is the least verifiable.
+
+### Facts kept, references repaired — not paragraphs deleted
+
+Neither comment was **wrong**. The clamp it named is real and still in the sheet —
+`button, .button { min-height: var(--control-height) }`
+([design/components.css:369-371](../design/components.css#L369)), applying to every
+bare `<button>`, which is why a rendered box alone cannot catch a height
+regression. The 47.5 incident happened. What had gone was the ability to **check**
+either.
+
+So the temptation on finding a dangling citation is the trap: **deleting the
+paragraph throws away a true fact in order to fix a broken pointer.** Repair the
+pointer. Name the commit that added the test and the one that removed it, say
+plainly that it is gone, and point at the `git show` that still produces it.
+
+### The guard reads the claim, not the prose around it
+
+The first version of the guard forgave any dead name sitting near the words
+*"renamed from"* or *"no longer exists"*. It was thrown away, and the reason is the
+sharpest form of a trap this repository keeps meeting: **it decides honesty by
+adjacency.** It would pass any dead name that happened to fall near the word
+"removed" and fail an honest one phrased differently.
+
+What replaced it is the shape already settled twice here — `PINNED` in the citation
+guard and `RESERVED` in `tests/test_the_registers_cannot_collide.py`: **a
+deliberate exception is DECLARED, not inferred.** A historical name goes in
+`HISTORICAL` ([tests/test_the_tests_name_tests_that_exist.py:86](../tests/test_the_tests_name_tests_that_exist.py#L86))
+with the ref to read it at, and every row is **verified** rather than trusted —
+`git show <ref>:<path>` must still produce the test
+([tests/test_the_tests_name_tests_that_exist.py:144](../tests/test_the_tests_name_tests_that_exist.py#L144)).
+
+That verification caught its own author on its first run: the row for the
+native-host test named `6ccdd3c`, which does not contain it. The commit that does
+is `ff21042`. **A row asserting where to find something is itself a claim, and it
+rots like any other.**
+
+### Two collection facts, learned from the gates rather than guessed
+
+* **`pytestmark = ()` is not how to say "no marks".** pytest unpacks it and
+  collection dies with `got () instead of Mark`. Say it in prose instead.
+* **The extension gate keys on the browser directory's name appearing anywhere in a
+  test file's text** — including in prose explaining that the file does *not* read
+  it. That is a guard reading text and concluding intent, which is the same shape
+  as the keyword version rejected above; the difference is that this one is
+  deliberately broad, and its own note says a false positive "costs one marker".
+
+  Here the marker would cost the guard: carrying it moves the file into the tier CI
+  runs **separately**, so a guard about test docstrings would stop running on
+  engine-only and docs-only changes — which is precisely when docstrings change.
+  So the prose avoids the name, the same trade already taken in
+  `tests/test_the_version_moves_when_the_contract_does.py`. **Two independent
+  tenants make that a practice rather than a preference**, and the reason is
+  written at the top of the guard, where someone will try to "fix" it by adding the
+  marker.
+
+**Apply:** when you delete or rename a test, grep `tests/` for its name before you
+commit — `test_the_tests_name_tests_that_exist.py` now does it for you and fails
+with the file and line. When you cite a test as your reason, prefer citing the
+live rule or file it rests on: `design/components.css:369-371` outlives any test
+that measured it.

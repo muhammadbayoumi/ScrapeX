@@ -266,6 +266,20 @@ PINNED = (
     # "bump both or neither" is a rule with a guard behind it rather than advice.
     ("docs/LESSONS.md", "tests/test_version.py", 73,
      "def test_the_installer_carries_the_same_number("),
+    # LESSONS §13 · a test named in a docstring is a citation. All four of these are
+    # the section's ARGUMENT rather than decoration, and each fails differently if a
+    # reader lands off it. The clamp is the section's whole point about citing a live
+    # rule instead of a test that measured it -- land off that and the advice reads as
+    # unsupported. `settle_view` is the case that proves the class, and the other two
+    # are the mechanism the section says replaced deciding honesty by adjacency: the
+    # declared allowlist, and the check that a row is READABLE where it claims.
+    ("docs/LESSONS.md", "design/components.css", 369,
+     "min-height: var(--control-height)"),
+    ("docs/LESSONS.md", "tests/test_panel_dom.py", 147, "def settle_view("),
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
+     "HISTORICAL = {"),
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 144,
+     "def test_a_historical_test_is_still_readable_where_the_row_says("),
     # DELIBERATELY ABSENT, AND THE ABSENCE IS RECORDED HERE RATHER THAN ONLY IN THE
     # ENTRY THAT WANTS IT. `OP-46` cites seven lines in `extension/app.js` --
     # `setupFinanceConverterSelect` and `setupRunModeSelect` chief among them -- and
