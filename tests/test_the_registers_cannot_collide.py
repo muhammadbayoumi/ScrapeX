@@ -93,11 +93,17 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
 #: pull request merges** — a reservation left behind is a permanent hole nobody owns.
 RESERVED: dict[str, dict[int, str]] = {
+    # THE ONE HOLE THIS BRANCH LEAVES, 2026-08-22, verified against origin/main at
+    # 451468d rather than taken from a handover: `REQ-33` is on the unmerged #255,
+    # so this branch's request took REQ-34.
+    #
+    # AND THREE RESERVATIONS WERE DELETED HERE RATHER THAN CARRIED, which is the
+    # rule the comment above states. This branch reserved R-45, OP-43 and REQ-31
+    # while #254 was open; #254 merged and brought all three, so main is contiguous
+    # through R-45, OP-43 and REQ-32 and the holes are gone. A reservation left
+    # behind after its pull request lands is a permanent hole nobody owns.
     "R": {},
-    "REQ": {},
-    # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
-    # gone with it — which is the rule the comment above states: a row left behind is a
-    # permanent hole nobody owns.
+    "REQ": {33: "#255 — the engine reports how it was started"},
     "OP": {},
     "DEC": {},
 }
