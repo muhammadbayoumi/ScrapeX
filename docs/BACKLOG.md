@@ -1181,8 +1181,8 @@ tag is derived from it rather than chosen.
 > to cut would have been **refused before anything was built**. Six copies of
 > `engine-v0.2.2` across `STATE.md`, `REQUESTS.md` and this file — two of them the
 > whole command to copy, three the sentence telling him to cut it, one a note about
-> a past failure — and nothing compared any of them with the source. Corrected here,
-> and guarded by
+> a past failure — and nothing compared any of them with the source. Corrected in
+> [#253](https://github.com/muhammadbayoumi/ScrapeX/pull/253), and guarded by
 > `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`: an
 > engine tag named as an *instruction* must equal `VERSION`, while a tag named in
 > narrative prose is left alone so history is not rewritten to keep a test green.

@@ -12,7 +12,10 @@ argument rather than a counter-example to it.
 — *«المحرك الموجود على github 0.2.1»*. Nothing on the install path is broken; no
 release has been cut since 2026-08-09 while `VERSION` has reached **0.3.0**. The one
 command that changes it is item 2 of *STILL HIS* below, and the number in it is now
-guarded rather than typed. `OP-32` · `REQ-28`.
+guarded rather than typed by
+[#253](https://github.com/muhammadbayoumi/ScrapeX/pull/253) — **open, not merged**
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+`OP-32` · `REQ-28`.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
