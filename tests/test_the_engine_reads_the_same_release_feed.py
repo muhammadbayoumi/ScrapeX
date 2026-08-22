@@ -249,7 +249,19 @@ def test_the_allowlist_is_not_empty_and_not_a_wildcard():
     above. Both are the ways this constant gets ruined in a hurry.
     """
     assert release.ALLOWED_INSTALLER_HOSTS, "the allowlist is empty"
-    assert "github.com" in release.ALLOWED_INSTALLER_HOSTS
+    # WRITTEN AS A SUPERSET, not as `"github.com" in ...`, and the reason is worth
+    # a line. CodeQL raised `py/incomplete-url-substring-sanitization` against the
+    # `in` form here -- a FALSE POSITIVE, unlike the alert that led to this whole
+    # check: `ALLOWED_INSTALLER_HOSTS` is a frozenset, so `in` is set membership
+    # and not a substring test on a URL. The rule cannot see that.
+    #
+    # It is rewritten rather than suppressed because a `# noqa` would silence
+    # the rule for this line for ever, including if somebody later changed the
+    # right-hand side to a string. The superset form says what is meant, cannot
+    # be misread as sanitization, and stays flagged if the type changes.
+    assert release.ALLOWED_INSTALLER_HOSTS >= {"github.com"}, (
+        "github.com is not in the allowlist, so no real release asset could be "
+        "downloaded at all")
     for entry in release.ALLOWED_INSTALLER_HOSTS:
         assert "*" not in entry and not entry.startswith("."), (
             f"{entry!r} is a pattern rather than a host; the check compares "
