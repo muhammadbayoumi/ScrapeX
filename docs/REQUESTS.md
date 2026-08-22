@@ -85,6 +85,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
 | [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
+| [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
 
 ---
 
@@ -1357,6 +1358,41 @@ professional surface than no switch.
 - **Code signing.** `packaging/build_engine.py` states plainly that it is not
   implemented and needs a certificate only he can hold. Every install will show
   SmartScreen's blue warning until it exists, and no UI can hide that.
+
+---
+
+## REQ-30 · The three-dots button appears twice on a source card
+**Captured 2026-08-22 · In flight — cause proven, fixed and guarded; the PR is his to merge**
+
+> «لماذا تظهر مرتين»
+
+Sent with screenshots of the Data screen. He opened the `⋮` menu on the
+`aramco.com` card and a **second `⋮` sat inside the open dropdown**, over the
+*Recent changes* row.
+
+**Nothing renders it twice.** It is the NEXT card's button painting through the
+menu, and the cause is a stacking context rather than a z-index that is too small:
+`.dataset-card > .split-button` carries `z-index: 1`, which makes each card's
+wrapper a stacking context and spends the open menu's own `z-index: 120` inside
+it. Every wrapper then ties at level 1 and document order hands the win to the
+card below. Reproduced in the panel harness and measured — with the wrapper at 1
+the following card's trigger is the topmost element at the centre of that row with
+the menu at 120, at 1200 and at 2147483647.
+
+**Fixed** by lifting the wrapper to `var(--z-overlay)` while its menu is open —
+the layer `.sx-select-list`, `.account-menu` and `.finance-converter-options`
+already use on this screen. Guarded by
+`test_panel_dom.py::test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button`,
+which hit-tests what is in front rather than reading a number back, and refuses to
+pass if no button lies under the menu at all.
+
+**The same screenshots showed a second thing he did not ask about:** the two
+`muqawil.org` cards carry no `⋮` at all. That is a different cause and a
+deliberate one — `sourceMenu` hides the whole menu for a generic dataset — but it
+is now over-broad by one entry. Recorded as `OP-42` in
+[BACKLOG.md](BACKLOG.md#op-42--a-generic-dataset-card-offers-no-actions-at-all-and-one-of-the-six-would-work),
+not folded into this fix, because it changes what the panel offers rather than
+where it paints.
 
 ---
 

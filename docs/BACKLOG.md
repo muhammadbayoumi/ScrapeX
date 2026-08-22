@@ -1532,6 +1532,62 @@ already makes a private one free, and `R-24`'s repair path (`carry_over`) exists
 Recorded as `Q-15`.
 
 
+### OP-42 · A generic dataset card offers no actions at all, and one of the six would work
+
+**Status: OPEN. Found 2026-08-22, in the same screenshots as the double-⋮ defect,
+and it is a SEPARATE cause from it.**
+
+**He asked about one thing in that screenshot; this is the other thing in it.** His
+question was «لماذا تظهر مرتين» — a `⋮` appearing twice, a stacking-context bug,
+fixed and recorded as `REQ-30`. Reading the same picture to reproduce it turned up
+a second fact he did not raise: `aramco.com` and `spark-eshop.com` carry a `⋮` and
+the two `muqawil.org` cards carry none. So it belongs here and not in
+[REQUESTS.md](REQUESTS.md) — we found it.
+
+**That absence is deliberate, and it is written down in both halves.**
+`sourceMenu` returns an empty string for a dataset
+([extension/app.js:4549](../extension/app.js#L4549)), and the engine stamps the
+marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
+`_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
+Rename, and every one of those is a price-path action that would answer 400 or
+worse for a dataset"* ([scrapex/webui/app.py:639](../scrapex/webui/app.py#L639)).
+It was the right call for five of the six entries and it is still right for them:
+`update`, `pause` and `settings` post to routes that read the manifest, and
+`/api/export/{key}` validates the key against `manifest.sources` and answers 404
+for anything else ([scrapex/webui/app.py:2710](../scrapex/webui/app.py#L2710)).
+
+**But `Open the data table` would work, and it was built after the blanket
+hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
+the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
+any other table"* ([scrapex/webui/app.py:986](../scrapex/webui/app.py#L986)) —
+so `/api/table/contractors` serves the directory in full. The panel hides the one
+entry that works on the marker that was introduced for the five that do not.
+
+**Measured, not assumed** — the panel driven with two `kind: "dataset"` rows
+shaped exactly as `_dataset_rows` builds them:
+
+| card | `.split-button-trigger` |
+|---|---|
+| `LONG_AR` | 1 |
+| `SHORT` | 1 |
+| `contractors` | 0 |
+| `contractor_profiles` | 0 |
+
+**And the guard for this is not just missing, it currently points the other
+way.** `tests/test_panel_dom.py::test_dataset_action_opens_the_workspace_directly`
+asserts *"every dataset card must carry exactly one actions menu"*, which holds
+only because `tools/panel_harness.py`'s stub contains no dataset-kind source at
+all. Add one honestly and that assertion fails — so the rule `sourceMenu`
+implements has never been executed by any test. Whichever way this is decided,
+the stub needs a dataset row and that assertion needs to be per-kind.
+
+**The narrow fix** is to give `SOURCE_ACTIONS` a per-entry predicate rather than
+gating the whole menu on `kind`, and to show a dataset the entries that work.
+Deliberately not done inside the double-⋮ fix: that one is a CSS stacking bug
+with a hit test to prove it, and this one changes what the panel offers, which is
+the owner's call under `R-32`'s reading of what a dataset is.
+
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
