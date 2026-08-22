@@ -746,6 +746,53 @@ and the lesson for anyone writing a citation: **paste the line you are citing,
 from the file, at the moment you cite it.** Every wrong number above came from
 remembering a number instead of reading one.
 
+### An instruction that names a version rots on the next bump, and only the person acting on it finds out
+
+Found 2026-08-22, when the owner asked why the panel offered `0.2.1` with the
+engine at `0.3.0`. The panel was right, the manifest was right, the workflow was
+right; the only engine tag in the repository was `engine-v0.2.1` and no release
+had been cut. **What was wrong was the way out.** Six places named the tag
+`engine-v0.2.2` — two of them the whole command to copy, three the sentence
+telling him to cut it, one a note about a past failure — while
+`.github/workflows/release-engine.yml` opens with `test "$tag" = "$version"` and
+`VERSION` had moved to 0.3.0. Everything but the last had been dead since #247. It
+would have failed at the release's first step, having built nothing, on the day he
+finally had time to ship.
+
+*(That paragraph is written as narrative on purpose. Naming the dead tag inside a
+copy-pasteable command would make this file a seventh place holding one — see
+shape 3 below, which is the guard refusing exactly that.)*
+
+**A citation guard cannot see this.** `docs/BACKLOG.md` cited
+`scrapex/version.py:76` — the right file, the right line, the right symbol — and
+the *value* on that line had changed under it. Tier 1 checks existence, tier 2
+pins the symbol, and neither reads what the symbol is worth today.
+
+**The class:** a document that repeats a number the code owns is a copy, and every
+copy is a thing that stops agreeing. Three shapes, in order of preference:
+
+1. **Derive it.** Say *"the tag is `engine-v$(VERSION)`"* and there is nothing to
+   rot. Not always possible — a copy-pasteable command needs the literal.
+2. **Guard it**, which is what was built here:
+   `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`
+   compares every engine tag named **as an instruction** with `VERSION`. It found
+   all six copies on the untouched documents before a single mutation was tried,
+   which is the only kind of first run worth having.
+3. **Write it as history instead.** The guard deliberately matches only the two
+   shapes a person acts on — `git tag engine-v…` and `cut engine-v…` — because
+   `engine-v0.2.1` shipped the black window and every sentence saying so is true
+   for ever. A guard that demanded *every* tag name equal `VERSION` would force
+   history to be rewritten on each bump, which is how a test comes to be satisfied
+   by a lie.
+
+**And the reason it does not simply ask the hub**, which is where "published"
+actually lives: `actions/checkout@v4` fetches no tags, and a network fetch in the
+suite is red on a train and vacuously green wherever it is skipped. Both failures
+are already recorded in this file under *A skip is not a failure*. The guard
+proves the tag he is told to push is the tag the workflow accepts, and says in its
+own docstring that it cannot prove a release happened. `Q-16` asks him whether he
+wants something that does look.
+
 ### A guard that infers its subject from prose cannot be both sensitive and precise
 
 The natural design for the above is to read the symbol out of the sentence — take
@@ -1155,6 +1202,40 @@ is the same fact making *different* files look equal: **normalise when you are a
 "is the content the same", and compare bytes when you are asking "did I put the file
 back".** The two questions have different right answers, and one function cannot serve
 both.
+
+### A byte-perfect restore still leaves the mutation running, because `__pycache__` believes it
+
+Found 2026-08-22, mutating the release-instruction guard. The harness restored
+every file by writing the **original bytes** back and verified each restore by
+**re-hashing the file on disk** — the strongest form of the check the lesson above
+argues for. All eight mutations reported `restored=True`, `git status` showed
+`scrapex/version.py` unmodified, and the file said `VERSION = "0.3.0"`.
+
+**And `import scrapex.version` said `0.4.0`.**
+
+```
+grep '^VERSION = ' scrapex/version.py   ->  VERSION = "0.3.0"
+python -c "import scrapex.version as v; print(v.VERSION)"  ->  0.4.0
+```
+
+The `.pyc` written while the mutation was in place was still being trusted.
+CPython invalidates a cache entry on the source's **mtime and size**, and a
+mutation that swaps one version string for another of the same length, restored
+inside the same filesystem timestamp tick, changes neither. The cache was valid by
+its own rule and wrong by every other.
+
+**What it cost, and why the post-control run is not optional.** Every mutation
+after M2 ran with an extra test failing for a reason nobody had asked for, and the
+one whose kill criterion was that same test could have reported KILLED over a
+mutation that did nothing. The only thing that caught it was running the guard
+**again after the whole set finished** and finding it red on a clean tree — the
+check LESSONS §8 already insists on, catching a cause it had not met before. Both
+runs are recorded rather than only the good one: eight KILLED with a red
+post-control is a result to throw away, not to report.
+
+**The rule: purge `__pycache__` between runs, not just the source.** A restore is
+not complete until everything derived from the mutated file is gone too. With the
+purge in place: eight mutations, eight killed, post-control green.
 
 ---
 

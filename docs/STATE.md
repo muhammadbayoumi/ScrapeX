@@ -7,6 +7,12 @@ pointer written into prose is stale by the time it is read: `git log --oneline -
 origin/main` is the answer that cannot be — and this very line proves it twice, since
 #251 and #252 merged while it said `4615a14`.
 
+**THE ENGINE ON GITHUB IS STILL `engine-v0.2.1`, and he asked about it again today**
+— *«المحرك الموجود على github 0.2.1»*. Nothing on the install path is broken; no
+release has been cut since 2026-08-09 while `VERSION` has reached **0.3.0**. The one
+command that changes it is item 2 of *STILL HIS* below, and the number in it is now
+guarded rather than typed. `OP-32` · `REQ-28`.
+
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
@@ -274,26 +280,37 @@ lie. It no longer would. **But it is not yet proved against a real frozen build*
 the guards set `sys.frozen` and `sys.executable`, which is what makes them possible
 at all, and the first artifact to exercise them for real is the next release.
 
-**STILL HIS, AND NOW ONLY TWO:**
+**STILL HIS, AND NOW ONLY ONE — item 2:**
 
 1. ~~`OP-37`~~ **— fixed, and by #243 in parallel rather than by this branch.** So
    the release is no longer blocked by a red suite. The pattern was not invented:
    `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
    overrides one, for the same column.
-2. **Cut `engine-v0.2.2`.** `VERSION` is already 0.2.2, so nothing needs bumping —
-   `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-32`.
-3. **`claude/his-four-rulings` must merge, or the release will not help him.** His
-   warehouse is at schema **v8**; `main` reads **v6**, so `scrapex ui` exits 1 before
-   it binds a port. Migrations 0007/0008 exist only in that unmerged worktree, whose
-   code *did* run against his live database today. `OP-33`.
+2. **Cut `engine-v0.3.0`.** `git tag engine-v0.3.0 && git push origin engine-v0.3.0`.
+   `OP-32`. **The number is derived, not chosen:** `scrapex/version.py:76` is the
+   only thing that decides it, and `.github/workflows/release-engine.yml` refuses
+   any other tag at its first step. This line said `engine-v0.2.2`, which stopped
+   being cuttable the moment #247 moved `VERSION` to 0.3.0 — so the release the
+   repository was asking for would have been refused before anything was built.
+   `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` is
+   what stops that recurring.
+3. ~~**`claude/his-four-rulings` must merge, or the release will not help him.**~~
+   **— merged as #243** (`eb691d9`), which brought engine migrations 0007 and 0008,
+   so `main` reads schema v8 and the v8-against-v6 gap this item named is closed.
+   `OP-33`. **A v9-against-v8 gap was found later the same day** and is a different
+   entry — `OP-40`, with `Q-15` for him.
 
-**Until then, the engine that runs on this machine is that worktree's**, verified —
-`/api/health` 200, `worker_alive: true`, in about 16 s:
+~~**Until then, the engine that runs on this machine is that worktree's**~~ — **the
+instruction is dead: `determined-liskov-0c89fe` is not among the worktrees any
+more** (checked 2026-08-22), and #243 merged what it was carrying. Run it from the
+checkout you are in:
 
 ```
-cd .claude/worktrees/determined-liskov-0c89fe
 python -m scrapex.cli ui --no-open
 ```
+
+Whether `main` can open **his** warehouse is a separate and still-open question —
+`OP-40` and `Q-15`, not this line.
 
 **AND HE ASKED FOR THE NEXT THING IN THE SAME BREATH — `REQ-29`:** an install
 surface *«تشبه اى برنامج محترف»* and an update anyone can apply. **Measured before
