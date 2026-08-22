@@ -2,9 +2,15 @@
 
 Step 2 of the contractor plan, and it sits BESIDE `html_table.py` rather than
 replacing it: a profile page carries five real `<table>` elements — the licences
-and their readiness, the two contractor lists, the technical rating and the
-contract counts — and those go through `detect_html_tables` exactly as any other
-site's would. What this file reads is everything that is NOT a table, which on a
+and their readiness, the two contractor lists, the SELF-BUILD PRICE SCHEDULE and
+the contract counts — and those go through `detect_html_tables` exactly as any
+other site's would.
+
+CORRECTED 2026-08-22, because that sentence named the technical rating as the
+fifth table for months and there is no such table. Measured over 2,419 real
+profile pairs: `div#contractor-tab4`, the pane the tab button `التقييم الفني`
+points at, holds ZERO tables on 2,360 of 2,360 pages. The fifth table is the
+self-build price schedule, in a `section-card` of its own — see `PROFILE_CARDS`. What this file reads is everything that is NOT a table, which on a
 listing page is all of it: **a listing page contains zero `<table>` elements.**
 
 TWO FAILURES HERE ARE SILENT, AND BOTH HAVE A GUARD OF THEIR OWN.
@@ -156,6 +162,24 @@ PROFILE_FIELD_ORDER = (
     "activity", "activity_ar",
     "organization_mobile_number", "organization_email",
     "latitude", "longitude",
+    # SIX MORE, MEASURED 2026-08-22 over 2,419 real profile pairs and NOT on the
+    # info box -- which is why a count of the info box's labels said the profile
+    # was fully read when three of its seven cards had no reader at all.
+    #
+    # `R-31` is what makes adding them safe rather than a migration: every field
+    # already approved is still here, so `_retire_or_refuse` opens schema version 2
+    # and the 704 rows approved under version 1 keep theirs. A field REMOVED would
+    # be refused, and that is the direction that matters.
+    #
+    # THE PRICES LEAD THE NEW ONES because they are a price, and this is a
+    # price-tracking warehouse: `self_build_price_*` is what a contractor charges
+    # per square metre under the self-build programme, and nothing in this
+    # repository had a column for it.
+    "commercial_registration",
+    "self_build_price_under_five_projects",
+    "self_build_price_five_to_ten_projects",
+    "self_build_price_over_ten_projects",
+    "model_contract_count", "registered_contract_count",
 )
 
 #: Fields whose Arabic value is a DIFFERENT value rather than the same one
@@ -339,6 +363,19 @@ class MultiValuedGroup:
     kind: str
     #: A CSS selector locating the container, resolved with soupsieve.
     selector: str
+    #: THE VOCABULARY THIS GROUP POPULATES, in both languages -- and it lives HERE,
+    #: beside the group, because a measurement of 2026-08-22 says a group and its
+    #: taxonomy are one fact. `ProfileReader` used to carry a single pair for the whole
+    #: reader, which was true while `interests` was the only wired group and became a
+    #: trap the moment a second arrived: interests publishes 211 English paths and
+    #: licences 19, with ZERO exact overlap (`Civil engineering` against `Civil
+    #: Engineering`), while their ARABIC ROOTS DO overlap -- and `taxonomy.ensure_path`
+    #: is idempotent on the Arabic name. One scheme would have fused the two trees at
+    #: the roots and let them diverge below.
+    #:
+    #: EMPTY MEANS NOT WIRED. A group with no scheme name is declared and unwritten,
+    #: which is the state three of the five are in; `contractors.write_groups` refuses
+    #: to write one rather than defaulting it.
     #: What the SITE calls it, kept for the record and for a reader comparing with the
     #: page. **Arabic even on the English profile** — measured: every table header and
     #: every contractor tab label is identical in both locales, so a selector built on
@@ -346,6 +383,21 @@ class MultiValuedGroup:
     #: interests card IS translated (`Interests` / `الأنشطة`), which is why that one is
     #: located structurally instead.
     published_as: str
+    #: THE VOCABULARY THIS GROUP POPULATES, in both languages -- and it lives HERE,
+    #: beside the group, because a measurement of 2026-08-22 says a group and its
+    #: taxonomy are one fact. `ProfileReader` used to carry a single pair for the whole
+    #: reader, which was true while `interests` was the only wired group and became a
+    #: trap the moment a second arrived: interests publishes 211 English paths and
+    #: licences 19, with ZERO exact overlap (`Civil engineering` against `Civil
+    #: Engineering`), while their ARABIC ROOTS DO overlap -- and `taxonomy.ensure_path`
+    #: is idempotent on the Arabic name. One scheme would have fused the two trees at
+    #: the roots and let them diverge below.
+    #:
+    #: EMPTY MEANS NOT WIRED. A group with no scheme name is declared and unwritten,
+    #: which is the state three of the five are in; `contractors.write_groups` refuses
+    #: to write one rather than defaulting it.
+    scheme_name: str = ""
+    scheme_name_ar: str = ""
 
 
 #: The groups `R-19` asks for, as they are actually published. Measured against
@@ -359,12 +411,18 @@ MULTI_VALUED_GROUPS: tuple[MultiValuedGroup, ...] = (
         # selector read 25 nodes from one locale and 0 from the other. The card is the
         # one holding the nested list, and `read_interests` refuses if two ever do.
         selector="div.section-card:has(ul.list-numerical li.list-item)",
-        published_as="Interests / الأنشطة"),
+        published_as="Interests / الأنشطة",
+        scheme_name="Interests", scheme_name_ar="الأنشطة"),
     MultiValuedGroup(
         key="licensed_activities",
         kind="table",
         selector='table:has(th:-soup-contains("الأنشطة المرخصة"))',
-        published_as="الأنشطة المرخصة"),
+        published_as="الأنشطة المرخصة",
+        # THE SITE PUBLISHES NO ENGLISH NAME FOR THIS VOCABULARY -- the card's title is
+        # `التراخيص ومستوى الجاهزية` in both locales -- so the English one is OURS, and
+        # the Arabic one is the site's own table header. `ensure_scheme` keys on the
+        # Arabic name, which is the half that is not invented.
+        scheme_name="Licensed Activities", scheme_name_ar="الأنشطة المرخصة"),
     MultiValuedGroup(
         key="sub_contractors",
         kind="table",
@@ -413,7 +471,33 @@ GROUPS_NOT_LOCATED: tuple[tuple[str, str], ...] = (
      "a listing filter axis (balady_service_id, 8 values), not a profile section on the "
      "committed contractor"),
     ("technical_rating",
-     "tab contractor-tab4 (التقييم الفني) carries no table for this contractor"),
+     "NOT A GROUP AT ALL, corrected 2026-08-22. The tab button التقييم الفني names "
+     "div#contractor-tab4, and that pane holds ZERO tables in its DOM subtree on "
+     "2,360 of 2,360 measured pages -- it is a label over an empty pane. The earlier "
+     "reading, 'carries no table for this contractor', was measured on one fixture "
+     "and read as a property of that contractor; it is a property of the site. The "
+     "fifth table on the page is the SELF-BUILD PRICE schedule, in its own "
+     "section-card -- see PROFILE_CARDS and read_self_build_prices"),
+)
+
+#: WHAT 2,419 PAGES SAID ABOUT THE FOUR GROUPS `write_groups` DEFERRED, and it is
+#: recorded here beside the declarations because `R-19` asked for measurement and one
+#: fixture was all there was to measure. Counts, not impressions:
+#:
+#:   licensed_activities  1,685 rows over 228 pages, a CLOSED vocabulary of 22
+#:                        distinct activities -> a taxonomy. Built.
+#:   contract_counts      92 pages, always exactly one row of two numbers -> two
+#:                        columns, which is what `write_groups` already argued.
+#:   sub_contractors      2,419 pages carry the table. Rows on TWO of them.
+#:   main_contractors     2,419 pages carry the table. Rows on ZERO of them.
+#:
+#: The last two are the ones a study cannot settle: they are contractor-to-contractor
+#: RELATIONS rather than classifications, and 2 rows in 2,419 pages is not enough to
+#: design a shape on. They stay declared and unbuilt, and the snapshots keep the
+#: evidence, so the day the site fills them in it is a re-parse and not a re-crawl.
+GROUPS_MEASURED_EMPTY: tuple[tuple[str, str], ...] = (
+    ("sub_contractors", "rows on 2 of 2,419 pages measured 2026-08-22"),
+    ("main_contractors", "rows on 0 of 2,419 pages measured 2026-08-22"),
 )
 
 
@@ -554,6 +638,405 @@ def _path_to(item: Tag, card: Tag) -> tuple[str, ...]:
 def _within(node: Tag, card: Tag) -> bool:
     return any(one is card for one in node.parents)
 
+# ---- the cards, which he warned are not the same on every page ---------------
+
+#: EVERY CARD A PROFILE PUBLISHES, and a DECLARATION rather than a comment
+#: because of what he said on 2026-08-22, in the middle of this measurement:
+#:
+#:     «المعلومات غير ثابته ولا متفقثة بين الصفح يعنى ممكن تلاقى معلومات تانية
+#:      وطريقة عرض مختلفة»
+#:
+#: The information is neither fixed nor consistent between pages; you may find
+#: other information and a different presentation. He was right, and this file was
+#: wrong in three places at once. What follows was MEASURED over 2,419 real profile
+#: pairs off the running crawl, not read off the two committed fixtures.
+#:
+#: THE THREE CORRECTIONS, each of which was a written premise somewhere:
+#:
+#:   1. This module's own docstring says the five tables are "the licences and
+#:      their readiness, the two contractor lists, THE TECHNICAL RATING and the
+#:      contract counts". There is no technical-rating table. The tab labelled
+#:      التقييم الفني -- div#contractor-tab4 -- holds ZERO tables in its DOM
+#:      subtree on 2,360 of 2,360 pages, and the fifth table is the SELF-BUILD
+#:      PRICE schedule, which no document in this repository named.
+#:   2. GROUPS_NOT_LOCATED records the technical rating as "carries no table for
+#:      this contractor" -- true of the fixture, and true of every page measured.
+#:      It is not a group at all: the button is a label over an empty pane.
+#:   3. The price table was mis-attributed to that pane by a REGEX that chunked
+#:      from id="contractor-tab4" until the next tab id. On a page whose pane is
+#:      empty, that chunk runs on into the next card -- so the price table read as
+#:      "inside tab4" while its real ancestry is
+#:      div.table-responsive < div.section-card < div.col-12. A PANE IS A DOM
+#:      SUBTREE AND NOTHING ELSE, which is the lesson _INTEREST_LIST learned about
+#:      headings, arriving from the other side.
+#:
+#: AND THE CARD TITLES ARE NOT ALL TRANSLATED, which is why `titles` is a tuple.
+#: Interests/الأنشطة and Map/الموقع are translated; التراخيص ومستوى الجاهزية and
+#: العقود سعر البناء (برنامج البناء الذاتي) print in ARABIC on the English page,
+#: which is exactly what makes a title-based selector locale-stable for those two
+#: -- the same property MultiValuedGroup.published_as already records.
+@dataclass(frozen=True)
+class ProfileCard:
+    """One card the profile publishes, by every title the site prints for it."""
+
+    #: Our stable name for it.
+    key: str
+    #: Every spelling seen, both locales. A title-based selector uses these.
+    titles: tuple[str, ...]
+    #: `table`, `list` or `text` -- what a reader has to go through to reach it.
+    carries: str
+    #: The measured share of pages that publish it, kept as evidence rather than
+    #: as a promise: these are counts off 2,419 pairs, not a guarantee.
+    on_pages: str
+
+
+PROFILE_CARDS: tuple[ProfileCard, ...] = (
+    ProfileCard(key="contractor_relations", titles=("(no card-title)",),
+                carries="table",
+                on_pages="2,419 of 2,419 -- the two tab tables, rows on 2"),
+    ProfileCard(key="contract_request", titles=("Contract Request", "طلب تعاقد"),
+                carries="text", on_pages="2,419 of 2,419"),
+    ProfileCard(key="licensed_activities", titles=("التراخيص ومستوى الجاهزية",),
+                carries="table", on_pages="2,419 of 2,419, rows on 228"),
+    ProfileCard(key="self_build_prices",
+                titles=("العقود سعر البناء (برنامج البناء الذاتي)",),
+                carries="table", on_pages="713 of 2,419, rows on 163"),
+    ProfileCard(key="contract_counts",
+                titles=("Previous Projects", "المشاريع السابقة"),
+                carries="table", on_pages="92 of 2,419, always exactly one row"),
+    ProfileCard(key="interests", titles=("Interests", "الأنشطة"),
+                carries="list", on_pages="2,419 of 2,419"),
+    ProfileCard(key="map", titles=("Map", "الموقع"),
+                carries="text", on_pages="2,419 of 2,419"),
+)
+
+#: THE HEADING LEVEL IS NOT FIXED, and asking for the wrong one hides a card. The
+#: first census of card titles asked for `h3.card-title` and `h2.card-title`,
+#: reported two titles per page and MISSED the price card entirely -- its heading
+#: is an `h4`. So every level is asked for, and the level is never named.
+_CARD_TITLE_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+
+
+def _card_title(card: Tag) -> str:
+    """What the page calls this card, or `(no card-title)` for the one with none."""
+    head = card.find(_CARD_TITLE_TAGS, class_="card-title")
+    return _text(head) if head is not None else "(no card-title)"
+
+
+def _carries_data(card: Tag) -> bool:
+    """Whether this card holds something a parser can read out of it."""
+    return (bool(card.select("table"))
+            or bool(card.select("ul.list-numerical li.list-item")))
+
+
+def read_cards(html: str) -> tuple[tuple[str, bool], ...]:
+    """Every card on the page as `(title, carries data)`, in document order."""
+    return tuple(
+        (_card_title(card), _carries_data(card))
+        for card in BeautifulSoup(html, "html.parser").select("div.section-card"))
+
+
+def undeclared_cards(html: str) -> tuple[str, ...]:
+    """Cards this page publishes, carrying data, that `PROFILE_CARDS` does not name.
+
+    HIS WARNING, MADE MECHANICAL. A parser reads the cards it knows and cannot tell
+    a card that is absent from a card nobody declared -- which is how a site grows a
+    section and it stays unnoticed for a year. This is the question two fixtures
+    could not answer and 2,419 pages can.
+
+    "CARRYING DATA" IS THE FILTER, AND IT BEAT THE OBVIOUS ONE ON MEASUREMENT. The
+    contractor's own name is a card too, and its title is different on every page,
+    so it must be excluded or the guard reports thousands of unknown cards on its
+    first run. Two rules were available:
+
+        by POSITION -- the name card is card 0        wrong on 40 of 5,668 pages
+        by CONTENT  -- the name card carries no table wrong on 0 of 5,668 pages
+
+    Measured across both locales: the name card is first on 5,666 of 5,668 pages,
+    and on 40 pages an undeclared text-only card appears after the first. Every one
+    of those 40 carried neither a table nor a list. So content wins, and position is
+    not used at all.
+
+    THE COST OF THAT CHOICE, stated rather than hidden: a NEW TEXT card would not be
+    reported, because nothing distinguishes it from the contractor's name. Map and
+    Contract Request are text cards, so that is a real blind spot -- it is the
+    narrower one, and it is the one with no false positives.
+
+    Not an exception: a new card is news for a person, and raising here would let
+    one page's novelty stop the approval of the other 34,833.
+    """
+    known = {title for card in PROFILE_CARDS for title in card.titles}
+    return tuple(title for title, carries in read_cards(html)
+                 if carries and title not in known)
+
+
+def _card(html: str, key: str) -> Tag | None:
+    """The card one declared key names, or `None` when this page has not got it.
+
+    MORE THAN ONE IS REFUSED, for the reason `locate_group` states: a title that has
+    stopped being unique has stopped being a declaration, and taking the first would
+    read one card's values as another's.
+    """
+    card = next((one for one in PROFILE_CARDS if one.key == key), None)
+    if card is None:
+        raise KeyError(f"{key!r} is not a declared card. Declared: "
+                       f"{[one.key for one in PROFILE_CARDS]}")
+    found = [node
+             for node in BeautifulSoup(html, "html.parser").select("div.section-card")
+             if _card_title(node) in card.titles]
+    if len(found) > 1:
+        raise ValueError(
+            f"{key!r} matched {len(found)} cards, so its title is no longer a "
+            f"declaration: {card.titles}. The layout has changed.")
+    return found[0] if found else None
+
+
+# ---- the commercial registration, which was believed to be unavailable -------
+
+#: WHERE THE CONTRACT-REQUEST FORM POSTS. One endpoint, site-wide, identical on all
+#: 2,479 pages measured -- and that is the honest answer to `contract_request_url`
+#: in CONTRACTOR-SOURCE.md. The plan for this step says that field "has no known URL
+#: pattern and is not on the card"; the truth is narrower and more useful. The card
+#: IS on every page, and the URL is a CONSTANT rather than a per-contractor value,
+#: so it earns no column. What earns a column is what the form carries.
+_CONTRACT_FORM = 'form[action*="init_econtract_draft"]'
+
+
+def read_commercial_registration(html: str) -> str:
+    """The contractor's Commercial Registration number, or `""`.
+
+    FOUND IN A PLACE NOBODY LOOKED. `Commercial Registration` appears four times in
+    his column study and no extractor had it, because it is not in the info box and
+    not on the listing card -- it is the pre-filled `cr` input of the contract
+    request form, which every profile publishes.
+
+    MEASURED over 2,543 profile pairs: present on 2,542, always TEN DIGITS, and
+    2,542 DISTINCT VALUES OVER 2,542 CONTRACTORS -- no two share one. So it is a
+    second natural key for this directory, and the first that is a national
+    identifier rather than muqawil's own numbering: it is what a row here could be
+    joined to Balady, or to a commercial register, on.
+
+    THE SAME FORM'S `second_party_phone` IS NOT A SECOND PHONE, and it was worth
+    measuring rather than assuming. Over 900 pages it is filled on 434, and on every
+    one of those it equals `organization_mobile_number` exactly -- 0 differ, 0 carry
+    a number the info box lacks. A column for it would hold no new fact.
+    """
+    form = BeautifulSoup(html, "html.parser").select_one(_CONTRACT_FORM)
+    if form is None:
+        return ""
+    node = form.select_one('input[name="cr"]')
+    return (node.get("value") or "").strip() if node is not None else ""
+
+
+# ---- the self-build prices, which are a PRICE in a price warehouse -----------
+
+#: `label -> field_key` for the three tiers the self-build price card publishes.
+#: ARABIC LABELS ON THE ENGLISH PAGE, like every other table header here, so one map
+#: serves both locales.
+#:
+#: MEASURED over 2,419 pairs: exactly these three labels and no fourth, on
+#: 161/160/160 pages. The values are numerals with no currency, no thousands
+#: separator and no unit -- 466 of 466 parsed as numbers -- and the schedule is NOT
+#: always non-increasing across the tiers: 122 contractors quote a non-increasing
+#: one and 33 do not. Nothing here may assume a bigger award is cheaper.
+SELF_BUILD_PRICE_TIERS: dict[str, str] = {
+    "سعر المتر المربع في حال الحصول على أقل من خمسة مشاريع":
+        "self_build_price_under_five_projects",
+    "سعر المتر المربع في حال الحصول على خمسة حتى عشرة مشاريع":
+        "self_build_price_five_to_ten_projects",
+    "سعر المتر المربع في حال الحصول على أكثر من عشرة مشاريع":
+        "self_build_price_over_ten_projects",
+}
+
+
+class UnknownPriceTier(LookupError):
+    """The price card published a row this map does not know.
+
+    RAISED, AND DELIBERATELY, for the reason `CoordinatesMoved` is raised: the
+    alternative is a price the site publishes and this warehouse silently does not
+    store. A fourth tier is exactly the kind of change worth stopping for, and a
+    price-tracking warehouse that drops a price without a word has the one failure
+    mode it cannot afford.
+    """
+
+
+def read_self_build_prices(html: str) -> dict[str, str]:
+    """The self-build price schedule, `field_key -> value`. `{}` when absent.
+
+    THE ROWS ARE NOT IN A STABLE ORDER -- measured, the same three labels arrive in
+    different sequences on different pages -- so this reads them BY LABEL. Position
+    would have put the over-ten price in the under-five column on some pages and not
+    others, which is the class of defect that never looks wrong in a column count.
+
+    EMPTY IS NOT ABSENT. The card is published on 713 of 2,419 pages and carries
+    rows on 163, so a contractor in the self-build programme who has not priced it
+    has the card and no rows. Both are real states and neither is an error.
+    """
+    card = _card(html, "self_build_prices")
+    if card is None:
+        return {}
+    found: dict[str, str] = {}
+    for row in card.select("tr"):
+        cells = row.select("td")
+        if len(cells) < 2:
+            continue
+        label, value = _text(cells[0]), _text(cells[1])
+        key = SELF_BUILD_PRICE_TIERS.get(label)
+        if key is None:
+            raise UnknownPriceTier(
+                f"the self-build price card published {label!r}, which is not one of "
+                f"the three declared tiers. A price this warehouse cannot store is "
+                f"worth stopping for: {sorted(SELF_BUILD_PRICE_TIERS)}")
+        found[key] = value
+    return found
+
+
+# ---- the contract counts, under a card named for something else --------------
+
+#: `header -> field_key`. THE CARD IS NAMED FOR SOMETHING ELSE, which is why this is
+#: keyed on the table's headers and not on the card's title: the card prints
+#: `Previous Projects` / `المشاريع السابقة` and its table holds two contract counts.
+#: Measured on 92 of 2,419 pages, always exactly one row.
+CONTRACT_COUNT_COLUMNS: dict[str, str] = {
+    "عدد العقود النموذجية": "model_contract_count",
+    "عدد العقود المسجلة": "registered_contract_count",
+}
+
+
+def read_contract_counts(html: str) -> dict[str, str]:
+    """The two contract counts, `field_key -> value`. `{}` when the card is absent.
+
+    TWO SCALARS, WHICH IS WHY THEY ARE COLUMNS AND NOT A GROUP. `write_groups`
+    already recorded that reasoning -- "putting them in a link table would make a
+    membership out of a count" -- and the corpus agrees: one row, two numbers, on
+    every page that publishes the card at all.
+    """
+    card = _card(html, "contract_counts")
+    if card is None:
+        return {}
+    table = card.select_one("table")
+    if table is None:
+        return {}
+    keys = [CONTRACT_COUNT_COLUMNS.get(_text(cell)) for cell in table.select("th")]
+    found: dict[str, str] = {}
+    for row in table.select("tr"):
+        cells = row.select("td")
+        if len(cells) != len(keys):
+            continue
+        for key, cell in zip(keys, cells, strict=True):
+            if key is not None:
+                found[key] = _text(cell)
+    return found
+
+
+# ---- the licences, and the split rule that was never provable before ---------
+
+#: THE LANGUAGE BOUNDARY IS THE FIRST LATIN LETTER, not a separator. Measured over
+#: 1,500 rows: the script-run signature of every activity cell is `AL` and nothing
+#: else -- 1,500 of 1,500, one transition, Arabic then Latin.
+_FIRST_LATIN = re.compile(r"[A-Za-z]")
+
+#: THE DASH IS THE HIERARCHY SEPARATOR, which is what makes it dangerous.
+#: `write_groups` records the activity cell as carrying "BOTH languages in one
+#: string with no separator" and concludes that splitting "needs a script-boundary
+#: rule". The script-boundary half is right; the "no separator" half hid the real
+#: trap. There ARE dashes in the cell, they sit INSIDE each language, and they
+#: separate LEVELS: تشييد المباني - تشييد المباني - جميع الأنواع is a three-level
+#: path. A parser that split the cell on the dash would have cut a path into pieces
+#: and called each piece a language.
+#:
+#: BOTH DASHES, because the site mixes them inside one cell:
+#: `Construction of Buildings - Construction of Buildings – All Types` uses a
+#: hyphen and then an en dash.
+_PATH_SEPARATOR = re.compile(r"\s+[-–—]\s+")
+
+#: The readiness cell, when there is one: `أساسي | Basic` -- both languages, one
+#: pipe. Measured EMPTY on 1,490 of 1,500 rows, with five distinct values across the
+#: other ten: Gold, Silver, Dimond (the site's spelling) and Basic.
+_READINESS_SEPARATOR = " | "
+
+
+@dataclass(frozen=True)
+class LicensedActivity:
+    """One licensed activity, as a path in each language, plus its readiness."""
+
+    #: The path, root first, off the Arabic half. THE IDENTITY, always present.
+    arabic: tuple[str, ...]
+    #: The same path off the English half -- or `()` when the site's own two halves
+    #: disagree about how many levels there are. See `read_licensed_activities`.
+    english: tuple[str, ...]
+    readiness_ar: str = ""
+    readiness_en: str = ""
+    #: The cell exactly as published, kept so a disagreement can be looked at.
+    published_as: str = ""
+
+    @property
+    def paired(self) -> bool:
+        """Whether the two halves agreed. `False` is the SITE's defect, not ours."""
+        return bool(self.english)
+
+
+def read_licensed_activities(html: str) -> tuple[LicensedActivity, ...]:
+    """Every licensed activity on the page, in document order.
+
+    THIS IS THE GROUP `write_groups` DEFERRED, and its stated reason has expired:
+    "Six samples, one malformed, is not enough to declare that rule on." Correct at
+    the time. Measured now over 1,685 rows on 2,419 real pages, and the vocabulary
+    is CLOSED AT 22 DISTINCT ACTIVITIES -- a taxonomy, which is what `R-38` is for.
+
+    THE SITE'S ENGLISH IS WRONG ON 100 ROWS, AND A COUNT CATCHES ALL THREE CASES.
+    Splitting each half on the path separator and comparing the number of levels:
+
+        1,585 of 1,685 rows  the two halves agree, level for level
+           70 rows           Arabic says أعمال تركيبات السباكة والحرارة والتكييف
+                             and English says "Construction of Buildings - Medium &
+                             Low Rise". A DIFFERENT ACTIVITY, not a translation.
+           30 rows           English truncated by the site to "Civil Engineering -",
+                             and TWO different Arabic activities truncate to that
+                             same string, so it does not even distinguish them.
+
+    So the English half is not trustworthy and the Arabic half is. The load-bearing
+    property is luck worth writing down: EVERY ONE OF THE THREE DEFECTS CHANGES THE
+    LEVEL COUNT, so nothing has to recognise an activity to detect them, and no row
+    can be stored carrying an English name that belongs to a different activity.
+
+    THE ARABIC PATH STANDS ALONE WHERE THEY DISAGREE, rather than the row being
+    dropped or the halves zipped to the shorter. Both alternatives were available
+    and both are worse: zipping is what `merge_locales` refuses in its own words --
+    "a wrong value is worse than a missing one in a table whose whole purpose is to
+    be believed" -- and dropping would discard 100 rows of intact Arabic because the
+    site cannot spell its own English. `paired` says which happened, so the 100 are
+    countable rather than invisible.
+    """
+    card = _card(html, "licensed_activities")
+    if card is None:
+        return ()
+    found: list[LicensedActivity] = []
+    for row in card.select("tr"):
+        cells = row.select("td")
+        if len(cells) < 2:
+            continue
+        published, readiness = _text(cells[-2]), _text(cells[-1])
+        boundary = _FIRST_LATIN.search(published)
+        if boundary is None:
+            # NO LATIN HALF AT ALL. Measured zero times in 1,500 rows, so this is
+            # the shape changing rather than one contractor's data -- and the Arabic
+            # path is still the identity, so the row is kept rather than refused.
+            arabic, english = published.strip(), ""
+        else:
+            arabic = published[:boundary.start()].strip()
+            english = published[boundary.start():].strip()
+        arabic_path = tuple(part for part in _PATH_SEPARATOR.split(arabic) if part)
+        english_path = tuple(part for part in _PATH_SEPARATOR.split(english) if part)
+        ready_ar, _, ready_en = readiness.partition(_READINESS_SEPARATOR)
+        found.append(LicensedActivity(
+            arabic=arabic_path,
+            english=english_path if len(english_path) == len(arabic_path) else (),
+            readiness_ar=ready_ar.strip(), readiness_en=ready_en.strip(),
+            published_as=published))
+    return tuple(found)
+
+
 def read_profile(html: str) -> Reading:
     """One profile page, in whichever language it was fetched.
 
@@ -577,6 +1060,18 @@ def read_profile(html: str) -> Reading:
     coordinates = read_coordinates(html)
     if coordinates is not None:
         latitude, longitude = coordinates
+
+    # THE INFO BOX IS ONE CARD OF SEVEN. Everything above reads `div.info-box` and
+    # the inline map script; these three read the cards beside them. They are here
+    # rather than in `merge_locales` because none of them is bilingual -- the site
+    # prints these labels in Arabic on the English page, so there is no second value
+    # to attach, and `merge_locales` pairs by INDEX over `labels`, which these never
+    # enter.
+    registration = read_commercial_registration(html)
+    if registration:
+        fields["commercial_registration"] = registration
+    fields.update(read_self_build_prices(html))
+    fields.update(read_contract_counts(html))
 
     return Reading(fields=fields,
                    labels=tuple(label for label, _ in pairs),

@@ -87,9 +87,13 @@ class ProfileReader:
     each group on the page. `R-41` put the declaration in the site's own module, so this
     carries references to it rather than copies of it.
 
-    THE SCHEME NAME IS HERE AND NOT IN `taxonomy.py` because it is the SITE's vocabulary
-    — `classification_scheme.scheme_type='source'` says so — and the module that stores
-    trees has no business naming one site's.
+    THE SCHEME NAME WAS HERE AND HAS MOVED ONE LEVEL DOWN, to the group declaration in
+    the site's own module. The original reasoning still holds — a vocabulary is the
+    SITE's, `classification_scheme.scheme_type='source'` says so, and `taxonomy.py` has
+    no business naming one site's — but ONE pair of names for the whole reader was only
+    correct while `interests` was the only wired group. Measured 2026-08-22: interests
+    publishes 211 English paths and the licences 19, with zero exact overlap, so they are
+    two vocabularies and each group names its own. See `MultiValuedGroup.scheme_name`.
     """
 
     #: `(english_html, arabic_html, *, contractor_id) -> TableCandidate`.
@@ -98,9 +102,6 @@ class ProfileReader:
     groups: tuple[Any, ...]
     #: `(html, group_key) -> element | None`.
     locate: Callable[..., Any]
-    #: What the site calls its own vocabulary, in both languages.
-    scheme_name: str
-    scheme_name_ar: str
     #: ITS OWN DATASET, AND THIS IS NOT A DETAIL. A profile publishes 21 declared fields
     #: and a listing card 28, so putting both under one `dataset_key` makes every profile
     #: look like a SUBSET of the approved listing schema — which `R-31` correctly refuses,
@@ -135,11 +136,11 @@ def _muqawil() -> Directory:
             candidate=bilingual_profile_candidate,
             groups=MULTI_VALUED_GROUPS,
             locate=locate_group,
-            # THE SITE'S OWN WORDS. `Interests` in English and `الأنشطة` in Arabic,
-            # which `R-41` measured are not translations of each other — so both are
-            # recorded rather than one being derived from the other.
-            scheme_name="Interests",
-            scheme_name_ar="الأنشطة",
+            # THE SITE'S OWN WORDS FOR EACH VOCABULARY are declared beside the group
+            # that populates it, in `MULTI_VALUED_GROUPS` — `Interests` / `الأنشطة`,
+            # which `R-41` measured are not translations of each other, and
+            # `Licensed Activities` / `الأنشطة المرخصة`, where the site publishes no
+            # English name at all and ours is marked as ours.
             dataset_key="contractor_profiles",
             dataset_name="Contractor profiles"),
     )

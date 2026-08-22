@@ -273,8 +273,16 @@ def test_a_profile_row_does_not_carry_the_listings_columns():
     """THE DEFECT THAT BLOCKED THIS. `_candidate_from` hardcoded `CARD_FIELDS` as the
     declared lead, so a profile row came out with **17 empty listing columns** —
     measured, 39 fields where the profile has 21. Every page kind has its own declared
-    list, and it is now a parameter rather than a constant."""
-    from scrapex.extract.muqawil import bilingual_profile_candidate
+    list, and it is now a parameter rather than a constant.
+
+    THE COUNT WENT 21 -> 27 ON 2026-08-22 and the assertion changed shape with it. A
+    bare `== 21` said only that nobody had touched the number; comparing against
+    `PROFILE_FIELD_ORDER` itself says the two things that matter — the candidate carries
+    exactly the declared fields, and **in the declared order**, which is load-bearing
+    because `_schema_payload` puts `position` in the hash. An order that drifts is a
+    different schema with identical fields, and that refused 105 pages of 120 once.
+    """
+    from scrapex.extract.muqawil import PROFILE_FIELD_ORDER, bilingual_profile_candidate
 
     english, arabic = _profile_pair()
     keys = [f.field_key
@@ -283,7 +291,9 @@ def test_a_profile_row_does_not_carry_the_listings_columns():
 
     leaked = [key for key in keys if key.startswith("card_")]
     assert not leaked, f"listing columns leaked into a profile row: {leaked}"
-    assert len(keys) == 21, f"21 declared fields, got {len(keys)}: {keys}"
+    assert keys == list(PROFILE_FIELD_ORDER), (
+        "the candidate's fields are not the declared list in the declared order; "
+        f"declared {len(PROFILE_FIELD_ORDER)}, got {len(keys)}: {keys}")
 
 
 def test_the_identity_is_passed_in_and_not_parsed_out():

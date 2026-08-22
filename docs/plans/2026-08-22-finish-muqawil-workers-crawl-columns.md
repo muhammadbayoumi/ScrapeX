@@ -14,7 +14,7 @@ rule again: it began on the machine that did **not** have the warehouse.
 |---|---|
 | 1 · workers for `--details` | **DONE** — #249. 87 h → 11–14 h, and it found a real dictionary race |
 | 2 · the profile crawl, 34,834 pages | **ready to run**, ~14 h of machine time, resumable |
-| 3 · the profile parser, 48 columns | not started — the largest piece |
+| 3 · the profile parser | **the cards are done 2026-08-22** — six new columns and a second taxonomy group, on a census of 2,419 real pairs rather than two fixtures. What is left is `Q-17` and `Q-18`, both his |
 | 4 · `R-19`'s remaining four groups | **his ruling**; three of four measure as "do not build" |
 
 ## Context
@@ -74,9 +74,22 @@ So the arithmetic is a floor set by the pace, not the latency: 34,834 × ~1.4 s
 - **The profile crawl itself** — 34,834 pages, both locales, `body_class` set so the
   bodies compress (`~87 MB` instead of 3.95 GB). Resumable already: `already_stored`
   + `--run-ref`.
-- **The profile parser** — 48 of ~70 of his columns have no extractor. One
-  correction to carry: `contract_request_url` is marked `u` in
-  `CONTRACTOR-SOURCE.md` but has **no known URL pattern** and is not on the card.
+- **The profile parser** — ~~48 of ~70 of his columns have no extractor~~ **DONE for
+  the cards, 2026-08-22.** The info-box half was already built and measured clean
+  (11 labels, all known, on 2,252 pairs); what had no reader was three of the page's
+  **seven** cards. Six columns added — `commercial_registration`, three self-build
+  price tiers, two contract counts — and `licensed_activities` wired as a second
+  taxonomy, in its own scheme.
+
+  **The correction this step was told to carry was itself wrong.**
+  `contract_request_url` is not absent from the card: the card is on **100%** of pages,
+  and its form action is one **site-wide constant**, so it earns no column — while the
+  form's pre-filled `cr` input is the **Commercial Registration number**, on 2,542 of
+  2,543 pages, ten digits, no two contractors sharing one. Kept visible per **C4**: the
+  premise was recorded honestly off two fixtures and 2,419 pages overturned it.
+
+  Three more premises fell with it — see `OP-43` and [LESSONS.md](../LESSONS.md) §11 —
+  including a **price** that no document in this repository had named.
 - **`R-19`'s remaining four groups** — only `interests` is wired;
   `contractors.write_groups` records why for each of the others.
 

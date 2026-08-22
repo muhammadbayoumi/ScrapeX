@@ -575,6 +575,40 @@ unambiguous and nothing in it favours JSON.
 > `classification_node` rather than five bespoke tables — which is **his to rule on**,
 > recorded as `Q-13`. Nothing has been built.
 
+> **MEASURED AGAIN 2026-08-22, over 2,419 real profile pairs instead of one profile,
+> and this is the reading that lifts the evidence limit stated above.** He warned that
+> the pages differ — «المعلومات غير ثابته ولا متفقثة بين الصفح» — and he was right. The
+> original text and the 2026-08-21 correction both stay, per **C4**; what follows
+> replaces neither. It finally counts them.
+>
+> | group | pages | rows | verdict |
+> |---|---|---|---|
+> | Interests | 2,419 of 2,419 | 211 English paths, 214 Arabic | a taxonomy — **built** |
+> | Licensed activities | 2,419, rows on 228 | 1,685 rows, **22 distinct activities** | a taxonomy — **built 2026-08-22** |
+> | Main contractors | 2,419 carry the table | rows on **0** | declared, not built |
+> | Sub contractors | 2,419 carry the table | rows on **2** | declared, not built |
+> | Contract counts | 92 | one row of two numbers | **two columns**, not a group |
+>
+> **THREE THINGS THIS RULING NAMES ARE NOT ON THE PROFILE PAGE AT ALL,** and the
+> measurement is now large enough to say so rather than suspect it. `Balady Services`
+> appears on **0 of 2,419** pages. `Qualification Programs` appears on 2,419 of 2,419
+> — **in the site's navigation JSON-LD**, not as a section of any contractor, which is
+> exactly the false positive a marker test produces when the marker lives in the
+> 119 KB of page chrome. And the **technical rating** is not a table at all:
+> `contractor-tab4` holds zero tables in its DOM subtree on 2,360 of 2,360 pages. The
+> tab button is a label over an empty pane.
+>
+> **AND THE FIFTH TABLE IS A PRICE, which no document here had named.** The card titled
+> `العقود سعر البناء (برنامج البناء الذاتي)` publishes a **self-build price per square
+> metre** in three award tiers — 713 of 2,419 pages carry the card and 163 carry
+> values, all numeric. In a price-tracking warehouse that is the most valuable thing on
+> the page, and it was invisible because a regex had attributed it to the empty tab.
+> See [LESSONS.md](LESSONS.md) §11.
+>
+> **What is left for him** is narrower than five groups: `Q-17` — the readiness level,
+> and the three activities whose English the site publishes wrongly — and `Q-18`, do
+> the two relation groups still get tables at 2 rows in 2,419 pages.
+
 **What it costs.** Five tables and their migration; a read path per table; and the
 dataset payload has to carry them, which today it cannot. That last part is the real
 work and it is not yet designed — and it would have been needed for JSON too.
@@ -1155,6 +1189,68 @@ isolation for free.
 
 ---
 
+---
+
+### R-45 · The site is the only source of truth, and a field the table does not need goes in the ROW'S CARD
+
+**2026-08-22 · data model + surface · answers `Q-17`, and rejects both options it offered**
+
+> «ما يقوله الموقع هو مصدر الحقيقة الوحيد لا نعدل عليه»
+>
+> «فى كاتوجرى المنتجات كنا مثبتين اعمدة محددة فى الجدول واى معلومة زيادة عند الضغط على
+> الصف يظهر كارد تحتها ونضع فيه المعلومة · نفس الشى اريده فى كاتوجرى المقاولون · لان
+> المقاولون سيكون هناك عدة مصادر له فى المستقبل · الفائدة اى ان معلومة مثل مستوى
+> الجاهزيّة لا داعى لوضعها فى عمود خاص فى الجدول ولكن عند الضغط على صف معين وهو يحملها
+> تظهر فى الكارد الخاص بالمقاول»
+
+`Q-17` asked two questions and he answered both by refusing the way they were framed.
+
+**1 · WE NEVER TRANSLATE. The site's words are the record.** The question offered
+"write our own English" as an option for the three licensed activities whose English
+half muqawil publishes truncated or simply wrong. **Refused, and on the principle
+rather than on the case.** Where the site publishes no usable English name, the node
+keeps its Arabic identity and **no English name at all** — which is what
+`contractors._licence_paths` already does, and now it does it because it was ruled
+rather than because it was the cautious default.
+
+This is `SR-1` — *the source of truth is what the site publishes* — reaching the
+extraction layer, and it settles a class of question rather than one field. A mapping
+we invent is our claim dressed as the site's data, and no column here may carry one.
+
+**2 · A FIELD IS NOT A COLUMN. Fixed columns, and everything else in the row's own
+card.** The question offered "a migration for a column" or "read but do not store",
+and both were wrong. The readiness level is **stored** — it is a real fact the site
+publishes on 10 of 1,500 rows — and it is simply not a **column**.
+
+**His reason is the load-bearing part, and it is about the future rather than about
+this field:** *"because contractors will have several sources in the future."* A
+column is a promise every source must keep. `المقاولون` is a **category**, and Balady,
+the UAE registries and the Gulf sources queued in `docs/STATE.md` will each publish
+their own extras. A table whose columns are the union of every source's fields grows a
+column per source and a NULL per row — which is exactly the shape
+[`OP-43`](BACKLOG.md) found on the products side, where madar reached 59 variation
+axes and 33 of them were non-empty on under 1% of rows, and he asked three times to
+have them moved.
+
+**WHAT THIS MEANS IS WORK, NOT A NOTE, AND THE HONEST PART IS THAT THE CARD DOES NOT
+EXIST YET.** Measured 2026-08-22 across `extension/` and `scrapex/webui/`:
+
+| piece | state |
+|---|---|
+| a per-row card shown under a clicked row | **does not exist**, on either surface. No `rowFormatter`, no expansion handler, nothing |
+| "which fields are columns" for PRODUCTS | **built** — `/api/promotable/{source_key}`, `fields.promotable_attributes` / `set_promotion`, backed by `source_product_attribute` |
+| "which fields are columns" for DATASETS | **not built.** `field_definition` is where it would live |
+| the grid both surfaces already ship | **Tabulator**, which supports row expansion natively — so this is a feature to use, not a library to add |
+| the extras themselves, for contractors | **already stored.** The dataset path keeps the row in `generic_record.data_json`, so nothing has to be re-crawled to show them |
+
+So the products category has the *fixed columns* half and no card; the contractors
+category has neither, and its data is already on disk. **Nothing about this is
+blocked** — and note what it does to the readiness level: it stops being a schema
+question at all. It is one more value in a card that has to be built anyway.
+
+**Recorded as its own track**, because it is a surface feature with a data-model half
+and it is larger than the field that raised it: `REQ-32`.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
@@ -1303,6 +1399,26 @@ silently produces nothing for half the data.
 
 **The price, stated:** one declaration per group per site. That is the cost of a rule that
 cannot drift, and this file already records what the alternative costs.
+
+> **AMENDED 2026-08-22 — the rule holds and TWO OF ITS OWN OBSERVATIONS were wrong.
+> Both kept visible per C4.** Measured over 2,419 profile pairs rather than the one
+> committed fixture:
+>
+> - *"two tables carry the same `الإسم / القيمة` pair"* — only one does, and it now has
+>   a name: it is the **self-build price** table, in a `section-card` of its own. The
+>   second sighting came from a regex chunk that ran past an empty tab pane into the
+>   next card.
+> - *"three are empty for this contractor"* — for the two relation tables that is not
+>   this contractor, it is the site. `contractor-tab3` carries rows on **0** of 2,419
+>   pages and `contractor-tab2` on **2**.
+>
+> **The rule gains a companion in its own shape.** A declared map names the groups; a
+> declared map now also names the **cards** — `PROFILE_CARDS` in
+> `scrapex/extract/muqawil.py`, with `undeclared_cards()` reporting any data-carrying
+> card that is not in it. `R-41` argues that a name must be declared rather than
+> inferred; the card census is that argument applied one level up, to *which sections
+> exist at all* — the question two fixtures could not answer, and the one that hid a
+> price for months.
 
 ---
 

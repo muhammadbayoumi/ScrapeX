@@ -1309,3 +1309,125 @@ match on **body**, never on `label`. Each machine seeds a dictionary from the fi
 of that kind *it* fetched, so `muqawil.org/listing` is a 298,954-byte page here and a
 different page there. Matching on the label would have merged two unrelated dictionaries
 into one and broken both sides' pages.
+
+---
+
+## 11 · A page you measured once is a page you have not measured
+
+**2026-08-22.** He said it in the middle of the work, and it was the most useful
+sentence of the session:
+
+> «المعلومات غير ثابته ولا متفقثة بين الصفح يعنى ممكن تلاقى معلومات تانية وطريقة عرض
+> مختلفة»
+
+*The information is neither fixed nor consistent between pages — you may find other
+information and a different presentation.*
+
+Everything this repository believed about the muqawil profile page came from **two
+committed fixtures**, which are one contractor. That was honest and it was labelled:
+`R-19` says *"The limit of this evidence, stated plainly: one contractor."* The
+problem is not that the limit was unrecorded. **The problem is that the conclusions
+outlived it** — they were written into a module docstring, a declaration and a plan,
+where nothing carries the caveat.
+
+Measured over **2,419 real profile pairs** read out of the running crawl, four
+written statements were wrong. Not stale: wrong.
+
+### 1 · A regex that chunks "until the next id" is not a DOM subtree
+
+The premise: the self-build price table lives in `div#contractor-tab4`, the pane the
+tab button `التقييم الفني` points at.
+
+The measurement that produced it chunked the HTML with
+
+```python
+re.compile(r'<div[^>]*id="(contractor-tab\d+)"[^>]*>(.*?)'
+           r'(?=<div[^>]*id="contractor-tab\d+"|\Z)', re.DOTALL)
+```
+
+On a page whose tab4 is **empty**, that chunk does not stop at the pane — it runs on
+into everything after it. So the price table, which sits in a `section-card` of its
+own several elements later, read as "inside tab4". Asking the same question through
+`BeautifulSoup.select('div#contractor-tab4')` gives **zero tables on 2,360 of 2,360
+pages**.
+
+**The tell was there and it was ignored:** the same census reported *15 distinct
+shapes* for that one pane, and 12 of the 15 contained the string `Interests` — the
+name of a card that is not in the pane at all. A shape count that explodes is a
+selector that is wrong, not a site that is inconsistent.
+
+### 2 · Naming the heading level hides a card
+
+The first card census asked for `h3.card-title` and `h2.card-title`, and reported
+**two** section titles per page. The page has seven. The price card's title is an
+**`h4`**, so the card that no document in this repository had ever named was also the
+card the census could not see.
+
+`_CARD_TITLE_TAGS` now lists `h1`…`h6` and the level is never named.
+
+### 3 · The dash in a bilingual cell was a hierarchy separator
+
+`contractors.write_groups` recorded the licensed-activities cell as carrying *"BOTH
+languages in one string with no separator"* and concluded that splitting it *"needs a
+script-boundary rule"*. Half right, and the wrong half was load-bearing.
+
+There **are** separators in that cell. They are inside each language and they
+separate **levels**:
+
+```
+تشييد المباني - تشييد المباني - جميع الأنواع Construction of Buildings - Construction of Buildings – All Types
+└──────────── a three-level Arabic path ────────────┘└──────── the same path in English ────────┘
+```
+
+A parser that split on the dash would have cut a path into pieces and called each
+piece a language. The real boundary is the **first Latin letter**, and it is provable
+rather than plausible: the script-run signature of all 1,500 activity cells measured
+is `AL` — Arabic, then Latin, exactly one transition.
+
+**And the site's own English is wrong on 100 of 1,685 rows** — 30 truncated to
+`Civil Engineering -` (the same string for two different activities) and 70 naming a
+*different activity* altogether. The lucky property, which is why nothing has to
+recognise an activity to be safe: **all three defects change the number of levels**,
+so comparing level counts catches every one.
+
+### 4 · Two vocabularies that look like one, and fuse at the root
+
+Interests and licensed activities are both trees of construction activities and the
+obvious move is one `classification_scheme` for both. Measured:
+
+| | English paths | Arabic paths |
+|---|---|---|
+| Interests | **211** | 214 |
+| Licensed activities | **19** | 21 |
+| exact overlap | **0** | 2 |
+
+Zero English overlap, because the site writes `Civil engineering` in one and `Civil
+Engineering` in the other. But their **Arabic roots do overlap**, and
+`taxonomy.ensure_path` is idempotent on `(scheme, parent, node_name_ar)` — the Arabic
+name is the identity. One scheme would have matched the licence root to the interests
+root, let the licence leaves hang under a node whose English name came from the other
+vocabulary, and produced a tree that is neither. Nothing would have raised.
+
+### What to do instead, and it is cheap
+
+**Declare what the page publishes, and let the page contradict the declaration.**
+`PROFILE_CARDS` names all seven cards and `undeclared_cards()` reports any
+data-carrying card that is not among them. It costs one tuple. It turns "the site
+grew a section" from something nobody notices into something a test says out loud.
+
+Two details of that guard were themselves decided by measurement rather than taste:
+
+- **The contractor's own name is a card**, and its title differs on every page, so it
+  must be excluded or the guard reports thousands of unknowns on its first run.
+  Position said *"card 0"* and was wrong on **40 of 5,668** pages; content said
+  *"carries no table and no list"* and was wrong on **0**. Content won, and the cost
+  is stated in the docstring: a new **text** card would not be reported.
+- **`read_licensed_activities` needs one page, not two.** The cell is already
+  bilingual, so a profile whose Arabic half never arrived still yields its licences —
+  unlike interests, which pair across locales by position and can raise.
+
+**And measure the failure path before you trust the count.** Two things would have
+stopped a 34,834-page approval dead, and both were measured before the parser was
+wired rather than after: interests paired in **2,252 of 2,252** pairs, and the info
+box carried **11 distinct labels, all of them known** — no field was being silently
+dropped. Neither number was known when the profile parser was declared finished.

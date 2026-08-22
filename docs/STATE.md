@@ -65,14 +65,29 @@ fixtures, never on his warehouse:
 
 ### What needs the data, and his plan for moving it
 
-3. **The full profile crawl** — 34,834 pages. Belongs on whichever machine holds the
-   warehouse.
-4. **The remaining four groups of `R-19`.** Only `interests` is wired, and
-   `contractors.write_groups` records why for each of the others: licensed activities
-   carry both languages in one unseparated string and one of six rows is already truncated
-   on the site's side; the two contractor lists are relations rather than classifications
-   and are empty on every page measured; contract counts are two scalars that belong in
-   the flat row.
+3. **The full profile crawl** — 34,834 pages. **RUNNING on this machine since
+   2026-08-22**, `--run-ref profiles-2026-08-22 --workers 6`, measured at **1.01 s a
+   page**. Belongs on whichever machine holds the warehouse.
+4. ~~**The remaining four groups of `R-19`.**~~ **RE-MEASURED AND HALF BUILT
+   2026-08-22**, and the re-measurement is the point: every reason recorded here was
+   read off **two committed fixtures**, which are one contractor, and he warned that
+   the pages are not consistent — «المعلومات غير ثابته ولا متفقثة بين الصفح». Counted
+   over **2,419 real profile pairs** off the running crawl:
+
+   | group | what the corpus says | done |
+   |---|---|---|
+   | `licensed_activities` | 1,685 rows over 228 pages, a **closed vocabulary of 22**. The "unseparated string" was separated after all — the dashes are **hierarchy** separators inside each language, and the language boundary is the first Latin letter, `AL` on 1,500 of 1,500 cells | **built**, its own taxonomy scheme |
+   | `contract_counts` | 92 pages, one row of two numbers — the flat row was right | **built**, two columns |
+   | `sub_contractors` · `main_contractors` | rows on **2** and **0** pages of 2,419 | declared, not built — `Q-18` |
+   | ~~`technical_rating`~~ | **not a table at all.** `contractor-tab4` holds zero tables in its DOM subtree on 2,360 of 2,360 pages | nothing to build |
+
+   **And the page has SEVEN cards, not five, one of which is a PRICE.** The card titled
+   `العقود سعر البناء (برنامج البناء الذاتي)` publishes a self-build price per square
+   metre in three tiers — three new columns — and the contract-request form, believed
+   absent, carries the **Commercial Registration number** on 2,542 of 2,543 pages, ten
+   digits, all distinct. Six new columns in all, 21 → 27, safe because `R-31` upgrades
+   a schema additively. See `OP-43`, [LESSONS.md](LESSONS.md) §11, and `Q-17`/`Q-18`,
+   which are what is actually left for him.
 
 **HIS RULING ON THE TWO WAREHOUSES, 2026-08-22.** Both machines have developed muqawil, so
 the databases must be **merged**, with Drive as the single source of truth for DATA while

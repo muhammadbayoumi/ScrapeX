@@ -85,6 +85,43 @@ to `RULINGS.md`; a thing we discovered goes here.
 
 Ordered by consequence.
 
+### OP-43 · Four written premises about the muqawil profile page were wrong, and one of them hid a price
+**Found 2026-08-22** under `REQ-31`, measured over **2,419 real profile pairs** read
+read-only out of the running crawl, after he warned that the pages are not consistent —
+«المعلومات غير ثابته ولا متفقثة بين الصفح يعنى ممكن تلاقى معلومات تانية وطريقة عرض مختلفة».
+
+Everything this repository believed about that page came from two committed fixtures,
+which are **one contractor**. `R-19` labelled that limit honestly; the conclusions
+outlived the label.
+
+| premise, and where it was written | what 2,419 pages say |
+|---|---|
+| `extract/muqawil.py`'s module docstring: the fifth `<table>` is *the technical rating* | There is no technical-rating table. `contractor-tab4` holds **zero tables** in its DOM subtree on 2,360 of 2,360 pages. The fifth table is the **self-build price** schedule |
+| `GROUPS_NOT_LOCATED`: the technical rating *"carries no table for this contractor"* | Not this contractor — the site. It is a tab button over an empty pane |
+| the plan: `contract_request_url` *"has no known URL pattern and is not on the card"* | The card is on **100%** of pages. The URL is one site-wide constant, so it earns no column — and the form carries the **Commercial Registration number** |
+| `write_groups`: the licences cell carries both languages *"with no separator"* | There are two dashes in it. They are **hierarchy** separators inside each language, and splitting on them would have cut a path into pieces and called each piece a language |
+
+**All four are fixed and the fixes are in the same pull request**, per **C2**. What is
+left over is recorded rather than repaired:
+
+- **The site's own English is wrong on 100 of 1,685 licence rows** — 30 truncated to
+  `Civil Engineering -` (the same string for two different activities) and 70 naming a
+  *different activity*. Detected by level count, stored with the Arabic path alone.
+  Across the corpus that leaves **3 of 29** taxonomy nodes with no English name, which
+  are the three the site never publishes correctly. → `Q-17`.
+- **`sub_contractors` and `main_contractors` carry rows on 2 and 0 of 2,419 pages.**
+  Declared and unbuilt. → `Q-18`.
+- **The card census has one stated blind spot.** `undeclared_cards()` reports an
+  undeclared card only when it carries a table or a list, because the contractor's own
+  name is a text card whose title differs on every page. Measured: filtering by
+  position is wrong on 40 of 5,668 pages, by content on 0 — so a new **text** card
+  would not be reported. The narrower guard with no false positives was chosen
+  deliberately.
+
+**Next action:** none blocking. The 34,834-page crawl is storing evidence now and
+`R-40` made the re-parse path work, so every column above lands on a re-approval with
+no network.
+
 ### OP-1 · The engine on the owner's machine ran unmerged, half-written code
 **Status: CLOSED, re-measured 2026-08-09.** `_host_lanes` is on `origin/main` in
 `scrapex/jobs.py`; the PR was opened and merged. The account below is kept because
@@ -1554,7 +1591,7 @@ worse for a dataset"* ([scrapex/webui/app.py:639](../scrapex/webui/app.py#L639))
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2710](../scrapex/webui/app.py#L2710)).
+for anything else ([scrapex/webui/app.py:2725](../scrapex/webui/app.py#L2725)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
@@ -2297,6 +2334,38 @@ with HTTP 429.
 ## 6. Open questions for the owner
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
+
+**~~Q-17~~ · RULED 2026-08-22 — see [R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card).**
+He refused both options this question offered. **We never translate** — where the site
+publishes no usable English, the node keeps its Arabic identity and no English name.
+And the readiness level is **neither a column nor discarded**: fixed columns in the
+table, everything else in the **row's own card**, because contractors will have several
+sources and a column is a promise every source must keep. The question is kept below,
+unedited, because the answer is only legible beside what was asked (**C4**).
+
+**Q-17 · The licences: a readiness level almost nobody publishes, and three activities the site names wrongly in English.**
+Two decisions in one place because they are the same table.
+*(a)* `مستوى الجاهزية` is **empty on 1,490 of 1,500 rows** — five distinct values across
+the other ten (Gold, Silver, `Dimond` as the site spells it, Basic).
+`classification_membership` has no column for a per-membership attribute, so storing it
+is a **migration** for a fact 0.7% of rows carry. Options: migrate now; leave it read
+and unstored, which is what today does — `read_licensed_activities` returns it either
+way, so the day it earns a column it is a re-parse of stored snapshots and not a
+re-crawl; or drop it.
+*(b)* For the **3 activities of 22** whose English half the site publishes truncated or
+simply wrong, the node is stored under its Arabic identity with **no English name**.
+Options: leave it empty and let the site fix itself; write our own English, which is a
+mapping only you can authorise (**R-02**); or show the raw published string, `Civil
+Engineering -`, which is the same string for two different activities.
+
+**Q-18 · Do the two contractor-relation groups still get tables?**
+`R-19` ruled child tables for all five groups, on one profile. Measured over 2,419:
+`main_contractors` carries rows on **0** pages and `sub_contractors` on **2**. They are
+also the only two of the five that are **relations between contractors** rather than
+classifications, so `dataset_relationship` — which now has its first tenant — may be
+their home rather than the taxonomy. Options: build them now at 2 rows; wait until the
+34,834-page crawl finishes and re-measure, which costs nothing because the snapshots
+keep the evidence; or rule them out and record it.
 
 **Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
 Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6

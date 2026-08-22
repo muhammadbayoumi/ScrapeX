@@ -468,6 +468,27 @@ displayed anywhere.
 the three cards checked had no rating and no modal), so it cannot be a reliable source for
 the column even if the identification is right.
 
+**FOUND 2026-08-22 — and not there. The lead above was the wrong trail.** The Commercial
+Registration number is the pre-filled `cr` input of the **contract-request form**, which
+every profile publishes. Measured over 2,543 profile pairs:
+
+| | |
+|---|---|
+| pages carrying it | **2,542 of 2,543** |
+| shape | **ten digits**, every one |
+| distinct values | **2,542 over 2,542 contractors — no two share one** |
+
+So it is a second natural key for this directory, and the first that is a **national**
+identifier rather than muqawil's own numbering — which is what a row here can be joined
+to Balady, or to a commercial register, on. The rating-modal lead needed a contractor to
+have a rating; the form needs nothing. `read_commercial_registration` in
+`scrapex/extract/muqawil.py`.
+
+**The same form answers `Contract Request URL`, and the answer is that it is not a
+column.** Its action is `https://muqawil.org/init_econtract_draft` — one endpoint,
+identical on all 2,479 pages measured. A site-wide constant is not a per-contractor
+field.
+
 ## The design
 
 ### Where it lives: one `dataset_definition`, and the G1 path unchanged
@@ -566,8 +587,9 @@ from the id, not fetched. Types are `field_definition.data_type`.
 | `main_contractors` · `subcontractors` | **json** | pr | edges; see the deferred question |
 | `technical_rating_by_activity` | **json** | pr | |
 | `technical_rating_by_company_size` | **json** | pr | |
-| `self_build_price_per_sqm` | **json** | pr | the three bands as one object; **renders only under `/143`** |
-| `commercial_registration_number` | text | — | optional and unobserved |
+| `self_build_price_under_five_projects` · `_five_to_ten_projects` · `_over_ten_projects` | text | pr | **THREE COLUMNS, not one JSON object — corrected 2026-08-22.** This row used to read "the three bands as one object". Measured over 2,419 pairs: exactly three labels and no fourth, values numeric with no currency or separator, and the three arrive **in different orders on different pages**, so they are read by label. Three fixed scalars are not a multi-valued group — the same reasoning `write_groups` already applied to the contract counts. `R-19` overruled JSON for the five *hierarchical* groups, and this is not one of them |
+| `model_contract_count` · `registered_contract_count` | text | pr | **NEW 2026-08-22.** Two scalars from the card titled `Previous Projects` / `المشاريع السابقة`, whose table holds contract counts and not projects — so the reader keys on the table's headers and never on the card's title. 92 of 2,419 pages, always exactly one row |
+| `commercial_registration_number` | text | pr | **FOUND 2026-08-22 — 2,542 of 2,543 pages, ten digits, all distinct.** The old verdict here, "optional and unobserved", was true of four profiles and false of the site. See the section above |
 | `company_description` / `_ar` | text | — | unobserved on four profiles |
 
 **`licensed_activities` is NOT an `[ar]`/non-`[ar]` pair.** The site stacks both languages
@@ -581,6 +603,28 @@ Construction of Buildings - Construction of Buildings – All Types
 — with readiness written `أساسي | Basic`. So it is one JSON field carrying both, not two
 columns. The same holds for every section that stays Arabic on the `/en/` page.
 
+**CORRECTED 2026-08-22, and the correction is the interesting part.** The dashes in that
+cell are **NOT** language separators — they are **hierarchy** separators, inside each
+language. `تشييد المباني - تشييد المباني - جميع الأنواع` is a three-level path, and its
+English half is the same three levels. The language boundary is the **first Latin
+letter**, and that is provable rather than plausible: measured over 1,500 rows, the
+script-run signature of every activity cell is `AL` — Arabic then Latin, exactly one
+transition, 1,500 of 1,500.
+
+So it is neither one JSON field nor two columns. It is a **taxonomy** — 1,685 rows over
+228 pages, drawn from a closed vocabulary of **22 distinct activities** — which is what
+[R-19](RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)
+ruled and `R-38` shaped. `contractors.write_groups` writes it as of 2026-08-22.
+
+**And the site's own English is wrong on 100 of those 1,685 rows** — 30 truncated to
+`Civil Engineering -`, which is the same string for two different activities, and 70
+naming a *different activity* entirely. All three cases change the number of levels, so
+comparing level counts catches every one. Where they disagree the Arabic path is stored
+alone and the English name is left **empty**, which is the state `taxonomy.ensure_path`
+already repairs the moment a page with a usable English half arrives. Measured across the
+corpus, that repair leaves exactly **3 of 29 nodes** without an English name — the three
+the site never publishes correctly.
+
 ### What CANNOT be filled from public pages — measured, not assumed
 
 | specified column | verdict |
@@ -588,7 +632,7 @@ columns. The same holds for every section that stays Arabic on the `/en/` page.
 | Quality / Schedule / Environment Health and Safety / Value / Communication Rating Score | **not published per contractor.** Absent from four profiles, including three that HAVE ratings. The five names appear only on `/contractors-rate/info`, which describes the criteria. Behind login, or not published at all |
 | `Customer Rating Grade` / `[ar]` | not found on any profile read |
 | `Company Description` / `[ar]` | not found on four profiles — already called optional by the owner |
-| `Commercial Registration Number` | not found; he had not seen it either |
+| ~~`Commercial Registration Number`~~ | **FOUND 2026-08-22 on 2,542 of 2,543 pages.** Struck rather than deleted, per **C4**: the verdict was reached honestly on four profiles, and the lesson is that four profiles is not the site. It is in the contract-request form, not on the card |
 
 **Nine specified columns therefore have no public source.** They stay in the field list as
 nullable and are simply never written — a column that exists and is empty is a fact; a
