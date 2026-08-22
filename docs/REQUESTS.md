@@ -89,6 +89,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 | [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
+| [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
+| [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
 
 ---
 
@@ -1562,3 +1564,87 @@ has no run ledger of its own, and whether a generic crawl belongs in the price j
 queue is still the open question at the foot of that document. The measurement, the
 four findings it produced and the mutation results are in
 [BACKLOG.md](BACKLOG.md) as `OP-44`.
+## REQ-35 · The card must say the engine is running from source, not that it is missing
+**Captured 2026-08-22 · Not built**
+
+> «المحرك يعمل الان عن طريقك ويتجدد باستمرار لاننا نطوره · انا عاوز طريقة توضح فى الكارد
+> ان المحرك غير مثبت على الجهاز ولكنه يعمل فى نظام developer · ويظهر المحرك يعمل»
+
+The engine on his machine is not an installed build. It is started from this
+checkout and it changes several times a day because that is what we are doing to
+it. The panel has no word for that state, so it uses the word for the other one:
+
+    Installed version   Not detected
+    Protocol            Not available
+
+Both are literally true — nothing is installed — and both read as **broken**, which
+is the second time this month the panel has told him the engine was absent while it
+was serving. The first was `/api/health` taking 3.8 s against a 2,500 ms deadline
+(`R-45`'s sibling, fixed in #251); this one is not a bug at all. It is a state the
+product has no vocabulary for.
+
+**THE ENGINE ALREADY KNOWS AND HAS NEVER BEEN ASKED.** The frozen build enters
+through `packaging/engine_entry.py`, which `cli.py`'s own `--version` comment says
+*"cannot reach this parser at all"* — so the two ways of starting it are already
+distinct in the code. What is missing is that neither says so on the wire: nothing
+in `/api/health` reports **how** this engine is running.
+
+**So the shape is: the engine reports its own run mode, and the panel has a third
+word.** Not the panel guessing from an empty version string, which is what it does
+now (`extension/app.js:3484` on empty `state.engineVersion`) — a guess is how
+"running from source" became "not detected" in the first place.
+
+**And it is not cosmetic.** He works from two machines and the update path is real:
+`REQ-28`/`OP-32` exist because the engine he *downloaded* was behind the source, and
+a panel that cannot tell "installed 0.2.1" from "source 0.3.0" cannot help him see
+which one he is looking at. A developer-mode engine must also never be offered an
+update that would overwrite his checkout.
+
+**Blocked on nothing.** It is one field on an endpoint the panel already polls, plus
+the words on the card.
+
+---
+
+## REQ-36 · The three dots are missing on a contractor card, and unprofessional on the others
+**Captured 2026-08-22 · In flight**
+
+> «ال 3 نقاط لا تظهر فى كارد مقاول»
+>
+> «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل مربع اعتقد ان ال3 نقاط معمولة فى صفحة
+> profile بشكل احترافى عن هذا الشكل»
+
+Sent with a screenshot of the Data screen after he reloaded the extension and confirmed
+#252's fix had worked — the duplicated `⋮` is gone. These are what remained.
+
+**FILED LATE, AND THAT IS THE POINT OF `C7`.** He said both of these hours before this
+entry existed. They were briefed to a session and acted on immediately, and **a
+delegation is not a record**: nothing on the board carried them, so nothing but one
+agent's context knew they had been asked for. `test_every_finding_that_quotes_him_is_reachable_from_the_request_board`
+is what caught it — a *different* session quoted him in a `BACKLOG` entry and the guard
+refused it, because a finding may quote him only where a request of his exists to
+answer. The guard found my omission, not that session's.
+
+`REQ-04` is why this rule exists: ruled, unbuilt, and out of sight for sixteen days.
+
+**One · no menu at all on a dataset card.** `sourceMenu` returns `""` for
+`kind === "dataset"` (`extension/app.js`), and its comment justifies it — every action
+posts to a manifest-backed route and a dataset is not in the manifest, so *"a button that
+cannot work is worse than no button."* Right for five of six. **Wrong for the sixth:**
+`/api/table/{key}` resolves the dataset catalogue first, so *Open the data table* works
+today. Measured: `contractors` and `contractor_profiles` render **0** triggers,
+`LONG_AR`/`SHORT` render 1 each. Already recorded as `OP-42`, which is now his ask.
+
+**Two · the trigger's treatment.** `.dataset-card > .split-button` is absolutely
+positioned in the card's corner (`extension/app.css`), and he reads the result as a
+filled box crowding the card's edge. He is comparing it against something he calls the
+profile page, and **which** control that is has to be measured rather than guessed —
+the panel and the engine UI ship several overflow triggers (the shared split button,
+`.account-menu`, `.sx-select-list`, `.source-filter-menu`), each with its own size,
+padding and open state. The session on it is enumerating them, naming the one he means,
+and bringing the card's trigger to that treatment in **card-local rules only**:
+`design/components.css` generates the shared copy that five surfaces consume, and
+`OP-47` already records that fixing consumers instead of the component is how this class
+of defect spreads.
+
+**Verified visually, not by reading CSS back**, in both themes — the panel renders light
+and dark, and a trigger that reads well on one ground often does not on the other.

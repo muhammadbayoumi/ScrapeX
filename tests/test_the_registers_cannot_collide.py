@@ -110,7 +110,16 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: checked it, so re-check before trusting it.**
 RESERVED: dict[str, dict[int, str]] = {
     "R": {},
-    "REQ": {},
+    # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
+    # not on this one, which is the state this table is for -- and being handed a
+    # number by another session is not enough on its own: the assignment that named
+    # this guard without naming this mechanism nearly turned a sibling branch red.
+    #
+    # DELETE A ROW THE MOMENT ITS PR LANDS. A reservation left behind is a permanent
+    # hole nobody owns, which is the rule the comment above already states.
+    "REQ": {
+        34: "branch claude/drive-without-a-server",
+    },
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.

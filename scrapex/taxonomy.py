@@ -49,6 +49,17 @@ class Membership:
     node_id: int
     path: tuple[str, ...]
     path_ar: tuple[str, ...]
+    #: WHAT THE SITE SAID ABOUT THIS MEMBERSHIP, from `0010`: the site's own name
+    #: for the attribute and its two published halves. Empty strings where the
+    #: group publishes no attribute column, which is every interest and 1,490 of
+    #: 1,500 measured licences.
+    #:
+    #: THIS IS WHAT THE ROW'S CARD SHOWS AND THE TABLE CANNOT. `R-45`: a field is
+    #: not a column, and `مستوى الجاهزية` describes one activity rather than the
+    #: contractor -- so it has no honest home on the contractors table at all.
+    attribute_label: str = ""
+    attribute_value: str = ""
+    attribute_value_ar: str = ""
 
 
 def ensure_scheme(conn: sqlite3.Connection, site_profile_id: int, *,
@@ -124,7 +135,8 @@ def ensure_path(conn: sqlite3.Connection, scheme_id: int, *,
 
 
 def link(conn: sqlite3.Connection, *, generic_record_id: int, node_id: int,
-         group_key: str, source_snapshot_id: int) -> bool:
+         group_key: str, source_snapshot_id: int,
+         attribute: tuple[str, str, str] | None = None) -> bool:
     """This contractor holds this node, in this group. `True` if it is new.
 
     IDEMPOTENT BY THE PRIMARY KEY, not by a check here — `(generic_record_id, node_id,
@@ -146,17 +158,40 @@ def link(conn: sqlite3.Connection, *, generic_record_id: int, node_id: int,
     indistinguishable. Measured: a second identical pass over one profile reported all 25
     memberships as new. `seen_count` is incremented by the upsert and returned, so `= 1`
     means "written just now" with no extra read and nothing to race.
+
+    `attribute` IS `(label, value, value_ar)` AND IT BELONGS TO THE MEMBERSHIP, which is
+    `0010` and `R-45`. What the site says about one activity — muqawil publishes
+    `مستوى الجاهزية` beside each licence, `أساسي | Basic` — describes THAT membership and
+    not the contractor, so a contractor with six licences can be graded on one and
+    ungraded on five. `None` is the common case: measured, 1,490 of 1,500 licence rows
+    publish nothing here and interests publish nothing by construction.
+
+    THE LABEL IS THE SITE'S, NEVER OURS, which is why it is a value rather than a column
+    name. A column called `readiness` on a table that serves every site would need a
+    fourth for Balady's attribute and a fifth for the UAE's — the shape his ruling was
+    about, one level down.
+
+    A REPEAT OVERWRITES IT RATHER THAN KEEPING THE OLD ONE, on the same reasoning as
+    `source_snapshot_id` on the line below it: the newest reading of a page is the one
+    whose evidence we still hold. A contractor upgraded from `أساسي` to `ذهبي` must not
+    keep the old grade because the membership itself is unchanged.
     """
+    label, value, value_ar = attribute or ("", "", "")
     seen = conn.execute(
         "INSERT INTO generic_record_node "
-        "(generic_record_id, node_id, group_key, source_snapshot_id) "
-        "VALUES (?,?,?,?) "
+        "(generic_record_id, node_id, group_key, source_snapshot_id, "
+        " attribute_label, attribute_value, attribute_value_ar) "
+        "VALUES (?,?,?,?,?,?,?) "
         "ON CONFLICT(generic_record_id, node_id, group_key) DO UPDATE SET "
         "  last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         "  seen_count = seen_count + 1, "
-        "  source_snapshot_id = excluded.source_snapshot_id "
+        "  source_snapshot_id = excluded.source_snapshot_id, "
+        "  attribute_label = excluded.attribute_label, "
+        "  attribute_value = excluded.attribute_value, "
+        "  attribute_value_ar = excluded.attribute_value_ar "
         "RETURNING seen_count",
-        (generic_record_id, node_id, group_key, source_snapshot_id)).fetchone()
+        (generic_record_id, node_id, group_key, source_snapshot_id,
+         label or None, value or None, value_ar or None)).fetchone()
     return int(seen[0]) == 1
 
 
@@ -173,30 +208,43 @@ def memberships(conn: sqlite3.Connection, generic_record_id: int, *,
     — on 500K memberships three levels deep that is 1.5M round trips for an answer SQLite
     can assemble in one.
     """
+    # THE ATTRIBUTE IS CARRIED THROUGH THE RECURSION RATHER THAN JOINED AGAIN.
+    # It lives on the membership row, which only the ANCHOR of this CTE touches --
+    # every later step walks `classification_node` upward and has no membership to
+    # read. Selecting it once in the anchor and passing it along costs three
+    # columns; a second join would cost a query per membership, which is the round
+    # trip this CTE exists to avoid.
     rows = conn.execute(
-        "WITH RECURSIVE up(node_id, group_key, leaf_id, name, name_ar, parent) AS ("
+        "WITH RECURSIVE up(node_id, group_key, leaf_id, name, name_ar, parent, "
+        "                  label, value, value_ar) AS ("
         "  SELECT n.node_id, m.group_key, n.node_id, n.node_name, n.node_name_ar, "
-        "         n.parent_node_id "
+        "         n.parent_node_id, m.attribute_label, m.attribute_value, "
+        "         m.attribute_value_ar "
         "    FROM generic_record_node AS m "
         "    JOIN classification_node AS n ON n.node_id = m.node_id "
         "   WHERE m.generic_record_id = ? "
         "     AND (? IS NULL OR m.group_key = ?) "
         "  UNION ALL "
         "  SELECT p.node_id, up.group_key, up.leaf_id, p.node_name, p.node_name_ar, "
-        "         p.parent_node_id "
+        "         p.parent_node_id, up.label, up.value, up.value_ar "
         "    FROM up JOIN classification_node AS p ON p.node_id = up.parent "
         ") "
-        "SELECT leaf_id, group_key, name, name_ar FROM up "
+        "SELECT leaf_id, group_key, name, name_ar, label, value, value_ar FROM up "
         " ORDER BY group_key, leaf_id, node_id",
         (generic_record_id, group_key, group_key)).fetchall()
 
     built: dict[tuple[str, int], tuple[list[str], list[str]]] = {}
+    said: dict[tuple[str, int], tuple[str, str, str]] = {}
     for row in rows:
         key = (row["group_key"], int(row["leaf_id"]))
         names, names_ar = built.setdefault(key, ([], []))
         names.append(row["name"] or "")
         names_ar.append(row["name_ar"])
+        said[key] = (row["label"] or "", row["value"] or "", row["value_ar"] or "")
     return tuple(
         Membership(group_key=group, node_id=leaf,
-                   path=tuple(names), path_ar=tuple(names_ar))
+                   path=tuple(names), path_ar=tuple(names_ar),
+                   attribute_label=said[(group, leaf)][0],
+                   attribute_value=said[(group, leaf)][1],
+                   attribute_value_ar=said[(group, leaf)][2])
         for (group, leaf), (names, names_ar) in sorted(built.items()))
