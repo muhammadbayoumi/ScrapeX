@@ -149,11 +149,22 @@ def settle_view(page, name: str) -> None:
 
     THE NUMBERS BELOW ARE THE POINT OF THIS FUNCTION. A wait with no visible
     cause is a wait the next reader deletes — which is precisely how the guard
-    in `test_the_engine_overflow_trigger_has_no_visible_resting_container` came
-    to be broken: someone loosened it to 47.5 without writing down why, and the
-    next person along removed the 47.5 as unjustified slack. Both were right
-    about the other's evidence and wrong about the cause. Do not repeat that by
-    deleting this because it looks like a sleep.
+    that produced these numbers came to be broken: someone loosened it to 47.5
+    without writing down why, and the next person along removed the 47.5 as
+    unjustified slack. Both were right about the other's evidence and wrong about
+    the cause. Do not repeat that by deleting this because it looks like a sleep.
+
+    THAT GUARD NO LONGER EXISTS, AND THIS SAYS SO RATHER THAN NAMING IT AS IF IT
+    DID. It was `test_the_engine_overflow_trigger_has_no_visible_resting_container`
+    — added by `8796fb5` (#151), removed by `ce80886` (#217) when the Engine page's
+    overflow menu was replaced by action rows, so the trigger it measured stopped
+    existing. Read it with `git show 8796fb5:tests/test_panel_dom.py` if you want
+    the original; the measurements below were taken against it and are reproducible
+    against any test that measures a box in a view this settles, of which
+    `test_the_back_button_out_of_one_engine_is_a_borderless_pill` below is the
+    closest live equivalent — same screen, same borderless-control geometry.
+    Naming a deleted test as though a reader could open it is how evidence stops
+    being checkable, which is the one thing this docstring is for.
 
     `showView` animates a view in with `transform: translateY(8px) -> (0)` over
     180ms (extension/app.js). The animation is on the `#view-<name>` element
@@ -165,7 +176,7 @@ def settle_view(page, name: str) -> None:
 
     While the animation runs the view carries a live transform, so every box
     read through it comes back as a float32 compositor quad. Measured on
-    Windows, Chromium, devicePixelRatio 1, running the overflow-trigger test
+    Windows, Chromium, devicePixelRatio 1, running that overflow-trigger test
     ALONE — no suite around it:
 
       * 20/20 runs read the box MID-animation. The `wait_for_function` that
@@ -4541,11 +4552,17 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
     a 40px pill with no resting border or background, muted until hovered.
 
-    Read from the CSSOM as well as the box, for the reason
-    `test_the_engine_overflow_trigger_has_no_visible_resting_container` was
-    rewritten around: a global `button {min-height: var(--control-height)}`
-    clamps the rendered height back up, so a rendered box alone cannot catch a
+    Read from the CSSOM as well as the box, and the reason is a live rule rather
+    than a remembered one: `button, .button { min-height: var(--control-height) }`
+    in `design/components.css:369-371` applies to every bare `<button>`, so it
+    clamps the rendered height back up and a rendered box alone cannot catch a
     height regression at all.
+
+    The technique was established by
+    `test_the_engine_overflow_trigger_has_no_visible_resting_container`, which is
+    GONE — removed by `ce80886` (#217) with the overflow menu it measured. Cited
+    here as history, not as somewhere to look: the clamp above is the evidence,
+    and it is still in the sheet.
     """
     page = open_panel()
     page.click("#tab-engines")
