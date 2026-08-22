@@ -1003,6 +1003,18 @@ The profile pages carry the ~28 columns the listing does not, and the full crawl
 **34,834 pages — 11.1 hours**, measured over 87 minutes of real six-worker crawling at
 52.5 pages a minute. He chose to see one city first.
 
+> **AMENDED 2026-08-22, and the figure above is kept because the correction is about
+> WHAT IT WAS MEASURED ON.** 52.5 pages a minute was the **listing** crawl, at six
+> workers. `--details` had no workers at all — it was one page at a time — and its own
+> measured rate on the Dammam run was **9.03 s a page**, which is 6.65 pages a minute
+> and **87 hours**, not 11.1. So the ruling was right about the destination and wrong
+> about the vehicle: it priced a journey using another command's speed.
+>
+> He caught it himself — «ولاحظ أنّ R-39 يسجل 11.1 وهو رقم خاطئ». `--details` now takes
+> `--workers`, which is what makes the original number reachable again: **11–14 hours**
+> depending on whether profiles overlap as well as listings did. The lesson is narrower
+> than "check your arithmetic": **a rate measured on one command is not a rate.**
+
 **The city is read off the listing card, so a slice costs nothing to select.** Measured
 from the live warehouse, the cities that a first slice could be:
 

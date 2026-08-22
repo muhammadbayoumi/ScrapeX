@@ -114,6 +114,17 @@ def _dictionary(conn: sqlite3.Connection, label: str, seed: str) -> tuple[int, b
     all end with a second dictionary and a migration of everything compressed against
     the first. A page compressed against itself also costs almost nothing, so the
     seed row is not a wasted one.
+
+    AND IT IS SAFE UNDER CONCURRENT WRITERS, which SELECT-then-INSERT was not.
+    `label` is UNIQUE, so six workers starting a crawl together all miss the SELECT
+    and all attempt the INSERT: one wins and five raise IntegrityError. MEASURED, not
+    guessed — the first six-worker `--details` run over twenty pages stored 14 and
+    reported 6 failures, and all six were this race rather than anything wrong with
+    the pages.
+
+    The loser must then use the WINNER'S dictionary rather than its own seed, because
+    the winner's body is what the winner's rows are compressed against. So the SELECT
+    is retried after the conflict: whoever lands second reads what landed first.
     """
     row = conn.execute(
         "SELECT dict_id, body FROM snapshot_dictionary WHERE label = ? LIMIT 1",
@@ -121,10 +132,20 @@ def _dictionary(conn: sqlite3.Connection, label: str, seed: str) -> tuple[int, b
     ).fetchone()
     if row is not None:
         return int(row[0]), bytes(row[1])
-    cursor = conn.execute(
-        "INSERT INTO snapshot_dictionary (label, body) VALUES (?,?)",
-        (label, seed.encode("utf-8")),
-    )
+    try:
+        cursor = conn.execute(
+            "INSERT INTO snapshot_dictionary (label, body) VALUES (?,?)",
+            (label, seed.encode("utf-8")),
+        )
+    except sqlite3.IntegrityError:
+        row = conn.execute(
+            "SELECT dict_id, body FROM snapshot_dictionary WHERE label = ? LIMIT 1",
+            (label,),
+        ).fetchone()
+        if row is None:
+            # Not a label collision then, so it is not this function's to swallow.
+            raise
+        return int(row[0]), bytes(row[1])
     return int(cursor.lastrowid), seed.encode("utf-8")
 
 

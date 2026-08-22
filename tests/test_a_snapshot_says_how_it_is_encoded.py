@@ -296,3 +296,73 @@ def test_the_corpus_costs_far_less_than_the_sum_of_its_pages(conn):
         f"the shared dictionary bought only {ratio:.1f}x on a corpus of "
         "near-duplicates; per-page compression alone reaches about 15x here, so "
         "this says the dictionary is not being shared")
+
+def test_six_writers_racing_for_one_dictionary_all_get_the_winners(tmp_path):
+    """THE RACE A SIX-WORKER CRAWL HITS, forced with a barrier rather than hoped for.
+
+    `label` is UNIQUE, so writers that all miss the SELECT all attempt the INSERT and
+    all but one raise IntegrityError. Not hypothetical: the first six-worker
+    `--details` run over twenty pages stored 14 and reported 6 failures, and all six
+    were this.
+
+    TWO WEAKER VERSIONS OF THIS TEST WERE WRITTEN AND BOTH PASSED WITH THE FIX
+    REMOVED, which is the only reason it looks like this:
+
+      * six threads with no barrier -- twenty pages is not enough to force the
+        interleaving, so they mostly did not collide;
+      * a hand-ordered two-connection version -- B committed BEFORE A's SELECT, so A
+        found the row and returned early, never reaching the INSERT the fix is about.
+
+    A `threading.Barrier` fixes both: every thread is released only once all six have
+    arrived, and the SELECT is the first thing `_dictionary` does, so all six miss it.
+
+    The losers must end up with the WINNER'S body, never their own seed, because the
+    winner's body is what the winner's rows are compressed against.
+    """
+    import threading
+
+    from scrapex.snapshotbody import _dictionary
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                               pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+
+    gate = threading.Barrier(6)
+    got: list[tuple[int, bytes]] = []
+    blew_up: list[Exception] = []
+    lock = threading.Lock()
+
+    def racer(n: int) -> None:
+        conn = registry.engine.connect()
+        try:
+            gate.wait()
+            found = _dictionary(conn, "muqawil.org/listing", f"page from {n}")
+            conn.commit()
+            with lock:
+                got.append(found)
+        except Exception as exc:
+            with lock:
+                blew_up.append(exc)
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=racer, args=(n,)) for n in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not blew_up, (
+        f"{len(blew_up)} of six writers raised instead of reading the winner's "
+        f"dictionary: {blew_up[0]!r}")
+    assert len({dict_id for dict_id, _ in got} ) == 1, (
+        f"six writers produced {len({d for d, _ in got})} dictionaries for one label")
+    assert len({body for _, body in got}) == 1, (
+        "two writers disagree about the body behind one dict_id, so one of them "
+        "compressed its pages against a dictionary the row does not name")
+    reader = registry.engine.connect()
+    try:
+        assert reader.execute(
+            "SELECT COUNT(*) FROM snapshot_dictionary").fetchone()[0] == 1
+    finally:
+        reader.close()

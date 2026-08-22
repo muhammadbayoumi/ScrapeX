@@ -40,12 +40,21 @@ conservative.
 Two of the four next steps need nothing but this repository — the tests run on committed
 fixtures, never on his warehouse:
 
-1. **Workers for `--details`.** Measured: the Dammam profile crawl ran at **9.03 s a
-   page** single-threaded, so the full 34,834-page crawl is **87 hours**. The listing
-   crawl measured 1.14 s a page with six workers. Adding workers here is the difference
-   between 87 hours and about 14, and it is the same work already done for
-   `crawl_partition`. **`R-39` records 11.1 h and that figure is WRONG** — it was measured
-   with six workers and applied to a single-threaded command.
+1. ~~**Workers for `--details`.**~~ **DONE 2026-08-22.** `--details` takes `--workers`,
+   the same shape as `crawl_partition`: a connection per worker, and the pace unchanged
+   because `HttpFetcher._throttle` holds its lock across the sleep. Measured before:
+   **9.03 s a page** single-threaded, so 34,834 pages was **87 hours**; the number to
+   beat is the listing crawl's 1.14 s a page at six workers, which puts this at
+   **11–14 hours**. `R-39`'s 11.1 h is amended rather than deleted — it was measured on
+   the **listing** command and priced the profile one, which is a narrower lesson than
+   bad arithmetic: *a rate measured on one command is not a rate.*
+
+   **And the first six-worker run found a real race**, which is the argument for the
+   guard rather than for the feature: six workers all miss the `snapshot_dictionary`
+   SELECT, all attempt the INSERT, and five lose on `UNIQUE(label)` — 20 pages stored
+   14 and reported 6 failures that were not about the pages at all. `_dictionary` now
+   re-reads after a conflict and uses the winner's body, because the winner's body is
+   what the winner's rows were compressed against.
 2. **Branch protection on `main`.** Measured: `protected: False`, 404 on the protection
    endpoint. Require the check suite, require branches up to date, forbid direct pushes.
    His to switch on, and it is what makes `ac3a5af` — which left `main` red for two days
