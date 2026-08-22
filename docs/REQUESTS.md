@@ -84,7 +84,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
-| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **Ruled** — [R-36](RULINGS.md#r-36): the engine updates itself, the panel asks. Blocked on `OP-36`, `OP-35` | 2026-08-21 |
+| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
 
 ---
 
@@ -1227,9 +1227,22 @@ changes what somebody else's merged test asserts.
 ---
 
 ## REQ-29 · An install surface that looks like a professional program, and an update anyone can apply
-**Captured 2026-08-21 · Ruled — [R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download)**
+**Captured 2026-08-21 · In flight — ruled by [R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download), and being built**
 
-> **Ruled the same day.** He answered the study below with «اوافق على اقتراحاتك
+> **IN FLIGHT the same day.** *«ابدأ بالمحدث داخل الـEngine وشريحة downloads»* —
+> both are built. `scrapex/release.py` gives the engine its own reading of the
+> release feed (the **third** reader of that one file, so a three-way guard holds
+> it to `releases.js` and the workflow); `scrapex/update.py` fetches and
+> **verifies** before anything is staged; `GET`/`POST /api/update` and
+> `GET /api/update/plan` are the surface the panel asks through; and the panel now
+> hands the first install to `chrome.downloads` with a live percentage and a
+> **Show in folder**, instead of `window.open` and letting go.
+>
+> **What is NOT built, stated plainly: the swap.** Replacing a running `.exe`
+> cannot be honestly tested without a frozen build, so `plan_swap` returns the
+> plan as data — inspectable, logged, tested — and performs nothing. `OP-39`.
+>
+> **Ruled** before that. He answered the study below with «اوافق على اقتراحاتك
 > وتوصياتك», and the four parts of what he approved are written out in `R-36` rather
 > than left in the conversation. Build order: `OP-36` and `OP-35` first, because an
 > Update button on top of them would report success and change nothing.

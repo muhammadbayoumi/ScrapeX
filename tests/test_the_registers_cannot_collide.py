@@ -95,7 +95,10 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 RESERVED: dict[str, dict[int, str]] = {
     "R": {},
     "REQ": {},
-    "OP": {39: "#246 claude/engine-self-update", 40: "#246 claude/engine-self-update"},
+    # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
+    # gone with it — which is the rule the comment above states: a row left behind is a
+    # permanent hole nobody owns.
+    "OP": {},
     "DEC": {},
 }
 

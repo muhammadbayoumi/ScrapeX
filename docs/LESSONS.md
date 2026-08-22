@@ -488,6 +488,49 @@ three read it as bookkeeping. The number was telling the truth: no release carry
 the fix had ever been cut, and the only thing installable was the broken one — for
 twelve days.
 
+### A static-analysis alert on a TEST can be pointing at a hole in production
+
+CodeQL failed #246 with one high-severity alert:
+
+    py/incomplete-url-substring-sanitization
+    tests/test_the_engine_reads_the_same_release_feed.py:63
+    The string raw.githubusercontent.com may be at an arbitrary position in the
+    sanitized URL.
+
+The flagged line was `assert "raw.githubusercontent.com" in engine_url` — a test
+assertion about a constant the code builds itself. **Nothing about it was
+exploitable**, and the obvious responses were both wrong: dismiss it as a false
+positive, or silence it with a suppression comment.
+
+**The alert was pointing one layer past itself.** The engine had just been given
+an updater that downloads `installer.url` out of the release manifest, and
+nothing anywhere checked that the URL belonged to us. The published SHA-256
+proves the CONTENT arrived whole; it says nothing about WHERE the request went. A
+manifest that was mistaken, edited, or served through a compromised path could
+name any host, and the engine would request it — sending the user's address
+somewhere neither party chose, before a digest was computed. **The absence of the
+check was the finding; the test was only where the pattern happened to be
+visible.**
+
+The fix in both places is the same and is one line of reasoning: parse the URL
+and compare `hostname` exactly. These are the cases a substring accepts and an
+exact comparison refuses —
+
+    https://raw.githubusercontent.com.evil.example/x.exe
+    https://evil.example/raw.githubusercontent.com/x.exe
+    https://github.com.evil.example/x.exe
+    https://user:pw@evil.example/github.com/x.exe
+
+**Apply:** when a scanner flags a test, ask what the same mistake would cost in
+the code the test is about, and look there before deciding it is noise. And when
+the answer is a host check, `urlsplit(url).hostname == "..."` is the whole fix —
+`in`, `startswith` and `endswith` are all wrong on a hostname, in that order of
+how convincing they look.
+
+**The scheme belongs in the same check.** A digest survives an eavesdropper; an
+`http://` installer URL still hands the whole download to anyone on the path and
+tells them what is being installed.
+
 ## 5 · The design system: a token has four homes
 
 A new semantic colour is **not one edit**. It must land in `design/tokens.css`
