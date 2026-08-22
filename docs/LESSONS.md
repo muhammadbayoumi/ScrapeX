@@ -590,6 +590,33 @@ fixed. **`--accent` is not a safe state colour**: device mode resolves it to the
 OS `AccentColor`, so it can collide with the fixed `--amber`. Guarded by
 `test_every_custom_property_a_stylesheet_reads_is_one_something_defines`.
 
+### Half a composite component is dressed for the half that is missing
+
+`.split-button` is a primary action beside a menu. The dataset card needed only
+the menu, so it used the `<details>` half on its own — and got a control whose
+`border-radius` computed to **`0 8px 8px 0`**: two rounded corners and two square
+ones, because the shared rule rounds the trigger's OUTER edge and leaves the inner
+edge flat to butt against the primary button. With no primary button beside it that
+is a lopsided box, and it sat on the card's own rounded corner. He photographed it
+and called it unprofessional (`REQ-36`, 2026-08-22); he was describing a composition
+error, not a colour.
+
+**Apply:** before reusing part of a composite, ask what the missing part was holding
+up. The kit has `split-button` (action **and** menu) and `icon-button compact` (no
+menu) and **nothing for a bare overflow menu** — so the honest options are to compose
+the trigger's dress locally, as `.dataset-card` now does against
+`.account-menu-button`'s treatment, or to promote a real component. See
+[UI-KIT.md](UI-KIT.md) §UI-4.
+
+**And measure the SHELL, not the element, when comparing two controls.** The border,
+the fill and the shadow were never on `.split-button-trigger` — they are on the
+`.split-button` wrapper around it. A guard that read `getComputedStyle(trigger)`
+reported the card's trigger and the profile page's as identical **on the broken
+build**, while the screenshot showed a box round one of them. The guard that works
+reads `el.closest(".split-button") || el`. This is the same shape of error as the
+z-index one below: the property you are looking for is on an ancestor, and reading
+the obvious element gives a confident wrong answer.
+
 ### A z-index cannot escape its own stacking context, so raising the number is not a fix
 
 A popover inside a repeated card was painted over by the NEXT card's button, and
@@ -1113,6 +1140,35 @@ Windows checks out `
 harness says `anchor occurs 0x` about code that is plainly on the screen. Translate the
 ANCHORS to the file's line endings; normalising the file would rewrite every line in it
 and defeat the restore check the bytes were for.
+
+### And a restore can be perfect on disk while the INDEX still holds the other version
+
+The sibling above is about the *file*. This one is about the thing beside it, and it
+surfaced on 2026-08-22 taking a before/after screenshot pair.
+
+To photograph the old look, the script checked two files out of `origin/main`,
+shot them, wrote the saved text back, and compared hashes — normalised for CRLF,
+as this file already insists. It reported restored, and the files WERE byte-perfect.
+
+`git checkout <ref> -- <path>` **writes the index as well as the worktree.** So the
+staging area still held `origin/main`'s copy of both files while the worktree held
+the branch's, and the next `git add` of unrelated paths would have committed a
+partial revert of the branch's own work.
+
+What caught it was `git status`, in a form worth recognising on sight:
+
+```
+MM extension/app.js        <- staged AND unstaged changes to one file
+MM extension/app.css
+```
+
+**Apply:** a harness that reaches for `git checkout <ref> -- <path>` must restore
+**both** halves — write the file back *and* `git add` it (or use
+`git show <ref>:<path> > file`, which never touches the index and is the better
+tool for the job). Verify with `git status --porcelain`, not with a content hash: a
+hash of the worktree is blind to the index by construction. And read the two-letter
+status codes rather than skimming for filenames — `MM` and ` M` mean different
+things, and only one of them is what you expected.
 
 ### And `restored: True` can be true while the file on disk has changed
 
