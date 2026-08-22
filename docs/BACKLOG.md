@@ -1856,7 +1856,7 @@ machine — `open`, `close`, `focusOption`, `choose` — to `design/select.js`, 
 exact precedent the repository already set for this class of problem:
 `design/split-button.js` exists because *"the dataset Export control and the
 Activity panel's log control cannot become two implementations"*
-([tools/sync_design_assets.py:26](../tools/sync_design_assets.py#L26)), it is
+([tools/sync_design_assets.py:25-26](../tools/sync_design_assets.py#L25)), it is
 distributed to both surfaces through `ASSETS`, and the copies are held byte-equal by
 `sync(check=True)` in
 [tests/test_design_system.py:16](../tests/test_design_system.py#L16). The
