@@ -357,6 +357,47 @@ def test_every_citation_names_a_line_that_exists(index):
     assert not beyond, "\n  ".join(["citations past the end of their file:", *beyond])
 
 
+def test_no_citation_lands_on_a_blank_line(index):
+    """Tier 1, and it closes a hole the two tiers around it both leave open.
+
+    A citation that has drifted onto a BLANK line passes every other check here.
+    Tier 1 is satisfied because the file is long enough. Tier 2 never looks unless
+    the citation is in `PINNED`. So the document sends its reader to a line that
+    says nothing at all, and what they see reads as a formatting artefact rather
+    than an error -- nobody reports it, because it does not look like a mistake.
+
+    FOUND, NOT IMAGINED, ON 2026-08-22. `#255` added a section to `docs/LESSONS.md`
+    and pushed a sentence `OP-48` cites down 38 lines. The citation still resolved,
+    still passed, and pointed at an empty line. It was caught by re-deriving every
+    citation by hand after a rebase, which is not a thing anybody should have to
+    remember to do.
+
+    THE SWEEP THAT CAME WITH THIS FOUND THREE MORE, all long-standing and all in
+    `docs/BACKLOG.md`: `scrapex/cli.py:761` (the call it names is at 867),
+    `scrapex/connectors/base.py:485` (the sentence it names is at 560) and
+    `tools/panel_harness.py:119` (the manifest read is at 121). Each was corrected
+    by reading the target file, so this assertion goes green on a correct tree
+    rather than arriving red and being negotiated with.
+
+    The end of a range is not checked: a citation may legitimately span a blank
+    line inside a block. Only the line the reader is actually sent to must say
+    something.
+    """
+    empty = []
+    for doc, where, raw, line, _end in _citations():
+        target = _resolve(raw, index)
+        if target is None:
+            continue  # tier 1's first test owns that failure
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line <= len(lines) and not lines[line - 1].strip():
+            empty.append(f"{doc}:{where} cites {raw}:{line}, which is a blank line")
+
+    assert not empty, "\n  ".join([
+        "these citations resolve to a blank line, so they send the reader to "
+        "nothing. Read the target file, find where the subject moved to, and "
+        "correct the document:", *empty])
+
+
 @pytest.mark.parametrize("document,path,line,expected", PINNED,
                          ids=[f"{d.split('/')[-1]}-{p.split('/')[-1]}-{n}"
                               for d, p, n, _ in PINNED])

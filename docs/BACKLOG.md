@@ -660,7 +660,7 @@ leaves an installation that refuses to start rather than one that starts on half
 data.
 
 **Shape of the fix**, for whoever picks it up: call `carry_over` from the same place
-`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:761`) when the pointer is
+`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:867`) when the pointer is
 split, say so on stdout and in the log naming both source files, and give
 `native.upgrade_database()` the same path so the panel's button works. Then a test
 that a split installation **starts**, which is the test nobody has written — every
@@ -2773,7 +2773,7 @@ at the run, don't assume it.
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
 crawl: `extension/app.js:840` posts `crawl_honour_delay` → `scrapex/capture.py:95`
-reads it → `scrapex/connectors/base.py:485` emits the sentence → `job_log_entry`
+reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.
 
@@ -3437,7 +3437,7 @@ is prose in the module docstring saying the extension's number is deliberately
 **not** there, and explaining why the two versions are allowed to differ. I read
 a docstring as code.
 
-The only Python that reads that manifest is `tools/panel_harness.py:119`, a
+The only Python that reads that manifest is `tools/panel_harness.py:121`, a
 development harness that never ships. There is no reversed runtime dependency.
 Recorded here so the note is not raised a second time by someone reading the
 same docstring.
