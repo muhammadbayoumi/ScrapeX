@@ -91,7 +91,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
 | [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
-| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Captured** — cause found: the listing groups by DATASET, not by site | 2026-08-22 |
+| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
 
 ---
 
@@ -1653,7 +1653,7 @@ and dark, and a trigger that reads well on one ground often does not on the othe
 ---
 
 ## REQ-37 · One card per site, and its crawls are options under it — the way GPP does it
-**Captured 2026-08-22 · Not built**
+**Captured 2026-08-22 · Ruled ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) · Not built**
 
 > «المفروض مصدر مقاول يظهر مرة واحدة فقط واختيارات الزحف الخاصة به تكون متعغددة · انظر
 > الى gpp لتفهم كيف تم عمل هذا»
@@ -1702,11 +1702,11 @@ priority one: the branch `fix/a-dataset-card-gets-the-menu-it-can-use` is editin
 `extension/app.js`'s `sourceMenu` right now, and two sessions in that function is the
 collision `docs/ORCHESTRATION.md` §3 exists to prevent.
 
-**One question is his, and it should be asked before the grouping is written:** the two
-muqawil datasets are a **listing** and its **detail pages** — the same contractors seen
-twice, 17,304 rows and 704 rows over one population. Should the card show them as *two
-crawls of one dataset*, or *two datasets of one site*? `dataset_relationship` already
-records them as `one_to_one`, `confirmed` (his own instruction, «اربطهم فى
-dataset_relationship»), so the warehouse already believes the first. The panel would then
-show one row count, not two — and 704 against 17,304 is a coverage number, not a second
-dataset.
+**ANSWERED THE SAME DAY — «زحفين لمجموعة واحدة».** Two crawls of one dataset. Recorded
+as [R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two),
+which also records the half he did not have to decide because the code already had:
+**the two `dataset_definition` rows stay two.** `contractors._approval` refuses to put a
+27-field profile and a 28-field listing under one approved schema, because a subset is
+what a broken parser looks like (`R-31`) — so it is one CARD over two datasets, joined by
+the relationship he already had confirmed. And the second number stops being a population:
+704 of 17,304 is **coverage**, which is what `--coverage` already computes.

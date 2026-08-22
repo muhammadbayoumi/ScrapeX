@@ -1251,6 +1251,64 @@ question at all. It is one more value in a card that has to be built anyway.
 **Recorded as its own track**, because it is a surface feature with a data-model half
 and it is larger than the field that raised it: `REQ-32`.
 
+---
+
+### R-47 · muqawil is ONE card with TWO crawls, and the two stored datasets stay two
+
+**2026-08-22 · surface + data model · answers the question `REQ-37` put to him**
+
+> «زحفين لمجموعة واحدة»
+
+`REQ-37` asked whether the panel should show the two muqawil datasets as *two crawls of
+one dataset* or *two datasets of one site*. He chose the first, and the warehouse already
+agreed with him: `dataset_relationship` records `contractor_profiles` against
+`contractors` as `one_to_one`, **confirmed** — on his own earlier instruction, «اربطهم فى
+dataset_relationship». The panel was the only place still saying otherwise.
+
+**WHAT THIS CHANGES, AND IT IS THE LISTING RATHER THAN THE SCHEMA.** Three things:
+
+1. **One card per site.** `_dataset_rows` in `scrapex/webui/app.py` ends
+   `GROUP BY d.dataset_definition_id` — one row per dataset, with `dataset_key` standing
+   in as `source_key`. It groups by the site instead.
+2. **One row count, and the second number becomes COVERAGE.** Today the cards read
+   `17,304` and `704` as if they were two populations. They are one: 17,304 contractors,
+   of whom 704 have an approved profile. So the card says the population once and reports
+   the profile crawl as *how much of it has been fetched* — which is the number he
+   actually wants, and the one `--coverage` already computes.
+3. **Two crawl options on the card**, because they really are two: the listing sweep is a
+   56-cell partition and the profile sweep is 34,834 pages, and they run, resume and
+   approve separately. That is what «اختيارات الزحف» means here, and it is the one place
+   the GPP comparison he made does *not* transfer — GPP's four energy types across 169
+   countries are **one** crawl producing many rows.
+
+**AND WHAT IT MUST NOT CHANGE: the two `dataset_definition` rows stay two.** This is not
+a hedge, it is a constraint already recorded in the code. `contractors._approval` says it
+in its own words:
+
+> *"A PROFILE IS ITS OWN DATASET… Two documents with two declared field sets — 21 against
+> 28 — cannot share one approved schema: every profile would read as a subset of the
+> listing's and `R-31` refuses a subset, on purpose, because that is what a broken parser
+> looks like."*
+
+Since #254 the profile declares **27** fields against the listing's 28, which makes the
+subset closer and the refusal no less correct. Merging the two datasets would either be
+refused at approval or — worse — retire the listing's live schema version and drop columns
+the site still publishes. **So one card over two datasets, joined by a relationship that
+is already confirmed.** The join is the thing that makes the single card honest rather
+than a label over two unrelated tables.
+
+**The precedent this sets, and it is why the ruling is worth recording rather than just
+building:** a *site* is now a first-class thing in the listing, above the dataset. Track 5
+queues Balady, the UAE registries and the Gulf and Egypt sources, and several of those
+will publish a directory and its detail pages exactly as muqawil does. Deciding it once,
+here, is cheaper than deciding it per source — and it is the same argument he made for
+`R-45`: a column is a promise every source in the category must keep.
+
+**Sequenced behind [REQ-36](REQUESTS.md#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others)**,
+which gives a dataset card the `⋮` menu it can use. This ruling asks that menu for
+per-dataset actions under one card, so building them apart would mean writing the menu
+twice — and a branch is inside `sourceMenu` as this is written.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
