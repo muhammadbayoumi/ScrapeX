@@ -793,6 +793,59 @@ proves the tag he is told to push is the tag the workflow accepts, and says in i
 own docstring that it cannot prove a release happened. `Q-16` asks him whether he
 wants something that does look.
 
+### Two pull requests, DISJOINT IN FILES and COUPLED IN CONTENT, merge into a red `main`
+
+Found 2026-08-22 by two sessions independently within minutes — one rebasing onto
+`main`, one on its own branch — which is the strongest thing that can be said for
+the guard that found it. `main` at `5f63bb0` was **red**:
+
+```
+FAILED tests/test_the_documents_cite_what_they_claim.py::
+  test_a_pinned_citation_still_points_at_its_subject[BACKLOG.md-app.py-2710]
+```
+
+| | |
+|---|---|
+| both written against | `4615a14` (#250) |
+| #252 added | `("docs/BACKLOG.md", "scrapex/webui/app.py", 2710, "if source_key not in known:")` |
+| that symbol at `4615a14` | **2710** — #252 was **correct** |
+| #251 added | fifteen lines to `scrapex/webui/app.py` |
+| that symbol at `5f63bb0` | **2725** |
+| did #251 touch the PINNED table? | **no** |
+| did #252 touch `app.py`? | **no** |
+
+**"CHECK WHETHER THE FILES OVERLAP" IS THE REFLEX THAT FAILS HERE, and that is the
+whole lesson.** Not one file is changed by both, so git finds nothing to conflict
+on and merges both cleanly. The coupling is in the *content*: one moved a line, the
+other wrote that line's number down. Disjoint in files, coupled in content — and
+only the second half decides whether the pair is safe.
+
+**AND #252 WAS NOT MERGED UNTESTED, which is the part worth getting right.** GitHub
+reported it MERGEABLE and CLEAN with every check passing. Those checks ran against
+#252's own merge commit **against `4615a14`** — a base that stopped existing the
+moment #251 landed. So the suite did not fail to run and did not fail to notice:
+**it passed, truthfully, about a `main` that no longer existed.** "Green" without a
+base is not a claim about anything.
+
+**Which is why the setting is `require branches up to date`, not `require the check
+suite`.** `docs/STATE.md` lists branch protection as his to switch on; *require the
+check suite* — the obvious half — would have passed this pair through, because both
+checks genuinely passed. Only re-testing against the `main` that will actually
+receive the merge catches it. This is the second reason for that setting after
+`ac3a5af`.
+
+**Why a citation guard is the detector.** A `file:line` citation is the rare
+assertion whose truth depends on a file the pull request does not touch, so it is
+the most sensitive instrument for this class in the repository. The class is
+general: any test pinning a **line, an offset, a byte count or a row count** is
+exposed the same way, and the remedy is never a wider window.
+
+*The repair itself — the PINNED row and `docs/BACKLOG.md`'s prose citation both
+moving `2710` → `2725` — landed in `feat/the-profile-page-becomes-columns`, not
+here. Two branches editing one table at one place is a guaranteed conflict for
+whichever merges second, and only one of them needed to carry it. This entry is the
+class; that branch is the fix.*
+
 ### A guard that infers its subject from prose cannot be both sensitive and precise
 
 The natural design for the above is to read the symbol out of the sentence — take
