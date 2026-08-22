@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 
 import {
   backUp, download, fetchLatest, folderId, listing, prunable, upload,
-  fetchPanelPack,
+  fetchPanelPack, verifyStored,
   BUNDLE_FORMAT, DriveError, KEEP, LATEST, PANEL_PACK,
 } from "../drive.js";
 import {readFileSync} from "node:fs";
@@ -54,6 +54,15 @@ const isStart = (url, init) =>
   init.method === "POST";
 const isPut = (url, init) => url.startsWith("https://session.example/") &&
   init.method === "PUT";
+//: `files/{id}?fields=…` — the post-upload check, which is a GET on ONE file
+//: and therefore does not collide with isSearch's `files?…` listing.
+const isGetFile = (url, init) =>
+  /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/[^?]+\?fields=/.test(url) &&
+  (init.method || "GET") === "GET";
+//: What Drive answers when it holds a file it will not describe. Scripted into
+//: the tests below that are about ORDER rather than about verification, so the
+//: check is exercised without pinning a size in a test that is not about one.
+const undescribed = () => reply(200, {body: {}});
 
 const SESSION = "https://session.example/one";
 
@@ -146,6 +155,7 @@ test("the pointer is written only after the archive is safely up", async () => {
       return reply(200, {headers: {Location: SESSION}});
     }],
     [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    [isGetFile, undescribed],
   ]);
 
   await backUp("tok", {
@@ -289,6 +299,7 @@ test("only one pointer ever exists, however many were there before", async () =>
       return reply(200, {headers: {Location: SESSION}});
     }],
     [isPut, () => reply(200, {body: {id: "new", name: "x"}})],
+    [isGetFile, undescribed],
     [(_url, init) => init.method === "DELETE",
       (url) => { deleted.push(url); return reply(204); }],
   ]);
@@ -417,6 +428,7 @@ test("the panel pack goes up after the archive and before the pointer", async ()
       return reply(200, {headers: {Location: SESSION}});
     }],
     [isPut, () => reply(200, {body: {id: "up", name: "x"}})],
+    [isGetFile, undescribed],
   ]);
 
   await backUp("tok", {
@@ -447,6 +459,7 @@ test("the pointer records the pack, so a reader never guesses a filename", async
       }
       return reply(200, {body: {id: `id-${written}`, name: written}});
     }],
+    [isGetFile, undescribed],
   ]);
 
   const result = await backUp("tok", {
@@ -467,6 +480,7 @@ test("a backup with no pack still works and says so in the pointer", async () =>
       : reply(200, {body: {files: []}}))],
     [isStart, () => reply(200, {headers: {Location: SESSION}})],
     [isPut, () => reply(200, {body: {id: "up", name: "x"}})],
+    [isGetFile, undescribed],
   ]);
 
   const result = await backUp("tok", {
@@ -489,6 +503,7 @@ test("only one panel pack ever exists, however many were there before", async ()
       ]}}))],
     [isStart, () => reply(200, {headers: {Location: SESSION}})],
     [isPut, () => reply(200, {body: {id: "new", name: "x"}})],
+    [isGetFile, undescribed],
     [(_url, init) => init.method === "DELETE",
       (url) => { deleted.push(url); return reply(204); }],
   ]);
@@ -541,4 +556,161 @@ test("a truncated pack shows nothing rather than half the rows", async () => {
     assert.match(error.message, /Nothing is shown/);
     return true;
   });
+});
+
+
+// ---- what the sha256 in the pointer was always supposed to prove -------------
+//
+// The engine hashes the archive before the upload, `latest.json` carries that hex
+// string, and until `verifyStored` existed nothing on either side ever compared
+// it with anything. Each test below is a way a corrupted upload becomes `latest`
+// and is discovered on the day it is needed.
+
+test("a mangled upload never becomes the latest backup", async () => {
+  const uploaded = [];
+  const deleted = [];
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [{id: "old-pointer", name: LATEST}]}}))],
+    [isStart, (_url, init) => {
+      uploaded.push(JSON.parse(init.body).name);
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    // Drive holds the right NUMBER OF BYTES and a different file, which is the
+    // only case a size comparison cannot see.
+    [isGetFile, () => reply(200, {body: {
+      id: "up", size: "7", sha256Checksum: "b".repeat(64)}})],
+    [(_url, init) => init.method === "DELETE",
+      (url) => { deleted.push(url); return reply(204); }],
+  ]);
+
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob(["1234567"]), name: "bundle.zip",
+    manifest: {sha256: "a".repeat(64)}, fetchImpl,
+  }), (error) => {
+    assert.equal(error.kind, "upload-corrupt");
+    return true;
+  });
+
+  assert.equal(uploaded.includes(LATEST), false,
+    "the pointer was written for an archive Drive stored differently, and a " +
+    "restoring machine follows the pointer");
+  assert.deepEqual(deleted, [],
+    "the previous pointer was deleted too, so the last good backup is now " +
+    "unreachable as well");
+});
+
+
+test("a truncated upload is refused even when Drive reports no checksum", async () => {
+  // The failure that actually happens. A short write is the one fault a size
+  // comparison catches for free, and catching it must not depend on a digest.
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    [isGetFile, () => reply(200, {body: {id: "up", size: "3"}})],
+  ]);
+
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob(["1234567890"]), name: "bundle.zip", fetchImpl,
+  }), (error) => {
+    assert.equal(error.kind, "upload-truncated");
+    return true;
+  });
+});
+
+
+test("a matching digest is reported as a digest, not as a shrug", async () => {
+  // A guard that cannot say what it checked is a guard that can stop checking
+  // without anyone noticing.
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    [isGetFile, () => reply(200, {body: {
+      // Upper case on purpose: a comparison that does not case-fold would refuse
+      // a perfectly good backup over Google's choice of hex case.
+      id: "up", size: "5", sha256Checksum: "A".repeat(64)}})],
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["12345"]), name: "bundle.zip",
+    manifest: {sha256: "a".repeat(64)}, fetchImpl,
+  });
+
+  assert.equal(result.verified_by, "sha256");
+});
+
+
+test("a backup Drive will not describe is reported as unverified", async () => {
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    [isGetFile, undescribed],
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["12345"]), name: "bundle.zip",
+    manifest: {sha256: "a".repeat(64)}, fetchImpl,
+  });
+
+  assert.equal(result.verified_by, "none",
+    "Drive sent neither a size nor a checksum and the result claimed a check " +
+    "had happened");
+});
+
+
+test("the check happens after the archive and before the pointer", async () => {
+  // ORDER, which is this module's whole doctrine. A verification that ran after
+  // the pointer would prove the archive intact and leave `latest.json` already
+  // naming it if it were not.
+  const order = [];
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, (_url, init) => {
+      order.push(`upload:${JSON.parse(init.body).name}`);
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, () => reply(200, {body: {id: "up", name: "bundle.zip"}})],
+    [isGetFile, () => { order.push("verify"); return undescribed(); }],
+  ]);
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    panelPack: new Blob(["p"]), fetchImpl,
+  });
+
+  assert.deepEqual(order,
+    ["upload:bundle.zip", "verify", `upload:${PANEL_PACK}`, `upload:${LATEST}`],
+    "the upload was not checked between the archive arriving and the pointer " +
+    "naming it");
+});
+
+
+test("verifyStored asks for the fields it compares, on one file", async () => {
+  // A request that does not ASK for sha256Checksum gets a response without one,
+  // and every comparison below it silently becomes "none". Drive's `fields` is
+  // exactly the kind of parameter a later tidy-up drops.
+  const asked = [];
+  const fetchImpl = scripted([
+    [isGetFile, (url) => { asked.push(url); return undescribed(); }],
+  ]);
+
+  await verifyStored("tok", "file-42", {bytes: 10, fetchImpl});
+
+  assert.equal(asked.length, 1);
+  assert.match(asked[0], /\/files\/file-42\?/);
+  assert.match(asked[0], /sha256Checksum/);
+  assert.match(asked[0], /size/);
 });

@@ -1072,9 +1072,107 @@ It works and it destroys history every time, which is what a row-aware key repla
 
 ---
 
+### R-46 · The Drive track starts now, and R-44's blanket deferral is amended to cover only what costs crawl time
+
+**2026-08-22 · scope · amends [R-44](#r-44--no-sync-server-and-no-backup-encryption-for-now-and-the-sync-work-is-deferred-behind-muqawil), which STAYS**
+
+> «افتح جلسة session تبدا فى خطة drive»
+
+Hours after ruling «أرجئ كلّ شىء — أكمل مقاول» he opened a session on the Drive
+plan. Under **C4** the earlier ruling is not deleted and not rewritten: it is
+amended, it stays where it is, and this says what changed.
+
+**WHAT CHANGED IS THE SCOPE OF THE DEFERRAL, NOT ANY OF HIS FOUR DECISIONS.** No
+server, no encryption yet, solo now and published later all stand exactly as R-44
+records them. What no longer stands is *«كلّ شىء»* meaning literally everything:
+R-44's fourth decision now defers only work that **competes for crawl time or for
+his attention on muqawil**. Design, measurement and the defects that are true
+whatever he decides about sync are not that work — and the reason is measurable:
+the profile crawl is 34,834 pages of machine time on one process, and a session
+reading a schema read-only takes none of it.
+
+**AND THE AMENDMENT IS NOT A CORRECTION OF HIM.** He deferred the *sync design*,
+which is exactly what Phases 1–5 of the plan still hold behind his rulings. What
+he opened is a track, and the first thing a track produces here is a plan —
+[docs/plans/2026-08-22-drive-without-a-server.md](plans/2026-08-22-drive-without-a-server.md),
+per [R-08](#r-08--the-plan-and-the-state-live-in-the-repository).
+
+### What the plan may build without another ruling, and why it is exactly four things
+
+Everything in Phase 0 is true whether he syncs automatically, manually, or never,
+and one of the four is a live defect measured on his own warehouse:
+
+| | and the evidence |
+|---|---|
+| `PRAGMA quick_check` before a bundle is written | `bundle.verify` proved every file was the file the manifest named, and a corrupt database has a valid checksum for its corrupt self — `scrapex/bundle.py:122` |
+| the sha256 checked **after** the upload | the engine hashed the archive, the pointer carried the digest, and nothing on either side ever compared it — `extension/drive.js:346` |
+| a typed phrase on the destructive restore | `scrapex/cli.py:233`. `start-fresh` beside it already made him type one |
+| `init-db` backs up before it advances a schema | **`scrapex/cli.py:54`, and this one is a defect.** Migrations 0004…0009 are stamped `2026-08-22T07:11:47Z` in his `database_migration` — a v3→v9 upgrade of a 1.1 GB file — and no `pre-upgrade` backup exists beside it |
+
+**THE FOURTH IS THE ONE WORTH READING TWICE.** `cli._upgrade_what_is_only_behind`
+promises *"A BACKUP FIRST, ALWAYS"* and `registry.ensure_ready` promises *"Nothing
+else in the codebase may migrate an existing file"*
+(`scrapex/databases/registry.py:130`). Both sentences were false of `init-db`,
+which migrates whatever is there at `scrapex/databases/domain.py:206` and copies
+nothing — and `init-db` is the command the product's own refusals send him to,
+from `scrapex/databases/domain.py:329` and from `scrapex/warehousemerge.py:229`.
+**The one documented route through a schema change was the one route with no
+backup on it.**
+
+### Three things the audit of 2026-08-22 got wrong, recorded per C5
+
+The audit was one day old and its prose had already drifted from the code. All
+three were re-measured in this worktree:
+
+- **`drive-restore` is not destructive.** `docs/STATE.md` and
+  `scrapex/warehousemerge.py:38` both warned in capitals that pressing it would
+  REPLACE the live warehouse. The button is wired to `fetchFromDrive`
+  (`extension/app.js:5881`), whose own comment says *"DOWNLOADED, NOT RESTORED"*,
+  and its label in `extension/app.html:1892` reads *"Fetch the latest backup"*. The
+  warning guarded the wrong control while the real one, `scrapex restore-database`,
+  had no guard at all. Both documents are corrected rather than quietly rewritten.
+- **"48 of 48 primary keys are autoincrement integers" is wrong twice.** Measured:
+  **51 of 56** tables key on a single integer, and **not one of the 56 declares
+  `AUTOINCREMENT`** — they are rowid aliases, which are *reused* after a delete.
+  Five tables already key on something machine-independent, so a natural key is a
+  precedent in this schema rather than a new idea.
+- **"delete and rebuild everything derived" cannot happen.**
+  `trg_generic_record_revision_append_only_delete` forbids the delete; what
+  actually runs is an upsert on the natural key
+  (`scrapex/extract/service.py:576`). Re-approving is idempotent, which is what
+  makes the merge safe — but a derived row that is *wrong* is never removed.
+
+### The measurement that should decide the design
+
+56 tables, 506,464 rows, read-only against his live warehouse on 2026-08-22 with a
+crawl in flight. Every table in exactly one population:
+
+| population | rows | share |
+|---|---|---|
+| evidence — cannot be recomputed | 150,663 | 29.7% |
+| derived — recomputable with no network | 355,235 | 70.1% |
+| **user-authored config — the only conflict-prone data** | **566** | **0.11%** |
+
+**The thing a no-server design has to arbitrate is one-tenth of one percent of the
+file.** And the hard problem is elsewhere: `warehousemerge.merge` covers 44,525
+rows, leaving **106,138 EVIDENCE rows with no merge path at all** — 92,740 of them
+`price_observation`, append-only by trigger, with `raw_snapshot` holding **0 rows**
+so nothing can recompute them. A merge today silently discards the other machine's
+entire price history. That is `R-32`'s correction — price is one category, not the
+whole thing — arriving from the opposite direction: the tool built for `R-43`
+covers only the other category.
+
+**Four questions are his and are recorded as `Q-19`–`Q-23` in
+[BACKLOG.md](BACKLOG.md), each with the measured consequence of every option.**
+
+---
+
 ### R-44 · No sync server and no backup encryption for now, and the sync work is deferred behind muqawil
 
-**2026-08-22 · scope · answers the audit `R-43` made possible**
+**2026-08-22 · scope · answers the audit `R-43` made possible · decision 4 AMENDED
+2026-08-22 by [R-46](#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time)
+— it stays in force for anything that costs crawl time, and no longer defers the
+design work or the defects that are true regardless**
 
 > «لن ابنى خادم الان (لا اعرف وجه الاستفادة اصلا منه)» ·
 > «لا تشفر الان اصلا الداتا لن تنتقل من المستخدم الى اى حد اخر فهى تخص المستخدم فقط لا
@@ -1100,7 +1198,14 @@ plan and that is what it is.
 **3 · Solo now, published later.** Which is what makes decisions 1 and 2 revisitable
 rather than permanent.
 
-**4 · All of it waits for muqawil.**
+**4 · All of it waits for muqawil.** ~~All of it.~~ **AMENDED THE SAME DAY, and the
+original words stay because they are what he said:** «أرجئ كلّ شىء — أكمل مقاول».
+Hours later he opened the Drive track anyway — «افتح جلسة session تبدا فى خطة
+drive» — so this now defers only work that costs **crawl time or his attention on
+muqawil**, and not the design, the measurement, or the four defects that are true
+whatever he decides. See
+[R-46](#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time).
+Decisions 1, 2 and 3 above are untouched.
 
 ### And three of his own questions sharpened the audit, so they are recorded too
 

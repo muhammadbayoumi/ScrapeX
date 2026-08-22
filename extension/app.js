@@ -5867,7 +5867,15 @@ async function backUpToDrive(token) {
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
     : "";
-  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}`;
+  // WHAT THE CHECK ACTUALLY PROVED, in the sentence rather than in a comment.
+  // The digest is compared against the one Google computed on its own side; when
+  // Drive sends no checksum the sizes are all there is, and saying which of the
+  // two happened is the difference between a guard and a reassuring noise.
+  const proof = {
+    sha256: " Google's own checksum matches the bundle this machine built.",
+    size: " Sizes match; Drive reported no checksum to compare.",
+  }[stored.verified_by] || " Drive reported neither a size nor a checksum to compare.";
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${proof}`;
 }
 
 async function fetchFromDrive(token) {
