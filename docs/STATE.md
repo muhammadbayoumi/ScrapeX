@@ -74,6 +74,16 @@ fixtures, never on his warehouse:
    His to switch on, and it is what makes `ac3a5af` — which left `main` red for two days
    with no pull request — impossible rather than merely regretted.
 
+   **AND IT HAS A SECOND REASON NOW, measured 2026-08-22.** *Require branches up to
+   date* is the clause that matters, and *require the check suite* on its own would
+   **not** have caught it: #251 and #252 both passed every check, shared no changed
+   file, and merged into a **red `main`** — #251 moved a line in
+   `scrapex/webui/app.py`, #252 wrote that line's old number into the PINNED citation
+   table, and #252's checks passed against a base that stopped existing when #251
+   landed. Repaired on `feat/the-profile-page-becomes-columns`; the mechanism is in
+   [LESSONS.md](LESSONS.md) under *Two pull requests, disjoint in files and coupled
+   in content*.
+
 ### What needs the data, and his plan for moving it
 
 3. **The full profile crawl** — 34,834 pages. **RUNNING on this machine since
