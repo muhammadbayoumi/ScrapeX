@@ -160,7 +160,7 @@ through the menu hanging over it. Lifted to `var(--z-overlay)` while open. Guard
 by a **hit test**, not a z-index read: measured, the defect survives the menu's own
 z-index going to 2147483647.
 
-**2 · It was missing on a contractor card.** `REQ-33`, «ال 3 نقاط لا تظهر فى كارد
+**2 · It was missing on a contractor card.** `REQ-36`, «ال 3 نقاط لا تظهر فى كارد
 مقاول» — and it closes `OP-42`, which this repository had already recorded from the
 same screenshot. `sourceMenu` returned `""` for `kind === "dataset"`, which was true
 of five of the six actions and false of the sixth: *Open the data table* drives
@@ -176,7 +176,7 @@ proven unable. Measured: `table` 200 with 4 rows and 25 columns; `sheet`, `updat
 `pause`, `settings` all 404; `changes` 200 with no changes section on the page. So a
 contractor card carries **one live row and no greyed rows**.
 
-**3 · It looked wrong.** `REQ-34`, «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل
+**3 · It looked wrong.** `REQ-36` again, «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل
 مربع اعتقد ان ال3 نقاط معمولة فى صفحة profile بشكل احترافى» — he named the reference
 himself and was right twice. `.split-button-trigger`'s radius computed to
 **`0 8px 8px 0`**: it rounds its outer corners only, because in a split button its
@@ -187,14 +187,22 @@ hover and while open — in rules local to `.dataset-card`, using only tokens th
 profile row already uses, so no palette work was needed. Guarded by **comparing the
 two controls' computed styles** in light and dark rather than by asserting numbers.
 
+**SEEN, NOT DESCRIBED.** He asked in visual terms, so the answer is four pictures,
+committed rather than pasted into a message that lives on one machine:
+`docs/screenshots/the-source-card-three-dots-{before,after}-{light,dark}@360.png`.
+The *before* pair is `origin/main`'s `app.js` and `app.css` with the same stub, so
+it shows what he photographed — a boxed trigger on the two price cards and **none
+at all** on the muqawil card, 3 cards and 2 triggers — beside the *after*, which is
+3 and 3.
+
 **What the honest stub bought, and it is the part worth carrying forward.**
 `tools/panel_harness.py` had no `kind: "dataset"` source, so
 `test_dataset_action_opens_the_workspace_directly` asserted that EVERY card has a
 menu and passed for ten days while the product did the opposite. Adding one dataset
 row failed it immediately, and surfaced two further findings on screens nobody was
-looking at: **`OP-44`** (Source settings opens `/sources/{key}`, a route that exists
+looking at: **`OP-51`** (Source settings opens `/sources/{key}`, a route that exists
 for nobody; Recent changes opens `#changes`, a fragment that exists nowhere, while
-the real `/changes?source_key=` page does) and **`OP-45`** (the Run screen offers a
+the real `/changes?source_key=` page does) and **`OP-52`** (the Run screen offers a
 dataset as crawlable and `POST /api/jobs` 404s it; the Source manager lists it with
 an Edit button that cannot reach it). Neither is fixed — both change what a screen
 offers, which is his call.
