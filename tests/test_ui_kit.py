@@ -48,8 +48,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: Stylesheets whose rules are available to the markup checked below. The two
 #: canonical sheets in `design/` are the shared vocabulary; the rest are the
 #: per-surface sheets. Distributed copies under `extension/` and
-#: `scrapex/webui/static/` are byte-equal to the canon (tests/test_vendor.py),
-#: so reading the canon is reading both.
+#: `scrapex/webui/static/` are byte-equal to the canon, so reading the canon is
+#: reading both.
+#:
+#: THE GUARD FOR THAT IS `tests/test_design_system.py`, whose
+#: `test_generated_design_assets_are_current` asserts `sync(check=True) == []` over
+#: `tools/sync_design_assets.py`'s ASSETS map. This line named `tests/test_vendor.py`
+#: until 2026-08-22, which does not check it: the only byte-equality assertion in
+#: that file compares the two vendored copies of Tabulator. So the claim above was
+#: true and its stated evidence was the wrong file -- a reader checking it would have
+#: found nothing and could reasonably have concluded the copies were unguarded.
+#: LESSONS §13 is about this class; it is the instance that is a FILE reference
+#: rather than a test name, which is why the guard added there cannot catch it.
 CANONICAL = ("design/components.css", "design/tokens.css")
 #: DERIVED, not typed. This was a hand-written tuple until 2026-08-15, and the
 #: Data page's stylesheet was missing from it the moment the page was written —
