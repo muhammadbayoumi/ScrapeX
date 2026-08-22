@@ -115,29 +115,31 @@ RESERVED: dict[str, dict[int, str]] = {
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
     #
-    # 44 and 45 are held by two DIFFERENT branches, and the pair is a worked example of
-    # the paragraph above. Both verified against `origin` on 2026-08-22:
+    # 45 is held by branch `claude/drive-without-a-server`, which also holds 49 and 50.
+    # NOT verifiable from the repository, and the row says so on purpose: that branch's
+    # renumber is unpushed, so `origin` shows it topping out at `OP-43`. The claim is real
+    # and invisible, so this row rests on the assigning session's word rather than on a
+    # ref anyone can read. Re-check it rather than inheriting it.
     #
-    #   * 44 — `git show <ref>:docs/BACKLOG.md` on branch
-    #     `fix/a-dataset-says-when-it-was-crawled` (PR #255) declares
-    #     `### OP-44 · A dataset card said "no successful crawl yet" over 17,304 crawled
-    #     rows`. Checkable in one command, which is the point of naming a ref.
-    #   * 45 — branch `claude/drive-without-a-server`. NOT checkable the same way: that
-    #     branch is on `origin` at `0f2a248` and its BACKLOG still tops out at `OP-43`,
-    #     because its renumber is unpushed. The claim is real and invisible, so this row
-    #     rests on the assigning session's word rather than on the repository. Re-check it
-    #     rather than inheriting it.
+    # WHO DELETES A ROW: the branch that CREATED the reservation, unless the branch that
+    # fills it has already merged. So this row is deleted by whichever pull request
+    # follows the Drive branch — not by this one, which merges before it and would leave a
+    # real hole undeclared.
     #
-    # 44 WAS BRIEFLY ATTRIBUTED TO THE WRONG BRANCH HERE, and that is worth keeping. The
-    # Drive branch held 44 and 45, then moved off 44 precisely BECAUSE #255 had it, and a
-    # message describing only what changed on the Drive side read as 44 having been
-    # released. The row still passed the gap check while naming a holder that no longer
-    # held it — exactly the laundering the paragraph above describes. It was caught by
-    # asking who holds 44, not by any test.
+    # 44's ROW WAS HERE AND IS GONE, which is the rule working rather than an omission.
+    # #255 merged on 2026-08-22 (`bcb8f6e`) and brought `### OP-44 · A dataset card said
+    # "no successful crawl yet" over 17,304 crawled rows`, so the number stopped being a
+    # hole and became a heading. Leaving the row would have failed
+    # `test_a_reserved_number_is_not_also_declared` — reserved AND declared at once — and
+    # that failure was PREDICTED from the tree before #255 merged rather than discovered
+    # from a red build afterwards.
     #
-    # DELETE EACH ROW the moment its branch merges and brings its own heading. They are
-    # independent now: #255 is ahead of this branch in the merge order, so 44's row is
-    # expected to go first.
+    # 44 was also briefly attributed to the wrong branch here, and that is worth keeping
+    # now that the row is gone. The Drive branch held 44 and 45, then moved off 44
+    # precisely BECAUSE #255 had it, and a message describing only what changed on the
+    # Drive side read as 44 having been released. The row passed the gap check the whole
+    # time it named a holder that no longer held it — exactly the laundering the paragraph
+    # above describes. Nothing caught it; asking who holds 44 did.
     #
     # NOTE TO WHOEVER TAKES AN ASSIGNED NUMBER NEXT: being handed "take OP-46" is not
     # enough. If the numbers below yours are not in your branch, the hole check fails on
@@ -145,7 +147,6 @@ RESERVED: dict[str, dict[int, str]] = {
     # is, and it was nearly missed on 2026-08-22 because the assignment named the guard
     # without naming the mechanism.
     "OP": {
-        44: "PR #255, branch fix/a-dataset-says-when-it-was-crawled",
         45: "branch claude/drive-without-a-server",
     },
     "DEC": {},

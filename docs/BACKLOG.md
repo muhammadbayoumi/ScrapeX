@@ -1885,10 +1885,13 @@ surface the owner has opinions about, which is his call and not a reviewer's.
 `extension/app.js`, which this branch does not touch and another session was editing
 when this was written. `main` went red on 2026-08-22 from exactly that shape, and the
 account is recorded beside the row it broke
-([tests/test_the_documents_cite_what_they_claim.py:202](../tests/test_the_documents_cite_what_they_claim.py#L202)):
+([tests/test_the_documents_cite_what_they_claim.py:209](../tests/test_the_documents_cite_what_they_claim.py#L209)):
 `#252` measured a line in `app.py` correctly on its own base, `#251` landed first and
 added fifteen lines above it, and because **no file was changed by both**, git found
-nothing to conflict on and neither suite could see the other. "Check whether the
+nothing to conflict on and neither suite could see the other. **That row has since moved
+a third time — 2710 → 2725 → 2787 — which is the argument for this paragraph rather than
+against it: the line moves whenever anything lands above it, so a pin is a commitment to
+re-derive it on every rebase.** "Check whether the
 files overlap" is the reflex that fails here.
 
 Tier 1 still guards these seven citations, and that was proved rather than assumed —
@@ -1957,9 +1960,18 @@ supplies the second, because only one is *repeated*:
 Checked at the same commit: `.toolbar` carries no `z-index`, there is no rule for
 `#activity .split-button`, and neither `.dataset-card` nor `#datasets` carries a
 `transform`, `filter`, `opacity`, `contain`, `isolation` or `will-change` that would
-build a context another way. **This is future safety, not a live defect.** The count is
-a measurement at a commit and not a standing claim: the session editing those cards may
-add a consumer or lift a different wrapper, and then it must be re-taken.
+build a context another way. **This is future safety, not a live defect.**
+
+**RE-TAKE THIS COUNT AFTER `fix/a-dataset-card-gets-the-menu-it-can-use` LANDS. It is a
+measurement at `451468d`, not a standing claim.** That branch gives the `dataset`-kind
+cards the menu entries that work — `OP-42`'s tail — which moves the stub from 3 cards / 2
+triggers to 3 cards / 3 triggers. Reported as card-local only: `.dataset-card`'s block
+and `sourceMenu`, with the shared component and its generated copy untouched and no
+consumer added anywhere new. **So the conclusion holds and only the number changes** —
+the cards given triggers are still `.dataset-card`, matched by the same
+`querySelectorAll`, so the repeated-consumer fact gets stronger rather than weaker. Any
+future branch that adds a consumer or lifts a different wrapper invalidates the table,
+not just the count.
 
 **The risk is specific, and that session makes it likelier rather than moot.** The
 defect is *created* by fixing consumers instead of the component, and another consumer
@@ -2071,7 +2083,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:573](LESSONS.md#L573)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:611](LESSONS.md#L611)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the

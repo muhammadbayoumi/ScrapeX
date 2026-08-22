@@ -262,6 +262,19 @@ PINNED = (
     # "bump both or neither" is a rule with a guard behind it rather than advice.
     ("docs/LESSONS.md", "tests/test_version.py", 73,
      "def test_the_installer_carries_the_same_number("),
+    # DELIBERATELY ABSENT, AND THE ABSENCE IS RECORDED HERE RATHER THAN ONLY IN THE
+    # ENTRY THAT WANTS IT. `OP-46` cites seven lines in `extension/app.js` --
+    # `setupFinanceConverterSelect` and `setupRunModeSelect` chief among them -- and
+    # pins none of them, because that file was under concurrent edit by another
+    # session when the entry was written. Pinning a line another branch is moving is
+    # how `scrapex/webui/app.py:2710` above became 2725 and then 2787.
+    #
+    # A CONDITION, NOT A CHORE ASSIGNED TO NOBODY: pin those two symbols the next
+    # time you add a row here AND `extension/app.js` is quiet. It is written beside
+    # the mechanism instead of in `OP-46` because this table is re-read every time
+    # someone adds a row, whereas a BACKLOG entry is read when someone goes looking
+    # for work -- and this instruction has to fire while its reader is doing
+    # something else.
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
