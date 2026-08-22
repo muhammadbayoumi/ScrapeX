@@ -598,7 +598,7 @@ the menu, so it used the `<details>` half on its own — and got a control whose
 ones, because the shared rule rounds the trigger's OUTER edge and leaves the inner
 edge flat to butt against the primary button. With no primary button beside it that
 is a lopsided box, and it sat on the card's own rounded corner. He photographed it
-and called it unprofessional (`REQ-34`, 2026-08-22); he was describing a composition
+and called it unprofessional (`REQ-36`, 2026-08-22); he was describing a composition
 error, not a colour.
 
 **Apply:** before reusing part of a composite, ask what the missing part was holding

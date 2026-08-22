@@ -212,7 +212,7 @@ in `webui.css`. Raising the 120 does not help and cannot: measured at 1200 and a
 
 ### UI-4 · There is no overflow-menu component, and two screens invented one — *gap*
 
-Found 2026-08-22 from `REQ-33` and `REQ-34`. A `⋮` that opens a menu and has **no
+Found 2026-08-22 from `REQ-36`. A `⋮` that opens a menu and has **no
 primary action beside it** now exists twice, built two different ways:
 
 | where | built from | how it looks |

@@ -4535,7 +4535,7 @@ function freshnessLine(s) {
 // THIS REPLACED `if (source.kind === "dataset") return ""`, which was right
 // about five of the six and wrong about the sixth — and the sixth was built
 // AFTER the blanket hide, which is exactly how a hand-written rule rots. He
-// found it before any test did: «ال 3 نقاط لا تظهر فى كارد مقاول».
+// found it before any test did (`REQ-36`): «ال 3 نقاط لا تظهر فى كارد مقاول».
 const RESOLVES_A_DATASET = "resolves-a-dataset-key";
 const MANIFEST_ONLY = "route-404-for-a-dataset-key";
 const NO_SECTION = "no-such-section-on-the-page";
@@ -4599,7 +4599,7 @@ function sourceActions(source) {
 function sourceMenu(source) {
   const actions = sourceActions(source);
   // NO LIVE ACTION, NO TRIGGER — and this is his ruling of 2026-08-22, not a
-  // tidiness preference: «توجد ال3 نقاط بشكل غير احترافى». A menu that opens on
+  // tidiness preference (`REQ-36`): «توجد ال3 نقاط بشكل غير احترافى». A menu that opens on
   // nothing, or on nothing but greyed-out rows, is the same "button that cannot
   // work" the comment above rejects, wearing a disclosure arrow. One live row is
   // a menu; six dead ones are a dead end.

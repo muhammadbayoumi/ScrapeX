@@ -160,6 +160,14 @@ RESERVED: dict[str, dict[int, str]] = {
     # without naming the mechanism.
     "OP": {
         45: "branch claude/drive-without-a-server",
+        # 49 AND 50 ARE NEW ON THIS BRANCH AND NOT NEW IN THE WORLD. The Drive
+        # branch has held all three of 45, 49 and 50 since before #255; they only
+        # became holes HERE when this branch declared `OP-51` and `OP-52`, because
+        # the gap check runs from 1 to `max(numbers)` and nothing below the maximum
+        # may be missing. Same holder, same deletion rule as 45 above: the pull
+        # request that follows the Drive branch removes all three together.
+        49: "branch claude/drive-without-a-server",
+        50: "branch claude/drive-without-a-server",
     },
     "DEC": {},
 }
