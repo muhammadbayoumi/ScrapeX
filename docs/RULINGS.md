@@ -1044,6 +1044,69 @@ It works and it destroys history every time, which is what a row-aware key repla
 
 ---
 
+### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
+
+**2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
+
+> «الفكرة انى اريد توحيد او دمج قواعد البيانات … افضل طريقة هى حفظها على drive وقبل
+> التطوير فى الجهاز الاخر ينزلها ويدمجها معه من ثم يحفظها … وعند العودة لك مرة اخرى
+> سيكون هناك مصدر واحد للحقيقة هو drive»
+
+`CLAUDE.md` exists because everything saying *where the work stood* lived under one
+machine's home directory. It fixed that for code, decisions and state — **and said nothing
+about the data**, which is the half that cannot be committed. This is that half.
+
+**BOTH MACHINES HAVE DEVELOPED muqawil**, which is what rules out the obvious answer:
+neither file may be copied over the other, because each holds work the other does not.
+`R-24` already says upgrade rather than replace; this is the same rule between two
+machines instead of two versions.
+
+### What made it buildable, and it was not obvious
+
+*"Merge them"* is not an operation on two SQLite files. Every primary key is an
+autoincrement, so **both machines hold a `page_snapshot_id = 1` for a different page** —
+merging naively means remapping every key and every foreign key pointing at one, which is
+[OP-30](BACKLOG.md) at a far larger scale. Measured 2026-08-22, three natural keys exist and
+that is what changes the answer:
+
+| table | natural key | measured |
+|---|---|---|
+| `generic_page_snapshot` | `(source_url, content_hash)` | 20,379 rows, **20,379 distinct** |
+| `dataset_sighting` | `(dataset_key, external_id)` | UNIQUE in the schema |
+| `generic_record` | `(dataset_definition_id, record_key)` | UNIQUE in the schema |
+
+**ONLY THE EVIDENCE TRAVELS, AND THAT IS THE WHOLE DESIGN.** A snapshot is a page as it was
+fetched and a sighting is what the site showed and when — neither can be recomputed.
+Everything else is rebuilt by `--approve` with **no network**: records, revisions,
+ingestions, the taxonomy and its 15,559 memberships. So nothing that carries a primary key
+ever crosses, and no id is ever remapped.
+
+**EVERY COLUMN MERGES WITH `min` OR `max` AND NONE WITH `+`.** The first implementation
+summed `seen_count`, and three merges of the same file took one id from **4 to 8 to 12 to
+16** while the module's own docstring called the operation idempotent — caught because a
+test looked at the value instead of the row count. Summing is wrong on the *first* merge
+too: two machines crawling the same listing observe the same site state, so their counts are
+two observations of one fact.
+
+### The lock, which his plan was missing
+
+Download → work → upload has nothing stopping both machines doing it on the same day, and
+**the second upload silently wins**; Drive keeps versions but cannot merge them. That is
+`R-37`'s parallel-session problem one level down, and worse, because no CI sees it.
+
+So a warehouse records which machine holds it — `scrapex_meta.checkout_holder`, beside the
+`account_owner` that `R-34` already put there, so no migration — and `scrapex
+merge-warehouse` refuses to write into a copy somebody else holds. Re-claiming your own is
+allowed, because a session that died mid-merge has to pick the same copy back up.
+
+**A SHIPPED COMMAND, NOT A SCRIPT.** `scrapex merge-warehouse --status / --machine /
+--release / --from`. `contractors.py` exists because every piece of the first warehouse's
+pipeline was committed with no invocation, so the other machine could read how it worked
+and could not run it. Seventeen tests, and the one that matters most asserts that merging
+three times changes no VALUE.
+
+---
+
 ### R-42 · One PRIMARY session merges; every other session is SECONDARY and asks
 
 **2026-08-21 · process · supersedes [R-37](#r-37--the-agent-does-not-merge-the-main-programmer-does)**

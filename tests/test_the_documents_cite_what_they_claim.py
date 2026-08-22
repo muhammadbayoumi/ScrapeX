@@ -173,7 +173,7 @@ PINNED = (
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 940, "def _bind_log_streams("),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 976, "def _bind_log_streams("),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.

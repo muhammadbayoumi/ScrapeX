@@ -1,10 +1,102 @@
 # State — where the work stands
 
-**Last updated: 2026-08-21 (morning).** `main` is at `e5af340` (#238).
+**Last updated: 2026-08-22.** `main` is at `afb8648` (#244). #243, #245 and #244 are
+merged.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
+
+---
+
+## RESUME HERE — written for the other machine, 2026-08-22
+
+He works from two machines and asked to continue from the other one, which has neither
+this session's context nor this warehouse. Everything below is the whole handover.
+
+### The code and the decisions are in the repository. The DATA is not.
+
+**Merged and done:** the six muqawil engineering items (#245), four rulings of his
+executed (`R-38`…`R-41`), and the engine release gate (#244).
+
+**His warehouse on THIS machine, measured after the profile approval:**
+
+| | |
+|---|---|
+| the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
+| `generic_record` | **16,411** — 15,707 listing rows + 704 profiles |
+| `generic_page_snapshot` | **20,379** (~203 MB of bodies), 1,424 of them Dammam profiles |
+| `classification_node` | **214** nodes, depths `{1: 8, 2: 20, 3: 186}` |
+| `generic_record_node` | **15,559** memberships — `R-38` proved on real data |
+| datasets | `contractors` and `contractor_profiles` |
+| schema | **v9** (`0009` = the link table) |
+
+**That ratio is the whole of `R-38`:** 15,559 memberships share 214 nodes. Shape A would
+have stored 15,559 repeated strings; the study measured that at 4.7x and it is
+conservative.
+
+### What the other machine can do with NO database at all
+
+Two of the four next steps need nothing but this repository — the tests run on committed
+fixtures, never on his warehouse:
+
+1. **Workers for `--details`.** Measured: the Dammam profile crawl ran at **9.03 s a
+   page** single-threaded, so the full 34,834-page crawl is **87 hours**. The listing
+   crawl measured 1.14 s a page with six workers. Adding workers here is the difference
+   between 87 hours and about 14, and it is the same work already done for
+   `crawl_partition`. **`R-39` records 11.1 h and that figure is WRONG** — it was measured
+   with six workers and applied to a single-threaded command.
+2. **Branch protection on `main`.** Measured: `protected: False`, 404 on the protection
+   endpoint. Require the check suite, require branches up to date, forbid direct pushes.
+   His to switch on, and it is what makes `ac3a5af` — which left `main` red for two days
+   with no pull request — impossible rather than merely regretted.
+
+### What needs the data, and his plan for moving it
+
+3. **The full profile crawl** — 34,834 pages. Belongs on whichever machine holds the
+   warehouse.
+4. **The remaining four groups of `R-19`.** Only `interests` is wired, and
+   `contractors.write_groups` records why for each of the others: licensed activities
+   carry both languages in one unseparated string and one of six rows is already truncated
+   on the site's side; the two contractor lists are relations rather than classifications
+   and are empty on every page measured; contract counts are two scalars that belong in
+   the flat row.
+
+**HIS RULING ON THE TWO WAREHOUSES, 2026-08-22.** Both machines have developed muqawil, so
+the databases must be **merged**, with Drive as the single source of truth for DATA while
+the repository stays the single source of truth for CODE. **Do not copy either file over
+the other** — each holds work the other does not, and `R-24` says upgrade rather than
+replace.
+
+The merge is defined, and it is defined because the natural keys exist — measured
+2026-08-22:
+
+    generic_page_snapshot   20,379 rows, 20,379 distinct (source_url, content_hash)
+    dataset_sighting        UNIQUE (dataset_key, external_id) in the schema
+    generic_record          UNIQUE (dataset_definition_id, record_key) in the schema
+
+So: dedupe snapshots on their natural key; merge sightings taking min `first_seen_at`, max
+`last_seen_at`, **summed** `seen_count`, max `last_absent_at`; and **delete and rebuild
+everything derived** with `--approve` rather than merging it. That last clause is what
+makes the whole thing tractable — no primary key is ever remapped, and the operation is
+commutative and idempotent, so it does not matter which machine runs it or how often.
+
+**BUILT 2026-08-22 — `scrapex merge-warehouse`** ([R-43](RULINGS.md#r-43--drive-is-the-single-source-of-truth-for-data-the-repository-stays-it-for-code)).
+
+    scrapex merge-warehouse --status                      # who holds it
+    scrapex merge-warehouse --machine work-laptop         # take it
+    scrapex merge-warehouse --machine work-laptop --from <downloaded.db>
+    scrapex merge-warehouse --release                     # hand it back
+
+The lock lives in `scrapex_meta.checkout_holder`, beside the `account_owner` that `R-34`
+already put there, so it needs no migration and an older warehouse answers "nobody" rather
+than failing to open. Seventeen tests, and the one that matters asserts that merging three
+times changes no VALUE — the first implementation summed `seen_count` and took one id from
+4 to 8 to 12 to 16 while claiming to be idempotent.
+
+**The order on the other machine:** download from Drive → `--machine <name> --from
+<downloaded.db>` → `contractors --approve --run-ref <ref>` for each run whose pages
+arrived → work → upload → `--release`.
 
 **For what the owner has asked for and where each request stands, see
 [REQUESTS.md](REQUESTS.md).** This file tracks the *work in flight*; that one
