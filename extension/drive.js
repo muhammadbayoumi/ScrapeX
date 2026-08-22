@@ -321,6 +321,62 @@ export async function upload(token, {
 }
 
 /**
+ * Ask Drive what it actually stored, and refuse the answer if it is not ours.
+ *
+ * THE DIGEST WAS COMPUTED BEFORE THE UPLOAD AND CHECKED AFTER NOTHING. The
+ * engine hashes the archive on its own disk (`bundle.pack`), `backUp` copies
+ * that hex string into `latest.json`, and until this function existed no code on
+ * either side ever compared it with anything. So the one number in the pointer
+ * whose whole purpose is to prove the upload arrived intact was decoration: a
+ * bundle that verified perfectly here and was mangled in transit would be
+ * published as `latest`, and discovered on the day it was needed.
+ *
+ * DRIVE HASHES IT ITSELF, which is why this costs one small request rather than
+ * a 36 MB download. `files.get` reports `sha256Checksum` and `size` for a
+ * binary upload, computed on Google's side — so the comparison is genuinely
+ * end-to-end and not this module agreeing with itself.
+ *
+ * A MISSING DIGEST IS NOT A FAILURE, AND IT IS NOT SILENCE EITHER. Drive does
+ * not promise a checksum for every file it holds, so the verdict says which
+ * evidence it had — `"sha256"`, `"size"`, or `"none"` — and the caller reports
+ * it. Treating an absent digest as a pass without saying so is how a guard stops
+ * running and nobody notices; treating it as a refusal would fail a good backup
+ * over a field Google chose not to send.
+ */
+export async function verifyStored(token, fileId, {
+  bytes = null, sha256 = "", fetchImpl = fetch,
+} = {}) {
+  const stored = await (await ask(
+    fetchImpl,
+    `${FILES}/${encodeURIComponent(fileId)}?${new URLSearchParams({
+      fields: "id,name,size,sha256Checksum",
+    })}`,
+    {headers: headers(token)},
+    "checking what Drive stored")).json();
+
+  const held = Number(stored && stored.size);
+  if (bytes && Number.isFinite(held) && held > 0 && held !== bytes) {
+    throw new DriveError(
+      `Drive stored ${held} bytes of a ${bytes}-byte backup, so the upload did ` +
+      "not arrive whole. The pointer was not moved: your previous backup is " +
+      "still the current one.", null, "upload-truncated");
+  }
+
+  const theirs = String((stored && stored.sha256Checksum) || "").toLowerCase();
+  const ours = String(sha256 || "").toLowerCase();
+  if (theirs && ours && theirs !== ours) {
+    throw new DriveError(
+      "The backup Drive stored does not match the one this machine built " +
+      `(${ours.slice(0, 12)}… against ${theirs.slice(0, 12)}…). The pointer ` +
+      "was not moved, so nothing will restore from it. Try the backup again.",
+      null, "upload-corrupt");
+  }
+
+  return {verified: theirs && ours ? "sha256" : (bytes && held ? "size" : "none"),
+          bytes: Number.isFinite(held) ? held : null, sha256: theirs};
+}
+
+/**
  * Fetch one file by id.
  *
  * Returns a Blob rather than writing anywhere: the panel has no filesystem, and
@@ -401,6 +457,15 @@ export async function backUp(token, {
     blob: archive, name, parent, onProgress, fetchImpl,
   });
 
+  // VERIFIED HERE, WHICH IS AFTER THE ARCHIVE AND BEFORE THE POINTER. It is the
+  // same rule the rest of this function is built on — the pointer may only ever
+  // name a file that is certainly there — extended from "arrived" to "arrived
+  // intact", which is the half the sha256 in the pointer was supposed to cover
+  // and never did. A refusal here leaves the previous backup as `latest`.
+  const checked = await verifyStored(token, stored.id, {
+    bytes: archive.size, sha256: manifest.sha256 || "", fetchImpl,
+  });
+
   // THE PANEL PACK, BEFORE THE POINTER AND AFTER THE ARCHIVE. Its place in the
   // order follows the same rule as everything else here: the pointer is written
   // last, so it can only ever name files that have already arrived. A pointer
@@ -451,7 +516,12 @@ export async function backUp(token, {
     pruned.push(old.name);
   }
 
-  return {...pointer, parent, pruned};
+  // `verified_by` IS RETURNED AND NOT UPLOADED. It is a fact about this upload
+  // for the person who pressed the button, not a fact about the backup: a
+  // restoring machine re-checks for itself rather than believing a field written
+  // by whoever wrote the pointer. Keeping it out of `latest.json` also keeps the
+  // pointer's shape the one both sides already agree on.
+  return {...pointer, parent, pruned, verified_by: checked.verified};
 }
 
 /**

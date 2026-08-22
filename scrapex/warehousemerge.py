@@ -35,11 +35,21 @@ backup API — and `extension/drive.js` uploads it resumably into a `ScrapeX bac
 with a `latest.json` pointer and three kept. The panel's buttons are `drive-backup` and
 `drive-restore`, and the engine has no Google of its own by his ruling of 2026-08-11.
 
-**`drive-restore` IS THE DESTRUCTIVE ONE AND MUST NOT BE USED FOR THIS.** Restoring
-REPLACES the live warehouse — `registry.engine.restore` displaces it and says so — which on
-the other machine means losing the muqawil and products work that machine has and this one
-does not. That is the exact outcome `R-43` exists to prevent, reachable by pressing the
-button beside the right one.
+**AND THE WARNING THAT USED TO STAND HERE NAMED THE WRONG CONTROL — corrected 2026-08-22,
+not deleted, per `C5`.** This paragraph said in capitals that `drive-restore` REPLACES the
+live warehouse and must never be pressed on the other machine. It does not. That button is
+wired to `fetchFromDrive` (`extension/app.js`), whose own comment reads *"DOWNLOADED, NOT
+RESTORED"*, whose sentence ends *"It is not installed — this only checks it is there"*, and
+whose label in `extension/app.html` is *"Fetch the latest backup"*. Nothing on the panel's
+path reaches `registry.engine.restore`.
+
+So the warning was guarding a control that is safe while the destructive one had no guard
+at all: **`scrapex restore-database`**, a shipped subcommand that took a path and displaced
+his only copy with nothing asked. It now requires the phrase `cli.RESTORE_PHRASE`, and the
+refusal names THIS command as the alternative, because that is the whole of `R-43`: restore
+replaces, merge adds. Nothing is erased either way — `EngineDatabase.restore` moves the
+current file to `<stem>.replaced-<stamp>.db` — but the file stops being the LIVE one, and
+the next crawl writes into the copy that arrived from Drive.
 
 So the flow is: **backup** here, download there, and **merge** — never restore.
 
