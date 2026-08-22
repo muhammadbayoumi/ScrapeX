@@ -1866,8 +1866,41 @@ rots like any other.**
   written at the top of the guard, where someone will try to "fix" it by adding the
   marker.
 
-**Apply:** when you delete or rename a test, grep `tests/` for its name before you
+**Apply, for this class:** when you delete or rename a test, grep `tests/` for its name before you
 commit — `test_the_tests_name_tests_that_exist.py` now does it for you and fails
 with the file and line. When you cite a test as your reason, prefer citing the
 live rule or file it rests on: `design/components.css:369-371` outlives any test
 that measured it.
+
+### The general form: a claim survives being wrong wherever nothing checks it
+
+This is not really about test files. **Three instances turned up on one day, in three
+different shapes, and the only thing they share is that no check covered the place
+the claim was written:**
+
+| the claim | where | why nothing caught it |
+|---|---|---|
+| three docstrings naming a deleted test | `tests/` | the citation guard reads documents, not tests |
+| three citations resolving to a **blank line** | `docs/BACKLOG.md` | tier 1 asks only that the line exists |
+| the design system's copies are guarded by `tests/test_vendor.py` | `tests/test_ui_kit.py` | nothing checks a claim about where a guard lives |
+
+The third is the sharpest and the last to be fixed. That comment justified reading
+only `design/` — *"so reading the canon is reading both"* — and named the wrong file:
+`test_vendor.py`'s only byte-equality assertion compares the two vendored copies of
+Tabulator. The copies **are** guarded, by
+`test_generated_design_assets_are_current` in `tests/test_design_system.py`. So the
+conclusion was true, the evidence pointed at nothing, and a reader who checked would
+have found less assurance than actually exists. **A wrong pointer to a real guard is
+worse than no pointer: it spends the reader's trust and returns nothing.**
+
+Note also what the new guard in this section does **not** catch: that one is a
+reference to a test *file*, not a backticked test *name*, so it falls outside the
+pattern. Fixed by hand, recorded here, and left unguarded on purpose — the shape that
+would catch it is "resolve every claim about which guard covers what", which is the
+prose-inference design `tests/test_the_documents_cite_what_they_claim.py` measured and
+rejected in its own docstring.
+
+**Apply, generally:** when you write down why something is true, ask which check
+would fail if the reason stopped being true. If the answer is *none*, you have
+written a claim that will outlive its evidence, and the more carefully it is written
+the longer it will survive.
