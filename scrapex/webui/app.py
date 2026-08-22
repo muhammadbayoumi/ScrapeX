@@ -2065,8 +2065,64 @@ def create_app(
     ))
     app.include_router(create_extraction_router(general_read_conn, _general_write))
 
+    def _dataset_fields(source_key: str, schema_fields):
+        """Choose-Columns for a DATASET: its own fields, and only its own.
+
+        Two rules, and each answers a defect measured on 2026-08-22.
+
+        SEEDED FROM THE SCHEMA, never from `browse_columns()`. The dataset's
+        `field_definition` rows are what it actually publishes, so the panel can
+        only offer columns the directory has.
+
+        AND LISTED BY INTERSECTION, because `ensure_fields` is additive and the
+        eleven price-path rows already written against `contractors` cannot be
+        un-written by seeding correctly — they would simply be joined by the 28
+        real ones. Filtering here makes them inert without deleting anything:
+        `COMPATIBILITY.md` puts a destructive migration behind a review gate that
+        is HIS, and old data is never rewritten just to make the model look
+        clean. The rows stay on disk; the panel stops believing them.
+        """
+        keys = [row["field_key"] for row in schema_fields]
+        conn = read_conn()
+        try:
+            ensure_fields(conn, source_key, keys)
+            conn.commit()
+            wanted = set(keys)
+            return {"source_key": source_key,
+                    "fields": [field for field in list_fields(conn, source_key)
+                               if field["field_key"] in wanted],
+                    "views": list_views(conn, source_key),
+                    "order_source": ("yours" if arranged(conn, source_key)
+                                     else "agreed")}
+        finally:
+            conn.close()
+
     @app.get("/api/fields/{source_key}")
     def api_fields(source_key: str):
+        # A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE, and the catalogue is
+        # asked FIRST for exactly the reason `/api/table` asks it first: a
+        # dataset key is lower-case with underscores and a source key is
+        # upper-case, so the two sets cannot collide, and the cheaper table costs
+        # nothing when it misses.
+        #
+        # WITHOUT THIS BRANCH THIS ENDPOINT LIED, and it wrote its lie down.
+        # Falling through to the price path asked `column_presence` — "which
+        # BROWSE columns does this source populate" — about a contractor
+        # directory, and `ensure_fields` is additive by design, so merely
+        # opening Choose-Columns on the muqawil table registered ELEVEN
+        # price-path keys against `contractors`: display_method, price,
+        # minimum_quantity, quantity_increment, stock_quantity, tax,
+        # category_leaf, category_leaf_ar, price_changed_on, last_confirmed_on,
+        # curation. Measured in the live warehouse 2026-08-22 — all eleven are
+        # there, and not one of the directory's own 28 fields was.
+        general = general_read_conn()
+        try:
+            resolved = extract_service.dataset_schema_fields(general, source_key)
+        finally:
+            general.close()
+        if resolved is not None:
+            return _dataset_fields(source_key, resolved[1])
+
         conn = read_conn()
         try:
             # Seeded from THIS SOURCE's present columns, the same way the page

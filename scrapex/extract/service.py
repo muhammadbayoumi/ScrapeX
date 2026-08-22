@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from .. import catalog
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
+from ..fields import arranged, list_fields
 from ..sightings import STATE_MEANING, row_state
 from ..snapshotbody import decode, encode
 from .html_table import TableCandidate, candidate_by_index, detect_html_tables
@@ -790,6 +791,45 @@ def browse_records(
     }
 
 
+def dataset_schema_fields(
+    conn: sqlite3.Connection, dataset_key: str,
+) -> tuple[int, list[sqlite3.Row]] | None:
+    """This dataset's id and its CURRENT schema's fields, in schema order.
+
+    ONE QUERY, TWO READERS, and the second reader is why this is a function.
+    `dataset_table_payload` needs it to build the table; `/api/fields` needs it
+    to know which columns the Choose-Columns panel may offer at all. That second
+    endpoint had no way to ask the catalogue, so it asked the PRICE path instead
+    — and seeded `dataset_field` with ELEVEN price-path keys against
+    `contractors` (`price`, `tax`, `stock_quantity`, …), none of which the
+    directory publishes. Measured against the live warehouse on 2026-08-22.
+
+    Returns None when no dataset carries the key, so a caller can fall through
+    to the price path rather than having to ask twice — the same contract
+    `dataset_table_payload` already offers.
+    """
+    found = conn.execute(
+        "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
+        "FROM dataset_definition AS d "
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
+        (dataset_key,)).fetchone()
+    if found is None:
+        return None
+    dataset_id = int(found["id"])
+    fields = conn.execute(
+        "SELECT f.field_key, f.display_name, f.original_name, f.data_type, "
+        "       f.identity_role "
+        "FROM dataset_schema_version AS sv "
+        "JOIN schema_version_field AS svf "
+        "ON svf.schema_version_id = sv.schema_version_id "
+        "JOIN field_definition AS f "
+        "ON f.field_definition_id = svf.field_definition_id "
+        "WHERE sv.dataset_definition_id = ? AND sv.valid_to IS NULL "
+        "ORDER BY svf.field_order",
+        (dataset_id,)).fetchall()
+    return dataset_id, fields
+
+
 def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
                           *, cap: int | None = None) -> dict[str, Any] | None:
     """One generic dataset in the shape the grid already renders.
@@ -827,31 +867,27 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     those, for no reason recorded anywhere.
 
     MEASURED before removing it, because A8 asks for a bound and the honest
-    answer is what it costs: all 11,059 rows read and parsed in 0.09s for a
-    13.2 MB JSON payload, against 6.0 MB for the first 5,000. At the 17,283 the
-    sweep counted it is ~21 MB. A caller that needs a bound still passes one;
-    what changed is that the default no longer decides for him.
-    """
-    found = conn.execute(
-        "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
-        "FROM dataset_definition AS d "
-        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
-        (dataset_key,)).fetchone()
-    if found is None:
-        return None
+    answer is what it costs. RE-MEASURED 2026-08-22 against the live warehouse,
+    because the first numbers here were taken at 11,059 rows and the profile
+    crawl has been adding since — a bare figure in a docstring goes stale the
+    same week:
 
-    dataset_id = int(found["id"])
-    fields = conn.execute(
-        "SELECT f.field_key, f.display_name, f.original_name, f.data_type, "
-        "       f.identity_role "
-        "FROM dataset_schema_version AS sv "
-        "JOIN schema_version_field AS svf "
-        "ON svf.schema_version_id = sv.schema_version_id "
-        "JOIN field_definition AS f "
-        "ON f.field_definition_id = svf.field_definition_id "
-        "WHERE sv.dataset_definition_id = ? AND sv.valid_to IS NULL "
-        "ORDER BY svf.field_order",
-        (dataset_id,)).fetchall()
+        17,304 rows x 34 cols = 24.26 MB
+        query 373 ms + json 110 ms          = 483 ms  server
+        + 133 ms transfer over 127.0.0.1    = 616 ms  against the panel's
+                                              5,000 ms deadline — 12% of it
+        then in the browser at 360 px:
+        parse 78 ms + Tabulator build 384 ms + paint 23 ms = 485 ms
+
+    So the whole path is ~1.1 s and the request uses an eighth of its budget.
+    Pagination is what saves the render: 80 rows reach the DOM, not 17,304.
+    A caller that needs a bound still passes one; what changed is that the
+    default no longer decides for him.
+    """
+    resolved = dataset_schema_fields(conn, dataset_key)
+    if resolved is None:
+        return None
+    dataset_id, fields = resolved
 
     # THE DATASET'S OWN IDENTITY FIELD, asked of the schema rather than hardcoded.
     # `contractor_id` is muqawil's answer; Balady's and the UAE's will not be, and
@@ -931,11 +967,49 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         rows.append(record)
 
     keys = {row["field_key"] for row in fields}
+
+    # THE OWNER'S ARRANGEMENT, AND UNTIL NOW IT WAS IGNORED IN SILENCE. The
+    # columns come from `field_definition` — the site's own schema, which is
+    # source truth and stays so — but WHICH of them are in the table, what they
+    # are called and in what order is his, and it lives in `dataset_field`
+    # exactly as it does for products. This function never read it, so hiding a
+    # column on a contractor table saved a row and changed nothing on screen:
+    # the same defect `extension/datatable.js` warns about in its own comment,
+    # in the other direction («dragging a column saved, reloaded the page, and
+    # changed nothing, because the grid was reading its own copy»).
+    #
+    # A HIDDEN COLUMN IS MOVED, NEVER LOST — `R-45`, and `reports.py` already
+    # says it for products: "hiding a column is 'move it to the details' and
+    # showing it is 'move it back'". So the hidden ones leave `columns` and
+    # arrive in `moved_to_details`, which is the list the record card reads.
+    #
+    # DEGRADES SAFELY ACROSS THE LEGACY SPLIT. `dataset_field` is engine-schema
+    # and `general_db_path` "names an engine database like any other", so in the
+    # one-database product this is the same file. If some legacy split ever put
+    # the presentation rows in the other file, this finds none and every column
+    # stays visible — today's behaviour, not a corruption.
+    presentation = {row["field_key"]: row for row in list_fields(conn, dataset_key)}
+    site_columns = [
+        {"key": row["field_key"],
+         # His rename wins; otherwise the SITE's name, never the bare key —
+         # `field_definition.display_name` is what makes the heading read
+         # "Company Name" instead of "company_name".
+         "label": ((presentation.get(row["field_key"]) or {}).get("display_name")
+                   or row["display_name"] or row["original_name"])}
+        for row in fields]
+    # His ORDER only once he has actually arranged something, which is the same
+    # question `/api/fields` answers as `order_source`. Before that the schema's
+    # own `field_order` is the agreed order, and imposing `display_order` would
+    # silently reshuffle a table nobody had touched.
+    if arranged(conn, dataset_key):
+        site_columns.sort(
+            key=lambda column: (presentation.get(column["key"]) or {})
+            .get("display_order", 0))
+    hidden = {key for key, row in presentation.items() if row["is_hidden"]}
     return {
         "source_key": dataset_key,
-        "columns": [{"key": row["field_key"],
-                     "label": row["display_name"] or row["original_name"]}
-                    for row in fields]
+        "columns": [column for column in site_columns
+                    if column["key"] not in hidden]
         + [{"key": key, "label": label} for key, label in OBSERVED_COLUMNS],
         "rows": rows,
         "total": total,
@@ -953,5 +1027,12 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         "bilingual": {key: key[:-3] for key in sorted(keys)
                       if key.endswith("_ar") and key[:-3] in keys},
         "tax_states": {},
-        "moved_to_details": [],
+        # The columns he moved OUT of the table, so the record card can show
+        # them and nothing is lost by tidying the grid. Populated for the first
+        # time here; on the engine's own page nothing renders it yet for a
+        # dataset, because that card is gated on `offer_id` and a contractor has
+        # none. Stated rather than left to be discovered: this is the DATA half
+        # of `REQ-32`, and the card is the other half.
+        "moved_to_details": [column for column in site_columns
+                             if column["key"] in hidden],
     }
