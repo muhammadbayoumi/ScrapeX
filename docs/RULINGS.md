@@ -1072,6 +1072,89 @@ It works and it destroys history every time, which is what a row-aware key repla
 
 ---
 
+### R-44 · No sync server and no backup encryption for now, and the sync work is deferred behind muqawil
+
+**2026-08-22 · scope · answers the audit `R-43` made possible**
+
+> «لن ابنى خادم الان (لا اعرف وجه الاستفادة اصلا منه)» ·
+> «لا تشفر الان اصلا الداتا لن تنتقل من المستخدم الى اى حد اخر فهى تخص المستخدم فقط لا
+> داعى للتشفير ربما خطة مستقبلية» ·
+> «أرجئ كلّ شىء — أكمل مقاول»
+
+He commissioned a full offline-first multi-device audit against eight requirements,
+read it, and ruled on all of it in one sitting. **Four decisions, and they are recorded
+together because they only make sense together.**
+
+**1 · No server.** He asked the right question first — *what would it even buy me?* —
+and the honest answer is three things: automation (no manual upload/download/merge
+dance), a third device, and **the ability to publish the tool to other people**, who
+cannot be taught a merge ritual. None of those is worth a server today, for one owner
+and two machines.
+
+**2 · No backup encryption yet.** His reasoning: the data never leaves the user, so it
+is the user's own. **The one fact recorded against it, without argument:** a compromised
+Drive account today means the whole warehouse is readable, because
+`bundle.py`/`archive.py`/`drive.js` contain no encryption at all. He called it a future
+plan and that is what it is.
+
+**3 · Solo now, published later.** Which is what makes decisions 1 and 2 revisitable
+rather than permanent.
+
+**4 · All of it waits for muqawil.**
+
+### And three of his own questions sharpened the audit, so they are recorded too
+
+He did not accept the conflict table as written, and he was right twice:
+
+- **«الزحف اعتقد انه لن يتعارض ابدا»** — correct, and *provably* so, not merely likely.
+  `generic_page_snapshot` is immutable by trigger and keyed on
+  `(source_url, content_hash)`; `dataset_sighting` merges by `MIN`/`MAX` on dates;
+  everything derived is recomputed. **One exception in everything the crawl produces:**
+  `seen_count`, where `MAX` under-counts two devices that each saw a contractor.
+- **«tax … قرار يوضع فى الكود … لكن ليس مينفعش مستخدم ياخد قرارين مختلفين فيها»** —
+  right, and better than he thought. `tax.py` records *"what the source SAYS about tax,
+  and where it says it"* in three states, and `currency_rate` is fetched with an
+  `as_of`. **They are not decisions at all — they are observations**, which puts them in
+  the evidence population where nothing ever conflicts. The audit had them as
+  "server-authoritative, client proposes"; that premise was wrong, because nobody
+  proposes.
+- **«القاعدة تتغير باستمرار … هل هذا فى الحسبان؟»** — yes, and with a bite worth
+  knowing: `warehousemerge._same_shape` refuses to merge across schema versions, so
+  **`git pull` on both machines is a precondition of every transfer**, not tidiness. It
+  would have blocked him on 2026-08-22, when the installed CLI was 0.2.2 and the
+  arriving bundle was v9.
+
+**So the conflict surface is much smaller than the audit first drew it**: only data a
+person edits by hand and could edit twice — retention policy and pins, `site_profile`
+and `dataset_definition` (which is how a new source is added), schedules and feeds,
+saved views and settings. Everything else is evidence, derived, or a release.
+
+### Two findings that are true whatever he decides later
+
+Recorded here because deferring them costs more than deferring the rest:
+
+- **`REQ-26` is not built and he believes it is.** `extension/accounts.js` remembers
+  several accounts and writes nothing to disk; `databases/registry.py` has one
+  `DATABASE_ROOT`; `account.py` says in its own docstring that it does not use
+  per-account directories and does not refuse another owner's warehouse. **Two accounts
+  on one machine open the same file.** The moment a second person uses the tool, their
+  data mixes with his.
+- **48 of 48 primary keys are autoincrement integers.** A tool published to other people
+  with integer keys can never sync, and adding a client-generated key after users hold
+  data is a painful migration. Today it is an `ALTER TABLE`.
+
+### And the design answer he asked for, kept for when he returns
+
+Automatic sync **is** achievable with no server: Drive as an append-only log of small
+immutable per-device files — **never the SQLite file itself**, because WAL plus partial
+sync corrupts a database. The price is that **Hybrid Logical Clocks become necessary**,
+where a server would have made them pointless, and that **nothing can reject an
+operation** — so retention policy, which destroys data, would need an automatic rule
+instead of a human decision. For a published tool, Drive-per-user also solves user
+isolation for free.
+
+---
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
