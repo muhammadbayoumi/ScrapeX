@@ -262,6 +262,19 @@ PINNED = (
     # "bump both or neither" is a rule with a guard behind it rather than advice.
     ("docs/LESSONS.md", "tests/test_version.py", 73,
      "def test_the_installer_carries_the_same_number("),
+    # DELIBERATELY ABSENT, AND THE ABSENCE IS RECORDED HERE RATHER THAN ONLY IN THE
+    # ENTRY THAT WANTS IT. `OP-46` cites seven lines in `extension/app.js` --
+    # `setupFinanceConverterSelect` and `setupRunModeSelect` chief among them -- and
+    # pins none of them, because that file was under concurrent edit by another
+    # session when the entry was written. Pinning a line another branch is moving is
+    # how `scrapex/webui/app.py:2710` above became 2725 and then 2787.
+    #
+    # A CONDITION, NOT A CHORE ASSIGNED TO NOBODY: pin those two symbols the next
+    # time you add a row here AND `extension/app.js` is quiet. It is written beside
+    # the mechanism instead of in `OP-46` because this table is re-read every time
+    # someone adds a row, whereas a BACKLOG entry is read when someone goes looking
+    # for work -- and this instruction has to fire while its reader is doing
+    # something else.
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
@@ -342,6 +355,60 @@ def test_every_citation_names_a_line_that_exists(index):
                           f"{count} lines")
 
     assert not beyond, "\n  ".join(["citations past the end of their file:", *beyond])
+
+
+def test_no_citation_lands_on_a_blank_line(index):
+    """Tier 1, and it closes a hole the two tiers around it both leave open.
+
+    A citation that has drifted onto a BLANK line passes every other check here.
+    Tier 1 is satisfied because the file is long enough. Tier 2 never looks unless
+    the citation is in `PINNED`. So the document sends its reader to a line that
+    says nothing at all, and what they see reads as a formatting artefact rather
+    than an error -- nobody reports it, because it does not look like a mistake.
+
+    FOUND, NOT IMAGINED, ON 2026-08-22. `#255` added a section to `docs/LESSONS.md`
+    and pushed a sentence `OP-48` cites down 38 lines. The citation still resolved,
+    still passed, and pointed at an empty line. It was caught by re-deriving every
+    citation by hand after a rebase, which is not a thing anybody should have to
+    remember to do.
+
+    THE SWEEP THAT CAME WITH THIS FOUND THREE MORE, all long-standing and all in
+    `docs/BACKLOG.md`: `scrapex/cli.py:761` (the call it names is at 867),
+    `scrapex/connectors/base.py:485` (the sentence it names is at 560) and
+    `tools/panel_harness.py:119` (the manifest read is at 121). Each was corrected
+    by reading the target file, so this assertion goes green on a correct tree
+    rather than arriving red and being negotiated with.
+
+    Three of 161 also settles a question nobody needed to argue: this was NOT
+    added on a hunch about what might drift one day. The class already had three
+    tenants, and the guard was written from a measurement rather than from a fear.
+
+    THE END OF A RANGE IS DELIBERATELY NOT CHECKED. A citation may legitimately
+    span a blank line inside a block, so only the line the reader is actually SENT
+    to has to say something. Checking both ends would look stricter and would be
+    right less often -- which is the worse trade in a guard, because a check that
+    fails on correct input is one people learn to route around.
+
+    AND THE MUTATION TEST FOR THIS ONE GOES ON THE DATA, NOT ON THE ASSERTION.
+    Reverting one of the three corrections above makes this fail and name that
+    citation; that is how it was proved non-vacuous. The shape is deliberate: here
+    the guard's possible defect and the data's actual defect are the same shape --
+    a line that resolves and says nothing -- so mutating a fix exercises the real
+    path, where mutating the assertion would only prove that an `assert` asserts.
+    """
+    empty = []
+    for doc, where, raw, line, _end in _citations():
+        target = _resolve(raw, index)
+        if target is None:
+            continue  # tier 1's first test owns that failure
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line <= len(lines) and not lines[line - 1].strip():
+            empty.append(f"{doc}:{where} cites {raw}:{line}, which is a blank line")
+
+    assert not empty, "\n  ".join([
+        "these citations resolve to a blank line, so they send the reader to "
+        "nothing. Read the target file, find where the subject moved to, and "
+        "correct the document:", *empty])
 
 
 @pytest.mark.parametrize("document,path,line,expected", PINNED,

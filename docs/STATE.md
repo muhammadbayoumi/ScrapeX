@@ -180,6 +180,35 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+**A DRY review of `#252` recorded `OP-46`, `OP-47` and `OP-48` — documentation only,
+no code touched.** The review followed that PR's own comment to the three popovers it
+named as its layer precedent, and all three findings came out of checking that claim:
+
+- **`OP-46`** — `setupFinanceConverterSelect` and `setupRunModeSelect` are one
+  component written twice; `focusOption` is character-identical after normalising one
+  identifier.
+- **`OP-47`** — the split button's stacking trap is documented as prose that tells the
+  next consumer to re-write the selector by hand, instead of being owned by the shared
+  component that ships the trap.
+- **`OP-48`** — the layer scale is transcribed **by hand on both sides of the
+  extension/engine boundary**: three rules across `extension/app.css` and `webui.css`
+  write a token's value as a raw number, and the two sheets share nothing but
+  `tokens.css`. `.modal-veil`'s correctness depends on one of those equalities and only
+  a comment holds it. A guard scoped to either surface alone goes green with the other
+  still wrong.
+
+Nothing in any of the three is broken today; all are filed as cost, each with its
+narrow fix and the proof it must carry. **`OP-48` is the one to build first** — a
+three-value substitution that cannot change a pixel, and lowering `--z-overlay` today
+would undo `#252`'s fix from a file that never mentions it. `OP-47` should wait for the
+card-restyle session to land, because it edits a component five surfaces consume.
+
+**This branch is from a SECONDARY session and does not merge itself** (`R-42`). All
+three numbers were assigned by the primary session; `44`/`45` are declared in
+`RESERVED` in `tests/test_the_registers_cannot_collide.py` because branch
+`claude/drive-without-a-server` holds them unpushed — **delete those two rows when it
+lands.**
+
 **The three-dots button appeared twice on a source card.** `REQ-30`, «لماذا تظهر
 مرتين», reported with screenshots on 2026-08-22 and fixed the same day. One CSS
 rule: `.dataset-card > .split-button` carried `z-index: 1`, which made every card's

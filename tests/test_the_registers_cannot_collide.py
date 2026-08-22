@@ -92,13 +92,63 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: in the guard next door. Two things follow: the gap check knows the hole is deliberate,
 #: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
 #: pull request merges** — a reservation left behind is a permanent hole nobody owns.
+#:
+#: A ROW HERE IS A CLAIM ABOUT THE WORLD, AND IT ROTS LIKE A LINE CITATION DOES. It is
+#: not merely stale when its holder disappears — it is actively worse than the hole it
+#: covers, because **a reservation whose owner does not exist launders an orphan into a
+#: passing test, and reads as deliberate.** The gap check then reports nothing while the
+#: register has a permanent wart in it, which is the failure mode this whole file exists
+#: to prevent, one level up.
+#:
+#: Hence: **name a holder a reader can VERIFY** — a branch ref or a pull request number,
+#: never a description of a session. Two reasons, both met on 2026-08-22. Sessions do not
+#: outlive their branches, so "the Drive session" is unresolvable six weeks later. And the
+#: claim may be unverifiable from the repository at the time it is written: an unpushed
+#: renumber is invisible on `origin` and still real, which is how the row for 44 below was
+#: briefly attributed to the wrong branch. A ref can be checked with `git ls-remote`; a
+#: description cannot be checked at all. **The row is only as fresh as the last person who
+#: checked it, so re-check before trusting it.**
 RESERVED: dict[str, dict[int, str]] = {
     "R": {},
     "REQ": {},
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
-    "OP": {},
+    #
+    # 45 is held by branch `claude/drive-without-a-server`, which also holds 49 and 50.
+    # NOT verifiable from the repository, and the row says so on purpose: that branch's
+    # renumber is unpushed, so `origin` shows it topping out at `OP-43`. The claim is real
+    # and invisible, so this row rests on the assigning session's word rather than on a
+    # ref anyone can read. Re-check it rather than inheriting it.
+    #
+    # WHO DELETES A ROW: the branch that CREATED the reservation, unless the branch that
+    # fills it has already merged. So this row is deleted by whichever pull request
+    # follows the Drive branch — not by this one, which merges before it and would leave a
+    # real hole undeclared.
+    #
+    # 44's ROW WAS HERE AND IS GONE, which is the rule working rather than an omission.
+    # #255 merged on 2026-08-22 (`bcb8f6e`) and brought `### OP-44 · A dataset card said
+    # "no successful crawl yet" over 17,304 crawled rows`, so the number stopped being a
+    # hole and became a heading. Leaving the row would have failed
+    # `test_a_reserved_number_is_not_also_declared` — reserved AND declared at once — and
+    # that failure was PREDICTED from the tree before #255 merged rather than discovered
+    # from a red build afterwards.
+    #
+    # 44 was also briefly attributed to the wrong branch here, and that is worth keeping
+    # now that the row is gone. The Drive branch held 44 and 45, then moved off 44
+    # precisely BECAUSE #255 had it, and a message describing only what changed on the
+    # Drive side read as 44 having been released. The row passed the gap check the whole
+    # time it named a holder that no longer held it — exactly the laundering the paragraph
+    # above describes. Nothing caught it; asking who holds 44 did.
+    #
+    # NOTE TO WHOEVER TAKES AN ASSIGNED NUMBER NEXT: being handed "take OP-46" is not
+    # enough. If the numbers below yours are not in your branch, the hole check fails on
+    # YOUR branch, and declaring them here is what satisfies it — that is what this table
+    # is, and it was nearly missed on 2026-08-22 because the assignment named the guard
+    # without naming the mechanism.
+    "OP": {
+        45: "branch claude/drive-without-a-server",
+    },
     "DEC": {},
 }
 

@@ -660,7 +660,7 @@ leaves an installation that refuses to start rather than one that starts on half
 data.
 
 **Shape of the fix**, for whoever picks it up: call `carry_over` from the same place
-`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:761`) when the pointer is
+`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:867`) when the pointer is
 split, say so on stdout and in the log naming both source files, and give
 `native.upgrade_database()` the same path so the panel's button works. Then a test
 that a split installation **starts**, which is the test nobody has written — every
@@ -1773,6 +1773,354 @@ Deliberately not done inside the double-⋮ fix: that one is a CSS stacking bug
 with a hit test to prove it, and this one changes what the panel offers, which is
 the owner's call under `R-32`'s reading of what a dataset is.
 
+### OP-46 · The custom `<select>` is built twice, and `focusOption` is character-identical in both
+
+**Status: OPEN. Found 2026-08-22 by a DRY review of `#252`.** That PR's own comment
+names `.sx-select-list`, `.account-menu` and `.finance-converter-options` as the
+overlay-layer precedent it was following. Reading the three together to check the
+claim turned up something the PR did not raise: two of them are not dropdowns that
+merely look alike. They are **one component written twice**.
+
+**Nothing is broken today, and this entry says so before anything else.** Both
+dropdowns work, both are keyboard-operable, no screenshot produced this and no user
+saw it. What is duplicated is the *state machine*, and the cost is that every future
+fix to it has two homes.
+
+**The two implementations**, each mirroring a native `<select>` and replacing its
+popup:
+
+| | finance converter | run mode |
+|---|---|---|
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:956](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2008](../extension/app.js#L2008)) |
+| `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
+| `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
+| `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
+| `focusOption(direction)` | **identical** — see below | **identical** |
+
+**`focusOption` is the same function, measured rather than eyeballed.** Normalise
+the candidate-list identifier (`choices` / `enabled`) and the one expression that
+builds that list, and the two bodies are **character-identical** — the guard, the
+`indexOf(document.activeElement)`, the `aria-selected` lookup, the
+`current >= 0 ? current : Math.max(selected, 0)` fallback and the
+`(start + direction + n) % n` wrap:
+
+```
+function focusOption(direction = 1) {const OPTS = BUTTONS;if (!OPTS.length) return;
+const current = OPTS.indexOf(document.activeElement);const selected = OPTS.findIndex(
+(button) => button.getAttribute("aria-selected") === "true");const start =
+current >= 0 ? current : Math.max(selected, 0);OPTS[(start + direction + OPTS.length)
+% OPTS.length].focus({preventScroll: true});}
+```
+
+**And the CSS is the same surface twice**, counted by declaration after stripping
+comments:
+
+| pair | identical | differ |
+|---|---|---|
+| `.sx-select-list` (14) vs `.finance-converter-options` (15) | **10** | `max-height`, the `inset` shorthand vs `inset-block`/`inset-inline`, one animation, two scrollbar properties |
+| `.sx-select-option` (13) vs `.finance-converter-option` (16) | **10** | `gap`, `min-height`, `border-radius`, three font properties |
+
+Both popovers share `position`, `z-index: var(--z-overlay)`, `display: grid`,
+`gap: 2px`, `padding`, `overflow-y`, `border`, `border-radius`, `background` and
+`box-shadow` — the same ten. This is the shape `UI-2` already ruled on: `.icon-tile`
+was extracted at **six** identical declarations across three sheets, and this is ten
+across two blocks of one sheet.
+
+**What looks like drift and is NOT — the part that decides the severity.** A first
+reading of this made it look as though the two copies had already diverged in
+accessibility. They have not, and the difference is requirement-driven:
+
+* Run mode disables options **individually**, because which run modes are on offer
+  depends on the selection — `for (const option of select.options) option.disabled =
+  !allow[option.value]` ([extension/app.js:2173](../extension/app.js#L2173)). Its
+  `focusOption` filters disabled candidates because it genuinely has some.
+* The finance converter disables **the whole control** when there are no stored
+  rates — `select.disabled = !state.financeRates.length`
+  ([extension/app.js:1141](../extension/app.js#L1141)) — and mirrors that onto the
+  trigger inside `sync()`. It never has a disabled option, so it has nothing to
+  filter.
+* Type-ahead exists only on the finance side, and a currency list needs it where
+  four run modes do not.
+
+So this is **not** a case of one copy having been fixed and the other missed. It is
+a shared core with three honest local differences, which is why it is filed here as
+cost rather than as a defect.
+
+**One difference is accidental, and it is the whole argument in miniature.** Run
+mode's `close()` opens with an early return when the list is already hidden; the
+finance copy has no such guard. Nobody decided that. It is what a duplicated state
+machine does over time, and it is the second edit — not this one — that will hurt.
+
+**The narrow fix, and it is deliberately narrow.** Extract only the shared state
+machine — `open`, `close`, `focusOption`, `choose` — to `design/select.js`, on the
+exact precedent the repository already set for this class of problem:
+`design/split-button.js` exists because *"the dataset Export control and the
+Activity panel's log control cannot become two implementations"*
+([tools/sync_design_assets.py:25-26](../tools/sync_design_assets.py#L25)), it is
+distributed to both surfaces through `ASSETS`, and the copies are held byte-equal by
+`sync(check=True)` in
+[tests/test_design_system.py:16](../tests/test_design_system.py#L16). The
+candidate-set predicate and the optional type-ahead are passed in.
+
+**Do not merge `sync()`.** Rendering the options genuinely differs — one writes a
+`<span>` plus a check icon, the other a label and a tick with different tokens — and
+that is the part that should stay local. Nor should `.account-menu` or
+`.split-button-options` be folded into the CSS half: their surfaces really are
+different (`--line` / `--surface-raised` and `--line-strong` / `--surface` /
+`--radius` against the two dropdowns' `--outline-variant` /
+`--surface-container-high` / `--radius-lg`). Pulling all four together is the wrong
+abstraction that `UI-2`'s closing rule warns about.
+
+**Proof it must carry**: `tools/style_snapshot.py` across both surfaces, with no
+computed style changed anywhere — the same evidence `UI-2` used, and the same reason
+screenshots cannot supply it.
+
+**Why it is not done in this pull request.** Three sessions were open on 2026-08-22
+and one of them is editing `extension/app.js` and `extension/app.css`; a behaviour
+extraction across those two files from a secondary session is how the register
+collisions of 2026-08-21 happened. It also adds a **third** shared JS module to a
+surface the owner has opinions about, which is his call and not a reviewer's.
+
+**Its citations are deliberately NOT in `PINNED`.** Every line above points into
+`extension/app.js`, which this branch does not touch and another session was editing
+when this was written. `main` went red on 2026-08-22 from exactly that shape, and the
+account is recorded beside the row it broke
+([tests/test_the_documents_cite_what_they_claim.py:209](../tests/test_the_documents_cite_what_they_claim.py#L209)):
+`#252` measured a line in `app.py` correctly on its own base, `#251` landed first and
+added fifteen lines above it, and because **no file was changed by both**, git found
+nothing to conflict on and neither suite could see the other. **That row has since moved
+a third time — 2710 → 2725 → 2787 — which is the argument for this paragraph rather than
+against it: the line moves whenever anything lands above it, so a pin is a commitment to
+re-derive it on every rebase.** "Check whether the
+files overlap" is the reflex that fails here.
+
+Tier 1 still guards these seven citations, and that was proved rather than assumed —
+the guard's own `CITATION` pattern extracts all seven from this entry and every one
+resolves to a real file and a real line. Pin them when `extension/app.js` is quiet,
+and pin `setupFinanceConverterSelect` and `setupRunModeSelect` first.
+### OP-47 · The shared split button documents its stacking trap instead of owning it
+
+**Status: OPEN — recording, not fixing. Found 2026-08-22 by the DRY review of `#252`,**
+the pull request that fixed the trap for `REQ-30`. It fixed it in the right place for
+that screen and in the wrong place for the component.
+
+**CITED BY SELECTOR, NOT BY LINE, ON PURPOSE.** `extension/app.css` and
+`extension/app.js` were under concurrent edit by another session on 2026-08-22 — it was
+giving the `dataset`-kind cards a `⋮` at all (`OP-42`'s tail) and restyling the card's
+trigger at his request. **That request is deliberately not quoted or numbered here**:
+the session doing the work is capturing it, and a second copy on the board is the drift
+`REQUESTS.md` exists to prevent. Every rule below is named so a reader who finds
+different text nearby knows the neighbourhood moved rather than assuming this entry
+rotted. The stable files carry line numbers.
+
+**AND THIS ENTRY CARRIES ITS OWN CORRECTION.** The request above was filed as `REQ-36`
+on another branch while this was being written, so: **cite `REQ-36` once it is on
+`main`.** `REQ-30` is its root and is the truthful citation until then — the trigger
+being restyled is the same control whose menu `REQ-30` was about. Swapping it is a
+one-word edit that needs no rediscovery, which is the point of writing the instruction
+down rather than leaving it for whoever picks this up.
+
+**What `#252` did.** `.dataset-card > .split-button` in `extension/app.css` carried
+`z-index: 1`, which made every card's wrapper a stacking context and spent the open
+menu's own `z-index: 120` inside it. The fix adds
+`.dataset-card > .split-button:has(.split-button-menu[open])` lifting the wrapper to
+`var(--z-overlay)` while open — correct, measured, and guarded by a hit test.
+
+**Why the rule belongs one level up.** The `120` is the shared component's
+([design/components.css:1429](../design/components.css#L1429)), so the knowledge *"this
+menu must not be painted over"* is the component's too. The component's own comment,
+ten lines under that declaration, states the repository's rule for exactly this
+situation: *"When two independent consumers break the same way, the shared rule is the
+defect rather than the consumers"*
+([design/components.css:1439](../design/components.css#L1439)).
+
+**And the prose now tells the next consumer to write the selector again.**
+`docs/UI-KIT.md` records the trap as placement guidance — *"where a layer really is
+needed, raise it to `var(--z-overlay)` **only while the menu is open**
+(`:has(.split-button-menu[open])`)"* ([docs/UI-KIT.md:202](UI-KIT.md#L202)). That is a
+documented invitation to a second copy, and `webui.css` is already the first:
+`.source-filter-menu[open]{z-index:var(--z-overlay)}`
+([scrapex/webui/static/webui.css:142](../scrapex/webui/static/webui.css#L142)),
+asserted as literal text at
+[tests/test_workspace.py:274](../tests/test_workspace.py#L274).
+
+**NOTHING ELSE IS BROKEN — measured at `451468d`, and the measurement is sharper than
+"no other consumer has a z-index".** The defect needs two things: a stacking context on
+the wrapper **and** a later sibling inside it to lose the tie to. Only one consumer
+supplies the second, because only one is *repeated*:
+
+| consumer | how it is wired | repeated? |
+|---|---|---|
+| dataset cards | `querySelectorAll(".dataset-card .split-button")` in `extension/app.js` | **yes — the broken one** |
+| Activity log | `$("activity").querySelector(".split-button")` in `extension/app.js` | no, singular |
+| grid toolbar | `toolbar.querySelector(".split-button")` ([scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118)) | no, singular |
+| source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)) | no, singular |
+| gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | no, singular |
+
+Checked at the same commit: `.toolbar` carries no `z-index`, there is no rule for
+`#activity .split-button`, and neither `.dataset-card` nor `#datasets` carries a
+`transform`, `filter`, `opacity`, `contain`, `isolation` or `will-change` that would
+build a context another way. **This is future safety, not a live defect.**
+
+**RE-TAKE THIS COUNT AFTER `fix/a-dataset-card-gets-the-menu-it-can-use` LANDS. It is a
+measurement at `451468d`, not a standing claim.** That branch gives the `dataset`-kind
+cards the menu entries that work — `OP-42`'s tail — which moves the stub from 3 cards / 2
+triggers to 3 cards / 3 triggers. Reported as card-local only: `.dataset-card`'s block
+and `sourceMenu`, with the shared component and its generated copy untouched and no
+consumer added anywhere new. **So the conclusion holds and only the number changes** —
+the cards given triggers are still `.dataset-card`, matched by the same
+`querySelectorAll`, so the repeated-consumer fact gets stronger rather than weaker. Any
+future branch that adds a consumer or lifts a different wrapper invalidates the table,
+not just the count.
+
+**The risk is specific, and that session makes it likelier rather than moot.** The
+defect is *created* by fixing consumers instead of the component, and another consumer
+is being fixed right now. The next list of anything carrying a per-row actions menu
+reproduces it, because the component still ships the trap and the guard is bound to one
+screen: `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` reads
+`#datasets .dataset-card .split-button-trigger`, so it would stay green while a new
+repeated consumer was broken.
+
+**The narrow fix.** Move the conditional lift into the shared sheet, beside the
+declaration whose knowledge it is:
+
+```css
+.split-button:has(.split-button-menu[open]) { z-index: var(--z-overlay); }
+```
+
+then `python tools/sync_design_assets.py`. It applies — `.split-button` is already
+`position: relative` ([design/components.css:1352](../design/components.css#L1352)) —
+and it is inert unless a menu is open. The card keeps its own `z-index: 1`, which is
+local placement, not this rule.
+
+**The objection on record does not transfer, and that needs saying plainly.**
+`extension/app.css` says *"Changing the shared rule would move the Activity log's menu,
+which is not broken"*, and a reader may take that as a decision against touching the
+shared sheet. It belongs to the block above it — the **positioning** of the wrapper in
+the card's corner — not to the layer. No ruling covers sharing the z-index rule.
+
+**Proof it must carry:** `tools/style_snapshot.py` over both surfaces, with no computed
+style changed except where a menu is open, and the hit test generalised off `#datasets`
+so it covers whatever the second repeated consumer turns out to be.
+
+**Sequencing:** build this **after** `OP-48` and after the card session lands. It edits
+a component five surfaces consume, and doing that while one of them is being restyled is
+how two correct branches produce one broken screen.
+
+### OP-48 · The layer scale is transcribed by hand on both sides of the boundary, and a comment is all that holds it equal
+
+**Status: OPEN — recording, not fixing. Found 2026-08-22 by the DRY review of `#252`.**
+Of the three findings that review produced this is the one to build first: the fix is a
+three-value substitution that cannot change a pixel, and the thing it removes is tied to
+a defect he photographed the same day.
+
+**THE ARGUMENT, BEFORE ANY INDIVIDUAL VIOLATION.** The extension and the engine each
+transcribe the layer scale **by hand**, and the two sheets share nothing but
+`tokens.css`. So changing a layer is not editing a token — it is editing a token and then
+remembering that two unrelated stylesheets also spell its value out, one of them on the
+other side of a boundary the two surfaces cannot import across. That is the defect. The
+three rules below are only how it shows today, and a guard scoped to either surface alone
+would go green with the other still wrong — `OP-18`'s shape exactly, and the same failure
+as a parameterised test that matches nothing: green because it looked in one place.
+
+**Cited by selector for `extension/app.css`, by line elsewhere** — that file was under
+concurrent edit on 2026-08-22 and every rule below it shifts when the card block above
+it changes. See `OP-47` for the same reason at more length.
+
+**The scale is three tokens** — `--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`
+([design/tokens.css:128](../design/tokens.css#L128)) — and **three rules across two
+sheets** write a token's value as a raw number instead of reading it. This is the
+complete set, measured at `451468d` by matching a bare integer equal to any of the three:
+
+| rule | sheet | writes | which is exactly |
+|---|---|---|---|
+| `nav.side-rail` | `extension/app.css` | `z-index: 30` | `--z-modal` |
+| `.workspace-menu-backdrop` | `extension/app.css` | `z-index: 20` | `--z-overlay` |
+| `.workspace-menu-button` | [scrapex/webui/static/webui.css:81](../scrapex/webui/static/webui.css#L81) | `z-index:10` | `--z-sticky` |
+
+**How the third row was found is part of the finding.** The static guard below was first
+written scoped to `extension/app.css`. Checking whether that scope was the whole set —
+rather than assuming it — produced `.workspace-menu-button` on the engine's side. The
+scope was the bug, not the count.
+
+**`.modal-veil` already depends on the first equality, and its own comment says so.** It
+uses `z-index: calc(var(--z-modal) + 10)` and explains why: *"--z-modal is 30 and the
+side rail is also 30 (see .side-rail above), so the token as it stands ties with the
+thing this has to cover and the winner would be decided by source order. Correcting the
+token is a design-system decision, not this screen's."*
+
+That comment is an accurate diagnosis and a deferral, and it is also the whole problem:
+**a comment is not a constraint.** The veil is modal — it exists so a question about
+revoking a grant cannot be navigated away from — and its correctness rests on a number
+in a different rule 1,100 lines away staying equal to a token. Move either and the veil
+silently stops outranking the rail. Nothing goes red.
+
+**The concrete consequence, and it lands on the bug he just reported.** Lower
+`--z-overlay` below 20 — an ordinary design-system decision — and
+`.workspace-menu-backdrop`'s raw `20` outranks **every popover that reads the token**:
+`.sx-select-list`, `.account-menu`, `.finance-converter-options`, and the
+`.dataset-card > .split-button:has(.split-button-menu[open])` rule that `#252` added
+hours earlier. The drawer's backdrop would paint over the very menu whose overpainting
+he photographed and asked «لماذا تظهر مرتين» about — `REQ-30`, fixed that same day. One
+token edit, and the fix is undone from a file that never mentions it.
+
+**Nothing catches any of this, and that is a finding in its own right.** The repository
+has **no test that reads a z-index**. The single guard that touches the subject asserts
+the literal *text* of one rule —
+`assert ".source-filter-menu[open]{z-index:var(--z-overlay)}" in styles`
+([tests/test_workspace.py:274](../tests/test_workspace.py#L274)) — which proves that one
+line is spelled that way and nothing about layer order anywhere else. The most recent UI
+defect he reported was a stacking bug, and `#252`'s own lesson is that reading a z-index
+back would have passed on the broken build.
+
+**So what a guard has to assert is order, not numbers.** Two shapes, and **the static
+one is the more valuable** — it fires at review time, where the behavioural one can only
+fire after a regression has been written:
+
+* **Static, and the one to build:** **no stylesheet in the repository** may write a bare
+  integer equal to the value of a layer token — it must read the token. Repo-wide, not
+  `extension/app.css` alone: scoping it to the panel would have missed
+  `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
+  was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
+  extension's layers are three tokens …; a fourth number invented at a call site is the
+  next instance of this bug"*, [docs/LESSONS.md:611](LESSONS.md#L611)) and nothing
+  enforces. It is also cheap: the three substitutions below are the whole of today's
+  violation set, so the guard goes green the moment they land.
+* **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
+  side rail rather than reading a z-index back, the way
+  `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` does.
+
+**And that second bullet is the same lesson twice, which is the point of writing it
+here.** `#252`'s guard learned it the hard way: an assertion on the computed z-index
+**passed on the broken build**, because the broken build's number was already large.
+`.modal-veil` would fail the same way — its `calc(var(--z-modal) + 10)` reads back as a
+perfectly correct 40 whether or not the rail it must cover has moved. One instance is a
+trick; two make it the practice for this codebase. **Hit-test what is in front, because
+that is the question a person is asking.**
+
+**The same file breaks the three-token rule in four more places, and those are NOT this
+entry.** `.workspace-menu` invents `z-index: 25` between overlay and modal;
+`.split-button-options` uses `120` ([design/components.css:1429](../design/components.css#L1429));
+`.grid-feature-popover` uses `100` and `.column-chooser-backdrop` `10020`
+([scrapex/webui/static/grid-theme.css:663](../scrapex/webui/static/grid-theme.css#L663),
+[scrapex/webui/static/grid-theme.css:311](../scrapex/webui/static/grid-theme.css#L311)).
+Those are numbers the scale has no name for — renumbering them changes paint order and is
+a design-system decision, which is the call `.modal-veil`'s comment already declined to
+make on its own. **Recorded here, deliberately not folded in.**
+
+**The narrow fix, and it is provably inert.** Substitute only the three values that are
+already exactly equal to a token: `nav.side-rail` → `var(--z-modal)`,
+`.workspace-menu-backdrop` → `var(--z-overlay)`, `.workspace-menu-button` →
+`var(--z-sticky)`. Same numbers, so no computed style changes — verified with
+`tools/style_snapshot.py` across both surfaces, the same evidence `UI-2` used. Then the
+equality `.modal-veil` depends on is expressed instead of commented, and lowering
+`--z-overlay` moves the backdrop *with* the popovers instead of past them.
+
+**Why it is not done in this pull request.** Two of the three lines are in
+`extension/app.css`, which another session was editing on 2026-08-22 on the owner's
+instruction. The change is three lines and behaviour-neutral; it should land as its own
+change once that file is quiet, together with the static guard above so the fix arrives
+with the thing that keeps it. It does **not** need to wait for `OP-47`.
 
 ## 3. Decided, not yet built
 
@@ -2425,7 +2773,7 @@ at the run, don't assume it.
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
 crawl: `extension/app.js:840` posts `crawl_honour_delay` → `scrapex/capture.py:95`
-reads it → `scrapex/connectors/base.py:485` emits the sentence → `job_log_entry`
+reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.
 
@@ -3089,7 +3437,7 @@ is prose in the module docstring saying the extension's number is deliberately
 **not** there, and explaining why the two versions are allowed to differ. I read
 a docstring as code.
 
-The only Python that reads that manifest is `tools/panel_harness.py:119`, a
+The only Python that reads that manifest is `tools/panel_harness.py:121`, a
 development harness that never ships. There is no reversed runtime dependency.
 Recorded here so the note is not raised a second time by someone reading the
 same docstring.
