@@ -340,3 +340,155 @@ def test_a_failed_merge_still_detaches(two):
     # time this ran for real.
     with pytest.raises(NotMergeable):
         merge(here, path, machine="m")
+
+# ---- the compression dictionary, which the first version left behind ---------
+#
+# HIS REAL TRANSFER FAILED HERE, on 2026-08-22: 20,379 pages, every one
+# `zstd-raw-dict`, arriving into a warehouse with no dictionaries at all ->
+# "FOREIGN KEY constraint failed". The seventeen tests above all passed before the
+# fix AND after it, because not one of them stored a compressed page. The merge was
+# written on 2026-08-22 and the codec on 2026-08-20; neither knew about the other.
+
+
+def _compressed_page(conn, tag: str, label: str, *, filler: str = "x") -> str:
+    """One page stored the way `snapshotcrawl` stores them, and its plaintext back.
+
+    Goes through `save_snapshot`, not raw SQL, so the row is shaped by the production
+    writer rather than by this test's idea of it.
+    """
+    from scrapex.extract.models import SnapshotCreate
+    from scrapex.extract.service import save_snapshot
+
+    html = ("<html><body>" + f"{filler} shared skeleton " * 400
+            + f"<main>{tag}</main></body></html>")
+    save_snapshot(conn, SnapshotCreate(
+        source_url=f"https://muqawil.org/en/contractors?page={tag}",
+        html_content=html, body_class=label))
+    conn.commit()
+    return html
+
+
+def _decoded(conn, url: str) -> str:
+    from scrapex.snapshotbody import decode
+
+    row = conn.execute(
+        "SELECT page_snapshot_id, html_content, html_codec, html_dict_id "
+        "FROM generic_page_snapshot WHERE source_url = ?", (url,)).fetchone()
+    return decode(conn, row)
+
+
+def test_a_compressed_page_still_decodes_after_it_crosses(two):
+    """THE PROPERTY, and it is not "the row arrived".
+
+    A `zstd-raw-dict` body is unreadable without the exact page it was compressed
+    against, and that page is stored nowhere else. So a merge that moves the row and
+    not the dictionary has not moved the evidence — it has destroyed it and returned
+    success.
+    """
+    here, there, path = two
+    wanted = _compressed_page(there, "7", "muqawil.org/listing")
+
+    claim(here, "here")
+    merge(here, path, machine="here")
+
+    url = "https://muqawil.org/en/contractors?page=7"
+    assert _decoded(here, url) == wanted
+
+
+def test_the_dictionary_id_is_remapped_and_not_copied(two):
+    """THE FAILURE THAT WOULD HAVE BEEN SILENT, which is why it is asserted separately.
+
+    The old code copied `html_dict_id` verbatim — a foreign machine's PRIMARY KEY, the
+    one thing this module's docstring says never crosses. It happened to fail loudly on
+    his transfer only because the receiving warehouse had NO dictionaries, so the
+    foreign key had nothing to point at. Here the receiving side already holds two, so
+    the arriving ids 1 and 2 are legal numbers naming the WRONG bodies — no constraint
+    fires, and the pages decode to nothing.
+    """
+    here, there, path = two
+    _compressed_page(here, "1", "ours.example/listing", filler="local-a")
+    _compressed_page(here, "2", "ours.example/detail", filler="local-b")
+    wanted = _compressed_page(there, "9", "muqawil.org/listing", filler="theirs")
+
+    theirs_id = there.execute(
+        "SELECT html_dict_id FROM generic_page_snapshot "
+        "WHERE source_url LIKE '%page=9'").fetchone()[0]
+    assert theirs_id == 1, "the fixture must reproduce the id collision"
+
+    claim(here, "here")
+    merge(here, path, machine="here")
+
+    row = here.execute(
+        "SELECT html_dict_id FROM generic_page_snapshot "
+        "WHERE source_url LIKE '%page=9'").fetchone()
+    assert row[0] != theirs_id, (
+        "the arriving page kept the other machine's dict_id, which here names a "
+        "different body entirely")
+    assert _decoded(here, "https://muqawil.org/en/contractors?page=9") == wanted
+
+
+def test_one_label_two_bodies_keeps_both(two):
+    """Each machine seeds a dictionary from the first page of that kind IT fetched, so
+    `muqawil.org/listing` is a different 298,954-byte page on each. `label` is UNIQUE,
+    so the arriving one cannot take the name — and it must not be dropped either,
+    because its pages would become unreadable."""
+    here, there, path = two
+    mine = _compressed_page(here, "3", "muqawil.org/listing", filler="mine")
+    yours = _compressed_page(there, "4", "muqawil.org/listing", filler="yours")
+
+    claim(here, "here")
+    merge(here, path, machine="here")
+
+    labels = sorted(l for (l,) in here.execute("SELECT label FROM snapshot_dictionary"))
+    assert len(labels) == 2, f"one of the two dictionaries was lost: {labels}"
+    assert _decoded(here, "https://muqawil.org/en/contractors?page=3") == mine
+    assert _decoded(here, "https://muqawil.org/en/contractors?page=4") == yours
+
+
+def test_the_same_dictionary_is_not_stored_twice(two):
+    """Commutative and idempotent has to hold for the dictionaries too, or every
+    round trip through Drive grows the table by two rows."""
+    here, there, path = two
+    _compressed_page(there, "5", "muqawil.org/listing")
+
+    claim(here, "here")
+    first = merge(here, path, machine="here")
+    second = merge(here, path, machine="here")
+
+    assert first.dictionaries_added == 1
+    assert second.dictionaries_added == 0
+    assert here.execute("SELECT COUNT(*) FROM snapshot_dictionary").fetchone()[0] == 1
+
+
+def test_a_compressed_page_whose_dictionary_is_missing_rolls_the_merge_back(two):
+    """The one way the remap can lose data quietly: it is a lookup, so it yields NULL,
+    and the column is nullable for the sake of 'plain' rows. A page that says it is
+    compressed and names no dictionary can never be read again, so the merge refuses
+    instead of reporting how many rows it added.
+
+    WORTH SAYING WHAT THIS TOOK TO REACH: the donor's own foreign key forbids the row,
+    which is the schema doing its job. The state is only reachable through a file
+    written with foreign keys off -- which is SQLite's DEFAULT for any connection that
+    does not opt in, so it is a real possibility rather than a hypothetical, and it is
+    exactly how this fixture builds it.
+    """
+    here, there, path = two
+    _compressed_page(there, "6", "muqawil.org/listing")
+    there.commit()
+
+    raw = sqlite3.connect(path)              # foreign_keys defaults to OFF
+    raw.execute(
+        "INSERT INTO generic_page_snapshot (source_url, html_content, content_hash, "
+        " html_codec, html_dict_id) VALUES (?,?,?,?,?)",
+        ("https://muqawil.org/en/contractors?page=99", b"not-a-real-frame", "h-99",
+         "zstd-raw-dict", 4242))
+    raw.commit()
+    raw.close()
+
+    claim(here, "here")
+    with pytest.raises(NotMergeable, match="could never be decoded"):
+        merge(here, path, machine="here")
+
+    assert here.execute(
+        "SELECT COUNT(*) FROM generic_page_snapshot").fetchone()[0] == 0, (
+        "the merge did not roll back, so a partial transfer is now on disk")

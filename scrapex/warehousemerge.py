@@ -74,6 +74,7 @@ class Merged:
     completely different news.
     """
 
+    dictionaries_added: int = 0
     snapshots_added: int = 0
     sightings_added: int = 0
     sightings_updated: int = 0
@@ -82,6 +83,7 @@ class Merged:
 
     def __str__(self) -> str:
         lines = [
+            f"dictionaries      {self.dictionaries_added:,}",
             f"snapshots added   {self.snapshots_added:,}",
             f"sightings added   {self.sightings_added:,}",
             f"sightings updated {self.sightings_updated:,}",
@@ -144,6 +146,63 @@ def _now(conn: sqlite3.Connection) -> str:
         "SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now')").fetchone()[0])
 
 
+def _carry_dictionaries(conn: sqlite3.Connection) -> int:
+    """The compression dictionaries travel too, and they are not derived data.
+
+    THE ONE APPARENT EXCEPTION TO "ONLY THE EVIDENCE TRAVELS", and it stops being an
+    exception once stated properly: a `zstd-raw-dict` body is UNREADABLE without the exact
+    page it was compressed against, and that page is stored nowhere else. So a dictionary
+    IS evidence — it is part of how the snapshot is written down. `scrapex/snapshotbody.py`
+    reaches the same conclusion from the other side, which is why `snapshot_dictionary`
+    forbids UPDATE and DELETE: losing one loses every page compressed against it, silently,
+    with no repair.
+
+    MATCHED ON THE BODY, NEVER ON THE LABEL. A dictionary is seeded from the first page of
+    its kind that a machine happens to fetch, so `muqawil.org/listing` names one
+    298,954-byte page here and a different one there. `label` is UNIQUE, so an arriving
+    dictionary whose label is taken but whose body is new gets a suffixed label rather than
+    being dropped — dropping it would leave its pages unreadable, and overwriting is
+    forbidden by the trigger anyway.
+    """
+    ours = {bytes(body) for (body,) in conn.execute(
+        "SELECT body FROM snapshot_dictionary")}
+    labels = {label for (label,) in conn.execute(
+        "SELECT label FROM snapshot_dictionary")}
+    added = 0
+    for label, body in conn.execute(
+            "SELECT label, body FROM other.snapshot_dictionary ORDER BY dict_id"):
+        if bytes(body) in ours:
+            continue
+        wanted, n = label, 2
+        while wanted in labels:
+            wanted, n = f"{label}#{n}", n + 1
+        conn.execute("INSERT INTO snapshot_dictionary (label, body) VALUES (?,?)",
+                     (wanted, body))
+        labels.add(wanted)
+        ours.add(bytes(body))
+        added += 1
+    return added
+
+
+def _no_page_lost_its_dictionary(conn: sqlite3.Connection) -> None:
+    """A compressed page that names no dictionary is a page that no longer exists.
+
+    CHECKED INSIDE THE TRANSACTION, so a failure rolls the merge back instead of reporting
+    a success for somebody to discover later. The remap above is a lookup that may yield
+    NULL, and SQLite accepts NULL there because the column is nullable for the sake of
+    'plain' rows. That is the one way this can lose data quietly, so it is the one thing
+    asserted afterwards.
+    """
+    orphans = conn.execute(
+        "SELECT COUNT(*) FROM generic_page_snapshot "
+        " WHERE html_codec <> 'plain' AND html_dict_id IS NULL").fetchone()[0]
+    if orphans:
+        raise NotMergeable(
+            f"{orphans:,} merged pages are compressed but name no dictionary, so their "
+            "bodies could never be decoded again. The merge was rolled back. The other "
+            "warehouse is missing rows from snapshot_dictionary that its own pages need.")
+
+
 def _same_shape(conn: sqlite3.Connection) -> None:
     """Both sides must be the same kind of database at the same schema version.
 
@@ -188,11 +247,22 @@ def merge(conn: sqlite3.Connection, other: str, *, machine: str) -> Merged:
         _same_shape(conn)
         report = Merged()
 
+        report.dictionaries_added = _carry_dictionaries(conn)
+
         # SNAPSHOTS: ADDITIVE, KEYED ON WHAT THE PAGE IS. `page_snapshot_id` is never
         # carried across — it is assigned here — so nothing downstream can reference a
         # foreign machine's id. The columns are named rather than `SELECT *` because the
         # id must be excluded and because a column added later must break this loudly
         # instead of silently shifting values one place left.
+        #
+        # AND `html_dict_id` IS REMAPPED, NOT COPIED. It was copied, and that is the one
+        # place this module broke its own rule: a dictionary id is a foreign machine's
+        # PRIMARY KEY, so carrying it verbatim is exactly what the paragraph above says
+        # never happens. It failed loudly on his real transfer — FOREIGN KEY constraint
+        # failed, because `snapshot_dictionary` was not merged at all — and that was the
+        # LUCKY outcome. Had the ids happened to line up, 20,379 pages would have been
+        # inserted pointing at the WRONG dictionary and decoded to nothing, discovered
+        # whenever somebody next opened one.
         before = conn.execute(
             "SELECT COUNT(*) FROM generic_page_snapshot").fetchone()[0]
         conn.execute(
@@ -200,11 +270,19 @@ def merge(conn: sqlite3.Connection, other: str, *, machine: str) -> Merged:
             "(source_url, content_type, html_content, content_hash, captured_at, "
             " crawl_run_ref, html_codec, html_dict_id) "
             "SELECT source_url, content_type, html_content, content_hash, captured_at, "
-            "       crawl_run_ref, html_codec, html_dict_id "
+            "       crawl_run_ref, html_codec, "
+            # Matched on the BODY, which is the only honest key: each machine seeds a
+            # dictionary from its own first page of a kind, so the same `label` on two
+            # machines names two different bodies. A 'plain' row has no dict_id, and NULL
+            # stays NULL because a subquery over no rows IS NULL.
+            "       (SELECT ours.dict_id FROM snapshot_dictionary AS ours "
+            "          JOIN other.snapshot_dictionary AS od ON od.body = ours.body "
+            "         WHERE od.dict_id = theirs.html_dict_id) "
             "  FROM other.generic_page_snapshot AS theirs "
             " WHERE NOT EXISTS (SELECT 1 FROM generic_page_snapshot AS ours "
             "                    WHERE ours.source_url = theirs.source_url "
             "                      AND ours.content_hash = theirs.content_hash)")
+        _no_page_lost_its_dictionary(conn)
         report.snapshots_added = (
             conn.execute("SELECT COUNT(*) FROM generic_page_snapshot").fetchone()[0]
             - before)
