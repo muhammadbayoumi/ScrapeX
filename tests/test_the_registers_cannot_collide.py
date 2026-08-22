@@ -92,6 +92,22 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: in the guard next door. Two things follow: the gap check knows the hole is deliberate,
 #: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
 #: pull request merges** — a reservation left behind is a permanent hole nobody owns.
+#:
+#: A ROW HERE IS A CLAIM ABOUT THE WORLD, AND IT ROTS LIKE A LINE CITATION DOES. It is
+#: not merely stale when its holder disappears — it is actively worse than the hole it
+#: covers, because **a reservation whose owner does not exist launders an orphan into a
+#: passing test, and reads as deliberate.** The gap check then reports nothing while the
+#: register has a permanent wart in it, which is the failure mode this whole file exists
+#: to prevent, one level up.
+#:
+#: Hence: **name a holder a reader can VERIFY** — a branch ref or a pull request number,
+#: never a description of a session. Two reasons, both met on 2026-08-22. Sessions do not
+#: outlive their branches, so "the Drive session" is unresolvable six weeks later. And the
+#: claim may be unverifiable from the repository at the time it is written: an unpushed
+#: renumber is invisible on `origin` and still real, which is how the row for 44 below was
+#: briefly attributed to the wrong branch. A ref can be checked with `git ls-remote`; a
+#: description cannot be checked at all. **The row is only as fresh as the last person who
+#: checked it, so re-check before trusting it.**
 RESERVED: dict[str, dict[int, str]] = {
     "R": {},
     "REQ": {},
@@ -99,18 +115,29 @@ RESERVED: dict[str, dict[int, str]] = {
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
     #
-    # 44 and 45 are held by branch `claude/drive-without-a-server`, assigned to it before
-    # `OP-46` was written on 2026-08-22. THE BRANCH REF IS THE OWNER, not a description of
-    # a session: a reservation held by "the Drive session" is a hole nobody can resolve
-    # six weeks from now, and sessions do not outlive their branches.
+    # 44 and 45 are held by two DIFFERENT branches, and the pair is a worked example of
+    # the paragraph above. Both verified against `origin` on 2026-08-22:
     #
-    # Measured 2026-08-22: that branch is on `origin` at `0f2a248` and its BACKLOG tops
-    # out at `OP-43` — the push predates its own renumber, so the two headings exist in
-    # neither `main` nor any pushed commit yet. That is precisely the state this table is
-    # for. There is no pull request for it at the time of writing.
+    #   * 44 — `git show <ref>:docs/BACKLOG.md` on branch
+    #     `fix/a-dataset-says-when-it-was-crawled` (PR #255) declares
+    #     `### OP-44 · A dataset card said "no successful crawl yet" over 17,304 crawled
+    #     rows`. Checkable in one command, which is the point of naming a ref.
+    #   * 45 — branch `claude/drive-without-a-server`. NOT checkable the same way: that
+    #     branch is on `origin` at `0f2a248` and its BACKLOG still tops out at `OP-43`,
+    #     because its renumber is unpushed. The claim is real and invisible, so this row
+    #     rests on the assigning session's word rather than on the repository. Re-check it
+    #     rather than inheriting it.
     #
-    # DELETE BOTH ROWS the moment that branch merges and brings its own headings. A row
-    # left behind is a permanent hole nobody owns.
+    # 44 WAS BRIEFLY ATTRIBUTED TO THE WRONG BRANCH HERE, and that is worth keeping. The
+    # Drive branch held 44 and 45, then moved off 44 precisely BECAUSE #255 had it, and a
+    # message describing only what changed on the Drive side read as 44 having been
+    # released. The row still passed the gap check while naming a holder that no longer
+    # held it — exactly the laundering the paragraph above describes. It was caught by
+    # asking who holds 44, not by any test.
+    #
+    # DELETE EACH ROW the moment its branch merges and brings its own heading. They are
+    # independent now: #255 is ahead of this branch in the merge order, so 44's row is
+    # expected to go first.
     #
     # NOTE TO WHOEVER TAKES AN ASSIGNED NUMBER NEXT: being handed "take OP-46" is not
     # enough. If the numbers below yours are not in your branch, the hole check fails on
@@ -118,7 +145,7 @@ RESERVED: dict[str, dict[int, str]] = {
     # is, and it was nearly missed on 2026-08-22 because the assignment named the guard
     # without naming the mechanism.
     "OP": {
-        44: "branch claude/drive-without-a-server",
+        44: "PR #255, branch fix/a-dataset-says-when-it-was-crawled",
         45: "branch claude/drive-without-a-server",
     },
     "DEC": {},
