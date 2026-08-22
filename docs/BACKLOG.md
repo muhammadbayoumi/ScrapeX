@@ -2000,13 +2000,19 @@ concurrent edit on 2026-08-22 and every rule below it shifts when the card block
 it changes. See `OP-47` for the same reason at more length.
 
 **The scale is three tokens** — `--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`
-([design/tokens.css:128](../design/tokens.css#L128)) — and two rules in
-`extension/app.css` write a token's value as a raw number instead of reading it:
+([design/tokens.css:128](../design/tokens.css#L128)) — and **three rules across two
+sheets** write a token's value as a raw number instead of reading it. This is the
+complete set, measured at `451468d` by matching a bare integer equal to any of the three:
 
-| rule | writes | which is exactly |
-|---|---|---|
-| `nav.side-rail` | `z-index: 30` | `--z-modal` |
-| `.workspace-menu-backdrop` | `z-index: 20` | `--z-overlay` |
+| rule | sheet | writes | which is exactly |
+|---|---|---|---|
+| `nav.side-rail` | `extension/app.css` | `z-index: 30` | `--z-modal` |
+| `.workspace-menu-backdrop` | `extension/app.css` | `z-index: 20` | `--z-overlay` |
+| `.workspace-menu-button` | [scrapex/webui/static/webui.css:81](../scrapex/webui/static/webui.css#L81) | `z-index:10` | `--z-sticky` |
+
+The third one crosses a surface, which is worth noticing on its own: the same token scale
+is copied by hand on **both** sides of the extension/engine boundary, so a scale change
+has to be chased through two sheets that share nothing but `tokens.css`.
 
 **`.modal-veil` already depends on the first equality, and its own comment says so.** It
 uses `z-index: calc(var(--z-modal) + 10)` and explains why: *"--z-modal is 30 and the
@@ -2038,18 +2044,30 @@ line is spelled that way and nothing about layer order anywhere else. The most r
 defect he reported was a stacking bug, and `#252`'s own lesson is that reading a z-index
 back would have passed on the broken build.
 
-**So what a guard has to assert is order, not numbers.** Two shapes, both cheap:
+**So what a guard has to assert is order, not numbers.** Two shapes, and **the static
+one is the more valuable** — it fires at review time, where the behavioural one can only
+fire after a regression has been written:
 
-* **Static, and enough for this entry:** no rule in `extension/app.css` may write a bare
-  integer equal to the value of a layer token — it must read the token. That is the rule
-  `docs/LESSONS.md` now states in prose (*"The extension's layers are three tokens …; a
-  fourth number invented at a call site is the next instance of this bug"*,
-  [docs/LESSONS.md:573](LESSONS.md#L573)) and nothing enforces.
+* **Static, and the one to build:** **no stylesheet in the repository** may write a bare
+  integer equal to the value of a layer token — it must read the token. Repo-wide, not
+  `extension/app.css` alone: scoping it to the panel would have missed
+  `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
+  was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
+  extension's layers are three tokens …; a fourth number invented at a call site is the
+  next instance of this bug"*, [docs/LESSONS.md:573](LESSONS.md#L573)) and nothing
+  enforces. It is also cheap: the three substitutions below are the whole of today's
+  violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
-  side rail, the way
-  `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` does. An
-  assertion on the computed number would pass on a broken build, which is exactly the
-  trap `#252` recorded.
+  side rail rather than reading a z-index back, the way
+  `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` does.
+
+**And that second bullet is the same lesson twice, which is the point of writing it
+here.** `#252`'s guard learned it the hard way: an assertion on the computed z-index
+**passed on the broken build**, because the broken build's number was already large.
+`.modal-veil` would fail the same way — its `calc(var(--z-modal) + 10)` reads back as a
+perfectly correct 40 whether or not the rail it must cover has moved. One instance is a
+trick; two make it the practice for this codebase. **Hit-test what is in front, because
+that is the question a person is asking.**
 
 **The same file breaks the three-token rule in four more places, and those are NOT this
 entry.** `.workspace-menu` invents `z-index: 25` between overlay and modal;
@@ -2061,18 +2079,19 @@ Those are numbers the scale has no name for — renumbering them changes paint o
 a design-system decision, which is the call `.modal-veil`'s comment already declined to
 make on its own. **Recorded here, deliberately not folded in.**
 
-**The narrow fix, and it is provably inert.** Substitute only the two values that are
+**The narrow fix, and it is provably inert.** Substitute only the three values that are
 already exactly equal to a token: `nav.side-rail` → `var(--z-modal)`,
-`.workspace-menu-backdrop` → `var(--z-overlay)`. Same numbers, so no computed style
-changes — verified with `tools/style_snapshot.py` across both surfaces, the same evidence
-`UI-2` used. Then the equality `.modal-veil` depends on is expressed instead of
-commented, and lowering `--z-overlay` moves the backdrop with the popovers instead of
-past them.
+`.workspace-menu-backdrop` → `var(--z-overlay)`, `.workspace-menu-button` →
+`var(--z-sticky)`. Same numbers, so no computed style changes — verified with
+`tools/style_snapshot.py` across both surfaces, the same evidence `UI-2` used. Then the
+equality `.modal-veil` depends on is expressed instead of commented, and lowering
+`--z-overlay` moves the backdrop *with* the popovers instead of past them.
 
-**Why it is not done in this pull request.** It edits `extension/app.css`, which another
-session was editing on 2026-08-22 on the owner's instruction. The substitution is two
-lines and behaviour-neutral; it should land as its own change once that file is quiet,
-and it does **not** need to wait for `OP-47`.
+**Why it is not done in this pull request.** Two of the three lines are in
+`extension/app.css`, which another session was editing on 2026-08-22 on the owner's
+instruction. The change is three lines and behaviour-neutral; it should land as its own
+change once that file is quiet, together with the static guard above so the fix arrives
+with the thing that keeps it. It does **not** need to wait for `OP-47`.
 
 ## 3. Decided, not yet built
 
