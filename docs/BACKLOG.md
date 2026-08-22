@@ -1203,9 +1203,11 @@ many workers are asked for, and the cost is bounded by arithmetic rather than by
 hoping. (a) as an immediate mitigation.*
 **Not started.**
 
-### OP-32 · The fix for the black window has sat in the repository for twelve days, unreleased
+### OP-32 · ~~The fix for the black window has sat in the repository, unreleased~~ — RELEASED 2026-08-22 as `engine-v0.3.0`
 
-**Status: OPEN. The gate that let it happen is closed in this PR; publishing is his.**
+**Status: CLOSED 2026-08-22 — the gate that let it happen was closed first, then he
+published.** The entry is kept in full rather than trimmed: it is the only record of
+why an install path where every component worked still handed him a black window.
 Reported by the owner on 2026-08-21 as *"it did not install — black screen"*, and
 captured as [REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
 
@@ -1245,9 +1247,33 @@ this guard accepting a data root that was named but never assigned.
 0.2.1"* — and filed it as a **wording** defect about the two meanings of
 "installed". The numbers were the finding: the release had not happened.
 
-**Next action, and it is his:** `git tag engine-v0.3.0 && git push origin engine-v0.3.0`.
-Nothing needs bumping — `scrapex/version.py:76` already carries the number, and the
-tag is derived from it rather than chosen.
+~~**Next action, and it is his.**~~ **— HE TOOK IT. `engine-v0.3.0` IS PUBLISHED,
+2026-08-22.** *«اقطع الوسم»*, said after reading this entry, so the finding is what
+produced the release. Recorded as facts rather than as a green workflow run:
+
+| | |
+|---|---|
+| tag | `engine-v0.3.0` → `451468d`, which is `main` |
+| the version at that tag | `scrapex/version.py:76` **0.3.0**, `pyproject.toml` mirror **0.3.0** — so the workflow's `test "$tag" = "$version"` had two numbers that agreed |
+| workflow | completed, 28m36s |
+| the manifest the panel reads | `"version": "0.3.0"`, `"tag": "engine-v0.3.0"`, `"published_at": "2026-08-22T13:17:13Z"`, `"minimum_extension_version": "0.2.2"`, protocol 1 |
+| what it said before | `0.2.1`, unchanged since 9 August |
+
+**The floor it published is 0.2.2, and that is the number that matters most here:**
+`extension/manifest.json` is also 0.2.2, so this release demands nothing the
+installed extension cannot do — checked before the tag by
+`tests/test_version.py`'s floor guard, not after it.
+
+**This entry is CLOSED as the defect it described.** What is not closed is the
+confirmation that the published build installs on his machine; that stays on
+`REQ-28`.
+
+> **AND THE VERSION GAP THAT OPENS NEXT IS NOT THIS DEFECT RETURNING.** Migration
+> `0010` is a contract change, so `R-35` moved the source to **0.3.1** against a
+> published **0.3.0** — which is the ordinary state between two hand-cut releases,
+> not a fault. `OP-32` was three things at once: nothing released across two bumps,
+> the newest installable engine silent on a double-click, and the documents naming a
+> tag the workflow would refuse. A gap alone is none of them.
 
 > **STILL OPEN A DAY LATER, AND THE INSTRUCTION HAD GONE STALE WHILE IT WAITED.**
 > He reported it again on 2026-08-22 — *«المحرك الموجود على github 0.2.1»* — with the
@@ -1256,7 +1282,7 @@ tag is derived from it rather than chosen.
 > written about it.** `extension/releases.js:32` reads
 > `ScrapeX/json/version.json` from the hub, `extension/app.js:3514` prints the
 > `version` it finds, the workflow writes that same field
-> (`.github/workflows/release-engine.yml:344`), and
+> (`.github/workflows/release-engine.yml:352`), and
 > `tests/test_the_two_release_paths.py:276` already pins the writer's output to the
 > reader's input. The manifest says 0.2.1 because 0.2.1 is the only engine tag that
 > exists.
@@ -1655,10 +1681,11 @@ process that waits for a named pid to exit, for exactly this reason. **This is
 why `OP-36` had to be fixed first** — before that, the helper a frozen engine
 spawned was a silent native messaging host and would have waited for ever.
 
-**Next action, and it belongs after a release rather than before one:** cut
-`engine-v0.3.0` (`OP-32` — the number comes from `scrapex/version.py:76`, never from
-a document), then implement the swap against a binary that exists. The order is not
-a preference — the first artifact that can exercise any of this is the next release.
+**Next action, and its precondition is now met.** This belonged after a release
+rather than before one, and the release happened on 2026-08-22 (`OP-32`): a published
+`engine-v0.3.0` is the first frozen artifact that can exercise any of this. So the
+swap can now be implemented against a binary that exists rather than against
+`sys.frozen` set by a test.
 
 ### OP-40 · His warehouse has moved ahead of `main` again — v9 now, and this is the third time
 
@@ -2489,26 +2516,37 @@ their home rather than the taxonomy. Options: build them now at 2 rows; wait unt
 34,834-page crawl finishes and re-measure, which costs nothing because the snapshots
 keep the evidence; or rule them out and record it.
 
-**Q-16 · Should something in CI go red when the PUBLISHED engine falls behind the
-source?** Asked because `OP-32` has now been reported twice, thirteen days and two
-`VERSION` bumps after the only release that exists (`engine-v0.2.1`, commit
-`4386d25`, 2026-08-09). The repository can prove that the tag he is
-*told* to push is the tag the workflow accepts — that guard is built and named in
-`OP-32`. It cannot prove a release happened: the tag list is absent from a
-`fetch-depth: 1` checkout and the hub is a network fetch, so a test that looked would
-either skip silently or flake, and both are worse than not looking.
+**Q-16 · Should anything in CI go red when the published engine falls behind the
+source — and the answer got harder the day it was asked.** The repository can prove
+that the tag he is *told* to push is the tag the workflow accepts (`OP-32`). It
+cannot prove a release happened: the tag list is absent from a `fetch-depth: 1`
+checkout and the hub is a network fetch, so a test that looked would either skip
+silently or flake, and both are worse than not looking.
 
-**Three shapes.** (a) **Nothing** — releasing is manual by PLATFORM-PLAN Decision 4,
-and a red build over a decision he has not taken is a build that trains him to ignore
-red. (b) **A scheduled workflow** that fetches the hub manifest weekly and fails when
-it is behind `scrapex/version.py:VERSION`, naming the tag command. It cannot flake the
-suite because it is not in it — but it stays red every week until he tags, which is
-the crying-wolf failure `tests/test_the_published_documents_are_checked_not_announced.py`
-warns about in its own words. (c) **A step in the release path only**, which is where
-it already is: the dispatch run prints `published says 0.2.1 / this run says 0.3.0`.
+**WHAT CHANGED THE QUESTION.** When this was written the source was 0.3.0 and the
+published engine was 0.2.1 — two bumps behind, with the newest installable build
+silent on a double-click. Hours later he tagged `engine-v0.3.0`, and `R-35`
+immediately moved the source to **0.3.1** for migration `0010`. So the steady state
+of this
+project is **source ahead of published**, by design: `VERSION` moves on a contract
+change and releases are cut by hand (Decision 4).
 
-*No recommendation is offered, because the answer depends on how often he intends to
-release — and that is the thing only he knows.*
+**Which kills option (b) rather than merely weakening it.** A weekly job that fails
+whenever published < source would be red in the *normal* case and silent only in the
+minutes after a release — the crying-wolf failure
+`tests/test_the_published_documents_are_checked_not_announced.py` names in its own
+words, reached by arithmetic rather than by bad luck.
+
+**So the live options are:** (a) **nothing** — the gap is expected, and `OP-32`'s
+actual defect was three things at once (nothing released across two bumps, a silent
+binary, and documents naming a refused tag), none of which a gap alone implies; or
+(c) **a threshold rather than a comparison** — red only when the published engine is
+behind by more than one minor version, or older than some age, so it distinguishes
+*between releases* from *abandoned*. (c) needs a number from him, which is the whole
+reason this is a question and not a commit.
+
+*No recommendation on (a) versus (c), because it depends on how often he intends to
+release. But (b) is now argued against rather than merely listed.*
 
 **Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
 Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6

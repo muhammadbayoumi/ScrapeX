@@ -793,6 +793,60 @@ proves the tag he is told to push is the tag the workflow accepts, and says in i
 own docstring that it cannot prove a release happened. `Q-16` asks him whether he
 wants something that does look.
 
+**IT ENDED IN A RELEASE, WHICH IS THE ONLY OUTCOME THAT SETTLES ANYTHING.** He read
+the finding and said *«اقطع الوسم»*; `engine-v0.3.0` went out on 2026-08-22 and the
+manifest the panel reads moved from `0.2.1` — where it had sat since 9 August — to
+`0.3.0`. That is worth recording because the defect was never in the code: three
+sessions had verified the install path and found nothing wrong with it, and what was
+wrong was a number written down in six places.
+
+**THREE THINGS THE RELEASE THEN TAUGHT, all within the hour:**
+
+**1 · A completed instruction must be rewritten, not just satisfied.** Every one of
+those six places became history the moment the tag existed, and a guard that reads
+instructions cannot tell a finished one from a pending one. Left alone they would
+have failed at the very next bump — which arrived immediately (below). Shape 3 is not
+optional tidying; it is the step that ends the task.
+
+**2 · `cut` is its own past tense, and English will not help you.** `Q-16` was
+rewritten with that verb and the tag immediately after it — *"hours later he …
+`engine-v0.3.0`"* — which is finished history that the pattern reads as an
+instruction. It passed only because `0.3.0` was still `VERSION`, and would have gone
+red at the next bump. The discipline is to write a completed release with any verb
+but that one: **tagged, published, released, went out.** Pinned in
+`test_the_pattern_cannot_tell_the_tense_of_cut_apart`, because the next person will
+reach for the wrong one.
+
+> **AND THIS PARAGRAPH WALKED INTO IT WHILE EXPLAINING IT** — the first draft quoted
+> the bad sentence verbatim, verb and tag together, so the entry describing the trap
+> was itself matched. Found by mutation, not by reading. That is twice now that an
+> entry in this file has had to be written *around* the guard it documents, the other
+> being the `git tag …` command a few paragraphs up. **A document that quotes an
+> instruction is holding one**, and the elision above is the fix.
+
+**3 · "No release is owed" is a legitimate state, and a guard must permit it.** The
+guard originally asserted that at least one instruction existed, reasoning that a
+pattern matching nothing measures nothing. After the release the set went empty and
+the assertion failed **on the repository being correct**. Non-vacuity now comes from
+running the pattern against fixed strings instead — a guard whose only evidence of
+working is a live instruction stops being checkable the moment the work is done.
+
+**AND THE NUMBER HAS A SECOND HOME, which a release runbook must name.** `VERSION`
+lives in `scrapex/version.py` and is mirrored in `pyproject.toml` because the
+installer cannot import Python. Both moved to `0.3.1` for migration `0010` — a
+contract change under `R-35`, refused at `0.3.0` by the gate, which is that gate
+working — and the primary session reports the mirror's guard firing on it when only
+the first was bumped. That guard is `tests/test_version.py:73`, and the words below
+are its own: **bump both or neither.** Three copies of one number now exist only if a document adds a
+third, which is what this guard is for; the workflow's header comment gave up its
+literal for the same reason and now says `engine-v<VERSION>`.
+
+**One consequence to carry forward:** source ahead of published is the *ordinary*
+state here, not a repeat of this defect. `0.3.1` in the tree against `0.3.0` on the
+hub is development. `OP-32` was three faults at once — nothing released across two
+bumps, a published binary silent on a double-click, and documents naming a tag the
+workflow would refuse — and a version gap on its own is none of them.
+
 ### Two pull requests, DISJOINT IN FILES and COUPLED IN CONTENT, merge into a red `main`
 
 Found 2026-08-22 by two sessions independently within minutes — one rebasing onto

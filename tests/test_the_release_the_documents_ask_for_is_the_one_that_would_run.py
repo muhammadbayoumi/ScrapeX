@@ -144,12 +144,19 @@ def test_every_release_the_documents_ask_for_is_the_release_that_would_run():
     The failure is not subtle when it happens — the workflow stops at its first
     step — but it is completely invisible until somebody tries, and the person
     who tries is the owner, on the day he finally has time to ship.
+
+    FINDING NOTHING IS A PASS, AND THAT IS A CORRECTION MADE ON EVIDENCE. This
+    test used to `assert named` first, on the reasoning that a guard matching
+    nothing is measuring nothing. Then `engine-v0.3.0` was released on
+    2026-08-22, every documented instruction correctly became history, and the
+    set went empty — so the assertion failed on the repository being in exactly
+    the state it should be in. **No release is owed between a release and the next
+    contract change, and a guard that demands one forces a document to carry a
+    fake instruction to stay green.** Non-vacuity is proved instead by
+    `test_a_tag_named_in_narrative_prose_is_left_alone`, which runs the pattern
+    against known shapes and needs no live instruction to do it.
     """
     named = _named_releases()
-    assert named, (
-        "no release instruction was found in any document, so this guard is "
-        "measuring nothing. Either the pattern stopped matching or the way out "
-        "of an unreleased engine is no longer written down anywhere")
 
     wrong = [(name, line, version) for name, line, version in named
              if version != VERSION]
@@ -181,6 +188,12 @@ def test_a_tag_named_in_narrative_prose_is_left_alone():
     correct for ever. A guard that demanded every tag name equal VERSION would
     force those sentences to be rewritten on each bump, which is how a test comes
     to be satisfied by a lie.
+
+    AND THIS IS ALSO THE NON-VACUITY PROOF for the guard above, which is why it
+    asserts both directions on fixed strings: the pattern must still match the
+    shapes a person acts on even when no document currently holds one. A guard
+    whose only evidence of working is a live instruction stops being checkable at
+    the moment the work is done.
     """
     history = ("The black window shipped in engine-v0.2.1, and engine-v0.2.1 is "
                "commit 4386d25.")
@@ -191,3 +204,31 @@ def test_a_tag_named_in_narrative_prose_is_left_alone():
                         "**Next action:** cut\n`engine-v9.9.9`, then swap."):
         assert INSTRUCTION.findall(instruction) == ["9.9.9"], (
             f"an instruction this guard must read is not matched: {instruction!r}")
+
+
+def test_the_pattern_cannot_tell_the_tense_of_cut_apart():
+    """A KNOWN LIMIT, asserted so it is a documented constraint and not a surprise.
+
+    `cut engine-v0.3.0` is matched whether it means *"cut this"* or *"he cut
+    this"*. English puts the imperative and the past tense of `cut` in the same
+    letters, and no regex over prose recovers the difference.
+
+    THIS COST A REWORDING RATHER THAN A DEFECT, which is the direction to err in:
+    after the release, `Q-16` read *"Hours later he cut `engine-v0.3.0`"* — true,
+    finished, and matched as though it were an instruction. It passed only because
+    0.3.0 was still `VERSION`, and would have failed at the next contract change.
+    It now reads *"he tagged"*.
+
+    So the discipline, recorded here because the next person will hit it: **write a
+    completed release with any verb but `cut`** — tagged, published, released, went
+    out. A false positive costs one word; a false negative costs a stale
+    instruction the release workflow refuses.
+    """
+    assert INSTRUCTION.findall("Hours later he cut `engine-v0.3.0`.") == ["0.3.0"]
+
+    for finished in ("Hours later he tagged `engine-v0.3.0`.",
+                     "`engine-v0.3.0` was published on 2026-08-22.",
+                     "The release engine-v0.3.0 went out that afternoon."):
+        assert not INSTRUCTION.findall(finished), (
+            f"this is finished history and must not be read as an instruction: "
+            f"{finished!r}")
