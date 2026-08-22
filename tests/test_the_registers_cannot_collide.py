@@ -36,6 +36,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
+#: THIS GUARD BELONGS IN THE DOCS TIER, and unlike the extension case the marker costs
+#: nothing here. A register collision is created by editing a document, so a
+#: documentation-only change is precisely when this must run — the tier and the subject
+#: agree. `test_the_docs_gate_is_complete` asked for it and it is right to.
+pytestmark = pytest.mark.docs
+
 #: The four registers whose entries are `###` headings, which is what makes them
 #: countable. `Q-nn` is deliberately absent: it is written in bold rather than as a
 #: heading, and `Q-14` legitimately appears twice — once as asked and once as answered —
@@ -57,7 +63,7 @@ def _numbers(document: str, prefix: str) -> list[int]:
     """
     text = (ROOT / document).read_text(encoding="utf-8")
     return [int(found) for found in
-            re.findall(rf"^#{{2,4}} +{prefix}-0*(\d+)", text, re.M)]
+            re.findall(rf"^#{{2,4}} +{prefix}-0*(\d+)", text, re.MULTILINE)]
 
 
 @pytest.mark.parametrize(("document", "prefix", "what"), REGISTERS,
@@ -129,7 +135,7 @@ def test_a_duplicate_would_actually_be_caught(tmp_path: Path):
         encoding="utf-8")
 
     numbers = [int(found) for found in re.findall(
-        r"^#{2,4} +R-0*(\d+)", document.read_text(encoding="utf-8"), re.M)]
+        r"^#{2,4} +R-0*(\d+)", document.read_text(encoding="utf-8"), re.MULTILINE)]
 
     assert numbers == [1, 2, 2], "headings only — the prose mentions must not count"
     assert sorted({n for n in numbers if numbers.count(n) > 1}) == [2]

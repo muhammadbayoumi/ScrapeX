@@ -41,6 +41,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+from . import taxonomy
 from . import validators as validator_store
 from .connectors.base import HttpFetcher, declare_frontier
 from .crawlscope import CrawlScope
@@ -48,7 +49,8 @@ from .databases import DatabaseRegistry
 from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
-from .extract.models import ApprovalField, CandidateApproval, SnapshotCreate
+from .extract.models import ApprovalField, CandidateApproval
+from .extract.service import SnapshotCreate, _canonical, _digest
 from .features import FeatureKey, is_enabled
 from .pagesource import FetchedPage, PageKind, slice_rows
 from .partitioncrawl import (
@@ -608,13 +610,20 @@ def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
     # `region_id_1-company_size_big` — and a run ref of the owner's choosing may
     # too. Unescaped, `--run-ref my_run` would also gather `myXrun`'s pages and
     # approve another run's evidence under this one's name.
-    pattern = (run_ref.replace("\\", "\\\\").replace("%", "\\%")
-               .replace("_", "\\_")) + "-%"
+    escaped = (run_ref.replace("\\", "\\\\").replace("%", "\\%")
+               .replace("_", "\\_"))
+    # BOTH SHAPES, BECAUSE THE TWO CRAWLS WRITE DIFFERENT ONES. A partitioned listing
+    # crawl stores `<ref>-<cell>-<attempt>`, so it needs the wildcard. `--details` stores
+    # the ref BARE — measured, `dammam-2026-08-21` holds 1,424 pages — and the wildcard
+    # alone matched **zero** of them, so `--approve` over a profile run reported an empty
+    # disk while 1,424 pages sat on it.
+    pattern = escaped + "-%"
     found: dict[str, dict[str, tuple[int, str]]] = {}
     rows = conn.execute(
         "SELECT page_snapshot_id, source_url, html_content, html_codec, html_dict_id "
-        "  FROM generic_page_snapshot WHERE crawl_run_ref LIKE ? ESCAPE '\\' "
-        " ORDER BY page_snapshot_id", (pattern,))
+        "  FROM generic_page_snapshot "
+        " WHERE (crawl_run_ref LIKE ? ESCAPE '\\' OR crawl_run_ref = ?) "
+        " ORDER BY page_snapshot_id", (pattern, run_ref))
     for row in rows:
         url = row["source_url"]
         for locale in ("en", "ar"):
@@ -630,7 +639,8 @@ def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
     return found
 
 
-def _approval(directory: Directory, candidate) -> CandidateApproval:
+def _approval(directory: Directory, candidate, *,
+              profile: bool = False) -> CandidateApproval:
     """The owner's answer, every field text-typed, the directory's id the identity.
 
     TEXT FOR EVERYTHING, and it is not laziness: type inference over twenty rows
@@ -638,16 +648,109 @@ def _approval(directory: Directory, candidate) -> CandidateApproval:
     and the schema hash then differs per page and every approval after the first
     is refused. `listing_candidate` already declines to guess for the same reason.
     """
+    # A PROFILE IS ITS OWN DATASET. Two documents with two declared field sets — 21
+    # against 28 — cannot share one approved schema: every profile would read as a subset
+    # of the listing's and `R-31` refuses a subset, on purpose, because that is what a
+    # broken parser looks like. See `ProfileReader.dataset_key`.
+    into = directory.profiles.dataset_key if profile and directory.profiles else         directory.dataset_key
+    named = directory.profiles.dataset_name if profile and directory.profiles else         directory.display_name
     return CandidateApproval(
         table_index=0, site_key=directory.key,
         site_display_name=directory.display_name,
-        dataset_key=directory.dataset_key,
-        dataset_name=directory.display_name,
+        dataset_key=into,
+        dataset_name=named,
         fields=[ApprovalField(field_key=one.field_key, display_name=one.source_name,
                               data_type="text",
                               identity=(one.field_key
                                         == directory.identity_field))
                 for one in candidate.fields])
+
+
+#: A DETAIL page, by the shape of its URL. `/contractors/1005/143` against
+#: `/contractors?region_id=0&page=1` — and `_pairs` has already taken the locale out, so
+#: this sees `/contractors/1005/143` either way.
+_PROFILE_URL = re.compile(r"/contractors/(\d+)/\d+")
+
+
+def _contractor_of(key: str) -> str | None:
+    """The contractor id in a profile URL, or `None` for a listing URL."""
+    found = _PROFILE_URL.search(key)
+    return found.group(1) if found else None
+
+
+def write_groups(conn, directory: Directory, snapshot_id: int, *,
+                 english: str, arabic: str, contractor_id: str) -> tuple[int, int]:
+    """`R-38`'s memberships for one contractor. Returns `(written, already there)`.
+
+    ONLY `interests` IS WIRED, AND THE MEASUREMENT IS WHY. Read off the committed
+    profile on 2026-08-21, the five declared groups are not five of the same thing:
+
+        interests            a nested list, 25 nodes per locale, cleanly localised
+                             -> a taxonomy membership, which is what this writes
+        licensed_activities  6 rows whose activity cell carries BOTH languages in one
+                             string with no separator — `تشييد المباني … Construction of
+                             Buildings – All Types` — and whose readiness cell is
+                             `أساسي | Basic`. Splitting the first needs a script-boundary
+                             rule, and one of the six already has a TRUNCATED English half
+                             on the site's side (`Civil Engineering -`). Six samples, one
+                             malformed, is not enough to declare that rule on.
+        main_contractors     `# / name`, and EMPTY on every page measured. These are
+        sub_contractors      contractor-to-contractor RELATIONS, not classifications, so
+                             they do not belong in a taxonomy at all.
+        contract_counts      one row of two numbers, `455 / 64`. Two scalars — they belong
+                             in the flat row, and putting them in a link table would make
+                             a membership out of a count.
+
+    `R-19`'s own limit is the reason this stops here rather than guessing: the study says
+    it measured ONE profile, and three of these five are empty on every profile we hold.
+    The snapshots keep the evidence, so each of the four can be derived later with no
+    network the moment its shape is decided.
+    """
+    reader = directory.profiles
+    if reader is None:
+        return 0, 0
+    site = conn.execute("SELECT site_profile_id FROM site_profile WHERE site_key = ?",
+                        (directory.key,)).fetchone()
+    if site is None:
+        return 0, 0
+    record = conn.execute(
+        "SELECT r.generic_record_id FROM generic_record AS r "
+        "  JOIN dataset_definition AS d "
+        "    ON d.dataset_definition_id = r.dataset_definition_id "
+        " WHERE d.dataset_key = ? AND r.record_key = ?",
+        (reader.dataset_key, _digest(_canonical([contractor_id])))).fetchone()
+    if record is None:
+        # THE ROW MUST EXIST FIRST, because the link table's foreign key says so. A
+        # membership without its contractor is the orphan `ON DELETE CASCADE` exists to
+        # prevent, arriving from the other direction.
+        return 0, 0
+
+    scheme = taxonomy.ensure_scheme(conn, int(site["site_profile_id"]),
+                                    name=reader.scheme_name,
+                                    name_ar=reader.scheme_name_ar)
+    from .extract.muqawil import read_interests
+
+    paths_en = read_interests(english)
+    paths_ar = read_interests(arabic) if arabic else paths_en
+    if len(paths_en) != len(paths_ar):
+        # PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Measured:
+        # both locales publish 25 nodes in the same order. A count that differs means
+        # position no longer describes the same node, and writing anyway would attach an
+        # English name to a different Arabic one.
+        raise taxonomy.CannotPairLocales(
+            f"contractor {contractor_id} published {len(paths_en)} interests in English "
+            f"and {len(paths_ar)} in Arabic")
+
+    written = repeated = 0
+    for path, path_ar in zip(paths_en, paths_ar, strict=True):
+        node = taxonomy.ensure_path(conn, scheme, path=path, path_ar=path_ar)
+        if taxonomy.link(conn, generic_record_id=int(record["generic_record_id"]),
+                         node_id=node, group_key="interests",
+                         source_snapshot_id=snapshot_id):
+            written += 1
+        else:
+            repeated += 1
+    return written, repeated
 
 
 def approve(conn, directory: Directory, run_ref: str) -> None:
@@ -657,6 +760,8 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     recovered = 0
     reparsed = 0
     lonely = 0
+    linked = 0
+    relinked = 0
     refused: list[tuple[str, str]] = []
     for key, halves in sorted(pairs.items()):
         english = halves.get("en")
@@ -669,14 +774,44 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
             continue
         if arabic is None:
             lonely += 1
-        candidate = directory.candidate(english[1], arabic[1] if arabic else "")
+        # WHICH DOCUMENT IS THIS. A listing card and a profile page publish two
+        # different declared field sets — `CARD_FIELDS` against `PROFILE_FIELD_ORDER` —
+        # so one candidate builder cannot serve both. Until this branch existed,
+        # `--approve` put profile pages through the LISTING parser, which is why running
+        # it over 712 stored profiles would have refused every one of them.
+        contractor = _contractor_of(key) if directory.profiles is not None else None
+        try:
+            if contractor is not None:
+                candidate = directory.profiles.candidate(
+                    english[1], arabic[1] if arabic else "", contractor_id=contractor)
+            else:
+                candidate = directory.candidate(english[1], arabic[1] if arabic else "")
+        except Exception as exc:
+            # BUILDING THE CANDIDATE CAN REFUSE, and it must not end the run. The listing
+            # path returns an unapprovable candidate with warnings; the profile path
+            # RAISES — `merge_locales` refuses a pair whose two locales publish different
+            # box counts, which is correct and happens on 8 of 712 real profiles. With
+            # this outside the guard, the first of those eight killed all 712.
+            refused.append((key, f"{type(exc).__name__}: {exc}"))
+            continue
         if not candidate.approvable:
             refused.append((key, candidate.warnings[0] if candidate.warnings else "?"))
             continue
         try:
             result = service.approve_candidate(
-                conn, english[0], _approval(directory, candidate),
+                conn, english[0],
+                _approval(directory, candidate, profile=contractor is not None),
                 candidate=candidate)
+            if contractor is not None:
+                # `R-38`'s MEMBERSHIPS, IN THE SAME TRANSACTION AS THE ROW THEY HANG OFF.
+                # The link table's foreign key requires the record to exist, and rolling
+                # back a failed membership write must not leave a row whose groups were
+                # half stored — so both commit together or neither does.
+                fresh, again = write_groups(
+                    conn, directory, english[0], english=english[1],
+                    arabic=arabic[1] if arabic else "", contractor_id=contractor)
+                linked += fresh
+                relinked += again
         except Exception as exc:
             conn.rollback()
             refused.append((key, f"{type(exc).__name__}: {exc}"))
@@ -698,6 +833,12 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
+    if linked or relinked:
+        # BOTH NUMBERS, for the reason `Marking` gives: a run that wrote 17,000
+        # memberships and one that confirmed 17,000 are the same total and different news.
+        say(f"  taxonomy (R-38): {linked:,} membership(s) written, "
+            f"{relinked:,} already held — interests only, see `write_groups` for the "
+            f"four groups the measurement says are not memberships")
     for key, why in refused[:20]:
         say(f"  refused {key}: {why}")
     if len(refused) > 20:
