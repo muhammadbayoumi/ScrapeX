@@ -812,10 +812,22 @@ optional tidying; it is the step that ends the task.
 rewritten with that verb and the tag immediately after it — *"hours later he …
 `engine-v0.3.0`"* — which is finished history that the pattern reads as an
 instruction. It passed only because `0.3.0` was still `VERSION`, and would have gone
-red at the next bump. The discipline is to write a completed release with any verb
-but that one: **tagged, published, released, went out.** Pinned in
-`test_the_pattern_cannot_tell_the_tense_of_cut_apart`, because the next person will
-reach for the wrong one.
+red at the next bump — which was `0.3.1`, already written on another branch.
+
+> **THE RULE, FOR ANYONE WRITING RELEASE PROSE IN THIS REPOSITORY.** A release that
+> has happened is written **tagged**, **published**, **released** or **went out** —
+> **never `cut`**, and never with `git tag …` spelled out beside it. `cut` and
+> `git tag` are the two shapes
+> `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` reads as
+> *"a release somebody still has to make"*, and it holds those to
+> `scrapex/version.py:VERSION`. Use them for work that is still owed and nothing else.
+>
+> It is a rule about four words because the alternative is a regex that guesses tense,
+> and the cost is asymmetric: the wrong word costs one rewording, while the wrong
+> silence costs a release instruction that the workflow refuses at its first step.
+
+Pinned in `test_the_pattern_cannot_tell_the_tense_of_cut_apart`, because a rule that
+lives only in a test message is a rule nobody writing prose will meet.
 
 > **AND THIS PARAGRAPH WALKED INTO IT WHILE EXPLAINING IT** — the first draft quoted
 > the bad sentence verbatim, verb and tag together, so the entry describing the trap
