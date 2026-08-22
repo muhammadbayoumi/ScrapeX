@@ -590,6 +590,33 @@ fixed. **`--accent` is not a safe state colour**: device mode resolves it to the
 OS `AccentColor`, so it can collide with the fixed `--amber`. Guarded by
 `test_every_custom_property_a_stylesheet_reads_is_one_something_defines`.
 
+### Half a composite component is dressed for the half that is missing
+
+`.split-button` is a primary action beside a menu. The dataset card needed only
+the menu, so it used the `<details>` half on its own — and got a control whose
+`border-radius` computed to **`0 8px 8px 0`**: two rounded corners and two square
+ones, because the shared rule rounds the trigger's OUTER edge and leaves the inner
+edge flat to butt against the primary button. With no primary button beside it that
+is a lopsided box, and it sat on the card's own rounded corner. He photographed it
+and called it unprofessional (`REQ-34`, 2026-08-22); he was describing a composition
+error, not a colour.
+
+**Apply:** before reusing part of a composite, ask what the missing part was holding
+up. The kit has `split-button` (action **and** menu) and `icon-button compact` (no
+menu) and **nothing for a bare overflow menu** — so the honest options are to compose
+the trigger's dress locally, as `.dataset-card` now does against
+`.account-menu-button`'s treatment, or to promote a real component. See
+[UI-KIT.md](UI-KIT.md) §UI-4.
+
+**And measure the SHELL, not the element, when comparing two controls.** The border,
+the fill and the shadow were never on `.split-button-trigger` — they are on the
+`.split-button` wrapper around it. A guard that read `getComputedStyle(trigger)`
+reported the card's trigger and the profile page's as identical **on the broken
+build**, while the screenshot showed a box round one of them. The guard that works
+reads `el.closest(".split-button") || el`. This is the same shape of error as the
+z-index one below: the property you are looking for is on an ancestor, and reading
+the obvious element gives a confident wrong answer.
+
 ### A z-index cannot escape its own stacking context, so raising the number is not a fix
 
 A popover inside a repeated card was painted over by the NEXT card's button, and

@@ -113,6 +113,54 @@ def test_it_draws_the_payload_it_was_given(open_data):
         == ["Product name (AR)", "Price", "Currency"]
 
 
+#: What `/api/table/contractors` really answers, trimmed to three columns. Taken
+#: from a live payload, and the two differences from a price payload are the whole
+#: reason this test exists: no `offer_id` on a row, and `bilingual` is a MAP of
+#: field pairs rather than `true`.
+DATASET_PAYLOAD = {
+    "source_key": "contractors",
+    "columns": [{"key": "contractor_id", "label": "Contractor id"},
+                {"key": "company_name", "label": "Company name"},
+                {"key": "membership_level", "label": "Membership level"}],
+    "rows": [{"contractor_id": "17304", "company_name": "شركة المقاولات",
+              "membership_level": "الدرجة الأولى"},
+             {"contractor_id": "17305", "company_name": "Second Contracting Co",
+              "membership_level": "Grade one"}],
+    "total": 2, "returned": 2, "truncated": False,
+    "folded": False, "foldable": False, "bilingual": {},
+    "tax_states": {}, "tree": {}, "moved_to_details": [],
+}
+
+
+def test_it_draws_a_dataset_and_not_only_a_price_table(open_data):
+    """THE DESTINATION OF THE ONE ACTION A DATASET CARD OFFERS.
+
+    `Open the data table` is the single entry on a contractor card's menu, and it
+    is there because `/api/table/{key}` resolves a dataset key — measured in
+    `tests/test_a_dataset_card_offers_what_works.py`. That proves the ROUTE. This
+    proves the PAGE, which is a different claim and the one that decides whether
+    the menu entry is honest: a 200 that renders an empty grid is the same dead end
+    as a 404, one step further along.
+
+    THE ROW SHAPE IS THE RISK, and it is why a price payload could not have caught
+    this. `data.js` hands Tabulator `index: "offer_id"`, and a dataset row has no
+    `offer_id` at all — every row would share the same undefined index. It draws,
+    measured; if a future grid option starts requiring that index, this is where it
+    goes red instead of on his screen.
+    """
+    page = open_data(DATASET_PAYLOAD, source="contractors")
+
+    assert page.js_errors == [], f"the page threw on a dataset: {page.js_errors}"
+    assert page.locator("#data-source").inner_text() == "contractors"
+    assert page.locator("#data-summary").inner_text() != "Reading…"
+    assert page.locator(".tabulator-row").count() == 2, (
+        "the dataset's rows did not reach the grid")
+    assert [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()] \
+        == ["Contractor id", "Company name", "Membership level"]
+    # The Arabic value arrives as text, in a grid whose column labels are English.
+    assert "شركة المقاولات" in page.locator(".tabulator-cell").all_inner_texts()[1]
+
+
 def test_scraped_text_reaches_the_screen_as_TEXT(open_data):
     """Every value here came off somebody else's website. A name that arrived as
     markup and left as markup is the whole reason the formatter is plaintext."""

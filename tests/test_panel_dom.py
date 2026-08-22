@@ -96,6 +96,19 @@ SOURCES_TAB = 'nav.side-rail button[data-view="sources"]'
 FINANCE_TAB = 'nav.side-rail button[data-view="finance"]'
 SETTINGS_TAB = 'nav.side-rail button[data-view="settings"]'
 
+#: A signed-in account, so the Profile screen draws its account rows. Without one
+#: the panel shows the sign-in prompt, and there is no three-dots button there to
+#: compare the Data card's against.
+#:
+#: BOTH KNOBS ARE NEEDED, measured: `signed_in` alone draws the signed-in identity
+#: card and no row list, so `.account-menu-button` does not exist and the
+#: comparison has nothing on the other side of it.
+AN_OWNER = {"id": "1", "email": "owner@example.com", "name": "Muhammad",
+            "picture": ""}
+ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
+                                 "name": "Second", "picture": ""}],
+                   "currentId": ""}
+
 # The engine's half of the handshake, read from the engine rather than typed.
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
 
@@ -820,12 +833,25 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
     assert "Open in Workspace" not in page.text_content("#view-data")
     cards = page.locator(".dataset-card")
     assert cards.count() > 0
-    assert page.locator(".dataset-card .split-button-trigger").count() == cards.count(), (
-        "every dataset card must carry exactly one actions menu")
+    # PER KIND, AND IT USED TO SAY "every card". That assertion was false about
+    # the product and passed anyway, for one reason: the harness stub carried no
+    # `kind: "dataset"` source, so the branch that gives a dataset a different
+    # menu was never executed by any test. `sourceMenu` had returned "" for a
+    # dataset since 2026-08-12 and this line said every card has a menu; the
+    # owner found the disagreement before the suite could («ال 3 نقاط لا تظهر فى
+    # كارد مقاول»). The stub now has one, and the rule is stated where it lives.
+    price = page.locator('.dataset-card:not([data-open="contractors"])')
+    assert price.count() >= 2, "the stub's price-source cards changed"
+    assert page.locator(
+        '.dataset-card:not([data-open="contractors"]) .split-button-trigger'
+    ).count() == price.count(), (
+        "every PRICE source card must carry exactly one actions menu")
     for label in ("Update now", "Recent changes", "Source settings",
                   "Pause collecting", "Export to Google Sheets"):
-        assert page.locator(f'.dataset-card [data-split-action]:has-text("{label}")'
-                            ).count() == cards.count(), f"{label} is missing from the menu"
+        assert page.locator(
+            f'.dataset-card:not([data-open="contractors"]) '
+            f'[data-split-action]:has-text("{label}")'
+        ).count() == price.count(), f"{label} is missing from the menu"
     # EVERY ENTRY IS LIVE. Export shipped disabled for one day, with its reason
     # written on it, because the engine had no route that could hand the panel
     # export rows. GET /api/export/{key} closed that on 2026-08-12 and the
@@ -957,6 +983,157 @@ def test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button(open_pa
             f"row does something else or nothing")
 
 
+def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
+    """«ال 3 نقاط لا تظهر فى كارد مقاول» — the three dots are missing on a
+    contractor card. They were, deliberately, and the reason covered five of the
+    six entries.
+
+    `sourceMenu` returned "" for a dataset because Update, Pause, Settings and
+    Export all drive routes that resolve a key through `sources.yaml`, and a
+    dataset is not in it. `Open the data table` was built AFTER that rule and
+    resolves through the dataset catalogue instead — `/api/table/{key}` asks the
+    catalogue FIRST — so it worked the whole time and was hidden anyway.
+
+    WHICH ACTIONS THOSE ARE IS NOT ASSERTED HERE. It is measured by CALLING each
+    declared route against a real approved dataset, in
+    `tests/test_a_dataset_card_offers_what_works.py`. This test asserts the DOM
+    consequence: the card carries a menu, it carries exactly the actions the
+    declaration marks as proven, and not one row of it is greyed out.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    card = page.locator('[data-open="contractors"]')
+    assert card.count() == 1, (
+        "the harness stub no longer carries a dataset-kind source, which is the "
+        "hole that let the old rule pass — put it back rather than deleting this")
+    assert card.locator(".split-button-trigger").count() == 1, (
+        "a dataset card carries no actions menu; it has one action that works")
+
+    offered = card.locator("[data-split-action]")
+    assert offered.count() == 1
+    assert offered.first.get_attribute("data-split-action") == "table"
+    assert "Open the data table" in (offered.first.text_content() or "")
+
+    # NOT A MENU OF GREYED-OUT ROWS, which is the other half of his complaint and
+    # the failure mode `sourceMenu`'s own comment rejects: "a button that cannot
+    # work is worse than no button". One live row is a menu.
+    assert card.locator("[data-split-action][disabled]").count() == 0, (
+        "a dataset card is offering an action it cannot run")
+
+    # And the five that cannot work are absent rather than present-and-dead.
+    for label in ("Update now", "Recent changes", "Source settings",
+                  "Pause collecting", "Export to Google Sheets"):
+        assert card.locator(f'[data-split-action]:has-text("{label}")').count() == 0, (
+            f"{label} is offered on a dataset card and its route refuses a "
+            f"dataset key")
+
+
+#: Everything about a trigger that a person can SEE. Read off both screens and
+#: compared, because "unprofessional" is not a property a stylesheet can be
+#: grepped for — the two controls either look like one system or they do not.
+_TRIGGER_LOOK = """(selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+  const box = el.getBoundingClientRect();
+  // The SHELL is the split button's wrapper where there is one, because that is
+  // what drew the box: the border, the fill and the shadow were never on the
+  // trigger itself, which is why reading only the trigger made the two controls
+  // look identical while the screenshot showed a box round one of them.
+  const shell = el.closest(".split-button") || el;
+  const own = getComputedStyle(el);
+  const outer = getComputedStyle(shell);
+  return {
+    width: Math.round(box.width), height: Math.round(box.height),
+    radius: own.borderRadius,
+    colour: own.color,
+    background: outer.backgroundColor,
+    border_width: outer.borderTopWidth,
+    border_colour: outer.borderTopColor,
+    shadow: outer.boxShadow,
+  };
+}"""
+
+_TRANSPARENT = ("rgba(0, 0, 0, 0)", "transparent")
+
+
+def _profile_trigger_look(page):
+    """The same reading, taken from the Profile screen of the same panel.
+
+    The same page rather than a second one: both readings have to come from one
+    browser with one theme applied, or the comparison is between two devices.
+    """
+    page.click('nav.side-rail button[data-view="profile"]')
+    page.wait_for_selector("#accounts-card .account-row", timeout=10_000)
+    look = page.evaluate(_TRIGGER_LOOK, "#accounts-card .account-menu-button")
+    assert look, (
+        "the Profile screen shows no account menu button, so there is nothing to "
+        "compare against — this test needs a stub with a signed-in account")
+    return look
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_the_card_menu_trigger_is_dressed_like_the_profile_pages(open_panel, scheme):
+    """«توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل مربع اعتقد ان ال3 نقاط
+    معمولة فى صفحة profile بشكل احترافى عن هذا الشكل» — 2026-08-22.
+
+    He named the reference himself, and he was right about both halves. Measured
+    before this was fixed:
+
+                       the card                     the profile row
+      size             48x48                        40x40
+      border-radius    0 8px 8px 0                  999px
+      background       filled                       transparent
+      border           1px --line-strong            transparent
+      shadow           --shadow-xs                  none
+      colour           --text                       --muted
+
+    `0 8px 8px 0` is the diagnosis: `.split-button-trigger` rounds its OUTER
+    corners only, because in a split button its inner edge butts against the
+    primary action. On a card there is no primary action, so the shared rule drew
+    a lopsided box sitting on the card's own rounded corner — "inside a box, above
+    the card", exactly as he put it.
+
+    BOTH THEMES, because a trigger that reads right on one ground often does not
+    on the other: this one takes its colour from `--muted`, which is redefined in
+    all three dark blocks.
+
+    THE ASSERTION IS A COMPARISON, not a list of expected values. Hard-coded
+    numbers would pass the day the profile page changes and the card does not,
+    which is the drift that produced two different three-dots buttons to begin
+    with.
+    """
+    page = open_panel(view="data", signed_in=AN_OWNER,
+                      remembered_accounts=ANOTHER_ACCOUNT)
+    settle_view(page, "data")
+    page.emulate_media(color_scheme=scheme)
+    page.evaluate("(mode) => document.documentElement.setAttribute('data-theme', mode)",
+                  scheme)
+
+    card = page.evaluate(_TRIGGER_LOOK,
+                         "#datasets .dataset-card .split-button-trigger")
+    assert card, "no actions trigger on the Data screen"
+    profile = _profile_trigger_look(page)
+
+    assert (card["width"], card["height"]) == (profile["width"], profile["height"]), (
+        f"the card's trigger is {card['width']}x{card['height']} and the profile "
+        f"page's is {profile['width']}x{profile['height']}")
+    assert card["radius"] == profile["radius"], (
+        f"the card's trigger is {card['radius']} and the profile page's is "
+        f"{profile['radius']}; a split button rounds two corners because it has a "
+        f"primary half, and on a card it has none")
+    assert card["colour"] == profile["colour"], (
+        f"the two three-dots buttons are different colours: {card['colour']} on "
+        f"the card, {profile['colour']} on the profile page")
+    assert card["background"] in _TRANSPARENT, (
+        f"the card's trigger is painted {card['background']} — the box he "
+        f"photographed")
+    assert card["shadow"] == "none", "the card's trigger still casts the box's shadow"
+    assert card["border_width"] == "0px" or card["border_colour"] in _TRANSPARENT, (
+        f"the card's trigger still draws a {card['border_width']} "
+        f"{card['border_colour']} border")
+
+
 def test_data_rows_scroll_inside_the_browse_card_not_the_page(open_panel):
     page = open_panel()
     page.click(DATA_TAB)
@@ -1011,8 +1188,19 @@ def test_finance_tab_sits_immediately_above_workspace(open_panel):
     page.click(SOURCES_TAB)
     page.wait_for_timeout(300)
     assert page.is_visible("#view-sources")
-    assert page.locator("#source-manager-list .source-manager-card").count() == 3
-    assert "3 of 3" in text_of(page, "#source-manager-count")
+    # FOUR NOW, AND THE FOURTH IS A DATASET. The number moved because the harness
+    # stub gained a `kind: "dataset"` source (2026-08-22) — the rule it is
+    # asserting, one card per source the engine reported, has not changed.
+    #
+    # WHETHER A DATASET BELONGS ON THIS SCREEN AT ALL IS AN OPEN QUESTION, not a
+    # thing this line settles: the manager's only per-card control is Edit, which
+    # drives `/api/sources/{key}/edit`, and that route resolves manifest keys only
+    # — measured 404 for a dataset. Recorded as `OP-45` in docs/BACKLOG.md rather
+    # than fixed here, because it changes what a screen offers and that is his
+    # call. Do not "tidy" this back to 3 by removing the dataset from the stub:
+    # that is the hole that let a false rule pass for ten days.
+    assert page.locator("#source-manager-list .source-manager-card").count() == 4
+    assert "4 of 4" in text_of(page, "#source-manager-count")
 
 
 def test_google_finance_is_a_standalone_responsive_page(open_panel):

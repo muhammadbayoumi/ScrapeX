@@ -405,6 +405,10 @@
     inset-block-start: var(--sp-2);
     inset-inline-end: var(--sp-2);
     z-index: 1;
+    /* No shell at all — see FOUR below for the measurements. */
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
   /* THREE: THE OPEN MENU WAS PAINTED OVER BY THE NEXT CARD'S BUTTON, so a ⋮
      appeared TWICE — once on the card and once floating over the menu's third
@@ -439,6 +443,57 @@
      what a menu does on a narrow panel.
      The floor keeps a one-word option from making a menu too narrow to read. */
   .dataset-card .split-button-options { min-width: 11rem; max-width: 12rem; }
+
+  /* FOUR: IT WAS DRESSED AS THE RIGHT-HAND HALF OF A SPLIT BUTTON, because that
+     is what it is — and on a card there is no left-hand half for it to be beside.
+     He photographed the result and named the fix himself: «توجد ال3 نقاط بشكل غير
+     احترافى فوق الكارت وداخل مربع اعتقد ان ال3 نقاط معمولة فى صفحة profile بشكل
+     احترافى عن هذا الشكل» — the profile page's three dots are done properly and
+     these are not.
+
+     HE IS RIGHT, AND THE COMPUTED STYLES SAY SO. Measured on both screens before
+     this rule existed:
+
+                       the card                     the profile row
+       size            48x48                        40x40
+       border-radius   0 8px 8px 0                  999px
+       background      filled (--surface + tint)    transparent
+       border          1px --line-strong            transparent
+       shadow          --shadow-xs                  none
+       colour          --text                       --muted
+       when open       --accent-weak fill           (hover tint only)
+
+     `0 8px 8px 0` is the whole diagnosis in one value: the shared rule rounds the
+     trigger's OUTER corners only, because a split button's inner edge butts against
+     its primary action. With no primary beside it that is a lopsided box with two
+     square corners, sitting on the card's own rounded corner — which is exactly
+     "inside a box, above the card".
+
+     So the card's trigger is brought to `.account-menu-button`'s treatment: a bare
+     40px circle, `--muted`, tinted on hover and while open. Nothing here is a new
+     value — every one is the token the profile row already uses, which is why this
+     needs no palette work and cannot ignore his palette (a new colour would have
+     needed four homes; see docs/LESSONS.md §5).
+
+     LOCAL TO THIS CARD, like everything else in this block: `components.css` is
+     generated from `design/components.css`, and the Activity log's split button —
+     which has a primary half and is not broken — must not move. */
+  .dataset-card .split-button-trigger {
+    width: var(--control-height-sm);
+    min-width: var(--control-height-sm);
+    min-height: var(--control-height-sm);
+    /* The shared rule draws a divider against the primary half. There is none. */
+    border-inline-start: 0;
+    border-radius: var(--radius-pill);
+    color: var(--muted);
+  }
+  /* One treatment for hover and for open, which is the profile row's behaviour:
+     the accent fill it used to take while open is what read as a blue box. */
+  .dataset-card .split-button-trigger:hover,
+  .dataset-card .split-button-menu[open] .split-button-trigger {
+    background: var(--control-hover);
+    color: var(--text);
+  }
   .source-manager-panel { padding-bottom: var(--sp-2); }
   .source-manager-section-head {
     align-items: center;
