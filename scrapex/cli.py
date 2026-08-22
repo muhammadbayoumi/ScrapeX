@@ -1133,7 +1133,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser(
         "merge-warehouse",
-        help="merge another machine's engine database into this one (evidence only)")
+        help="merge another machine's engine database into this one (evidence only). Use THIS and never restore-database for a second machine: restore replaces, this adds")
     p.add_argument("--from", dest="source",
                    help="the other machine's database file, downloaded from Drive")
     p.add_argument("--machine", help="which machine is taking the warehouse")

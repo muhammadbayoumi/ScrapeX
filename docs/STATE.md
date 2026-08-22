@@ -98,6 +98,18 @@ times changes no VALUE — the first implementation summed `seen_count` and took
 <downloaded.db>` → `contractors --approve --run-ref <ref>` for each run whose pages
 arrived → work → upload → `--release`.
 
+**AND THE UPLOAD IS THE PANEL'S, NOT THE CLI'S** — his ruling of 2026-08-11 removed
+`scrapex/gdrive.py` and gave every Google operation to the extension. `scrapex/bundle.py`
+builds a bundle containing `warehouse.db`, taken through sqlite3's own backup API;
+`extension/drive.js` uploads it resumably to a `ScrapeX backups` folder with a
+`latest.json` pointer and three kept. The panel button is **`drive-backup`**.
+
+> **DO NOT PRESS `drive-restore` ON THE OTHER MACHINE.** Restore REPLACES the live
+> warehouse — `registry.engine.restore` displaces it and says so — so it would lose the
+> muqawil and products work that machine has and this one does not. It sits beside
+> `drive-backup` in the same card. **Backup here, download there, MERGE.** That distinction
+> is the whole of `R-43`, and the destructive path is one button away from it.
+
 **For what the owner has asked for and where each request stands, see
 [REQUESTS.md](REQUESTS.md).** This file tracks the *work in flight*; that one
 tracks *his requests* through Captured → Ruled → Planned → In flight → Done.

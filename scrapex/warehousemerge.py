@@ -29,6 +29,20 @@ column merges with `min` or `max` and none with `+`** — a sum is neither, and 
 version of this used one for `seen_count`. Measured before it was fixed: three merges of
 the same file took one id from 4 to 8 to 12 to 16 while this paragraph claimed otherwise.
 
+THE PANEL ALREADY DOES THE UPLOAD, AND THE WRONG BUTTON IS NEXT TO THE RIGHT ONE.
+`scrapex/bundle.py` builds a bundle containing `warehouse.db` — taken through sqlite3's own
+backup API — and `extension/drive.js` uploads it resumably into a `ScrapeX backups` folder
+with a `latest.json` pointer and three kept. The panel's buttons are `drive-backup` and
+`drive-restore`, and the engine has no Google of its own by his ruling of 2026-08-11.
+
+**`drive-restore` IS THE DESTRUCTIVE ONE AND MUST NOT BE USED FOR THIS.** Restoring
+REPLACES the live warehouse — `registry.engine.restore` displaces it and says so — which on
+the other machine means losing the muqawil and products work that machine has and this one
+does not. That is the exact outcome `R-43` exists to prevent, reachable by pressing the
+button beside the right one.
+
+So the flow is: **backup** here, download there, and **merge** — never restore.
+
 THE LOCK IS THE PART HIS PLAN WAS MISSING. Download → work → upload has nothing stopping
 both machines doing it on the same day, and the second upload silently wins — Drive keeps
 versions but cannot merge them. So a warehouse records which machine currently holds it,
