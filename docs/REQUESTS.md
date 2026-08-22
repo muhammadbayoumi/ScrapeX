@@ -1530,6 +1530,34 @@ has neither half and its data is already on disk.
 **Not started.** `REQ-31` (the profile parser) is what is in flight, and this is the
 surface it feeds.
 
+**CORRECTED 2026-08-22, same day — and the correction is that HE WAS RIGHT.** Kept per
+**C4**, because what was wrong here is more useful than what is right.
+
+The table above says a per-row card exists on **neither** surface. **It has shipped on
+the engine since 2026-07-22** — 967 lines, opened by row **selection** rather than by
+`rowFormatter`, with an image gallery, AR/EN pairing, a price timeline and a *"Moved out
+of the table"* card that `scrapex/reports.py` builds under a comment reading *"the
+owner's ask, using the mechanism that already exists."*
+
+So the line *"he remembers this as built. It is half built, and not the half he needs"*
+is wrong twice. It is **fully built for products**, and he was not half-remembering
+anything — he said «نفس الشى اريده فى كاتوجرى المقاولون» and meant exactly that: the
+contractors category does not have it. **Step 3 below was already done before this entry
+was written.**
+
+**The measurement failed by searching for one symbol** — `rowFormatter`, `row-detail`,
+`expandRow`, `detailsDrawer` — and finding none. See
+[R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)
+for the full correction and for the two things it turned out to be worse than assumed:
+the chooser has registered **11 price-path keys** against the `contractors` dataset, and
+`dataset_table_payload` never reads `dataset_field` at all, so every hide and rename on a
+dataset is a silent no-op.
+
+**And this entry is now the same work as [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries)'s
+"details drawer"** — asked for independently, in his own words, two weeks apart. The
+session on `REQ-07` is writing one plan covering both, on his instruction: «ضع خطة
+لتنفيذها كلها وتتبع التنفيذ حتى لا نفقده».
+
 ---
 
 ## REQ-33 · The dataset cards said no successful crawl over crawled rows

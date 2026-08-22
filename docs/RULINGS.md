@@ -1251,6 +1251,55 @@ question at all. It is one more value in a card that has to be built anyway.
 **Recorded as its own track**, because it is a surface feature with a data-model half
 and it is larger than the field that raised it: `REQ-32`.
 
+> **CORRECTED 2026-08-22, SAME DAY, AND THE TABLE ABOVE IS WRONG IN ITS FIRST ROW.**
+> Kept in place per **C4** because the error is more instructive than the fix.
+>
+> That row says a per-row card *"does not exist, on either surface — no `rowFormatter`,
+> no expansion handler, nothing."* **A record card has shipped on the engine since
+> 2026-07-22** (`6f99a93`, redesigned `bac9c94` on 07-26) — a month before this ruling
+> was written. It is 967 lines, about 30% of `grid.js`, and it carries an image gallery,
+> spec lists, AR/EN pairing, a price timeline, a changes feed, and a **"Moved out of the
+> table"** card fed by `payload.moved_to_details`. `scrapex/reports.py` builds that list
+> and its own comment reads *"the owner's ask, using the mechanism that already
+> exists."*
+>
+> **It is opened by row SELECTION, not by `rowFormatter`** — `grid.js` binds
+> `table.on("rowSelectionChanged")` → `openOfferPanel` → `GET /api/offer/{key}/{id}` →
+> `renderOfferPanel` into `#offer-panel`, and the container's own comment in
+> `scrapex/webui/templates/source.html` says *"ONE container under the table, opened by
+> SELECTING a row (the owner's ruling)"*.
+>
+> **WHY THE MEASUREMENT FAILED, because that is the transferable part.** It searched for
+> `rowFormatter`, `row-detail`, `expandRow` and `detailsDrawer`, found none, and
+> concluded the feature was absent. **A false negative from searching for one symbol** —
+> the third instance in a single day of the instrument deciding the answer:
+> `sqlite_master` asked for `UNIQUE` cannot see an auto-index from a table constraint,
+> and a card census asking for `h3.card-title` cannot see a card titled with an `h4`.
+> The lesson is `LESSONS.md` §9's, arriving through a third door: **a search for one
+> spelling of a feature is not a measurement of the feature.**
+>
+> **AND IT CHANGES WHAT HE ASKED FOR. He was not misremembering.** This ruling and
+> `REQ-32` both read as though he half-recalled something that was never built. The
+> truth is that it is **fully built for products, on the engine**, and his complaint was
+> precisely that the contractors category lacks it — which is what he said: «نفس الشى
+> اريده فى كاتوجرى المقاولون». `REQ-32`'s step 3, *"the same card for the products
+> category"*, was already done before it was written.
+>
+> **The ruling itself stands unchanged**, and this correction strengthens rather than
+> weakens it: a field is not a column, and the row's card is where the extras go. What
+> changes is the cost and the shape of the work — the shell exists and is a **port**,
+> while the contractors body is **new engine work**, because four of the five endpoints
+> the engine's data page consumes run against the price warehouse and there is no
+> dataset equivalent of `/api/offer`.
+>
+> Two further measurements from the same session, both worse than this ruling assumed:
+> `dataset_field` holds **11 rows for `source_key='contractors'` and every one is a
+> price-path key** (`price`, `tax`, `stock_quantity`, `curation`) — opening the chooser
+> on the contractors table registered the *price* header against the dataset — and
+> `dataset_table_payload` **never reads `dataset_field` at all**, so hiding, renaming
+> and reordering a dataset's columns are silent no-ops. The chooser does not merely
+> lack a dataset branch; it lies in both directions.
+
 ---
 
 ### R-47 · muqawil is ONE card with TWO crawls, and the two stored datasets stay two
