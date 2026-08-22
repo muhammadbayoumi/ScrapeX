@@ -1910,6 +1910,13 @@ the session doing the work is capturing it, and a second copy on the board is th
 different text nearby knows the neighbourhood moved rather than assuming this entry
 rotted. The stable files carry line numbers.
 
+**AND THIS ENTRY CARRIES ITS OWN CORRECTION.** The request above was filed as `REQ-36`
+on another branch while this was being written, so: **cite `REQ-36` once it is on
+`main`.** `REQ-30` is its root and is the truthful citation until then — the trigger
+being restyled is the same control whose menu `REQ-30` was about. Swapping it is a
+one-word edit that needs no rediscovery, which is the point of writing the instruction
+down rather than leaving it for whoever picks this up.
+
 **What `#252` did.** `.dataset-card > .split-button` in `extension/app.css` carried
 `z-index: 1`, which made every card's wrapper a stacking context and spent the open
 menu's own `z-index: 120` inside it. The fix adds
