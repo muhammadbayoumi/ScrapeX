@@ -96,6 +96,16 @@ the thing came from: **he asked** → `REQUESTS.md`; **we found it** →
 `BACKLOG.md`; **a decision was taken** → `RULINGS.md`. The boundary table is in
 [docs/REQUESTS.md](docs/REQUESTS.md#the-boundary--which-file-does-a-thing-belong-in).
 
+**And several sessions run at once, which is its own discipline.** `R-42` says exactly
+one primary session merges — ask, never infer, and default to secondary. What that
+costs in practice is written in
+[docs/ORCHESTRATION.md](docs/ORCHESTRATION.md): on 2026-08-22 five sessions produced
+seven pull requests in an afternoon and also produced a red `main`, four register
+collisions, and 2,159 insertions of one session's work living only in a git index when
+the API limit hit. **Not one of those was a coding mistake** — they all failed at the
+seams between sessions. He gave the primary session the standing right to evolve that
+file: «ولها الحق انها تطور workflow لتجنب المشاكل التى تقابلها».
+
 ---
 
 ## The map
@@ -109,6 +119,7 @@ the thing came from: **he asked** → `REQUESTS.md`; **we found it** →
 | [docs/BACKLOG.md](docs/BACKLOG.md) | what *we* found — open problems, declared debt, decided-not-built, questions for him | when hunting for what needs doing |
 | [docs/LESSONS.md](docs/LESSONS.md) | hard-won engineering knowledge — the traps that cost real time, the failures that are silent | before touching ingest, the warehouse, the design system, or the version ledger |
 | [docs/APPROACHES.md](docs/APPROACHES.md) | **the methods available** for writing code and solving problems, and which wins where two disagree | when choosing how to attack a task |
+| [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) | **how the primary session runs several sessions and agents at once** — the merge sequence, register numbers, rescuing unsaved work, and what a green is allowed to mean | before spawning a session, claiming a register number, or merging anything |
 | [ENGINEERING.md](ENGINEERING.md) | the code rules — architecture, quality, testing, performance | before writing code |
 | [docs/plans/](docs/plans/README.md) | the plans, current and historical | when picking up a track |
 
