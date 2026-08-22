@@ -91,6 +91,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
 | [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
+| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Captured** — cause found: the listing groups by DATASET, not by site | 2026-08-22 |
 
 ---
 
@@ -1648,3 +1649,64 @@ of defect spreads.
 
 **Verified visually, not by reading CSS back**, in both themes — the panel renders light
 and dark, and a trigger that reads well on one ground often does not on the other.
+
+---
+
+## REQ-37 · One card per site, and its crawls are options under it — the way GPP does it
+**Captured 2026-08-22 · Not built**
+
+> «المفروض مصدر مقاول يظهر مرة واحدة فقط واختيارات الزحف الخاصة به تكون متعغددة · انظر
+> الى gpp لتفهم كيف تم عمل هذا»
+
+Sent with a screenshot of two cards that are both `muqawil.org`:
+
+```
+muqawil.org   Saudi Contractors Authority   contractors          [Row 17,304]
+muqawil.org   Contractor profiles           contractor_profiles  [Row 704]
+```
+
+**THE CAUSE IS ONE CLAUSE, and it is not a display bug.** `_dataset_rows` in
+`scrapex/webui/app.py` ends its query with `GROUP BY d.dataset_definition_id` — **one row
+per dataset**, keyed on `dataset_key` as its `source_key`. The panel draws a card per row,
+so two datasets under one site are two cards, and neither knows the other exists.
+
+**AND HIS COMPARISON IS EXACT, which is why he made it.** `GPP_ENERGY` is **one**
+`source_key` in `sources.yaml`, and everything that varies underneath it — four energy
+types across 169 countries — lives *inside the connector*, never as a second source. So
+the panel has always drawn GPP as one card. muqawil's multiplicity was modelled one level
+higher, as two `dataset_definition` rows, and the listing has no notion of a site above
+them.
+
+**The shapes differ in a way that matters, and the fix is not "copy GPP".** GPP's axes
+are one crawl producing many rows; muqawil's are **two different crawls** — the listing
+sweep (`--crawl`, a 56-cell partition) and the profile sweep (`--details`, 34,834 pages) —
+which run separately, resume separately, and are approved separately. So the card must
+carry *two crawls*, not two column-sets. That is what he means by «اختيارات الزحف الخاصة
+به تكون متعددة».
+
+### What this needs, and the coupling that decides its order
+
+1. **`_dataset_rows` groups by `site_profile_id`**, emitting one row carrying its datasets
+   rather than one row per dataset. The `site_profile` row already holds the display
+   identity — which is why the first card reads `Saudi Contractors Authority` (the site's
+   name) and the second reads `Contractor profiles` (the dataset's).
+2. **A card-level identity that is a SITE.** Today `source_key` on a dataset row *is* the
+   `dataset_key`, and `/api/table/{key}` and `/source/{key}` resolve on it. A site-level
+   card needs its actions to say **which dataset**, or those routes break.
+3. **So this is the same surface as `REQ-36`.** That request gives a dataset card the
+   `⋮` menu it can use; this one asks the menu to offer *per-dataset* actions under one
+   card. Building them apart would mean writing the menu twice.
+
+**Therefore it lands after `REQ-36`**, and this is a sequencing decision rather than a
+priority one: the branch `fix/a-dataset-card-gets-the-menu-it-can-use` is editing
+`extension/app.js`'s `sourceMenu` right now, and two sessions in that function is the
+collision `docs/ORCHESTRATION.md` §3 exists to prevent.
+
+**One question is his, and it should be asked before the grouping is written:** the two
+muqawil datasets are a **listing** and its **detail pages** — the same contractors seen
+twice, 17,304 rows and 704 rows over one population. Should the card show them as *two
+crawls of one dataset*, or *two datasets of one site*? `dataset_relationship` already
+records them as `one_to_one`, `confirmed` (his own instruction, «اربطهم فى
+dataset_relationship»), so the warehouse already believes the first. The panel would then
+show one row count, not two — and 704 against 17,304 is a coverage number, not a second
+dataset.
