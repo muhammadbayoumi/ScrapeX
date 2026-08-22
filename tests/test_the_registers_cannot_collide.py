@@ -99,14 +99,27 @@ RESERVED: dict[str, dict[int, str]] = {
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
     #
-    # 44 and 45 are held by the Drive/sync session, which had been assigned them and had
-    # not pushed when `OP-46` was written on 2026-08-22. The primary session assigned 46
-    # rather than 44 for exactly that reason, and a skipped number is only legitimate
-    # when it is declared — so it is declared here. DELETE BOTH ROWS the moment that
-    # pull request merges and brings its own headings.
+    # 44 and 45 are held by branch `claude/drive-without-a-server`, assigned to it before
+    # `OP-46` was written on 2026-08-22. THE BRANCH REF IS THE OWNER, not a description of
+    # a session: a reservation held by "the Drive session" is a hole nobody can resolve
+    # six weeks from now, and sessions do not outlive their branches.
+    #
+    # Measured 2026-08-22: that branch is on `origin` at `0f2a248` and its BACKLOG tops
+    # out at `OP-43` — the push predates its own renumber, so the two headings exist in
+    # neither `main` nor any pushed commit yet. That is precisely the state this table is
+    # for. There is no pull request for it at the time of writing.
+    #
+    # DELETE BOTH ROWS the moment that branch merges and brings its own headings. A row
+    # left behind is a permanent hole nobody owns.
+    #
+    # NOTE TO WHOEVER TAKES AN ASSIGNED NUMBER NEXT: being handed "take OP-46" is not
+    # enough. If the numbers below yours are not in your branch, the hole check fails on
+    # YOUR branch, and declaring them here is what satisfies it — that is what this table
+    # is, and it was nearly missed on 2026-08-22 because the assignment named the guard
+    # without naming the mechanism.
     "OP": {
-        44: "the Drive/sync session, rebasing 2026-08-22",
-        45: "the Drive/sync session, rebasing 2026-08-22",
+        44: "branch claude/drive-without-a-server",
+        45: "branch claude/drive-without-a-server",
     },
     "DEC": {},
 }

@@ -1895,6 +1895,184 @@ Tier 1 still guards these seven citations, and that was proved rather than assum
 the guard's own `CITATION` pattern extracts all seven from this entry and every one
 resolves to a real file and a real line. Pin them when `extension/app.js` is quiet,
 and pin `setupFinanceConverterSelect` and `setupRunModeSelect` first.
+### OP-47 · The shared split button documents its stacking trap instead of owning it
+
+**Status: OPEN — recording, not fixing. Found 2026-08-22 by the DRY review of `#252`,**
+the pull request that fixed the trap for `REQ-30`. It fixed it in the right place for
+that screen and in the wrong place for the component.
+
+**CITED BY SELECTOR, NOT BY LINE, ON PURPOSE.** `extension/app.css` and
+`extension/app.js` were under concurrent edit by another session on 2026-08-22 — it was
+giving the `dataset`-kind cards a `⋮` at all (`OP-42`'s tail) and restyling the card's
+trigger at his request. **That request is deliberately not quoted or numbered here**:
+the session doing the work is capturing it, and a second copy on the board is the drift
+`REQUESTS.md` exists to prevent. Every rule below is named so a reader who finds
+different text nearby knows the neighbourhood moved rather than assuming this entry
+rotted. The stable files carry line numbers.
+
+**What `#252` did.** `.dataset-card > .split-button` in `extension/app.css` carried
+`z-index: 1`, which made every card's wrapper a stacking context and spent the open
+menu's own `z-index: 120` inside it. The fix adds
+`.dataset-card > .split-button:has(.split-button-menu[open])` lifting the wrapper to
+`var(--z-overlay)` while open — correct, measured, and guarded by a hit test.
+
+**Why the rule belongs one level up.** The `120` is the shared component's
+([design/components.css:1429](../design/components.css#L1429)), so the knowledge *"this
+menu must not be painted over"* is the component's too. The component's own comment,
+ten lines under that declaration, states the repository's rule for exactly this
+situation: *"When two independent consumers break the same way, the shared rule is the
+defect rather than the consumers"*
+([design/components.css:1439](../design/components.css#L1439)).
+
+**And the prose now tells the next consumer to write the selector again.**
+`docs/UI-KIT.md` records the trap as placement guidance — *"where a layer really is
+needed, raise it to `var(--z-overlay)` **only while the menu is open**
+(`:has(.split-button-menu[open])`)"* ([docs/UI-KIT.md:202](UI-KIT.md#L202)). That is a
+documented invitation to a second copy, and `webui.css` is already the first:
+`.source-filter-menu[open]{z-index:var(--z-overlay)}`
+([scrapex/webui/static/webui.css:142](../scrapex/webui/static/webui.css#L142)),
+asserted as literal text at
+[tests/test_workspace.py:274](../tests/test_workspace.py#L274).
+
+**NOTHING ELSE IS BROKEN — measured at `451468d`, and the measurement is sharper than
+"no other consumer has a z-index".** The defect needs two things: a stacking context on
+the wrapper **and** a later sibling inside it to lose the tie to. Only one consumer
+supplies the second, because only one is *repeated*:
+
+| consumer | how it is wired | repeated? |
+|---|---|---|
+| dataset cards | `querySelectorAll(".dataset-card .split-button")` in `extension/app.js` | **yes — the broken one** |
+| Activity log | `$("activity").querySelector(".split-button")` in `extension/app.js` | no, singular |
+| grid toolbar | `toolbar.querySelector(".split-button")` ([scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118)) | no, singular |
+| source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)) | no, singular |
+| gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | no, singular |
+
+Checked at the same commit: `.toolbar` carries no `z-index`, there is no rule for
+`#activity .split-button`, and neither `.dataset-card` nor `#datasets` carries a
+`transform`, `filter`, `opacity`, `contain`, `isolation` or `will-change` that would
+build a context another way. **This is future safety, not a live defect.** The count is
+a measurement at a commit and not a standing claim: the session editing those cards may
+add a consumer or lift a different wrapper, and then it must be re-taken.
+
+**The risk is specific, and that session makes it likelier rather than moot.** The
+defect is *created* by fixing consumers instead of the component, and another consumer
+is being fixed right now. The next list of anything carrying a per-row actions menu
+reproduces it, because the component still ships the trap and the guard is bound to one
+screen: `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` reads
+`#datasets .dataset-card .split-button-trigger`, so it would stay green while a new
+repeated consumer was broken.
+
+**The narrow fix.** Move the conditional lift into the shared sheet, beside the
+declaration whose knowledge it is:
+
+```css
+.split-button:has(.split-button-menu[open]) { z-index: var(--z-overlay); }
+```
+
+then `python tools/sync_design_assets.py`. It applies — `.split-button` is already
+`position: relative` ([design/components.css:1352](../design/components.css#L1352)) —
+and it is inert unless a menu is open. The card keeps its own `z-index: 1`, which is
+local placement, not this rule.
+
+**The objection on record does not transfer, and that needs saying plainly.**
+`extension/app.css` says *"Changing the shared rule would move the Activity log's menu,
+which is not broken"*, and a reader may take that as a decision against touching the
+shared sheet. It belongs to the block above it — the **positioning** of the wrapper in
+the card's corner — not to the layer. No ruling covers sharing the z-index rule.
+
+**Proof it must carry:** `tools/style_snapshot.py` over both surfaces, with no computed
+style changed except where a menu is open, and the hit test generalised off `#datasets`
+so it covers whatever the second repeated consumer turns out to be.
+
+**Sequencing:** build this **after** `OP-48` and after the card session lands. It edits
+a component five surfaces consume, and doing that while one of them is being restyled is
+how two correct branches produce one broken screen.
+
+### OP-48 · Two raw numbers are copies of the layer tokens, and a comment is all that holds them equal
+
+**Status: OPEN — recording, not fixing. Found 2026-08-22 by the DRY review of `#252`.**
+Of the three findings that review produced this is the one to build first: the fix is a
+two-value substitution that cannot change a pixel, and the thing it removes is tied to a
+defect he photographed the same day.
+
+**Cited by selector for `extension/app.css`, by line elsewhere** — that file was under
+concurrent edit on 2026-08-22 and every rule below it shifts when the card block above
+it changes. See `OP-47` for the same reason at more length.
+
+**The scale is three tokens** — `--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`
+([design/tokens.css:128](../design/tokens.css#L128)) — and two rules in
+`extension/app.css` write a token's value as a raw number instead of reading it:
+
+| rule | writes | which is exactly |
+|---|---|---|
+| `nav.side-rail` | `z-index: 30` | `--z-modal` |
+| `.workspace-menu-backdrop` | `z-index: 20` | `--z-overlay` |
+
+**`.modal-veil` already depends on the first equality, and its own comment says so.** It
+uses `z-index: calc(var(--z-modal) + 10)` and explains why: *"--z-modal is 30 and the
+side rail is also 30 (see .side-rail above), so the token as it stands ties with the
+thing this has to cover and the winner would be decided by source order. Correcting the
+token is a design-system decision, not this screen's."*
+
+That comment is an accurate diagnosis and a deferral, and it is also the whole problem:
+**a comment is not a constraint.** The veil is modal — it exists so a question about
+revoking a grant cannot be navigated away from — and its correctness rests on a number
+in a different rule 1,100 lines away staying equal to a token. Move either and the veil
+silently stops outranking the rail. Nothing goes red.
+
+**The concrete consequence, and it lands on the bug he just reported.** Lower
+`--z-overlay` below 20 — an ordinary design-system decision — and
+`.workspace-menu-backdrop`'s raw `20` outranks **every popover that reads the token**:
+`.sx-select-list`, `.account-menu`, `.finance-converter-options`, and the
+`.dataset-card > .split-button:has(.split-button-menu[open])` rule that `#252` added
+hours earlier. The drawer's backdrop would paint over the very menu whose overpainting
+he photographed and asked «لماذا تظهر مرتين» about — `REQ-30`, fixed that same day. One
+token edit, and the fix is undone from a file that never mentions it.
+
+**Nothing catches any of this, and that is a finding in its own right.** The repository
+has **no test that reads a z-index**. The single guard that touches the subject asserts
+the literal *text* of one rule —
+`assert ".source-filter-menu[open]{z-index:var(--z-overlay)}" in styles`
+([tests/test_workspace.py:274](../tests/test_workspace.py#L274)) — which proves that one
+line is spelled that way and nothing about layer order anywhere else. The most recent UI
+defect he reported was a stacking bug, and `#252`'s own lesson is that reading a z-index
+back would have passed on the broken build.
+
+**So what a guard has to assert is order, not numbers.** Two shapes, both cheap:
+
+* **Static, and enough for this entry:** no rule in `extension/app.css` may write a bare
+  integer equal to the value of a layer token — it must read the token. That is the rule
+  `docs/LESSONS.md` now states in prose (*"The extension's layers are three tokens …; a
+  fourth number invented at a call site is the next instance of this bug"*,
+  [docs/LESSONS.md:573](LESSONS.md#L573)) and nothing enforces.
+* **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
+  side rail, the way
+  `test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button` does. An
+  assertion on the computed number would pass on a broken build, which is exactly the
+  trap `#252` recorded.
+
+**The same file breaks the three-token rule in four more places, and those are NOT this
+entry.** `.workspace-menu` invents `z-index: 25` between overlay and modal;
+`.split-button-options` uses `120` ([design/components.css:1429](../design/components.css#L1429));
+`.grid-feature-popover` uses `100` and `.column-chooser-backdrop` `10020`
+([scrapex/webui/static/grid-theme.css:663](../scrapex/webui/static/grid-theme.css#L663),
+[scrapex/webui/static/grid-theme.css:311](../scrapex/webui/static/grid-theme.css#L311)).
+Those are numbers the scale has no name for — renumbering them changes paint order and is
+a design-system decision, which is the call `.modal-veil`'s comment already declined to
+make on its own. **Recorded here, deliberately not folded in.**
+
+**The narrow fix, and it is provably inert.** Substitute only the two values that are
+already exactly equal to a token: `nav.side-rail` → `var(--z-modal)`,
+`.workspace-menu-backdrop` → `var(--z-overlay)`. Same numbers, so no computed style
+changes — verified with `tools/style_snapshot.py` across both surfaces, the same evidence
+`UI-2` used. Then the equality `.modal-veil` depends on is expressed instead of
+commented, and lowering `--z-overlay` moves the backdrop with the popovers instead of
+past them.
+
+**Why it is not done in this pull request.** It edits `extension/app.css`, which another
+session was editing on 2026-08-22 on the owner's instruction. The substitution is two
+lines and behaviour-neutral; it should land as its own change once that file is quiet,
+and it does **not** need to wait for `OP-47`.
 
 ## 3. Decided, not yet built
 
