@@ -416,7 +416,15 @@ rule wastes a session.
 
 ### R-37 · The agent does not merge. The main programmer does
 
-**2026-08-21 · process · supersedes [R-18](#r-18--merge-it-when-it-is-green)**
+**2026-08-21 · process · ~~active~~ SUPERSEDED the same day by [R-42](#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)**
+
+> **Kept in full because its DIAGNOSIS is what R-42 is built on.** Merge order
+> across parallel sessions really is invisible to a single session. What R-42
+> changes is the remedy: name the one session that can see it, rather than
+> blinding all of them. Everything below about what a report must say still
+> governs a SECONDARY session.
+
+**supersedes [R-18](#r-18--merge-it-when-it-is-green)**
 
 > «واترك الدمج للمبرمج الرئيسيى»
 
@@ -1033,6 +1041,64 @@ and a first parse of a five-level taxonomy is unlikely to be the last.
 The route already proven on live data — wipe and re-approve from disk, which took
 `generic_record` from 1,172 to 13,892 with zero network on 2026-08-21 — stays available.
 It works and it destroys history every time, which is what a row-aware key replaces.
+
+---
+
+### R-42 · One PRIMARY session merges; every other session is SECONDARY and asks
+
+**2026-08-21 · process · supersedes [R-37](#r-37--the-agent-does-not-merge-the-main-programmer-does)**
+
+> «اريد تعديل القاعدة بحيث ان هناك جلسة اساسية وجلسات فرعية · الجلسة الاساسية هى الجلسة
+> التى تستطيع الدمج بينما الجلسات الفرعية لا · يمكن ان تسالنى اذا كنت جلسة اساسية ام
+> فرعية لتحدد هذا الامر»
+
+`R-37` removed the merge from every session because **merge order across parallel
+sessions is not a thing any single session can see**. That diagnosis was right and
+nothing here contradicts it. What it got wrong is the remedy: it solved a problem of
+COORDINATION by removing a CAPABILITY, so the cost R-18 was written against came
+straight back — a green branch idles until he happens to be at a keyboard.
+
+**THE FIX IS TO NAME WHO COORDINATES.** Exactly one session is PRIMARY and may merge.
+Every other session is SECONDARY: it builds, pushes, reports, and stops. The blindness
+`R-37` identified is real, so it is answered by making one session the one that can see
+— not by blinding all of them.
+
+### How a session knows, and it is the whole of the rule
+
+**IT ASKS. IT NEVER INFERS, AND IT NEVER ASSUMES.** He named the mechanism himself:
+*«يمكن ان تسالنى اذا كنت جلسة اساسية ام فرعية»*. There is no other source — being
+first, being busy, holding the open pull request, or having merged earlier in the same
+session prove nothing about which session he is treating as primary right now.
+
+**AND THE DEFAULT IS SECONDARY.** Until he answers, a session is secondary. That is the
+only safe direction: a secondary session that was really primary costs one message,
+while a primary session that was really secondary is the bad merge `R-37` was written
+about — and `main` has no branch protection, so nothing downstream would catch it.
+
+**ONE, NOT "AT MOST ONE PER MACHINE".** He works from two machines and two accounts
+(`CLAUDE.md`), and two primaries on two machines is exactly the parallel-merge problem
+under a new name.
+
+**THE ANSWER IS PER SESSION AND IS NOT A REPOSITORY FACT.** It cannot be committed —
+which session is primary changes with the day and is not true of the code. So it is
+asked in the session that needs it, and it does not carry to the next one. A session
+resuming from a summary that does not record the answer asks again.
+
+### What does not change
+
+`R-37`'s reading of the report stands in full for a secondary session: name every check,
+every failure, and **whether each failure ran at all**. `R-18`'s reading of *green*
+stands for the primary one — a `SKIPPED` required check is not satisfied, an absent run
+is not a red one, and a tick from before the last push describes a tree nobody is
+merging. `R-22` still requires the full suite before a pull request opens.
+
+**AND THE GUARD MATTERS MORE NOW, NOT LESS.** Returning the merge to a session returns
+its judgement to the gate, so the failures a person should not have to hunt for must be
+mechanical. `tests/test_the_registers_cannot_collide.py` was built the same day and
+immediately caught two real collisions between `#244` and the branch beside it — `R-36`
+and `R-37` claimed twice, and `OP-32` claimed twice — every one of them green,
+mergeable, and invisible to git. Branch protection on `main` is still absent and still
+his to switch on.
 
 ---
 

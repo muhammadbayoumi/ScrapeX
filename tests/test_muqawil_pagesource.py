@@ -268,15 +268,37 @@ def test_naming_no_city_refuses_rather_than_answering_no(source):
         source.belongs_to_slice(listing("en"), 0, "  ")
 
 
-def test_a_listing_that_stopped_publishing_the_city_refuses(source):
-    """The same reasoning one level down: a moved marker must not read as a
-    smaller city."""
+def test_a_card_without_a_city_is_in_no_city_rather_than_a_refusal(source):
+    """THIS TEST USED TO DEMAND A REFUSAL, AND THE BELIEF BEHIND IT WAS MEASURED FALSE.
+
+    It read: *"a moved marker must not read as a smaller city"* — sound reasoning, and
+    unable to tell a moved marker from a contractor that publishes no location. The cost
+    was real: on 2026-08-21 a crawl that had closed four cells with `D = 0` ended on one
+    card without a city.
+
+    Then the rule was narrowed to "refuse only if NO card on the page has one", which
+    looked like the measurable distinction. It is not. `region_id=0` is muqawil's
+    no-location partition — the fact `#234` recorded when its 74 pages taught 21 fields
+    against a declared 22 — and measured on stored pages: **`region_id=0` carries 17 and
+    20 cards with ZERO city icons**, while `region_id=1` carries 20 of 20. A whole page
+    without a city is legitimate here.
+
+    So a cityless card is in no named city, and the moved-marker signal lives where it can
+    actually be seen: `detail_frontier` reports the rows it examined against the rows it
+    matched, and nothing matching anywhere is the symptom.
+    """
     moved = FetchedPage(url=listing().url,
                         html=listing().html.replace("icon-locaion", "icon-where"),
                         kind=PageKind.LISTING)
 
-    with pytest.raises(SliceNotSupported, match="city marker has moved"):
-        source.belongs_to_slice(moved, 0, "RIYADH")
+    assert source.belongs_to_slice(moved, 0, "RIYADH") is False
+
+
+def test_a_row_that_does_not_exist_is_still_a_refusal(source):
+    """WHAT DID NOT CHANGE, and it must not: an index past the last card is a CALLER
+    error, and `supports_slices` relies on that refusal to probe an empty page."""
+    with pytest.raises(SliceNotSupported, match="does not exist"):
+        source.belongs_to_slice(listing(), 999, "RIYADH")
 
 
 def test_the_walker_can_ask_up_front_whether_slicing_is_available(source):

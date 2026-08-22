@@ -33,6 +33,7 @@ and a parser keyed on it breaks on a difference no reader would ever notice.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -238,7 +239,31 @@ def _text(node: Tag | None) -> str:
 
 
 def _slug(label: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "unnamed"
+    """A key from a label, and it must not collapse two labels into one.
+
+    `[a-z0-9]` ONLY, WHICH IS RIGHT FOR AN ENGLISH LABEL AND EMPTY FOR AN ARABIC ONE.
+    That emptiness used to fall back to the constant `"unnamed"`, so every Arabic label
+    produced the SAME key — measured 2026-08-21 on a real profile: **ten Arabic labels
+    collapsed into two keys**, losing eight of them to a silent dict collision.
+
+    Nothing consumes that today, because `merge_locales` pairs the two readings BY INDEX
+    and never reads an Arabic label — its docstring says so and that is why the merge is
+    correct. But a public attribute that silently drops eight of ten entries is a loaded
+    gun for the next caller, and this repository has already paid for exactly this once:
+    `DSN-05`, where `_slug` filtering every Arabic label to nothing made
+    `card_city_region` absent on the Arabic side and split it into two empty strings for
+    every contractor in the country.
+
+    SO A LABEL WITH NO ASCII LEFT GETS A DIGEST OF ITSELF. Stable for the same label,
+    distinct for different ones, and not pretending to be readable — a positional
+    fallback would shift the moment the site adds a box.
+    """
+    ascii_only = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    if ascii_only:
+        return ascii_only
+    if not label.strip():
+        return "unnamed"
+    return "u" + hashlib.sha256(label.strip().encode("utf-8")).hexdigest()[:10]
 
 
 def _boxes(soup: BeautifulSoup) -> list[tuple[str, str]]:
@@ -985,7 +1010,18 @@ def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
         merged["is_saudi_contractor"] = str(
             "non" not in membership.lower()).lower()
 
-    if english.latitude is not None:
+    # A ZERO IN EITHER HALF IS THE SITE'S "NO PIN", NOT A PLACE. Measured 2026-08-21 on
+    # two of 712 Dammam profiles, the page itself publishes
+    # `var latlang = { lat: 24.4493518, lng: 0 }` — and both carried the SAME latitude,
+    # which is what an unset default looks like. `read_coordinates` is right to report it
+    # faithfully; promoting it to a coordinate column is not, because latitude 24.45 with
+    # longitude 0 is a point in the Atlantic about 4,000 km from Dammam.
+    #
+    # ABSENT RATHER THAN CORRECTED, because there is nothing to correct it to. A missing
+    # coordinate says "this contractor never placed a pin"; a zero says "this contractor
+    # is in the Gulf of Guinea", and a table whose purpose is to be believed cannot say
+    # the second.
+    if english.latitude is not None and english.latitude and english.longitude:
         merged["latitude"] = str(english.latitude)
         merged["longitude"] = str(english.longitude)
     return merged
