@@ -1358,6 +1358,86 @@ which gives a dataset card the `⋮` menu it can use. This ruling asks that menu
 per-dataset actions under one card, so building them apart would mean writing the menu
 twice — and a branch is inside `sourceMenu` as this is written.
 
+---
+
+### R-48 · The extension is the control room and the only interface; the engine executes and reports
+
+**2026-08-22 · architecture · records a decision of his that was never in this register**
+
+> «اصلا كان هناك خطة بفصل المحرك عن extension وتم تحديد دور كل منهم وتم اعتماد ان
+> extension هى المتحكم الرئيسى وان المحرك له مهام محددة فقط · راجع هذه النقطة لزيادة
+> التوثيق»
+
+**He is right on every count and the review found the gap is not the decision — it is
+where the decision lives.** [PLATFORM-PLAN.md](PLATFORM-PLAN.md) states it plainly and has
+since it was written:
+
+> *ScrapeX (extension) — the control room, and the only interface*
+
+and Decision 9 of that plan: *"Databases are **managed only through ScrapeX** — location,
+backup, restore, migration. **The controls live in the extension; Engine executes
+them.**"* The transports are separated too — control over native messaging, data over
+HTTP on `127.0.0.1` — and four rules are derived from it there.
+
+**SO WHY RECORD IT AGAIN HERE. Because `CLAUDE.md` sends every session to
+`docs/RULINGS.md` "before designing anything", and this decision was not in it.**
+`PLATFORM-PLAN.md` is a plan, indexed from `STATE.md` under its track, and `CLAUDE.md`'s
+map does not name it. A session designing a feature therefore never met the one decision
+that governs which side of the wire that feature belongs on. That is a filing defect of
+exactly the kind `C7` exists to prevent, one register over — and its cost is measurable.
+
+### Five requests of 2026-08-22 are one architectural debt, and none was recognised as such
+
+Every one of these was raised, measured and filed **as its own defect** before anyone
+noticed they are the same defect:
+
+| request | what it is, as a boundary violation |
+|---|---|
+| `REQ-38` | The panel sets a **10,000 ms** deadline on `POST /api/bundle`. The build measured **73 seconds**. The controller is sizing work only the executor can size — and the abort does not stop the engine, so it writes 314 MB and reports failure |
+| `REQ-39` | The extension holds the **only** Drive token and stores no answer. Nothing else can ask what Drive holds, so `R-43`'s "Drive is the source of truth for DATA" is unqueryable |
+| `REQ-35` | The panel **guesses** how the engine was started, from an empty version string. The engine knows and is never asked, so "running from source" renders as "Not detected" |
+| `REQ-32` / `R-45` | The row's record card — 967 lines — runs on the **engine's** HTML page and not in the panel. "The only interface" is not the only interface |
+| `REQ-07` / `DEC-8` | The engine still serves a complete data UI at `/source/{key}`. This is the migration that exists to end it, open since 2026-08-12 |
+
+**The pattern is one sentence: the boundary is decided and not enforced, and every
+violation costs him something he can see** — a button that cannot work, a healthy engine
+reported absent, a backup nobody can confirm, a feature that exists on the wrong side.
+
+### The rules that follow, stated so they can be tested
+
+`PLATFORM-PLAN.md`'s four rules are about data and transports. These four are about
+**authority**, which is what today's five violations each got wrong:
+
+1. **The engine is the authority on itself.** Its version, its run mode, its schema, its
+   health. The panel **reads** these; it never infers them from an absence. A guess is how
+   "running from source" became "Not detected".
+2. **Only the side doing the work may bound the work.** A deadline, a page size, a row cap
+   or a chunk size is the engine's to state and the panel's to respect — because only the
+   engine knows what a 1.18 GB warehouse costs. Where the panel must set one, it takes the
+   number from the engine.
+3. **Whoever holds the credential owes a report.** The extension alone can reach Drive, so
+   the extension alone can say what Drive holds — and it must record that where the engine
+   can read it, or the state dies with the panel.
+4. **A user-facing surface belongs in the extension.** The engine may keep pages for
+   development and for local tools; it may not be the place a capability *only* exists.
+   Every such page is a migration owed, and `REQ-07` is the standing one.
+
+### What this ruling does not do
+
+**It does not deprecate the engine's web UI**, and it must not be read that way. `DEC-8`
+measured that page as the SOURCE of the port — 3,212 lines of `grid.js`, of which about
+forty are data work — so it is the asset the migration spends, not debt to delete. The
+rule is that a capability may not live *only* there.
+
+**And it does not settle who runs a crawl.** Control is the extension's, execution the
+engine's, and the crawl is execution — but which registry a generic crawl belongs in is
+still open (`REQ-25`, and the question at the foot of `GENERIC-FETCH-SEAM.md`). This
+ruling narrows nothing that was open.
+
+**Filed with `CLAUDE.md`'s map corrected in the same commit**, per **C2**, so the next
+session meets the boundary in the register it is told to read rather than in a plan it is
+not told about.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
