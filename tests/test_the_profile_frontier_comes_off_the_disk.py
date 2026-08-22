@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -458,3 +459,168 @@ def test_a_slice_matching_in_two_locales_is_refused(conn):
                         CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
 
     assert "more than one locale" in str(raised.value)
+
+# ---- workers: 87 hours becomes about 14, and the RATE must not move ----------
+#
+# MEASURED, which is why this section exists at all: the Dammam profile run went at
+# 9.03 s a page single-threaded, so 34,834 pages is 87 HOURS. The listing crawl
+# measured 1.14 s a page with six workers. The difference is latency, not politeness.
+#
+# `R-39` records 11.1 h for this and that figure is WRONG -- it was measured with six
+# workers and applied to a single-threaded command.
+
+
+def _threaded_conn(tmp_path: Path):
+    """A connection factory, as the CLI passes one: a NEW connection per worker.
+
+    `sqlite3` refuses a connection from a thread it was not created on, so a factory
+    is not a convenience here -- it is the only thing that works above one worker.
+    """
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    return registry.engine.connect
+
+
+def test_six_workers_store_every_page_exactly_once(conn, tmp_path):
+    """THE THING THAT MUST NOT BREAK. Overlapping the waits may not lose a page and
+    may not store one twice: a profile fetched twice is a wasted request and a second
+    snapshot of a page that has not changed."""
+    from scrapex.contractors import details
+
+    _registered(conn, CrawlScope.FULL_THEN_LISTING.value)
+    record_sightings(conn, "contractors", [str(n) for n in range(1, 41)])
+    conn.commit()
+    asked: list[str] = []
+
+    details(conn, get_directory(None), _fetch_recording(asked), None, "w6",
+            workers=6, connect=_threaded_conn(tmp_path))
+
+    stored = [r[0] for r in conn.execute(
+        "SELECT source_url FROM generic_page_snapshot "
+        " WHERE crawl_run_ref = 'w6'")]
+    assert len(asked) == len(set(asked)), "a page was fetched more than once"
+    assert sorted(stored) == sorted(set(asked)), (
+        "the set of stored pages is not the set of fetched pages")
+    assert len(stored) == 80, f"40 contractors x 2 locales, got {len(stored)}"
+
+
+def test_the_report_is_the_same_at_one_worker_and_at_six(conn, tmp_path, capsys):
+    """ORDERED BY THE FRONTIER, never by which worker finished.
+
+    THREE WEAKER VERSIONS WERE WRITTEN BEFORE THIS ONE, and each passed with the
+    ordered loop swapped for `as_completed` — which is the whole defect it exists to
+    catch. Recorded because the reasons are not obvious:
+
+      1. It compared only the SUMMARY lines. "profiles stored 20, failed 0" is the
+         same sentence in any order.
+      2. It added per-page failures but left 24 URLs against 6 workers. A pool that
+         size runs in BATCHES, the dead URLs landed one per batch, and batches
+         complete in order — so completion order equalled submission order anyway.
+      3. Its sleep used `url.rstrip("/143")`, a character strip, so `/11/143` lost
+         its 1s and `int` raised instead of sleeping.
+
+    What works: EVERY future in flight at once (8 URLs, 8 workers) with the sleep
+    DESCENDING, so completion order is provably the reverse of submission order. Then
+    an unordered report cannot accidentally look ordered.
+    """
+    from scrapex.contractors import details
+
+    _registered(conn, CrawlScope.FULL_THEN_LISTING.value)
+    record_sightings(conn, "contractors", ["1", "2", "3", "4"])
+    conn.commit()
+    dead = {f"https://muqawil.org/en/contractors/{n}/143" for n in (1, 2, 3, 4)}
+
+    def _reversed_fetch(url: str) -> str:
+        import time
+
+        # The id is the second-to-last path segment: /en/contractors/<id>/143.
+        number = int(url.split("/")[-2])
+        time.sleep((5 - number) * 0.05)          # id 1 sleeps longest, finishes last
+        if url in dead:
+            raise TimeoutError("the site did not answer")
+        return f"<html>{url}</html>"
+
+    details(conn, get_directory(None), _reversed_fetch, None, "serial")
+    serial = [line for line in capsys.readouterr().out.splitlines()
+              if "TimeoutError" in line]
+
+    details(conn, get_directory(None), _reversed_fetch, None, "parallel",
+            workers=8, connect=_threaded_conn(tmp_path))
+    parallel = [line for line in capsys.readouterr().out.splitlines()
+                if "TimeoutError" in line]
+
+    assert len(serial) == 4, f"the fixture did not produce four failures: {serial}"
+    assert serial == parallel, (
+        "the report order changed with the worker count, so two runs of the same "
+        f"frontier cannot be diffed: 1 worker {serial} vs 8 workers {parallel}")
+
+
+def test_a_dead_profile_still_does_not_end_a_parallel_run(conn, tmp_path, capsys):
+    """The failure isolation is in ONE function now, shared by both paths, so this
+    asserts the parallel path really uses it. One dead profile out of thirty-four
+    thousand must not discard the rest."""
+    from scrapex.contractors import details
+
+    _registered(conn, CrawlScope.FULL_THEN_LISTING.value)
+    record_sightings(conn, "contractors", [str(n) for n in range(1, 11)])
+    conn.commit()
+    dead = "https://muqawil.org/en/contractors/5/143"
+
+    details(conn, get_directory(None), _fetch_recording([], fails={dead}), None,
+            "w-dead", workers=6, connect=_threaded_conn(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "stored 19, failed 1" in out, out.splitlines()[-1]
+    assert "TimeoutError" in out, "the dead page was not reported"
+
+
+def test_workers_do_not_raise_the_request_rate(conn, tmp_path):
+    """THE GUARD THAT KEEPS THIS ALLOWED AT ALL, and it is not theoretical.
+
+    Measured on 2026-08-21 in `partitioncrawl`: without the lock `HttpFetcher._throttle`
+    holds across its sleep, four workers made twenty requests in 1.02 s where 3.80 s was
+    owed. Concurrency that quadruples the real request rate against a live site and
+    calls itself a speedup is the thing `R-21` and `SR-8` forbid.
+
+    So this drives the REAL transport -- not the fake fetcher the tests above use --
+    against a local server, and asserts the floor. It is the only test here that cares
+    how long something took, deliberately: the property is a duration.
+    """
+    import http.server
+    import threading
+    import time
+
+    class Quiet(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):                     # stdlib's own spelling
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html>ok</html>")
+
+        def log_message(self, *_):            # keep the test output clean
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Quiet)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    try:
+        from scrapex.connectors.base import HttpFetcher
+
+        pace = 0.2
+        fetcher = HttpFetcher(min_interval_s=pace)
+        urls = [f"http://127.0.0.1:{port}/{n}" for n in range(12)]
+
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(lambda u: fetcher.get(u).text, urls))
+        took = time.monotonic() - started
+    finally:
+        server.shutdown()
+
+    # The jitter is +/-30% around the interval, so the floor is the pessimistic end
+    # of it. Twelve requests owe eleven waits.
+    owed = 11 * pace * 0.7
+    assert took >= owed, (
+        f"six workers made {len(urls)} requests in {took:.2f}s where at least "
+        f"{owed:.2f}s was owed -- the concurrency raised the RATE instead of "
+        "overlapping the waits, which is what R-21 and SR-8 forbid")
