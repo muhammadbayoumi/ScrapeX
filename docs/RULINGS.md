@@ -150,6 +150,22 @@ Decision 21 unwelded (PR #112), whose "Done when" is *"the other number
 untouched"*. The two ship down separate paths — Google reviews the extension,
 nobody reviews the engine.
 
+> **PARTLY BUILT 2026-08-22, AND THE DELAY COST THE SAME 54px TWICE.** This ruling was
+> given on 2026-08-16 and the advert stayed in the code. On 2026-08-22 a schema change
+> moved `VERSION` to 0.3.0 for a legitimate reason under
+> [R-35](#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one),
+> and **three panel layout tests failed with the identical 54px this ruling had already
+> measured** — because `version_report` still read
+> `bool(missing) or is_older(extension_version, VERSION)`, two questions welded into one
+> verdict. The `is_older` half is gone: the GATE ("this extension lacks a capability it
+> needs", a fact the engine owns) stays, and the ADVERT ("a newer extension exists",
+> which is Chrome's answer) does not. Two tests pin the distinction from both sides.
+>
+> **STILL OWED, so it does not go missing for another six days:**
+> `latest_extension_version`, `LATEST_SOURCE` and `UPDATE_INSTRUCTIONS` are named above as
+> also going, and each needs a coordinated change in `extension/app.js`, which reads them.
+> They were not smuggled in behind a one-line fix to the harm.
+
 **Apply:** its own pull request, with a guard that fails if the engine ever
 answers for the extension's head again.
 

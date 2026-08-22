@@ -539,3 +539,37 @@ def test_the_extension_may_be_tagged_for_the_store_on_its_own():
     assert "minimum_extension_version" in js, (
         "the manifest is no longer checked against the floor the engine will "
         "talk to, so a build the engine would refuse could be uploaded")
+
+
+def test_a_merely_older_extension_is_not_outdated():
+    """`R-07`, AND IT TOOK TWO COLLISIONS TO GET BUILT. The engine's verdict is a GATE —
+    "this extension lacks a capability it needs" — and never an ADVERT, because "a newer
+    extension exists" is Chrome's answer and the engine knows only its own number.
+
+    THE COST OF WELDING THEM, measured twice. On 2026-08-16 someone bumped `VERSION`, the
+    panel told every user their extension was old, the notice clipped the profile card's
+    legal line by 54px at 320x440, and the bump was REVERTED rather than the advert
+    removed. On 2026-08-22 a schema change moved `VERSION` to 0.3.0 for a legitimate
+    reason under `R-35`, and three panel layout tests failed with the SAME 54px.
+
+    So: an extension at the minimum, missing nothing, is CURRENT — whatever the engine's
+    own number happens to be.
+    """
+    from scrapex.version import MINIMUM_EXTENSION_VERSION, VERSION, missing_capabilities
+
+    assert missing_capabilities(MINIMUM_EXTENSION_VERSION) == (), (
+        "the premise: this extension lacks nothing")
+    assert is_older(MINIMUM_EXTENSION_VERSION, VERSION), (
+        "and it IS older in number, or this test proves nothing")
+
+    assert version_report(MINIMUM_EXTENSION_VERSION)["outdated"] is False
+
+
+def test_an_extension_missing_a_capability_is_still_outdated():
+    """THE HALF THAT STAYS. Dropping the advert must not drop the gate — an extension the
+    engine can name a missing capability for is genuinely too old, and `R-07` says that
+    fact is the engine's own."""
+    report = version_report("0.1.0")
+
+    assert report["outdated"] is True
+    assert report["missing"], "and it says WHICH capabilities, not just that it is old"
