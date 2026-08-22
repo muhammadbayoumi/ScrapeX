@@ -36,6 +36,12 @@ STRESS_SOURCES = [
     {"source_key": "NOT_READY", "base_url": "https://unsupported-platform.example.com",
      "source_name": "Unsupported Platform Store", "family": "TBD-probe",
      "active": False, "implemented": False, "observations": 0, "products": 0},
+    {"kind": "dataset", "source_key": "contractors",
+     "source_name": "muqawil.org contractors", "source_name_ar": "",
+     "base_url": "https://muqawil.org", "family": "generic",
+     "active": True, "implemented": True, "supports_history": False,
+     "observations": 17304, "products": 17304,
+     "last_success": None, "kept_pages": 0, "kept_at": None},
 ]
 
 ACTIVE_TAB = {"url": "https://shop.example.com/products/lamp",

@@ -4512,42 +4512,102 @@ function freshnessLine(s) {
 // asked to see the work in progress rather than a tidy screen that hides it, and
 // this repository already had the convention ("Not built yet." on the file
 // source). A menu that quietly omits what is coming teaches the owner it will
-// never exist.
+// never exist. But a menu whose EVERY row is greyed out is the opposite mistake
+// and he rejected it by name — see `sourceMenu`.
+//
+// ---- WHAT DECIDES WHETHER AN ACTION WORKS ON A DATASET CARD -----------------
+//
+// Not a list kept here. Every entry names the ENGINE ROUTE it drives and the
+// PROOF of what that route does with a dataset key, and
+// tests/test_a_dataset_card_offers_what_works.py calls the route against a real
+// approved dataset and fails unless the proof holds. Three proofs exist, each
+// one a measurement rather than an opinion:
+//
+//   RESOLVES_A_DATASET   the route answers 2xx for a dataset key, so the action
+//                        is offered. `/api/table/{key}` asks the dataset
+//                        catalogue BEFORE the manifest — its own comment calls a
+//                        generic dataset "a table like any other table".
+//   MANIFEST_ONLY        the route looks the key up in sources.yaml and answers
+//                        404 for anything else. Measured, not assumed.
+//   NO_SECTION           the route answers, and the thing the action promises is
+//                        not on the page it opens.
+//
+// THIS REPLACED `if (source.kind === "dataset") return ""`, which was right
+// about five of the six and wrong about the sixth — and the sixth was built
+// AFTER the blanket hide, which is exactly how a hand-written rule rots. He
+// found it before any test did: «ال 3 نقاط لا تظهر فى كارد مقاول».
+const RESOLVES_A_DATASET = "resolves-a-dataset-key";
+const MANIFEST_ONLY = "route-404-for-a-dataset-key";
+const NO_SECTION = "no-such-section-on-the-page";
+
 const SOURCE_ACTIONS = [
   {action: "update", label: "Update now",
-   why: "Crawl this source once, immediately."},
+   why: "Crawl this source once, immediately.",
+   route: "POST /api/jobs", proof: MANIFEST_ONLY},
   // THE DATA PAGE, WHICH NOW SHIPS INSIDE THE EXTENSION (plan B2). It sits
   // beside the workbook link rather than replacing it: the engine's page still
   // has the details drawer, saved views and Choose-Columns, and taking those
   // away before the replacement carries them would be a downgrade wearing the
   // word "migration". The workbook entry goes when this one has them.
   {action: "table", label: "Open the data table",
-   why: "This source's rows, in a page that ships with the extension."},
+   why: "This source's rows, in a page that ships with the extension.",
+   route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET},
+  // THE ONE ACTION WHOSE ROUTE ANSWERS AND WHOSE PROMISE STILL DOES NOT HOLD:
+  // `/source/{key}` renders for a dataset (measured, 200 and 42 KB of grid), and
+  // the page carries no changes section for one — `browse_observations` and
+  // `changes_by_offer` are both skipped behind `is_dataset`. Excluded on that
+  // measurement rather than on the kind.
   {action: "changes", label: "Recent changes",
-   why: "What moved since the last crawl."},
+   why: "What moved since the last crawl.",
+   route: "GET /source/{key}", proof: NO_SECTION},
   {action: "settings", label: "Source settings",
-   why: "Address, name and how this source is read."},
+   why: "Address, name and how this source is read.",
+   route: "GET /sources/{key}", proof: MANIFEST_ONLY},
   {action: "pause", label: "Pause collecting",
-   why: "Stop scheduled crawls without deleting anything."},
+   why: "Stop scheduled crawls without deleting anything.",
+   route: "POST /api/sources/{key}/active", proof: MANIFEST_ONLY},
   // BUILT ON 2026-08-12, and it shipped disabled for exactly one day with the
   // reason written on it: sheets.js could create a spreadsheet and fill a tab,
   // and the rows had nowhere to come from. GET /api/export/{key} closed that,
   // reusing the same export_source_table the .xlsx and the Apps Script funnel
   // already use rather than inventing a third idea of what an export is.
   {action: "sheet", label: "Export to Google Sheets",
-   why: "One tab per source, in a spreadsheet ScrapeX made in your Drive."},
+   why: "One tab per source, in a spreadsheet ScrapeX made in your Drive.",
+   route: "GET /api/export/{key}", proof: MANIFEST_ONLY},
 ];
 
+/**
+ * The actions this source's KIND can actually run, and nothing else.
+ *
+ * THE ONLY PLACE THE KIND IS READ, and it is read from the engine's own marker
+ * rather than from the shape of the key, so the panel is never the second place
+ * that decides what a dataset is.
+ *
+ * A dataset keeps the actions whose route was MEASURED to resolve a dataset key.
+ * That is one of the six today. The previous rule — no menu at all — was right
+ * about the other five and wrong about this one, and it stayed wrong because
+ * nothing tested it: `tools/panel_harness.py` carried no dataset-kind source, so
+ * `test_dataset_action_opens_the_workspace_directly` could assert that EVERY card
+ * has a menu and pass.
+ */
+function sourceActions(source) {
+  return source.kind === "dataset"
+    ? SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)
+    : SOURCE_ACTIONS;
+}
+
 function sourceMenu(source) {
-  // A GENERIC DATASET GETS NO MENU. Every action here — Update, Wipe, Rename —
-  // is a price-path action: they post to routes that read the manifest, and a
-  // dataset is not in it. Offering them would put three buttons on the card
-  // that answer 400, and a button that cannot work is worse than no button.
+  const actions = sourceActions(source);
+  // NO LIVE ACTION, NO TRIGGER — and this is his ruling of 2026-08-22, not a
+  // tidiness preference: «توجد ال3 نقاط بشكل غير احترافى». A menu that opens on
+  // nothing, or on nothing but greyed-out rows, is the same "button that cannot
+  // work" the comment above rejects, wearing a disclosure arrow. One live row is
+  // a menu; six dead ones are a dead end.
   //
-  // Keyed on the engine's own marker rather than on the key's shape, so the
-  // panel is never the second place that decides what a dataset is.
-  if (source.kind === "dataset") return "";
-  const options = SOURCE_ACTIONS.map((item) => `
+  // `some`, not `length`: an entry can be present and disabled (`ready: false`),
+  // and a card whose whole menu is not built yet must draw no trigger at all.
+  if (!actions.some((item) => item.ready !== false)) return "";
+  const options = actions.map((item) => `
     <button class="split-button-option" role="menuitem" type="button"
             data-split-action="${item.action}"${item.ready === false ? " disabled" : ""}
             title="${esc(item.why)}">${esc(item.label)}${

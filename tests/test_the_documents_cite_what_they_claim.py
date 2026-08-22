@@ -196,8 +196,12 @@ PINNED = (
     # fourth is why the sixth should not be. A reader landing one line off any of
     # them reads the entry as either a bug report about correct code or a licence
     # to unhide the five that answer 400.
-    ("docs/BACKLOG.md", "extension/app.js", 4549,
-     'if (source.kind === "dataset") return "";'),
+    # THE LINE THIS ROW HELD IS GONE, and it went with the defect rather than
+    # being loosened to keep passing — the same call `OP-36` records above. `return
+    # ""` for a dataset is what OP-42 was about, and the entry now cites the filter
+    # that replaced it, so the pin follows the argument.
+    ("docs/BACKLOG.md", "extension/app.js", 4595,
+     "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 639, '"kind": "dataset",'),
     # 2710 -> 2725 on 2026-08-22: #252 measured this line on `main` at 4615a14 and
     # #251 landed first, adding 15 lines to `app.py` above it. Two PRs, neither
