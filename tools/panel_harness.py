@@ -36,12 +36,27 @@ STRESS_SOURCES = [
     {"source_key": "NOT_READY", "base_url": "https://unsupported-platform.example.com",
      "source_name": "Unsupported Platform Store", "family": "TBD-probe",
      "active": False, "implemented": False, "observations": 0, "products": 0},
+    # A GENERIC DATASET, shaped exactly as `_dataset_rows` builds one, because the
+    # rule it exercises is keyed on `kind` and no other row here has that key.
+    # Without it `test_dataset_action_opens_the_workspace_directly` could assert
+    # that EVERY card carries an actions menu and pass for ten days while
+    # `sourceMenu` gave a dataset none — which is what happened.
+    #
+    # `last_success` CARRIES A DATE, and that is #255's doing rather than a
+    # decorative choice: `_dataset_freshness` returns the capture instant with
+    # `rows_seen` and `requests_count` both 0, so a crawled dataset reads "Last
+    # crawled …" instead of "no successful crawl yet" over 17,304 rows. A literal
+    # `None` here was true of the engine for about ten minutes and would now be the
+    # stub disagreeing with the shipped product.
     {"kind": "dataset", "source_key": "contractors",
      "source_name": "muqawil.org contractors", "source_name_ar": "",
      "base_url": "https://muqawil.org", "family": "generic",
      "active": True, "implemented": True, "supports_history": False,
      "observations": 17304, "products": 17304,
-     "last_success": None, "kept_pages": 0, "kept_at": None},
+     "last_success": {"started_at": "2026-08-21T18:40:11Z",
+                      "finished_at": "2026-08-21T18:40:11Z",
+                      "rows_seen": 0, "requests_count": 0},
+     "kept_pages": 0, "kept_at": None},
 ]
 
 ACTIVE_TAB = {"url": "https://shop.example.com/products/lamp",
