@@ -89,6 +89,11 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 | [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
+| [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
+| [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
+| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
+| [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
+| [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 
 ---
 
@@ -1527,6 +1532,34 @@ has neither half and its data is already on disk.
 **Not started.** `REQ-31` (the profile parser) is what is in flight, and this is the
 surface it feeds.
 
+**CORRECTED 2026-08-22, same day — and the correction is that HE WAS RIGHT.** Kept per
+**C4**, because what was wrong here is more useful than what is right.
+
+The table above says a per-row card exists on **neither** surface. **It has shipped on
+the engine since 2026-07-22** — 967 lines, opened by row **selection** rather than by
+`rowFormatter`, with an image gallery, AR/EN pairing, a price timeline and a *"Moved out
+of the table"* card that `scrapex/reports.py` builds under a comment reading *"the
+owner's ask, using the mechanism that already exists."*
+
+So the line *"he remembers this as built. It is half built, and not the half he needs"*
+is wrong twice. It is **fully built for products**, and he was not half-remembering
+anything — he said «نفس الشى اريده فى كاتوجرى المقاولون» and meant exactly that: the
+contractors category does not have it. **Step 3 below was already done before this entry
+was written.**
+
+**The measurement failed by searching for one symbol** — `rowFormatter`, `row-detail`,
+`expandRow`, `detailsDrawer` — and finding none. See
+[R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)
+for the full correction and for the two things it turned out to be worse than assumed:
+the chooser has registered **11 price-path keys** against the `contractors` dataset, and
+`dataset_table_payload` never reads `dataset_field` at all, so every hide and rename on a
+dataset is a silent no-op.
+
+**And this entry is now the same work as [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries)'s
+"details drawer"** — asked for independently, in his own words, two weeks apart. The
+session on `REQ-07` is writing one plan covering both, on his instruction: «ضع خطة
+لتنفيذها كلها وتتبع التنفيذ حتى لا نفقده».
+
 ---
 
 ## REQ-33 · The dataset cards said no successful crawl over crawled rows
@@ -1562,3 +1595,303 @@ has no run ledger of its own, and whether a generic crawl belongs in the price j
 queue is still the open question at the foot of that document. The measurement, the
 four findings it produced and the mutation results are in
 [BACKLOG.md](BACKLOG.md) as `OP-44`.
+## REQ-35 · The card must say the engine is running from source, not that it is missing
+**Captured 2026-08-22 · Not built**
+
+> «المحرك يعمل الان عن طريقك ويتجدد باستمرار لاننا نطوره · انا عاوز طريقة توضح فى الكارد
+> ان المحرك غير مثبت على الجهاز ولكنه يعمل فى نظام developer · ويظهر المحرك يعمل»
+
+The engine on his machine is not an installed build. It is started from this
+checkout and it changes several times a day because that is what we are doing to
+it. The panel has no word for that state, so it uses the word for the other one:
+
+    Installed version   Not detected
+    Protocol            Not available
+
+Both are literally true — nothing is installed — and both read as **broken**, which
+is the second time this month the panel has told him the engine was absent while it
+was serving. The first was `/api/health` taking 3.8 s against a 2,500 ms deadline
+(`R-45`'s sibling, fixed in #251); this one is not a bug at all. It is a state the
+product has no vocabulary for.
+
+**THE ENGINE ALREADY KNOWS AND HAS NEVER BEEN ASKED.** The frozen build enters
+through `packaging/engine_entry.py`, which `cli.py`'s own `--version` comment says
+*"cannot reach this parser at all"* — so the two ways of starting it are already
+distinct in the code. What is missing is that neither says so on the wire: nothing
+in `/api/health` reports **how** this engine is running.
+
+**So the shape is: the engine reports its own run mode, and the panel has a third
+word.** Not the panel guessing from an empty version string, which is what it does
+now (`extension/app.js:3484` on empty `state.engineVersion`) — a guess is how
+"running from source" became "not detected" in the first place.
+
+**And it is not cosmetic.** He works from two machines and the update path is real:
+`REQ-28`/`OP-32` exist because the engine he *downloaded* was behind the source, and
+a panel that cannot tell "installed 0.2.1" from "source 0.3.0" cannot help him see
+which one he is looking at. A developer-mode engine must also never be offered an
+update that would overwrite his checkout.
+
+**Blocked on nothing.** It is one field on an endpoint the panel already polls, plus
+the words on the card.
+
+---
+
+## REQ-36 · The three dots are missing on a contractor card, and unprofessional on the others
+**Captured 2026-08-22 · In flight**
+
+> «ال 3 نقاط لا تظهر فى كارد مقاول»
+>
+> «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل مربع اعتقد ان ال3 نقاط معمولة فى صفحة
+> profile بشكل احترافى عن هذا الشكل»
+
+Sent with a screenshot of the Data screen after he reloaded the extension and confirmed
+#252's fix had worked — the duplicated `⋮` is gone. These are what remained.
+
+**FILED LATE, AND THAT IS THE POINT OF `C7`.** He said both of these hours before this
+entry existed. They were briefed to a session and acted on immediately, and **a
+delegation is not a record**: nothing on the board carried them, so nothing but one
+agent's context knew they had been asked for. `test_every_finding_that_quotes_him_is_reachable_from_the_request_board`
+is what caught it — a *different* session quoted him in a `BACKLOG` entry and the guard
+refused it, because a finding may quote him only where a request of his exists to
+answer. The guard found my omission, not that session's.
+
+`REQ-04` is why this rule exists: ruled, unbuilt, and out of sight for sixteen days.
+
+**One · no menu at all on a dataset card.** `sourceMenu` returns `""` for
+`kind === "dataset"` (`extension/app.js`), and its comment justifies it — every action
+posts to a manifest-backed route and a dataset is not in the manifest, so *"a button that
+cannot work is worse than no button."* Right for five of six. **Wrong for the sixth:**
+`/api/table/{key}` resolves the dataset catalogue first, so *Open the data table* works
+today. Measured: `contractors` and `contractor_profiles` render **0** triggers,
+`LONG_AR`/`SHORT` render 1 each. Already recorded as `OP-42`, which is now his ask.
+
+**Two · the trigger's treatment.** `.dataset-card > .split-button` is absolutely
+positioned in the card's corner (`extension/app.css`), and he reads the result as a
+filled box crowding the card's edge. He is comparing it against something he calls the
+profile page, and **which** control that is has to be measured rather than guessed —
+the panel and the engine UI ship several overflow triggers (the shared split button,
+`.account-menu`, `.sx-select-list`, `.source-filter-menu`), each with its own size,
+padding and open state. The session on it is enumerating them, naming the one he means,
+and bringing the card's trigger to that treatment in **card-local rules only**:
+`design/components.css` generates the shared copy that five surfaces consume, and
+`OP-47` already records that fixing consumers instead of the component is how this class
+of defect spreads.
+
+**Verified visually, not by reading CSS back**, in both themes — the panel renders light
+and dark, and a trigger that reads well on one ground often does not on the other.
+
+---
+
+## REQ-37 · One card per site, and its crawls are options under it — the way GPP does it
+**Captured 2026-08-22 · Ruled ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) · Not built**
+
+> «المفروض مصدر مقاول يظهر مرة واحدة فقط واختيارات الزحف الخاصة به تكون متعغددة · انظر
+> الى gpp لتفهم كيف تم عمل هذا»
+
+Sent with a screenshot of two cards that are both `muqawil.org`:
+
+```
+muqawil.org   Saudi Contractors Authority   contractors          [Row 17,304]
+muqawil.org   Contractor profiles           contractor_profiles  [Row 704]
+```
+
+**THE CAUSE IS ONE CLAUSE, and it is not a display bug.** `_dataset_rows` in
+`scrapex/webui/app.py` ends its query with `GROUP BY d.dataset_definition_id` — **one row
+per dataset**, keyed on `dataset_key` as its `source_key`. The panel draws a card per row,
+so two datasets under one site are two cards, and neither knows the other exists.
+
+**AND HIS COMPARISON IS EXACT, which is why he made it.** `GPP_ENERGY` is **one**
+`source_key` in `sources.yaml`, and everything that varies underneath it — four energy
+types across 169 countries — lives *inside the connector*, never as a second source. So
+the panel has always drawn GPP as one card. muqawil's multiplicity was modelled one level
+higher, as two `dataset_definition` rows, and the listing has no notion of a site above
+them.
+
+**The shapes differ in a way that matters, and the fix is not "copy GPP".** GPP's axes
+are one crawl producing many rows; muqawil's are **two different crawls** — the listing
+sweep (`--crawl`, a 56-cell partition) and the profile sweep (`--details`, 34,834 pages) —
+which run separately, resume separately, and are approved separately. So the card must
+carry *two crawls*, not two column-sets. That is what he means by «اختيارات الزحف الخاصة
+به تكون متعددة».
+
+### What this needs, and the coupling that decides its order
+
+1. **`_dataset_rows` groups by `site_profile_id`**, emitting one row carrying its datasets
+   rather than one row per dataset. The `site_profile` row already holds the display
+   identity — which is why the first card reads `Saudi Contractors Authority` (the site's
+   name) and the second reads `Contractor profiles` (the dataset's).
+2. **A card-level identity that is a SITE.** Today `source_key` on a dataset row *is* the
+   `dataset_key`, and `/api/table/{key}` and `/source/{key}` resolve on it. A site-level
+   card needs its actions to say **which dataset**, or those routes break.
+3. **So this is the same surface as `REQ-36`.** That request gives a dataset card the
+   `⋮` menu it can use; this one asks the menu to offer *per-dataset* actions under one
+   card. Building them apart would mean writing the menu twice.
+
+**Therefore it lands after `REQ-36`**, and this is a sequencing decision rather than a
+priority one: the branch `fix/a-dataset-card-gets-the-menu-it-can-use` is editing
+`extension/app.js`'s `sourceMenu` right now, and two sessions in that function is the
+collision `docs/ORCHESTRATION.md` §3 exists to prevent.
+
+**ANSWERED THE SAME DAY — «زحفين لمجموعة واحدة».** Two crawls of one dataset. Recorded
+as [R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two),
+which also records the half he did not have to decide because the code already had:
+**the two `dataset_definition` rows stay two.** `contractors._approval` refuses to put a
+27-field profile and a 28-field listing under one approved schema, because a subset is
+what a broken parser looks like (`R-31`) — so it is one CARD over two datasets, joined by
+the relationship he already had confirmed. And the second number stops being a population:
+704 of 17,304 is **coverage**, which is what `--coverage` already computes.
+
+---
+
+## REQ-38 · The backup must check its own digest, and the panel must be able to finish the build
+**Captured 2026-08-22 · Not built**
+
+> «ضع طلب بتصليح هذا العيب … اتوماتكيا فى المستقبل»
+
+He said it after being shown that the first real backup of his warehouse had to be built
+with `curl --max-time 3600` and its digest compared **by hand**. He is right that a
+safeguard a person has to remember is not a safeguard.
+
+### The three defects, measured 2026-08-22 on a 1.18 GB warehouse
+
+**1 · THE DIGEST IS WRITTEN AND NEVER READ.** `extension/drive.js` puts `sha256` into
+`latest.json` on upload and nothing on `main` ever compares it again — the download path
+checks a **byte count** and nothing else. A file that arrived complete and corrupt passes.
+Two bytes swapped inside a 309 MB zip is exactly the failure the digest is for, and it is
+the one case the byte count cannot see.
+
+**2 · THE PANEL'S BUTTON CANNOT FINISH, AND FAILS DESTRUCTIVELY.**
+`extension/app.js` sends `POST /api/bundle` with **no `deadlineMs`**, so it matches no
+policy in `extension/startup.js` and takes the `localMutation` default of **10,000 ms**.
+The build measured **73 seconds** on this machine and would be minutes on a slower disk —
+so the client aborts, always.
+
+**And the abort does not stop the engine**: `/api/bundle`'s handler is a synchronous `def`
+running in a threadpool, so it keeps going and writes the whole archive. Measured today:
+a **309,589,440-byte** zip plus a **4,386,341-byte** panel pack that **nothing ever
+deletes** — `scrapex/storage.py` prunes `scrapex-engine.*backup*` and these are named
+`scrapex-bundle-*`. So every press of a button that cannot succeed leaves 314 MB behind on
+a disk that is 95% full, and reports failure.
+
+**3 · THE SIZE FIGURES IN THE CODE ARE STALE BY TEN TIMES.** `scrapex/bundle.py`,
+`scrapex/webui/app.py`, `extension/drive.js` and `scrapex/backupschedule.py` all describe
+this archive as **33–40 MB**. It is **309 MB**. Every one of those numbers was written
+when the warehouse was 112 MB, and one of them is inside the very docstring that explains
+why the upload had to become resumable.
+
+### What "automatically" has to mean here
+
+- **The engine hashes the archive it just wrote and the reply carries it** — it already
+  does this correctly, which is why the hand-check succeeded: `aabf5c26…` matched, first
+  time, on both files. The gap is entirely on the *reading* side.
+- **The download verifies the digest before anything is allowed to use the file**, and
+  says which evidence it had — Drive's own `sha256Checksum`, a local re-hash, or none.
+  Reporting *"verified by size only"* is honest; treating an absent digest as a pass is
+  not.
+- **The button gets a deadline that fits the work**, or the route stops being
+  synchronous. A 10-second clock on a job that measured 73 seconds is not a timeout, it
+  is a guarantee of failure.
+- **A build that is abandoned cleans up after itself**, or the pruner learns the name it
+  actually writes. Two hundred failed presses is 63 GB of orphans on a full disk.
+- **The stale numbers get a guard**, not a correction: a comment saying 40 MB will be
+  wrong again the next time the warehouse doubles, and this class has already cost a red
+  `main` today through a different register.
+
+### What exists to build on, so this is not a rewrite
+
+`claude/drive-without-a-server` (`e00711d`, pushed, no PR) already adds `PRAGMA
+quick_check` before a bundle is written and a `files.get` that compares Drive's own
+`sha256Checksum` against the manifest, reporting which evidence it had. **It does not fix
+the deadline** — `git show` on that commit touches none of `extension/startup.js`,
+`extension/backend.js`, or the call site. So the branch closes defect 1 and leaves defects
+2 and 3 open, and merging it does not make the button work.
+
+**Filed while the workaround is still fresh**, which is the point: the manual procedure
+that produced tonight's backup is written down in the same session, so this request can be
+measured against something that actually ran rather than against a description of it.
+
+---
+
+## REQ-39 · The extension must report what Drive holds, because nothing else can ask
+**Captured 2026-08-22 · Not built**
+
+> «اذن يجب ان نجعل الاضافة تخبرنا بحالة الرفع · امال هنتاكد ونتابع ازاى»
+
+He said it after being told that the session could verify the local bundle completely —
+73 files CRC-checked, both digests matched — and could **not** confirm the upload, because
+Drive authentication lives in the extension (`chrome.identity`) and no session is going
+into his account.
+
+**He is right, and the gap is larger than tonight's verification.**
+
+### The measurement
+
+`extension/drive.js` is the only holder of a Drive token in the product. Measured on
+`main`: the panel's Drive surface calls `renderDriveFacts` with `state: "error"` and a
+failure detail — and there is **no success state carrying what Drive actually contains.**
+No file listing, no size, no digest, no time of the last upload that worked.
+
+**And the knowledge does not leave the panel.** Nothing writes it anywhere. So closing the
+side panel closes the only window onto Drive, and nothing in the repository, the
+warehouse, or the CLI can answer *"is the backup there?"*
+
+### Why that contradicts a ruling of his own
+
+`R-43` makes **Drive the source of truth for DATA** and the repository the source of truth
+for CODE. A source of truth nobody can query is not a source of truth. Today the honest
+description is: the backup exists in a place only one browser tab can see, and only while
+it is open.
+
+It also makes `REQ-38` unobservable. That request asks for the digest to be verified
+automatically — but **a verification whose result is not recorded cannot be trusted or
+audited**, only re-run. The two requests are halves of one thing: *check it by machine*,
+and *say what the machine found, durably.*
+
+### The channel already exists and has never been used this way
+
+The panel already talks to the engine over `127.0.0.1:8000` on every poll. So:
+
+1. **The panel asks Drive**, which only it can do: the backup folder's listing with
+   `id, name, size, createdTime, sha256Checksum` — the same `files.get` fields the
+   unmerged branch `claude/drive-without-a-server` already added for its own check.
+2. **It compares** each file against the local manifest the engine produced, and forms a
+   verdict per file: verified by digest, verified by size only, mismatched, or absent.
+3. **It reports the verdict to the engine**, which stores it — so the state is durable and
+   readable with the panel closed.
+4. **`scrapex drive-status` prints it**, the way `database-status` prints the warehouse's.
+
+**The evidence, not the conclusion.** The stored record must say *which* evidence it had —
+Drive's own `sha256Checksum`, a size match, or nothing — because on `main` today the
+download path compares a byte count and an absent digest is treated as a pass. A status
+line reading *"verified by size only"* is useful; one reading *"verified"* when nothing was
+compared is worse than silence.
+
+**And it must be honest about staleness.** What the panel last saw is not what Drive holds
+now — another machine may have uploaded since. So the record carries the time it was taken
+and the CLI says so, rather than presenting a remembered answer as a current one. That is
+the same rule this repository learned four times today about measurements and their bases.
+
+### What it buys, concretely
+
+- **Tonight's question answered by a command** instead of by reading a size in a browser.
+- **Multi-device tracking at all**, which is what he asked for originally: «حتى استطيع
+  الوصول اليها من عدة اجهزة». Two machines can only coordinate through a state both can
+  read, and right now neither can read anything.
+- **A pruning decision that can be reviewed.** `extension/drive.js` keeps three files and
+  deletes the rest with `files.delete`, which **bypasses the trash** — and it chooses by
+  Drive's own `createdTime`, not by anything it verified. A recorded listing makes that
+  reviewable before it is destructive rather than after.
+
+### The workaround, until it is built
+
+The two numbers to compare by hand in Drive's file details, for the backup of
+2026-08-22 — recorded here because a workaround that is not written down is a workaround
+that gets misremembered:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `scrapex-bundle-20260822-153242.zip` | **309,589,440** | `aabf5c2678218cf82d60d6e42b86e8f7c9e46305d8c8ee045466e8e844c555e7` |
+| `scrapex-bundle-20260822-153242-panel.jsonl.gz` | **4,386,341** | `fa58ea4bf5022a19bcb86df6ac35f429bbea0c37c3e3279c7ead123e4db28ff6` |
+
+A browser upload does not leave a truncated file — it either completes at full size or
+fails and leaves nothing — so a size match is sufficient evidence that it finished.

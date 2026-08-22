@@ -743,8 +743,14 @@ def _contractor_of(key: str) -> str | None:
 _WIRED_GROUPS = ("interests", "licensed_activities")
 
 
-def _interest_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
-                                                             tuple[str, ...]]]:
+#: One membership to write: the path in each language, and what the site said about
+#: it -- `(label, value, value_ar)` or `None`. The third element is `0010`'s columns
+#: and `R-45`'s reason for them: an attribute describes ONE membership, so it travels
+#: with the pair rather than beside it.
+Membership = tuple[tuple[str, ...], tuple[str, ...], tuple[str, str, str] | None]
+
+
+def _interest_paths(english: str, arabic: str) -> list[Membership]:
     """`interests`, paired across the two pages. Raises when the counts differ.
 
     PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Both locales
@@ -765,11 +771,14 @@ def _interest_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
         raise taxonomy.CannotPairLocales(
             f"published {len(paths_en)} interests in English and "
             f"{len(paths_ar)} in Arabic")
-    return list(zip(paths_en, paths_ar, strict=True))
+    # NO ATTRIBUTE, AND THE PAGE IS WHY RATHER THAN A DEFAULT: the interests card is
+    # a nested list with no column beside it, so there is nothing the site says about
+    # an interest. `None` here is a reading, not an omission.
+    return [(path, path_ar, None)
+            for path, path_ar in zip(paths_en, paths_ar, strict=True)]
 
 
-def _licence_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
-                                                           tuple[str, ...]]]:
+def _licence_paths(english: str, arabic: str) -> list[Membership]:
     """`licensed_activities`, which needs ONE page rather than two.
 
     THE CELL IS ALREADY BILINGUAL, and that is the whole difference from interests:
@@ -798,7 +807,13 @@ def _licence_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
     # which is the same property `MultiValuedGroup.published_as` records for the
     # table headers, one level down.
     activities = read_licensed_activities(english or arabic)
-    return [(one.english or ("",) * len(one.arabic), one.arabic)
+    return [(one.english or ("",) * len(one.arabic), one.arabic,
+             # THE READINESS, WHICH IS PER LICENCE AND NOT PER CONTRACTOR -- `0010`
+             # and `R-45`. The label comes off the table's own header rather than a
+             # constant of ours, so a renamed column arrives as its new name. `None`
+             # where the site graded nothing, which is 1,490 of 1,500 rows measured.
+             (one.readiness_label, one.readiness_en, one.readiness_ar)
+             if one.readiness_ar or one.readiness_en else None)
             for one in activities if one.arabic]
 
 
@@ -885,11 +900,11 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
         except taxonomy.CannotPairLocales as exc:
             raise taxonomy.CannotPairLocales(
                 f"contractor {contractor_id}, group {group_key}: {exc}") from exc
-        for path, path_ar in pairs:
+        for path, path_ar, attribute in pairs:
             node = taxonomy.ensure_path(conn, scheme, path=path, path_ar=path_ar)
             if taxonomy.link(conn, generic_record_id=int(record["generic_record_id"]),
                              node_id=node, group_key=group_key,
-                             source_snapshot_id=snapshot_id):
+                             source_snapshot_id=snapshot_id, attribute=attribute):
                 written += 1
             else:
                 repeated += 1

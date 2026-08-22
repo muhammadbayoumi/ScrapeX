@@ -967,6 +967,12 @@ class LicensedActivity:
     english: tuple[str, ...]
     readiness_ar: str = ""
     readiness_en: str = ""
+    #: WHAT THE SITE CALLS THE READINESS COLUMN, read off the table's own header
+    #: rather than declared as a constant. `R-45`: «ما يقوله الموقع هو مصدر الحقيقة
+    #: الوحيد لا نعدل عليه» -- so if muqawil renames that column, the warehouse
+    #: carries the new name instead of asserting the old one. Measured today:
+    #: `مستوى الجاهزية`, identical on both locales.
+    readiness_label: str = ""
     #: The cell exactly as published, kept so a disagreement can be looked at.
     published_as: str = ""
 
@@ -1011,6 +1017,12 @@ def read_licensed_activities(html: str) -> tuple[LicensedActivity, ...]:
     card = _card(html, "licensed_activities")
     if card is None:
         return ()
+    # THE LAST HEADER IS THE READINESS COLUMN'S NAME, taken from the page. Two
+    # headers are measured on every page -- `الأنشطة المرخصة` and `مستوى الجاهزية`
+    # -- and the readiness is the second, which is why the value cells are read
+    # from the END of the row too. A table that grows a column keeps both aligned.
+    headers = [_text(cell) for cell in card.select("th")]
+    label = headers[-1] if len(headers) >= 2 else ""
     found: list[LicensedActivity] = []
     for row in card.select("tr"):
         cells = row.select("td")
@@ -1033,6 +1045,7 @@ def read_licensed_activities(html: str) -> tuple[LicensedActivity, ...]:
             arabic=arabic_path,
             english=english_path if len(english_path) == len(arabic_path) else (),
             readiness_ar=ready_ar.strip(), readiness_en=ready_en.strip(),
+            readiness_label=label if readiness else "",
             published_as=published))
     return tuple(found)
 
