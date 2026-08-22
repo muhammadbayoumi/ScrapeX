@@ -83,7 +83,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
-| [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting `engine-v0.3.0` is his. Raised again 2026-08-22 | 2026-08-21 |
+| [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | Raised again 2026-08-22, and the release went out the same day · **In flight** — cause proven, gate closed, `engine-v0.3.0` published; what is left is his confirmation that it installs | 2026-08-21 |
 | [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
@@ -1184,8 +1184,8 @@ gets its own enum. Planned in [the platform plan](plans/2026-08-21-the-platform-
 ---
 
 ## REQ-28 · The Engine would not install, and showed a black screen
-**Captured 2026-08-21 · Reported again 2026-08-22 · In flight — the release gate is
-fixed; cutting `engine-v0.3.0` is his**
+**Captured 2026-08-21 · Reported again 2026-08-22 · the release went out that day ·
+In flight — gate closed, `engine-v0.3.0` published, his confirmation outstanding**
 
 > He downloaded the Engine, it did not install, he got a **BLACK SCREEN**, and he
 > does not know how to install it. The panel read: *"ScrapeX Engine — Not detected —
@@ -1218,9 +1218,20 @@ warehouse is at schema **v8**; `main` ships engine migrations to **0006** and re
 v6, so `scrapex ui` exits 1 before binding a port. Both are recorded as `OP-32` and
 `OP-33` in [BACKLOG.md](BACKLOG.md).
 
-**What is his to decide:** whether to cut `engine-v0.3.0` now. The gate that let
-0.2.1 through is closed in this PR — the release now runs the binary the way a
-person runs it and refuses a build that prints nothing.
+~~**What is his to decide:** whether to cut the release now.~~ **— HE DECIDED, AND
+IT IS OUT.** *«اقطع الوسم»*, 2026-08-22, after reading the finding below. The tag
+`engine-v0.3.0` sits on `451468d`, the release workflow completed in 28m36s, and the
+manifest the panel reads was verified on the wire rather than inferred from a green
+run:
+
+    "version": "0.3.0"   "tag": "engine-v0.3.0"
+    "published_at": "2026-08-22T13:17:13Z"
+    "minimum_extension_version": "0.2.2"   protocol 1
+
+It had said `0.2.1` since 9 August. **The gate that let `0.2.1` through is closed and
+this is the first release to pass it** — the binary is now launched the way a person
+launches it, with no arguments, and a build that prints nothing is refused. So the
+engine he can install is, for the first time, one that carries `_first_run`.
 
 **He reported it a second time on 2026-08-22** — *«المحرك الموجود على github 0.2.1»*,
 with the panel reading `Latest version 0.2.1 · Available to install`. The finding is

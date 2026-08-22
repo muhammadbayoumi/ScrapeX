@@ -144,12 +144,19 @@ def test_every_release_the_documents_ask_for_is_the_release_that_would_run():
     The failure is not subtle when it happens — the workflow stops at its first
     step — but it is completely invisible until somebody tries, and the person
     who tries is the owner, on the day he finally has time to ship.
+
+    FINDING NOTHING IS A PASS, AND THAT IS A CORRECTION MADE ON EVIDENCE. This
+    test used to `assert named` first, on the reasoning that a guard matching
+    nothing is measuring nothing. Then `engine-v0.3.0` was released on
+    2026-08-22, every documented instruction correctly became history, and the
+    set went empty — so the assertion failed on the repository being in exactly
+    the state it should be in. **No release is owed between a release and the next
+    contract change, and a guard that demands one forces a document to carry a
+    fake instruction to stay green.** Non-vacuity is proved instead by
+    `test_a_tag_named_in_narrative_prose_is_left_alone`, which runs the pattern
+    against known shapes and needs no live instruction to do it.
     """
     named = _named_releases()
-    assert named, (
-        "no release instruction was found in any document, so this guard is "
-        "measuring nothing. Either the pattern stopped matching or the way out "
-        "of an unreleased engine is no longer written down anywhere")
 
     wrong = [(name, line, version) for name, line, version in named
              if version != VERSION]

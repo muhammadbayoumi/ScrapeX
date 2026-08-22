@@ -1,21 +1,36 @@
 # State — where the work stands
 
-**Last updated: 2026-08-22.** `main` is at `5f63bb0` (#252). #243 through #252 are
-all merged — #246 (the engine's own updater) and #247–#252 landed after this line
-last said `afb8648` (#244), which is **seven merges** of drift in one day. A commit
+**Last updated: 2026-08-22.** `main` is at `451468d` (#254). #243 through #254 are
+all merged — #246 (the engine's own updater) and #247–#254 landed after this line
+last said `afb8648` (#244), which is **nine merges** of drift in one day. A commit
 pointer written into prose is stale by the time it is read: `git log --oneline -1
-origin/main` is the answer that cannot be. **It was stale again within the hour** —
-this line said `4615a14` (#250) while #251 and #252 were already in, which is the
-argument rather than a counter-example to it.
+origin/main` is the answer that cannot be. **It has now been stale twice in one
+afternoon** — it said `4615a14` (#250) with #251 and #252 already in, then `5f63bb0`
+(#252) with #254 already in. Each correction is the argument for the sentence, not a
+counter-example to it.
 
-**THE ENGINE ON GITHUB IS STILL `engine-v0.2.1`, and he asked about it again today**
-— *«المحرك الموجود على github 0.2.1»*. Nothing on the install path is broken; no
-release has been cut since 2026-08-09 while `VERSION` has reached **0.3.0**. The one
-command that changes it is item 2 of *STILL HIS* below, and the number in it is now
-guarded rather than typed by
+**THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
+directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
+`0.2.1`, the build whose bare invocation printed nothing. The tag sits on `451468d`,
+which is this `main`; `scrapex/version.py:76` and the `pyproject.toml` mirror both
+read `0.3.0` there. **Thirteen days and two `VERSION` bumps of unreleased engine,
+closed.** `OP-32` · `REQ-28` · guarded by
 [#253](https://github.com/muhammadbayoumi/ScrapeX/pull/253) — **open, not merged**
 ([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
-`OP-32` · `REQ-28`.
+
+**AND THE NORMAL STATE FROM HERE IS SOURCE AHEAD OF PUBLISHED, WHICH IS NOT `OP-32`
+RETURNING.** `VERSION` moves on a contract change ([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one))
+and releases are cut by hand (PLATFORM-PLAN Decision 4), so the two are *expected* to
+differ between releases. Migration `0010` has already taken the source to **0.3.1**
+on the branch that carries it, against a published **0.3.0** — that gap is
+development, not a defect.
+
+**What made `OP-32` a defect was never the gap itself.** It was that **nothing** had
+been released across two bumps, the newest installable engine printed nothing when
+double-clicked, and the documents were telling him to cut a tag the workflow would
+refuse. A source one patch ahead of a published engine that works shares none of
+those three. Anyone reading a version gap as `OP-32` returning should check those
+three first.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -294,20 +309,30 @@ lie. It no longer would. **But it is not yet proved against a real frozen build*
 the guards set `sys.frozen` and `sys.executable`, which is what makes them possible
 at all, and the first artifact to exercise them for real is the next release.
 
-**STILL HIS, AND NOW ONLY ONE — item 2:**
+**STILL HIS — ~~and now only one~~ NONE. Item 2 is DONE:**
 
 1. ~~`OP-37`~~ **— fixed, and by #243 in parallel rather than by this branch.** So
    the release is no longer blocked by a red suite. The pattern was not invented:
    `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
    overrides one, for the same column.
-2. **Cut `engine-v0.3.0`.** `git tag engine-v0.3.0 && git push origin engine-v0.3.0`.
-   `OP-32`. **The number is derived, not chosen:** `scrapex/version.py:76` is the
-   only thing that decides it, and `.github/workflows/release-engine.yml` refuses
-   any other tag at its first step. This line said `engine-v0.2.2`, which stopped
-   being cuttable the moment #247 moved `VERSION` to 0.3.0 — so the release the
-   repository was asking for would have been refused before anything was built.
+2. ~~**Cut the release.**~~ **— DONE 2026-08-22. He asked for it directly**
+   (*«اقطع الوسم»*) after reading the finding, and the tag `engine-v0.3.0` is on
+   `451468d`, which is this `main`. Verified from the tag rather than reported:
+   `scrapex/version.py:76` and the `pyproject.toml` mirror both read `0.3.0` there,
+   so the workflow's first step had a tag and a version that agreed. **The first
+   engine release in thirteen days, and the first that carries `_first_run`** — the
+   black window of `engine-v0.2.1` is no longer the only thing installable.
+   `OP-32` · `REQ-28`.
+
+   **This line is now history and is written as history on purpose.** It said
+   `engine-v0.2.2`, which stopped being cuttable the moment #247 moved `VERSION` to
+   0.3.0, and the release the repository was asking for would have been refused
+   before anything was built.
    `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` is
-   what stops that recurring.
+   what stops that recurring — and the reason the sentence above no longer spells
+   the tag inside a command is that guard's own third shape: **a completed release
+   must stop reading as an instruction, or it rots at the next bump.** It would have
+   rotted at the very next one, which is `0.3.1`.
 3. ~~**`claude/his-four-rulings` must merge, or the release will not help him.**~~
    **— merged as #243** (`eb691d9`), which brought engine migrations 0007 and 0008,
    so `main` reads schema v8 and the v8-against-v6 gap this item named is closed.
