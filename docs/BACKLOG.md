@@ -301,8 +301,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1470` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2458` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1554` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2542` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2458`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2542`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1046,6 +1046,93 @@ has data consequences:
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
 
+### OP-44 · ~~A dataset card said "no successful crawl yet" over 17,304 crawled rows~~ — FIXED 2026-08-22
+
+**He reported it from his own panel** — on the board as
+[REQ-33](REQUESTS.md#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows).
+The two muqawil datasets read
+
+    muqawil.org · Saudi Contractors Authority · contractors [Row 17,304]
+    17,304 products
+    no successful crawl yet
+
+while `aramco.com` and `spark-eshop.com` beside them read *"Last crawled 16 August
+2026, 8:00 AM"*. 17,304 rows plainly came from a crawl, so the display was wrong
+about something it had the evidence to answer.
+
+**Measured on his live warehouse, read-only, 2026-08-22** (schema v9, while the
+profile crawl was running against it):
+
+| | |
+|---|---|
+| `crawl_run` | **155 rows over twelve source keys** — `ADVANCEDCASTLE` … `SPARK_ESHOP`, and **not one for muqawil** |
+| `source_site` | the same twelve keys. **muqawil is not among them** |
+| `site_profile` | `muqawil` and `muqawil_org` — the other registry |
+| `generic_record` | `contractors` **17,304**, `contractor_profiles` **704** |
+| `generic_page_snapshot` | **24,480** pages, 1,728 with no `crawl_run_ref`, **139** distinct refs |
+| the evidence behind the rows | `contractors` last captured **2026-08-21T17:56:31Z**, `contractor_profiles` **2026-08-21T21:44:48Z** |
+
+**THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
+`"last_success": None` as a **literal**, and `freshnessLine`
+(`extension/app.js:4489`) prints that sentence whenever the key is absent or
+carries no `started_at`. So a `crawl_run` row for muqawil would have changed
+nothing on the card — the fix had to arrive at that key.
+
+**And the row could not honestly be written anyway.** `crawl_run.source_id` is
+`NOT NULL REFERENCES source_site(source_id)` (`db/engine/schema.sql:122`), and
+muqawil has no `source_site` row: which registry a source lands in is exactly the
+split [REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user)
+holds and it is his decision, not a side effect of fixing a caption.
+`crawl_run.job_id` points into `crawl_job`, and *"does a generic crawl belong in
+the same job queue as a price crawl?"* is an open question for him at the foot of
+[GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) — writing the row from a CLI that
+the scheduler does not drive would answer it by default. The same document says
+of the second-run question: *"It may be enough to ask `generic_ingestion`; check
+before adding a column."*
+
+**So the freshness is DERIVED, and nothing new is stored.**
+`extract/service.last_evidence_captured_at` reads
+`max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says
+this dataset was built from, and `_dataset_freshness` puts it in
+`ingest.last_successful_run`'s shape so the panel keeps one code path.
+
+Four findings the measurement produced that the fix turns on:
+
+* **`generic_ingestion`, not `generic_record.source_snapshot_id`.** A record keeps
+  pointing at the snapshot that last **changed** it (`R-20`), so a confirming
+  re-crawl would leave the date stale — the very complaint. On his warehouse:
+  3,883 ingestions against 2,139 distinct record snapshots for `contractors`, and
+  the two answers differ (`17:56:31Z` against `17:54:31Z`).
+* **`ix_generic_page_snapshot_page` is worth 390x and had never been read.**
+  It is `(page_snapshot_id, captured_at)` (`db/engine/schema.sql:843`); SQLite
+  prefers the rowid because the planner cannot see that the row carries a
+  compressed ~100 KB body. Measured over 24,480 pages: **353–373 ms** by rowid,
+  **0.9 ms** through `INDEXED BY`, identical answer.
+* **`max(page_snapshot_id)` is NOT a cheaper spelling of the same thing.** It
+  agrees on this machine (0.2 ms) because `save_snapshot` never supplies
+  `captured_at` — but `warehousemerge.py:269` INSERTs the other machine's
+  `captured_at` verbatim under fresh local ids, so after the merge `R-43` makes
+  routine the highest id can be the oldest page.
+* **No measure goes beside the date, because *seen* is already taken.** Both
+  surfaces print `rows_seen` after the instant and fall back to
+  `requests_count`. The obvious candidate was the row count — and
+  `dataset_sighting` already means *what the site showed us*: on `contractors`,
+  **17,417 sighted against 17,304 stored**. Putting the stored count under the
+  word `seen` would be a wrong answer to a question this schema answers exactly.
+  `requests_count` is no better, because retries, 304s and the Arabic half of
+  every page leave no second row. Both stay 0, the line reads *"Last crawled …"*
+  and stops, and the count keeps its own line on the card.
+
+Six mutations, six killed. The one that mattered is M5 — swapping
+`generic_ingestion` for `generic_record` — which the newest-page test caught for
+exactly the reason above.
+
+**Still open, and it is his:** the two registries. This closes the display; it
+does not merge `site_profile` into `source_site`, and a dataset still has no run
+ledger of its own. If he wants one, that is `REQ-25`'s shape to decide.
+
+---
+
 ### OP-41 · The test suite writes into the owner's live crawl log
 
 **Found 2026-08-21, by reading the log to check on a crawl.**
@@ -1587,16 +1674,16 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:639](../scrapex/webui/app.py#L639)).
+worse for a dataset"* ([scrapex/webui/app.py:697](../scrapex/webui/app.py#L697)).
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2725](../scrapex/webui/app.py#L2725)).
+for anything else ([scrapex/webui/app.py:2787](../scrapex/webui/app.py#L2787)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:986](../scrapex/webui/app.py#L986)) —
+any other table"* ([scrapex/webui/app.py:1048](../scrapex/webui/app.py#L1048)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -2942,7 +3029,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2458` that the fix never reached
+   second `worker_alive` computation at `app.py:2542` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

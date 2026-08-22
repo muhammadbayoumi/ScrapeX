@@ -209,6 +209,44 @@ tolerance must be **generation-aware**.
 The 871 v5 pages were dropped on the owner's instruction and preserved at
 `~/.scrapex/journal-dropped-v5-ELBUROJ/`.
 
+### A rowid lookup is not free on a table of page bodies, and the planner cannot tell
+
+`generic_page_snapshot` stores compressed HTML — 24,480 rows over roughly 200 MB on
+his warehouse. `page_snapshot_id` IS the rowid, so SQLite reads `captured_at` by
+seeking the row, which drags in the page the body starts on. Measured 2026-08-22,
+same query, same answer:
+
+```
+max(captured_at) over one dataset's ingested pages     353-373 ms   by rowid
+                                              same       0.9 ms   INDEXED BY ix_generic_page_snapshot_page
+```
+
+`ix_generic_page_snapshot_page` is `(page_snapshot_id, captured_at)` and had existed,
+unread, since migration 0014. The planner will not choose it: a rowid seek looks
+cheaper than an index seek and nothing in the statistics says how wide the row is.
+**On a table whose rows are documents, name the covering index.** And if it is ever
+dropped, `INDEXED BY` makes SQLite raise instead of quietly paying the 373 ms — the
+failure you would rather have.
+
+### `max(id)` stops meaning `latest` the moment two warehouses are merged
+
+The cheap version of that same read was `max(page_snapshot_id)`, then one lookup —
+0.2 ms, and identical on this machine, because `save_snapshot` never supplies
+`captured_at` and lets the column default fire, so ids and timestamps rise together.
+
+`scrapex/warehousemerge.py:269` breaks it on purpose: the merge INSERTs the other
+machine's `captured_at` **verbatim** under freshly assigned local ids, because the
+row is evidence of when that machine fetched a page and rewriting it would be a
+forgery. So after a merge — which
+[R-43](RULINGS.md#r-43--drive-is-the-single-source-of-truth-for-data-the-repository-stays-it-for-code)
+makes the routine operation between his two machines — the highest id can be the
+oldest page.
+
+The lesson is not about snapshots. **Any "newest row" shortcut that reads a
+monotonic key instead of the timestamp is an assumption about who did the
+INSERT**, and this repository has a supported operation that does it differently.
+Order by the fact you mean.
+
 ---
 
 ## 3 · Silent failures on the ingest path
@@ -1431,3 +1469,49 @@ stopped a 34,834-page approval dead, and both were measured before the parser wa
 wired rather than after: interests paired in **2,252 of 2,252** pairs, and the info
 box carried **11 distinct labels, all of them known** — no field was being silently
 dropped. Neither number was known when the profile parser was declared finished.
+
+---
+
+## 12 · A register id is renamed by a sweep, never by an edit
+
+**Measured on this branch on 2026-08-22, twice in one afternoon.** Two pull requests
+merged while it was open and took every id it had reserved: `#252` took `REQ-30` and
+`OP-42`, then `#254` took `REQ-31`, `REQ-32` and `OP-43`. So one entry was renumbered
+twice — `OP-42` → `OP-43` → `OP-44`, and `REQ-30` → `REQ-31` → `REQ-33`.
+
+**Both times the heading moved and a reference did not.** The survivor was a link
+inside the `OP` entry's own body pointing at its `REQ` twin:
+
+    [REQ-30](REQUESTS.md#req-30--the-dataset-cards-said-no-successful-crawl-over-crawled-rows)
+
+Every part of that line is wrong in a way nothing catches. The **text** names a
+different request — `REQ-30` is the duplicated `⋮` button — and the **anchor**
+resolves to nothing, because no heading slugs to it any more. The citation guard does
+not see it: `tests/test_the_documents_cite_what_they_claim.py` checks `file:line`
+citations, and this is a markdown anchor. The board guard does not see it either:
+`test_the_request_board_matches_its_entries.py` compares the board against the
+entries, and this link is in neither.
+
+**Why a targeted fix is not enough, and this is the part worth keeping.** A sweep by
+SUBJECT — every line mentioning the work, checked for the right id — found the one
+above and **missed a second**, because the surviving reference was a comment about
+`SUFFIXES` that never names the subject at all. What found it was the opposite
+question: take every id the diff introduces and print the heading that number
+actually names today. A number that names something else is the defect, whatever the
+prose around it says.
+
+So, when a register id changes:
+
+1. `grep` the id, not the subject. The subject is what a rename does not mention.
+2. Check the **anchor** as well as the text — `#req-nn--slug` is a second copy of the
+   number and it rots silently, because a dead markdown anchor is not an error.
+3. Resolve every id against the register's headings afterwards, and read what each
+   number names. That is a two-line script and it is the only check that cannot be
+   fooled by wording.
+
+**And the same shape applies to line numbers, which this branch also carried three
+times.** `app.py:2710` → `2725` → `2787` in one day: `#252` measured it correctly on
+its own base, `#251` had already moved the symbol, and `main` went red between the two
+merges with no conflict for git to find, because no file was changed by both. Re-read
+the number out of the file at the new base on every rebase. Never adjust it by
+arithmetic, and never carry it.
