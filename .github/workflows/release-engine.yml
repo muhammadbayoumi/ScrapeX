@@ -2,7 +2,15 @@ name: Release the engine
 
 # PATH B of PLATFORM-PLAN §5c. A tag starts it; nothing else does.
 #
-#     git tag engine-v0.3.0 && git push origin engine-v0.3.0
+#     git tag engine-v<VERSION> && git push origin engine-v<VERSION>
+#
+# <VERSION> IS DELIBERATELY NOT SPELLED OUT HERE. It is `scrapex/version.py:VERSION`
+# and nothing else — the first step below refuses any other tag — and this line used
+# to carry the literal, which made it one more copy of a number that moves on every
+# contract change (R-35). It read `0.3.0` on the day 0.3.0 was released and would
+# have been wrong by the next migration. Read it instead of typing it:
+#
+#     python -c "from scrapex.version import VERSION; print(VERSION)"
 #
 # Decision 4: releasing is manual, updating is not. This is the manual half —
 # the owner decides when. The extension notices the result on its own.

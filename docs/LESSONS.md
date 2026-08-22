@@ -746,6 +746,172 @@ and the lesson for anyone writing a citation: **paste the line you are citing,
 from the file, at the moment you cite it.** Every wrong number above came from
 remembering a number instead of reading one.
 
+### An instruction that names a version rots on the next bump, and only the person acting on it finds out
+
+Found 2026-08-22, when the owner asked why the panel offered `0.2.1` with the
+engine at `0.3.0`. The panel was right, the manifest was right, the workflow was
+right; the only engine tag in the repository was `engine-v0.2.1` and no release
+had been cut. **What was wrong was the way out.** Six places named the tag
+`engine-v0.2.2` — two of them the whole command to copy, three the sentence
+telling him to cut it, one a note about a past failure — while
+`.github/workflows/release-engine.yml` opens with `test "$tag" = "$version"` and
+`VERSION` had moved to 0.3.0. Everything but the last had been dead since #247. It
+would have failed at the release's first step, having built nothing, on the day he
+finally had time to ship.
+
+*(That paragraph is written as narrative on purpose. Naming the dead tag inside a
+copy-pasteable command would make this file a seventh place holding one — see
+shape 3 below, which is the guard refusing exactly that.)*
+
+**A citation guard cannot see this.** `docs/BACKLOG.md` cited
+`scrapex/version.py:76` — the right file, the right line, the right symbol — and
+the *value* on that line had changed under it. Tier 1 checks existence, tier 2
+pins the symbol, and neither reads what the symbol is worth today.
+
+**The class:** a document that repeats a number the code owns is a copy, and every
+copy is a thing that stops agreeing. Three shapes, in order of preference:
+
+1. **Derive it.** Say *"the tag is `engine-v$(VERSION)`"* and there is nothing to
+   rot. Not always possible — a copy-pasteable command needs the literal.
+2. **Guard it**, which is what was built here:
+   `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`
+   compares every engine tag named **as an instruction** with `VERSION`. It found
+   all six copies on the untouched documents before a single mutation was tried,
+   which is the only kind of first run worth having.
+3. **Write it as history instead.** The guard deliberately matches only the two
+   shapes a person acts on — `git tag engine-v…` and `cut engine-v…` — because
+   `engine-v0.2.1` shipped the black window and every sentence saying so is true
+   for ever. A guard that demanded *every* tag name equal `VERSION` would force
+   history to be rewritten on each bump, which is how a test comes to be satisfied
+   by a lie.
+
+**And the reason it does not simply ask the hub**, which is where "published"
+actually lives: `actions/checkout@v4` fetches no tags, and a network fetch in the
+suite is red on a train and vacuously green wherever it is skipped. Both failures
+are already recorded in this file under *A skip is not a failure*. The guard
+proves the tag he is told to push is the tag the workflow accepts, and says in its
+own docstring that it cannot prove a release happened. `Q-16` asks him whether he
+wants something that does look.
+
+**IT ENDED IN A RELEASE, WHICH IS THE ONLY OUTCOME THAT SETTLES ANYTHING.** He read
+the finding and said *«اقطع الوسم»*; `engine-v0.3.0` went out on 2026-08-22 and the
+manifest the panel reads moved from `0.2.1` — where it had sat since 9 August — to
+`0.3.0`. That is worth recording because the defect was never in the code: three
+sessions had verified the install path and found nothing wrong with it, and what was
+wrong was a number written down in six places.
+
+**THREE THINGS THE RELEASE THEN TAUGHT, all within the hour:**
+
+**1 · A completed instruction must be rewritten, not just satisfied.** Every one of
+those six places became history the moment the tag existed, and a guard that reads
+instructions cannot tell a finished one from a pending one. Left alone they would
+have failed at the very next bump — which arrived immediately (below). Shape 3 is not
+optional tidying; it is the step that ends the task.
+
+**2 · `cut` is its own past tense, and English will not help you.** `Q-16` was
+rewritten with that verb and the tag immediately after it — *"hours later he …
+`engine-v0.3.0`"* — which is finished history that the pattern reads as an
+instruction. It passed only because `0.3.0` was still `VERSION`, and would have gone
+red at the next bump — which was `0.3.1`, already written on another branch.
+
+> **THE RULE, FOR ANYONE WRITING RELEASE PROSE IN THIS REPOSITORY.** A release that
+> has happened is written **tagged**, **published**, **released** or **went out** —
+> **never `cut`**, and never with `git tag …` spelled out beside it. `cut` and
+> `git tag` are the two shapes
+> `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` reads as
+> *"a release somebody still has to make"*, and it holds those to
+> `scrapex/version.py:VERSION`. Use them for work that is still owed and nothing else.
+>
+> It is a rule about four words because the alternative is a regex that guesses tense,
+> and the cost is asymmetric: the wrong word costs one rewording, while the wrong
+> silence costs a release instruction that the workflow refuses at its first step.
+
+Pinned in `test_the_pattern_cannot_tell_the_tense_of_cut_apart`, because a rule that
+lives only in a test message is a rule nobody writing prose will meet.
+
+> **AND THIS PARAGRAPH WALKED INTO IT WHILE EXPLAINING IT** — the first draft quoted
+> the bad sentence verbatim, verb and tag together, so the entry describing the trap
+> was itself matched. Found by mutation, not by reading. That is twice now that an
+> entry in this file has had to be written *around* the guard it documents, the other
+> being the `git tag …` command a few paragraphs up. **A document that quotes an
+> instruction is holding one**, and the elision above is the fix.
+
+**3 · "No release is owed" is a legitimate state, and a guard must permit it.** The
+guard originally asserted that at least one instruction existed, reasoning that a
+pattern matching nothing measures nothing. After the release the set went empty and
+the assertion failed **on the repository being correct**. Non-vacuity now comes from
+running the pattern against fixed strings instead — a guard whose only evidence of
+working is a live instruction stops being checkable the moment the work is done.
+
+**AND THE NUMBER HAS A SECOND HOME, which a release runbook must name.** `VERSION`
+lives in `scrapex/version.py` and is mirrored in `pyproject.toml` because the
+installer cannot import Python. Both moved to `0.3.1` for migration `0010` — a
+contract change under `R-35`, refused at `0.3.0` by the gate, which is that gate
+working — and the primary session reports the mirror's guard firing on it when only
+the first was bumped. That guard is `tests/test_version.py:73`, and the words below
+are its own: **bump both or neither.** Three copies of one number now exist only if a document adds a
+third, which is what this guard is for; the workflow's header comment gave up its
+literal for the same reason and now says `engine-v<VERSION>`.
+
+**One consequence to carry forward:** source ahead of published is the *ordinary*
+state here, not a repeat of this defect. `0.3.1` in the tree against `0.3.0` on the
+hub is development. `OP-32` was three faults at once — nothing released across two
+bumps, a published binary silent on a double-click, and documents naming a tag the
+workflow would refuse — and a version gap on its own is none of them.
+
+### Two pull requests, DISJOINT IN FILES and COUPLED IN CONTENT, merge into a red `main`
+
+Found 2026-08-22 by two sessions independently within minutes — one rebasing onto
+`main`, one on its own branch — which is the strongest thing that can be said for
+the guard that found it. `main` at `5f63bb0` was **red**:
+
+```
+FAILED tests/test_the_documents_cite_what_they_claim.py::
+  test_a_pinned_citation_still_points_at_its_subject[BACKLOG.md-app.py-2710]
+```
+
+| | |
+|---|---|
+| both written against | `4615a14` (#250) |
+| #252 added | `("docs/BACKLOG.md", "scrapex/webui/app.py", 2710, "if source_key not in known:")` |
+| that symbol at `4615a14` | **2710** — #252 was **correct** |
+| #251 added | fifteen lines to `scrapex/webui/app.py` |
+| that symbol at `5f63bb0` | **2725** |
+| did #251 touch the PINNED table? | **no** |
+| did #252 touch `app.py`? | **no** |
+
+**"CHECK WHETHER THE FILES OVERLAP" IS THE REFLEX THAT FAILS HERE, and that is the
+whole lesson.** Not one file is changed by both, so git finds nothing to conflict
+on and merges both cleanly. The coupling is in the *content*: one moved a line, the
+other wrote that line's number down. Disjoint in files, coupled in content — and
+only the second half decides whether the pair is safe.
+
+**AND #252 WAS NOT MERGED UNTESTED, which is the part worth getting right.** GitHub
+reported it MERGEABLE and CLEAN with every check passing. Those checks ran against
+#252's own merge commit **against `4615a14`** — a base that stopped existing the
+moment #251 landed. So the suite did not fail to run and did not fail to notice:
+**it passed, truthfully, about a `main` that no longer existed.** "Green" without a
+base is not a claim about anything.
+
+**Which is why the setting is `require branches up to date`, not `require the check
+suite`.** `docs/STATE.md` lists branch protection as his to switch on; *require the
+check suite* — the obvious half — would have passed this pair through, because both
+checks genuinely passed. Only re-testing against the `main` that will actually
+receive the merge catches it. This is the second reason for that setting after
+`ac3a5af`.
+
+**Why a citation guard is the detector.** A `file:line` citation is the rare
+assertion whose truth depends on a file the pull request does not touch, so it is
+the most sensitive instrument for this class in the repository. The class is
+general: any test pinning a **line, an offset, a byte count or a row count** is
+exposed the same way, and the remedy is never a wider window.
+
+*The repair itself — the PINNED row and `docs/BACKLOG.md`'s prose citation both
+moving `2710` → `2725` — landed in `feat/the-profile-page-becomes-columns`, not
+here. Two branches editing one table at one place is a guaranteed conflict for
+whichever merges second, and only one of them needed to carry it. This entry is the
+class; that branch is the fix.*
+
 ### A guard that infers its subject from prose cannot be both sensitive and precise
 
 The natural design for the above is to read the symbol out of the sentence — take
@@ -1155,6 +1321,40 @@ is the same fact making *different* files look equal: **normalise when you are a
 "is the content the same", and compare bytes when you are asking "did I put the file
 back".** The two questions have different right answers, and one function cannot serve
 both.
+
+### A byte-perfect restore still leaves the mutation running, because `__pycache__` believes it
+
+Found 2026-08-22, mutating the release-instruction guard. The harness restored
+every file by writing the **original bytes** back and verified each restore by
+**re-hashing the file on disk** — the strongest form of the check the lesson above
+argues for. All eight mutations reported `restored=True`, `git status` showed
+`scrapex/version.py` unmodified, and the file said `VERSION = "0.3.0"`.
+
+**And `import scrapex.version` said `0.4.0`.**
+
+```
+grep '^VERSION = ' scrapex/version.py   ->  VERSION = "0.3.0"
+python -c "import scrapex.version as v; print(v.VERSION)"  ->  0.4.0
+```
+
+The `.pyc` written while the mutation was in place was still being trusted.
+CPython invalidates a cache entry on the source's **mtime and size**, and a
+mutation that swaps one version string for another of the same length, restored
+inside the same filesystem timestamp tick, changes neither. The cache was valid by
+its own rule and wrong by every other.
+
+**What it cost, and why the post-control run is not optional.** Every mutation
+after M2 ran with an extra test failing for a reason nobody had asked for, and the
+one whose kill criterion was that same test could have reported KILLED over a
+mutation that did nothing. The only thing that caught it was running the guard
+**again after the whole set finished** and finding it red on a clean tree — the
+check LESSONS §8 already insists on, catching a cause it had not met before. Both
+runs are recorded rather than only the good one: eight KILLED with a red
+post-control is a result to throw away, not to report.
+
+**The rule: purge `__pycache__` between runs, not just the source.** A restore is
+not complete until everything derived from the mutated file is gone too. With the
+purge in place: eight mutations, eight killed, post-control green.
 
 ---
 

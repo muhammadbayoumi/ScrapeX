@@ -239,6 +239,29 @@ PINNED = (
      "INSERT INTO generic_page_snapshot "),
     ("docs/LESSONS.md", "scrapex/warehousemerge.py", 269,
      "INSERT INTO generic_page_snapshot "),
+    # OP-32, second report · THE FOUR LINKS OF THE CHAIN THAT IS NOT BROKEN. The
+    # entry's whole argument is that the panel, the manifest and the workflow all
+    # agree and the release simply was not cut, so a reader sent to the wrong line
+    # on any one of them would go hunting for a defect that is not there.
+    ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
+    ("docs/BACKLOG.md", "extension/app.js", 3514, "latest.version"),
+    # 352, and it was 344 until this same pull request added eight comment lines
+    # above it — the guard catching its author, in the exact shape LESSONS §7
+    # describes: one change moves a line, another wrote the number down.
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 352, '"version": VERSION'),
+    ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
+     'got["version"] == manifest["version"]'),
+    # And the line whose VALUE went stale under a citation that stayed correct --
+    # the defect this row exists to make visible next time. `VERSION = "` is what
+    # can be pinned; the number on it is what six places copied and lost. That gap
+    # is why tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py
+    # exists beside this file rather than as another row here.
+    ("docs/BACKLOG.md", "scrapex/version.py", 76, 'VERSION = "'),
+    # The second home of the number, cited by LESSONS §7's release-runbook line.
+    # `pyproject.toml` is a mirror because setuptools cannot import the package, so
+    # "bump both or neither" is a rule with a guard behind it rather than advice.
+    ("docs/LESSONS.md", "tests/test_version.py", 73,
+     "def test_the_installer_carries_the_same_number("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
