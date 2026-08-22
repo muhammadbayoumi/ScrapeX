@@ -93,6 +93,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
 | [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
+| [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 
 ---
 
@@ -1808,3 +1809,89 @@ the deadline** — `git show` on that commit touches none of `extension/startup.
 **Filed while the workaround is still fresh**, which is the point: the manual procedure
 that produced tonight's backup is written down in the same session, so this request can be
 measured against something that actually ran rather than against a description of it.
+
+---
+
+## REQ-39 · The extension must report what Drive holds, because nothing else can ask
+**Captured 2026-08-22 · Not built**
+
+> «اذن يجب ان نجعل الاضافة تخبرنا بحالة الرفع · امال هنتاكد ونتابع ازاى»
+
+He said it after being told that the session could verify the local bundle completely —
+73 files CRC-checked, both digests matched — and could **not** confirm the upload, because
+Drive authentication lives in the extension (`chrome.identity`) and no session is going
+into his account.
+
+**He is right, and the gap is larger than tonight's verification.**
+
+### The measurement
+
+`extension/drive.js` is the only holder of a Drive token in the product. Measured on
+`main`: the panel's Drive surface calls `renderDriveFacts` with `state: "error"` and a
+failure detail — and there is **no success state carrying what Drive actually contains.**
+No file listing, no size, no digest, no time of the last upload that worked.
+
+**And the knowledge does not leave the panel.** Nothing writes it anywhere. So closing the
+side panel closes the only window onto Drive, and nothing in the repository, the
+warehouse, or the CLI can answer *"is the backup there?"*
+
+### Why that contradicts a ruling of his own
+
+`R-43` makes **Drive the source of truth for DATA** and the repository the source of truth
+for CODE. A source of truth nobody can query is not a source of truth. Today the honest
+description is: the backup exists in a place only one browser tab can see, and only while
+it is open.
+
+It also makes `REQ-38` unobservable. That request asks for the digest to be verified
+automatically — but **a verification whose result is not recorded cannot be trusted or
+audited**, only re-run. The two requests are halves of one thing: *check it by machine*,
+and *say what the machine found, durably.*
+
+### The channel already exists and has never been used this way
+
+The panel already talks to the engine over `127.0.0.1:8000` on every poll. So:
+
+1. **The panel asks Drive**, which only it can do: the backup folder's listing with
+   `id, name, size, createdTime, sha256Checksum` — the same `files.get` fields the
+   unmerged branch `claude/drive-without-a-server` already added for its own check.
+2. **It compares** each file against the local manifest the engine produced, and forms a
+   verdict per file: verified by digest, verified by size only, mismatched, or absent.
+3. **It reports the verdict to the engine**, which stores it — so the state is durable and
+   readable with the panel closed.
+4. **`scrapex drive-status` prints it**, the way `database-status` prints the warehouse's.
+
+**The evidence, not the conclusion.** The stored record must say *which* evidence it had —
+Drive's own `sha256Checksum`, a size match, or nothing — because on `main` today the
+download path compares a byte count and an absent digest is treated as a pass. A status
+line reading *"verified by size only"* is useful; one reading *"verified"* when nothing was
+compared is worse than silence.
+
+**And it must be honest about staleness.** What the panel last saw is not what Drive holds
+now — another machine may have uploaded since. So the record carries the time it was taken
+and the CLI says so, rather than presenting a remembered answer as a current one. That is
+the same rule this repository learned four times today about measurements and their bases.
+
+### What it buys, concretely
+
+- **Tonight's question answered by a command** instead of by reading a size in a browser.
+- **Multi-device tracking at all**, which is what he asked for originally: «حتى استطيع
+  الوصول اليها من عدة اجهزة». Two machines can only coordinate through a state both can
+  read, and right now neither can read anything.
+- **A pruning decision that can be reviewed.** `extension/drive.js` keeps three files and
+  deletes the rest with `files.delete`, which **bypasses the trash** — and it chooses by
+  Drive's own `createdTime`, not by anything it verified. A recorded listing makes that
+  reviewable before it is destructive rather than after.
+
+### The workaround, until it is built
+
+The two numbers to compare by hand in Drive's file details, for the backup of
+2026-08-22 — recorded here because a workaround that is not written down is a workaround
+that gets misremembered:
+
+| file | bytes | sha256 |
+|---|---|---|
+| `scrapex-bundle-20260822-153242.zip` | **309,589,440** | `aabf5c2678218cf82d60d6e42b86e8f7c9e46305d8c8ee045466e8e844c555e7` |
+| `scrapex-bundle-20260822-153242-panel.jsonl.gz` | **4,386,341** | `fa58ea4bf5022a19bcb86df6ac35f429bbea0c37c3e3279c7ead123e4db28ff6` |
+
+A browser upload does not leave a truncated file — it either completes at full size or
+fails and leaves nothing — so a size match is sufficient evidence that it finished.
