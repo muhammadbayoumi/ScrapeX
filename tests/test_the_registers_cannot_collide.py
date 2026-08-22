@@ -105,8 +105,13 @@ RESERVED: dict[str, dict[int, str]] = {
     # guessed, and every row names its owner so it can be deleted the day that owner
     # merges. If a row here outlives its branch it becomes the permanent hole the
     # comment above warns about — delete it, do not renew it.
+    # SIX, NOT SEVEN. 44 was reserved for #255 this afternoon and #255 has since
+    # merged, bringing its own OP-44 with it — so the row went the same day, which
+    # is the rule this dict states rather than an exception to it. A reservation
+    # that outlives its branch is the permanent hole the comment above warns
+    # about, and `test_a_reserved_number_is_not_also_declared` is what caught the
+    # overlap within a minute of the rebase.
     "OP": {
-        44: "#255 — the muqawil freshness line",
         45: "the Drive branch",
         46: "#256",
         47: "#256",

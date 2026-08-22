@@ -1141,6 +1141,35 @@ harness says `anchor occurs 0x` about code that is plainly on the screen. Transl
 ANCHORS to the file's line endings; normalising the file would rewrite every line in it
 and defeat the restore check the bytes were for.
 
+### And a restore can be perfect on disk while the INDEX still holds the other version
+
+The sibling above is about the *file*. This one is about the thing beside it, and it
+surfaced on 2026-08-22 taking a before/after screenshot pair.
+
+To photograph the old look, the script checked two files out of `origin/main`,
+shot them, wrote the saved text back, and compared hashes — normalised for CRLF,
+as this file already insists. It reported restored, and the files WERE byte-perfect.
+
+`git checkout <ref> -- <path>` **writes the index as well as the worktree.** So the
+staging area still held `origin/main`'s copy of both files while the worktree held
+the branch's, and the next `git add` of unrelated paths would have committed a
+partial revert of the branch's own work.
+
+What caught it was `git status`, in a form worth recognising on sight:
+
+```
+MM extension/app.js        <- staged AND unstaged changes to one file
+MM extension/app.css
+```
+
+**Apply:** a harness that reaches for `git checkout <ref> -- <path>` must restore
+**both** halves — write the file back *and* `git add` it (or use
+`git show <ref>:<path> > file`, which never touches the index and is the better
+tool for the job). Verify with `git status --porcelain`, not with a content hash: a
+hash of the worktree is blind to the index by construction. And read the two-letter
+status codes rather than skimming for filenames — `MM` and ` M` mean different
+things, and only one of them is what you expected.
+
 ### And `restored: True` can be true while the file on disk has changed
 
 The harness proves it restored by comparing what it wrote back:
