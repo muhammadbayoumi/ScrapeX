@@ -197,6 +197,19 @@ flagged a sprite reference. Every other page reaches the sprite through a path,
 which is why it had never been seen. The guard now ignores fragment references
 and still bites on a real literal.
 
+**And a sixth came from a defect the owner photographed** (`REQ-30`, 2026-08-22),
+which is the one that concerns anyone PLACING this component: `.split-button-options`
+carries `z-index: 120`, and **a consumer that gives the `.split-button` wrapper a
+z-index of its own throws that away.** Any numeric z-index on a positioned element
+makes it a stacking context, so the menu's 120 is then only compared with its
+siblings inside the wrapper. On a list of cards every wrapper tied at `1`, and each
+card's button painted through the menu of the card above — the same `⋮` twice on
+one screen. Place the wrapper with `position` and offsets alone where you can; where
+a layer really is needed, raise it to `var(--z-overlay)` **only while the menu is
+open** (`:has(.split-button-menu[open])`), the way `.source-filter-menu[open]` does
+in `webui.css`. Raising the 120 does not help and cannot: measured at 1200 and at
+2147483647, the card below still won.
+
 ### UI-2 · Promote what repeats, delete the copies — *first slice done*
 
 **Measured**: 67 declaration blocks are written identically in more than one

@@ -865,6 +865,98 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
         "the menu did not open")
 
 
+# Reads the topmost element at a point, and reports enough to diagnose a failure
+# without re-running the browser by hand. `closest(...) === menu` rather than a
+# truthiness check: an option of the NEXT card's menu would satisfy the loose
+# version while being exactly the thing under test.
+_TOPMOST = """(key) => {
+  const card = document.querySelector(`[data-open="${key}"]`);
+  const menu = card.querySelector(".split-button-menu[open] .split-button-options");
+  const box = menu.getBoundingClientRect();
+  const hit = (x, y) => {
+    const element = document.elementFromPoint(x, y);
+    // getAttribute, not .className: on an SVG element that property is an
+    // SVGAnimatedString, and the icon inside the trigger IS an <svg>, so the
+    // diagnostic would read "[object SVGAnimatedString]" in the one message a
+    // failing run shows.
+    return {
+      in_menu: !!(element && element.closest(".split-button-options") === menu),
+      what: element
+        ? element.tagName.toLowerCase() + "." + (element.getAttribute("class") || "")
+        : "nothing",
+    };
+  };
+  return {
+    // Every trigger whose box the open menu covers. Empty means this guard has
+    // nothing to prove, so the assertions below say so instead of passing.
+    covered: [...document.querySelectorAll("#datasets .dataset-card .split-button-trigger")]
+      .map((trigger) => [trigger, trigger.getBoundingClientRect()])
+      .filter(([, r]) => r.top < box.bottom && r.bottom > box.top
+                      && r.left < box.right && r.right > box.left)
+      .map(([trigger, r]) => Object.assign(
+        {card: trigger.closest("[data-open]").dataset.open},
+        hit(r.left + r.width / 2, r.top + r.height / 2))),
+    // The END of each row, because that is the edge the corner buttons sit on
+    // and the middle of a row can be clear while its right-hand side is not.
+    rows: [...menu.querySelectorAll(".split-button-option")].map((option) => {
+      const r = option.getBoundingClientRect();
+      return Object.assign({label: option.textContent.trim().replace(/\\s+/g, " ")},
+                           hit(r.right - 12, r.top + r.height / 2));
+    }),
+  };
+}"""
+
+
+def test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button(open_panel):
+    """A second ⋮ appeared over the open menu, and the owner asked why twice.
+
+    «لماذا تظهر مرتين» — the screenshot showed the three-dots button once on the
+    aramco.com card and once floating over the "Recent changes" row of that
+    card's own open menu. Nothing rendered it twice: the NEXT card's button was
+    painting through the menu.
+
+    THE ASSERTION IS A HIT TEST, NOT A Z-INDEX. `.dataset-card > .split-button`
+    carries `z-index: 1`, which makes it a stacking context and spends the open
+    menu's `z-index: 120` inside it, so every card's wrapper ties at level 1 and
+    document order hands the win to the card below. Reading a z-index back would
+    therefore have asserted the exact number that was already wrong — measured
+    with the wrapper left at 1, the following card's trigger is still topmost at
+    that row with the menu at 120, at 1200 and at 2147483647. What a person sees
+    is which element is in front, so that is what this reads.
+
+    IT REFUSES TO PASS VACUOUSLY. If no trigger's box is under the open menu
+    there is nothing to overpaint, and a green run would mean only that the
+    cards had drifted apart — so the overlap is asserted first.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    cards = page.locator("#datasets .dataset-card")
+    assert cards.count() >= 2, (
+        "this guard needs a second card below the open menu; the stub's sources "
+        "with observations changed")
+
+    page.click('[data-open="LONG_AR"] .split-button-trigger')
+    page.wait_for_timeout(300)   # the options carry a 120ms entry animation
+    report = page.evaluate(_TOPMOST, "LONG_AR")
+
+    assert report["covered"], (
+        "no card's actions button lies under the open menu, so this proves "
+        "nothing: the cards or the menu changed size and the guard needs "
+        "re-aiming, not deleting")
+    for trigger in report["covered"]:
+        # ASCII in the message on purpose: a console that cannot print an em
+        # dash turns the one line a failing run shows into mojibake.
+        assert trigger["in_menu"], (
+            f"the actions button of card {trigger['card']} paints through the "
+            f"open menu, so the three-dots button appears twice - the defect "
+            f"the owner photographed. Topmost there: {trigger['what']}")
+    for row in report["rows"]:
+        assert row["in_menu"], (
+            f'"{row["label"]}" is covered by {row["what"]}, so clicking the '
+            f"row does something else or nothing")
+
+
 def test_data_rows_scroll_inside_the_browse_card_not_the_page(open_panel):
     page = open_panel()
     page.click(DATA_TAB)

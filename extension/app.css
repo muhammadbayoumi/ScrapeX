@@ -381,9 +381,10 @@
   .dataset-card:hover .dataset-card-open { color: var(--accent-ink); }
   .dataset-card-open svg { width: 1rem; height: 1rem; fill: currentColor; }
 
-  /* THE ACTIONS MENU ON A DATASET CARD, and the two things it inherited that
-     were wrong for this place. Both were mine, from the menu that replaced the
-     chevron, and both were visible in one screenshot.
+  /* THE ACTIONS MENU ON A DATASET CARD, and the three things that were wrong
+     for this place — two it inherited, and a third that the fix for the first one
+     caused. All three were mine, from the menu that replaced the chevron, and
+     each was visible in one screenshot the owner sent.
 
      ONE: the chevron was `position: absolute` in the corner. Its replacement is
      a real element, so it took the FIRST CELL of the card and pushed the whole
@@ -404,6 +405,29 @@
     inset-block-start: var(--sp-2);
     inset-inline-end: var(--sp-2);
     z-index: 1;
+  }
+  /* THREE: THE OPEN MENU WAS PAINTED OVER BY THE NEXT CARD'S BUTTON, so a ⋮
+     appeared TWICE — once on the card and once floating over the menu's third
+     row. The owner photographed it and asked «لماذا تظهر مرتين».
+
+     The cause is the `z-index: 1` immediately above, and it is a stacking-context
+     trap rather than a number that is too small. A positioned element with any
+     numeric z-index becomes a STACKING CONTEXT, so the open menu's own
+     `z-index: 120` (components.css, `.split-button-options`) is spent INSIDE this
+     wrapper and buys nothing outside it. Every card's wrapper then sits at level
+     1, ties are broken by document order, and the card BELOW paints on top of the
+     menu hanging over it. Raising 120 would have changed nothing, which is the
+     part worth writing down — measured with the wrapper left at 1: the following
+     card's trigger is still the topmost element at the centre of the "Recent
+     changes" row at 120, at 1200 and at 2147483647.
+
+     So the wrapper itself is lifted, and only while it is open: an open popover
+     belongs on the overlay layer, which is exactly what `.sx-select-list`,
+     `.account-menu` and `.finance-converter-options` on this screen already do,
+     and what webui.css does for `.source-filter-menu[open]`. A closed menu stays
+     at 1 so the cards keep the order they had. */
+  .dataset-card > .split-button:has(.split-button-menu[open]) {
+    z-index: var(--z-overlay);
   }
   /* Only the FLOOR is local now: the trigger is a 32px icon, so `min-width:
      100%` from the shared rule would let a one-word label make a menu narrower

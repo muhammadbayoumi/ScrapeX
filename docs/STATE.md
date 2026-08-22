@@ -1,7 +1,10 @@
 # State — where the work stands
 
-**Last updated: 2026-08-22.** `main` is at `afb8648` (#244). #243, #245 and #244 are
-merged.
+**Last updated: 2026-08-22.** `main` is at `4615a14` (#250). #243 through #250 are
+all merged — #246 (the engine's own updater) and #247–#250 landed after this line
+last said `afb8648` (#244), which is **five merges** of drift in one day. A commit
+pointer written into prose is stale by the time it is read: `git log --oneline -1
+origin/main` is the answer that cannot be.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -127,10 +130,26 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
-**[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — the engine he
-downloaded was built before its own fix.** `REQ-28`. The release gate now runs the
-binary the way a person runs it; the three things that actually unblock him are
-`OP-37`, `OP-32` and `OP-33`, and **all three are his**. See the section below.
+**The three-dots button appeared twice on a source card.** `REQ-30`, «لماذا تظهر
+مرتين», reported with screenshots on 2026-08-22 and fixed the same day. One CSS
+rule: `.dataset-card > .split-button` carried `z-index: 1`, which made every card's
+menu wrapper a **stacking context** and spent the open menu's own `z-index: 120`
+inside it — so all the wrappers tied at level 1 and the card BELOW painted its
+button through the menu hanging over it. The wrapper is now lifted to
+`var(--z-overlay)` while its menu is open, the layer three other popovers on that
+screen already use. Guarded by
+`test_panel_dom.py::test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button`,
+which **hit-tests what is in front** rather than reading a z-index back: measured,
+the defect survives the menu's own z-index going to 2147483647, so any assertion
+about that number would have passed on the broken build. The same screenshots
+produced `OP-42` — the muqawil cards carry no `⋮` at all, a different and
+deliberate cause, over-broad by exactly one entry.
+
+**[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — MERGED (`afb8648`);
+kept here because the three blockers it named are still his.** `REQ-28`. The release
+gate now runs the binary the way a person runs it; the three things that actually
+unblock him are `OP-37`, `OP-32` and `OP-33`, and **all three are his**. See the
+section below.
 
 **THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
 `R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is

@@ -552,6 +552,36 @@ fixed. **`--accent` is not a safe state colour**: device mode resolves it to the
 OS `AccentColor`, so it can collide with the fixed `--amber`. Guarded by
 `test_every_custom_property_a_stylesheet_reads_is_one_something_defines`.
 
+### A z-index cannot escape its own stacking context, so raising the number is not a fix
+
+A popover inside a repeated card was painted over by the NEXT card's button, and
+what the owner saw was the same button **twice** — once on its card and once
+floating over the open menu (`REQ-30`, 2026-08-22). The menu already carried
+`z-index: 120`; the card's wrapper carried `z-index: 1`.
+
+**Why:** any numeric z-index on a positioned element makes it a **stacking
+context**, and a descendant's z-index is then only ever compared with its
+siblings *inside* that context. The wrapper's `1` is what the outside world sees.
+Every card's wrapper tied at 1, ties break by document order, and the later card
+won. **Measured: the defect survives the menu going to 120, 1200 and
+2147483647** — the number was never the variable.
+
+**Apply:** when a popover is clipped or overpainted, look for a numeric z-index on
+an ANCESTOR before touching the popover's own, and lift **that** element — only
+while it is open, to `var(--z-overlay)`, which is what `.sx-select-list`,
+`.account-menu`, `.finance-converter-options` and `webui.css`'s
+`.source-filter-menu[open]` all already do. The extension's layers are three
+tokens (`--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`); a fourth number
+invented at a call site is the next instance of this bug.
+
+**And test it by hit-testing, not by reading the style back.** `elementFromPoint`
+at each row of the open menu answers the question a person asks — *what is in
+front?* — and an assertion on the computed z-index would have passed on the broken
+build, because the broken build's number was already large. Guarded by
+`tests/test_panel_dom.py::test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button`,
+which also refuses to pass if no button lies under the menu at all: a guard whose
+overlap has drifted away proves nothing and must say so rather than go green.
+
 ---
 
 ## 6 · Two OAuth clients, therefore two grants

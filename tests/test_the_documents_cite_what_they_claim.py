@@ -189,6 +189,19 @@ PINNED = (
     ("docs/BACKLOG.md", "scrapex/nativehost.py", 57, 'getattr(sys, "frozen", False)'),
     # And the module that generalised it, cited by OP-36's closing note.
     ("docs/BACKLOG.md", "scrapex/enginelaunch.py", 74, "def engine_argv("),
+    # OP-42 · the muqawil cards carry no actions button. All four of these are the
+    # entry's argument rather than colour, and the entry turns on the DIFFERENCE
+    # between them: the first two are the deliberate hide and the marker it keys
+    # on, the third is why five of the six entries must stay hidden, and the
+    # fourth is why the sixth should not be. A reader landing one line off any of
+    # them reads the entry as either a bug report about correct code or a licence
+    # to unhide the five that answer 400.
+    ("docs/BACKLOG.md", "extension/app.js", 4549,
+     'if (source.kind === "dataset") return "";'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 639, '"kind": "dataset",'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2710, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 986,
+     "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
