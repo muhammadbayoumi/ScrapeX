@@ -1,10 +1,11 @@
 # State — where the work stands
 
-**Last updated: 2026-08-22.** `main` is at `4615a14` (#250). #243 through #250 are
-all merged — #246 (the engine's own updater) and #247–#250 landed after this line
-last said `afb8648` (#244), which is **five merges** of drift in one day. A commit
+**Last updated: 2026-08-22.** `main` is at `5f63bb0` (#252). #243 through #252 are
+all merged — #246 (the engine's own updater) and #247–#252 landed after this line
+last said `afb8648` (#244), which is **seven merges** of drift in one day. A commit
 pointer written into prose is stale by the time it is read: `git log --oneline -1
-origin/main` is the answer that cannot be.
+origin/main` is the answer that cannot be — and this very line proves it twice, since
+#251 and #252 merged while it said `4615a14`.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -797,6 +798,27 @@ that rule, and it does not exist.
 **Four questions are open and are his** — O-1 to O-4 in
 [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).
 
+### The dataset cards said "no successful crawl yet" — FIXED 2026-08-22
+
+He reported it from the panel: `17,304 products` and, under it, *"no successful crawl
+yet"*, while the price sources beside them read *"Last crawled 16 August 2026"*.
+[OP-44](BACKLOG.md) carries the whole measurement; the two facts worth having here:
+
+**The missing `crawl_run` row was not the cause.** `_dataset_rows` handed the panel
+`"last_success": None` as a literal, and `freshnessLine` prints that sentence for a
+missing key — so writing muqawil a `crawl_run` row would have changed nothing on
+screen. It could not honestly be written either: `crawl_run.source_id` is NOT NULL
+into `source_site` and muqawil is in `site_profile`, which is the split `REQ-25`
+holds and his to decide.
+
+**So the date is derived from evidence already stored** —
+`max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says the
+dataset was built from. Measured read-only on his live warehouse while the profile
+crawl ran: `contractors` **2026-08-21T17:56:31Z**, `contractor_profiles`
+**2026-08-21T21:44:48Z**, against 155 `crawl_run` rows none of which is muqawil's.
+Six mutations, six killed. **The two registries are untouched** — this closes a
+display, not `REQ-25`.
+
 ---
 
 ## Track 5 · The source queue — eight countries and three product classes, none started
@@ -973,7 +995,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1481](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1543](../scrapex/webui/app.py), drawn by
 [extension/app.js:599](../extension/app.js) and `:633`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

@@ -636,6 +636,70 @@ def approve_candidate(
     return result
 
 
+#: The freshness read, as a constant so a test can put it through
+#: `EXPLAIN QUERY PLAN` and pin the index. `INDEXED BY` is the whole of the 390x
+#: below and nothing about the ANSWER changes when it is removed, so no
+#: assertion about a returned value can defend it.
+LAST_EVIDENCE_SQL = (
+    "SELECT max(p.captured_at) FROM generic_ingestion AS g "
+    "JOIN generic_page_snapshot AS p INDEXED BY ix_generic_page_snapshot_page "
+    "ON p.page_snapshot_id = g.source_snapshot_id "
+    "WHERE g.dataset_definition_id = ?"
+)
+
+
+def last_evidence_captured_at(conn: sqlite3.Connection,
+                              dataset_id: int) -> str | None:
+    """When this dataset was last FED A PAGE, read off the evidence itself.
+
+    THE DEFECT THIS ANSWERS. The panel's source card said *"no successful crawl
+    yet"* under `17,304 products` — and 17,304 rows plainly came from a crawl.
+    The price pipeline records one `crawl_run` row per ingest and the card reads
+    it; the generic pipeline records none, because `crawl_run.source_id` is
+    `NOT NULL REFERENCES source_site(source_id)` (db/engine/schema.sql:122) and
+    muqawil has no `source_site` row at all — it lives in `site_profile`, and
+    which registry a source lands in is the open question `REQ-25` holds. So the
+    card was reading a table that cannot describe a dataset, and answering
+    honestly about the wrong thing.
+
+    Nothing new is recorded to fix it. `generic_page_snapshot.captured_at` is
+    when a page was fetched and `generic_ingestion` is which pages this dataset
+    was built from — both already written on every crawl — so the freshness is
+    a read, not a column.
+
+    `generic_ingestion` AND NOT `generic_record.source_snapshot_id`, and the
+    difference is a re-crawl that changes nothing. A record keeps pointing at
+    the snapshot that last CHANGED it (`R-20`: unchanged means no revision), so
+    a confirming pass would leave the date stale — exactly the complaint. On his
+    warehouse, measured 2026-08-22: 3,883 ingestions against 2,139 distinct
+    record snapshots for `contractors`, and the two answers differ —
+    `17:56:31Z` from the ingestions, `17:54:31Z` from the records.
+
+    `INDEXED BY`, AND IT IS 390x. `ix_generic_page_snapshot_page` is
+    `(page_snapshot_id, captured_at)` (db/engine/schema.sql:843) and had no
+    reader; SQLite prefers the rowid because the planner cannot see that the row
+    it lands on carries a compressed 100 KB body. Measured on his 24,480-page
+    warehouse: **353-373 ms** on the rowid against **0.9 ms** on the covering
+    index, for the identical answer. A8 asks for the covering index to be noted;
+    this is the query that needed it. If the index is ever dropped, SQLite
+    raises rather than quietly paying the 373 ms — which is the failure anyone
+    would rather have.
+
+    AND NOT `max(page_snapshot_id)`, WHICH LOOKS EQUIVALENT AND IS NOT.
+    `save_snapshot` never supplies `captured_at`, so within one machine the ids
+    and the timestamps rise together and the newest id is the newest page — 0.2
+    ms instead of 0.9. `warehousemerge.py:269` breaks it: a merge INSERTs the
+    other machine's `captured_at` verbatim under freshly assigned local ids, so
+    after the merge `R-43` makes routine, the highest id can be the oldest page.
+    The 0.7 ms is not worth a claim that his own workflow falsifies.
+
+    None means no page has ever been ingested into this dataset. That is a real
+    answer and the card must say so in words.
+    """
+    row = conn.execute(LAST_EVIDENCE_SQL, (dataset_id,)).fetchone()
+    return row[0] if row is not None else None
+
+
 def list_datasets(
     conn: sqlite3.Connection,
     *,

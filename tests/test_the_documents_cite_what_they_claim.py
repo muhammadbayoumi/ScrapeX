@@ -88,7 +88,14 @@ DOCUMENTS = (
     "docs/APPROACHES.md",
 )
 
-SUFFIXES = "py|js|css|html|json|yml|yaml|sh|md|toml"
+# `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by
+# writing into it. OP-44's argument rests on two lines of `db/engine/schema.sql`
+# -- a NOT NULL foreign key and an index's column order -- and neither of them
+# was a citation as far as this regex was concerned, in a repository whose DDL is
+# 1,153 lines and 61 migrations. Measured before the change: four `.sql`
+# citations across the documents, all four still true, so nothing was being
+# forgiven; they were simply never asked.
+SUFFIXES = "py|js|css|html|json|yml|yaml|sh|md|toml|sql"
 # `path:line` or `path:start-end`. The lookbehind keeps the match from starting
 # inside a longer path, so `scrapex/webui/app.py:1375` is one citation and not two.
 CITATION = re.compile(
@@ -112,10 +119,10 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1481, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1481, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -133,8 +140,8 @@ PINNED = (
      'assert.equal(manifest.version, VECTORS.version)'),
     ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
     # OP-2's two worker_alive computations, one of which the fix never reached.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1492, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2480, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1554, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2542, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
@@ -198,13 +205,40 @@ PINNED = (
     # to unhide the five that answer 400.
     ("docs/BACKLOG.md", "extension/app.js", 4549,
      'if (source.kind === "dataset") return "";'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 639, '"kind": "dataset",'),
-    # 2710 -> 2725 on 2026-08-22: #252 measured this line on `main` at 4615a14 and
-    # #251 landed first, adding 15 lines to `app.py` above it. Two PRs, neither
-    # wrong on its own base, and `main` red between the second merge and this fix.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2725, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 986,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 697, '"kind": "dataset",'),
+    # 2710 -> 2725 -> 2787, and the third move is the same story as the first two.
+    # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
+    # lines to `app.py` above it, and `main` was red between the second merge and
+    # the fix. This branch then inserted above it again. Three pull requests, none
+    # wrong on its own base -- which is why the number is re-read out of the file
+    # on every rebase and never adjusted by arithmetic.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2787, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1048,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
+    # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
+    # crawled rows. Four citations carry the whole argument, and a reader sent one
+    # line off would conclude the entry is wrong about each of them in turn.
+    #
+    # The sentence itself, so it is clear the card reads a MISSING key and not a
+    # missing crawl -- which is why writing a `crawl_run` row would not have moved
+    # this line at all.
+    ("docs/BACKLOG.md", "extension/app.js", 4489, "const last = s.last_success;"),
+    # Why the row could not honestly be written: the column is NOT NULL into
+    # source_site, and muqawil is in site_profile.
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
+     "REFERENCES source_site(source_id)"),
+    # The index that is worth 390x and had no reader. The entry's claim is about
+    # its COLUMN ORDER, so it has to be read where the order is written.
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 843,
+     "CREATE INDEX ix_generic_page_snapshot_page"),
+    # And the reason `max(page_snapshot_id)` is not a cheaper spelling: the merge
+    # carries the other machine's captured_at under fresh local ids. LESSONS §2
+    # generalises it past snapshots, so it is pinned in both documents -- the
+    # generalisation is worth nothing if the one INSERT it rests on has moved.
+    ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269,
+     "INSERT INTO generic_page_snapshot "),
+    ("docs/LESSONS.md", "scrapex/warehousemerge.py", 269,
+     "INSERT INTO generic_page_snapshot "),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

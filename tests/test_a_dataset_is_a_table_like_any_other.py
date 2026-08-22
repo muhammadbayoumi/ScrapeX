@@ -966,3 +966,180 @@ def test_a_site_label_cannot_collide_with_an_observed_key():
         # A card label of ANY wording lands under `card_`, so it cannot reach here.
         assert f"card_{_slug('Observed Last Seen')}" != key
         assert f"x_{_slug('Observed Last Seen')}" != key
+
+
+# ---- and it has to say WHEN it was crawled, because 17,304 rows came from one ----
+#
+# THE DEFECT, in his own screen. `muqawil.org · contractors [Row 17,304]` sat above
+# `17,304 products` and then `no successful crawl yet`, while `aramco.com` beside it
+# read `Last crawled 16 August 2026, 8:00 AM`. Measured on his warehouse the same
+# day: `crawl_run` holds 155 rows across twelve source keys and NOT ONE of them is
+# muqawil, `generic_page_snapshot` holds 24,480 pages, and `generic_record` holds
+# 17,304 + 704 rows for the two datasets. The card was reading the price pipeline's
+# ledger about a dataset that can never appear in it — `crawl_run.source_id` is NOT
+# NULL into `source_site`, and muqawil lives in `site_profile`.
+
+
+def _dataset_id(conn, dataset_key: str = "contractors") -> int:
+    row = conn.execute(
+        "SELECT dataset_definition_id FROM dataset_definition WHERE dataset_key = ?",
+        (dataset_key,)).fetchone()
+    assert row is not None, f"no dataset called {dataset_key!r}"
+    return int(row["dataset_definition_id"])
+
+
+def _fed(conn, captured_at: str, url: str, dataset_key: str = "contractors") -> int:
+    """One more page into a dataset, captured at a STATED moment.
+
+    `captured_at` is a column DEFAULT and `generic_page_snapshot` is immutable by
+    trigger — `trg_generic_page_snapshot_immutable_update` aborts any UPDATE — so
+    stating it in the INSERT is the only way to place evidence in time. It is not a
+    test-only trick either: `warehousemerge.py:269` carries the other machine's
+    `captured_at` verbatim for exactly the same reason.
+    """
+    cursor = conn.execute(
+        "INSERT INTO generic_page_snapshot "
+        "(source_url, html_content, content_hash, captured_at) VALUES (?,?,?,?)",
+        (url, LISTING, f"hash-{url}", captured_at))
+    snapshot_id = int(cursor.lastrowid)
+    candidate = listing_candidate(LISTING)
+    service.approve_candidate(conn, snapshot_id, CandidateApproval(
+        table_index=0, site_key="muqawil_org", site_display_name="SCA",
+        dataset_key=dataset_key, dataset_name="Contractors",
+        fields=[ApprovalField(field_key=f.field_key, display_name=f.source_name,
+                              data_type="text",
+                              identity=(f.field_key == "contractor_id"))
+                for f in candidate.fields]), candidate=candidate)
+    return snapshot_id
+
+
+def test_the_freshness_is_the_newest_page_the_dataset_was_fed(conn):
+    """Not the oldest, and not whichever page happens to be approved last.
+
+    A crawl of muqawil's listing runs for hours — his `contractors` evidence spans
+    2026-08-20T05:52:28Z to 2026-08-21T17:56:31Z — so the two ends of it are a day
+    and a half apart. The line says *"Last crawled"*, and only one end of that span
+    answers it.
+    """
+    stored(conn)
+    dataset_id = _dataset_id(conn)
+    _fed(conn, "2019-03-04T05:06:07Z", "https://muqawil.org/en/contractors?page=2")
+    _fed(conn, "2031-03-04T05:06:07Z", "https://muqawil.org/en/contractors?page=3")
+    _fed(conn, "2024-03-04T05:06:07Z", "https://muqawil.org/en/contractors?page=4")
+
+    assert service.last_evidence_captured_at(conn, dataset_id) == "2031-03-04T05:06:07Z"
+
+
+def test_freshness_belongs_to_its_own_dataset_and_not_to_the_warehouse(conn):
+    """A page fed to the profiles dataset must not date the listing one.
+
+    Both muqawil datasets are crawled from the same site by the same command, and
+    on his warehouse they answer two different instants — 2026-08-21T17:56:31Z for
+    `contractors` and 2026-08-21T21:44:48Z for `contractor_profiles`. A read that
+    lost the dataset from its WHERE clause would give both the later one and nothing
+    on either card would look wrong.
+    """
+    stored(conn)
+    listing = _dataset_id(conn)
+    _fed(conn, "2027-01-01T00:00:00Z", "https://muqawil.org/en/contractors?page=9")
+    _fed(conn, "2033-12-31T23:59:59Z", "https://muqawil.org/en/contractors/1/2",
+         dataset_key="contractor_profiles")
+    profiles = _dataset_id(conn, "contractor_profiles")
+
+    assert service.last_evidence_captured_at(conn, listing) == "2027-01-01T00:00:00Z"
+    assert service.last_evidence_captured_at(conn, profiles) == "2033-12-31T23:59:59Z"
+
+
+def test_a_dataset_nothing_has_fed_reports_no_crawl_rather_than_inventing_one(conn):
+    """"Never" is a real answer. The whole complaint is a card that stated one thing
+    while the warehouse held another, so a freshness with no evidence behind it must
+    be absent and not `now`."""
+    from scrapex.webui.app import _dataset_freshness
+
+    stored(conn)
+    unfed = conn.execute(
+        "INSERT INTO dataset_definition "
+        "(site_profile_id, dataset_key, original_name, discovery_method) "
+        "SELECT site_profile_id, 'nothing_yet', 'nothing_yet', 'manual' "
+        "FROM site_profile LIMIT 1")
+
+    assert service.last_evidence_captured_at(conn, int(unfed.lastrowid)) is None
+    assert _dataset_freshness(conn, int(unfed.lastrowid)) is None
+
+
+def test_the_freshness_read_goes_through_the_covering_index(conn):
+    """The 390x, pinned — because no assertion about the ANSWER can defend it.
+
+    `ix_generic_page_snapshot_page` is `(page_snapshot_id, captured_at)` and had no
+    reader before this one. SQLite prefers the rowid, since the planner cannot see
+    that the row it lands on carries a compressed body of ~100 KB: measured on his
+    24,480-page warehouse, **353-373 ms** by rowid against **0.9 ms** by the
+    covering index, for the identical string. `INDEXED BY` is what chooses, and
+    removing it is invisible to every other test in this file.
+    """
+    stored(conn)
+    plan = " ".join(
+        str(row[3]) for row in
+        conn.execute("EXPLAIN QUERY PLAN " + service.LAST_EVIDENCE_SQL, (1,)))
+
+    assert "ix_generic_page_snapshot_page" in plan, (
+        f"the freshness read fell back to the rowid, which cost 373 ms: {plan}")
+
+
+# MARKED, AND ONLY THIS ONE. `tests/test_the_extension_gate_is_complete.py` scans
+# for the panel's directory in any test file's source and requires the mark, because
+# a file that guards the panel and lacks it silently stops running on exactly the
+# pull requests it was written for. This file names `app.js` twice in prose and reads
+# nothing under that tree — but THIS test is the one that has to run when the panel
+# changes: it pins the shape `freshnessLine` reads, and the defect it covers was the
+# server and the panel disagreeing about that shape. Per-test rather than
+# module-level, the way `test_the_lint_gate_cannot_be_quietly_widened.py` does it,
+# and for the reason that file states: only the test that guards the panel needs to
+# run on a panel-only change.
+@pytest.mark.extension
+def test_the_card_reports_the_crawl_that_produced_its_rows(tmp_path):
+    """END TO END, through the route the panel actually calls.
+
+    `freshnessLine` (extension/app.js) prints "no successful crawl yet" whenever
+    `last_success` is missing or carries no `started_at` — and `_dataset_rows` used
+    to hand it the literal `None`. So the honest fix has to arrive at THIS key in
+    THIS shape, or the card goes on saying it whatever the warehouse holds.
+    """
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.webui.app import create_app
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                               pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        stored(conn)
+        # DATED AHEAD OF `stored`'s page, which carries `now` because `captured_at`
+        # is a column default. A fixed past instant would lose to it and the
+        # assertion would be about the clock instead of about the newest page.
+        _fed(conn, "2031-08-21T17:56:31Z", "https://muqawil.org/en/contractors?page=2")
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = TestClient(create_app(databases=registry))
+    row = next(r for r in client.get("/api/sources").json()["sources"]
+               if r["source_key"] == "contractors")
+
+    assert row["last_success"], (
+        "the card says 'no successful crawl yet' over rows a crawl produced")
+    assert row["last_success"]["started_at"] == "2031-08-21T17:56:31Z", (
+        "the line reads 'Last crawled <started_at>', so it holds the newest capture")
+    # AND NO MEASURE BESIDE THE DATE. Both surfaces print `rows_seen` after it
+    # and fall back to `requests_count`, and a dataset has an honest number for
+    # neither: *seen* is `dataset_sighting`'s word — 17,417 sighted against
+    # 17,304 stored on his warehouse — and the stored pages are not the requests
+    # the crawl spent. Absent, which `last_successful_run` documents 0 as.
+    assert row["last_success"]["rows_seen"] == 0, (
+        "the stored row count is not what the site SHOWED us; "
+        "dataset_sighting answers that and answers it differently")
+    assert row["last_success"]["requests_count"] == 0
+    # The row count still reaches the card — on its own line, where it is right.
+    assert row["products"] == 4

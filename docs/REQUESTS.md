@@ -88,6 +88,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 | [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
+| [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
 
 ---
 
@@ -1503,3 +1504,39 @@ has neither half and its data is already on disk.
 
 **Not started.** `REQ-31` (the profile parser) is what is in flight, and this is the
 surface it feeds.
+
+---
+
+## REQ-33 · The dataset cards said no successful crawl over crawled rows
+**Captured 2026-08-22 · Done — the date is derived from the evidence; the two registries stay his**
+
+> He reported it from the extension's source list. The two muqawil datasets read
+> `17,304 products` / *"no successful crawl yet"* and `704 products` / *"no
+> successful crawl yet"*, while `aramco.com` and `spark-eshop.com` beside them read
+> *"Last crawled 16 August 2026, 8:00 AM — Africa/Cairo · N rows seen"*.
+> **17,304 rows plainly did come from a crawl.**
+
+**Recorded in English, the same departure `REQ-28` documents.** His own words did not
+reach this session, and writing an Arabic quote to satisfy rule 2 below would put
+words in his mouth — the one thing this file exists to prevent. If he said it in
+Arabic, that quote replaces the paragraph above.
+
+**The cause was not the missing `crawl_run` row**, which is the finding that decided
+the fix. `_dataset_rows` handed the panel `"last_success": None` as a literal, and
+`freshnessLine` prints that sentence for a missing key — so giving muqawil a
+`crawl_run` row would have changed nothing on his screen. It could not honestly be
+written either: `crawl_run.source_id` is NOT NULL into `source_site`, muqawil is in
+`site_profile`, and that split is [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user)'s
+to settle.
+
+**So the date is read off the evidence the crawl already stored** —
+`max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says the
+dataset was built from. Nothing new is recorded, and
+[`GENERIC-FETCH-SEAM.md`](GENERIC-FETCH-SEAM.md) had already asked for exactly that:
+*"It may be enough to ask `generic_ingestion`; check before adding a column."*
+
+**What this did NOT do, and it is his:** merge the two registries. A dataset still
+has no run ledger of its own, and whether a generic crawl belongs in the price job
+queue is still the open question at the foot of that document. The measurement, the
+four findings it produced and the mutation results are in
+[BACKLOG.md](BACKLOG.md) as `OP-44`.

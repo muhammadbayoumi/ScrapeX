@@ -305,6 +305,48 @@ def _source_domain(value: str | None) -> str:
     return host[4:] if host.lower().startswith("www.") else host
 
 
+def _dataset_freshness(conn, dataset_id: int) -> dict | None:
+    """A dataset's freshness in the shape both source surfaces already read.
+
+    THE FIELD NAMES ARE `ingest.last_successful_run`'s, ON PURPOSE, and one of
+    them earns a word. `started_at` is what `freshnessLine` (extension/app.js)
+    and `_source_list.html` print after *"Last crawled"*, so it holds the NEWEST
+    capture. For a price run that instant is when the run began, because the run
+    and its ingest are one transaction; the generic pipeline separates fetching
+    from interpreting by design (docs/GENERIC-FETCH-SEAM.md), so there is no run
+    interval to report and the honest instant is the last moment a page arrived.
+    Its oldest page would understate the freshness by the length of the crawl —
+    on his `contractors` dataset, by a day and twelve hours.
+
+    AND IT CARRIES NO MEASURE BESIDE THE DATE, WHICH IS A DECISION. Both
+    surfaces print `rows_seen` after the date, then fall back to
+    `requests_count`; a dataset has an honest number for neither.
+
+    * **Not `rows_seen`.** The obvious candidate is the dataset's own row count —
+      and *seen* already means something else in this warehouse. `dataset_sighting`
+      is *what the site showed us*, and on his `contractors` the two differ:
+      **17,417 sighted against 17,304 stored**. Printing the stored count under
+      the word `seen` would put a wrong answer to a question this schema can
+      answer exactly. The card states the count on its own line anyway.
+    * **Not `requests_count`.** The stored pages behind a dataset are not the
+      requests its crawl spent: retries, 304s and the Arabic half of every
+      muqawil page are all requests that leave no second row.
+
+    So both stay 0, which `last_successful_run` already documents as an absence
+    rather than a measurement of zero, and the line reads *"Last crawled …"* and
+    stops.
+
+    None when nothing has ever been ingested. The card then says "no successful
+    crawl yet", which at that point is true.
+    """
+    captured_at = extract_service.last_evidence_captured_at(conn, dataset_id)
+    if not captured_at:
+        return None
+    return {"started_at": captured_at, "finished_at": captured_at,
+            "rows_seen": 0, "requests_count": 0,
+            "products_discovered": 0, "errors_count": 0}
+
+
 TEMPLATES.env.filters["source_domain"] = _source_domain
 # The sidebar renders from the shared UI contract (scrapex/ui_manifest.py) —
 # the same module /api/ui serves to the panel, so the surfaces cannot drift.
@@ -635,6 +677,22 @@ def create_app(
             return []
         general = general_read_conn()
         try:
+            # READ WHOLE, THEN SHAPED. The freshness is a second query per
+            # dataset, and running it inside the walk of this one would nest a
+            # read in the middle of a GROUP BY scan for no gain — there are as
+            # many datasets as a site has tables, and the aggregate above is
+            # already the expensive half.
+            catalogue = general.execute(
+                "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
+                "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
+                "FROM dataset_definition AS d "
+                "JOIN site_profile AS s "
+                "ON s.site_profile_id = d.site_profile_id "
+                "LEFT JOIN generic_record AS r "
+                "ON r.dataset_definition_id = d.dataset_definition_id "
+                "AND r.status = 'active' "
+                "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id"
+            ).fetchall()
             return [{
                 "kind": "dataset",
                 "source_key": row["dataset_key"],
@@ -647,17 +705,21 @@ def create_app(
                 # meaning for a company, so it carries the same count rather
                 # than a zero that would read as an empty dataset.
                 "observations": row["rows"], "products": row["rows"],
-                "last_success": None, "kept_pages": 0, "kept_at": None,
-            } for row in general.execute(
-                "SELECT d.dataset_key, d.display_name, d.original_name, "
-                "s.base_url, count(r.generic_record_id) AS rows "
-                "FROM dataset_definition AS d "
-                "JOIN site_profile AS s "
-                "ON s.site_profile_id = d.site_profile_id "
-                "LEFT JOIN generic_record AS r "
-                "ON r.dataset_definition_id = d.dataset_definition_id "
-                "AND r.status = 'active' "
-                "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id")]
+                # WHEN THE DATA ON SCREEN WAS GATHERED, and it is DERIVED rather
+                # than recorded. The card printed "no successful crawl yet"
+                # under 17,304 rows, because this key was the literal `None` and
+                # `freshnessLine` says so in words when it is. A price source
+                # gets it from `crawl_run`; a dataset can have no row there at
+                # all — `crawl_run.source_id` is NOT NULL into `source_site` and
+                # muqawil is in `site_profile`, which is the split `REQ-25`
+                # holds — so this reads the evidence the crawl already stored.
+                # Same SHAPE as `ingest.last_successful_run`, deliberately: the
+                # panel and `_source_list.html` both draw `last_success`, and a
+                # second shape would be a second code path in each of them.
+                "last_success": _dataset_freshness(
+                    general, int(row["dataset_definition_id"])),
+                "kept_pages": 0, "kept_at": None,
+            } for row in catalogue]
         finally:
             general.close()
 
