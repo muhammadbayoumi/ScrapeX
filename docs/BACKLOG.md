@@ -1009,7 +1009,7 @@ has data consequences:
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
 
-### OP-39 · The test suite writes into the owner's live crawl log
+### OP-41 · The test suite writes into the owner's live crawl log
 
 **Found 2026-08-21, by reading the log to check on a crawl.**
 

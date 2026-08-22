@@ -81,6 +81,25 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
         f"number is {prefix}-{max(numbers) + 1:02d}.")
 
 
+#: NUMBERS AN OPEN PULL REQUEST ALREADY HOLDS, and why this list has to exist.
+#:
+#: Contiguity is a property of `main`, not of a branch. A branch that deliberately skips a
+#: number to avoid colliding with another session's open pull request CANNOT be contiguous
+#: — and the first version of this guard failed exactly that branch, correctly by its own
+#: rule and unhelpfully in fact.
+#:
+#: So a reservation is DECLARED rather than tolerated, the way `PINNED` declares a citation
+#: in the guard next door. Two things follow: the gap check knows the hole is deliberate,
+#: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
+#: pull request merges** — a reservation left behind is a permanent hole nobody owns.
+RESERVED: dict[str, dict[int, str]] = {
+    "R": {},
+    "REQ": {},
+    "OP": {39: "#246 claude/engine-self-update", 40: "#246 claude/engine-self-update"},
+    "DEC": {},
+}
+
+
 @pytest.mark.parametrize(("document", "prefix", "what"), REGISTERS,
                          ids=[f"{prefix}-in-{Path(doc).name}"
                               for doc, prefix, _ in REGISTERS])
@@ -98,7 +117,8 @@ def test_the_numbers_run_without_a_hole(document: str, prefix: str, what: str):
     """
     numbers = _numbers(document, prefix)
     assert numbers, f"{document} declares no {prefix}- entries at all"
-    missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers))
+    reserved = RESERVED.get(prefix, {})
+    missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers) - set(reserved))
 
     assert not missing, (
         f"{document} has no {prefix}-{missing[0]:02d} but does have "
@@ -119,6 +139,17 @@ def test_the_guard_reads_the_registers_it_claims_to():
     assert found["REQ"] >= 27, found
     assert found["OP"] >= 32, found
     assert found["DEC"] >= 12, found
+
+
+def test_a_reserved_number_is_not_also_declared():
+    """A RESERVATION AND A HEADING ARE CONTRADICTORY. If a number is both reserved for
+    another branch and declared here, then the collision the reservation exists to avoid
+    has already happened and the gap check is looking the other way."""
+    for document, prefix, _what in REGISTERS:
+        held = set(RESERVED.get(prefix, {}))
+        assert held.isdisjoint(_numbers(document, prefix)), (
+            f"{prefix}: {sorted(held & set(_numbers(document, prefix)))} is reserved for "
+            f"another branch AND declared in {document}")
 
 
 def test_a_duplicate_would_actually_be_caught(tmp_path: Path):
