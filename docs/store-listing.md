@@ -92,15 +92,40 @@ outside the browser. Be specific and do not soften it.
 > server. A browser extension cannot write to a local database or run a crawl on
 > a schedule, so the collecting is done by a separate program, ScrapeX-Engine.
 >
-> **THE USER DOWNLOADS AND RUNS THAT PROGRAM THEMSELVES.** This extension does
-> not download, install, execute or update it. The Engine page links to the
-> published release and shows the steps; every action on the file is the user's.
+> **THE USER RUNS THAT PROGRAM THEMSELVES.** This extension can start the
+> download when the user presses Download, and it does nothing else to the file:
+> it does not install it, does not execute it, and cannot update it. Running the
+> downloaded file is the user's own action, taken outside the browser.
+>
+> Updates afterwards are the Engine's own affair, not this extension's: the
+> Engine checks the published release feed, fetches an update itself, and
+> verifies it against the SHA-256 the release publishes before replacing
+> anything. The panel only shows what the Engine reports and asks whether to go
+> ahead.
 >
 > Native messaging is how this panel exchanges data with that program once the
 > user has installed it — the same arrangement password managers and hardware
 > wallets use. Nothing is sent to any remote host through this channel: the
 > other end is a program on the same machine, and the panel refuses to talk to
 > it at all if its version does not match this extension's.
+
+### `downloads`
+
+**Added in 0.2.2, and it replaced something worse.** Before it, pressing
+Download opened the release URL in a new tab and the panel let go — no progress,
+no completion, no way to tell whether a 70 MB file had arrived. On a slow
+connection that is a button that appears to do nothing.
+
+> ScrapeX-Engine is a separate program the user installs on their own computer.
+> When the user presses **Download engine**, this permission is what lets the
+> panel start that one download, show its progress, and then reveal the finished
+> file in the user's Downloads folder.
+>
+> It is used for exactly one file — the published ScrapeX-Engine release from the
+> project's own GitHub release page — and only in response to that press. The
+> panel never reads the contents of any downloaded file, never touches downloads
+> it did not start, and never runs anything. Installing the Engine is the user's
+> own action.
 
 ### `storage`
 
