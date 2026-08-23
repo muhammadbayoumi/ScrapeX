@@ -712,7 +712,7 @@ def create_app(
                 # (`templates/_source_overview.html`). So a contractor directory
                 # still reads "Products 17,304" THERE — the same defect this
                 # branch fixed on the panel, on the surface this branch did not
-                # touch. Recorded as `OP-53` rather than fixed here, because
+                # touch. Recorded as `OP-61` rather than fixed here, because
                 # that page shows four tiles and two of them are meaningless for
                 # a directory, which is a design question and not a noun.
                 "observations": row["rows"], "products": row["rows"],

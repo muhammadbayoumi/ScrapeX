@@ -201,9 +201,11 @@ RESERVED: dict[str, dict[int, str]] = {
         # grepping the refs would find TWO holders and think this row wrong. It is
         # recorded rather than smoothed over, because this file's own scar is a row
         # that named a holder who had moved and passed every guard while doing it.
-        # When that branch's 63 is pushed, delete these two words and nothing else.
-        61: "branch feat/the-engine-knows-which-code-it-is-running "
-            "(card branch's duplicate 61 ruled to 63; renumber not yet pushed)",
+        # THE 63 IS NOW PUSHED — `origin/fix/one-card-per-site-and-an-honest-noun`
+        # declares `OP-63` and no ref declares its old 61 — so the parenthetical this
+        # row carried has been deleted exactly as the line above instructed, and
+        # nothing else with it. The row now names one holder a reader can check.
+        61: "branch feat/the-engine-knows-which-code-it-is-running",
     },
     "DEC": {},
 }

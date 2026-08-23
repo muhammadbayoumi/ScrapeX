@@ -302,7 +302,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 | where | what it calls | verdict |
 |---|---|---|
 | `scrapex/webui/app.py:1673` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2666` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:2722` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2666`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2722`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1793,7 +1793,7 @@ worse for a dataset"* ([scrapex/webui/app.py:697](../scrapex/webui/app.py#L697))
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2911](../scrapex/webui/app.py#L2911)).
+for anything else ([scrapex/webui/app.py:2967](../scrapex/webui/app.py#L2967)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
@@ -2584,7 +2584,7 @@ and the worry that `contractstamp` reads a `.py` at runtime was refuted — it i
 developer-only path.
 
 
-### OP-53 · The word "products" over a contractor directory, on two surfaces
+### OP-61 · The word "products" over a contractor directory, on two surfaces
 
 **Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
 is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data
@@ -2639,6 +2639,27 @@ is already `Row`, so the line above reads `[Row 17,304]`, and the Drive offline 
 in the same function already prints `<n> rows`. The COVERAGE label is the one word
 taken from the site, and it is the child dataset's stored `display_name` — what the
 approval recorded, never ours.
+
+**`rows` IS THE ANSWER, NOT A FALLBACK, and the distinction matters because nothing
+has been ruled here.** No ruling covers the boundary between `products` and a
+directory, so this is a choice and it is recorded as one: a generic word that is true
+of every dataset beats a specific word that is true of one and invented for the rest.
+The moment the site itself gives us a word for what a row IS — not what the table is
+called, which `display_name` already holds — that word wins and this branch should be
+revisited. **His call if he wants a different word;** the reason for this one is above.
+
+> **CHECKED AGAINST `R-45`'s CORRECTION, 2026-08-23, because that correction landed
+> while this was open.** #261 measured that the per-row record card **has existed on
+> the engine since 2026-07-22** — 967 lines of `grid.js`, opened by row *selection*,
+> which is why a census searching for `rowFormatter` missed it — so `R-45`'s own table
+> was wrong about the card, and products have it while contractors do not.
+>
+> **None of that moves the noun.** This entry rests on `R-45` **part 1** — *"WE NEVER
+> TRANSLATE. The site's words are the record… A mapping we invent is our claim dressed
+> as the site's data"* — and the correction is about **part 2**, whether the row's card
+> exists and what it costs. The ruling's own words are that it *"stands unchanged"*.
+> Re-checked rather than assumed, since a reasoning chain resting on a ruling that has
+> just been corrected is exactly the thing worth re-reading.
 
 #### The open half: the engine's own page says it too
 
@@ -4096,7 +4117,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2666` that the fix never reached
+   second `worker_alive` computation at `app.py:2722` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been
