@@ -238,8 +238,14 @@ A session fixed that by moving the check into the artefact. Record these five fa
 instead of plausible:
 
 ```bash
-OUT=<run log>  EXIT=<exit status>  META=<provenance>
-rm -f "$OUT" "$EXIT" "$META"
+# ONE FILE PER RUN, NAMED FOR THE COMMIT. Never a fixed path -- see below.
+head=$(git rev-parse --short HEAD)
+RUN="run-${head}-$(date -u +%Y%m%dT%H%M%SZ).log"
+
+# REFUSE a second concurrent run rather than interleave into one artefact.
+# `mkdir` is atomic; a plain -f test is not.
+mkdir .suite.lock 2>/dev/null || { echo "another run holds .suite.lock"; exit 1; }
+trap 'rmdir .suite.lock' EXIT
 
 # A stale .pyc kept a mutation alive through a byte-identical restore -- see §7.
 find . -name '*.pyc' -delete 2>/dev/null
@@ -253,11 +259,12 @@ started=$(date -u +%s)
   echo "worktree:    $(git status --porcelain | wc -l) uncommitted lines"
   echo "newest edit: ${newest_edit}"
   echo "started:     ${started} ($(date -u -d "@${started}" +%Y-%m-%dT%H:%M:%SZ))"
-} > "$META"
+  echo "---"
+} > "$RUN"          # <- the header goes in the SAME file as the result
 
-SCRAPEX_FULL_MIGRATIONS=1 python -m pytest -q > "$OUT" 2>&1
-status=$?          # <- the line IMMEDIATELY after pytest, nothing in between
-printf '%s\n' "$status" > "$EXIT"
+SCRAPEX_FULL_MIGRATIONS=1 python -m pytest -q >> "$RUN" 2>&1
+status=$?           # <- the line IMMEDIATELY after pytest, nothing in between
+printf 'PYTEST_EXIT=%s\n' "$status" >> "$RUN"
 ```
 
 **THE INVARIANT: a green is only a green if `started` > `newest edit` AND `worktree`
@@ -280,6 +287,29 @@ failures in it.
   everything else on this page: **a check that reads as passing because its input
   disappeared.** The session that contributed this block found the gap in its own
   runner while generalising it.
+
+**And two defects that were in THIS BLOCK as first written, found by the session that had
+to live with it.** Both are corrected above; they are recorded here because a document
+that quietly fixes itself teaches nobody.
+
+- **Never a fixed log path, and put the header in the same file as the result.** The first
+  version wrote `$OUT`, `$EXIT` and `$META` to three fixed paths and truncated them on
+  start. **Measured 2026-08-23: two runs of two different commits interleaved into one
+  file**, both appending after a second truncation, leaving *two* `PYTEST_EXIT` lines.
+  Reading the tail gave `1`; the task notification for that run reported `0`. **Neither
+  reading was attributable and the history was gone, because the successor had overwritten
+  it.** A fixed log path is a measurement whose base its own successor erases — the exact
+  failure this block exists to prevent, occurring inside the block. The session quoted a
+  figure from that log to the primary before catching it and then **withdrew it
+  unprompted**, which is the only reason the defect is known at all.
+- **A field that can only ever read zero is worse than no field.** Rebuilding the runner,
+  that session added a `concurrent pytest processes` count so contention would be visible.
+  On its first run the field read **0** while two other sessions' suites were demonstrably
+  live: `ps -W` under Git Bash reports **executable names and never arguments**, so a grep
+  for `pytest` matches nothing, always. It was caught by cross-checking against the Windows
+  process list rather than trusting a brand-new instrument. **A field added to make a run
+  trustworthy became the least trustworthy thing in it.** So when you add a check, make it
+  FAIL on purpose first — otherwise you have added a decoration.
 
 **Audit for this rather than waiting for it.** One command over every worktree:
 
