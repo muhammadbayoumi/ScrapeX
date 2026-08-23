@@ -2542,8 +2542,29 @@ GET /source/contractors -> 200, 42,058 bytes
 duplicates the first**: `Products` is the meaningless field, `Variants` and `Matched`
 are price-path concepts a company has none of, and `Data rows` is the honest number
 already. So this is not the panel's one-line fix wearing a different template — it is a
-question about what a dataset's overview should show at all, which is his call under
-`W3`. Left here with the measurement rather than guessed at.
+question about what a dataset's overview should show at all.
+
+#### The options, per `W3`, because this one is his
+
+| | what it does | effort | risk | what it costs later |
+|---|---|---|---|---|
+| **(a) do nothing** | the tile keeps reading `Products 17,304` over a directory | none | the engine page goes on saying what the panel stopped saying — **two surfaces disagreeing about the same rows**, which is the shape `#255` already had to fix once | the disagreement is the maintenance |
+| **(b) rename the one tile** | `Products` → `Rows` when `kind == dataset` | one line + a guard | **low, and it looks finished when it is not**: `Variants 0` and `Matched 0` still state price-path facts about a company | invites a third fix later for the same panel |
+| **(c) the tile SET follows the kind** | a dataset shows `Rows` and its coverage; a price source keeps all four | ~half a day, template + a shape the template can read | the tile list becomes data rather than a literal — the same move `countLine` just made on the panel | lowest: `jobs` and `tenders` need no new template work |
+
+**Recommendation: (c)**, mapped to **P1** (one source of truth for what a card shows —
+the panel now decides its noun from the engine's marker, and the page deciding its
+tiles from a hardcoded four is the same defect one surface over) and **P3** (not a
+premature abstraction: there are already two kinds and `CLAUDE.md` names two more
+coming). **(b) is the trap** — it is what "fix the noun" sounds like, and it would
+leave two of the three wrong tiles standing while reading as done.
+
+**The question for him:** *for a dataset like the contractor directory, should the
+overview show only the row count and how much of it has been fetched — or do you want
+the four tiles kept, with the ones that do not apply shown as blank rather than `0`?*
+`0` is the specific problem: it reads as a measured zero rather than as "not a thing
+this source has", which is the same distinction `last_successful_run` already documents
+for a crawl that never ran.
 
 ## 3. Decided, not yet built
 
