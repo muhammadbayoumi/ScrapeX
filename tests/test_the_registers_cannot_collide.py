@@ -177,29 +177,38 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
-        # 60 IS THE WEAKEST ROW IN THIS TABLE AND SAYS SO, which is the only honest
-        # way to write it. This branch declared `OP-61` after #261 took 53..59, so
-        # 60 became a hole here. It is held by another session on the primary's
-        # word — «OP-60 is taken, confirmed by me» — and **no pushed ref carries
-        # it**: every remote branch was searched for `OP-60` in `docs/BACKLOG.md`
-        # and none has it, so this row cannot name the branch that the rule in
-        # `ORCHESTRATION.md` §3 requires, and inventing one would be worse than
-        # admitting the gap.
+        # 60, 61 AND 62 ARE THIS BRANCH'S HOLES, created when it took `OP-63` after
+        # #261 declared 53..59. Two of the three name a ref because a SWEEP found
+        # them, and that sweep is the point of this comment.
         #
-        # THE RULE IT FALLS SHORT OF IS DELIBERATE AND STILL RIGHT: a holder must be
-        # "a branch ref or a PR number, never a description of a session", because
-        # sessions do not outlive their branches. The same file already carries the
-        # softer case — 45, 49 and 50 rest on an unpushed Drive renumber and their
-        # comment says to re-check rather than inherit them. This one is softer
-        # still: not merely unpushed, but unnamed.
+        # THE PRIMARY HANDED OUT TWO COLLIDING NUMBERS IN ONE DAY — 60, then 61 —
+        # and said so, from the session that owns `ORCHESTRATION.md` §3. Its tables
+        # covered the branches it knew about; this branch was in neither. What found
+        # the second collision was a third session sweeping the highest declared
+        # `OP` across EVERY ref instead of across a named list:
         #
-        # SO IT CARRIES AN ACTION RATHER THAN A CLAIM. Whoever next touches this
-        # table: replace this string with the branch ref the moment OP-60's holder
-        # pushes, or delete the row if 60 turns out to be free. Do not leave it
-        # standing on a session that has ended — that is exactly the wart the
-        # paragraph above this dict was written about, and it passed every guard the
-        # whole time it was wrong.
-        60: "assigned by the primary session 2026-08-23; ref NOT YET KNOWN — replace this",
+        #   git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+        #     | while read -r r; do git show "$r:docs/BACKLOG.md" 2>/dev/null \
+        #       | grep -oE '^#{2,4} +OP-[0-9]+'; done | sort -u
+        #
+        # RUN INDEPENDENTLY HERE BEFORE ACCEPTING 63, and it confirmed the handover
+        # rather than resting on it: `feat/the-engine-knows-which-code-it-is-running`
+        # declares BOTH 60 and 61 on `origin`, and no ref anywhere declares 62 or 63.
+        # **A number you were handed is provisional until you have swept for it** —
+        # which is §3's "an unpushed claim is invisible and still real" arriving from
+        # the other direction: a PUSHED claim is visible and still missed, if you look
+        # at a list of branches instead of at all of them.
+        60: "branch feat/the-engine-knows-which-code-it-is-running",
+        61: "branch feat/the-engine-knows-which-code-it-is-running",
+        # 62 IS THE WEAK ROW AND SAYS SO. A third session holds it on the primary's
+        # word and **no ref carries it** — the sweep above found nothing above 61
+        # anywhere. So this row cannot name the branch §3 requires, and inventing one
+        # would be worse than admitting the gap. It carries an action rather than a
+        # claim: replace it with the ref the moment that holder pushes, or delete it
+        # if 62 turns out free. Do not leave it standing on a session that has ended
+        # — that is the wart the paragraph above this dict was written about, and it
+        # passed every guard the whole time it was wrong.
+        62: "third session per the primary, 2026-08-23; NO REF YET — replace or delete",
     },
     "DEC": {},
 }

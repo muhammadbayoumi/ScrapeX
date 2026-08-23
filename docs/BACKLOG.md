@@ -2441,7 +2441,7 @@ two change what two more screens offer, and the `test_panel_dom.py` line that co
 stub back.
 
 
-### OP-61 · The word "products" over a contractor directory, on two surfaces
+### OP-63 · The word "products" over a contractor directory, on two surfaces
 
 **Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
 is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data

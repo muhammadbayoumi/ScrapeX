@@ -206,7 +206,7 @@ Two of the four defects on that screenshot are this branch's; the other two
   on the card and there is **no panel path to a dataset crawl at all**: `POST /api/jobs`
   answers `404 unknown source_key 'contractors'` (`OP-52`). `REQ-37` therefore stays
   **In flight**.
-- **`OP-61` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
+- **`OP-63` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
   contractor directory. `countLine` replaces the hardcoded noun with three branches
   keyed on what the engine reports, so `jobs` and `tenders` need no new code. The
   engine's own `/source/{key}` page still prints a "Products" tile over the same rows —
@@ -239,24 +239,50 @@ fourth door: a test.
 
 **This branch is from a SECONDARY session and does not merge itself** (`R-42`).
 
-**The register moved twice under this branch, and the second time was a real
-collision.** It first took `OP-53` when `main` topped out at `OP-52`. Then #261 landed
-and declared **`OP-53` through `OP-59`** — so `OP-53` was a genuine duplicate, and
-`test_no_two_entries_share_a_number` would have caught it. Renumbered to **`OP-61`**,
-because `OP-60` is held by another session on the primary's word.
+**THE REGISTER MOVED THREE TIMES UNDER THIS ONE BRANCH, and the lesson is in the third
+move rather than the first two.**
 
-**Checked rather than assumed before renumbering:** none of `OP-53`…`OP-59` covers the
+| took | why it moved |
+|---|---|
+| `OP-53` | correct when written — `main` topped out at `OP-52` |
+| → `OP-61` | #261 landed and declared **53…59**. A genuine duplicate, and `test_no_two_entries_share_a_number` would have had it |
+| → **`OP-63`** | `OP-61` was **already declared on a pushed branch** — `feat/the-engine-knows-which-code-it-is-running` holds 60 **and** 61 as a cross-linked pair. `OP-62` is a third session's |
+
+**The primary handed out two colliding numbers in one day and said so** — from the
+session that owns `ORCHESTRATION.md` §3. Its tables covered the branches it knew about,
+and this branch was in neither. **What found the second collision was a sweep of EVERY
+ref**, not of a named list:
+
+```bash
+git for-each-ref --format='%(refname:short)' refs/remotes/origin | while read -r r; do
+  git show "$r:docs/BACKLOG.md" 2>/dev/null | grep -oE '^#{2,4} +OP-[0-9]+'; done | sort -u
+```
+
+**Run independently here before accepting 63** rather than resting on the handover: it
+confirmed 60 and 61 on that branch and found nothing anywhere above 61. So a number you
+are handed is **provisional until you have swept for it** — which is §3's *"an unpushed
+claim is invisible and still real"* arriving from the other side: **a pushed claim is
+visible and still missed, if you look at a list of branches instead of at all of them.**
+
+**Checked rather than assumed before each renumber:** none of `OP-53`…`OP-59` covers the
 noun (they are the price-path columns registered against the directory, Choose-Columns,
-the unreachable server capabilities, the truthy `{}`, the `offer_id` index, his
-deletion gate, and the `HANDOFF` citations), so this is a distinct finding and not a
-second entry for one thing.
+the unreachable server capabilities, the truthy `{}`, the `offer_id` index, his deletion
+gate, and the `HANDOFF` citations), so this is a distinct finding and not a second entry
+for one thing.
 
-**`RESERVED` now carries `60`, and it is the weakest row in that table.** Every remote
-branch was searched for `OP-60` in `docs/BACKLOG.md` and **none carries it**, so the
-row cannot name the branch that `ORCHESTRATION.md` §3 requires and says so instead of
-inventing one. It carries an action: replace it with the ref the moment that holder
-pushes, or delete it if 60 turns out free. **`OP-61` still needs the primary's
-confirmation.**
+**`RESERVED` carries `60`, `61` and `62`.** The first two name a verifiable branch ref
+because the sweep found them. **`62` is the weak row and says so** — no ref carries it,
+so it cannot name the branch §3 requires and admits that instead of inventing one,
+carrying an action: replace it with the ref when that holder pushes, or delete it if 62
+turns out free. **`OP-63` still needs the primary's confirmation.**
+
+**`R-49` was checked against this work and does not touch it.** The ruling makes
+`docs/MIGRATION-PLAN.md` the base plan for conflicts of *intent*. That document says
+nothing about `products`, a noun, or a dataset's row label — grepped — and the noun
+decision rests on **measurement** (`dataset_kind` is `'table'` for both muqawil
+datasets; nothing in the warehouse names the unit of a row) plus `R-45` part 1, which is
+a ruling rather than a plan. Where a measurement and a document disagree, the
+measurement wins regardless of dates.
 
 **A DRY review of `#252` recorded `OP-46`, `OP-47` and `OP-48` — documentation only,
 no code touched.** The review followed that PR's own comment to the three popovers it
