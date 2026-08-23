@@ -1604,6 +1604,14 @@ capability exists — which is `R-48` rule 4, now with a test attached.
 host permission for, and that is a genuine *cannot*. `R-50` is why it stays, and gives it
 a better reason than seniority.
 
+**And it is NOT discharged by making the engine start.** The session that found the
+packaging defect said so itself, unprompted, and it is the sharpest reading of this ruling
+anyone has offered: *"I made the engine start. My change removes today's cause; it does not
+remove the coupling."* `engine-v0.3.1` fixes **why** the engine was broken this morning. It
+does not touch the fact that **a broken engine takes the export down with it**, which is the
+thing he called unacceptable. A session reading this ruling beside that merge could easily
+conclude the matter is closed. **It is not, and the distinction is cause against coupling.**
+
 **And it does not license a rebuild.** `DEC-8` measured the engine's data page as the
 SOURCE of the port — 3,212 lines of `grid.js`, about forty of them data work — so moving a
 capability means **porting the asset**, not writing a second one. `R-50` decides *where*,

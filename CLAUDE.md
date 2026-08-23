@@ -124,6 +124,13 @@ file: «ولها الحق انها تطور workflow لتجنب المشاكل �
 | [ENGINEERING.md](ENGINEERING.md) | the code rules — architecture, quality, testing, performance | before writing code |
 | [docs/plans/](docs/plans/README.md) | the plans, current and historical | when picking up a track |
 
+The measurement behind [R-49](docs/RULINGS.md#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test)
+and [R-50](docs/RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+is [docs/ENGINE-ROLE-MEASURED.md](docs/ENGINE-ROLE-MEASURED.md) — every engine route,
+native command and CLI subcommand measured against the code, and the four-question boundary
+test. **It is a snapshot at `31c369e` and says so**, which is why its citations are checked
+against that commit and not against `HEAD`.
+
 Other long-standing documents — `docs/MIGRATION-PLAN.md`,
 `docs/COMPATIBILITY.md`, `docs/GENERIC-FETCH-SEAM.md`,
 `docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md`, `docs/BALADY-ENG-OFFICES.md`,

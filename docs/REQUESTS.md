@@ -2098,8 +2098,17 @@ and `4522158`, the engine's interface went from 17,755 lines to **17,772** — p
 ([STATE.md](STATE.md)). And the warehouse arithmetic says the premise is affordable:
 of 1,198,592,000 bytes, **893,860,727 — 74.6% — is `generic_page_snapshot.html_content`**,
 raw HTML provenance no human browses, on a table `retention.py` and `compaction.py` never
-mention. Everything he would actually browse is **9,511,282 bytes gzipped, 0.79%** of the
-file.
+mention. Everything he would actually browse is **16,151,610 bytes gzipped, 1.34%** of the
+file — **74x smaller than the database**, and a browser decompresses it with no library
+and no WebAssembly (`extension/bundleview.js:29`).
+
+**[CORRECTED 2026-08-23.]** This line first read *"9,511,282 bytes, 0.79%, 126x"*, and
+that number was reported to him in conversation before it was checked. The study's own
+second pass **could not reproduce it** and re-measured 164,771 rows into 161,459,448
+bytes of JSON Lines, 16,151,610 gzipped, built in 3.4 seconds against the live file while
+a crawl was writing. **The conclusion survives at 59% of the strength first claimed** —
+which is why the weaker number is the one recorded. The full study is
+[ENGINE-ROLE-MEASURED.md](ENGINE-ROLE-MEASURED.md).
 
 **Not settled, and his to rule.** Eleven questions, the first of which governs the rest:
 **"only" in «المحرك له مهام محددة فقط» — on which axis?** The *interface* axis, where the
