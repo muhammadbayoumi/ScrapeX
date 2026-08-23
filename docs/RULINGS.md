@@ -1438,6 +1438,88 @@ ruling narrows nothing that was open.
 session meets the boundary in the register it is told to read rather than in a plan it is
 not told about.
 
+---
+
+### R-49 · `MIGRATION-PLAN.md` is the base plan, and its date is the test
+
+**2026-08-23 · architecture · settles seven recorded contradictions at once**
+
+> «دى الخطة الاساسية واى تعارض معاها قبل هذا التاريخ فهو تغير بعد هذا التاريخ اسالنى
+> عنه · التاريخ المقصود هو تاريخ الخطة»
+
+**The rule, stated so a session can apply it without him:**
+
+[MIGRATION-PLAN.md](MIGRATION-PLAN.md) is **the base plan**. Its date is
+**2026-08-12** — *"Drafted 2026-08-12. Every number here was measured today, not
+recalled."* (`MIGRATION-PLAN.md:22`; it reached the repository on 2026-08-15, and the
+drafting date is the one that counts).
+
+| the contradicting text is dated | what a session does |
+|---|---|
+| **before 2026-08-12** | **the plan wins.** Mark the older text superseded per `C4` and move on. Do not ask |
+| **after 2026-08-12** | **ask him.** Do not resolve it, do not pick the newer one by default |
+
+**Why this is worth a ruling rather than a note.** Two studies on 2026-08-23 returned
+**twenty recorded contradictions** about which side of the wire a responsibility belongs
+on, and every one of them was unanswerable by a session, because the repository holds
+several documents that each state a division of labour and **none of them cites or
+supersedes another**. This ruling makes the answerable ones answerable and leaves only
+the genuinely open ones on his desk. It is the same move as `R-02` — an un-computable
+mapping is his — applied to a pile rather than to one field.
+
+### Applying it, measured at LINE level rather than file level
+
+The dates below are **the age of the contradicting sentence**, not of the file that
+holds it. That distinction is the whole exercise: the first study dated text by each
+file's last commit and thereby **inverted the seniority** of two documents in its own
+headline finding, which its verifiers caught (`LESSONS.md` §7, the fourth shape).
+
+| contradicting text | dated | verdict |
+|---|---|---|
+| `PLATFORM-PLAN.md` §4's `fetch ─→ extract ─→ domain ─→ store`, all inside the engine | **2026-08-05** (file last touched 08-08) | **superseded** on the division of labour |
+| `PLATFORM-PLAN.md` Decision 25 — *"The second group is dead on a device with no engine installed"* | **2026-08-05** | **superseded**; also factually false for Data since 2026-08-12 (`REQ-40`) |
+| `PLATFORM-PLAN.md` Decision 9 — *"A browser extension cannot create a SQLite file"* | **2026-08-05** | **superseded** as a flat claim. The plan's own `C1` names `wa-sqlite + OPFS` as the thing that removes `127.0.0.1`, and the repository's spike then built the whole schema in OPFS |
+| `MASTER-PLAN.md` **Topology A** — the browser-native TS/MV3 extension as the public product, warehouse in `wa-sqlite` | **2026-07-18** (his own decision; file 07-19 → 08-05) | **superseded.** This closes `Q-6`, open since 2026-08-16, without asking him again |
+| `COMPATIBILITY.md:20-22` — *"A crawl job belongs to the Local Runtime, not to the Side Panel lifecycle"* | **2026-07-19** (single commit) | **not a conflict.** The plan agrees — *"Jobs stay in the engine"* (`:61`) — so the older text stands where it does not contradict |
+| `GENERIC-FETCH-SEAM.md:11-12` — the HTML is handed in *"by the panel capturing the page the user is looking at"*, i.e. **fetch on the panel** | **2026-08-09** | **superseded.** The plan keeps *fetching* in the engine. Its `extract`-is-the-engine's half is untouched |
+| `ENGINEERING.md:61` (S2) — *"All parsing/normalization in pure JS modules"*, i.e. extract on the extension | **2026-07-18**, the initial commit | **superseded.** And note: the first study called this the *newer* text and built a headline on it. It is the oldest line in the comparison |
+| `./README.md:121` — the engine's read-only browse UI, documented as a feature | **2026-07-18** | **superseded** as a statement of where the interface belongs; still true as a description of what exists |
+| `./README.md:107` — *"The owner ruled on 2026-08-11 that the engine fetches data and saves it locally"* | **2026-08-12** (`8272bf3`, #165) | **not a conflict — it agrees**, and it is the same day. This is the text closest to «المحرك مهمته fetch» |
+
+**Nine items, and not one of them needed him.** Eight are superseded by his rule; one
+was never a conflict. That is what the ruling bought.
+
+### The one thing it does NOT settle, and it is now the only open question of the set
+
+`R-48`'s rule 4 is dated **2026-08-22**, which is **after** the base plan:
+
+> *"A user-facing surface belongs in the extension. The engine may keep pages for
+> development and for local tools; **it may not be the place a capability only
+> exists.**"*
+
+Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
+
+> *"Export stays in the engine — it is SQL over SQLite, not a file move."*
+
+**Export is a user-facing capability that exists only in the engine today**
+(`scrapex/webui/app.py:1193`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+are his, the newer one contradicts the older, and **the rule says a newer conflict is
+his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
+engine` (`:61`) is the same shape and rides with it.
+
+### What this ruling does not do
+
+**It does not make the base plan correct about facts.** The plan's own banner records
+two of its statements that measurement overturned, and `REQ-40` records a third: its
+`C1` points at `wa-sqlite`, the library the repository's own OPFS spike calls *"the one
+part that is simply the wrong choice."* **Seniority settles a conflict of intent; it
+never settles a question of measurement** — a newer number beats an older number
+regardless of which document holds it, and that is not what this ruling is about.
+
+**And it does not retire the older documents.** Per `C4` the superseded text stays in
+place, marked, pointing here. A reader needs to see that the four-stage diagram was
+once the plan in order to understand why the code still looks like it.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
