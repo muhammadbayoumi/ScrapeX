@@ -293,6 +293,25 @@ jobs:
         # first run can prepare a warehouse — the step that has the most ways to
         # fail on somebody else's machine.
         #
+        # AND THEN `ScrapeX UI`, WHICH IS THE ONE THAT MATTERS, because the three
+        # above were not enough and 0.3.0 proved it. Every one of them is printed
+        # BEFORE the server is built (`packaging/engine_entry.py`
+        # `_set_up_then_serve` announces the three steps, then hands over to
+        # `scrapex ui`), so a published engine printed all three and then said:
+        #
+        #     error: Directory '...\_MEI000036d42\scrapex\webui\static' does not exist
+        #
+        # The recipe bundled `db` and `sources.yaml`; the runtime opens five
+        # things. This gate had again stopped one line short of the failure —
+        # exactly what it was built to stop doing after 0.2.1.
+        #
+        # `scrapex/cli.py:_cmd_ui` prints `ScrapeX UI → <url>` only once `create_app`
+        # HAS RETURNED: the static mount, every template environment and the job
+        # worker are all behind it. So that line is the difference between "the
+        # engine spoke" and "the engine can serve a page", and it is the last
+        # thing printed before uvicorn takes the process — which is why a
+        # timeout, not an exit code, is how this step passes.
+        #
         # ITS OWN DATA ROOT, because this genuinely creates a database. A release
         # check must not find, open or migrate anything but what it made itself.
         shell: bash
@@ -311,6 +330,14 @@ jobs:
           echo "$spoke" | grep -q "ScrapeX-Engine"
           echo "$spoke" | grep -q "Preparing your database"
           echo "$spoke" | grep -q "Starting the engine"
+          if ! echo "$spoke" | grep -q "ScrapeX UI"; then
+            echo "REFUSED: the engine announced all three steps and never got a" >&2
+            echo "server up. That is 0.3.0: every line above is printed BEFORE" >&2
+            echo "create_app, so the .exe was missing a file the runtime opens" >&2
+            echo "and the owner met 'error: Directory ... does not exist'." >&2
+            echo "packaging/build_engine.py RUNTIME_DATA is the list to check." >&2
+            exit 1
+          fi
 
       - name: Checksum, so a download can be proved whole
         shell: bash

@@ -61,6 +61,42 @@ is the one that merges over somebody. The default is secondary.
   renumber, `Q`'s exclusion being declared rather than silent, and `REQ-30` already being
   taken. A primary that is not being corrected is not being read.
 
+### The primary can sequence a session; it cannot authorise one
+
+**Permission is per-principal, and a peer cannot stand in for the owner.** The primary
+decides *order* — who merges, when, against which base. It does not decide what another
+session is *allowed to do*. Those are different powers and today they were confused.
+
+**What happened, 2026-08-23.** The primary told a secondary session to push its branch
+and open a pull request. The secondary had the branch green and refused: pushing and
+opening a PR are outward-facing, its owner had not authorised them, and *the primary
+asking is not the owner asking*. It did every reviewable thing — rebased, resolved its
+own conflicts, re-derived every number, ran the suite — and stopped at the boundary,
+put the question to the owner, and got a yes. **The primary then agreed the refusal was
+correct and that it had had no business implying otherwise.**
+
+**This subsection is written by the session that refused, on the primary's own
+instruction, and the reason is worth keeping:** *the session that needs to be held to a
+rule is the worst author for it.* A version in the primary's words would be the rule
+written by the party it constrains. So it is recorded here by the party that was asked,
+with the primary's agreement noted — **so the next session does not have to litigate
+it while a merge waits.**
+
+**What this does and does not license:**
+
+- **A secondary may always refuse an outward-facing action on a peer's word alone**, and
+  refusing is not obstruction — it is the only correct answer. Push, open or comment on
+  a pull request, publish, release, tag, or anything that leaves the machine.
+- **It must not stop there.** Do all the work that does not need the permission, say
+  exactly what is blocked and on whose word it is waiting, and ask the owner. A refusal
+  that also halts the work is a worse outcome than the thing it prevented.
+- **Asking a peer to do what your own settings refused is never the route.** If an
+  action is blocked for you, it is blocked; a peer performing it launders the owner's
+  decision away. Route it back to the owner instead.
+- **This is not a rule about trust.** The primary was right about the merge order, right
+  about the register number on the second attempt, and right that the branch should go
+  first. It simply cannot hand over a permission it was never holding.
+
 ---
 
 ## 2 · The merge, step by step
@@ -114,6 +150,47 @@ sessions take "the next free one" simultaneously.
 number, the one with the open PR keeps it and the other moves. Otherwise two sessions
 renumber past each other indefinitely — which is exactly what began to happen on
 2026-08-22 before this rule was stated.
+
+**Sweep EVERY ref, and do not let "ask the primary" stand in for it.** This section has
+said *ask the primary* since it was written, and on **2026-08-23 that instruction failed
+twice in one afternoon, from the session that owns this file.** It handed out `OP-60` as
+free — twice — having checked `main`, where the register really did run unbroken to 59.
+`OP-60` and `OP-61` were already declared and **pushed** on
+`feat/the-engine-knows-which-code-it-is-running`. The same afternoon it also missed a
+live duplicate: **two pushed branches both declaring `OP-61`**, which nobody was
+tracking at all.
+
+Both were found by the secondary, by asking every ref rather than the branches anyone
+happened to know about:
+
+```bash
+# The highest DECLARED number per ref, for one register. Headings only --
+# a bare `OP-47` in prose is a cross-reference, not a claim.
+for ref in $(git for-each-ref --format='%(refname)' refs/heads refs/remotes); do
+  top=$(git grep -oh -E "^#{2,4} +OP-[0-9]+" "$ref" -- docs/BACKLOG.md 2>/dev/null \
+        | grep -o 'OP-[0-9]*' | sort -u -t- -k2 -n | tail -1)
+  [ -n "$top" ] && echo "$top  ${ref#refs/}"
+done | sort -t- -k2 -n | tail
+
+# And whether the number you are about to take exists anywhere:
+git grep -l -E "^#{2,4} +OP-62\b" $(git for-each-ref --format='%(refname)' refs/) \
+  -- docs/BACKLOG.md
+```
+
+`git fetch origin` first, or the sweep answers about a snapshot instead of about now.
+Swap `OP`/`BACKLOG.md` for `REQ`/`REQUESTS.md` or `R`/`RULINGS.md`.
+
+**So the rule is both, in this order:** sweep every ref yourself, then ask the primary —
+and bring the sweep with you, because it names the holders the primary cannot see.
+Asking without sweeping is what failed. **The primary's answer is authoritative about
+ORDER and merely informed about OCCUPANCY**, and the same distinction the permission
+subsection in §1 draws applies here: the primary sequences, it does not know things it
+has not measured.
+
+**A number is still not safe the moment the sweep is clean.** An unpushed claim is
+invisible and real (above), and `main` can move between the sweep and the commit — both
+happened here. Re-derive at rebase time, and expect the number to have to move; this
+branch's did, from 60 to 62, after being confirmed.
 
 **An unpushed claim is invisible and still real.** Three sessions concluded this
 independently in one afternoon. `OP-47` and `OP-48` were free in **all 164 refs** and

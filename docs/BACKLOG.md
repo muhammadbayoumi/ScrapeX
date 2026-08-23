@@ -623,7 +623,7 @@ this was found in one command rather than by counting rows afterwards.
 
 **The mechanism exists and the product does not reach it.** `carry_over` has exactly
 **one** production caller — the manual subcommand `scrapex carry-over`
-(`scrapex/cli.py:993`). Nothing automatic calls it: not `ui`, not autostart, not the
+(`scrapex/cli.py:1009`). Nothing automatic calls it: not `ui`, not autostart, not the
 native host, not the panel.
 
 **What a split-era user actually gets**, simulated end to end against a fake split
@@ -631,7 +631,7 @@ installation:
 
 | path | result |
 |---|---|
-| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1127`) |
+| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1143`) |
 | `native.startup_check()` — how the PANEL starts the engine | `ok: false`, `action: "check_storage"`, detail = *"Run 'scrapex carry-over'"* |
 | `native.upgrade_database()` — **the panel's own repair action** | `ok: false`. **It cannot fix this**: `DatabaseRegistry.defaults()` refuses before `initialize()` is ever reached |
 
@@ -1282,7 +1282,7 @@ confirmation that the published build installs on his machine; that stays on
 > written about it.** `extension/releases.js:32` reads
 > `ScrapeX/json/version.json` from the hub, `extension/app.js:3514` prints the
 > `version` it finds, the workflow writes that same field
-> (`.github/workflows/release-engine.yml:352`), and
+> (`.github/workflows/release-engine.yml:379`), and
 > `tests/test_the_two_release_paths.py:276` already pins the writer's output to the
 > reader's input. The manifest says 0.2.1 because 0.2.1 is the only engine tag that
 > exists.
@@ -1362,7 +1362,7 @@ then the only engine that runs on this machine is that worktree's.
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:976`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:992`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
@@ -2170,7 +2170,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:611](LESSONS.md#L611)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:755](LESSONS.md#L755)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -2428,6 +2428,150 @@ offers, on his direct request, and left every other screen's behaviour alone. Th
 two change what two more screens offer, and the `test_panel_dom.py` line that counts
 "4 of 4" carries a comment saying so, so that nobody closes this by shrinking the
 stub back.
+
+### OP-62 · The published engine could not serve one page, because PyInstaller was told to carry two files and the runtime opens five
+
+**Status: FIXED in this pull request. Reported by the owner 2026-08-23 against the
+published `engine-v0.3.0`, the newest thing the panel's Download button offers.**
+
+His console, in full — every step it announced succeeded:
+
+```
+  ScrapeX-Engine 0.3.0
+  [1/3] Unpacking...        done.
+  [2/3] Preparing your database...
+        already there: C:\Users\User01\.scrapex\engine\scrapex-engine.db
+  [3/3] Starting the engine...
+
+error: Directory 'C:\Users\User01\AppData\Local\Temp\_MEI000036d42\scrapex\webui\static' does not exist
+```
+
+**THE PATH IN THAT MESSAGE IS THE DIAGNOSIS.**
+[scrapex/webui/app.py:364](../scrapex/webui/app.py#L364) computes
+`Path(__file__).parent / "static"`, which in a one-file build is
+`_MEIPASS/scrapex/webui/static` — the string he was shown, `_MEI000036d42` and all.
+[scrapex/webui/app.py:539](../scrapex/webui/app.py#L539) hands it to `StaticFiles`,
+whose `check_dir=True` refuses a directory that is not there — the
+`RuntimeError` is Starlette's own, raised in its `StaticFiles.__init__` — and
+[scrapex/cli.py:1318](../scrapex/cli.py#L1318) prints the `RuntimeError` verbatim.
+
+**And the directory was never in the archive.** `packaging/build_engine.py` named two
+data entries; there is no `.spec` file and no PyInstaller hook in this repository, so
+that list was the whole of it:
+
+| the runtime opens | at | bundled before |
+|---|---|---|
+| `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:20](../scrapex/databases/domain.py#L20) | **yes** |
+| `sources.yaml` | [scrapex/config.py:55](../scrapex/config.py#L55) | **yes** |
+| `scrapex/webui/templates` | [scrapex/webui/app.py:294](../scrapex/webui/app.py#L294), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
+| `scrapex/webui/static` | [scrapex/webui/app.py:364](../scrapex/webui/app.py#L364) | **no** |
+| `apps_script/StagingAppScript.txt` | [scrapex/outputs.py:214](../scrapex/outputs.py#L214) | **no** |
+
+**Only one of the three crashes, and that is the luck in this.** `Jinja2Templates` does
+not check its directory when it is constructed, so a bundle with `static` and no
+`templates` starts, reports itself healthy, and answers every page with a
+`TemplateNotFound`. And `apps_script` has been missing from **every engine ever
+published**: [scrapex/outputs.py:215](../scrapex/outputs.py#L215) returns `""` and the
+route answers 404 saying the script *"is not bundled"* — a sentence that was true, that
+nobody had read, and that no log anywhere records.
+
+**WHY THE RELEASE GATE PASSED IT, which is worth more than the fix.** The double-click
+step demands three lines — `ScrapeX-Engine`, `Preparing your database`, `Starting the
+engine`. **All three are printed before `create_app` is called**, by
+`packaging/engine_entry.py:_set_up_then_serve`, which then hands over to `scrapex ui`.
+The gate had stopped one line short of the only call that can fail — the same shape of
+miss as `OP-32`, where it stopped at `--version`. Its own guard could not catch that,
+because `tests/test_the_release_proves_the_double_click.py` read `engine_entry.py`
+alone and so believed the double-click path ended three lines before the work did.
+
+**Fixed, and measured on a real artifact rather than argued.** `RUNTIME_DATA` in
+`packaging/build_engine.py` is now the one list, the build refuses to run when an entry
+is missing, and the rebuilt `dist/scrapex-engine.exe` — bare invocation, its own
+`SCRAPEX_DATA_ROOT` — printed the line no published engine has ever printed:
+
+```
+ScrapeX UI → http://127.0.0.1:8000   (Ctrl+C to stop)
+```
+
+Served from that same binary, sizes matching the repository byte for byte:
+
+| request | answer |
+|---|---|
+| `GET /` | **200**, 26,022 bytes — a rendered template |
+| `GET /static/webui.css` | **200**, 13,306 bytes = the repo file exactly |
+| `GET /static/grid.js` | **200**, 152,947 bytes = the repo file exactly |
+| `GET /static/vendor/tabulator.min.js` | **200**, 445,987 bytes |
+| `GET /api/outputs/apps-script/script` | **200**, 35,702 bytes — **this route has never worked in a shipped engine** |
+
+**What keeps it fixed.** `tests/test_the_frozen_engine_carries_its_own_files.py` stages
+a directory the way PyInstaller lays out `_MEIPASS` — modules from the package, then
+`RUNTIME_DATA`, and nothing else — and starts the engine inside it, so the path
+arithmetic under test is the real one and no binary has to be built. It carries its own
+mutation: drop the `static` entry and the probe must die with Starlette's own words.
+The release gate now also demands `ScrapeX UI`, and
+`test_it_proves_a_SERVER_came_up_and_not_only_that_three_lines_printed` locates
+`create_app(` by index in `_cmd_ui` and requires one demanded line to come from below
+it — the rule rather than the string, because this gate has now missed twice.
+
+**One fact, two hand-maintained lists, and the newer one was wrong.**
+`pyproject.toml` `[tool.setuptools.package-data]` already carried the same trees for
+wheels. Nothing compared them. It is also incomplete in its own right —
+`static/*.svg` is absent while `scrapex/webui/static/x-mark.svg` is tracked — so a
+`pip install` of this package drops that file today. Not fixed here: it is a wheel
+path nobody installs from, and it wants its own change.
+
+**It needs a tag to reach him.** The fix is in the source; nothing installable carries
+it. `scrapex/version.py` reads `0.3.1` against a published `0.3.0`, so `engine-v0.3.1`
+would ship it, and cutting it is his call (PLATFORM-PLAN Decision 4). **Until then the
+only installable engine cannot serve a page** — the same standing condition as
+`OP-32`, which lasted twelve days.
+
+**Not a contract change** ([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one)):
+no migration, no route and no protocol move, so `VERSION` does not move for this.
+
+**The register number, and the two round trips it took.** `OP-60` was claimed before the
+primary session was asked, which is a breach of [R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)
+and was surfaced rather than left. It came back confirmed — and the *reservations*
+that came with it were wrong. Eleven `RESERVED` rows were written for 49–59, and by
+the time the rebase ran, `#258` had declared 51 and 52 and `#261` had declared 53–59,
+so nine of the eleven would have made `test_a_reserved_number_is_not_also_declared`
+red on the tree that merges. The reasoning was right and the base was two hours old,
+which is the same lesson the pointer at the top of [STATE.md](STATE.md) keeps teaching.
+
+**Then `OP-60` turned out to be taken too, and the number is `OP-62`.** It was handed
+over as free **twice**, by a session that had checked `main` — where the register does
+run unbroken to 59 — and not the branches in flight.
+`feat/the-engine-knows-which-code-it-is-running` had already pushed 60 **and** 61. That
+is §3 of [ORCHESTRATION.md](ORCHESTRATION.md)'s *"a claim can be real and invisible"*
+landing on the session that owns §3, and the method that caught it is the one worth
+keeping: **sweep the highest declared number on EVERY ref**, not on the branches you
+happen to know about —
+
+    for r in $(git for-each-ref --format='%(refname)' refs/heads refs/remotes); do
+      git grep -oh -E "^#{2,4} +OP-[0-9]+" "$r" -- docs/BACKLOG.md ...
+
+**That same sweep found a duplicate nobody was tracking:** two pushed branches both
+declared `OP-61`. It was ruled to
+`feat/the-engine-knows-which-code-it-is-running` and the card branch moved to 63 — on
+lower churn rather than on the open-PR rule, and the primary session said so rather
+than letting the rule appear to decide it. So the branch ends with **two** `RESERVED`
+rows, 60 and 61, both to that one branch, and the row for 61 records that the card
+branch's renumber had not yet been pushed when it was written. That last clause is
+deliberate: this file's own scar is a row that named a holder who had moved and passed
+every guard while doing it.
+
+**What an adversarial review of this fix found, because the fix's own comments were
+not exempt.** Sixteen findings raised, twelve refuted, and the survivor worth naming
+is a citation *inside this change*: `packaging/build_engine.py` cited
+`scrapex/cli.py:1301` for the line that prints the error, while the same change wrote
+the correct line in this file and in `LESSONS.md`. `R-15`'s guard scans eight
+markdown documents and cannot reach a build script, so it was green with the wrong
+number in the tree. Eleven citations in the three unguarded files this change touches
+now name **symbols** instead of lines. The refutations are worth as much: one reviewer
+checked `RUNTIME_DATA` against the real `.exe` table of contents and found no gap,
+and the worry that `contractstamp` reads a `.py` at runtime was refuted — it is a
+developer-only path.
+
 
 ## 3. Decided, not yet built
 

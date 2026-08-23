@@ -526,6 +526,123 @@ three read it as bookkeeping. The number was telling the truth: no release carry
 the fix had ever been cut, and the only thing installable was the broken one — for
 twelve days.
 
+### A gate stops one line short, and the second time it is a pattern
+
+**The same gate, the next release, the same shape of miss.** `engine-v0.3.0` was cut
+on 2026-08-22 with the lesson above already built into the workflow: it launches the
+binary with no arguments and requires three sentences of it. On 2026-08-23 the owner
+double-clicked that release and got all three, and then this:
+
+    [1/3] Unpacking...        done.
+    [2/3] Preparing your database...  already there: ...\scrapex-engine.db
+    [3/3] Starting the engine...
+    error: Directory '...\_MEI000036d42\scrapex\webui\static' does not exist
+
+**Every line the gate demanded is printed before the work begins.**
+`packaging/engine_entry.py:_set_up_then_serve` announces the three steps and *then*
+hands over to `scrapex ui`; `create_app` — the static mount, both Jinja environments,
+the job worker — is entirely behind the last of them. So a binary that could not build
+an app at all printed the gate's whole checklist and was published.
+
+The line that separates *"the engine spoke"* from *"the engine can serve a page"* is
+`scrapex/cli.py:906`, and it is one statement further on:
+
+    app = create_app(...)                             # everything that can fail
+    print(f"ScrapeX UI → {url}   (Ctrl+C to stop)")   # the first honest evidence
+
+**Apply:** a gate on a shipped artifact must demand a line printed **after** the last
+thing that can fail, and *after* is a property of the code, not a matter of taste —
+`test_it_proves_a_SERVER_came_up_and_not_only_that_three_lines_printed` locates
+`create_app(` by index in `_cmd_ui` and requires one demanded string to come from
+below it. The three step announcements are progress; only what prints past the last
+call is proof. And when a gate misses twice, widen the *rule*, not the string list.
+
+**The second half of the miss was the guard's model of the path.** The fixture named
+`double_click_path` read `packaging/engine_entry.py` alone, so the only sentences the
+gate could legally demand were ones printed before control left that file. The guard
+that was supposed to keep the gate honest had the same blind spot as the gate, for the
+same reason, and could not have caught it.
+
+### A killed process never flushes, so an unflushed line is not evidence of anything
+
+**This one was caught before it shipped, and only because the fix above was tested
+rather than reasoned about.** Having established that the release gate must demand a
+line printed after `create_app` returns, the obvious move is to demand
+`ScrapeX UI → …` from `scrapex/cli.py`. Measured against the source before changing
+anything:
+
+    timeout 20 python -m scrapex.cli ui --no-open --port 8131 2>&1
+    -> ZERO BYTES
+
+The server had started perfectly. **Three facts have to be true at once for that to
+happen, and they all are here:**
+
+1. `spoke=$(...)` makes stdout a **pipe**, and Python block-buffers a pipe. To a
+   terminal it is line-buffered, so every interactive run looks fine.
+2. A working first run **never returns** — it ends inside `uvicorn.run` — so nothing
+   after that line will ever flush the buffer.
+3. The release step therefore **kills** it with `timeout`, which is how the step
+   passes rather than a fault. A killed process flushes nothing.
+
+So a gate demanding that line would have refused **every good release**, and the
+failure would have read as "the engine did not start" — sending the next session to
+look at `create_app` when the defect was one keyword in a `print`.
+
+`packaging/engine_entry.py:_say` had this right all along and says so; the three step
+announcements survive for exactly that reason, which is also why nobody had noticed
+the rule. `scrapex/cli.py:906` now carries `flush=True` with the measurement in a
+comment beside it.
+
+**Apply:** in this repository a printed line is only evidence if the statement that
+prints it flushes, and
+`test_every_line_the_gate_demands_is_FLUSHED_because_the_engine_is_killed` asserts
+that of every string the release gate greps for — matching the enclosing call by
+parentheses rather than by line, because the keyword sits on a different line from
+the text. More generally: when a check reads the output of a process it also kills,
+buffering is part of the contract, and the only way to find out is to run it.
+
+### PyInstaller bundles MODULES; the files your package opens are invisible to it
+
+The cause of that release's failure, and it is one sentence long: the recipe named two
+data entries and the runtime opens five.
+
+    --add-data db;db
+    --add-data sources.yaml;.
+
+Nothing else rode along. `scrapex/webui/app.py:364` computes
+`Path(__file__).parent / "static"`, which in a one-file build is
+`_MEIPASS/scrapex/webui/static` — exactly the path in the owner's error —
+`StaticFiles(check_dir=True)` refuses to mount a directory that is not there, and
+`scrapex/cli.py:1318` prints the `RuntimeError` verbatim. There was no warning at
+build time worth reading and no failing test anywhere.
+
+**Three of the five had been missing since the first release, and only one crashes:**
+
+| what it is | what its absence does |
+|---|---|
+| `scrapex/webui/static` | `RuntimeError` at `create_app` — **loud, and the one that was reported** |
+| `scrapex/webui/templates` | `Jinja2Templates` does **not** check its directory at construction. The engine starts, reports itself healthy, and every page is a `TemplateNotFound` |
+| `apps_script/StagingAppScript.txt` | `scrapex/outputs.py:215` returns `""` and the route answers 404 saying the script *"is not bundled"* — a sentence that was true of every engine ever published, and nothing anywhere logs it |
+
+The loud one is the lucky one. Had `static` been bundled and `templates` not, the
+release gate would have passed and the panel's Engine page would have called the
+engine healthy while no page in it rendered.
+
+**And the fact already existed twice, in disagreement.** `pyproject.toml`
+`[tool.setuptools.package-data]` lists the same trees for wheels. Two hand-maintained
+lists of one fact, no test comparing them, and the newer one was the wrong one.
+
+**Apply:** the runtime's data files belong in **one named list** —
+`packaging/build_engine.py:RUNTIME_DATA` — and a list is only as good as the thing
+that reads it. `tests/test_the_frozen_engine_carries_its_own_files.py` stages a
+directory the way PyInstaller lays out `_MEIPASS` (modules from the package, then
+`RUNTIME_DATA`, and **nothing else**) and starts the engine inside it, so the path
+arithmetic under test is the real one and a resource added tomorrow fails in seconds.
+Its `*.py` filter is the whole point rather than tidiness: copy the package wholesale
+and `static` arrives as a side effect, and the test passes whatever the recipe says.
+It carries its own mutation — drop the `static` entry, require Starlette's own words
+back — because a staging test that cannot fail proves nothing.
+
 ### A static-analysis alert on a TEST can be pointing at a hole in production
 
 CodeQL failed #246 with one high-severity alert:
@@ -818,6 +935,99 @@ design `tests/test_the_documents_cite_what_they_claim.py` measured and rejected 
 its own docstring, and the design a session threw away the same morning because
 *it decides honesty by adjacency*. **A known gap, named, beats a guard that infers
 intent.**
+
+### R-15's guard reaches only the documents on CLAUDE.md's map, so a citation anywhere else must name a symbol
+
+**Found 2026-08-23 by an adversarial review of the packaging fix, in that fix's own
+comments.** `packaging/build_engine.py` explained the 0.3.0 defect and cited
+`scrapex/cli.py:1301` for the line that prints it. Line 1301 is
+`def _force_utf8_output()`. The print is 17 lines away — and **the same change wrote
+the correct number for the same fact** in `docs/BACKLOG.md` and `docs/LESSONS.md`.
+**The difference was reach, not care**: those two are scanned, `packaging/` is not.
+
+`tests/test_the_documents_cite_what_they_claim.py` iterates a `DOCUMENTS` tuple —
+**the markdown documents on `CLAUDE.md`'s map, and nothing else.** And a `PINNED` row
+cannot rescue anything outside it, because
+`test_every_pinned_document_is_one_this_guard_reads` refuses one on purpose: *"a
+pinned citation in an unread document would be checked by tier 2 and invisible to
+tier 1 — half a guard, and the half nobody would notice."* So a `file:line` in a
+build script, a workflow, or a test docstring **cannot be guarded at all.**
+
+**The drift is not hypothetical and it is not slow.** In this one branch's lifetime a
+single prose citation went `611 → 691 → 755`: 691 was computed correctly and then
+invalidated by a lesson inserted above it, and 755 arrived when three merges landed
+during the rebase. Both wrong numbers **resolved to real, non-blank lines**, so tier 1
+and tier 2 passed all three times. A reader following 691 got a paragraph about
+palette tokens, which reads exactly as plausibly as one about the layer scale.
+
+**Apply, and it is two rules, not one:**
+
+* **Outside those eight files, cite the SYMBOL** — `` `scrapex/cli.py:_cmd_ui` ``,
+  `` `webui.app`'s `STATIC_DIR` ``, `` `main()`'s catch-all `` — never a line. A reader
+  greps it, an edit above it cannot displace it, and it needs no guard. Eleven
+  citations in `packaging/build_engine.py`, `.github/workflows/release-engine.yml` and
+  the new packaging test were converted this way rather than corrected.
+* **Inside them, a citation of PROSE needs pinning more than a citation of code does.**
+  Code has a symbol to grep back to; a sentence has nothing, so nothing can tell you
+  where it went. `OP-49`'s evidence is now a `PINNED` row for exactly that reason.
+
+**And fix numbers AFTER the rebase, never before.** Correcting a line number and then
+rebasing — or inserting anything above it — re-breaks what was just repaired. That is
+how 691 was written: a correct pass, then a later insert, then a stale correction
+sitting where the guard could not see it.
+
+### `str.replace` on no match returns the original, and a print after it will still say it worked
+
+**2026-08-23.** A scratch script added `docs/ORCHESTRATION.md` to the citation guard's
+`DOCUMENTS` and reported success. It had added nothing: `#259` had put it there two
+merges earlier, so the pattern being searched for — `APPROACHES.md` followed by the
+closing paren — was not in the file at all. `str.replace` found no match, returned the
+string unchanged, and the `print` on the next line was unconditional.
+
+**The damage was not the no-op. It was the comment written next to it**, claiming the
+entry as this change's work and stating that the list "did not" carry the document.
+Both false, and sitting four lines below `main`'s own comment saying the opposite. In a
+repository whose first rule is that a document which has gone stale is a bug, a
+confident false comment is worse than the gap it described.
+
+**Every other edit script in the same change opened with**
+
+```python
+assert src.count(old) == 1, "anchor moved"
+```
+
+**and every one of those was correct.** The single script without it is the single
+script that lied. That is not a coincidence to note in passing — it is the whole
+finding: the assertion is not defensive tidiness, it is the only thing standing between
+"I changed the file" and "I believe I changed the file".
+
+**And the check that was run could not have caught it.** Before adding the entry, the
+guard was run to see whether that document's four citations resolve. They do — and they
+resolve *identically whether the entry is present or absent*, because a document not in
+`DOCUMENTS` is simply never scanned. **The right method, pointed at the wrong object:**
+the question asked was "would adding this break anything", and the question needed was
+"is it already there". A green answer to a question you did not mean to ask is the most
+expensive kind.
+
+**Apply:**
+
+* **Never `str.replace` without asserting the count first.** `assert s.count(old) == 1`
+  before, and where the edit matters, assert the postcondition after — that the new text
+  is present, or that the old is gone.
+* **A success message must be conditional on the success.** An unconditional `print`
+  after a mutation is a claim, not a report.
+* **Before adding anything to a list, read the list.** `git show origin/main:<file>` is
+  one command, it answers about the base you are actually on, and it would have replaced
+  this entire lesson with nothing.
+* **Verify the OUTCOME, not the script — and then verify the verifier.** A script that
+  lied reads fine, so re-reading it proves nothing; only the resulting file answers. The
+  session that caught this one then audited its own ten edits of the day that way and
+  found a tenth reporting missing — which turned out to be a bug in *its checker*, a
+  needle spanning a line break that could never match. **A false alarm costs trust the
+  way a false pass costs correctness**, and both are cheaper to find than to explain.
+* **Related, and the same shape one level up:** the guard's own `DOCUMENTS` is what
+  decides whether a citation is checked at all, which is why a citation outside it must
+  name a symbol — see the section above.
 
 ### An instruction that names a version rots on the next bump, and only the person acting on it finds out
 
