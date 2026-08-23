@@ -3694,12 +3694,12 @@ the zip is not the thing to reconsider.
 > never having run, have since been verified by real runs**, and SR-23 is a rule
 > anyone can follow again.
 >
-> **The cost this entry predicted was paid in full, and the bill is [OP-60].**
+> **The cost this entry predicted was paid in full, and the bill is below.**
 > It wrote: *"a red check that means 'unpaid' is indistinguishable at a glance
 > from a red check that means 'broken' — which is how a real failure gets waved
 > through."* A scheduled workflow had been failing **every day since at least
 > 2026-08-16** and nobody looked, because every red looked explained. It is kept
-> below rather than deleted, because the reasoning is what caught OP-60.
+> below rather than deleted, because the reasoning is what caught it.
 
 
 
@@ -3737,10 +3737,15 @@ allowed_actions: all`, so it is not a policy block.
 and a PR should say so rather than showing a red tick and hoping the reader knows
 why.
 
-### OP-60 · ~~The chooser drift guard compared a file against itself and failed~~ — FIXED 2026-08-23
+#### The failure it predicted, found and fixed — 2026-08-23
 
-**Found by following OP-20's own warning to its end**, and it is the failure that
-entry predicted rather than a coincidence.
+**No number of its own on purpose.** `OP-60` and `OP-61` are held by branch
+`feat/the-engine-knows-which-code-it-is-running`, and #263's handoff records them
+as that branch's. The rule in [ORCHESTRATION.md](ORCHESTRATION.md) would give me
+`OP-60` — an open pull request outranks a branch without one, and #264 is open
+while that branch has none — but moving *them* costs two renumbers and
+contradicts a committed handoff, and this is not a sibling finding anyway. **It is
+this entry's own thesis coming true**, so it belongs inside it.
 
 `Publish the documents the store links to` has failed on **every scheduled run
 from at least 2026-08-16 to 2026-08-23** — eight consecutive days, measured, not
@@ -3783,7 +3788,7 @@ expression mismatches and the new one matches.
 
 **Why it went eight days unread.** Two reasons, and both are lessons rather than
 excuses. The guard *"cannot fix what it finds"* by design, so its failure is
-normal-looking noise on a schedule nobody watches. And [OP-20] had made every
+normal-looking noise on a schedule nobody watches. And this entry had made every
 red check mean "unpaid", so a red that meant "broken" was invisible. **A guard
 that cries wolf daily is not a guard**; this one had also never been exercised
 against a passing case.

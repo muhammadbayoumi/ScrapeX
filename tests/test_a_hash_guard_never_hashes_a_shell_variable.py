@@ -19,7 +19,8 @@ identical**: 10,231 bytes, zero differing lines, hashing to exactly the value th
 job printed as "repository". Nobody read it, for two reasons that are both worth
 the test. The guard cannot fix what it finds, so its failure is normal-looking
 noise on a schedule; and OP-20 had made every red check mean "unpaid", so a red
-that meant "broken" was invisible. Recorded as OP-60.
+that meant "broken" was invisible. Recorded under OP-20, whose own
+reasoning is what found it.
 
 The `echo "$var" | sha256sum` form is the same bug with a newline ADDED instead of
 removed, so it is forbidden here too. The fix in both cases is the same and it is
