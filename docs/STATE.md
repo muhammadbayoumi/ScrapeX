@@ -109,8 +109,8 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
 | `generic_record` | **17,304 listing rows**, and the profile approval is still running (10,133 of 17,417 when this line was written) |
 | `generic_page_snapshot` | **56,941**, of which **34,834** are the completed profile crawl |
-| `classification_node` | **214** nodes, depths `{1: 8, 2: 20, 3: 186}` |
-| `generic_record_node` | **15,559** memberships — `R-38` proved on real data |
+| `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
+| `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
 | datasets | `contractors` and `contractor_profiles` |
 | schema | **v9** (`0009` = the link table) |
 
@@ -147,7 +147,7 @@ listing snapshots ALREADY ON DISK — checked by decoding 20,683 stored listing 
 matching ids, 148 of 148 present — so they are an approval, not a fetch. The 35 need 70
 requests, about a minute and a quarter at the governed pace.
 
-**That ratio is the whole of `R-38`:** 15,559 memberships share 214 nodes. Shape A would
+**That ratio is the whole of `R-38`:** 391,761 memberships share 243 nodes — **1,612x**, re-measured 2026-08-23 after the profile approval; the 15,559-over-214 figures this line carried were a day and two crawls old. Shape A would
 have stored 15,559 repeated strings; the study measured that at 4.7x and it is
 conservative.
 

@@ -196,25 +196,45 @@ _LATLNG = re.compile(
 _PROFILE_HREF = re.compile(r"/(?:en|ar)/contractors/(\d+)/\d+")
 
 
-#: A profile page carries seven `section-card` elements, sometimes eight or nine;
-#: the contractors LISTING carries twenty-two. Measured over 300 real profile
-#: snapshots: 7 x262, 8 x33, 9 x4, and one 22 that was the listing served in a
-#: profile's place. Nothing was observed between 9 and 22, so the threshold sits
-#: in an empty gap rather than on a guess.
-LISTING_SHAPED = 15
+#: HOW MANY CONTRACTORS ONE PAGE IS ABOUT. A profile page links to exactly ONE
+#: contractor — itself; the contractors listing links to a page-full of them.
+#: Measured through `soup.select`, which is the path the parser actually takes:
+#:
+#:     800 real profile pages (400 EN + 400 AR)   distinct links: min 1, max 1
+#:     400 listing pages                          distinct links: min 3, max 20
+#:
+#: THIS REPLACED A CARD COUNT, and the replacement is the whole lesson. The first
+#: version thresholded `div.section-card` at 15, justified by "7-9 on a profile,
+#: 22 on the listing, nothing between". Both halves were wrong. An adversarial
+#: review found 160 real listing pages carrying FEWER than 15 cards — the last
+#: page of every filtered slice — so the gap it relied on did not exist on the
+#: side it was guarding against. And the 7-9 census had been taken with a REGEX
+#: while the parser uses BeautifulSoup, which does not see the `section-card`
+#: inside a `<script>` template: through `select` a real profile has SIX. The
+#: number was measured with the wrong instrument and defended with a gap that was
+#: not there. One contractor versus many needs no threshold at all.
+ONE_CONTRACTOR = 1
 
 
 class PageIsNotAProfile(ValueError):
     """The site answered a profile request with a different document.
 
     WHY THIS IS AN EXCEPTION AND NOT A NULL. muqawil answers an id that no longer
-    resolves with **the contractors listing**, at HTTP 200 and 375 KB where a
-    profile is 122 KB. Nothing downstream can tell: `read_profile` finds none of
-    `PROFILE_FIELDS`' labels, emits nulls for all of them, and the membership
-    number leaks through from the first card on that listing — so fourteen
-    contractors ended up carrying a stranger's membership number, thirteen of
-    them the SAME stranger's. The rows looked ordinary: 18.0 populated fields
-    against 18.2 on healthy ones.
+    resolves with **the contractors listing**, at HTTP 200 and ~373 KB where a
+    profile averages 118 KB. `read_profile` then matches THREE of the eleven
+    `PROFILE_FIELDS` labels that a listing card happens to share — Membership
+    Number, Company Size, Training credit hours — and `fields[key] = value` is
+    LAST-WINS over all of the page's `div.info-box` pairs, so the values come
+    from the LAST card on that listing, not the first.
+
+    THE DAMAGE, COUNTED RATHER THAN SAMPLED. 39 contractor ids were served the
+    listing across 78 snapshots (both locales for each). 14 produced a row; 25
+    produced none. Each of the 14 carries FIVE declared columns belonging to a
+    stranger — `membership_number`, `company_size`, `company_size_ar`,
+    `training_credit_hours`, `training_credit_hours_ar` — plus nine undeclared
+    `x_*` fields. `address`, `organization_email` and the coordinates ARE null.
+    Twelve of the fourteen took the same stranger's card. The rows looked
+    ordinary: 18.0 populated fields against 18.2 on a healthy one.
 
     A missing field is a fact about a contractor. A missing DOCUMENT is not, and
     the two must not arrive at the warehouse looking alike. `OP-64`.
@@ -1075,24 +1095,43 @@ def read_licensed_activities(html: str) -> tuple[LicensedActivity, ...]:
     return tuple(found)
 
 
-def read_profile(html: str) -> Reading:
+def read_profile(html: str, *, contractor_id: str | None = None) -> Reading:
     """One profile page, in whichever language it was fetched.
 
     The labels are returned alongside the mapped fields so the Arabic page can
     be paired to the English one BY INDEX — which is the only pairing that does
     not depend on reading an Arabic label correctly.
+
+    `contractor_id` IS OPTIONAL AND SHOULD ALWAYS BE GIVEN. Without it the page
+    is only checked for being about ONE contractor; with it, for being about the
+    RIGHT one. Every production caller knows the id — the crawl built the URL
+    from it — so the weaker check exists for tests and ad-hoc reads, not for the
+    pipeline. See `PageIsNotAProfile`.
     """
     soup = BeautifulSoup(html, "html.parser")
 
-    # THE SHAPE, BEFORE THE FIELDS. See `PageIsNotAProfile`: reading the fields of
-    # the wrong document produces a row rather than an error, and a row is what
-    # reaches the warehouse.
-    cards = len(soup.select("div.section-card"))
-    if cards >= LISTING_SHAPED:
+    # WHO IS THIS PAGE ABOUT, BEFORE WHAT IT SAYS. See `PageIsNotAProfile`:
+    # reading the fields of the wrong document produces a ROW rather than an
+    # error, and a row is what reaches the warehouse.
+    #
+    # WHEN THE CALLER KNOWS THE ID THIS IS EXACT. The crawl reaches a profile by
+    # building `/{lang}/contractors/{id}/143`, so the id is always known on the
+    # production path — and a page that links to a contractor OTHER than the one
+    # asked for is not that contractor's page, whatever its shape. That closes
+    # the case a count cannot: a filtered listing whose last page holds one card.
+    linked = {found.group(1) for anchor in soup.find_all("a", href=_PROFILE_HREF)
+              for found in [_PROFILE_HREF.search(anchor["href"])] if found}
+    strangers = linked - {str(contractor_id)} if contractor_id else set()
+    if contractor_id and strangers:
         raise PageIsNotAProfile(
-            f"this page carries {cards} section-cards, which is the contractors "
-            f"listing and not one contractor's profile — the id it was fetched "
-            f"for no longer resolves, and the site answers that with 200")
+            f"this page links to {len(strangers)} contractor(s) other than "
+            f"{contractor_id} — it is the contractors listing, which is what the "
+            f"site answers with when an id no longer resolves, at HTTP 200")
+    if not contractor_id and len(linked) > ONE_CONTRACTOR:
+        raise PageIsNotAProfile(
+            f"this page is about {len(linked)} contractors, and a profile is about "
+            f"one — it is the contractors listing, which is what the site answers "
+            f"with when an id no longer resolves, at HTTP 200")
 
     pairs = _boxes(soup)
 
@@ -1668,7 +1707,10 @@ def bilingual_profile_candidate(english: str, arabic: str, *,
     columns — but the locator says `div.info-box` rather than `div.section-card`
     because that is where a person would go to look.
     """
-    merged = merge_locales(read_profile(english), read_profile(arabic))
+    # THE ID GOES DOWN WITH THE HTML. `read_profile` can only refuse the wrong
+    # document if it knows which one was asked for — see `PageIsNotAProfile`.
+    merged = merge_locales(read_profile(english, contractor_id=contractor_id),
+                           read_profile(arabic, contractor_id=contractor_id))
     merged["contractor_id"] = str(contractor_id)
     return _candidate_from(
         [merged], table_index=table_index, declared=PROFILE_FIELD_ORDER,

@@ -411,19 +411,38 @@ mutant would be the lie.
 ### A 200 can be the wrong document, and a parser that only reads fields cannot tell
 
 **2026-08-23.** muqawil answers a dead profile id with **the contractors listing**, at
-HTTP 200 and 375 KB where a profile is 122 KB. `read_profile` calls `_boxes()` over the
-whole document, found the first card on that listing, and wrote a stranger's membership
-number, city, size and email under the id that had been asked for. Thirteen ids ended up
-sharing one membership number because all thirteen took the same stranger's card.
+HTTP 200 and ~373 KB where a profile averages 118 KB. `read_profile` calls `_boxes()`
+over the whole document and `fields[key] = value` is LAST-WINS across its 160
+`div.info-box` pairs, so it wrote the values of the **last** card on that listing under
+the id that had been asked for: five declared columns — membership number, company size
+and its Arabic, training hours and its Arabic — plus nine undeclared `x_*` fields.
+Address, email and the coordinates came out null. **39 ids were served the listing; 14
+produced a row and 25 produced none**, and twelve of the fourteen took the same
+stranger's card.
+
+> **THIS PARAGRAPH WAS WRONG TWICE BEFORE IT WAS RIGHT**, and the corrections are the
+> lesson. It first said *"city, size and email"*; that was narrowed to *"the membership
+> number alone"*; both were measured false by adversarial review — city and email are
+> null, size is not. Then *"the first card"* was the last, and *"thirteen ids"* was
+> twelve impostors plus one rightful owner. Every wrong version was written from a
+> probe rather than from the stored rows, which were one query away.
 
 **Nothing downstream could catch it.** The row was complete, every field populated, every
 value well-formed. `check_unique` would have caught it on the listing dataset and does not
 run on profiles. It surfaced only because the owner asked whether a count was duplicated.
 
-**So: check the SHAPE of a page before parsing its fields.** A profile page has seven
-`section-card` elements; the listing has twenty-two. The difference is one comparison, and
-it separates "this contractor has no city" from "this is not that contractor". Recorded as
-`OP-64`.
+**So: check WHO a page is about before reading what it says.** The first fix counted
+`section-card` and thresholded at 15 — *"7-9 on a profile, 22 on the listing, nothing
+between"*. Both halves were false. 160 real listing pages carry **fewer** than 15 cards
+(the last page of every filtered slice), so the gap did not exist on the side being
+guarded; and the 7-9 census was taken with a **regex** while the parser uses
+BeautifulSoup, which does not expose the `section-card` inside a `<script>` template —
+through `select` a real profile has **six**.
+
+What replaced it needs no threshold: **a profile page links to exactly one contractor,
+itself.** 800 real profile pages gave min 1 and max 1; 400 listing pages gave 3 to 20.
+And the caller passes the id, so the test is exact rather than statistical — a page
+linking to anyone else is refused whatever its shape. Recorded as `OP-64`.
 
 ### A discriminator has to be tested against a known-good example first
 
@@ -435,6 +454,14 @@ survived. The percentage looked plausible and was an artefact of the instrument.
 It was caught by reading the whole table rather than the headline: 99.5% unclassified is
 not a result, it is a broken tool. Decoding three known snapshots showed the real shape in
 one command, and the re-run gave 0.2% with 99.8% correctly identified.
+
+**AND THE RE-RUN WAS STILL WRONG, WHICH IS THE REAL LESSON.** It sampled 500 when the
+exact count cost twelve seconds, and reported *"about 70 (95% CI 0-206)"* — a normal
+approximation at `np = 1`, where the interval is not valid. The census says **78**. Then
+the same file's threshold was measured with a regex while the code uses `soup.select`,
+and the two disagree by one card on every page. **A tool tested once is not a tool
+tested**: the second instrument was as unexamined as the first, and only an adversarial
+review that re-measured from scratch found it.
 
 **Print what a measurement could NOT classify, next to what it could.** A count that
 silently drops what it does not understand will report confidently on the remainder.

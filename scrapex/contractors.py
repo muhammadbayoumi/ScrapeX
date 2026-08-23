@@ -476,7 +476,8 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
 
 
 def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
-            ceiling: int = 0, *, workers: int = 1, connect=None) -> None:
+            ceiling: int = 0, *, workers: int = 1, connect=None,
+            ids: tuple[str, ...] = ()) -> None:
     """Fetch the profile pages the registered scope asks for, each stored as evidence.
 
     WHY THIS IS A PHASE OF ITS OWN AND NOT PART OF `--crawl`. The listing crawl is
@@ -523,7 +524,28 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
                 "named, so there is nothing to select. Set site_profile.crawl_slice")
 
-    frontier, outside = detail_frontier(conn, directory, scope, slice_of)
+    if ids:
+        # NAMED IDS REPLACE THE FRONTIER, they do not filter it. This is the half of
+        # `OP-64` that was missing: rows written from the wrong document have to be
+        # fetched AGAIN, and until now nothing could ask for one contractor. `--only`
+        # takes cell labels and reaches `crawl` alone, so the remediation this command
+        # printed could not be run — an adversarial review found the message before a
+        # user did.
+        #
+        # `profile_urls` IS THE SAME BUILDER THE FULL FRONTIER USES, so a targeted
+        # fetch cannot address a page the scope would never have reached.
+        # THE SAME CONSTRUCTION detail_frontier USES twenty lines up, and it is
+        # muqawil-specific there too. Generalising it belongs with the rest of the
+        # hardcoded keys an adversarial review named, not in this repair.
+        source = MuqawilPageSource(last_page=1)
+        frontier: list[str] = []
+        for contractor_id in ids:
+            frontier.extend(source.profile_urls(directory.base_url, contractor_id))
+        frontier = list(dict.fromkeys(frontier))
+        outside = 0
+        say(f"named {len(ids)} contractor(s) — the registered scope is not consulted")
+    else:
+        frontier, outside = detail_frontier(conn, directory, scope, slice_of)
     held = already_stored(conn, run_ref)
     todo = [url for url in frontier if url not in held]
     resumed = len(frontier) - len(todo)
@@ -946,17 +968,9 @@ def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int
     # row for every profile row — 17,304 x 17,263 comparisons, which took minutes
     # and is the same answer as one pass. That function stays for the single-row
     # case in `approve`, where it is called once per page and the page is the cost.
-    listing: dict[str, str] = {}
-    for (blob,) in conn.execute(
-            "SELECT r.data_json FROM generic_record AS r "
-            "JOIN dataset_definition AS d "
-            "ON d.dataset_definition_id = r.dataset_definition_id "
-            "WHERE d.dataset_key = 'contractors' AND d.valid_to IS NULL "
-            "AND r.status = 'active'"):
-        body = json.loads(blob)
-        number = str(body.get("card_membership_number") or "").strip()
-        if number:
-            listing[str(body.get("contractor_id") or "")] = number
+    # THE SAME READER LAYER 2 USES, so the two cannot disagree about who is who —
+    # and it does not filter `status`, for the reason its docstring gives.
+    listing = _listing_membership_numbers(conn)
 
     guilty: list[tuple[int, str, str, str]] = []
     for record_id, blob in rows:
@@ -977,6 +991,10 @@ def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int
     if dry_run:
         say("  DRY RUN — nothing removed. Pass --repair to remove them.")
         return len(guilty)
+    if not guilty:
+        # NOTHING TO DO IS NOT A WRITE. The first version ran `executemany` over
+        # an empty list, committed, and printed a re-fetch line for zero rows.
+        return 0
 
     # RETIRED, NOT ERASED. `status` is how this warehouse withdraws a row without
     # losing that it was ever written, and a deletion nobody can see is how the next
@@ -984,9 +1002,42 @@ def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int
     conn.executemany("UPDATE generic_record SET status = 'retired' "
                      "WHERE generic_record_id = ?", [(g[0],) for g in guilty])
     conn.commit()
-    say(f"  retired {len(guilty)} row(s). Re-fetch them with "
-        f"--details --only {','.join(g[1] for g in sorted(guilty, key=lambda g: g[1])[:5])}…")
+    # NO RE-FETCH COMMAND IS PRINTED, because none exists. The first version
+    # suggested `--details --only <ids>` and an adversarial review found that
+    # `--only` takes CELL LABELS and is passed to `crawl` alone, so the line
+    # either exited 2 or re-fetched the whole 34k-page frontier. A remediation
+    # that cannot be run is worse than none: it looks like the loop is closed.
+    say(f"  retired {len(guilty)} row(s). THEY ARE NOT RE-FETCHED — no command "
+        f"targets specific ids today, which is the open half of OP-64.")
     return len(guilty)
+
+
+def _listing_membership_numbers(conn) -> dict[str, str]:
+    """Every listing row's membership number, by contractor id, in one pass.
+
+    THE LISTING'S FIELD IS THE ONE THAT CAN BE TRUSTED, measured rather than
+    assumed: `card_membership_number` is unique across all 17,304 listing rows
+    with none blank, exactly as the owner said it would be. The PROFILE page's
+    `membership_number` is not.
+
+    `status` IS NOT FILTERED HERE, and that is deliberate. `sightings.mark_unavailable`
+    sets a listing row to `unavailable` for a contractor the site stopped publishing
+    — which is the SAME population whose profile ids die — so filtering to `active`
+    would silently switch the cross-check off for exactly the contractors it exists
+    to protect. An `unavailable` row's membership number is still what the site
+    published, and that is all this comparison needs.
+    """
+    numbers: dict[str, str] = {}
+    for (blob,) in conn.execute(
+            "SELECT r.data_json FROM generic_record AS r "
+            "JOIN dataset_definition AS d "
+            "ON d.dataset_definition_id = r.dataset_definition_id "
+            "WHERE d.dataset_key = 'contractors' AND d.valid_to IS NULL"):
+        body = json.loads(blob)
+        number = str(body.get("card_membership_number") or "").strip()
+        if number:
+            numbers[str(body.get("contractor_id") or "")] = number
+    return numbers
 
 
 def _membership_on_the_listing(conn, contractor_id: str) -> str | None:
@@ -1023,6 +1074,9 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     reparsed = 0
     lonely = 0
     mismatched = 0
+    #: Built on first use, not on entry: a run with no profile pages should not
+    #: pay for a table it never consults.
+    listing_numbers: dict[str, str] | None = None
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
@@ -1074,8 +1128,17 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         # profile's would produce a row that passes every check and is still half
         # somebody else's; the honest outcome is no row and a named page.
         if contractor is not None:
-            theirs = _membership_on_the_listing(conn, contractor)
-            mine = str(candidate.rows[0].get("membership_number") or "").strip()                 if candidate.rows else ""
+            if listing_numbers is None:
+                # ONE PASS, ONCE, NOT A SCAN PER PAGE. Measured by an adversarial
+                # review: `json_extract` in a WHERE cannot use an index, so each
+                # lookup SCANNED all 34,567 generic_record rows at 78 ms — against
+                # 104 ms to parse the page pair it was checking. Over a full run
+                # that is 22 minutes added to 30. `disown_impostors` already built
+                # this dict and this function excused itself from it on the grounds
+                # that "the page is the cost". Measured, it was not.
+                listing_numbers = _listing_membership_numbers(conn)
+            theirs = listing_numbers.get(str(contractor))
+            mine = str(candidate.rows[0].get("membership_number") or "").strip()
             if theirs and mine and theirs != mine:
                 refused.append((key, (
                     f"membership number {mine} on the profile page but {theirs} on "
@@ -1180,6 +1243,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--approve", action="store_true",
                        help="interpret the stored pages of --run-ref into rows. "
                             "Re-fetches nothing")
+    parser.add_argument("--ids", default="",
+                       help="with --details, fetch ONLY these contractor ids, "
+                            "comma-separated. This is how a row written from the "
+                            "wrong page is re-fetched (OP-64); the registered scope "
+                            "is not consulted")
     parser.add_argument("--impostors", action="store_true",
                        help="OP-64: list profile rows whose membership number "
                             "disagrees with their listing card. Reads only")
@@ -1243,6 +1311,24 @@ def validate(args: argparse.Namespace) -> None:
         _refuse("generic extraction is disabled in this build "
                 "(scrapex/features.py), so --approve would write rows the feature "
                 "manifest says are not available. Nothing was read or written")
+    # `--repair` WRITES TO THE SAME TABLE `--approve` DOES, so it stands behind the
+    # same gate. An adversarial review found it outside: a build whose manifest says
+    # generic extraction is unavailable could still retire rows in it. `--impostors`
+    # alone only reads, so it is left open — a diagnosis is not a change.
+    if args.impostors and args.repair and not is_enabled(FeatureKey.GENERIC_EXTRACTION):
+        _refuse("generic extraction is disabled in this build "
+                "(scrapex/features.py), so --repair would retire rows the feature "
+                "manifest says are not available. Run --impostors alone to look")
+    # REFUSED RATHER THAN IGNORED, like `--ceiling` above: `--repair` with nothing
+    # to repair reads as a request that was honoured.
+    # REFUSED RATHER THAN IGNORED, for the same reason as `--repair`: `--ids` without
+    # `--details` names work nothing will do.
+    if args.ids and not args.details:
+        _refuse("--ids only means something with --details, which is what fetches "
+                "profile pages")
+    if args.repair and not args.impostors:
+        _refuse("--repair has no meaning without --impostors, which is what finds "
+                "the rows it would retire")
 
 
 def _refuse(message: str) -> None:
@@ -1287,8 +1373,10 @@ def run(args: argparse.Namespace) -> int:
                 factory = DatabaseRegistry.defaults().engine.connect
                 say(f"fetching with {args.workers} workers — the pace is unchanged, "
                     "the waits overlap")
+            named = tuple(one.strip() for one in args.ids.split(",") if one.strip())
             details(conn, directory, fetch, fetcher, args.run_ref,
-                    ceiling=args.ceiling, workers=args.workers, connect=factory)
+                    ceiling=args.ceiling, workers=args.workers, connect=factory,
+                    ids=named)
         if args.approve:
             approve(conn, directory, args.run_ref)
         if args.impostors:

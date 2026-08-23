@@ -300,14 +300,45 @@ def test_the_identity_is_passed_in_and_not_parsed_out():
     """A profile is reached BY id — the crawl builds `/{lang}/contractors/{id}/143` —
     so the id is what the caller already knows. A page that failed to repeat it in its
     own body would otherwise produce a row with no identity and be refused at
-    approval, and the listing uses the same key, which is what lets the two join."""
+    approval, and the listing uses the same key, which is what lets the two join.
+
+    THIS USED TO PASS AN ID THE FIXTURE DOES NOT CARRY (`20044482`, where the fixture
+    is contractor 881), and `OP-64`'s guard now refuses that — correctly. A page that
+    links to a contractor OTHER than the one asked for is not that contractor's page:
+    measured, 797 of 797 real profile snapshots link to themselves and nothing else,
+    and every exception was the listing served in a profile's place.
+
+    So the id still comes from the CALLER and is not parsed out — the row's value is
+    the string handed in, and the guard only requires the page not to contradict it.
+    The two rules are compatible and the arbitrary id was hiding that."""
     from scrapex.extract.muqawil import bilingual_profile_candidate
 
     english, arabic = _profile_pair()
-    row = bilingual_profile_candidate(english, arabic,
-                                      contractor_id="20044482").rows[0]
+    row = bilingual_profile_candidate(english, arabic, contractor_id="881").rows[0]
 
-    assert row["contractor_id"] == "20044482"
+    # PASSED IN, not read off the page: the value is the argument, byte for byte,
+    # including its type. Nothing in the row is derived from the href.
+    assert row["contractor_id"] == "881"
+    assert isinstance(row["contractor_id"], str)
+
+
+def test_a_page_that_names_a_different_contractor_is_refused():
+    """The other half of the rule above, and the whole of `OP-64`.
+
+    The id being the caller's does NOT make the page's content irrelevant. Before this
+    guard, asking for contractor X and being served contractor Y produced a row labelled
+    X carrying five of Y's declared columns — measured on 14 rows, twelve of them
+    carrying the same stranger's values."""
+    import pytest as _pytest
+
+    from scrapex.extract.muqawil import (
+        PageIsNotAProfile,
+        bilingual_profile_candidate,
+    )
+
+    english, arabic = _profile_pair()
+    with _pytest.raises(PageIsNotAProfile):
+        bilingual_profile_candidate(english, arabic, contractor_id="20044482")
 
 
 def test_the_two_silent_profile_fields_survive_the_adapter():

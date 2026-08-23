@@ -160,7 +160,9 @@ def test_it_is_a_column_on_the_row(pages):
     """READ IS NOT STORED. A reader nobody wired produces nothing, which is the state
     `read_profile` left the profile's other cards in."""
     english, arabic = pages
-    candidate = bilingual_profile_candidate(english, arabic, contractor_id="775")
+    # 881 IS THE FIXTURE'S OWN CONTRACTOR, and it has to be: `OP-64`'s guard
+    # refuses a page that links to anyone else, which is the whole of that fix.
+    candidate = bilingual_profile_candidate(english, arabic, contractor_id="881")
     row = candidate.rows[0]
 
     assert row["commercial_registration"] == FIXTURE_CR
@@ -255,7 +257,7 @@ def test_the_counts_are_keyed_on_the_headers_and_not_on_the_card_title(pages):
 
 def test_the_counts_reach_the_row(pages):
     english, arabic = pages
-    row = bilingual_profile_candidate(english, arabic, contractor_id="775").rows[0]
+    row = bilingual_profile_candidate(english, arabic, contractor_id="881").rows[0]
 
     assert row["model_contract_count"] == "455"
     assert row["registered_contract_count"] == "64"

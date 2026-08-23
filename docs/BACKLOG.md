@@ -2170,7 +2170,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:786](LESSONS.md#L786)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:813](LESSONS.md#L813)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -2701,12 +2701,30 @@ one membership number: they all took the same stranger's card.**
 
 About 70 of the 34,834 snapshots (95% CI 0–206) are the wrong document.
 
-> **CORRECTED, and the correction matters more than the original claim.** This entry
-> first said those rows hold *"another company's address, city, size and email"*. **They
-> do not.** Counted exactly rather than sampled — every profile row whose
-> `membership_number` disagrees with its own listing card — the damage is **14 rows,
-> 0.09% of the profile table**, and what is wrong in them is the **membership number
-> alone**:
+> **CORRECTED TWICE, and the second correction reverses half of the first.** This entry
+> first said the rows hold *"another company's address, city, size and email"*. I
+> corrected that to *"the membership number alone"*. **Two adversarial reviews measured
+> both and both were wrong** — the first overstated it, mine understated it.
+>
+> **What is actually wrong, dumped from `generic_record_id=20579`:** FIVE declared
+> columns carry the stranger's values — `membership_number`, `company_size`,
+> `company_size_ar`, `training_credit_hours`, `training_credit_hours_ar` — plus nine
+> undeclared `x_*` fields. `address`, `organization_email` and the coordinates ARE null,
+> which is the half my correction got right.
+>
+> **And the blast radius is 39 ids, not 14.** 78 snapshots, both locales for each; 14
+> produced a row, **25 produced none**, which is why counting rows undercounted the
+> defect by 2.8x. Of the 39, **28** sit in the id block `20074580`–`20075073` — 9.96% of
+> that block against 0.224% crawl-wide, **44x** — and **eleven** are outside it with no
+> story, not two.
+>
+> **It is the LAST card on the listing, not the first.** `fields[key] = value` is
+> last-wins over every `div.info-box` pair on the page, and the poisoned page has 160 of
+> them. The values this entry originally quoted — `160916095`, `Small`, `96 h` — belong
+> to the FIRST card and appear in no stored row.
+>
+> The numbers below are kept as written, with their errors, because `C4` says a changed
+> mind keeps its predecessor:
 >
 > ```
 > id 20034161   membership 117511752   (its listing card says 355735571)
