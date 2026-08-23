@@ -1288,8 +1288,8 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1662](../scrapex/webui/app.py), drawn by
-[extension/app.js:599](../extension/app.js) and `:633`.
+[scrapex/webui/app.py:1671](../scrapex/webui/app.py), drawn by
+[extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**
 > `webui/app.py` was **1355**, now 1375 — #211 and #212 inserted twenty lines
