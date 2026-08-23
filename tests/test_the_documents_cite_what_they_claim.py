@@ -77,6 +77,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # The map in CLAUDE.md -- the documents C1 sends every session to read before it
 # writes a line of code. If a document joins that map, it joins this list.
+#
+# AND THAT SENTENCE WENT UNENFORCED ON ITS FIRST TEST. `docs/ORCHESTRATION.md`
+# joined the map in `#257` and did not join this tuple, so the one document telling
+# a session how to merge had its citations checked by nothing -- while the comment
+# directly above said it would. A rule stated in a comment and enforced nowhere is
+# LESSONS §13's subject, and this is the guard's own instance of it. Found 2026-08-22
+# by reading the map against this list rather than trusting the sentence.
+#
+# Measured before adding it, so it goes green rather than arriving red: 4 citations,
+# all resolving, none on a blank line.
 DOCUMENTS = (
     "CLAUDE.md",
     "ENGINEERING.md",
@@ -86,6 +96,7 @@ DOCUMENTS = (
     "docs/BACKLOG.md",
     "docs/LESSONS.md",
     "docs/APPROACHES.md",
+    "docs/ORCHESTRATION.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by
@@ -266,19 +277,43 @@ PINNED = (
     # "bump both or neither" is a rule with a guard behind it rather than advice.
     ("docs/LESSONS.md", "tests/test_version.py", 73,
      "def test_the_installer_carries_the_same_number("),
-    # DELIBERATELY ABSENT, AND THE ABSENCE IS RECORDED HERE RATHER THAN ONLY IN THE
-    # ENTRY THAT WANTS IT. `OP-46` cites seven lines in `extension/app.js` --
-    # `setupFinanceConverterSelect` and `setupRunModeSelect` chief among them -- and
-    # pins none of them, because that file was under concurrent edit by another
-    # session when the entry was written. Pinning a line another branch is moving is
-    # how `scrapex/webui/app.py:2710` above became 2725 and then 2787.
+    # LESSONS §13 · a test named in a docstring is a citation. All four of these are
+    # the section's ARGUMENT rather than decoration, and each fails differently if a
+    # reader lands off it. The clamp is the section's whole point about citing a live
+    # rule instead of a test that measured it -- land off that and the advice reads as
+    # unsupported. `settle_view` is the case that proves the class, and the other two
+    # are the mechanism the section says replaced deciding honesty by adjacency: the
+    # declared allowlist, and the check that a row is READABLE where it claims.
+    ("docs/LESSONS.md", "design/components.css", 369,
+     "min-height: var(--control-height)"),
+    ("docs/LESSONS.md", "tests/test_panel_dom.py", 160, "def settle_view("),
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
+     "HISTORICAL = {"),
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 144,
+     "def test_a_historical_test_is_still_readable_where_the_row_says("),
+    # OP-46 · THE CONDITION BELOW FIRED, AND THESE TWO ROWS ARE ITS DISCHARGE.
     #
-    # A CONDITION, NOT A CHORE ASSIGNED TO NOBODY: pin those two symbols the next
-    # time you add a row here AND `extension/app.js` is quiet. It is written beside
-    # the mechanism instead of in `OP-46` because this table is re-read every time
-    # someone adds a row, whereas a BACKLOG entry is read when someone goes looking
-    # for work -- and this instruction has to fire while its reader is doing
-    # something else.
+    # The condition, written here on 2026-08-22 and kept for the record: `OP-46` cites
+    # seven lines in `extension/app.js` and pinned none of them, because that file was
+    # under concurrent edit when the entry was written -- pinning a line another branch
+    # is moving is how `scrapex/webui/app.py:2710` above became 2725 and then 2787. It
+    # said: pin those two symbols the next time you add a row here AND
+    # `extension/app.js` is quiet.
+    #
+    # It was written beside the mechanism rather than in `OP-46` because this table is
+    # re-read whenever someone adds a row, while a BACKLOG entry is read only when
+    # someone goes looking for work -- so the instruction had to fire while its reader
+    # was doing something else. IT DID, TWICE: once refusing to pin while #258 was open
+    # against that file, and once here, releasing.
+    #
+    # Discharged at `d10e974`, after #258 landed, having checked BOTH halves rather than
+    # assuming either: no open pull request's own diff touches `extension/app.js`, and
+    # all four of `OP-46`'s citations into it still name their symbols after #258 moved
+    # that file. The remaining five citations in that entry stay unpinned on purpose --
+    # they are the measured numbers, not the two symbols the argument rests on.
+    ("docs/BACKLOG.md", "extension/app.js", 956,
+     "function setupFinanceConverterSelect("),
+    ("docs/BACKLOG.md", "extension/app.js", 2008, "function setupRunModeSelect("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
