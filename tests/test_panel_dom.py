@@ -3739,6 +3739,66 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
 
 
+def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
+    """THE 2026-08-23 INCIDENT, RENDERED ON THE SCREEN HE ACTUALLY READS.
+
+    "Installed version 0.3.0" was true of three different things, and the owner
+    met the worst one: a process still serving the tree it imported at 07:35:44
+    while the checkout moved on at 07:39:03. His panel told him a 17,304-row
+    dataset had never been crawled and nothing anywhere said a restart was owed.
+
+    Driven through the real health payload rather than by calling the renderer,
+    because the defect was never in a function — it was that the fact never left
+    the engine and never reached a row. Four states, and the assertion that
+    matters most is the NEGATIVE one: a level engine must show no badge, or the
+    badge becomes furniture and stops being read.
+    """
+    level = open_panel()
+    level.click("#tab-engines")
+    open_engine(level)
+    assert "source" in text_of(level, "#engine-build-value")
+    assert "d10e974" in text_of(level, "#engine-build-value")
+    assert level.locator("#engine-build-verdict").is_visible() is False, (
+        "a level engine wore a badge; a badge that is always there is one the "
+        "owner learns to scroll past")
+
+    stale = open_panel(engine_build={
+        "mode": "source", "sealed_at": "2026-08-23T04:35:44+00:00",
+        "commit": "451468dcb42b3981de11c4793074a4bcadacf14d",
+        "commit_now": "31c369e409037f823068c681ef721d82e61f7087",
+        "moved": True, "stale": True,
+        "detail": "the code this engine is running is not the code on disk — "
+                  "1 loaded module(s) changed since it started. Restart the "
+                  "engine to pick the new code up."})
+    stale.click("#tab-engines")
+    open_engine(stale)
+    assert text_of(stale, "#engine-build-verdict") == "Restart needed"
+    assert "451468d" in text_of(stale, "#engine-build-value"), (
+        "the row must name the commit the process is RUNNING, not the one on "
+        "disk — that is the difference the owner could not see")
+    assert "Restart" in text_of(stale, "#engine-build-detail")
+
+    # AN INSTALLED BUILD CANNOT KNOW, and must not be dressed as though it did.
+    frozen = open_panel(engine_build={
+        "mode": "frozen", "sealed_at": "2026-08-23T04:00:00+00:00",
+        "commit": None, "commit_now": None, "moved": None, "stale": None,
+        "detail": "this is an installed build; it carries no source tree to "
+                  "compare against, so whether newer code exists on disk "
+                  "cannot be answered from inside it."})
+    frozen.click("#tab-engines")
+    open_engine(frozen)
+    assert text_of(frozen, "#engine-build-value") == "installed build"
+    assert frozen.locator("#engine-build-verdict").is_visible() is False
+
+    # AN ENGINE FROM BEFORE THE FIELD EXISTED IS NOT AN ENGINE IN TROUBLE — the
+    # same treatment the Protocol row already gives a version it was not told.
+    old = open_panel(engine_build=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-build-value") == "Not reported"
+    assert old.locator("#engine-build-verdict").is_visible() is False
+
+
 def test_the_latest_row_never_contradicts_the_sentence_under_it(open_panel):
     """THE GENERAL FORM OF THE DEFECT ABOVE, so it cannot come back in another
     state. The reader distinguishes four outcomes; the row is allowed to
@@ -4620,7 +4680,8 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     assert "AGPL-3.0" in text_of(page, "#engine-licence")
     assert "scraping" in text_of(page, "#engine-role").lower()
     for hidden in ("#engine-detail-actions", "#engine-action-list",
-                   "#engine-spec-installed", "#engine-spec-latest",
+                   "#engine-spec-installed", "#engine-spec-build",
+                   "#engine-spec-latest",
                    "#engine-spec-protocol", "#engine-spec-power",
                    "#engine-install-steps"):
         assert not page.locator(hidden).is_visible(), (

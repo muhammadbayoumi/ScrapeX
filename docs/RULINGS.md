@@ -928,7 +928,7 @@ The four parts, in the order they were put to him:
 **1. The panel can never be the installer, and this is a limit rather than a
 backlog item.** Measured 2026-08-21: `extension/manifest.json` grants
 `activeTab, identity, nativeMessaging, sidePanel, storage, tabs` and **no
-`downloads`**, so `extension/app.js:3564` is `window.open(installer.url)` — it hands
+`downloads`**, so `extension/app.js:3620` is `window.open(installer.url)` — it hands
 a URL to the browser and lets go. Chrome will not let an extension show download
 progress it does not own, read a file off disk to hash it, or launch a process.
 **No amount of UI work changes any of those three.**
