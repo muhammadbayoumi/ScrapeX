@@ -1798,7 +1798,7 @@ when — especially when — it is only the connective tissue of a sentence.
 ### `settle_view` is the case that proves the class, not an example of it
 
 The worst of the three was in the docstring of `settle_view`
-([tests/test_panel_dom.py:147](../tests/test_panel_dom.py#L147)) — a helper used at
+([tests/test_panel_dom.py:160](../tests/test_panel_dom.py#L160)) — a helper used at
 four call sites, one of them the guard `#252` added. Its docstring **is** the entire
 evidentiary basis for the wait: 20/20 runs reading the box mid-animation, 7/20
 failing outright, height `47.99999237060547` = 48 − 2⁻¹⁷ at one float32 ulp. Every

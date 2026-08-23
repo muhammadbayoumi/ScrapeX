@@ -286,7 +286,7 @@ PINNED = (
     # declared allowlist, and the check that a row is READABLE where it claims.
     ("docs/LESSONS.md", "design/components.css", 369,
      "min-height: var(--control-height)"),
-    ("docs/LESSONS.md", "tests/test_panel_dom.py", 147, "def settle_view("),
+    ("docs/LESSONS.md", "tests/test_panel_dom.py", 160, "def settle_view("),
     ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
      "HISTORICAL = {"),
     ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 144,
