@@ -91,7 +91,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
 | [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
-| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
+| [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **In flight** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — muqawil is ONE card and the population is stated once; the two crawl OPTIONS are blocked on a panel path to a dataset crawl ([OP-52](BACKLOG.md)) | 2026-08-22 |
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
@@ -1720,7 +1720,7 @@ and dark, and a trigger that reads well on one ground often does not on the othe
 ---
 
 ## REQ-37 · One card per site, and its crawls are options under it — the way GPP does it
-**Captured 2026-08-22 · Ruled ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) · Not built**
+**Captured 2026-08-22 · Ruled ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) · In flight 2026-08-23 — the card is one, the crawl options are not**
 
 > «المفروض مصدر مقاول يظهر مرة واحدة فقط واختيارات الزحف الخاصة به تكون متعغددة · انظر
 > الى gpp لتفهم كيف تم عمل هذا»
@@ -1777,6 +1777,70 @@ which also records the half he did not have to decide because the code already h
 what a broken parser looks like (`R-31`) — so it is one CARD over two datasets, joined by
 the relationship he already had confirmed. And the second number stops being a population:
 704 of 17,304 is **coverage**, which is what `--coverage` already computes.
+
+### BUILT 2026-08-23 — points 1 and 2 of three, and the third cannot ship yet
+
+**HE ASKED FOR THIS ON 2026-08-22 AND IT WAS RULED THE SAME DAY. It was still not
+built on 2026-08-23**, which is why he asked «حل المشكلة لم يصل لى ما السبب ؟» — the
+fix has not reached me, why? Measured before starting: **no file under `extension/`,
+`scrapex/` or `tests/` cited `R-47` or `REQ-37` at all.** Ruled, recorded, and never
+carried into code. That gap — a ruling with no line of code behind it — is the whole
+answer to his question, and it is the failure `C7` and `REQ-04` exist to catch.
+
+**What landed**
+
+1. **One card per site.** `_dataset_listing` in `scrapex/webui/app.py` folds a
+   confirmed one-to-one child dataset into its parent for `/api/sources`. `muqawil.org`
+   is listed once. «المفروض مصدر مقاول يظهر مرة واحدة فقط» — done.
+2. **The population once, the second crawl as coverage.** The card reads
+   `Contractor profiles: 704 of 17,304 (4.1%)` where it used to read a second
+   population — and, on the way, stopped reading `17,304 products` over a directory
+   ([`OP-53`](BACKLOG.md)).
+
+**What did not, and it is blocked rather than skipped: «اختيارات الزحف».** `R-47`'s
+third point is two crawl OPTIONS on the card. **There is no panel path to a dataset
+crawl at all.** `POST /api/jobs` answers `404 unknown source_key 'contractors'` —
+measured, and already recorded as [`OP-52`](BACKLOG.md); `REQ-24` shipped
+`scrapex contractors` as a CLI command and says the panel path is still missing. Adding
+two menu entries now would put two buttons on his card that answer 404, which is the
+rule #258 built a guard for: *a button that cannot work is worse than no button.* So
+**this request stays In flight until a dataset crawl can be started from the panel**,
+and closing it before then would be the `REQ-04` failure wearing a green tick.
+
+### THE FOLD KEYS ON THE RELATIONSHIP, NOT ON THE SITE — and measuring said so
+
+Point 1 above names `site_profile_id`. Measured read-only on his warehouse 2026-08-23,
+that is true and **insufficient**, and `base_url` — the obvious shortcut — is wrong:
+
+| | |
+|---|---|
+| `dataset_definition` | `contractors` and `contractor_profiles`, **both `site_profile_id = 2`** |
+| `dataset_relationship` | parent `contractors`, child `contractor_profiles`, `one_to_one`, **`confirmed`** |
+| active rows | 17,304 and 704 |
+| `site_profile` | **TWO muqawil rows** — id 1 `https://muqawil.org/ar/contractors`, id 2 `https://muqawil.org/`. Same host, different `base_url`; grouping on the URL works today only because id 1 carries no datasets |
+
+So the key is the site **plus a confirmed one-to-one relationship**, which is `R-47`'s
+own justification — *"the join is the thing that makes the single card honest rather
+than a label over two unrelated tables"* — rather than a caution added on top of it.
+Two datasets that merely share a site are two populations, and one card over them
+would state a number nobody could act on.
+
+### AND HIS GPP COMPARISON HAS NO PRESENTATION TO COPY, which is worth stating plainly
+
+He said «انظر الى gpp لتفهم كيف تم عمل هذا». Measured: **`grep -rin gpp extension/`
+returns nothing.** There is no GPP branch, no GPP card, no split-button, no accordion
+and no picker anywhere in the panel. `GPP_ENERGY` is one `source_key` in `sources.yaml`
+and its five energy types live in a dict inside `scrapex/connectors/gpp.py`, so the
+panel has always drawn it as one card *without knowing it was one card*.
+
+**The GPP pattern is therefore "collapse below the surface", and it is the right
+lesson even though it does not transfer as a control**, which is what this request and
+`R-47` both already say: GPP's axes are one crawl producing many rows, muqawil's are
+two crawls. So the multiplicity that could be hidden was hidden — the listing is one
+row per site — and the multiplicity that cannot be (two separately-run, separately-
+resumed, separately-approved crawls) is left for the `⋮` menu `REQ-36` built, rather
+than given a second vocabulary of its own. That is Decision 26 of `PLATFORM-PLAN.md`
+applied: no second implementation of an existing one.
 
 ---
 

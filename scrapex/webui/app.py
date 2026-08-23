@@ -704,6 +704,17 @@ def create_app(
                 # directory the honest number is its rows. `products` has no
                 # meaning for a company, so it carries the same count rather
                 # than a zero that would read as an empty dataset.
+                #
+                # THE PANEL NO LONGER READS THIS KEY FOR A DATASET, and the note
+                # above now describes exactly one surviving reader: the engine's
+                # own `/source/{key}` page, which fills `SourceSummary.products`
+                # from it at line ~960 and prints it as a "Products" tile
+                # (`templates/_source_overview.html`). So a contractor directory
+                # still reads "Products 17,304" THERE — the same defect this
+                # branch fixed on the panel, on the surface this branch did not
+                # touch. Recorded as `OP-53` rather than fixed here, because
+                # that page shows four tiles and two of them are meaningless for
+                # a directory, which is a design question and not a noun.
                 "observations": row["rows"], "products": row["rows"],
                 # WHEN THE DATA ON SCREEN WAS GATHERED, and it is DERIVED rather
                 # than recorded. The card printed "no successful crawl yet"
@@ -722,6 +733,114 @@ def create_app(
             } for row in catalogue]
         finally:
             general.close()
+
+    def _dataset_listing():
+        """The same datasets, as ONE CARD PER SITE. `R-47`, and `REQ-37` before it.
+
+        HIS COMPLAINT, twice, with a screenshot each time: «المفروض مصدر مقاول يظهر
+        مرة واحدة فقط واختيارات الزحف الخاصة به تكون متعغددة». The Data screen drew
+        `muqawil.org` twice, once per `dataset_definition` row, and neither card knew
+        the other existed.
+
+        **ONLY THE PRESENTATION COLLAPSES, and that is the whole of `R-47`.** The two
+        `dataset_definition` rows stay two — `contractors._approval` refuses to put a
+        27-field profile and a 28-field listing under one approved schema, because a
+        subset is what a broken parser looks like (`R-31`). So this folds the LISTING
+        and `_dataset_rows` is left alone, which is not a stylistic split: it has a
+        second caller. `/source/{key}` resolves ONE dataset out of it by key, so
+        folding in place would have made `/source/contractor_profiles` answer 404
+        again — the exact regression #212 was built to close.
+
+        THE GROUPING KEY IS NOT THE SITE ALONE, and measuring it is what settled
+        that. `REQ-37` names `site_profile_id`, and both muqawil datasets do share
+        one (id 2, `muqawil_org`) — but `R-47`'s own justification is narrower than
+        the site: *"the join is the thing that makes the single card honest rather
+        than a label over two unrelated tables."* Two datasets that happen to sit on
+        one site and are NOT related are two populations, and one card over them
+        would state a number nobody could act on. So the key is the site **plus a
+        confirmed one-to-one relationship**, which is the thing he had already asked
+        for by name — «اربطهم فى dataset_relationship» — and which is `confirmed` in
+        his warehouse today.
+
+        MEASURED READ-ONLY ON HIS WAREHOUSE, 2026-08-23:
+
+            dataset_definition   1 contractors         site_profile_id 2
+                                 2 contractor_profiles site_profile_id 2
+            dataset_relationship parent 1, child 2, one_to_one, confirmed
+            active rows          17,304 and 704
+
+        AND `base_url` WOULD HAVE BEEN THE WRONG KEY, which only the measurement
+        shows: `site_profile` holds TWO muqawil rows — id 1 `https://muqawil.org/ar/
+        contractors` and id 2 `https://muqawil.org/` — so the host is shared and the
+        base URL is not. Grouping on the URL works today only because id 1 carries no
+        datasets.
+
+        WHAT IS NOT BUILT HERE, deliberately: the two crawl OPTIONS on the card,
+        which is `R-47`'s third point. `POST /api/jobs` answers 404
+        `unknown source_key 'contractors'` — measured, `OP-52` — so there is no panel
+        path to a dataset crawl, and offering two menu entries that cannot run is the
+        "button that cannot work is worse than no button" rule #258 built a guard
+        for. The profile crawl reaches the card as COVERAGE instead, which is
+        `R-47`'s second point and the number he actually wants.
+        """
+        rows = _dataset_rows()
+        if len(rows) < 2:
+            return rows
+        general = general_read_conn()
+        try:
+            # CONFIRMED AND ONE-TO-ONE, both load-bearing. `review_status` is the
+            # human gate — a proposed relationship is a guess, and collapsing two
+            # cards on a guess would hide a population behind a percentage. And
+            # `one_to_one` is what makes "704 of 17,304" a sentence: under
+            # `one_to_many` a parent row can carry several children, so the child
+            # count is not a fraction of the parent count at all.
+            links = general.execute(
+                "SELECT p.dataset_key AS parent, c.dataset_key AS child "
+                "FROM dataset_relationship AS r "
+                "JOIN dataset_definition AS p "
+                "ON p.dataset_definition_id = r.parent_dataset_id "
+                "JOIN dataset_definition AS c "
+                "ON c.dataset_definition_id = r.child_dataset_id "
+                "WHERE r.valid_to IS NULL AND r.review_status = 'confirmed' "
+                "AND r.cardinality = 'one_to_one'"
+            ).fetchall()
+        finally:
+            general.close()
+        entries = {row["source_key"]: row for row in rows}
+        parents = {link["parent"] for link in links}
+        # A CHILD THAT IS ITSELF A PARENT KEEPS ITS OWN CARD. Folding it away would
+        # take its own children off the listing with it, and a dataset that reaches
+        # no card is worse than one that reaches a redundant card. One level, and the
+        # limit is stated rather than discovered: nothing in the warehouse is two
+        # deep today, and the day something is, its middle row stays visible.
+        folded_into = {link["child"]: link["parent"] for link in links
+                       if link["parent"] in entries and link["child"] in entries
+                       and link["child"] not in parents}
+        listing = []
+        for row in rows:
+            key = row["source_key"]
+            if key in folded_into:
+                continue
+            children = [entries[child] for child, parent in folded_into.items()
+                        if parent == key]
+            if not children:
+                listing.append(row)
+                continue
+            # THE SECOND NUMBER STOPS BEING A POPULATION. Today the cards read
+            # 17,304 and 704 as if they were two populations; they are one —
+            # 17,304 contractors, of whom 704 have an approved profile. A LIST
+            # because a site may grow a second detail crawl, and one line each is
+            # the shape that does not have to be rewritten when it does.
+            listing.append(dict(row, coverage=[{
+                "dataset_key": child["source_key"],
+                # The child's own stored `display_name`, never a word of ours:
+                # `R-45` — «ما يقوله الموقع هو مصدر الحقيقة الوحيد» — and this is
+                # the label the approval recorded from the site.
+                "label": child["source_name"],
+                "stored": child["observations"],
+                "population": row["observations"],
+            } for child in children]))
+        return listing
 
     def _source_catalog(conn):
         """Every configured source, split by whether it has warehouse data."""
@@ -1646,7 +1765,12 @@ def create_app(
         # Wipe and Rename, and every one of those is a price-path action that
         # would answer 400 or worse for a dataset. A button that cannot work is
         # worse than no button, so the panel hides them on this marker.
-        out.extend(_dataset_rows())
+        #
+        # `_dataset_listing` AND NOT `_dataset_rows`, which is `R-47`: this is the
+        # LISTING, where one site is one card, and `/source/{key}` is the resolver,
+        # where the two stored datasets stay two. The same function serving both is
+        # what drew `muqawil.org` twice on his Data screen (`REQ-37`).
+        out.extend(_dataset_listing())
         return {"sources": out}
 
     @app.get("/api/resolve")

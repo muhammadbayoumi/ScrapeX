@@ -1,15 +1,17 @@
 # State — where the work stands
 
-**Last updated: 2026-08-23.** `main` is at `f1844af` (#261). #243 through #261 are
-all merged — **fifteen merges** landed after this line last said `afb8648` (#244),
-across two days. **And this conflict is the argument itself:** resolving it, `main`
-said `31c369e` (#257) on one side and `bcb8f6e` (#255) on the other, and by the time
-the rebase finished it was `f1844af`. Three wrong numbers for one field, in one
-afternoon. A commit pointer written into prose is stale by the time it is read:
-`git log --oneline -1 origin/main` is the answer that cannot be — **and this very line
-has now proved it six times across two days**, reading `4615a14` with #251 and #252
-already in, then `5f63bb0` with #254 in, then `451468d` with #255 in, then the three
-above. Each correction is the argument for the sentence rather than a counter-example
+**Last updated: 2026-08-23.** `main` is at `759a9df` (#264). #246 through #264 are
+all merged — **eighteen merges** landed after this line last said `afb8648` (#244),
+across two days, and the count here was measured with
+`git log --oneline afb8648..origin/main` rather than carried. **And this conflict is
+the argument itself:** resolving it, one side said `f1844af` (#261) with "fifteen"
+and the other `d10e974` (#258) with "thirteen", and both were already wrong before
+either could be read. A commit pointer written into prose is stale by the time it is
+read: `git log --oneline -1 origin/main` is the answer that cannot be — **and this
+very line has now proved it seven times across two days**, reading `4615a14` with
+#251 and #252 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in,
+then `31c369e` with #258 in, then `f1844af`, then `467a3ac` with #265 in, and now
+this. Each correction is the argument for the sentence rather than a counter-example
 to it.
 
 **THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
@@ -208,6 +210,66 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 ---
 
 ## Open pull requests
+
+### muqawil is ONE card, and 17,304 contractors stop being products — 2026-08-23
+
+**`REQ-37` was ruled on 2026-08-22 as `R-47` and was still not built on 2026-08-23**,
+which is why he asked «حل المشكلة لم يصل لى ما السبب ؟» — the fix has not reached me,
+why? Measured before starting: **no file under `extension/`, `scrapex/` or `tests/`
+cited `R-47` or `REQ-37`.** A ruling with no code behind it is the `REQ-04` failure, and
+that is the whole answer to his question.
+
+Two of the four defects on that screenshot are this branch's; the other two
+(`no successful crawl yet` on both muqawil cards) landed as #255.
+
+- **`REQ-37` / `R-47` points 1 and 2 — BUILT.** `_dataset_listing` folds a confirmed
+  one-to-one child dataset into its parent for `/api/sources`, so `muqawil.org` is
+  listed once, and the second number stops being a second population: the card reads
+  `Contractor profiles: 704 of 17,304 (4.1%)`. **`_dataset_rows` is deliberately
+  untouched** — `/source/{key}` resolves one dataset out of it by key, so folding
+  in place would have made `/source/contractor_profiles` answer 404 again, which is
+  the regression #212 closed. Only the presentation collapses, which is what `R-47`
+  ruled.
+- **`R-47` point 3 — BLOCKED, not skipped.** «اختيارات الزحف» needs two crawl options
+  on the card and there is **no panel path to a dataset crawl at all**: `POST /api/jobs`
+  answers `404 unknown source_key 'contractors'` (`OP-52`). `REQ-37` therefore stays
+  **In flight**.
+- **`OP-53` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
+  contractor directory. `countLine` replaces the hardcoded noun with three branches
+  keyed on what the engine reports, so `jobs` and `tenders` need no new code. The
+  engine's own `/source/{key}` page still prints a "Products" tile over the same rows —
+  left filed with the measurement because that page shows four tiles and two are
+  meaningless for a directory, which is his call, not a noun.
+- **`R-47` CORRECTED, ruling intact (`C4`/`C5`).** Its point 2 says the coverage figure
+  is *"the one `--coverage` already computes"*. It is not: `coverage("contractor_profiles")`
+  answers *"nothing has been sighted"* — `dataset_sighting` holds zero rows for that
+  key — and `coverage("contractors")` answers 17,269 of 17,417 (99.2%), a different
+  question. The 704-of-17,304 figure comes from the `dataset_relationship` row he asked
+  for by name, not from a sighting.
+- **His GPP comparison has no presentation to copy.** `grep -rin gpp extension/` returns
+  **nothing** — no branch, no card, no picker. `GPP_ENERGY` is one `source_key` and its
+  five energy types live in a dict inside `scrapex/connectors/gpp.py`, so the panel has
+  always drawn it as one card without knowing it was one. The transferable lesson is
+  *collapse below the surface*, which is what the listing now does; the part that cannot
+  be hidden — two separately-run crawls — goes to the `⋮` menu `REQ-36` built rather
+  than to a second vocabulary (`PLATFORM-PLAN` Decision 26).
+
+**Twelve mutations, twelve caught.** Every guard on this branch had its defect restored
+and was proven RED, then GREEN on restore, with `__pycache__` purged between runs and
+the restore verified by `git status --porcelain` rather than a content hash. **One
+mutation was NOT caught on the first pass and the guard was replaced**: a seam test
+asserted the string `c.stored` appears in `app.js`, and `c.stored` appears **twice**
+there, so renaming the occurrence the card reads left the substring present and the
+test green. It now compares the harness stub's coverage keys to the engine's own —
+behaviour at the seam, which is where #255 failed. *A search for one spelling of a
+feature is not a measurement of the feature* (`LESSONS.md` §9), arriving through a
+fourth door: a test.
+
+**This branch is from a SECONDARY session and does not merge itself** (`R-42`).
+**`OP-53` was taken as the next free number off the end** — `main` tops out at `OP-52`
+and `45`/`49`/`50` are reserved for `claude/drive-without-a-server` — so it needs the
+primary's confirmation against any unpushed claim, per `ORCHESTRATION.md` §3. No
+`RESERVED` row was added and none was deleted: 53 creates no hole.
 
 **A DRY review of `#252` recorded `OP-46`, `OP-47` and `OP-48` — documentation only,
 no code touched.** The review followed that PR's own comment to the three popovers it
