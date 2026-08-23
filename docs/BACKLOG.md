@@ -2006,25 +2006,59 @@ supplies the second, because only one is *repeated*:
 |---|---|---|
 | dataset cards | `querySelectorAll(".dataset-card .split-button")` in `extension/app.js` | **yes — the broken one** |
 | Activity log | `$("activity").querySelector(".split-button")` in `extension/app.js` | no, singular |
-| grid toolbar | `toolbar.querySelector(".split-button")` ([scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118)) | no, singular |
-| source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)) | no, singular |
-| gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | no, singular |
+| Manage account danger menu | `$("drive-disconnect")`, markup at [extension/app.html:1347](../extension/app.html#L1347) | no, singular |
+| source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)), wired by [scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118) | no, singular |
+| gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | not a product surface |
+| grid harness fixture | [tools/grid_harness.py:68](../tools/grid_harness.py#L68) | not a product surface |
+
+**THE FIRST VERSION OF THAT TABLE WAS WRONG TWICE, corrected 2026-08-22 when the
+re-measurement below came due. Both errors were in the instrument, not the conclusion:**
+
+* **It missed the Manage account danger menu entirely.** The search was
+  `class="split-button"` — an exact match including the closing quote — and that markup
+  reads `class="split-button danger"`. A multi-class attribute is invisible to it. The
+  shared component's own comment *names* this consumer ("Manage account's danger menu")
+  and the omission still survived reading that comment.
+* **It listed the source page's Export control twice**, once as "grid toolbar" and once
+  as "source page export". `grid.js`'s `toolbar` is `document.getElementById("grid-toolbar")`,
+  which is the `<div id="grid-toolbar">` enclosing that very control. One control, two
+  rows — so the table claimed five consumers where there were four product surfaces.
+
+**Neither error changed the conclusion**, which is the only reason this is a correction
+and not a retraction: every consumer except the dataset card template is still
+singular, so only that one can lose a tie to a later sibling. **But a table that was
+wrong twice is exactly what "measured at a commit" is supposed to protect against, and
+it did not, because re-measuring was left to a person remembering.**
 
 Checked at the same commit: `.toolbar` carries no `z-index`, there is no rule for
 `#activity .split-button`, and neither `.dataset-card` nor `#datasets` carries a
 `transform`, `filter`, `opacity`, `contain`, `isolation` or `will-change` that would
 build a context another way. **This is future safety, not a live defect.**
 
-**RE-TAKE THIS COUNT AFTER `fix/a-dataset-card-gets-the-menu-it-can-use` LANDS. It is a
-measurement at `451468d`, not a standing claim.** That branch gives the `dataset`-kind
-cards the menu entries that work — `OP-42`'s tail — which moves the stub from 3 cards / 2
-triggers to 3 cards / 3 triggers. Reported as card-local only: `.dataset-card`'s block
-and `sourceMenu`, with the shared component and its generated copy untouched and no
-consumer added anywhere new. **So the conclusion holds and only the number changes** —
-the cards given triggers are still `.dataset-card`, matched by the same
-`querySelectorAll`, so the repeated-consumer fact gets stronger rather than weaker. Any
-future branch that adds a consumer or lifts a different wrapper invalidates the table,
-not just the count.
+**RE-TAKEN 2026-08-22 at `d10e974`, after `fix/a-dataset-card-gets-the-menu-it-can-use`
+landed as `#258` — this is the discharge of that instruction, not a fresh promise.**
+The instruction it replaces said the table was a measurement at `451468d` and had to be
+re-taken; it was, and the table above carries the result plus the two errors the
+re-measurement exposed.
+
+**The conclusion held and only the number moved, as predicted.** `#258` gave the
+`dataset`-kind cards the menu entries that work — `OP-42`'s tail — so the stub goes from
+3 cards / 2 triggers to 3 cards / 3 triggers. It was card-local: `.dataset-card`'s block
+and `sourceMenu`, with the shared component and its generated copies untouched and no
+consumer added anywhere new. The cards given triggers are still `.dataset-card`, matched
+by the same `querySelectorAll`, so the repeated-consumer fact is **stronger** than when
+it was written, not weaker.
+
+**Verified at the same commit** that all four of `OP-46`'s `extension/app.js` citations
+still name their symbols after `#258` moved that file, and that no open pull request
+touches `extension/app.js` — which is what let the two `PINNED` rows this entry's
+neighbour was waiting on finally be added.
+
+**Still true, and now the standing instruction:** any future branch that adds a consumer
+or lifts a different wrapper invalidates the table rather than just the count. The
+`querySelectorAll`-versus-`querySelector` distinction is the thing to re-derive, and it
+must be searched on the CLASS TOKEN rather than on `class="split-button"`, which is the
+mistake recorded above.
 
 **The risk is specific, and that session makes it likelier rather than moot.** The
 defect is *created* by fixing consumers instead of the component, and another consumer

@@ -1904,6 +1904,14 @@ while the comment promised otherwise. Found by reading the map against the list 
 than trusting the sentence. **A rule written as a comment is a rule with nothing behind
 it, however well the comment is written.**
 
+**And it is the first failure again, one level up: not a citation pointing at the wrong
+line but a GUARD pointing at the wrong scope.** The guard was not merely silent about
+that file — it was *affirmatively misleading*, because a reader who checked the comment
+would have concluded the file was covered. Misdirection is the worse half of this class
+wherever it appears, and it appears at every level: in a comment about where a test
+lives, in a comment about which guard covers what, and in a guard's own statement of
+what it reads.
+
 **And what this section's own guard does NOT catch, said plainly.** The first instance
 is a reference to a test *file*, not a backticked test *name*, so it falls outside the
 pattern. It was fixed by hand and left unguarded on purpose: the shape that would catch

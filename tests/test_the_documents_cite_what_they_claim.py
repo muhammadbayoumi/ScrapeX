@@ -291,19 +291,29 @@ PINNED = (
      "HISTORICAL = {"),
     ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 144,
      "def test_a_historical_test_is_still_readable_where_the_row_says("),
-    # DELIBERATELY ABSENT, AND THE ABSENCE IS RECORDED HERE RATHER THAN ONLY IN THE
-    # ENTRY THAT WANTS IT. `OP-46` cites seven lines in `extension/app.js` --
-    # `setupFinanceConverterSelect` and `setupRunModeSelect` chief among them -- and
-    # pins none of them, because that file was under concurrent edit by another
-    # session when the entry was written. Pinning a line another branch is moving is
-    # how `scrapex/webui/app.py:2710` above became 2725 and then 2787.
+    # OP-46 · THE CONDITION BELOW FIRED, AND THESE TWO ROWS ARE ITS DISCHARGE.
     #
-    # A CONDITION, NOT A CHORE ASSIGNED TO NOBODY: pin those two symbols the next
-    # time you add a row here AND `extension/app.js` is quiet. It is written beside
-    # the mechanism instead of in `OP-46` because this table is re-read every time
-    # someone adds a row, whereas a BACKLOG entry is read when someone goes looking
-    # for work -- and this instruction has to fire while its reader is doing
-    # something else.
+    # The condition, written here on 2026-08-22 and kept for the record: `OP-46` cites
+    # seven lines in `extension/app.js` and pinned none of them, because that file was
+    # under concurrent edit when the entry was written -- pinning a line another branch
+    # is moving is how `scrapex/webui/app.py:2710` above became 2725 and then 2787. It
+    # said: pin those two symbols the next time you add a row here AND
+    # `extension/app.js` is quiet.
+    #
+    # It was written beside the mechanism rather than in `OP-46` because this table is
+    # re-read whenever someone adds a row, while a BACKLOG entry is read only when
+    # someone goes looking for work -- so the instruction had to fire while its reader
+    # was doing something else. IT DID, TWICE: once refusing to pin while #258 was open
+    # against that file, and once here, releasing.
+    #
+    # Discharged at `d10e974`, after #258 landed, having checked BOTH halves rather than
+    # assuming either: no open pull request's own diff touches `extension/app.js`, and
+    # all four of `OP-46`'s citations into it still name their symbols after #258 moved
+    # that file. The remaining five citations in that entry stay unpinned on purpose --
+    # they are the measured numbers, not the two symbols the argument rests on.
+    ("docs/BACKLOG.md", "extension/app.js", 956,
+     "function setupFinanceConverterSelect("),
+    ("docs/BACKLOG.md", "extension/app.js", 2008, "function setupRunModeSelect("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
