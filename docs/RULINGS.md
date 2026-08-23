@@ -1520,6 +1520,103 @@ regardless of which document holds it, and that is not what this ruling is about
 place, marked, pointing here. A reader needs to see that the four-stage diagram was
 once the plan in order to understand why the code still looks like it.
 
+---
+
+### R-50 · The engine is a helper to the extension, and any task the extension CAN do moves to it
+
+**2026-08-23 · architecture · gives the boundary a test, and supersedes part of the base plan**
+
+> «قاعدة البيانات موجودة على الجهاز والمحرك معطوب افشل فى التصدير هذا غير مقبول · ثانيا
+> قاعدة البيانات موجودة وانا مش عارف اتصفح ايضا مرفوض · ولذلك هذه الادوات تنقل الى الاداة
+> طالما يمكن استخدامها · المحرك اداة مساعدة للاداة وليس الشى الرئيسى اذا اى مهمة تستطيع
+> تنفيذها الاداة تنقل لها»
+
+**He was asked one question and answered a larger one.** The question was narrow: `R-48`'s
+rule 4 (*"it may not be the place a capability only exists"*, 2026-08-22) contradicts the
+base plan's *"Export stays in the engine"* (`MIGRATION-PLAN.md:60`, 2026-08-12), and
+[R-49](#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test) sends a
+post-dated conflict to him. **This is the answer, and it is the general rule two studies
+and thirty-eight measured responsibilities had failed to produce.**
+
+### The rule
+
+> **The engine is a helper to the extension, not the main thing. Any task the extension
+> CAN perform, moves to it.**
+
+**The test is CAPABILITY, not category.** Every previous attempt at this boundary asked
+*which layer does this belong to* — control against execution, interface against data,
+fetch against display — and every one of them produced a table that contradicted another
+table. His test asks one question of each responsibility: **can the extension do this?**
+If yes, it moves. If no, the engine keeps it and that is the *only* reason the engine
+keeps anything.
+
+### The two failures he named, in his own words, and they are the whole justification
+
+| what he said | why it settles the question |
+|---|---|
+| *"the database is on the machine and the engine is broken, so I fail to export — **this is unacceptable**"* | Export is a read of a file that is sitting on his disk. A broken helper must not stand between him and his own data |
+| *"the database is there and I cannot browse — **also refused**"* | Same shape, and it is `REQ-40`'s premise stated as a verdict rather than a request |
+
+**Both were live on 2026-08-23 when he said it.** The engine he had installed could not
+serve a page at all — `packaging/build_engine.py` bundled two data directories and the
+runtime opens five — so *"the engine is broken and I cannot export"* was not hypothetical.
+He was describing his own machine.
+
+### What it supersedes, per C4
+
+**`MIGRATION-PLAN.md:60` — *"Export stays in the engine — it is SQL over SQLite, not a
+file move"* — is superseded as a statement of WHERE THE CAPABILITY LIVES.** Its
+engineering observation stays true: export *is* SQL over SQLite. What no longer follows is
+that the engine may be the only place it exists.
+
+**And the reasoning that produced it is the trap this ruling closes.** *"It is SQL over
+SQLite, not a file move"* is an argument about **implementation**, and it was used to
+answer a question about **ownership**. Under `R-50` those are separate: the engine may
+still execute the query, and the capability may not live only there. `Jobs stay in the
+engine` (`MIGRATION-PLAN.md:61`) is the same shape and is now open to the same test —
+**but it was deferred by him personally, so it needs his word and not this rule's.**
+
+### How a session applies it, and what it costs
+
+Ask of each responsibility, in this order:
+
+1. **Can the extension do it at all?** Not *should* — *can*. Answer with a measurement,
+   not an opinion: the repository's own OPFS spike (`spikes/opfs-sqlite/FINDINGS.md`) is
+   what that kind of answer looks like.
+2. **If it cannot, the engine keeps it** — and the reason is recorded as a technical
+   limit, so the day the limit lifts the row is revisited rather than inherited.
+3. **If it can, it moves** — and until it has moved, the engine's copy is a **migration
+   owed** and is named as one (`R-48` rule 4).
+
+**This reverses the direction of the whole inventory.** The thirty-eight-responsibility
+table produced on 2026-08-23 assigned twenty-two to the engine, and it assigned them by
+asking where each one *belongs*. Every one of those twenty-two must now be re-asked as
+*can the extension do this*, and the answer for many of them is a measurement nobody has
+taken.
+
+### What this ruling does NOT say
+
+**It does not say the engine stops doing these things.** A helper that does the work is
+still the helper doing the work. What it forbids is the engine being the **only** place a
+capability exists — which is `R-48` rule 4, now with a test attached.
+
+**It does not settle the fetch boundary.** The engine reaches sites the extension has no
+host permission for, and that is a genuine *cannot*. `R-50` is why it stays, and gives it
+a better reason than seniority.
+
+**And it does not license a rebuild.** `DEC-8` measured the engine's data page as the
+SOURCE of the port — 3,212 lines of `grid.js`, about forty of them data work — so moving a
+capability means **porting the asset**, not writing a second one. `R-50` decides *where*,
+never *how*.
+
+### The mechanism that produced this ruling, recorded because it worked
+
+`R-49` was written an hour before this one and its whole content is a routing rule: older
+conflicts are superseded, newer ones go to him. **It routed exactly one question out of
+twenty, he answered it, and the answer turned out to be the general rule.** That is the
+argument for `R-49` and for `C3` together — the pile was unanswerable until the one
+genuinely open item in it was isolated and put in front of him alone.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**
