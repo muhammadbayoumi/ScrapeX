@@ -444,6 +444,77 @@ predicted a failing check by running the guard's own logic against the post-merg
 before pushing. That is minutes against a round trip, and it is the single biggest
 throughput win available.
 
+### And a RED lies too, which is the same problem pointing the other way — 2026-08-23
+
+A green that is not a green wastes a merge. **A red that is not a red wastes an
+afternoon hunting a defect that is not there**, and it is more expensive because it
+looks like diligence. One local run on this machine reported **22 failed and 259
+errors** against a branch whose only real defect was a single shouted word in a
+document. Three separate causes, none of them the branch:
+
+| what it looked like | what it was |
+|---|---|
+| the panel and grid suites collapsing, `AttributeError: 'PlaywrightContextManager' object has no attribute '_playwright'` on ~250 tests | **the Playwright driver could not spawn.** Not a test failing — the browser never started. Two full suites were running on the machine at once |
+| `test_the_engine_survives_being_killed`, the CLI chain, the lint gate, the panel-script parse all failing together | subprocess and port contention between the two runs, plus the owner's crawl. Anything that spawns a process or binds a port is the first thing to go |
+| a suite that had passed **in full** twenty minutes earlier | it had — alone. Nothing about the tree had changed |
+
+**Three rules come out of it, and the first one is the one I got wrong.**
+
+**1 · `TaskStop`, `Ctrl-C` and killing the wrapper do not kill `pytest`.** A suite
+stopped through its shell wrapper left the `python -m pytest` grandchild alive and
+competing for the next twenty minutes, which is what turned a peer's concurrent run
+from *slow* into *259 errors*. **Verify the process is gone, do not assume the stop
+reached it** — and identify it before killing it: the signature is the exact command
+line plus a creation time that matches your own recorded `started`, because a peer's
+run looks identical otherwise. On this machine the owner's crawl and the engine UI are
+also long-lived Python processes, and neither is ever yours to stop.
+
+**2 · One full suite at a time, per machine — not per worktree.** Worktrees isolate
+files; they share one Playwright install, one port space and one CPU. `Get-CimInstance
+Win32_Process` filtered on `pytest` is the check, and it costs a second. If a peer is
+running, **wait it out rather than kill it** (`R-42`), and say so in the report instead
+of reporting the contaminated numbers.
+
+**3 · A mass of errors in one family is an instrument failure until proven otherwise.**
+250 tests do not break at once from one branch's diff. `LESSONS.md` §9 says a
+measurement is only as good as its instrument; the corollary for a suite is that the
+shape of the failures tells you where to look — **all in one fixture, all in one
+family, all at one setup step** means the harness, not the code. Read the first error
+body before reading the count.
+
+### `gh pr checks` can show `test pass` while the code tier never ran
+
+Measured on this branch the same day, and it nearly closed the verification early.
+
+CI tiers the suite by what changed, and **the base it diffs against depends on the
+event.** A `push` compares against the branch's **previous tip**, so a push whose last
+commit touches only `docs/` classifies as `docs` and **skips the Python engine tier
+entirely** — correctly, for that push. A `pull_request` has no previous tip, so it
+falls back to the **merge base** and tiers on the whole PR diff.
+
+So after a docs-only follow-up commit, the `push` run reported `test pass` in 90
+seconds having run 317 document tests and skipped everything else, while the
+`pull_request` run on the same head was the one carrying the engine suite. **Reading
+`gh pr checks` alone cannot tell those apart** — both rows are called `test`.
+
+**The check:** confirm which STEP ran, not which job passed.
+
+```bash
+gh run view <run-id> --json jobs \
+  --jq '.jobs[] | select(.name=="test") | .steps[] | "\(.conclusion) \(.name)"'
+```
+
+A `skipped Tests (Python engine …)` line means that run verified nothing about the
+code. And prefer the `pull_request` run when you want the whole-PR answer:
+
+```bash
+gh run list --branch <branch> --json databaseId,event,headSha,status,conclusion
+```
+
+**None of this is a CI defect** — incremental tiering on a push is the point, and it is
+what makes a documentation change cost 90 seconds instead of eight minutes. The defect
+is a reader treating a per-push tier as a per-PR verdict.
+
 ---
 
 ### Escalate on suspicion, resolve on evidence
