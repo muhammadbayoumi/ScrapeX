@@ -183,6 +183,18 @@ measurements that outlived their base**.
 on `main`; `REQ-30` is its root and is truthful until then."* A note that fixes itself is
 one nobody has to remember.
 
+**And cite the SENTENCE, not the file.** Paste the words you are relying on beside the
+reference, so a reader comparing the two can see in one glance whether the source
+supports the claim. This is the only remedy that works on all four shapes of a wrong
+citation (`LESSONS.md` §7), and it costs nothing.
+
+**It is also the one thing `PINNED` structurally cannot express.** A `PINNED` row proves
+a symbol sits on a line; it never proves the *document's claim* about that line. So a
+paragraph can be pinned, green, and wrong about what it cites. Measured the same day: an
+entry that quoted *"a generic dataset is a table like any other table"* beside
+`scrapex/webui/app.py:1048` survived two rebases which moved that line twice — the quoted
+fragment, not the number, is what made it recoverable.
+
 ---
 
 ## 5 · Never lose work: commit before you verify
@@ -213,6 +225,61 @@ git -C <worktree> push origin refs/safety/<name>-<date>:refs/heads/safety/<name>
 Then tell that session exactly what you did and that its index is untouched. Also push
 any **unpushed commit** on a branch nobody has pushed — a whole commit living in one
 worktree is as fragile as an index.
+
+### Make the green carry its own proof, rather than asking a person to check
+
+§7 below says a green must describe the tree that gets committed, and §5 says commit
+before you verify. **Both were written as advice that asks someone to remember** — and
+the session that wrote them broke them four times in one afternoon: twice by rebasing
+mid-suite, once by editing the tree mid-run, and once by never committing at all.
+
+A session fixed that by moving the check into the artefact. Record these five facts
+**before** the run starts, and a green that is about the wrong tree becomes visible
+instead of plausible:
+
+```bash
+OUT=<run log>  EXIT=<exit status>  META=<provenance>
+rm -f "$OUT" "$EXIT" "$META"
+
+# A stale .pyc kept a mutation alive through a byte-identical restore -- see §7.
+find . -name '*.pyc' -delete 2>/dev/null
+
+newest_edit=$(git ls-files -z | xargs -0 -n 500 stat -c '%Y %n' 2>/dev/null \
+              | sort -rn | head -1)
+started=$(date -u +%s)
+{
+  echo "head:        $(git rev-parse HEAD)"
+  echo "base:        $(git rev-parse origin/main)"
+  echo "worktree:    $(git status --porcelain | wc -l) uncommitted lines"
+  echo "newest edit: ${newest_edit}"
+  echo "started:     ${started} ($(date -u -d "@${started}" +%Y-%m-%dT%H:%M:%SZ))"
+} > "$META"
+
+SCRAPEX_FULL_MIGRATIONS=1 python -m pytest -q > "$OUT" 2>&1
+status=$?          # <- the line IMMEDIATELY after pytest, nothing in between
+printf '%s\n' "$status" > "$EXIT"
+```
+
+**THE INVARIANT: a green is only a green if `started` > `newest edit` AND `worktree`
+reads 0.** Either one false and the run describes a tree nobody is merging. Both facts
+are in the artefact, so nobody has to remember to look — which is the whole difference
+between a rule and a guard.
+
+`status=$?` on the line immediately after `pytest` is not style. `cmd; echo "exit=$?"`
+in a compound reports the **echo**'s status, and that read as green here with two real
+failures in it.
+
+**Two portability notes, because a block in a document gets copied:**
+
+- `stat -c` and `date -u -d @…` are **GNU** forms. Correct on Git Bash under Windows and
+  on Linux CI — this project's only two environments — and they fail on BSD/macOS.
+- `xargs -0 -n 500` batches deliberately. Without `-n`, `git ls-files -z | xargs -0 stat`
+  builds one argument list from every tracked file; it works while the repository is
+  small and is **one `ARG_MAX` away from silently returning nothing**, which empties
+  `newest_edit` and makes the check vacuous. That is the same failure family as
+  everything else on this page: **a check that reads as passing because its input
+  disappeared.** The session that contributed this block found the gap in its own
+  runner while generalising it.
 
 **Audit for this rather than waiting for it.** One command over every worktree:
 
