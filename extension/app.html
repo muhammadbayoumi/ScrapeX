@@ -1498,6 +1498,22 @@
             <span class="engine-spec-label">Installed version</span>
             <span class="engine-spec-value tech" id="engine-installed-version">—</span>
           </div>
+          <!-- DIRECTLY UNDER THE VERSION, because the version is the row that
+               could not tell three states apart: the published build, a checkout
+               sitting at that tag, and a process running code the disk has moved
+               past. The disambiguation belongs beside the number it disambiguates.
+               The badge is the same idiom as "Update available" on the Latest row
+               below — one verdict, one place, no new screen. -->
+          <div class="engine-spec-row" id="engine-spec-build">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label">
+                Build
+                <span class="badge hidden" id="engine-build-verdict"></span>
+              </span>
+              <small id="engine-build-detail"></small>
+            </span>
+            <span class="engine-spec-value tech" id="engine-build-value">—</span>
+          </div>
           <div class="engine-spec-row" id="engine-spec-latest">
             <span class="engine-spec-note">
               <span class="engine-spec-label">

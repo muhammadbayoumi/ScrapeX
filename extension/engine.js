@@ -43,6 +43,13 @@ export async function checkEngine({backend = null, signal = null,
       clientProtocol: PROTOCOL_VERSION,
       sources: h.sources_with_data,
       databases: h.databases || null,
+      // WHICH CODE THE ENGINE IS RUNNING, which `version` cannot say: ten
+      // different trees report "0.3.0", so the number tells us what the engine
+      // advertises and never what it is. `null` for an engine from before this
+      // field existed — the same treatment `protocol_version` gets two blocks up,
+      // and for the same reason: an engine too old to answer is not an engine
+      // reporting a fault.
+      build: h.build || null,
       backend: target,
     };
   } catch (error) {

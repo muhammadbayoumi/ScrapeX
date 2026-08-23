@@ -1931,3 +1931,187 @@ named after.
 would fail if the reason stopped being true. If the answer is *none*, you have
 written a claim that will outlive its evidence — and the more carefully it is
 written, the longer it will survive.
+
+---
+
+## 14 · A measurement that outlives its base — and the instance that was a live process
+
+This is the family §12 keeps meeting from one direction, §13 above from another, and
+`docs/ORCHESTRATION.md` §4 from a third: **something true when it was measured, still
+being read as current after the thing it measured moved.** It has now appeared six
+times, and the last one broke a rule the other five could not, so it gets the section.
+
+**Every row below was re-derived at `4522158`**, not copied from a brief — and saying
+which base is the whole discipline, so this line moves whenever the table is re-checked.
+
+| # | the artefact | the base it outlived | what caught it |
+|---|---|---|---|
+| 1 | a `PINNED` citation, `app.py:2710` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
+| 2 | a `RESERVED` register row | the branch it named moved off the number | a session **asking who held 44** |
+| 3 | `docs/STATE.md`'s own opening line | five bases in one afternoon | the line correcting itself, again |
+| 4 | three docstring citations of a deleted test (§13, `#259`) | the test died ten days after it was written | a session **asking what else is unguarded** |
+| 5 | a published `.exe` (`#244`, `afb8648`) | the fix landed after the build | the owner, meeting a black window |
+| 6 | **a running process** | the checkout moved 199 seconds after it started | **nothing. He found it.** |
+
+*(A seventh was described to this session — a verification table still quoting a
+superseded commit — and is **not** listed, because the commit it named appears nowhere
+in this repository at `4522158`, and an instance that cannot be re-derived is not
+evidence. That is this section's own rule turned on its own source.)*
+
+### The sixth instance, measured
+
+2026-08-23. The owner's panel said **"no successful crawl yet"** under **17,304 rows**.
+`#255` (`bcb8f6e`) had fixed exactly that two days earlier and the fix was on `main`.
+
+| fact | value |
+|---|---|
+| process answering `127.0.0.1:8000` | `pythonw -m scrapex.cli ui --port 8000` |
+| it started | **07:35:44** |
+| the checkout left `451468d` for `31c369e` | **07:39:03** (`.git/logs/HEAD`, epoch 1787459943) |
+| delta | **+199 seconds too late** |
+
+**Python imports a module once.** A long-lived engine started from an editable install
+holds the tree that existed at import time for as long as it runs. The tree this one
+held still carried the literal `#255` removed — in `451468d`'s copy of
+`scrapex/webui/app.py`, at line 650 of **that** commit, `"last_success": None`. The
+disk had the fix; the process did not; the panel was reporting faithfully.
+
+*(**Written that way on purpose, and this paragraph is the section's own subject in
+miniature.** Prefixing a commit to a path and then a colon and a line number produces
+a span that `tests/test_the_documents_cite_what_they_claim.py` reads as a claim about
+the file **on disk today** — where that line is now a bare `continue`. Tier 1 checks
+only that the line exists, so the guard passes it and the reader lands nowhere. Worse,
+a remap script run over these documents will helpfully renumber it on the next edit,
+which is how a historical fact quietly becomes a false present-tense one. It happened
+here: a first draft of this entry carried that span, an automated re-derivation moved
+it, and it also moved `app.py:2710` in §12 — corrupting the very sentence whose
+subject is that 2710 became 2725 and then 2787. **A historical line number is written
+in prose — "line 650 of that commit" — never in the shape that means "current",** and
+`git show <commit>:<path>` is how a reader gets there. This is the third time an entry
+in this file has had to be written *around* the guard it documents; the other two are
+the `git tag` command in §7 and the past tense of `cut`.)*
+
+**AND THE VERSION STRING WAS NO HELP, WHICH IS THE STRUCTURAL PART.** `/api/health` and
+`/api/version` both answered `"version": "0.3.0"` — **truthfully**, because
+`engine-v0.3.0` *is* `451468d`. One string was being asked to separate three things:
+
+    the published engine-v0.3.0 build
+    a source checkout sitting at that tag
+    a process that imported that tree and kept running while the disk moved on
+
+And it cannot, **by design rather than by accident**. `R-35` moves the engine's number
+on a *contract* change, so many trees share one number on purpose. Counted: **ten
+commits report `VERSION = "0.3.0"`** — every tree from `e963269` (#247) to `31c369e`'s
+parent (#257), one of them the release tag. **A string ten trees share cannot name one
+of them**, and it was the only self-description the engine had.
+
+### What makes this one different, and it is not a detail
+
+**The artefact was not a document, a table or a test log. It was a live process — so
+the check that catches it cannot be a citation guard.**
+
+Every remedy this repository had built for this family reads *text at rest*:
+`tests/test_the_documents_cite_what_they_claim.py` reads a `file:line`,
+`test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` reads a tag named
+in prose, `test_the_registers_cannot_collide.py` reads headings. **There is no line of
+prose here to check.** The stale thing was bytes in RAM, it existed only while the
+process ran, and it left no trace on disk — so the only possible instrument is one that
+lives *inside the artefact* and answers *at run time*. That is
+`docs/ORCHESTRATION.md` §5's argument — *move the check into the artefact so nobody has
+to remember to look* — arriving at its limit case.
+
+**AND #244'S GATE, WHOSE OWN TITLE IS *"the gate could not tell"*, COULD NOT TELL EITHER.**
+Worth stating precisely, because it looks like it should have. What it added
+(`.github/workflows/release-engine.yml`, *"And it must speak when a person double-clicks
+it"*) runs the freshly built `.exe` and greps three sentences out of its stdout. The
+step beside it claims more than it can deliver: *"the answer must be the number on the
+tag — which also proves the binary carries the source that was checked above, and not a
+stale build."* That is true **only inside that job**, because the binary was built from
+that checkout seconds earlier. Both checks are build-time, one-shot, and their subject
+is a subprocess that has just started. Neither has any representation inside the
+long-lived process the build produces. **#244 proved that a new artefact speaks; it
+added nothing that lets a running process say which bytes it loaded.**
+
+### The remedy, and why "restart" was never the missing piece
+
+`scrapex/provenance.py`. The engine seals a snapshot of what it loaded on
+`create_app`'s last line — the only moment at which every module it will serve with is
+imported and none of them can have changed yet — and compares it against the disk on
+demand. Two answers, because they fail independently: **`stale`** (a loaded module's
+file no longer matches, which needs no git and is the exact defect) and **`moved`** (the
+checkout is on another commit, which is what gives the answer words a person can act
+on). It rides `/api/health`, which the panel polls, and lands on the Build row under
+*Installed version* — the row that could not tell the three states apart.
+
+**A frozen build answers `None`, never `False`.** A one-file `.exe` carries no `.git`
+and no source tree; its modules live in a per-run temp directory that says nothing
+about whether newer code exists. `False` there would tell the owner his engine is
+current on the one build where we cannot know. This is the discipline `/api/health`'s
+worker block already states — *"Unknown is now said as unknown, and the reason for not
+knowing travels with it"* — and it is pinned by a test asserting `stale is not False`.
+
+**The defect was never that a restart was needed.** `POST /api/engine/restart` has
+existed the whole time and its docstring reads *"Replace this engine with one running
+the current code"*. **Nothing said a restart was owed**, and nothing could have: the
+route had no way to know whether it was needed and no way to report afterwards whether
+it worked. Detection and honest reporting, not hot-swapping — a live-reload mechanism
+would have hidden the fault instead of naming it.
+
+### The operational fact that decided the remedy
+
+**The crawl was a separate process.** The engine was PID 35036; the crawl was PID 35340,
+started 07:36:45 as `contractors --details --run-ref profiles-2026-08-22 --workers 6`.
+Restarting the engine therefore did not touch it — which is the only reason the fix
+could be applied at all while 17,304 rows' worth of work was in flight. Had the crawl
+run inside the engine process, the remedy for a stale engine would have been "lose the
+crawl", and the honest report would have had to say so.
+
+### And a citation shape the guard cannot see at all, found while fixing this branch
+
+Not part of the incident, and it is recorded here because **this branch is what
+demonstrated it.** A continuation citation — a bare `` `:NNN` `` inheriting its path
+from a full citation a few words earlier, as in
+`` (`extension/app.js:1602`, `:1641`) `` — **is invisible to
+`tests/test_the_documents_cite_what_they_claim.py`.** `CITATION` requires a path before
+the colon, so it matches `app.js:1641` and does not match `:1641`. Measured, not
+reasoned: the regex returns a match for the first string and `None` for the second.
+
+**Nineteen of them exist** in the guarded documents at `4522158`. What this branch
+proved is that they move silently: edits here shifted `extension/app.js` by eight lines,
+four continuation citations went with it, **the guard stayed green through all of it**,
+and they were found by reading the diff by hand. That is the *drifted-and-still-resolves*
+shape — except the remedy for that shape, a `PINNED` row, is structurally unavailable,
+because tier 1 never discovers the citation in the first place and so there is nothing
+to pin.
+
+**Stated honestly, because the distinction decides whether anyone should act:** at
+`4522158` **none of the nineteen is wrong** — all resolve to non-blank lines, and the
+one spot-checked in full — the `docs/STATE.md` sentence citing
+`scrapex/features.py:54` and `:65` for two lit feature flags — names the `True` on
+both lines correctly. (That document's own line number is deliberately not quoted
+here: this branch edits `docs/STATE.md`, so the number would move inside the very
+pull request describing the problem.) **So this is a latent structural gap, not a live
+defect**, and the class pre-dates this branch even though the four silent movements
+were this branch's own.
+
+**The remedy that avoids the trap this repository keeps falling into.** The obvious
+guard — inherit the path from the nearest preceding citation — is *deciding by
+adjacency*, which has now been measured and rejected twice here (the prose-inference
+tier in the guard's own docstring, and the keyword allowlist §13 threw away). The
+non-inferring fix is the opposite: **forbid the continuation form** in guarded
+documents. Require every citation to name its path, which is one mechanical rule, and
+nineteen invisible citations become nineteen that tier 1 and `PINNED` already handle.
+Filed as `OP-54` rather than built here, because rewriting nineteen citations across
+five documents is a second change with its own conflict surface.
+
+*(There is a table of **four shapes of a wrong citation** that this would be the fifth
+row of. It is not cited above because it is **not on `main`** — it lives on
+`origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`, unmerged. Whoever lands that
+branch should add the row; `OP-54` carries the finding until then. Citing it as though
+it were here would be this section's own subject, one paragraph after describing it.)*
+
+**Apply, and this is the general rule the six instances share:** ask what the base of
+every claim is, and whether the claim can still be read after that base has moved. When
+the answer is *yes*, the fix is to make the claim carry its base or re-derive it
+(§12, `ORCHESTRATION` §4). **When the artefact is a process rather than a file, no
+amount of re-deriving helps — the artefact has to be able to answer for itself.**

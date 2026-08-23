@@ -35,6 +35,30 @@ This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
 
+**AND THE OPENING LINE ABOVE IS NOW ITSELF A CASE STUDY, filed as instance 3 in
+[LESSONS §14](LESSONS.md).** It read `31c369e` while `main` was `d10e974`, and
+`4522158` landed while that was being written. The line is not being rewritten to
+chase the pointer — the sentence it already carries is the right answer, and
+`git log --oneline -1 origin/main` remains the only one that cannot rot.
+
+### The engine can now say which code it is running (open PR)
+
+**The incident, 2026-08-23.** His panel said *"no successful crawl yet"* over **17,304
+rows**. #255 had fixed exactly that two days earlier and the fix was on `main`. The
+engine process started at **07:35:44**; the checkout moved off `451468d` at
+**07:39:03** — **199 seconds later**. Python imports a module once, so it served the
+old tree for as long as it ran, and `/api/health` answered `"version": "0.3.0"`
+truthfully the whole time, because **ten distinct commits report `0.3.0`** and one
+string cannot name one of them.
+
+`scrapex/provenance.py` seals what the process loaded and compares it against the
+disk: `mode` (`source`/`frozen`), the commit it started on, `stale`, `moved`. It rides
+`/api/health`, and the panel renders a **Build** row under *Installed version* with a
+`Restart needed` badge. A frozen build answers `None`, never `False`. `REQ-35` moves
+to **In flight** — partly closed, and its stated cause was measured and corrected in
+its own entry. Open items: `OP-53` (a frozen build's commit needs a build-time stamp)
+and `OP-54` (continuation citations are invisible to the citation guard).
+
 ---
 
 ## RESUME HERE — written for the other machine, 2026-08-22
@@ -438,7 +462,7 @@ designing: the surface is largely built — nineteen elements, six states, a ver
 badge and a label that says what the button will do. What is missing is the
 MECHANICS**, and the finding that decides the design is that the panel *cannot*
 supply them: Chrome gives it no `downloads` permission, no file read and no way to
-launch a process, so `app.js:3564` hands a URL to the browser and lets go. **The
+launch a process, so `app.js:3620` hands a URL to the browser and lets go. **The
 engine can do all three.** So the first install goes through the browser because
 nothing is installed yet, and every update after it belongs to the engine. That is
 blocked on `OP-36` first, then a ruling from him on what makes a download
@@ -572,7 +596,7 @@ test (#200) · sign-out (#201, ruling [R-13](RULINGS.md#r-13--sign-out-of-all-ac
    source's answers 404 **without confirming the id exists at all**.
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`. Do not write a second one.**
    The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1594`) and `saveSourceColumns` (`:1633`), speaking the same
+   (`extension/app.js:1602`) and `saveSourceColumns` (`:1641`), speaking the same
    bodies. **Extract** it into a shared module the way `backend.js` was, or the
    two surfaces will disagree about how a column is saved.
 3. **Saved views — `POST /api/views/{key}`, `DELETE /api/views/{id}`.**
@@ -1132,8 +1156,8 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1543](../scrapex/webui/app.py), drawn by
-[extension/app.js:599](../extension/app.js) and `:633`.
+[scrapex/webui/app.py:1552](../scrapex/webui/app.py), drawn by
+[extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**
 > `webui/app.py` was **1355**, now 1375 — #211 and #212 inserted twenty lines
