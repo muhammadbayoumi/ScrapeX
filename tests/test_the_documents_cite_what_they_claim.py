@@ -130,19 +130,19 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1552, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1552, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
     # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
     # these two, so a reader sent to the wrong line writes the duplicate instead.
-    ("docs/STATE.md", "extension/app.js", 1594, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1594, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1633, "async function saveSourceColumns("),
+    ("docs/STATE.md", "extension/app.js", 1602, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1602, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1641, "async function saveSourceColumns("),
     # The guards the documents claim exist. A rule that cites a dead guard is a
     # rule with nothing behind it -- which is how W4 came to be believed.
     ("docs/RULINGS.md", "tests/test_version.py", 536,
@@ -151,11 +151,11 @@ PINNED = (
      'assert.equal(manifest.version, VECTORS.version)'),
     ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
     # OP-2's two worker_alive computations, one of which the fix never reached.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1554, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2598, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1563, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2625, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
-    ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
+    ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
     # OP-21 · the resume that saves the write and none of the requests. This is a
     # citation of a DEFECT at an exact line, so it is the kind that must not drift:
@@ -187,7 +187,7 @@ PINNED = (
     # is refusing to start for a nameable reason. The entry's argument is that this
     # exact branch is the one a schema-ahead warehouse lands in, so a reader sent
     # to the wrong line reads the timeout branch and concludes the entry is wrong.
-    ("docs/BACKLOG.md", "extension/app.js", 3416, 'text: "Not detected"'),
+    ("docs/BACKLOG.md", "extension/app.js", 3424, 'text: "Not detected"'),
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
@@ -218,17 +218,17 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4595,
+    ("docs/BACKLOG.md", "extension/app.js", 4659,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 697, '"kind": "dataset",'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 706, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787, and the third move is the same story as the first two.
     # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
     # lines to `app.py` above it, and `main` was red between the second merge and
     # the fix. #255 then inserted above it again. Four pull requests, none wrong on
     # its own base -- which is why the number is re-read out of the file on every
     # rebase and never adjusted by arithmetic. This rebase re-read all four.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2843, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1048,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2870, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1057,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one
@@ -237,7 +237,7 @@ PINNED = (
     # The sentence itself, so it is clear the card reads a MISSING key and not a
     # missing crawl -- which is why writing a `crawl_run` row would not have moved
     # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4489, "const last = s.last_success;"),
+    ("docs/BACKLOG.md", "extension/app.js", 4553, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in site_profile.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
@@ -259,7 +259,7 @@ PINNED = (
     # agree and the release simply was not cut, so a reader sent to the wrong line
     # on any one of them would go hunting for a defect that is not there.
     ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
-    ("docs/BACKLOG.md", "extension/app.js", 3514, "latest.version"),
+    ("docs/BACKLOG.md", "extension/app.js", 3570, "latest.version"),
     # 352, and it was 344 until this same pull request added eight comment lines
     # above it — the guard catching its author, in the exact shape LESSONS §7
     # describes: one change moves a line, another wrote the number down.
@@ -311,9 +311,9 @@ PINNED = (
     # all four of `OP-46`'s citations into it still name their symbols after #258 moved
     # that file. The remaining five citations in that entry stay unpinned on purpose --
     # they are the measured numbers, not the two symbols the argument rests on.
-    ("docs/BACKLOG.md", "extension/app.js", 956,
+    ("docs/BACKLOG.md", "extension/app.js", 964,
      "function setupFinanceConverterSelect("),
-    ("docs/BACKLOG.md", "extension/app.js", 2008, "function setupRunModeSelect("),
+    ("docs/BACKLOG.md", "extension/app.js", 2016, "function setupRunModeSelect("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

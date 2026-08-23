@@ -301,8 +301,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1554` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2598` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1563` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2625` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2598`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2625`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1793,7 +1793,7 @@ worse for a dataset"* ([scrapex/webui/app.py:706](../scrapex/webui/app.py#L697))
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2843](../scrapex/webui/app.py#L2843)).
+for anything else ([scrapex/webui/app.py:2870](../scrapex/webui/app.py#L2870)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
@@ -2340,6 +2340,15 @@ describes would have been a poor joke. **`#258` has since merged at `d10e974` an
 both symbols happened to survive at 1594 and 1633**, which is luck and not
 stability. Re-derive them rather than trusting them.
 
+**AND THE LUCK RAN OUT ONE PULL REQUEST LATER, which is worth adding rather than
+editing the numbers above away.** The branch that added `scrapex/provenance.py`
+inserted lines into `extension/app.js` above both symbols: they are at **1602 and
+1641** on that branch. The paragraph above is still true *at `4522158`*, and it says
+so — that scoping is the only reason it did not simply become wrong. It is also the
+best illustration this register has of why the numbers were kept out of `path:line`
+form: no guard could have told you they had moved, because no guard can see a line
+number written as prose.
+
 **The interesting part is that both citations still point INSIDE the file**, so
 Tier 1 would have passed them even if the file were guarded; only the `PINNED`
 table catches a citation that moved off its symbol. #256 has since added a check
@@ -2429,7 +2438,7 @@ two change what two more screens offer, and the `test_panel_dom.py` line that co
 "4 of 4" carries a comment saying so, so that nobody closes this by shrinking the
 stub back.
 
-### OP-53 · A frozen engine cannot name the commit it was built from, and says so
+### OP-60 · A frozen engine cannot name the commit it was built from, and says so
 
 **Status: OPEN by design, and the honest half of a fix that landed.** Measured
 2026-08-23 while building `scrapex/provenance.py` (`LESSONS` §14).
@@ -2460,9 +2469,9 @@ reader is the whole of this change and the writer is the next one.
 
 **Do not close this by making a frozen build guess.** The `None` is the feature.
 
-### OP-54 · A continuation citation is invisible to the citation guard
+### OP-61 · A continuation citation is invisible to the citation guard
 
-**Status: OPEN. Measured 2026-08-23 at `4522158`. A latent structural gap, not a live
+**Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
 defect — that distinction is the whole entry.**
 
 A citation written as `` (`extension/app.js:1602`, `:1641`) `` carries two references
@@ -2473,7 +2482,7 @@ regex returns a match for the first string and `None` for the second.
 
 | | |
 |---|---|
-| continuation citations in the guarded documents at `4522158` | **19** |
+| continuation citations in the guarded documents at `f1844af` | **19** |
 | of those, resolving to a blank line or past EOF | **0** |
 | spot-checked and correct | the `docs/STATE.md` pair citing `scrapex/features.py:54` and `:65` |
 | moved silently by this branch's edits, guard green throughout | **4** |
@@ -3852,7 +3861,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2598` that the fix never reached
+   second `worker_alive` computation at `app.py:2625` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

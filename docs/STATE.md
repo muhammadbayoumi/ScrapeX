@@ -56,8 +56,8 @@ disk: `mode` (`source`/`frozen`), the commit it started on, `stale`, `moved`. It
 `/api/health`, and the panel renders a **Build** row under *Installed version* with a
 `Restart needed` badge. A frozen build answers `None`, never `False`. `REQ-35` moves
 to **In flight** — partly closed, and its stated cause was measured and corrected in
-its own entry. Open items: `OP-53` (a frozen build's commit needs a build-time stamp)
-and `OP-54` (continuation citations are invisible to the citation guard).
+its own entry. Open items: `OP-60` (a frozen build's commit needs a build-time stamp)
+and `OP-61` (continuation citations are invisible to the citation guard).
 
 ---
 

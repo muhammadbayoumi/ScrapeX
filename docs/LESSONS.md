@@ -1941,7 +1941,7 @@ This is the family §12 keeps meeting from one direction, §13 above from anothe
 being read as current after the thing it measured moved.** It has now appeared six
 times, and the last one broke a rule the other five could not, so it gets the section.
 
-**Every row below was re-derived at `4522158`**, not copied from a brief — and saying
+**Every row below was re-derived at `f1844af`**, not copied from a brief — and saying
 which base is the whole discipline, so this line moves whenever the table is re-checked.
 
 | # | the artefact | the base it outlived | what caught it |
@@ -1955,7 +1955,7 @@ which base is the whole discipline, so this line moves whenever the table is re-
 
 *(A seventh was described to this session — a verification table still quoting a
 superseded commit — and is **not** listed, because the commit it named appears nowhere
-in this repository at `4522158`, and an instance that cannot be re-derived is not
+in this repository at `f1844af`, and an instance that cannot be re-derived is not
 evidence. That is this section's own rule turned on its own source.)*
 
 ### The sixth instance, measured
@@ -2076,7 +2076,7 @@ from a full citation a few words earlier, as in
 the colon, so it matches `app.js:1641` and does not match `:1641`. Measured, not
 reasoned: the regex returns a match for the first string and `None` for the second.
 
-**Nineteen of them exist** in the guarded documents at `4522158`. What this branch
+**Nineteen of them exist** in the guarded documents at `f1844af`. What this branch
 proved is that they move silently: edits here shifted `extension/app.js` by eight lines,
 four continuation citations went with it, **the guard stayed green through all of it**,
 and they were found by reading the diff by hand. That is the *drifted-and-still-resolves*
@@ -2085,7 +2085,7 @@ because tier 1 never discovers the citation in the first place and so there is n
 to pin.
 
 **Stated honestly, because the distinction decides whether anyone should act:** at
-`4522158` **none of the nineteen is wrong** — all resolve to non-blank lines, and the
+`f1844af` **none of the nineteen is wrong** — all resolve to non-blank lines, and the
 one spot-checked in full — the `docs/STATE.md` sentence citing
 `scrapex/features.py:54` and `:65` for two lit feature flags — names the `True` on
 both lines correctly. (That document's own line number is deliberately not quoted
@@ -2101,13 +2101,13 @@ tier in the guard's own docstring, and the keyword allowlist §13 threw away). T
 non-inferring fix is the opposite: **forbid the continuation form** in guarded
 documents. Require every citation to name its path, which is one mechanical rule, and
 nineteen invisible citations become nineteen that tier 1 and `PINNED` already handle.
-Filed as `OP-54` rather than built here, because rewriting nineteen citations across
+Filed as `OP-61` rather than built here, because rewriting nineteen citations across
 five documents is a second change with its own conflict surface.
 
 *(There is a table of **four shapes of a wrong citation** that this would be the fifth
 row of. It is not cited above because it is **not on `main`** — it lives on
 `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`, unmerged. Whoever lands that
-branch should add the row; `OP-54` carries the finding until then. Citing it as though
+branch should add the row; `OP-61` carries the finding until then. Citing it as though
 it were here would be this section's own subject, one paragraph after describing it.)*
 
 **Apply, and this is the general rule the six instances share:** ask what the base of
