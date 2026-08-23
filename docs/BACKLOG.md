@@ -302,7 +302,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 | where | what it calls | verdict |
 |---|---|---|
 | `scrapex/webui/app.py:1554` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2542` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:2598` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2542`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2598`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1793,7 +1793,7 @@ worse for a dataset"* ([scrapex/webui/app.py:697](../scrapex/webui/app.py#L697))
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2787](../scrapex/webui/app.py#L2787)).
+for anything else ([scrapex/webui/app.py:2843](../scrapex/webui/app.py#L2843)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
@@ -2208,6 +2208,148 @@ equality `.modal-veil` depends on is expressed instead of commented, and lowerin
 instruction. The change is three lines and behaviour-neutral; it should land as its own
 change once that file is quiet, together with the static guard above so the fix arrives
 with the thing that keeps it. It does **not** need to wait for `OP-47`.
+### OP-53 · Eleven price-path columns are registered against the contractor directory
+
+**Status: FIXED 2026-08-22 in code; the eleven rows are still on disk — see `OP-58`.**
+
+Measured read-only against the live warehouse, not reasoned about:
+
+```
+dataset_field WHERE source_key = 'contractors'   ->  11 rows
+display_method · price · minimum_quantity · quantity_increment · stock_quantity
+tax · category_leaf · category_leaf_ar · price_changed_on · last_confirmed_on
+curation
+```
+
+**Not one of the directory's own 28 fields is among them**, and
+`contractor_profiles` has none at all — nobody ever opened its chooser.
+
+**The cause is a missing branch, and the endpoint wrote its own mistake down.**
+`/api/fields/{key}` had no dataset path, so a dataset key fell through to the price
+path and asked `column_presence` — *"which BROWSE columns does this source
+populate"* — about a contractor directory. `ensure_fields` is additive by design,
+so **merely opening Choose-Columns registered them permanently.**
+
+Fixed by giving `/api/fields` the catalogue-first order `/api/table` already had,
+and by listing a dataset's fields by intersection with its own schema so rows
+already written go inert. `dataset_schema_fields` now has one reader instead of
+two copies of the same join — the second copy is what caused this.
+
+### OP-54 · Choose-Columns was a silent no-op on every dataset table
+
+**Status: FIXED 2026-08-22.**
+
+`dataset_table_payload` built `columns` from `field_definition` via
+`schema_version_field` and **never read `dataset_field`**. So hiding a column on a
+contractor table wrote `is_hidden = 1` and changed nothing on screen; a rename was
+stored and the heading kept the old text; a reorder was saved and ignored.
+
+**This is the defect `extension/datatable.js` already warns about in its own
+comment** — *"dragging a column saved, reloaded the page, and changed nothing on
+screen because the grid was reading its own copy"* — arriving from the other
+direction, in the file that comment was written to protect.
+
+**Worse than absent, and that is why it was fixed before anything was measured on
+top of it.** A control that offers the wrong options and then discards the answer
+teaches the owner that the feature is broken, and `R-45` rests on this exact
+mechanism working: a hidden column is not lost but MOVED, into the row's card.
+`moved_to_details` is now populated for a dataset for the first time.
+
+### OP-55 · Server capabilities on the engine's page that nothing can reach
+
+**Status: OPEN — and the action is "do not port", not "fix".**
+
+Found while censusing `/source/{key}` for `REQ-07`. The page's server side still
+supports a global search term, an availability filter, server-side sort links and
+server-side pagination. The grid replaced all four in the browser, and nothing in
+the current template reaches them.
+
+**Why it matters now:** a port that copies the page copies dead code into a second
+place, and the extension is the place we would then have to keep it working in.
+Named here so step 4 of the plan carries the working half only.
+
+### OP-56 · The panel prints "bilingual" for every source, because `{}` is truthy
+
+**Status: OPEN. One line, and its test asserts a shape the server never sends.**
+
+`extension/datatable.js`'s `summarise` does `if (payload?.bilingual) parts.push("bilingual")`.
+The engine sends `bilingual` as an **object** of AR→EN pairs — `reports.table_payload`
+and `dataset_table_payload` both build a dict — and an empty object is truthy in
+JavaScript. So a source with no Arabic column at all still reads *"N rows · bilingual"*.
+
+**And the guard cannot see it**, because `datatable.test.mjs` sets
+`bilingual: false` in its payload and asserts on `bilingual: true` — booleans,
+which is not what either producer returns. The test is green about a shape that
+does not exist.
+
+Fix with the feature, in step 1 of the plan: the check becomes
+`Object.keys(payload.bilingual || {}).length`, and the fixture starts carrying a
+real pair dict.
+
+### OP-57 · The extension's data table is keyed on a column no dataset row has
+
+**Status: OPEN. Fix it with the port, not before.**
+
+`extension/data.js` builds Tabulator with `index: "offer_id"`. A dataset row has
+no `offer_id` — `dataset_table_payload` never emits one, and the identity is
+`generic_record_id` — so for every contractor row the index is `undefined`.
+Tabulator tolerates it for drawing, which is why nothing has reported it, but
+`getRow`, `updateData` and selection-by-index cannot work on a dataset. It is
+therefore a live blocker for the record card in step 3 rather than a cosmetic
+issue.
+
+### OP-58 · Whether to delete the eleven rows — HIS gate, not ours
+
+**Status: OPEN — awaiting the owner. Do not delete them without his word.**
+
+`OP-53`'s code fix makes the eleven rows inert; it does not remove them. Removing
+them is a `DELETE` against his warehouse, and `COMPATIBILITY.md` is explicit that
+*"Destructive or irreversible migration"* requires programmer approval, and that
+old data is *"never rewritten merely to make an internal model look cleaner"*.
+
+**The safe version is narrow and provable:** delete only `dataset_field` rows whose
+`field_key` is absent from that dataset's own `field_definition` set. That cannot
+touch a products source and cannot touch a field the directory publishes.
+
+**The argument for leaving them:** they are invisible now, and a migration that
+deletes rows is a class of change this repository has been careful about.
+**The argument for deleting them:** they will resurface the moment anyone removes
+the intersection filter, which is a trap for a future session.
+
+Recorded rather than defaulted, per `R-02`.
+
+### OP-59 · `HANDOFF-resume-the-migration.md` sits outside the citation guard, and two of its citations are stale
+
+**Status: OPEN.**
+
+`tests/test_the_documents_cite_what_they_claim.py` checks the eight documents in
+`CLAUDE.md`'s map. `docs/HANDOFF-resume-the-migration.md` is not among them, and
+it is the living state of Track 1 — the file a session picking up the console
+migration is told to read.
+
+**Two citations in it are wrong at `4522158`.** It puts `loadSourceColumns` at
+line 1579 of `extension/app.js` and `saveSourceColumns` at 1618; they are at 1594
+and 1633. `STATE.md` carries the same pair correctly, which is how the drift was
+caught — two documents citing one symbol at different lines.
+
+**Those four numbers are deliberately NOT written in the `path:line` form.**
+`extension/app.js` was being rewritten by `#258` when this was written, so a real
+citation here would have become a red build the moment that merged —
+`ORCHESTRATION.md` §4 — and writing this bug report in the very form the bug
+describes would have been a poor joke. **`#258` has since merged at `d10e974` and
+both symbols happened to survive at 1594 and 1633**, which is luck and not
+stability. Re-derive them rather than trusting them.
+
+**The interesting part is that both citations still point INSIDE the file**, so
+Tier 1 would have passed them even if the file were guarded; only the `PINNED`
+table catches a citation that moved off its symbol. #256 has since added a check
+that a cited line is not blank, which found three more.
+
+**Two options, and they are not equivalent.** Adding the handoff to `DOCUMENTS`
+guards it and immediately turns the build red until the two lines are fixed —
+which is the point. Fixing the two lines without guarding the file leaves the next
+drift silent. The first is recommended.
+
 
 ### OP-51 · Two of the six source-menu entries lead nowhere, and not only for datasets
 
@@ -3636,7 +3778,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2542` that the fix never reached
+   second `worker_alive` computation at `app.py:2598` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

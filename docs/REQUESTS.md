@@ -62,7 +62,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-04](#req-04--every-setting-moves-into-the-extension) | Every setting moves into the extension | **Ruled** — not built | 2026-08-01 |
 | [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **Done** | 2026-08-16 |
 | [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **Done** | 2026-08-17 |
-| [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **Planned** | 2026-08-12 |
+| [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **In flight** — he raised it again 2026-08-22 and ruled «كلها»; [the plan](plans/2026-08-22-the-source-page-moves-into-the-extension.md) has seven steps and step 0 is done | 2026-08-12 |
 | [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Done** | 2026-08-17 |
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
 | [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
@@ -185,7 +185,8 @@ reorders every thirty seconds.
 
 ## REQ-07 · The Data page must carry everything the engine's page carries
 
-**Captured 2026-08-12 (the migration plan is his) · Planned · Not started**
+**Captured 2026-08-12 (the migration plan is his) · Planned · In flight — raised
+again 2026-08-22, and step 0 of the seven is built**
 
 **Answered by measurement:** [DEC-8](BACKLOG.md#dec-8--the-engines-data-page-is-a-port-not-a-rebuild--measured-2026-08-16) settled his direct question — «هل يمكن نقل صفحة data الموجودة فى المحرك بكل مميزتها الى extension ام يلزم اعادة البناء كامل؟» — by measuring rather than guessing, and the answer is **a port, not a rebuild**. The link was missing in both directions, so a reader of this board could not see the question had been answered at all.
 
@@ -196,6 +197,41 @@ is reasoned and is in [STATE.md](STATE.md#track-1--the-console-migration).
 **Blocked in part:** saved views waits on
 [O-5](RULINGS.md#open--awaiting-the-owners-ruling) — he has comments on B1 and
 will raise them first.
+
+### He raised it again on 2026-08-22, ten days after capturing it
+
+> «كان فى خطة لنقل http://127.0.0.1:8000/source الى extension
+> chrome-extension://ekcgggphcfdbjgfkcmjagehfjhijeang/data.html?source=»
+
+He was right that there was a plan, and **the fact that he had to ask is the
+defect.** Captured 08-12, answered by measurement 08-16, and on 08-22 nothing had
+been built — which is `REQ-04`'s sixteen days happening again in a different row
+of the same table. **Recorded here in the session he asked it**, per **C7**,
+because a brief to an agent is not a record.
+
+**Asked again the same day, and he refused the framing of the question put to
+him.** He was asked whether to build the products half or the contractors half
+first, since `REQ-07`'s four capabilities are all products-shaped while `R-45`'s
+stated reason was contractors:
+
+> «ضع خطة لتنفيذها كلها وتتبع التنفيذ حتى لا نفقده»
+
+*All of it, and track the execution so we do not lose it.* So it is an order and
+not a choice, and **the tracking is part of what he asked for** — the plan carries
+a status table with a gate per step, and each step says which category it serves:
+[plans/2026-08-22-the-source-page-moves-into-the-extension.md](plans/2026-08-22-the-source-page-moves-into-the-extension.md).
+
+**And he asked for the payload cost to be measured rather than argued** —
+«قِسْ أوّلاً ثمّ قُل لى» — after this session flagged the panel's 5,000 ms deadline
+against a ~21 MB payload as a risk. **Measured: 616 ms of the 5,000, 12% of the
+budget.** The flag was wrong, and the measurement is in the plan.
+
+**One of `DEC-8`'s four is not remaining, and one that is remaining was never
+counted.** The details drawer exists on the engine for products and has since
+2026-07-22 — `R-45` says otherwise and is being corrected. What is not in
+`DEC-8` at all is the same card for a DATASET, which is `REQ-32`: it needs a new
+engine endpoint, because `/api/offer` is products-only on every axis. So this
+request is a port and `REQ-32` is a build, and the plan sequences them together.
 
 ---
 
