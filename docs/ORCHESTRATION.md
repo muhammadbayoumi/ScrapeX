@@ -339,6 +339,56 @@ throughput win available.
 
 ---
 
+### Escalate on suspicion, resolve on evidence
+
+**A primary that only escalates when it is certain will be silent exactly when it
+matters.** A suspicion about a merge is worth a message the moment it exists — the cost of
+being wrong is one command from the session you asked, and the cost of being right and
+quiet is a silently reverted change nobody re-reads.
+
+**And a secondary that acts on an escalation without checking turns one session's
+inference into two sessions' fact.** That is the direction the damage actually runs.
+
+**Measured, 2026-08-23.** A secondary reported that `docs/ORCHESTRATION.md` was absent
+from the citation guard's `DOCUMENTS`. The primary inferred that a rebase had reverted an
+already-merged change and escalated hard, telling it to stop before pushing. **The
+inference was wrong** — the entry was on `main`, and it appeared in the secondary's own
+diff as a *context* line, not an addition. The secondary answered with
+`git diff origin/main -- <file>`, three hunks, all deliberate, nothing reverted.
+
+**And the alarm still paid for itself, which is the point.** The check found a *different*
+and worse defect than the one alleged: a **confident false comment**, claiming the entry as
+that change's work and asserting the list *"did not"* carry the document — sitting four
+lines under `main`'s comment saying the opposite. It would have merged, because nobody
+re-reads a comment. The same false premise had already reached a `LESSONS` section as
+*"eight markdown files"* against a tuple of nine.
+
+> **The failure mode this pairing prevents is not the wrong alarm. It is the RIGHT alarm
+> acted on without a check.**
+
+**The corollary, and it is the cheaper half of both episodes:** the reflex to be careful is
+not the same as being careful, and the difference is usually one command.
+`git show origin/main:<file> | grep` answers *"is it already there?"*.
+`git diff origin/main -- <file> | grep '^@@'` answers *"will this conflict?"*. Both are
+cheaper than the deliberation they replace, and on the same day one session deliberated
+twice over questions either command would have closed.
+
+**Two more rules that fall out of it, both learned the expensive way the same day:**
+
+- **Verify the OUTCOME, not the script — then verify the verifier.** A script that silently
+  did nothing reads perfectly, so re-reading it proves nothing; only the resulting file
+  answers. `str.replace` returns the original on no match, and an unconditional `print`
+  above it will announce a change that never happened. **Every edit script in that change
+  opened with `assert s.count(old) == 1` except one, and the one without it is the one that
+  lied.** When the primary then audited its own ten edits of the day by grepping the files
+  rather than re-reading the scripts, nine confirmed and the tenth reported missing — a bug
+  in *the checker*, a search string spanning a line break that could never match. **A false
+  alarm costs trust the way a false pass costs correctness.**
+- **A right check pointed at the wrong object returns a green you did not ask for.** That
+  secondary correctly tested *"would adding this break anything"* and needed *"is it
+  already there"* — and the guard answers the first identically whether the entry is present
+  or absent, because an unlisted document is simply never scanned.
+
 ## 8 · Delegating: a brief is not a record
 
 **Anything he asks for goes on the board in the session he asked it** — `C7` — **and
