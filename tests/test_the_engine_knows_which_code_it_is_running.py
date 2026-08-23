@@ -158,6 +158,62 @@ def test_a_module_deleted_under_a_running_engine_is_a_divergence_too(loaded):
     assert loaded.name in report["changed"]
 
 
+def test_a_module_imported_after_the_seal_is_not_a_blind_spot(loaded):
+    """THE GAP `seal()` HAS BY CONSTRUCTION, and it had to be closed rather than
+    documented.
+
+    This repository imports modules inside route handlers, so a module can first be
+    loaded while serving a request — long after the reference point. It is therefore
+    absent from the snapshot, and the comparison loop cannot see it at all. If that
+    file was written AFTER the process sealed, the process is running a mix of pre-
+    and post-edit code, which is worse than being uniformly behind.
+
+    Found by asking what the mechanism does not cover, not by a failure. A guard
+    that does not know its own blind spot is the defect this module exists for.
+    """
+    late = loaded.pkg / "late.py"
+    late.write_text("LATE = 1\n", encoding="utf-8")
+    import os
+    os.utime(late, (_SEAL_PLUS, _SEAL_PLUS))       # written after we sealed
+    name = "scrapex.__provtest_late"
+    sys.modules[name] = _fake_module(name, late)
+    try:
+        report = provenance.report()
+    finally:
+        del sys.modules[name]
+
+    assert report["stale"] is True, (
+        "a module imported after the seal, from a file written after the seal, "
+        "was invisible — the snapshot cannot hold it, so the check must look")
+    assert name in report["changed"]
+
+
+#: Comfortably after any `sealed_at` this file produces, and computed from the
+#: clock rather than hard-coded so it cannot drift into the past.
+_SEAL_PLUS = __import__("time").time() + 3600
+
+
+def test_a_module_imported_after_the_seal_from_older_code_is_not_stale(loaded):
+    """THE OTHER HALF, and it is what stops the check above crying wolf. A module
+    the process imports late from a file that has NOT been touched since the seal is
+    ordinary lazy importing, which happens on most requests. Only a file written
+    after the reference point proves a mixed state."""
+    late = loaded.pkg / "old_late.py"
+    late.write_text("OLD = 1\n", encoding="utf-8")
+    import os
+    os.utime(late, (1_600_000_000, 1_600_000_000))   # long before the seal
+    name = "scrapex.__provtest_oldlate"
+    sys.modules[name] = _fake_module(name, late)
+    try:
+        report = provenance.report()
+    finally:
+        del sys.modules[name]
+
+    assert report["stale"] is False, (
+        f"ordinary lazy importing was reported as a reason to restart: "
+        f"{report['changed']}")
+
+
 def test_a_file_rewritten_to_the_same_content_is_not_a_reason_to_restart(loaded):
     """THE CRY-WOLF CASE, and it is why the digest exists at all.
 

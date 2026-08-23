@@ -279,6 +279,10 @@ def _changed() -> list[str]:
     alone would cry wolf on every `git checkout` that touched a file without
     changing it, and a warning that fires when nothing is wrong is one the owner
     learns to scroll past.
+
+    THEN A THIRD PASS over modules imported after the seal, which the snapshot by
+    definition does not hold. See the comment at that loop: without it, a module
+    first imported inside a request handler is a divergence this check cannot see.
     """
     changed: list[str] = []
     for name, (path, mtime, size, digest) in sorted(_SNAPSHOT.loaded.items()):
@@ -293,6 +297,30 @@ def _changed() -> list[str]:
             continue                   # untouched: no read, no hash
         if _digest(path) != digest:
             changed.append(name)
+
+    # AND THE MODULES THAT ARRIVED AFTER THE SEAL, which the loop above cannot see
+    # because they are not in the snapshot at all. This repository has several
+    # `from ..x import y` inside route handlers, so a module can first be imported
+    # while serving a request -- minutes or hours after the reference point.
+    #
+    # A FILE WHOSE mtime IS LATER THAN THE SEAL WAS WRITTEN AFTER THIS PROCESS
+    # STARTED SERVING, so the process is now running a MIX of pre- and post-edit
+    # code. That is worse than being uniformly behind, not better, and reporting it
+    # is the point. There is no false positive available here: mtime records when
+    # the file was last written to disk, and for untouched code that is always
+    # before the process started.
+    #
+    # Found by asking what `seal()` does NOT cover rather than by a failure -- the
+    # blind spot a guard does not know it has is the defect this whole module is
+    # about.
+    for name, path in sorted(_loaded_sources().items()):
+        if name in _SNAPSHOT.loaded:
+            continue
+        try:
+            if path.stat().st_mtime > _SNAPSHOT.sealed_at:
+                changed.append(name)
+        except OSError:
+            continue
     return changed
 
 
