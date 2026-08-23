@@ -333,7 +333,17 @@ def report() -> dict:
     """
     try:
         return _report()
-    except Exception as exc:                       # noqa: BLE001
+    # A BARE `except Exception` ON PURPOSE, and deliberately with no suppression
+    # comment beside it. The three in `packaging/engine_entry.py` suppress BLE001 --
+    # which is where this was copied from -- but the lint gate runs
+    # `ruff check scrapex/` and never looks at `packaging/`, so that rule is not
+    # enabled here and the directive was dead. RUF100 caught it.
+    #
+    # AND THE FIRST DRAFT OF THIS COMMENT SPELLED THE DIRECTIVE OUT to explain it,
+    # which made ruff parse the explanation as a directive and warn about it. A
+    # comment that quotes an instruction is holding one -- the same trap
+    # `docs/LESSONS.md` §7 records twice about prose. Name the rule, never the syntax.
+    except Exception as exc:
         # The one branch where `stale` may not be a verdict. A check that crashed
         # knows nothing, and saying so is the only honest answer available — the
         # alternative is a `False` that means "we failed to look".
