@@ -1780,8 +1780,8 @@ the relationship he already had confirmed. And the second number stops being a p
 
 ### BUILT 2026-08-23 — points 1 and 2 of three, and the third cannot ship yet
 
-**HE ASKED FOR THIS ON 2026-08-22 AND IT WAS RULED THE SAME DAY. It was still not
-built on 2026-08-23**, which is why he asked «حل المشكلة لم يصل لى ما السبب ؟» — the
+**HE ASKED FOR THIS ON 2026-08-22 AND HE GOT HIS ANSWER THE SAME DAY. It was still
+not built on 2026-08-23**, which is why he asked «حل المشكلة لم يصل لى ما السبب ؟» — the
 fix has not reached me, why? Measured before starting: **no file under `extension/`,
 `scrapex/` or `tests/` cited `R-47` or `REQ-37` at all.** Ruled, recorded, and never
 carried into code. That gap — a ruling with no line of code behind it — is the whole
