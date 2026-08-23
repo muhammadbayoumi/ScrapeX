@@ -94,7 +94,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
-| [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — study in flight; one written decision already contradicts him and must be superseded either way | 2026-08-23 |
+| [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
 
 ---
 
@@ -1973,25 +1973,102 @@ paraphrased: the data page moves because a phone can open its own files; the eng
 *an* app rather than *the* app because a phone has an app list; and «ربما تزيد apps
 مستقبلا» means the seam has to admit a second one before there is a second one to admit.
 
-### One contradiction is already measured, before the study returns
+### CORRECTED — his premise is HALF BUILT, and no document says so
 
-[PLATFORM-PLAN.md](PLATFORM-PLAN.md) Decision 25 says, of the icon rail's second group —
-Source, Run, Data and Google Finance:
+**What this section said first was wrong, and it is left visible rather than rewritten
+away.** It claimed Decision 25 was a built-in contradiction of his requirement. Twelve
+agents measured the question and **nine independent refuters overturned that**, three of
+them on this exact point. The corrected finding is better news than the error was, and it
+changes the request from *build this* to **finish and re-document this**.
 
-> *"The second group is dead on a device with no engine installed, which is every device
-> for its first minute."*
+**THE DATA PAGE ALREADY READS HIS DATA WITH NO ENGINE. It has since 2026-08-12.**
+`extension/app.js:4414-4429` is the `catch` around `loadDatasets`, and its own comment says
+what it is for:
 
-**He has just required the opposite of that for the Data page.** Both cannot stand. Decision
-8 of the same plan already leans his way — *"On a new device with no engine, the owner sees
-his data and exports it"* — so the plan contains both positions seventeen decisions apart,
-and nothing has ever made them argue.
+> *"NOT A DEAD END ANY MORE. This is the machine with no engine on it — the case the whole
+> bundle format was designed for — and until now the panel said "couldn't reach the engine"
+> and stopped, while a complete copy of the owner's data sat in their Drive."*
 
-And Decision 9 carries the assertion the study has to re-test rather than inherit:
+It offers a **Read my Drive backup** button wired to `browseFromDrive` (`app.js:4440`), which
+reaches `fetchPanelPack` (`extension/drive.js:508`) and `readPanelPack`
+(`extension/bundleview.js:28`). Landed in `fc8525f`, *"Carry the panel pack beside the
+archive, and let the Data page read it"* (#167), **2026-08-12 09:18** — the same week
+`MIGRATION-PLAN.md` recorded the division of labour this request is about.
+
+**So Decision 25 is stale TEXT, not a built contradiction, and the distinction matters.**
+The rail's boundary IS built and IS guarded: `.rail-tablist` at `extension/app.css:1144`
+with its reason at `:1137-1143`, asserted green at `4522158` by
+`test_the_rail_groups_say_which_pages_need_an_engine` and
+`test_finance_tab_sits_immediately_above_workspace` (`tests/test_panel_dom.py:3244` and
+`:1177`). What is false is only Decision 25's **consequence sentence** — *"The second group
+is dead on a device with no engine installed"* — and it is false for **exactly one** of the
+four pages it covers. Source, Run and Google Finance have no offline route; **Data does.**
+That is a `C2` documentation-drift defect, one sentence wide.
+
+### The three measured holes, which are the whole of what he loses today
+
+Not "the data page has not moved". Three specific, countable gaps:
+
+| hole | measured |
+|---|---|
+| **The pack carries no contractors at all** | `scrapex/bundle.py:140` sources the bundle from `list_sources`, which is `SELECT source_key FROM source_site` (`scrapex/reports.py:104`). `source_site` holds the **12 price shops**; muqawil lives in `site_profile`. So **0 of 18,008** contractor records — 17,304 + 704 — are in the one artefact an engine-less panel can read |
+| **The offline view shows counts, never rows** | `extension/app.js:4471-4477` renders only the dataset key, `N rows`, and *"with change history"* / *"current prices only"*. No click handler, no grid |
+| **And it cannot export** | `bundleview.js` exports `rowsOf` (`:82`) and `toCsv` (`:94`) **for exactly this purpose** and nothing imports them: `extension/app.js:23` takes only `readPanelPack, datasetSummaries` |
+
+**Against Decision 8 — *"the owner sees his data and exports it"* — he measurably sees
+counts and cannot export.** The reader exists; the supply and the export do not.
+
+### Decision 9's assertion, re-tested rather than inherited
 
 > *"A browser extension cannot create a SQLite file."*
 
-That was written 2026-08-05. **Creating is not reading**, and the study measures reading
-separately, because his premise needs only the second one.
+**This repository disproved half of that itself, and then quoted the wrong row of its own
+spike.** `spikes/opfs-sqlite/FINDINGS.md:353-371` measured an MV3 extension creating the
+whole schema inside OPFS: DDL for 40 tables in **65 ms**, **196,871 rows** copied in
+**14,332 ms**, 15,150 ms in total. Reading is measured separately at `:130-149` — 40 tables,
+59 indexes, 2 triggers, 2 views, `user_version` 54, 73,278 price observations, **identical
+to Python** under both engines.
+
+**Three blockers must not be merged into one, and the plan merges them:**
+
+1. **Location, not capability.** Decision 9's four controls are *location, backup, restore,
+   migration* — and OPFS provides none of them. An extension can create a database **it
+   alone can reach**; it cannot create one at a path the owner chooses or the engine can
+   open. That row of Decision 9 is about the file, and it stands.
+2. **The stamp.** The created database came out with `user_version = 0` from a source stamped
+   **54** — and `FINDINGS.md:369` notes that is the stamp *"every migration gate keys off"*.
+3. **Concurrency, which is the one that bites his actual question.** The fast path's sync
+   access handles are **exclusive with no queue** — `NoModificationAllowedError` at 0 ms,
+   cross-worker (`FINDINGS.md:157-158`). So it cannot serve *"read the data while the engine
+   is running and holding the file"*, which is the ordinary case.
+
+**And the library the plan cites is the one its own spike rejected.**
+`docs/PLATFORM-PLAN.md:134` reproduces the *"70–208× slower"* row, which is true of
+`wa-sqlite` — the library `FINDINGS.md:18-19` calls *"the one part that is simply the wrong
+choice."* The spike's headline is that a **different** library, `@sqlite.org/sqlite-wasm`
+3.53 over the OPFS SAH pool, runs the same Data-page query at **1.4–1.6×** of Python. The
+document is incomplete rather than wrong, and the omission is the number that would change
+the decision.
+
+### And the phone model is further along than anyone wrote down
+
+Measured above the transport, so the step is **parameterising what works, not inventing it**:
+a live backend address field (`extension/app.html:1772`), a switch that re-activates and
+re-adopts appearance, timezone and the UI contract (`extension/app.js:6326-6334`),
+abort-and-generation-bump on change (`extension/backend.js:68-77`), and a repaint guard
+whose own comment already names the multi-app hazard (`extension/data.js:74-76`):
+
+> *"A DIFFERENT BACKEND IS NOW AUTHORITATIVE. Painting this answer would put one engine's
+> rows under another engine's name"*
+
+Installedness is measured **twice** — Chrome's `absent` verdict on the native host
+(`extension/transport.js:51-52`) and a six-rung health ladder that already includes
+*"Installed, not running"* (`extension/app.js:3408`). **There is one slot, not a list**:
+`activeBackend` in `extension/backend.js:38`, from a single `chrome.storage.local` key
+(`extension/engine.js:11`), prefixing all 40 `/api/…` calls. Sixteen constants across the two
+products name exactly one product and **none is parameterised by app**.
+
+**So what is missing is plurality and per-app identity — not the tier.**
 
 ### What this request does NOT decide
 
@@ -2002,8 +2079,37 @@ his to rule on once the numbers are in front of him, per `R-02`.
 
 ### State
 
-The study is running as this is written — every engine HTTP route, native-messaging command
-and CLI subcommand inventoried against the code, the read-without-an-engine question
-measured against the live warehouse's real size, and the "more apps" model tested against
-the identity, install, discovery and capability seams as they exist. **Its findings are
-recorded here and ruled in [RULINGS.md](RULINGS.md) when he has read them — not before.**
+**Two studies have landed: twenty-nine agents, nine refutations applied above.** What they
+settle and what they do not:
+
+**Settled.** The prior discussion he thought was lost is **recorded** —
+[MIGRATION-PLAN.md](MIGRATION-PLAN.md)`:38-45`, drafted 2026-08-12, quotes him directly
+(*"leave the engine only fetch + SQLite"*) and **already names today's question as an
+accepted tension**: that sentence and *"remove the 127.0.0.1 service"* cannot both hold
+*"until the extension can read SQLite itself, because nothing else reaches a 119 MB local
+database."* His memory of the study is correct. **What was never done is turning it into a
+ruling** — `docs/RULINGS.md` has no entry for it, so `C1` sends every session to a register
+that does not contain the decision governing this whole request.
+
+**Also settled: nothing shrank.** Between `5cccfb5` (2026-08-13, the day after that plan)
+and `4522158`, the engine's interface went from 17,755 lines to **17,772** — plus seventeen
+— while the extension's went from 17,749 to **24,943**, plus 7,194. The extension grew
+**beside** the engine, not instead of it, because Phase B1 is still *Not started*
+([STATE.md](STATE.md)). And the warehouse arithmetic says the premise is affordable:
+of 1,198,592,000 bytes, **893,860,727 — 74.6% — is `generic_page_snapshot.html_content`**,
+raw HTML provenance no human browses, on a table `retention.py` and `compaction.py` never
+mention. Everything he would actually browse is **9,511,282 bytes gzipped, 0.79%** of the
+file.
+
+**Not settled, and his to rule.** Eleven questions, the first of which governs the rest:
+**"only" in «المحرك له مهام محددة فقط» — on which axis?** The *interface* axis, where the
+engine keeps `extract`, `domain` and `store` and only the display leaves — or the *pipeline*
+axis, where everything but the fetch leaves. `MIGRATION-PLAN.md:38-39` and
+`PLATFORM-PLAN.md:96-97` each support one reading, neither cites the other, and neither is
+marked superseded. **Recorded here, ruled in [RULINGS.md](RULINGS.md) when he has answered —
+not before**, per `R-02`.
+
+**One dating error is carried here as a caution**, because the study made it and its own
+verifiers caught it: it dated *text* by each **file's** last commit, which inverts the
+seniority of two documents in one of its headline contradictions. A line's age is not its
+file's age, and this register should not repeat the mistake.
