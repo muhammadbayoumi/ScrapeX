@@ -177,6 +177,29 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
+        # 60 IS THE WEAKEST ROW IN THIS TABLE AND SAYS SO, which is the only honest
+        # way to write it. This branch declared `OP-61` after #261 took 53..59, so
+        # 60 became a hole here. It is held by another session on the primary's
+        # word — «OP-60 is taken, confirmed by me» — and **no pushed ref carries
+        # it**: every remote branch was searched for `OP-60` in `docs/BACKLOG.md`
+        # and none has it, so this row cannot name the branch that the rule in
+        # `ORCHESTRATION.md` §3 requires, and inventing one would be worse than
+        # admitting the gap.
+        #
+        # THE RULE IT FALLS SHORT OF IS DELIBERATE AND STILL RIGHT: a holder must be
+        # "a branch ref or a PR number, never a description of a session", because
+        # sessions do not outlive their branches. The same file already carries the
+        # softer case — 45, 49 and 50 rest on an unpushed Drive renumber and their
+        # comment says to re-check rather than inherit them. This one is softer
+        # still: not merely unpushed, but unnamed.
+        #
+        # SO IT CARRIES AN ACTION RATHER THAN A CLAIM. Whoever next touches this
+        # table: replace this string with the branch ref the moment OP-60's holder
+        # pushes, or delete the row if 60 turns out to be free. Do not leave it
+        # standing on a session that has ended — that is exactly the wart the
+        # paragraph above this dict was written about, and it passed every guard the
+        # whole time it was wrong.
+        60: "assigned by the primary session 2026-08-23; ref NOT YET KNOWN — replace this",
     },
     "DEC": {},
 }

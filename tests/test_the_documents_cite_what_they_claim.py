@@ -165,7 +165,7 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1729, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1673, '"worker_alive"'),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2722, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
@@ -252,7 +252,7 @@ PINNED = (
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2967, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1223,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1167,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one

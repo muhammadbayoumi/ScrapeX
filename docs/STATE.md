@@ -1,14 +1,15 @@
 # State — where the work stands
 
-**Last updated: 2026-08-23.** `main` is at `d10e974` (#258). #243 through #258 are
-all merged — **thirteen merges** landed after this line last said `afb8648` (#244), in
-two days, and #256, #257 and #258 landed while it said `bcb8f6e` or `31c369e`. A commit
-pointer written into prose is stale by the time it is read:
+**Last updated: 2026-08-23.** `main` is at `f1844af` (#261). #243 through #261 are
+all merged — **sixteen merges** landed after this line last said `afb8648` (#244), in
+two days. A commit pointer written into prose is stale by the time it is read:
 `git log --oneline -1 origin/main` is the answer that cannot be — **and this very line
-has now proved it four times across two days**, reading `4615a14` with #251 and
+has now proved it six times across two days**, reading `4615a14` with #251 and
 #252 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in, then
-`31c369e` with #258 in. Each correction is the argument for the sentence rather than a
-counter-example to it.
+`31c369e` with #258 in, then `d10e974` with #259 in, and then `4522158` with #261 in.
+Each correction is the argument for the sentence rather than a counter-example to it —
+and the last two were written by a session that had *just* corrected the line, which is
+the strongest form of the argument: it goes stale faster than one session can work.
 
 **THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
 directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
@@ -205,7 +206,7 @@ Two of the four defects on that screenshot are this branch's; the other two
   on the card and there is **no panel path to a dataset crawl at all**: `POST /api/jobs`
   answers `404 unknown source_key 'contractors'` (`OP-52`). `REQ-37` therefore stays
   **In flight**.
-- **`OP-53` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
+- **`OP-61` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
   contractor directory. `countLine` replaces the hardcoded noun with three branches
   keyed on what the engine reports, so `jobs` and `tenders` need no new code. The
   engine's own `/source/{key}` page still prints a "Products" tile over the same rows —
@@ -237,10 +238,25 @@ feature is not a measurement of the feature* (`LESSONS.md` §9), arriving throug
 fourth door: a test.
 
 **This branch is from a SECONDARY session and does not merge itself** (`R-42`).
-**`OP-53` was taken as the next free number off the end** — `main` tops out at `OP-52`
-and `45`/`49`/`50` are reserved for `claude/drive-without-a-server` — so it needs the
-primary's confirmation against any unpushed claim, per `ORCHESTRATION.md` §3. No
-`RESERVED` row was added and none was deleted: 53 creates no hole.
+
+**The register moved twice under this branch, and the second time was a real
+collision.** It first took `OP-53` when `main` topped out at `OP-52`. Then #261 landed
+and declared **`OP-53` through `OP-59`** — so `OP-53` was a genuine duplicate, and
+`test_no_two_entries_share_a_number` would have caught it. Renumbered to **`OP-61`**,
+because `OP-60` is held by another session on the primary's word.
+
+**Checked rather than assumed before renumbering:** none of `OP-53`…`OP-59` covers the
+noun (they are the price-path columns registered against the directory, Choose-Columns,
+the unreachable server capabilities, the truthy `{}`, the `offer_id` index, his
+deletion gate, and the `HANDOFF` citations), so this is a distinct finding and not a
+second entry for one thing.
+
+**`RESERVED` now carries `60`, and it is the weakest row in that table.** Every remote
+branch was searched for `OP-60` in `docs/BACKLOG.md` and **none carries it**, so the
+row cannot name the branch that `ORCHESTRATION.md` §3 requires and says so instead of
+inventing one. It carries an action: replace it with the ref the moment that holder
+pushes, or delete it if 60 turns out free. **`OP-61` still needs the primary's
+confirmation.**
 
 **A DRY review of `#252` recorded `OP-46`, `OP-47` and `OP-48` — documentation only,
 no code touched.** The review followed that PR's own comment to the three popovers it
