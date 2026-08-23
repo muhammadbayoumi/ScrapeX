@@ -107,12 +107,45 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | | |
 |---|---|
 | the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
-| `generic_record` | **16,411** — 15,707 listing rows + 704 profiles |
-| `generic_page_snapshot` | **20,379** (~203 MB of bodies), 1,424 of them Dammam profiles |
+| `generic_record` | **17,304 listing rows**, and the profile approval is still running (10,133 of 17,417 when this line was written) |
+| `generic_page_snapshot` | **56,941**, of which **34,834** are the completed profile crawl |
 | `classification_node` | **214** nodes, depths `{1: 8, 2: 20, 3: 186}` |
 | `generic_record_node` | **15,559** memberships — `R-38` proved on real data |
 | datasets | `contractors` and `contractor_profiles` |
 | schema | **v9** (`0009` = the link table) |
+
+### Two counts, and the 183 contractors between them — measured 2026-08-23
+
+**The owner did the arithmetic and it was right**: 34,834 profile pages ÷ 2 = **17,417**
+contractors, and every one of the 17,417 has BOTH halves — `EN 17,417 · AR 17,417 ·
+lonely 0`. The division is exact, not approximate.
+
+But the listing table holds **17,304**, and the difference is not rounding. Reconciled
+by set arithmetic over the ids, not by estimate:
+
+| | |
+|---|---|
+| have a profile crawled, **no listing row** | **148** |
+| have a listing row, **no profile crawled** | **35** |
+| in both | 17,269 |
+| **the union — what is known to exist** | **17,452** |
+
+`17,417 − 148 + 35 = 17,304` closes exactly.
+
+**Neither number is the population.** The honest total is the **union, 17,452**, and even
+that is a floor: the sweep that produced the profile frontier **stopped at its pass
+ceiling rather than converging**, its sixth pass still bringing 62 unseen names.
+
+**Why two passes of one directory disagree.** The listing reorders under the crawl —
+4,556 of one pass's contractors turned up on more than one page — so the two passes ran
+against two different arrangements of the same site. The 148 slipped between pages while
+the listing was being read; the 35 were in the listing on 21 August and were not in the
+frontier the sweep handed the profile crawl.
+
+**Both gaps are cheap and neither needs a re-crawl of any size.** All 148 were found in
+listing snapshots ALREADY ON DISK — checked by decoding 20,683 stored listing pages and
+matching ids, 148 of 148 present — so they are an approval, not a fetch. The 35 need 70
+requests, about a minute and a quarter at the governed pace.
 
 **That ratio is the whole of `R-38`:** 15,559 memberships share 214 nodes. Shape A would
 have stored 15,559 repeated strings; the study measured that at 4.7x and it is
