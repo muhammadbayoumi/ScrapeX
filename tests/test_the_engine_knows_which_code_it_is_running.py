@@ -174,7 +174,14 @@ def test_a_module_imported_after_the_seal_is_not_a_blind_spot(loaded):
     late = loaded.pkg / "late.py"
     late.write_text("LATE = 1\n", encoding="utf-8")
     import os
-    os.utime(late, (_SEAL_PLUS, _SEAL_PLUS))       # written after we sealed
+    # RELATIVE TO THE SEAL THIS TEST JUST TOOK, never to a module-level constant.
+    # The first draft used `time.time() + 3600` computed at IMPORT, which is a flake
+    # waiting for a slow suite: collection happens once and this test runs much
+    # later, so a run that took over an hour to reach here would be comparing
+    # against a moment already in the past. That is a measurement outliving its
+    # base -- in the test file whose whole subject is that failure.
+    after_seal = provenance._SNAPSHOT.sealed_at + 60
+    os.utime(late, (after_seal, after_seal))
     name = "scrapex.__provtest_late"
     sys.modules[name] = _fake_module(name, late)
     try:
@@ -186,11 +193,6 @@ def test_a_module_imported_after_the_seal_is_not_a_blind_spot(loaded):
         "a module imported after the seal, from a file written after the seal, "
         "was invisible — the snapshot cannot hold it, so the check must look")
     assert name in report["changed"]
-
-
-#: Comfortably after any `sealed_at` this file produces, and computed from the
-#: clock rather than hard-coded so it cannot drift into the past.
-_SEAL_PLUS = __import__("time").time() + 3600
 
 
 def test_a_module_imported_after_the_seal_from_older_code_is_not_stale(loaded):
