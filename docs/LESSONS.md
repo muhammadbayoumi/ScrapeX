@@ -773,6 +773,52 @@ and the lesson for anyone writing a citation: **paste the line you are citing,
 from the file, at the moment you cite it.** Every wrong number above came from
 remembering a number instead of reading one.
 
+### Four shapes of a wrong citation, and the guard only catches one
+
+**2026-08-22.** All four turned up in one afternoon, three of them in documents
+written that same day. They are worth separating because **the remedy above fixes
+exactly one of them**, and the other three are invisible to it.
+
+| shape | what the reader gets | caught by |
+|---|---|---|
+| the line does not exist | a hard failure | tier 1 |
+| the line **drifted** and still resolves | lands twenty lines early and reasons from the wrong place, with full confidence | `PINNED` — and only for rows someone thought to add |
+| the line is **blank** | reads as a formatting artefact, so nobody reports it | nothing, until #256 added the check |
+| the file **resolves and does not say the thing** | the reader's trust is spent and returns the wrong assurance | **nothing, and nothing can** |
+
+**The fourth is the worst and it is a different mechanism entirely.** There is no
+drift, nothing to re-derive, and re-deriving every line in the repository would
+never find it. Three instances, each a *true* claim with evidence pointing
+somewhere that does not support it:
+
+- `tests/test_ui_kit.py` justified reading only `design/` and named
+  `tests/test_vendor.py` as the guard. The vendored copies **are** guarded — by
+  `test_generated_design_assets_are_current` in `tests/test_design_system.py`. The
+  conclusion was right and its evidence was not, so **a reader who checked would
+  have found less assurance than actually exists.**
+- A `settle_view` docstring carried every number justifying its own necessity —
+  20/20 reads mid-animation, 7/20 failures, `47.99999237060547` — all measured
+  against a test deleted ten days after it was written. It reads as the most
+  careful thing in the file and is the least checkable.
+- And the instance that produced this table: a session asked to cite `R-48` for the
+  extension/engine boundary, when `R-48` did not exist — and when the substitute
+  offered to it, `docs/ORCHESTRATION.md`, **resolves and governs something else
+  entirely** (how sessions share one `main`, not the split). It refused both and
+  cited `docs/PLATFORM-PLAN.md:9`, which is on `main` and says the thing.
+
+**So the rule the fourth shape needs is not about numbers at all:** cite the
+sentence, not the file. Paste the words you are relying on next to the reference,
+so a reader comparing them can see in one glance whether the source supports the
+claim. A citation that names only a path and a line asks the reader to trust that
+someone read it.
+
+**And do not build the guard that would catch it.** The shape required is
+"resolve every claim about what supports what", which is prose inference — the
+design `tests/test_the_documents_cite_what_they_claim.py` measured and rejected in
+its own docstring, and the design a session threw away the same morning because
+*it decides honesty by adjacency*. **A known gap, named, beats a guard that infers
+intent.**
+
 ### An instruction that names a version rots on the next bump, and only the person acting on it finds out
 
 Found 2026-08-22, when the owner asked why the panel offered `0.2.1` with the
