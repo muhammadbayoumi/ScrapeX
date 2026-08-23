@@ -196,6 +196,31 @@ _LATLNG = re.compile(
 _PROFILE_HREF = re.compile(r"/(?:en|ar)/contractors/(\d+)/\d+")
 
 
+#: A profile page carries seven `section-card` elements, sometimes eight or nine;
+#: the contractors LISTING carries twenty-two. Measured over 300 real profile
+#: snapshots: 7 x262, 8 x33, 9 x4, and one 22 that was the listing served in a
+#: profile's place. Nothing was observed between 9 and 22, so the threshold sits
+#: in an empty gap rather than on a guess.
+LISTING_SHAPED = 15
+
+
+class PageIsNotAProfile(ValueError):
+    """The site answered a profile request with a different document.
+
+    WHY THIS IS AN EXCEPTION AND NOT A NULL. muqawil answers an id that no longer
+    resolves with **the contractors listing**, at HTTP 200 and 375 KB where a
+    profile is 122 KB. Nothing downstream can tell: `read_profile` finds none of
+    `PROFILE_FIELDS`' labels, emits nulls for all of them, and the membership
+    number leaks through from the first card on that listing — so fourteen
+    contractors ended up carrying a stranger's membership number, thirteen of
+    them the SAME stranger's. The rows looked ordinary: 18.0 populated fields
+    against 18.2 on healthy ones.
+
+    A missing field is a fact about a contractor. A missing DOCUMENT is not, and
+    the two must not arrive at the warehouse looking alike. `OP-64`.
+    """
+
+
 class CoordinatesMoved(LookupError):
     """The inline script no longer carries `lat:`/`lng:` where it did.
 
@@ -1058,6 +1083,17 @@ def read_profile(html: str) -> Reading:
     not depend on reading an Arabic label correctly.
     """
     soup = BeautifulSoup(html, "html.parser")
+
+    # THE SHAPE, BEFORE THE FIELDS. See `PageIsNotAProfile`: reading the fields of
+    # the wrong document produces a row rather than an error, and a row is what
+    # reaches the warehouse.
+    cards = len(soup.select("div.section-card"))
+    if cards >= LISTING_SHAPED:
+        raise PageIsNotAProfile(
+            f"this page carries {cards} section-cards, which is the contractors "
+            f"listing and not one contractor's profile — the id it was fetched "
+            f"for no longer resolves, and the site answers that with 200")
+
     pairs = _boxes(soup)
 
     fields: dict[str, str] = {}

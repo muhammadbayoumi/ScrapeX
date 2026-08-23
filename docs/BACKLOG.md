@@ -2699,8 +2699,32 @@ one membership number: they all took the same stranger's card.**
 | real profile | 499 | 99.8% |
 | listing served instead | 1 | 0.2% |
 
-**About 70 of the 34,834** (95% CI 0–206). Those became `contractor_profiles` rows holding
-another company's address, city, size and email under an id that is not theirs.
+About 70 of the 34,834 snapshots (95% CI 0–206) are the wrong document.
+
+> **CORRECTED, and the correction matters more than the original claim.** This entry
+> first said those rows hold *"another company's address, city, size and email"*. **They
+> do not.** Counted exactly rather than sampled — every profile row whose
+> `membership_number` disagrees with its own listing card — the damage is **14 rows,
+> 0.09% of the profile table**, and what is wrong in them is the **membership number
+> alone**:
+>
+> ```
+> id 20034161   membership 117511752   (its listing card says 355735571)
+>               city=None  email=None  latitude=None  company_size='Very Small'
+> ```
+>
+> The profile parser looks for `PROFILE_FIELD_ORDER`'s labels, does not find them on a
+> listing page, and emits **nulls**; only the membership number leaked through. Populated
+> fields average 18.0 on the wrong rows against 18.2 on healthy ones — they are not
+> impersonating anyone, they are empty with one borrowed number.
+>
+> The original claim came from probing the page with `_boxes()`, which is what
+> `read_listing` uses; the stored rows came from the profile path, which behaves
+> differently. **A probe is not the pipeline.** The rows themselves were the only honest
+> witness and they were one query away.
+>
+> It still is not harmless: thirteen ids collide on one number, and anyone searching by
+> membership number reaches the wrong company.
 
 ### What it needs
 
