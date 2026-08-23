@@ -2194,8 +2194,10 @@ written, the longer it will survive.
 
 This is the family §12 keeps meeting from one direction, §13 above from another, and
 `docs/ORCHESTRATION.md` §4 from a third: **something true when it was measured, still
-being read as current after the thing it measured moved.** It has now appeared six
-times, and the last one broke a rule the other five could not, so it gets the section.
+being read as current after the thing it measured moved.** Six instances are tabled
+below and the sixth broke a rule the other five could not, so it gets the section — then
+building the fix produced a **seventh**, recorded at the end because it is the only one
+of them caught by its own author before it shipped.
 
 **Every row below was re-derived at `f1844af`**, not copied from a brief — and saying
 which base is the whole discipline, so this line moves whenever the table is re-checked.
@@ -2209,7 +2211,7 @@ which base is the whole discipline, so this line moves whenever the table is re-
 | 5 | a published `.exe` (`#244`, `afb8648`) | the fix landed after the build | the owner, meeting a black window |
 | 6 | **a running process** | the checkout moved 199 seconds after it started | **nothing. He found it.** |
 
-*(A seventh was described to this session — a verification table still quoting a
+*(One more was described to this session — a verification table still quoting a
 superseded commit — and is **not** listed, because the commit it named appears nowhere
 in this repository at `f1844af`, and an instance that cannot be re-derived is not
 evidence. That is this section's own rule turned on its own source.)*
@@ -2287,6 +2289,21 @@ that checkout seconds earlier. Both checks are build-time, one-shot, and their s
 is a subprocess that has just started. Neither has any representation inside the
 long-lived process the build produces. **#244 proved that a new artefact speaks; it
 added nothing that lets a running process say which bytes it loaded.**
+
+> **THIS IS A DIFFERENT FAILURE FROM THE ONE #244'S TITLE NAMES, and the distinction
+> is the reason this section exists.** #244 is about an artefact **built** before its
+> own fix. This is about an artefact **running** after its own fix. The words are
+> nearly the same and the instrument required is not: one is checkable at build time
+> by asking the thing you just made a question, and the other is checkable only from
+> inside a process that has been alive for hours. **A reader who concludes that #244
+> already covers this will not build the thing that catches it** — which is exactly
+> what a session did conclude, before measuring what that gate reads.
+
+**And its scope is smaller than it looks, which matters if you go there to read it.**
+Of the three tests usually named as #244's, only
+`tests/test_the_frozen_engine_can_start_itself.py` is (`afb8648`); the other two are
+#154 (`756fa39`) and #253 (`5364c82`). #244's own additions are that test, the
+double-click workflow step, and `tests/test_the_release_proves_the_double_click.py`.
 
 ### The remedy, and why "restart" was never the missing piece
 
@@ -2366,7 +2383,24 @@ row of. It is not cited above because it is **not on `main`** — it lives on
 branch should add the row; `OP-61` carries the finding until then. Citing it as though
 it were here would be this section's own subject, one paragraph after describing it.)*
 
-**Apply, and this is the general rule the six instances share:** ask what the base of
+### And the branch produced a seventh instance, inside the test file about the family
+
+**Worth one paragraph because it was caught by its author before it shipped, which none
+of the other six were.** The test proving that a module imported *after* the seal is
+noticed set its fixture's mtime from a module-level `time.time() + 3600`, **evaluated at
+collection**. Collection happens once and that test runs much later, so any run taking
+over an hour to reach it would have compared against a moment already in the past and
+failed on correct code. The local suite is about twenty minutes and CI thirteen, so it
+would never have fired *today* — which is the reasoning this whole section exists to
+refuse. It now derives the base from the seal the test itself just took
+(`_SNAPSHOT.sealed_at + 60`), at the moment of use.
+
+**A measurement that outlives its base, written into the file whose subject is
+measurements that outlive their base.** Reading an entry is not the same as applying it
+— the same conclusion §7 already reached about its own overreach, and the reason
+[APPROACHES.md](APPROACHES.md) A5 became [R-17](RULINGS.md#r-17--a-fix-is-adversarially-reviewed-before-it-is-written).
+
+**Apply, and this is the general rule every instance above shares:** ask what the base of
 every claim is, and whether the claim can still be read after that base has moved. When
 the answer is *yes*, the fix is to make the claim carry its base or re-derive it
 (§12, `ORCHESTRATION` §4). **When the artefact is a process rather than a file, no
