@@ -127,10 +127,23 @@ jobs:
           set -uo pipefail
           PAGE=https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html
           mine=$(sha256sum docs/picker/scrapex-picker.html | cut -d' ' -f1)
-          served=$(curl -sL --max-time 20 "$PAGE" 2>/dev/null || true)
-          theirs=$(printf '%s' "$served" | sha256sum | cut -d' ' -f1)
+          # HASH THE BYTES, NEVER A SHELL VARIABLE. `served=$(curl ...)` strips
+          # every trailing newline from the body, and `sha256sum` of the file
+          # keeps its own -- so `theirs` could NEVER equal `mine` for a file
+          # ending in a newline, which this one does. This guard therefore
+          # reported drift every single day from at least 2026-08-16 while the
+          # served copy was byte-identical, and OP-20's billing outage made that
+          # red look explained. Measured 2026-08-23: the served body hashes to
+          # d43aa76..., which IS `mine`; stripped of its last newline it hashes
+          # to cc04efa..., which is what this step printed as "served".
+          #
+          # The docs loop above is unaffected because it PIPES curl into
+          # sha256sum rather than capturing it -- the asymmetry is the whole bug.
+          body="${RUNNER_TEMP:-/tmp}/served-picker.html"
+          curl -sL --max-time 20 "$PAGE" -o "$body" 2>/dev/null || true
+          theirs=$(sha256sum "$body" | cut -d' ' -f1)
 
-          if [ -z "$served" ]; then
+          if [ ! -s "$body" ]; then
             echo "::error::$PAGE served nothing. The panel's Choose an existing"
             echo "one button opens a page that does not exist."
             exit 1

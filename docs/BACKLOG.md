@@ -3677,7 +3677,31 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
-### OP-20 · CI has not executed since 2026-08-19, and the reason is billing
+### OP-20 · ~~CI has not executed since 2026-08-19, and the reason is billing~~ — CLOSED 2026-08-23
+
+> **RESOLVED, and by the owner in one command.** The repository was **made
+> public** on 2026-08-20, and Actions came back with it: public repositories get
+> unmetered minutes on the standard runners, so the unpaid-minutes block on a
+> private free-plan repository simply stopped applying. The switch was confirmed
+> at the plan level rather than by the flag alone — `branches/main/protection`
+> had been answering `403 Upgrade to Pro` and began answering `404 Branch not
+> protected`.
+>
+> **And the runs are real.** Measured 2026-08-23 on `main`: `CI` succeeded at
+> 05:21, 10:30 and 11:19, with the `test` job taking minutes rather than
+> failing in seconds with zero steps. PR #220's checks executed in full — `test`
+> 5m53s and 12m27s across two runs. So **#214 and #219, both merged with CI
+> never having run, have since been verified by real runs**, and SR-23 is a rule
+> anyone can follow again.
+>
+> **The cost this entry predicted was paid in full, and the bill is [OP-60].**
+> It wrote: *"a red check that means 'unpaid' is indistinguishable at a glance
+> from a red check that means 'broken' — which is how a real failure gets waved
+> through."* A scheduled workflow had been failing **every day since at least
+> 2026-08-16** and nobody looked, because every red looked explained. It is kept
+> below rather than deleted, because the reasoning is what caught OP-60.
+
+
 
 **Measured 2026-08-20.** Every workflow run since `2026-08-19T14:28Z` fails in
 **0-3 seconds with ZERO steps** — lint, test, contract-parity, scope,
@@ -3712,6 +3736,57 @@ allowed_actions: all`, so it is not a policy block.
 **Until it is cleared, a local full-suite run is the only verification available**,
 and a PR should say so rather than showing a red tick and hoping the reader knows
 why.
+
+### OP-60 · ~~The chooser drift guard compared a file against itself and failed~~ — FIXED 2026-08-23
+
+**Found by following OP-20's own warning to its end**, and it is the failure that
+entry predicted rather than a coincidence.
+
+`Publish the documents the store links to` has failed on **every scheduled run
+from at least 2026-08-16 to 2026-08-23** — eight consecutive days, measured, not
+sampled. The error each time:
+
+```
+the chooser served to owners is not the file this repository tests.
+  repository: d43aa7600b053f9ecc473734bd31f75883003facfc80c1865e7bb11b11b3ea2c
+  served:     cc04efaff465335b81de2583321437467d8b23d8dfd25579991ec2ec3dc30e80
+```
+
+**The served copy was byte-identical the whole time.** Fetching
+`https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html` on 2026-08-23
+gives 10,231 bytes hashing to `d43aa76…` — which *is* the repository's own
+normalised hash, and `difflib` reports **zero** differing lines.
+
+**The bug was one shell newline.** `.github/workflows/publish-docs.yml` had:
+
+```bash
+mine=$(sha256sum docs/picker/scrapex-picker.html | cut -d' ' -f1)
+served=$(curl -sL --max-time 20 "$PAGE" 2>/dev/null || true)
+theirs=$(printf '%s' "$served" | sha256sum | cut -d' ' -f1)
+```
+
+Command substitution `$(curl …)` **strips every trailing newline** from the body,
+and `printf '%s'` puts none back — while `sha256sum` of the file keeps its own. So
+`theirs` could never equal `mine` for a file ending in a newline, which this one
+does. Proved by construction: the served bytes hash to `d43aa76…`, and the same
+bytes with the final newline removed hash to **exactly the `cc04efa…` CI
+printed**.
+
+**The docs loop twenty lines above is unaffected, and the asymmetry is the whole
+bug** — it *pipes* curl into `sha256sum` instead of capturing it, so nothing eats
+its newline.
+
+**Fixed** by hashing the bytes rather than a shell variable: curl writes to
+`$RUNNER_TEMP` and `sha256sum` reads the file, with `[ ! -s "$body" ]` keeping
+the served-nothing check. Verified locally against the live page — the old
+expression mismatches and the new one matches.
+
+**Why it went eight days unread.** Two reasons, and both are lessons rather than
+excuses. The guard *"cannot fix what it finds"* by design, so its failure is
+normal-looking noise on a schedule nobody watches. And [OP-20] had made every
+red check mean "unpaid", so a red that meant "broken" was invisible. **A guard
+that cries wolf daily is not a guard**; this one had also never been exercised
+against a passing case.
 
 ### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-20
 
