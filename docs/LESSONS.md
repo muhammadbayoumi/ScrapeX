@@ -1874,33 +1874,52 @@ that measured it.
 
 ### The general form: a claim survives being wrong wherever nothing checks it
 
-This is not really about test files. **Three instances turned up on one day, in three
-different shapes, and the only thing they share is that no check covered the place
-the claim was written:**
+This is not really about test files. **Four instances turned up on one day, in four
+shapes, and the only thing they share is that no check covered the place the claim
+was written** — ordered worst first, because the first one punishes the reader who
+does the right thing:
 
 | the claim | where | why nothing caught it |
 |---|---|---|
+| the design system's copies are guarded by `tests/test_vendor.py` | `tests/test_ui_kit.py` | nothing checks a claim about **where a guard lives** |
+| a document joins the map, so it joins the checked list | the citation guard's own `DOCUMENTS` | the sentence was a comment, enforced nowhere |
 | three docstrings naming a deleted test | `tests/` | the citation guard reads documents, not tests |
-| three citations resolving to a **blank line** | `docs/BACKLOG.md` | tier 1 asks only that the line exists |
-| the design system's copies are guarded by `tests/test_vendor.py` | `tests/test_ui_kit.py` | nothing checks a claim about where a guard lives |
+| three citations resolving to a **blank line** | `docs/BACKLOG.md` | tier 1 asks only that the line *exists* |
 
-The third is the sharpest and the last to be fixed. That comment justified reading
-only `design/` — *"so reading the canon is reading both"* — and named the wrong file:
-`test_vendor.py`'s only byte-equality assertion compares the two vendored copies of
-Tabulator. The copies **are** guarded, by
-`test_generated_design_assets_are_current` in `tests/test_design_system.py`. So the
-conclusion was true, the evidence pointed at nothing, and a reader who checked would
-have found less assurance than actually exists. **A wrong pointer to a real guard is
-worse than no pointer: it spends the reader's trust and returns nothing.**
+**The first is a different failure from a dangling reference: it is a MISDIRECTED
+one, and it punishes diligence.** That comment justified reading only `design/` —
+*"so reading the canon is reading both"* — and named the wrong file. `test_vendor.py`'s
+only byte-equality assertion compares the two vendored copies of Tabulator. The copies
+**are** guarded, by `test_generated_design_assets_are_current` in
+`tests/test_design_system.py`. So the conclusion was true, the evidence pointed at
+nothing, and **a reader who checked would have found less assurance than actually
+exists.** A dangling reference wastes a reader's time; this one spends their trust and
+returns nothing. The careless reader was unaffected.
 
-Note also what the new guard in this section does **not** catch: that one is a
-reference to a test *file*, not a backticked test *name*, so it falls outside the
-pattern. Fixed by hand, recorded here, and left unguarded on purpose — the shape that
-would catch it is "resolve every claim about which guard covers what", which is the
-prose-inference design `tests/test_the_documents_cite_what_they_claim.py` measured and
-rejected in its own docstring.
+**The second is the guard doing it to itself, which is why it is second.** The comment
+above `DOCUMENTS` reads *"if a document joins that map, it joins this list"* —
+and `docs/ORCHESTRATION.md` joined the map in `#257` without joining the list, so the
+one document that tells a session how to merge had its citations checked by nothing,
+while the comment promised otherwise. Found by reading the map against the list rather
+than trusting the sentence. **A rule written as a comment is a rule with nothing behind
+it, however well the comment is written.**
+
+**And what this section's own guard does NOT catch, said plainly.** The first instance
+is a reference to a test *file*, not a backticked test *name*, so it falls outside the
+pattern. It was fixed by hand and left unguarded on purpose: the shape that would catch
+it is *"resolve every claim about which guard covers what"*, which is prose inference —
+the design `tests/test_the_documents_cite_what_they_claim.py` measured and rejected in
+its own docstring, and the same design thrown away here for deciding honesty by
+adjacency. **A known gap named beats a guard that infers intent.**
+
+**Recording is not building, and this section has its own instance.** The misdirected
+pointer above was found in the morning, written down, and left for hours while three
+other things were fixed. It cost nothing this time. Two of his requests went the same
+way on the same day — briefed to a session, acted on correctly, and never reaching
+`REQUESTS.md`, which is exactly the failure `C7` exists to prevent and `REQ-04` is
+named after.
 
 **Apply, generally:** when you write down why something is true, ask which check
 would fail if the reason stopped being true. If the answer is *none*, you have
-written a claim that will outlive its evidence, and the more carefully it is written
-the longer it will survive.
+written a claim that will outlive its evidence — and the more carefully it is
+written, the longer it will survive.

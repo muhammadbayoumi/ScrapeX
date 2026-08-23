@@ -77,6 +77,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # The map in CLAUDE.md -- the documents C1 sends every session to read before it
 # writes a line of code. If a document joins that map, it joins this list.
+#
+# AND THAT SENTENCE WENT UNENFORCED ON ITS FIRST TEST. `docs/ORCHESTRATION.md`
+# joined the map in `#257` and did not join this tuple, so the one document telling
+# a session how to merge had its citations checked by nothing -- while the comment
+# directly above said it would. A rule stated in a comment and enforced nowhere is
+# LESSONS §13's subject, and this is the guard's own instance of it. Found 2026-08-22
+# by reading the map against this list rather than trusting the sentence.
+#
+# Measured before adding it, so it goes green rather than arriving red: 4 citations,
+# all resolving, none on a blank line.
 DOCUMENTS = (
     "CLAUDE.md",
     "ENGINEERING.md",
@@ -86,6 +96,7 @@ DOCUMENTS = (
     "docs/BACKLOG.md",
     "docs/LESSONS.md",
     "docs/APPROACHES.md",
+    "docs/ORCHESTRATION.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by
