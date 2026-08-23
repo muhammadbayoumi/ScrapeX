@@ -95,6 +95,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
+| [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Captured** — measured: 148 have a profile and no listing row (all 148 already on disk, zero requests), 35 have a listing row and no profile (70 requests); the listing reorders under the crawl so any two passes drift | 2026-08-23 |
 
 ---
 
@@ -2213,3 +2214,52 @@ not before**, per `R-02`.
 verifiers caught it: it dated *text* by each **file's** last commit, which inverts the
 seniority of two documents in one of its headline contradictions. A line's age is not its
 file's age, and this register should not repeat the mistake.
+## REQ-41 · The two crawls disagree, so the code must reconcile them itself
+**Captured 2026-08-23**
+
+> «هو طريقتين الزحف مختلفة بين contractor و contractor profile وبكدا اى مستخدم هيعمل زحف
+> هيلاقى اختلافات فلازم الكود لو لاقى مقاول مش موجود فى profile يجيبه مقاول مش موجود فى
+> listing يجيبه»
+
+**He is generalising from a number he was shown, and the generalisation is the request.**
+Asked whether 34,834 ÷ 2 = 17,417 was the contractor count, he was told it was exact and
+that the listing table nevertheless held 17,304 — 148 with a profile and no listing row,
+35 with a listing row and no profile. His answer was not "fix those 183". It was: **two
+collection methods will always drift, every user will meet this, so closing the gap
+belongs in the code and not in a session.**
+
+### Why he is right, measured rather than assumed
+
+The drift is not a bug being worked around. The listing **reorders under the crawl** —
+4,556 of one pass's contractors turned up on more than one page — so the listing pass and
+the profile pass necessarily read two different arrangements of one site. Any two passes
+separated in time will disagree; ours were separated by two days.
+
+And the disagreement is **two-directional**, which is why one repair cannot serve:
+
+| | | today's cost |
+|---|---|---|
+| profile crawled, no listing row | 148 | **zero requests** — all 148 were found in listing snapshots already stored |
+| listing row, no profile crawled | 35 | 70 requests |
+
+### What it asks for
+
+A reconciliation the tool performs on its own: after a crawl, compare the id sets the two
+datasets hold and **fetch or approve whichever side is short**, rather than leaving a
+number that only set arithmetic in a session would ever notice. `--coverage` today answers
+"17,269 of 17,417" for one dataset and "nothing has been sighted" for the other, so
+neither surface states the gap and nothing closes it.
+
+**The evidence-first half is free and should be the default**: the 148 needed no network
+at all, because a listing page that was already stored carried their cards. A
+reconciliation that fetches before it looks on disk would spend requests it does not need.
+
+### Open, and his
+
+Whether reconciliation runs **automatically at the end of a crawl** or is a command he
+invokes. Automatic closes the gap without anyone noticing it existed; a command keeps the
+gap visible and reportable, which is this project's usual preference — see
+[R-32](RULINGS.md) on the tool being a platform rather than one behaviour.
+
+---
+

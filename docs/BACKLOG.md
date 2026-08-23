@@ -2170,7 +2170,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:755](LESSONS.md#L755)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:786](LESSONS.md#L786)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -2665,6 +2665,62 @@ its own, which is why it was not bundled into the branch that found it.
 **And there is a table this is the fifth row of, which is not on `main`.** *Four shapes
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
+
+### OP-64 · The site answers a dead profile id with the LISTING page, and the parser believes it
+
+**Found 2026-08-23 by the owner asking whether the counts were duplicated.** They were
+not. Chasing why the membership number repeated found this instead.
+
+**`card_membership_number` on the listing is unique and the owner's rule holds**: 17,304
+rows, 17,304 distinct values, zero blank. The repeats are in the PROFILE dataset —
+13,347 rows, 13,333 distinct, **three values shared**, one of them (`117511752`) sitting
+on **thirteen different contractor ids**. Fourteen contractors carry a different
+membership number in the profile table from the one on their listing card.
+
+**The cause is not bad data entry. The site served the wrong document.**
+
+```
+GET /en/contractors/20034161/143
+    <title>       Contractors | Muqawil Platform
+    decoded       375,363 bytes, 22 section-cards
+a real profile    ~122,000 bytes,  7 section-cards
+```
+
+For an id that no longer resolves, muqawil answers **the contractors listing** with HTTP
+200. `read_profile` calls `_boxes(soup)` over the whole document, so it read the first
+card of that listing and attributed a stranger's values — `160916095`, `Small`, `96 h`,
+`RIYADH - Riyadh` — to whichever id had been asked for. **That is why thirteen ids share
+one membership number: they all took the same stranger's card.**
+
+**Measured, and it is small.** A random sample of 500 decoded snapshots:
+
+| | | |
+|---|---|---|
+| real profile | 499 | 99.8% |
+| listing served instead | 1 | 0.2% |
+
+**About 70 of the 34,834** (95% CI 0–206). Those became `contractor_profiles` rows holding
+another company's address, city, size and email under an id that is not theirs.
+
+### What it needs
+
+A **shape check before parsing**: a profile page is not a listing, and 22 section-cards
+where 7 are expected is the site saying "this id is gone" in the only way it does — with
+a 200. Refuse the page rather than parse it; the id belongs in a not-found list, not in
+the table. `PROFILE_FIELD_ORDER` already distinguishes the two documents at approval time
+(`scrapex/contractors.py`), so the knowledge exists and is applied one step too late.
+
+**And the rows already written must be found and removed**, not left: they are wrong in
+the most expensive way, being plausible. The listing's own membership number identifies
+them — a profile row whose number disagrees with its listing card is the marker.
+
+### A note on the measurement itself, because it nearly shipped wrong
+
+The first attempt discriminated on *"a profile has no section-cards"*. A real profile has
+**seven**, so 398 of 400 sampled fell into "other" and the run reported **0.5%** from two
+survivors. The number was an artefact of a broken instrument, not a finding. It was caught
+because 99.5% unclassified is not a result. **A discriminator has to be measured against a
+known-good example before it is trusted to count anything.**
 
 ### OP-63 · The word "products" over a contractor directory, on two surfaces
 

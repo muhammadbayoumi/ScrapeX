@@ -408,6 +408,37 @@ only when handed a falsy token. Either mutation alone is caught.
 It is recorded rather than papered over. Contorting a test to kill an equivalent
 mutant would be the lie.
 
+### A 200 can be the wrong document, and a parser that only reads fields cannot tell
+
+**2026-08-23.** muqawil answers a dead profile id with **the contractors listing**, at
+HTTP 200 and 375 KB where a profile is 122 KB. `read_profile` calls `_boxes()` over the
+whole document, found the first card on that listing, and wrote a stranger's membership
+number, city, size and email under the id that had been asked for. Thirteen ids ended up
+sharing one membership number because all thirteen took the same stranger's card.
+
+**Nothing downstream could catch it.** The row was complete, every field populated, every
+value well-formed. `check_unique` would have caught it on the listing dataset and does not
+run on profiles. It surfaced only because the owner asked whether a count was duplicated.
+
+**So: check the SHAPE of a page before parsing its fields.** A profile page has seven
+`section-card` elements; the listing has twenty-two. The difference is one comparison, and
+it separates "this contractor has no city" from "this is not that contractor". Recorded as
+`OP-64`.
+
+### A discriminator has to be tested against a known-good example first
+
+Measuring how widespread the above was, the first pass classified a profile as *"a page
+with no section-cards"*. A real profile has **seven**, so **398 of 400** sampled pages
+were binned as unclassifiable and the run reported **0.5%** computed from the two that
+survived. The percentage looked plausible and was an artefact of the instrument.
+
+It was caught by reading the whole table rather than the headline: 99.5% unclassified is
+not a result, it is a broken tool. Decoding three known snapshots showed the real shape in
+one command, and the re-run gave 0.2% with 99.8% correctly identified.
+
+**Print what a measurement could NOT classify, next to what it could.** A count that
+silently drops what it does not understand will report confidently on the remainder.
+
 ### Presence is not arrival: asserting the column, not the value
 
 Four of the seven declared bilingual pairs on the contractor dataset shipped
