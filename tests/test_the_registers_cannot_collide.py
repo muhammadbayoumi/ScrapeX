@@ -177,6 +177,41 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
+        # 60, 61 AND 62 ARE THIS BRANCH'S HOLES, created when it took `OP-63` after
+        # #261 declared 53..59. Two of the three name a ref because a SWEEP found
+        # them, and that sweep is the point of this comment.
+        #
+        # THE PRIMARY HANDED OUT TWO COLLIDING NUMBERS IN ONE DAY — 60, then 61 —
+        # and said so, from the session that owns `ORCHESTRATION.md` §3. Its tables
+        # covered the branches it knew about; this branch was in neither. What found
+        # the second collision was a third session sweeping the highest declared
+        # `OP` across EVERY ref instead of across a named list:
+        #
+        #   git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+        #     | while read -r r; do git show "$r:docs/BACKLOG.md" 2>/dev/null \
+        #       | grep -oE '^#{2,4} +OP-[0-9]+'; done | sort -u
+        #
+        # RUN INDEPENDENTLY HERE BEFORE ACCEPTING 63, and it confirmed the handover
+        # rather than resting on it: `feat/the-engine-knows-which-code-it-is-running`
+        # declares BOTH 60 and 61 on `origin`, and no ref anywhere declares 62 or 63.
+        # **A number you were handed is provisional until you have swept for it** —
+        # which is §3's "an unpushed claim is invisible and still real" arriving from
+        # the other direction: a PUSHED claim is visible and still missed, if you look
+        # at a list of branches instead of at all of them.
+        # 62 IS THE WEAK ROW AND SAYS SO. A third session holds it on the primary's
+        # word and **no ref carries it** — the sweep above found nothing above 61
+        # anywhere. So this row cannot name the branch §3 requires, and inventing one
+        # would be worse than admitting the gap. It carries an action rather than a
+        # claim: replace it with the ref the moment that holder pushes, or delete it
+        # if 62 turns out free. Do not leave it standing on a session that has ended
+        # — that is the wart the paragraph above this dict was written about, and it
+        # passed every guard the whole time it was wrong.
+        #
+        # AND 62 IS NOT RESERVED HERE. It was this branch's third hole, and
+        # #265 has since MERGED it — `OP-62 · The published engine could not
+        # serve one page` is declared on `main`. A row for a declared number
+        # fails `test_a_reserved_number_is_not_also_declared`, and this file's
+        # own rule says delete a row the moment its pull request lands.
         # 60 AND 61, HELD ELSEWHERE, AND THIS BRANCH LANDS `OP-62` OVER THEM. Both
         # are declared on `feat/the-engine-knows-which-code-it-is-running`, pushed:
         # `OP-60 · A frozen engine cannot name the commit it was built from` and

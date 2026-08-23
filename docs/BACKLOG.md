@@ -2584,7 +2584,7 @@ and the worry that `contractstamp` reads a `.py` at runtime was refuted — it i
 developer-only path.
 
 
-### OP-61 · The word "products" over a contractor directory, on two surfaces
+### OP-63 · The word "products" over a contractor directory, on two surfaces
 
 **Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
 is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data
