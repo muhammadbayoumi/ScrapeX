@@ -2499,19 +2499,30 @@ approval recorded, never ours.
 
 #### The open half: the engine's own page says it too
 
-**`/source/contractors` prints a "Products" tile over the same 17,304 rows** — and
-that is the surface this branch did not touch. `_source_overview.html` renders four
-tiles from `SourceSummary`, and `/source/{key}` fills `products` for a dataset out of
-`_dataset_rows`, which is why the field is still sent rather than dropped:
+**`/source/contractors` prints a "Products" tile over the very same rows** — and that
+is the surface this branch did not touch. `_source_overview.html` renders four tiles
+from `SourceSummary`, and `/source/{key}` fills `products` for a dataset out of
+`_dataset_rows`, which is why the field is still sent rather than dropped.
+
+**RENDERED, not read.** The page was fetched from a real engine holding one approved
+dataset of 4 rows and the four `<dd>` values read off the returned HTML — because a
+claim about what a template prints, reached by reading the template, is the shape this
+repository keeps catching:
 
 ```
-Products 17,304 · Variants 0 · Data rows 17,304 · Matched 0
+GET /source/contractors -> 200, 42,058 bytes
+  Products    4
+  Variants    0
+  Data rows   4
+  Matched     0
 ```
 
-**Two of those four are meaningless for a directory and a third is a duplicate**, so
-this is not the panel's one-line fix wearing a different template — it is a question
-about what a dataset's overview should show at all, which is his call under `W3`. Left
-here with the measurement rather than guessed at.
+**Three of those four say nothing about a contractor directory and the fourth
+duplicates the first**: `Products` is the meaningless field, `Variants` and `Matched`
+are price-path concepts a company has none of, and `Data rows` is the honest number
+already. So this is not the panel's one-line fix wearing a different template — it is a
+question about what a dataset's overview should show at all, which is his call under
+`W3`. Left here with the measurement rather than guessed at.
 
 ## 3. Decided, not yet built
 
