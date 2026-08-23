@@ -2340,6 +2340,15 @@ describes would have been a poor joke. **`#258` has since merged at `d10e974` an
 both symbols happened to survive at 1594 and 1633**, which is luck and not
 stability. Re-derive them rather than trusting them.
 
+**AND THE LUCK RAN OUT ONE PULL REQUEST LATER, which is worth adding rather than
+editing the numbers above away.** The branch that added `scrapex/provenance.py`
+inserted lines into `extension/app.js` above both symbols: they are at **1602 and
+1641** on that branch. The paragraph above is still true *at `4522158`*, and it says
+so — that scoping is the only reason it did not simply become wrong. It is also the
+best illustration this register has of why the numbers were kept out of `path:line`
+form: no guard could have told you they had moved, because no guard can see a line
+number written as prose.
+
 **The interesting part is that both citations still point INSIDE the file**, so
 Tier 1 would have passed them even if the file were guarded; only the `PINNED`
 table catches a citation that moved off its symbol. #256 has since added a check
@@ -2583,7 +2592,7 @@ checked `RUNTIME_DATA` against the real `.exe` table of contents and found no ga
 and the worry that `contractstamp` reads a `.py` at runtime was refuted — it is a
 developer-only path.
 
-### OP-53 · A frozen engine cannot name the commit it was built from, and says so
+### OP-60 · A frozen engine cannot name the commit it was built from, and says so
 
 **Status: OPEN by design, and the honest half of a fix that landed.** Measured
 2026-08-23 while building `scrapex/provenance.py` (`LESSONS` §14).
@@ -2614,9 +2623,9 @@ reader is the whole of this change and the writer is the next one.
 
 **Do not close this by making a frozen build guess.** The `None` is the feature.
 
-### OP-54 · A continuation citation is invisible to the citation guard
+### OP-61 · A continuation citation is invisible to the citation guard
 
-**Status: OPEN. Measured 2026-08-23 at `4522158`. A latent structural gap, not a live
+**Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
 defect — that distinction is the whole entry.**
 
 A citation written as `` (`extension/app.js:1602`, `:1641`) `` carries two references
@@ -2627,7 +2636,7 @@ regex returns a match for the first string and `None` for the second.
 
 | | |
 |---|---|
-| continuation citations in the guarded documents at `4522158` | **19** |
+| continuation citations in the guarded documents at `f1844af` | **19** |
 | of those, resolving to a blank line or past EOF | **0** |
 | spot-checked and correct | the `docs/STATE.md` pair citing `scrapex/features.py:54` and `:65` |
 | moved silently by this branch's edits, guard green throughout | **4** |

@@ -140,9 +140,9 @@ PINNED = (
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
     # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
     # these two, so a reader sent to the wrong line writes the duplicate instead.
-    ("docs/STATE.md", "extension/app.js", 1594, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1594, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1633, "async function saveSourceColumns("),
+    ("docs/STATE.md", "extension/app.js", 1602, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1602, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1641, "async function saveSourceColumns("),
     # The guards the documents claim exist. A rule that cites a dead guard is a
     # rule with nothing behind it -- which is how W4 came to be believed.
     ("docs/RULINGS.md", "tests/test_version.py", 536,
@@ -169,7 +169,7 @@ PINNED = (
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2722, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
-    ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
+    ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
     # OP-21 · the resume that saves the write and none of the requests. This is a
     # citation of a DEFECT at an exact line, so it is the kind that must not drift:
@@ -201,7 +201,7 @@ PINNED = (
     # is refusing to start for a nameable reason. The entry's argument is that this
     # exact branch is the one a schema-ahead warehouse lands in, so a reader sent
     # to the wrong line reads the timeout branch and concludes the entry is wrong.
-    ("docs/BACKLOG.md", "extension/app.js", 3416, 'text: "Not detected"'),
+    ("docs/BACKLOG.md", "extension/app.js", 3424, 'text: "Not detected"'),
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
@@ -289,7 +289,7 @@ PINNED = (
     # agree and the release simply was not cut, so a reader sent to the wrong line
     # on any one of them would go hunting for a defect that is not there.
     ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
-    ("docs/BACKLOG.md", "extension/app.js", 3514, "latest.version"),
+    ("docs/BACKLOG.md", "extension/app.js", 3570, "latest.version"),
     # 379, and it was 352, and 344 before that. Twice now the same pull request
     # has added comment lines above it and had to correct the number it had just
     # written down — the guard catching its author, in the exact shape LESSONS §7
@@ -343,9 +343,9 @@ PINNED = (
     # all four of `OP-46`'s citations into it still name their symbols after #258 moved
     # that file. The remaining five citations in that entry stay unpinned on purpose --
     # they are the measured numbers, not the two symbols the argument rests on.
-    ("docs/BACKLOG.md", "extension/app.js", 956,
+    ("docs/BACKLOG.md", "extension/app.js", 964,
      "function setupFinanceConverterSelect("),
-    ("docs/BACKLOG.md", "extension/app.js", 2008, "function setupRunModeSelect("),
+    ("docs/BACKLOG.md", "extension/app.js", 2016, "function setupRunModeSelect("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
