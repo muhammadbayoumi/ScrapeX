@@ -2412,9 +2412,20 @@ separately". So the Run screen offering a dataset a single checkbox is not merel
 broken, it is the wrong shape: there is no one crawl to tick. The fix is a card that
 offers the two, and it needs a panel path to a dataset crawl, which does not exist
 (`REQ-24` shipped `scrapex contractors` as a CLI command and says the panel path is
-still missing). `_dataset_rows` still ends `GROUP BY d.dataset_definition_id`
-(`scrapex/webui/app.py:694`, re-derived at `31c369e`), so the ruling is recorded and
-not yet built.
+still missing).
+
+**UPDATED 2026-08-23: HALF OF THAT IS NOW BUILT AND THIS ENTRY IS THE HALF THAT IS
+NOT.** `R-47`'s points 1 and 2 shipped — `_dataset_listing` folds the two muqawil
+datasets into one listing row and reports the profile crawl as coverage, so the Data
+screen draws one card. The sentence this paragraph used to end on — *"`_dataset_rows`
+still ends `GROUP BY d.dataset_definition_id`, so the ruling is recorded and not yet
+built"* — is **kept as history and no longer true of the listing**: that function still
+groups per dataset, deliberately, because `/source/{key}` resolves one dataset out of
+it by key and folding there would 404 the profile table. What remains open is exactly
+what this entry names: **the Run screen and the Source manager still draw a dataset from
+the same `/api/sources` answer and still offer it controls that cannot touch it.** The
+fold changed the number of cards on those two screens as well; it did not give either
+of them an action that works.
 
 **Note what the Run screen already knows how to do**: `NOT_READY` is rendered
 DISABLED with "Not supported yet" on it, because `implemented` is false. So the
@@ -2428,6 +2439,79 @@ offers, on his direct request, and left every other screen's behaviour alone. Th
 two change what two more screens offer, and the `test_panel_dom.py` line that counts
 "4 of 4" carries a comment saying so, so that nobody closes this by shrinking the
 stub back.
+
+
+### OP-53 · The word "products" over a contractor directory, on two surfaces
+
+**Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
+is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data
+screen still showed two muqawil cards — he did not report this one, which is why it
+is here and not in `REQUESTS.md`.
+
+His screen read:
+
+```
+muqawil.org / Saudi Contractors Authority · contractors [Row 17,304]
+  17,304 products
+```
+
+**A contractor is not a product, and 17,304 contractors are not 17,304 products.**
+
+**THE PART THAT MAKES IT A REAL FINDING RATHER THAN A TYPO: the engine already knew
+the word was meaningless, in writing.** `_dataset_rows` (`scrapex/webui/app.py`)
+carries this comment over the line that fills the field:
+
+> *"`observations` is what the Data screen filters on, and for a directory the honest
+> number is its rows. `products` has no meaning for a company, so it carries the same
+> count rather than a zero that would read as an empty dataset."*
+
+So the engine deliberately passed a duplicate of the row count through a field it
+documents as meaningless for a company, and the panel printed the meaningless word
+underneath it. Neither side was unaware; the two notes never met.
+
+#### What was fixed, and why the noun is not a special case
+
+`extension/app.js` hardcoded `${fmtCount(s.products)} products` for every card. The
+replacement is `countLine`, three branches, each keyed on what the engine reports
+rather than on a key's spelling — because `jobs` and `tenders` are named in
+`CLAUDE.md` as coming and `if (contractors)` would be the third wrong noun the day
+`tenders` lands:
+
+| the card | the second line | why that |
+|---|---|---|
+| a price source | `1,812 products` — **unchanged** | there the word is TRUE and the number is a DIFFERENT one: spark-eshop reads `[Row 6,969]` above `1,812 products`. This is why the noun could not simply be replaced |
+| a dataset with a confirmed one-to-one detail crawl | `Contractor profiles: 704 of 17,304 (4.1%)` | `R-47`'s second point. For a dataset `observations` and `products` are the SAME number, so any noun would print the figure twice; coverage is the fact that slot was missing |
+| any other dataset | `8,412 rows` | the honest generic |
+
+**WHY `rows` AND NOT A BETTER WORD, since `R-45` governs it.** «ما يقوله الموقع هو
+مصدر الحقيقة الوحيد» forbids inventing a label the site never gave, and it rules out
+the two tempting alternatives: `dataset_definition.original_name` would print
+`17,304 contractors` for one dataset and `704 contractor_profiles` for the next, and a
+raw key dressed as an English noun is exactly the invented claim `R-45` refuses.
+`dataset_kind` was checked and is not the unit of a row — measured read-only on his
+warehouse 2026-08-23, it is `'table'` for both muqawil datasets, a structural kind.
+**Nothing in the warehouse names the unit of a row.** `rows` claims nothing about the
+site, and it is not a new vocabulary either: `sourceIdentity`'s default metric label
+is already `Row`, so the line above reads `[Row 17,304]`, and the Drive offline card
+in the same function already prints `<n> rows`. The COVERAGE label is the one word
+taken from the site, and it is the child dataset's stored `display_name` — what the
+approval recorded, never ours.
+
+#### The open half: the engine's own page says it too
+
+**`/source/contractors` prints a "Products" tile over the same 17,304 rows** — and
+that is the surface this branch did not touch. `_source_overview.html` renders four
+tiles from `SourceSummary`, and `/source/{key}` fills `products` for a dataset out of
+`_dataset_rows`, which is why the field is still sent rather than dropped:
+
+```
+Products 17,304 · Variants 0 · Data rows 17,304 · Matched 0
+```
+
+**Two of those four are meaningless for a directory and a third is a duplicate**, so
+this is not the panel's one-line fix wearing a different template — it is a question
+about what a dataset's overview should show at all, which is his call under `W3`. Left
+here with the measurement rather than guessed at.
 
 ## 3. Decided, not yet built
 
