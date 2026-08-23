@@ -203,15 +203,19 @@ PINNED = (
     # fourth is why the sixth should not be. A reader landing one line off any of
     # them reads the entry as either a bug report about correct code or a licence
     # to unhide the five that answer 400.
-    ("docs/BACKLOG.md", "extension/app.js", 4549,
-     'if (source.kind === "dataset") return "";'),
+    # THE `app.js` LINE THIS ROW HELD IS GONE, and it went with the defect rather
+    # than being loosened to keep passing — the same call `OP-36` records above.
+    # `return ""` for a dataset is what OP-42 was about; the pin follows the
+    # argument to the filter that replaced it.
+    ("docs/BACKLOG.md", "extension/app.js", 4595,
+     "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 697, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787, and the third move is the same story as the first two.
     # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
     # lines to `app.py` above it, and `main` was red between the second merge and
-    # the fix. This branch then inserted above it again. Three pull requests, none
-    # wrong on its own base -- which is why the number is re-read out of the file
-    # on every rebase and never adjusted by arithmetic.
+    # the fix. #255 then inserted above it again. Four pull requests, none wrong on
+    # its own base -- which is why the number is re-read out of the file on every
+    # rebase and never adjusted by arithmetic. This rebase re-read all four.
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2787, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1048,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),

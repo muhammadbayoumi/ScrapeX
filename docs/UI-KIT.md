@@ -210,6 +210,35 @@ open** (`:has(.split-button-menu[open])`), the way `.source-filter-menu[open]` d
 in `webui.css`. Raising the 120 does not help and cannot: measured at 1200 and at
 2147483647, the card below still won.
 
+### UI-4 · There is no overflow-menu component, and two screens invented one — *gap*
+
+Found 2026-08-22 from `REQ-36`. A `⋮` that opens a menu and has **no
+primary action beside it** now exists twice, built two different ways:
+
+| where | built from | how it looks |
+|---|---|---|
+| Profile, per account row | `button.icon-button.compact` + `.account-menu` positioned in JS | 40px circle, transparent, `--muted` |
+| Data, per source card | `.split-button` + `<details>`, with the primary half simply absent | was 48px, `0 8px 8px 0`, filled, bordered, shadowed |
+
+The second is the one he called unprofessional, and the cause is structural rather
+than cosmetic: **`.split-button-trigger` is dressed for the half that was not there.**
+Its radius is flat on the inner edge because a primary button normally butts against
+it. Used bare it draws a lopsided box.
+
+The card's trigger is now brought to the profile row's treatment by rules local to
+`.dataset-card` in `extension/app.css`, which is the smallest honest fix and touches
+no distributed copy. **What is still missing is the component**: an overflow menu is
+a real, repeating need — a trigger with no primary, a menu anchored to it, and the
+open/close/aria/escape behaviour `split-button.js` already implements. Promoting one
+would let both screens delete their local dress, and it is the same argument §UI-2
+makes for `.icon-tile`.
+
+**Two things to keep if it is promoted.** The profile menu is anchored to the CARD
+and not to its row, because the rows live in an `overflow-y: auto` scroller that
+clips a menu positioned inside one — measured at 61px cut off at 320px. And the
+card's menu must keep the stacking fix from §UI-1: a wrapper with a numeric z-index
+traps the menu's own z-index inside it.
+
 ### UI-2 · Promote what repeats, delete the copies — *first slice done*
 
 **Measured**: 67 declaration blocks are written identically in more than one

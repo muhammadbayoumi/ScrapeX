@@ -1,8 +1,8 @@
 # State — where the work stands
 
-**Last updated: 2026-08-22.** `main` is at `bcb8f6e` (#255). #243 through #255 are
-all merged — **ten merges** landed after this line last said `afb8648` (#244), in one
-day. A commit pointer written into prose is stale by the time it is read:
+**Last updated: 2026-08-22.** `main` is at `31c369e` (#257). #243 through #257 are
+all merged — **twelve merges** landed after this line last said `afb8648` (#244), in
+one day, and #256 and #257 landed while it said `bcb8f6e`. A commit pointer written into prose is stale by the time it is read:
 `git log --oneline -1 origin/main` is the answer that cannot be — **and this very line
 has now proved it three times in one afternoon**, reading `4615a14` with #251 and
 #252 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in. Each
@@ -204,25 +204,78 @@ would undo `#252`'s fix from a file that never mentions it. `OP-47` should wait 
 card-restyle session to land, because it edits a component five surfaces consume.
 
 **This branch is from a SECONDARY session and does not merge itself** (`R-42`). All
-three numbers were assigned by the primary session; `44`/`45` are declared in
-`RESERVED` in `tests/test_the_registers_cannot_collide.py` because branch
-`claude/drive-without-a-server` holds them unpushed — **delete those two rows when it
-lands.**
+three numbers were assigned by the primary session. The `RESERVED` rows in
+`tests/test_the_registers_cannot_collide.py` that covered them are **gone as of this
+branch**: `44` landed with #255 and `46`/`47`/`48` with #256, and a reservation for a
+number now on `main` fails `test_a_reserved_number_is_not_also_declared`. Only `45`,
+`49` and `50` remain, all held by `claude/drive-without-a-server` — **delete each row
+the day that branch lands.**
 
-**The three-dots button appeared twice on a source card.** `REQ-30`, «لماذا تظهر
-مرتين», reported with screenshots on 2026-08-22 and fixed the same day. One CSS
-rule: `.dataset-card > .split-button` carried `z-index: 1`, which made every card's
-menu wrapper a **stacking context** and spent the open menu's own `z-index: 120`
-inside it — so all the wrappers tied at level 1 and the card BELOW painted its
-button through the menu hanging over it. The wrapper is now lifted to
-`var(--z-overlay)` while its menu is open, the layer three other popovers on that
-screen already use. Guarded by
-`test_panel_dom.py::test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button`,
-which **hit-tests what is in front** rather than reading a z-index back: measured,
-the defect survives the menu's own z-index going to 2147483647, so any assertion
-about that number would have passed on the broken build. The same screenshots
-produced `OP-42` — the muqawil cards carry no `⋮` at all, a different and
-deliberate cause, over-broad by exactly one entry.
+### The source card's three dots — three defects in one control, two PRs, one day
+
+He photographed the Data screen three times on 2026-08-22 and each screenshot found
+a different defect in the same `⋮`. The first is merged; the other two are the PR
+open now.
+
+**1 · It appeared twice.** `REQ-30`, «لماذا تظهر مرتين» — **MERGED as
+[#252](https://github.com/muhammadbayoumi/ScrapeX/pull/252) (`5f63bb0`).**
+`.dataset-card > .split-button` carried `z-index: 1`, which made every card's menu
+wrapper a **stacking context** and spent the open menu's own `z-index: 120` inside
+it, so all the wrappers tied at level 1 and the card BELOW painted its button
+through the menu hanging over it. Lifted to `var(--z-overlay)` while open. Guarded
+by a **hit test**, not a z-index read: measured, the defect survives the menu's own
+z-index going to 2147483647.
+
+**2 · It was missing on a contractor card.** `REQ-36`, «ال 3 نقاط لا تظهر فى كارد
+مقاول» — and it closes `OP-42`, which this repository had already recorded from the
+same screenshot. `sourceMenu` returned `""` for `kind === "dataset"`, which was true
+of five of the six actions and false of the sixth: *Open the data table* drives
+`/api/table/{key}`, which resolves the dataset catalogue **first**, and was built
+after the blanket hide.
+
+The fix is not a per-entry allowlist, because that is the thing that rotted. Each
+action now declares **the engine route it drives** and **a proof of what that route
+does with a dataset key**, and `tests/test_a_dataset_card_offers_what_works.py`
+CALLS all six against a real approved dataset — asserting in both directions, so an
+action that is offered must answer with rows and an action that is withheld must be
+proven unable. Measured: `table` 200 with 4 rows and 25 columns; `sheet`, `update`,
+`pause`, `settings` all 404; `changes` 200 with no changes section on the page. So a
+contractor card carries **one live row and no greyed rows**.
+
+**3 · It looked wrong.** `REQ-36` again, «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل
+مربع اعتقد ان ال3 نقاط معمولة فى صفحة profile بشكل احترافى» — he named the reference
+himself and was right twice. `.split-button-trigger`'s radius computed to
+**`0 8px 8px 0`**: it rounds its outer corners only, because in a split button its
+inner edge butts against the primary action. On a card there is no primary action,
+so the shared rule drew a lopsided filled box on the card's own rounded corner. It
+is now `.account-menu-button`'s treatment — a bare 40px circle, `--muted`, tinted on
+hover and while open — in rules local to `.dataset-card`, using only tokens the
+profile row already uses, so no palette work was needed. Guarded by **comparing the
+two controls' computed styles** in light and dark rather than by asserting numbers.
+
+**SEEN, NOT DESCRIBED.** He asked in visual terms, so the answer is four pictures,
+committed rather than pasted into a message that lives on one machine:
+`docs/screenshots/the-source-card-three-dots-{before,after}-{light,dark}@360.png`.
+The *before* pair is `origin/main`'s `app.js` and `app.css` with the same stub, so
+it shows what he photographed — a boxed trigger on the two price cards and **none
+at all** on the muqawil card, 3 cards and 2 triggers — beside the *after*, which is
+3 and 3.
+
+**What the honest stub bought, and it is the part worth carrying forward.**
+`tools/panel_harness.py` had no `kind: "dataset"` source, so
+`test_dataset_action_opens_the_workspace_directly` asserted that EVERY card has a
+menu and passed for ten days while the product did the opposite. Adding one dataset
+row failed it immediately, and surfaced two further findings on screens nobody was
+looking at: **`OP-51`** (Source settings opens `/sources/{key}`, a route that exists
+for nobody; Recent changes opens `#changes`, a fragment that exists nowhere, while
+the real `/changes?source_key=` page does) and **`OP-52`** (the Run screen offers a
+dataset as crawlable and `POST /api/jobs` 404s it; the Source manager lists it with
+an Edit button that cannot reach it). Neither is fixed — both change what a screen
+offers, which is his call.
+
+**Still open and NOT touched by any of this:** both muqawil cards read "no
+successful crawl yet" while showing 17,304 and 704 rows. That is a third track's
+work, and the stub reproduces it rather than hiding it.
 
 **[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — MERGED (`afb8648`);
 kept here because the three blockers it named are still his.** `REQ-28`. The release
