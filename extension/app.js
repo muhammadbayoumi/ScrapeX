@@ -4387,7 +4387,7 @@ async function loadDatasets() {
         ${sourceMenu(s)}
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, fmtCount(s.observations))}</div>
-          <div class="n">${fmtCount(s.products)} products</div>
+          <div class="n">${countLine(s)}</div>
           <div class="n muted">${freshnessLine(s)}</div></div>
       </article>`).join("");
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
@@ -4480,6 +4480,66 @@ async function browseFromDrive(box) {
   } finally {
     if ($("browse-offline")) $("browse-offline").disabled = false;
   }
+}
+
+/**
+ * The card's SECOND number, and the word that belongs over it.
+ *
+ * THIS LINE SAID "products" ABOUT 17,304 CONTRACTORS. A contractor is not a
+ * product, and the engine already knew the word was meaningless there — the
+ * comment beside `_dataset_rows` (scrapex/webui/app.py) says `products` "has no
+ * meaning for a company, so it carries the same count rather than a zero that
+ * would read as an empty dataset". So the engine passed a duplicate of the row
+ * count through a field it documents as meaningless, and the panel printed the
+ * meaningless word underneath it.
+ *
+ * NOT A SPECIAL CASE FOR CONTRACTORS, because `jobs` and `tenders` are named in
+ * CLAUDE.md as coming and `if (contractors)` would be the third wrong noun the
+ * day `tenders` lands. Three branches, each one keyed on what the engine reports
+ * rather than on a key's spelling:
+ *
+ *   COVERAGE   a site whose crawls include a confirmed one-to-one detail sweep.
+ *              "Contractor profiles: 704 of 17,304 (4.1%)" — `R-47`'s second
+ *              point: the population is stated ONCE, on the identity line above,
+ *              and the second crawl reports how much of it has been fetched. The
+ *              label is the child dataset's own stored `display_name`, which is
+ *              what the site called it (`R-45`), never a word of ours.
+ *   ROWS       any other dataset. `rows` is the honest generic, and it is not a
+ *              new vocabulary: `sourceIdentity`'s default metric label is already
+ *              "Row" (so the line above reads `[Row 17,304]`) and the Drive
+ *              offline card a few lines up already prints "<n> rows". It also
+ *              claims nothing about the site, which is what rules out the
+ *              alternatives — `original_name` would print "17,304 contractors"
+ *              for one dataset and "704 contractor_profiles" for the next, and a
+ *              raw key dressed as an English noun is exactly the invented label
+ *              `R-45` refuses.
+ *   PRODUCTS   a price source, unchanged, because there the word is TRUE and the
+ *              number is a different one: spark-eshop reads `[Row 6,969]` above
+ *              `1,812 products`, and flattening that to "rows" would lose a real
+ *              fact. This is why the noun could not simply be replaced.
+ *
+ * WHY THE FIRST BRANCH IS NOT A THIRD COPY OF THE COUNT: for a dataset
+ * `observations` and `products` are the SAME number, so "17,304 rows" under
+ * `[Row 17,304]` is the same figure twice. Coverage is the fact that slot was
+ * missing, which is what `R-47` ruled it should carry.
+ */
+function countLine(s) {
+  const covered = (s.coverage || []).map((c) =>
+    `${esc(c.label)}: ${fmtCount(c.stored)} of ${fmtCount(c.population)}` +
+    `${coverageShare(c)}`).join(" · ");
+  if (covered) return covered;
+  if (s.kind === "dataset") return `${fmtCount(s.observations)} rows`;
+  return `${fmtCount(s.products)} products`;
+}
+
+// The share, in the words `sightings.Coverage.__str__` already uses on the CLI —
+// one decimal, in brackets after the pair. Omitted rather than shown as "0.0%"
+// when there is no population to be a fraction of: a percentage of nothing is
+// not a small number, it is not a number.
+function coverageShare(c) {
+  const population = Number(c.population || 0);
+  if (!population) return "";
+  return ` (${(100 * Number(c.stored || 0) / population).toFixed(1)}%)`;
 }
 
 // The freshness of a dataset — the first thing anyone asks, and the fact the

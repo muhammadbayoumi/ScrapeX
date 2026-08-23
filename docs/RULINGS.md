@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1543`, drawn by
+(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1662`, drawn by
 `extension/app.js:595` and `:629`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
@@ -1358,6 +1358,39 @@ which gives a dataset card the `⋮` menu it can use. This ruling asks that menu
 per-dataset actions under one card, so building them apart would mean writing the menu
 twice — and a branch is inside `sourceMenu` as this is written.
 
+> **CORRECTED 2026-08-23, WHILE BUILDING IT. THE RULING STANDS; ONE SENTENCE IN IT IS
+> FALSE.** Kept in place per **C4**, and recorded per **C5** — an unwritten objection
+> helps no one on the other machine.
+>
+> Point 2 above ends: *"which is the number he actually wants, and the one `--coverage`
+> already computes."* **`--coverage` does not compute it.** Measured read-only on his
+> warehouse, 2026-08-23:
+>
+> | asked | answered |
+> |---|---|
+> | `coverage("contractor_profiles")` | *"nothing has been sighted, so coverage cannot be stated"* — `dataset_sighting` holds **zero** rows for that key |
+> | `coverage("contractors")` | *"17,269 stored of 17,417 sighted — 148 seen and never fetched (99.2%)"* |
+> | the card's figure | **704 of 17,304 (4.1%)** |
+>
+> Three different numbers, because `sightings.coverage` answers a different question:
+> **stored-of-sighted WITHIN ONE dataset**, from `dataset_sighting`. It has nothing to
+> say about how much of the listing the profile crawl has reached, and the profile
+> crawl never wrote a sighting at all. Its own docstring is the tell — *"SIGHTED **AND**
+> HELD, which is not the same as the number of rows"*.
+>
+> **THE SHAPE HE RULED IS UNAFFECTED, and the source of the number is the thing that
+> was wrong.** 704 of 17,304 comes from the `dataset_relationship` row he had already
+> asked for by name — «اربطهم فى dataset_relationship» — which is `confirmed`,
+> `one_to_one`, and is the same join this ruling calls *"the thing that makes the
+> single card honest"*. So the figure is computed from the relationship and the two
+> row counts, which the listing query already has, and no sighting is consulted.
+>
+> **WHY IT IS WORTH THE SPACE RATHER THAN A QUIET FIX.** "The mechanism already exists"
+> is the most expensive kind of wrong sentence in a ruling: it turns a design decision
+> into a wiring job and the next session sizes the work off it. This is the same family
+> as the correction under `R-45` — there a capability was said to be missing and had
+> shipped a month earlier; here one was said to exist and does not. Both were settled by
+> running the thing instead of reading about it.
 ---
 
 ### R-48 · The extension is the control room and the only interface; the engine executes and reports

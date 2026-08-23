@@ -301,8 +301,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1554` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2598` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1673` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2722` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2598`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2722`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4489`) prints that sentence whenever the key is absent or
+(`extension/app.js:4549`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1785,7 +1785,7 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4595](../extension/app.js#L4595)) — and the engine stamps the
+([extension/app.js:4655](../extension/app.js#L4655)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
@@ -1793,12 +1793,12 @@ worse for a dataset"* ([scrapex/webui/app.py:697](../scrapex/webui/app.py#L697))
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2843](../scrapex/webui/app.py#L2843)).
+for anything else ([scrapex/webui/app.py:2967](../scrapex/webui/app.py#L2967)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1048](../scrapex/webui/app.py#L1048)) —
+any other table"* ([scrapex/webui/app.py:1167](../scrapex/webui/app.py#L1167)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -2412,9 +2412,20 @@ separately". So the Run screen offering a dataset a single checkbox is not merel
 broken, it is the wrong shape: there is no one crawl to tick. The fix is a card that
 offers the two, and it needs a panel path to a dataset crawl, which does not exist
 (`REQ-24` shipped `scrapex contractors` as a CLI command and says the panel path is
-still missing). `_dataset_rows` still ends `GROUP BY d.dataset_definition_id`
-(`scrapex/webui/app.py:694`, re-derived at `31c369e`), so the ruling is recorded and
-not yet built.
+still missing).
+
+**UPDATED 2026-08-23: HALF OF THAT IS NOW BUILT AND THIS ENTRY IS THE HALF THAT IS
+NOT.** `R-47`'s points 1 and 2 shipped — `_dataset_listing` folds the two muqawil
+datasets into one listing row and reports the profile crawl as coverage, so the Data
+screen draws one card. The sentence this paragraph used to end on — *"`_dataset_rows`
+still ends `GROUP BY d.dataset_definition_id`, so the ruling is recorded and not yet
+built"* — is **kept as history and no longer true of the listing**: that function still
+groups per dataset, deliberately, because `/source/{key}` resolves one dataset out of
+it by key and folding there would 404 the profile table. What remains open is exactly
+what this entry names: **the Run screen and the Source manager still draw a dataset from
+the same `/api/sources` answer and still offer it controls that cannot touch it.** The
+fold changed the number of cards on those two screens as well; it did not give either
+of them an action that works.
 
 **Note what the Run screen already knows how to do**: `NOT_READY` is rendered
 DISABLED with "Not supported yet" on it, because `implemented` is false. So the
@@ -2572,6 +2583,131 @@ checked `RUNTIME_DATA` against the real `.exe` table of contents and found no ga
 and the worry that `contractstamp` reads a `.py` at runtime was refuted — it is a
 developer-only path.
 
+
+### OP-63 · The word "products" over a contractor directory, on two surfaces
+
+**Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
+is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data
+screen still showed two muqawil cards — he did not report this one, which is why it
+is here and not in `REQUESTS.md`.
+
+His screen read:
+
+```
+muqawil.org / Saudi Contractors Authority · contractors [Row 17,304]
+  17,304 products
+```
+
+**A contractor is not a product, and 17,304 contractors are not 17,304 products.**
+
+**THE PART THAT MAKES IT A REAL FINDING RATHER THAN A TYPO: the engine already knew
+the word was meaningless, in writing.** `_dataset_rows` (`scrapex/webui/app.py`)
+carries this comment over the line that fills the field:
+
+> *"`observations` is what the Data screen filters on, and for a directory the honest
+> number is its rows. `products` has no meaning for a company, so it carries the same
+> count rather than a zero that would read as an empty dataset."*
+
+So the engine deliberately passed a duplicate of the row count through a field it
+documents as meaningless for a company, and the panel printed the meaningless word
+underneath it. Neither side was unaware; the two notes never met.
+
+#### What was fixed, and why the noun is not a special case
+
+`extension/app.js` hardcoded `${fmtCount(s.products)} products` for every card. The
+replacement is `countLine`, three branches, each keyed on what the engine reports
+rather than on a key's spelling — because `jobs` and `tenders` are named in
+`CLAUDE.md` as coming and `if (contractors)` would be the third wrong noun the day
+`tenders` lands:
+
+| the card | the second line | why that |
+|---|---|---|
+| a price source | `1,812 products` — **unchanged** | there the word is TRUE and the number is a DIFFERENT one: spark-eshop reads `[Row 6,969]` above `1,812 products`. This is why the noun could not simply be replaced |
+| a dataset with a confirmed one-to-one detail crawl | `Contractor profiles: 704 of 17,304 (4.1%)` | `R-47`'s second point. For a dataset `observations` and `products` are the SAME number, so any noun would print the figure twice; coverage is the fact that slot was missing |
+| any other dataset | `8,412 rows` | the honest generic |
+
+**WHY `rows` AND NOT A BETTER WORD, since `R-45` governs it.** «ما يقوله الموقع هو
+مصدر الحقيقة الوحيد» forbids inventing a label the site never gave, and it rules out
+the two tempting alternatives: `dataset_definition.original_name` would print
+`17,304 contractors` for one dataset and `704 contractor_profiles` for the next, and a
+raw key dressed as an English noun is exactly the invented claim `R-45` refuses.
+`dataset_kind` was checked and is not the unit of a row — measured read-only on his
+warehouse 2026-08-23, it is `'table'` for both muqawil datasets, a structural kind.
+**Nothing in the warehouse names the unit of a row.** `rows` claims nothing about the
+site, and it is not a new vocabulary either: `sourceIdentity`'s default metric label
+is already `Row`, so the line above reads `[Row 17,304]`, and the Drive offline card
+in the same function already prints `<n> rows`. The COVERAGE label is the one word
+taken from the site, and it is the child dataset's stored `display_name` — what the
+approval recorded, never ours.
+
+**`rows` IS THE ANSWER, NOT A FALLBACK, and the distinction matters because nothing
+has been ruled here.** No ruling covers the boundary between `products` and a
+directory, so this is a choice and it is recorded as one: a generic word that is true
+of every dataset beats a specific word that is true of one and invented for the rest.
+The moment the site itself gives us a word for what a row IS — not what the table is
+called, which `display_name` already holds — that word wins and this branch should be
+revisited. **His call if he wants a different word;** the reason for this one is above.
+
+> **CHECKED AGAINST `R-45`'s CORRECTION, 2026-08-23, because that correction landed
+> while this was open.** #261 measured that the per-row record card **has existed on
+> the engine since 2026-07-22** — 967 lines of `grid.js`, opened by row *selection*,
+> which is why a census searching for `rowFormatter` missed it — so `R-45`'s own table
+> was wrong about the card, and products have it while contractors do not.
+>
+> **None of that moves the noun.** This entry rests on `R-45` **part 1** — *"WE NEVER
+> TRANSLATE. The site's words are the record… A mapping we invent is our claim dressed
+> as the site's data"* — and the correction is about **part 2**, whether the row's card
+> exists and what it costs. The ruling's own words are that it *"stands unchanged"*.
+> Re-checked rather than assumed, since a reasoning chain resting on a ruling that has
+> just been corrected is exactly the thing worth re-reading.
+
+#### The open half: the engine's own page says it too
+
+**`/source/contractors` prints a "Products" tile over the very same rows** — and that
+is the surface this branch did not touch. `_source_overview.html` renders four tiles
+from `SourceSummary`, and `/source/{key}` fills `products` for a dataset out of
+`_dataset_rows`, which is why the field is still sent rather than dropped.
+
+**RENDERED, not read.** The page was fetched from a real engine holding one approved
+dataset of 4 rows and the four `<dd>` values read off the returned HTML — because a
+claim about what a template prints, reached by reading the template, is the shape this
+repository keeps catching:
+
+```
+GET /source/contractors -> 200, 42,058 bytes
+  Products    4
+  Variants    0
+  Data rows   4
+  Matched     0
+```
+
+**Three of those four say nothing about a contractor directory and the fourth
+duplicates the first**: `Products` is the meaningless field, `Variants` and `Matched`
+are price-path concepts a company has none of, and `Data rows` is the honest number
+already. So this is not the panel's one-line fix wearing a different template — it is a
+question about what a dataset's overview should show at all.
+
+#### The options, per `W3`, because this one is his
+
+| | what it does | effort | risk | what it costs later |
+|---|---|---|---|---|
+| **(a) do nothing** | the tile keeps reading `Products 17,304` over a directory | none | the engine page goes on saying what the panel stopped saying — **two surfaces disagreeing about the same rows**, which is the shape `#255` already had to fix once | the disagreement is the maintenance |
+| **(b) rename the one tile** | `Products` → `Rows` when `kind == dataset` | one line + a guard | **low, and it looks finished when it is not**: `Variants 0` and `Matched 0` still state price-path facts about a company | invites a third fix later for the same panel |
+| **(c) the tile SET follows the kind** | a dataset shows `Rows` and its coverage; a price source keeps all four | ~half a day, template + a shape the template can read | the tile list becomes data rather than a literal — the same move `countLine` just made on the panel | lowest: `jobs` and `tenders` need no new template work |
+
+**Recommendation: (c)**, mapped to **P1** (one source of truth for what a card shows —
+the panel now decides its noun from the engine's marker, and the page deciding its
+tiles from a hardcoded four is the same defect one surface over) and **P3** (not a
+premature abstraction: there are already two kinds and `CLAUDE.md` names two more
+coming). **(b) is the trap** — it is what "fix the noun" sounds like, and it would
+leave two of the three wrong tiles standing while reading as done.
+
+**The question for him:** *for a dataset like the contractor directory, should the
+overview show only the row count and how much of it has been fetched — or do you want
+the four tiles kept, with the ones that do not apply shown as blank rather than `0`?*
+`0` is the specific problem: it reads as a measured zero rather than as "not a thing
+this source has", which is the same distinction `last_successful_run` already documents
+for a crawl that never ran.
 
 ## 3. Decided, not yet built
 
@@ -4002,7 +4138,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2598` that the fix never reached
+   second `worker_alive` computation at `app.py:2722` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

@@ -48,11 +48,20 @@ STRESS_SOURCES = [
     # crawled …" instead of "no successful crawl yet" over 17,304 rows. A literal
     # `None` here was true of the engine for about ten minutes and would now be the
     # stub disagreeing with the shipped product.
+    #
+    # `coverage` CARRIES THE SECOND CRAWL, and this row is now ONE card where the
+    # engine used to send two (`R-47`, `REQ-37`): `_dataset_listing` folds
+    # `contractor_profiles` into `contractors` on their confirmed one-to-one
+    # relationship and reports the child as coverage instead of as a second
+    # population. The numbers are his warehouse's, measured read-only 2026-08-23.
     {"kind": "dataset", "source_key": "contractors",
      "source_name": "muqawil.org contractors", "source_name_ar": "",
      "base_url": "https://muqawil.org", "family": "generic",
      "active": True, "implemented": True, "supports_history": False,
      "observations": 17304, "products": 17304,
+     "coverage": [{"dataset_key": "contractor_profiles",
+                   "label": "Contractor profiles",
+                   "stored": 704, "population": 17304}],
      "last_success": {"started_at": "2026-08-21T18:40:11Z",
                       "finished_at": "2026-08-21T18:40:11Z",
                       "rows_seen": 0, "requests_count": 0},

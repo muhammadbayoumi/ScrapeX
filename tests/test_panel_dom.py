@@ -1040,6 +1040,87 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
             f"dataset key")
 
 
+def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
+    """A CONTRACTOR IS NOT A PRODUCT, and the card said 17,304 of them were.
+
+    `<div class="n">${fmtCount(s.products)} products</div>` hardcoded the noun for
+    every card, and the ENGINE ALREADY KNEW the word was meaningless there: the
+    comment beside `_dataset_rows` (scrapex/webui/app.py) says `products` "has no
+    meaning for a company, so it carries the same count rather than a zero that
+    would read as an empty dataset". So the engine passed a duplicate of the row
+    count through a field it documents as meaningless and the panel printed the
+    meaningless word under it.
+
+    WHAT THE LINE CARRIES NOW is `R-47`'s second point: the population is stated
+    ONCE, on the identity line, and the second crawl reports how much of it has been
+    fetched. The three branches are asserted separately below, in the page, because
+    the DOM can only ever show the stub's one shape.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    card = page.locator('[data-open="contractors"]')
+    assert card.count() == 1, (
+        "the harness stub no longer carries a dataset-kind source; put it back "
+        "rather than deleting this — that hole let a false rule pass for ten days")
+    text = card.text_content() or ""
+
+    assert "products" not in text.lower(), (
+        f"the word 'products' is still over a contractor directory: {text!r}")
+    # `R-45` — the label is the CHILD DATASET'S own stored `display_name`, which the
+    # approval recorded from the site, and never a noun of ours.
+    assert "Contractor profiles: 704 of 17,304 (4.1%)" in " ".join(text.split()), (
+        f"the profile crawl is not reported as coverage of the listing: {text!r}")
+
+    # AND A PRICE CARD IS UNTOUCHED, because there the word is TRUE and the number
+    # is a different one — flattening it to "rows" would lose a real fact.
+    price = page.locator('[data-open="LONG_AR"]')
+    assert "9,321 products" in " ".join((price.text_content() or "").split())
+
+
+def test_the_noun_over_a_count_is_decided_by_what_the_engine_reports(open_panel):
+    """THE THREE BRANCHES, in the shipped function, in the real browser.
+
+    The stub can only put ONE dataset shape on screen, and the branch that matters
+    most for the future is the one it cannot show: `jobs` and `tenders` are named in
+    CLAUDE.md as coming, they will arrive as datasets with no detail crawl, and
+    nothing else here would notice if their card started printing "0 products".
+
+    `countLine` is a top-level function in a classic script, so it is reachable from
+    the page's own global scope — this calls the code that ships rather than a copy
+    of its rules, which is what `tests/test_a_dataset_card_offers_what_works.py`
+    learned the hard way about restating somebody else's behaviour.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    assert page.evaluate("() => typeof countLine") == "function", (
+        "countLine was renamed or scoped; this guard reads it off the global")
+
+    # A DATASET WITH NO DETAIL CRAWL — the `jobs`/`tenders` shape. `rows` is the
+    # honest generic and it is not a new vocabulary: the identity line above
+    # already reads `[Row 17,304]` and the Drive offline card already says "rows".
+    assert page.evaluate(
+        "() => countLine({kind: 'dataset', observations: 8412, products: 8412})"
+    ) == "8,412 rows"
+
+    # A PRICE SOURCE. Unchanged, and it must stay unchanged.
+    assert page.evaluate(
+        "() => countLine({observations: 6969, products: 1812})"
+    ) == "1,812 products"
+
+    # COVERAGE WINS OVER BOTH, and the label is escaped — it comes out of the
+    # warehouse, which `esc()` is the panel's whole XSS boundary for.
+    assert page.evaluate("""() => countLine({kind: 'dataset', observations: 4,
+        coverage: [{label: '<b>x</b>', stored: 1, population: 4}]})""") \
+        == "&lt;b&gt;x&lt;/b&gt;: 1 of 4 (25.0%)"
+
+    # A POPULATION OF NOTHING IS NOT A PERCENTAGE OF ANYTHING. "0.0%" would read as
+    # a measured floor; the share is omitted and the pair still shown.
+    assert page.evaluate("""() => countLine({kind: 'dataset', observations: 0,
+        coverage: [{label: 'P', stored: 0, population: 0}]})""") == "P: 0 of 0"
+
+
 #: Everything about a trigger that a person can SEE. Read off both screens and
 #: compared, because "unprofessional" is not a property a stylesheet can be
 #: grepped for — the two controls either look like one system or they do not.
