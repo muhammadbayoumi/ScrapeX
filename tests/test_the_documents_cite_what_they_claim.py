@@ -130,10 +130,10 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1662, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1543, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1662, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -151,8 +151,22 @@ PINNED = (
      'assert.equal(manifest.version, VECTORS.version)'),
     ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
     # OP-2's two worker_alive computations, one of which the fix never reached.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1554, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2598, "def _about("),
+    #
+    # BOTH RE-READ 2026-08-23, and this pair is the one where reading matters most:
+    # `"worker_alive"` appears TWICE in `app.py` and the two rows below are exactly
+    # those two occurrences, so arithmetic on a diff cannot tell them apart. The
+    # first is in `/api/health`, three lines under `latest_extension_version`; the
+    # second is inside `_about`. Identified by reading the enclosing function, not
+    # by adding a delta -- and the two deltas differed anyway, because the branch
+    # that moved them edited `app.py` in two separate places.
+    #
+    # RE-READ AGAIN after rebasing onto #261, which also inserted into `app.py`.
+    # Both sides of the rebase had CHANGED these two numbers -- main said 1554/2598,
+    # this branch said 1673/2666, and the answer after both diffs is neither. That is
+    # the case for reading over resolving: taking either side of the conflict would
+    # have produced a confidently wrong pin.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1729, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2722, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
@@ -218,17 +232,27 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4595,
+    ("docs/BACKLOG.md", "extension/app.js", 4655,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 697, '"kind": "dataset",'),
-    # 2710 -> 2725 -> 2787, and the third move is the same story as the first two.
+    # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
+    # first three.
     # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
     # lines to `app.py` above it, and `main` was red between the second merge and
-    # the fix. #255 then inserted above it again. Four pull requests, none wrong on
+    # the fix. #255 then inserted above it again, and the REQ-37 branch inserted
+    # `_dataset_listing` above it after that. Five pull requests, none wrong on
     # its own base -- which is why the number is re-read out of the file on every
     # rebase and never adjusted by arithmetic. This rebase re-read all four.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2843, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1048,
+    #
+    # AND THIS ONE ALSO HAS TWO OCCURRENCES, which is why "re-read" is not a slogan.
+    # `if source_key not in known:` sits in `api_rename_source` as well. The one
+    # this row means is the export route -- the document's claim beside it is that
+    # `/api/export/{key}` "validates the key against `manifest.sources` and answers
+    # 404 for anything else" -- and only reading the enclosing function separates
+    # them. A delta applied to the old number would have picked the right line here
+    # by luck and the wrong one the first time the two moved apart.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2967, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1223,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one
@@ -237,7 +261,7 @@ PINNED = (
     # The sentence itself, so it is clear the card reads a MISSING key and not a
     # missing crawl -- which is why writing a `crawl_run` row would not have moved
     # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4489, "const last = s.last_success;"),
+    ("docs/BACKLOG.md", "extension/app.js", 4549, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in site_profile.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
