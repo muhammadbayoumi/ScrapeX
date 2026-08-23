@@ -887,7 +887,23 @@ def _cmd_ui(args: argparse.Namespace) -> int:
         databases=registry,
     )
     url = f"http://{args.host}:{args.port}"
-    print(f"ScrapeX UI → {url}   (Ctrl+C to stop)")
+    # `flush=True`, AND IT IS LOAD-BEARING. This is the last thing printed before
+    # uvicorn takes the process for as long as the engine runs, so nothing after
+    # it will ever flush the buffer for us. To a terminal that costs nothing —
+    # stdout is line-buffered there and the line appears either way. To a PIPE it
+    # is the whole message: Python block-buffers, the process is then killed
+    # rather than allowed to exit, and the buffer dies with it.
+    #
+    # MEASURED, because it is not a theory. `timeout 20 python -m scrapex.cli ui
+    # --port 8131 2>&1` captured **zero bytes** from a server that had started
+    # perfectly. That is exactly how the release workflow runs the built engine —
+    # a first run that WORKS never returns, so `timeout` killing it is how the
+    # step passes — and this line is what that step reads to tell a serving
+    # engine from the 0.3.0 build that printed three steps and died at
+    # `create_app`. Unflushed, the gate would have failed every good release.
+    #
+    # `packaging/engine_entry.py:_say` flushes for the same reason and says so.
+    print(f"ScrapeX UI → {url}   (Ctrl+C to stop)", flush=True)
     if not args.no_open:
         import threading
         import webbrowser

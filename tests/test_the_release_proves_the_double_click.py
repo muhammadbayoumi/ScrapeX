@@ -41,6 +41,13 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "release-engine.yml"
 ENTRY = ROOT / "packaging" / "engine_entry.py"
+#: THE SECOND HALF OF A DOUBLE-CLICK, and leaving it out is what let 0.3.0 ship.
+#: `_set_up_then_serve` ends by setting `argv` to `["ui", "--no-open"]` and calling
+#: `cli.main`, so everything a person sees after "Starting the engine..." is
+#: printed by `_cmd_ui` — including the only line that proves a server exists.
+#: A guard that reads `engine_entry.py` alone believes the double-click path ends
+#: three lines before the work does.
+CLI = ROOT / "scrapex" / "cli.py"
 
 #: How the workflow spells "run the thing that was just built". Both existing
 #: run-steps use it; the checksum step says a bare `scrapex-engine.exe` after a
@@ -89,6 +96,13 @@ def double_click_path() -> str:
     Sliced at `_first_run` rather than read whole, so a line that only exists in
     the `--version` branch or in a comment near the top cannot be mistaken for
     something the double-click prints.
+
+    AND IT CONTINUES INTO `_cmd_ui`, because that is where the double-click
+    actually goes. `_set_up_then_serve` prints its three steps and then calls
+    `cli.main` with `["ui", "--no-open"]`; every later line — the one that says a
+    server is up among them — belongs to `scrapex/cli.py`. This fixture used to
+    stop at `engine_entry.py`, so the gate it guards could only ever demand lines
+    printed BEFORE the app was built, which is the whole of the 0.3.0 defect.
     """
     source = ENTRY.read_text(encoding="utf-8")
     start = source.find("def _first_run(")
@@ -96,7 +110,20 @@ def double_click_path() -> str:
         "packaging/engine_entry.py has no _first_run — bare invocation has "
         "stopped being a first run, which is exactly the 0.2.1 defect"
     )
-    return source[start:]
+    return source[start:] + ui_command()
+
+
+def ui_command() -> str:
+    """`scrapex/cli.py:_cmd_ui` — what a double-click runs after the three steps."""
+    source = CLI.read_text(encoding="utf-8")
+    start = source.find("def _cmd_ui(")
+    assert start != -1, (
+        "scrapex/cli.py has no _cmd_ui, and packaging/engine_entry.py hands a "
+        "double-click to the `ui` subcommand; this guard has lost the second "
+        "half of the path it guards"
+    )
+    end = source.find("\ndef ", start + 1)
+    return source[start:end if end != -1 else len(source)]
 
 
 def test_the_release_launches_the_engine_with_no_arguments(bare_run):
@@ -197,3 +224,117 @@ def test_it_proves_the_database_step_survived(bare_run, double_click_path):
         "the release does not require the engine to get past preparing a "
         "database, so a build that dies there still ships"
     )
+
+
+def test_it_proves_a_SERVER_came_up_and_not_only_that_three_lines_printed(bare_run):
+    r"""THE 0.3.0 DEFECT, AND THE SECOND TIME THIS GATE STOPPED ONE LINE SHORT.
+
+    The three steps above are all printed BEFORE the app is built. `_cmd_ui`
+    announces nothing until `create_app` has RETURNED — the static mount, both
+    template environments and the job worker are all inside it — so a build that
+    is missing a file the runtime opens prints every line this gate demanded and
+    then dies. Measured on the published `engine-v0.3.0`, on the owner's machine:
+
+        [3/3] Starting the engine...
+        error: Directory '...\_MEI000036d42\scrapex\webui\static' does not exist
+
+    `packaging/build_engine.py` named `db` and `sources.yaml`; the runtime opens
+    five things (`RUNTIME_DATA` is the list now, and
+    `tests/test_the_frozen_engine_carries_its_own_files.py` is what keeps it
+    complete). But the reason it REACHED a user is here: the gate's last demand
+    sat on the wrong side of the only call that can fail.
+
+    So the property is not "demand this sentence" — it is **demand something
+    printed after `create_app` returns**. Located by index in `_cmd_ui`'s own
+    source, so renaming the line moves this check with it instead of breaking it.
+    """
+    body = ui_command()
+    built = body.find("create_app(")
+    assert built != -1, (
+        "scrapex/cli.py:_cmd_ui no longer calls create_app; this guard's whole "
+        "notion of 'after the app exists' has to be rewritten with it"
+    )
+    after = {
+        message.group("text")
+        for message in re.finditer(r'print\(f?"(?P<text>[^"{]+)', body[built:])
+    }
+    demanded = [m.group("pattern") for m in GREPPED.finditer(bare_run)]
+    proves_a_server = [
+        line for line in demanded
+        if any(line in printed for printed in after)
+    ]
+    assert proves_a_server, (
+        "every line the double-click gate demands is printed BEFORE create_app, "
+        "so an engine that unpacks, opens its warehouse and then cannot build an "
+        f"app passes this release. Nothing demanded is one of {sorted(after)}"
+    )
+
+
+def _printing_statement(source: str, at: int) -> str | None:
+    """The `print(...)` or `_say(...)` call that produces the text at `at`.
+
+    Sliced by matching parentheses rather than by line, because the call that
+    matters here spans lines and a line-based read would miss the keyword sitting
+    on the next one.
+    """
+    opened = max(source.rfind("print(", 0, at), source.rfind("_say(", 0, at))
+    if opened == -1:
+        return None
+    depth, cursor = 0, source.index("(", opened)
+    for index in range(cursor, len(source)):
+        if source[index] == "(":
+            depth += 1
+        elif source[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return source[opened:index + 1]
+    return None
+
+
+def test_every_line_the_gate_demands_is_FLUSHED_because_the_engine_is_killed(
+        bare_run, double_click_path):
+    """A WORKING FIRST RUN IS KILLED, SO AN UNFLUSHED LINE IS NEVER WRITTEN.
+
+    This is not a style point, and it very nearly shipped as a gate that failed
+    every GOOD release. `_first_run` never returns — the window being open is the
+    same fact as the engine being up — so the release step bounds it with
+    `timeout` and reads the output. Python block-buffers stdout when it is a pipe,
+    which is exactly what `spoke=$(...)` makes it, and a killed process never
+    flushes. Measured on the source, on a server that had started perfectly:
+
+        timeout 20 python -m scrapex.cli ui --no-open --port 8131 2>&1
+        -> ZERO BYTES captured
+
+    The same command with `flush=True` on that one line returns it. So the
+    property a demanded line must have is not "something prints it" but
+    "something prints it AND flushes" — `packaging/engine_entry.py:_say` exists
+    for this and says so; anything outside it has to ask.
+    """
+    demanded = [m.group("pattern") for m in GREPPED.finditer(bare_run)]
+    assert "flush=True" in ENTRY.read_text(encoding="utf-8"), (
+        "packaging/engine_entry.py:_say no longer flushes, and every line the "
+        "release gate demands of a double-click goes through it"
+    )
+    unflushed = []
+    for line in demanded:
+        found = [
+            statement
+            for index in _occurrences(double_click_path, line)
+            if (statement := _printing_statement(double_click_path, index))
+        ]
+        if not any("_say(" in s or "flush=True" in s for s in found):
+            unflushed.append(line)
+    assert not unflushed, (
+        f"the release demands {unflushed} of the built engine, and nothing on the "
+        "double-click path prints them with a flush. A working first run is KILLED "
+        "by `timeout` rather than allowed to exit, so a block-buffered line is "
+        "never written to the pipe and this gate would refuse every good release"
+    )
+
+
+def _occurrences(source: str, needle: str) -> list[int]:
+    found, at = [], source.find(needle)
+    while at != -1:
+        found.append(at)
+        at = source.find(needle, at + 1)
+    return found

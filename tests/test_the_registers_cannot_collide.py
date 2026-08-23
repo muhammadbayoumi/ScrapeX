@@ -177,6 +177,33 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
+        # 60 AND 61, HELD ELSEWHERE, AND THIS BRANCH LANDS `OP-62` OVER THEM. Both
+        # are declared on `feat/the-engine-knows-which-code-it-is-running`, pushed:
+        # `OP-60 · A frozen engine cannot name the commit it was built from` and
+        # `OP-61 · A continuation citation is invisible to the citation guard`. Read
+        # them back with
+        #   git grep -E "^#{2,4} +OP-"         #     origin/feat/the-engine-knows-which-code-it-is-running -- docs/BACKLOG.md
+        #
+        # 60 WAS HANDED TO THIS BRANCH AS FREE, twice, by a session that had checked
+        # `main` and not the branches in flight. `main` really does run unbroken to 59
+        # -- the number was gone in a place `main` cannot see, which is the entire
+        # reason §3 of ORCHESTRATION.md says a claim can be real and invisible.
+        60: "branch feat/the-engine-knows-which-code-it-is-running",
+        # 61 WAS A DUPLICATE AND HAS BEEN RULED, TO THIS HOLDER.
+        # `fix/one-card-per-site-and-an-honest-noun` declared its own `OP-61 · The
+        # word "products" over a contractor directory` and was told to move to 63.
+        # The ruling went to the lower-churn branch rather than to precedence, and
+        # the primary session said so instead of letting the open-PR rule pretend to
+        # decide it.
+        #
+        # AT THE MOMENT THIS ROW WAS WRITTEN THE RENUMBER HAD NOT LANDED: `origin/
+        # fix/one-card-per-site-and-an-honest-noun` still declared 61, so a reader
+        # grepping the refs would find TWO holders and think this row wrong. It is
+        # recorded rather than smoothed over, because this file's own scar is a row
+        # that named a holder who had moved and passed every guard while doing it.
+        # When that branch's 63 is pushed, delete these two words and nothing else.
+        61: "branch feat/the-engine-knows-which-code-it-is-running "
+            "(card branch's duplicate 61 ruled to 63; renumber not yet pushed)",
     },
     "DEC": {},
 }

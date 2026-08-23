@@ -191,7 +191,13 @@ PINNED = (
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 976, "def _bind_log_streams("),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 992, "def _bind_log_streams("),
+    # OP-49's evidence is a SENTENCE of prose, and it drifted twice inside one
+    # branch: 611 -> 691 -> 755, each time landing on a real, non-blank line
+    # that tier 1 and tier 2 both accepted. A citation of prose needs pinning more
+    # than a citation of code does -- code has a symbol a reader can grep for, and a
+    # paragraph about palette tokens reads exactly as plausibly as one about layers.
+    ("docs/BACKLOG.md", "docs/LESSONS.md", 755, "The extension's layers are three"),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
@@ -260,10 +266,12 @@ PINNED = (
     # on any one of them would go hunting for a defect that is not there.
     ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
     ("docs/BACKLOG.md", "extension/app.js", 3514, "latest.version"),
-    # 352, and it was 344 until this same pull request added eight comment lines
-    # above it — the guard catching its author, in the exact shape LESSONS §7
-    # describes: one change moves a line, another wrote the number down.
-    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 352, '"version": VERSION'),
+    # 379, and it was 352, and 344 before that. Twice now the same pull request
+    # has added comment lines above it and had to correct the number it had just
+    # written down — the guard catching its author, in the exact shape LESSONS §7
+    # describes. The third move was the 0.3.0 packaging fix, which explained the
+    # new `ScrapeX UI` demand in twenty-seven lines of comment directly above.
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 379, '"version": VERSION'),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
      'got["version"] == manifest["version"]'),
     # And the line whose VALUE went stale under a citation that stayed correct --

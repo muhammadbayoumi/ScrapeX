@@ -1,12 +1,16 @@
 # State — where the work stands
 
-**Last updated: 2026-08-22.** `main` is at `31c369e` (#257). #243 through #257 are
-all merged — **twelve merges** landed after this line last said `afb8648` (#244), in
-one day, and #256 and #257 landed while it said `bcb8f6e`. A commit pointer written into prose is stale by the time it is read:
+**Last updated: 2026-08-23.** `main` is at `f1844af` (#261). #243 through #261 are
+all merged — **fifteen merges** landed after this line last said `afb8648` (#244),
+across two days. **And this conflict is the argument itself:** resolving it, `main`
+said `31c369e` (#257) on one side and `bcb8f6e` (#255) on the other, and by the time
+the rebase finished it was `f1844af`. Three wrong numbers for one field, in one
+afternoon. A commit pointer written into prose is stale by the time it is read:
 `git log --oneline -1 origin/main` is the answer that cannot be — **and this very line
-has now proved it three times in one afternoon**, reading `4615a14` with #251 and
-#252 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in. Each
-correction is the argument for the sentence rather than a counter-example to it.
+has now proved it six times across two days**, reading `4615a14` with #251 and #252
+already in, then `5f63bb0` with #254 in, then `451468d` with #255 in, then the three
+above. Each correction is the argument for the sentence rather than a counter-example
+to it.
 
 **THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
 directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
@@ -30,6 +34,31 @@ double-clicked, and the documents were telling him to cut a tag the workflow wou
 refuse. A source one patch ahead of a published engine that works shares none of
 those three. Anyone reading a version gap as `OP-32` returning should check those
 three first.
+
+**AND `engine-v0.3.0` CANNOT SERVE A PAGE. Reported by him on 2026-08-23, one day after
+the tag was cut.** He double-clicked the published engine and it unpacked, found his
+warehouse, announced `[3/3] Starting the engine...` and then said:
+
+```
+error: Directory 'C:\Users\User01\AppData\Local\Temp\_MEI000036d42\scrapex\webui\static' does not exist
+```
+
+`packaging/build_engine.py` told PyInstaller to carry **two** things — `db` and
+`sources.yaml` — and the runtime opens **five**. `scrapex/webui/static`,
+`scrapex/webui/templates` and `apps_script/StagingAppScript.txt` were never in any
+archive ever published. **`OP-62`**, fixed on the branch carrying this line and proved
+on a rebuilt `.exe`: bare invocation now reaches `ScrapeX UI → http://127.0.0.1:8000`,
+`GET /` answers 200 with a rendered page, and `/api/outputs/apps-script/script` answers
+200 for the first time in the product's history.
+
+**So read the paragraph above with this next to it.** *Source ahead of published* is the
+normal state and is not `OP-32` returning — but the three conditions that made `OP-32` a
+defect are asked of the PUBLISHED build, and the second of them is true again right now:
+**the newest installable engine does not work.** `VERSION` reads `0.3.1` against a
+published `0.3.0`, so `engine-v0.3.1` ships the fix and no bump is needed
+([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one) —
+packaging is not a contract change). **Cutting the tag is his call**, and until he does
+there is nothing installable that serves a page.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
