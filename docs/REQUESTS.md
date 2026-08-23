@@ -94,6 +94,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **Ruled** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — two crawls of one dataset; the storage stays two | 2026-08-22 |
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
+| [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — study in flight; one written decision already contradicts him and must be superseded either way | 2026-08-23 |
 
 ---
 
@@ -1931,3 +1932,78 @@ that gets misremembered:
 
 A browser upload does not leave a truncated file — it either completes at full size or
 fails and leaves nothing — so a size match is sufficient evidence that it finished.
+
+---
+
+## REQ-40 · The extension is the phone and the engines are apps installed on it
+**Captured 2026-08-23 · Study in flight**
+
+> «دور المحرك يجب ان يتقلص امام extension ازاى بما ان المحرك بيحفظ البيانات فى قاعدة sql
+> اذا وجوده سواء مثبت او لا يعمل او لا لا يوقفنا على قراءة وتصفح البيانات · ولهاذا اصلا يتم
+> نقل صفحة الداتا من المحرك الى الاداة · ايضا قد ناقشت مسبقا كل مهام المحرك وبعد دراسة تم
+> تحديد ما سيبقى مع المحرك وما سيذهب الى الاداة وبم ان ربما تم فقد جزء من هذه المناقشة ولم
+> تسجل اريد عمل دراسة بحيث تظل الextension هى الكل فى الكل تعتبر هى موبيل والمحركات تعتبر
+> applications عليها مثبته او لا ربما تزيد apps مستقبلا»
+
+**Five things, and only the last one is new work. The other four are him telling us the
+model we have been building against was never written down completely.**
+
+1. **The engine's role must shrink**, and he asks *how* rather than *whether*.
+2. **His premise:** the engine stores the data in a SQL database, so whether the engine is
+   installed, and whether it is running, must not stop him **reading and browsing** that
+   data.
+3. **That premise is the reason for a port already in flight** — «ولهاذا اصلا يتم نقل صفحة
+   الداتا» — which is `REQ-07` / `DEC-8`. So the port is not a tidy-up. It is the first
+   instalment of this request, and it was being built without its own justification
+   written beside it.
+4. **He remembers a prior study** that decided what stays with the engine and what moves,
+   and he suspects part of it «لم تسجل» — was never recorded. This is a `C3`/`C7` question
+   about our own filing, and it is the reason the study has a lens pointed at git history
+   and closed pull requests rather than only at documents.
+5. **The model he wants, stated as an analogy:** the extension is **the phone** — «هى الكل
+   فى الكل» — and the engines are **applications installed on it, installed or not**, with
+   **more apps expected later**.
+
+### Why the analogy is load-bearing and not decoration
+
+A phone does not stop being a phone when an app is uninstalled. It keeps its home screen,
+its settings, its files, and it can still tell you what it has. **Everything he asked for
+follows mechanically from that one sentence**, which is why it is quoted rather than
+paraphrased: the data page moves because a phone can open its own files; the engine becomes
+*an* app rather than *the* app because a phone has an app list; and «ربما تزيد apps
+مستقبلا» means the seam has to admit a second one before there is a second one to admit.
+
+### One contradiction is already measured, before the study returns
+
+[PLATFORM-PLAN.md](PLATFORM-PLAN.md) Decision 25 says, of the icon rail's second group —
+Source, Run, Data and Google Finance:
+
+> *"The second group is dead on a device with no engine installed, which is every device
+> for its first minute."*
+
+**He has just required the opposite of that for the Data page.** Both cannot stand. Decision
+8 of the same plan already leans his way — *"On a new device with no engine, the owner sees
+his data and exports it"* — so the plan contains both positions seventeen decisions apart,
+and nothing has ever made them argue.
+
+And Decision 9 carries the assertion the study has to re-test rather than inherit:
+
+> *"A browser extension cannot create a SQLite file."*
+
+That was written 2026-08-05. **Creating is not reading**, and the study measures reading
+separately, because his premise needs only the second one.
+
+### What this request does NOT decide
+
+It does not decide *where the database lives*, and it must not be read as deciding it.
+Decision 10 says an external tool «never touches Engine's database»; if the phone owns the
+data page and three apps exist, ownership becomes a real question with real costs. That is
+his to rule on once the numbers are in front of him, per `R-02`.
+
+### State
+
+The study is running as this is written — every engine HTTP route, native-messaging command
+and CLI subcommand inventoried against the code, the read-without-an-engine question
+measured against the live warehouse's real size, and the "more apps" model tested against
+the identity, install, discovery and capability seams as they exist. **Its findings are
+recorded here and ruled in [RULINGS.md](RULINGS.md) when he has read them — not before.**
