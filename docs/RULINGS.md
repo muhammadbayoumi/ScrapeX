@@ -1358,6 +1358,273 @@ which gives a dataset card the `⋮` menu it can use. This ruling asks that menu
 per-dataset actions under one card, so building them apart would mean writing the menu
 twice — and a branch is inside `sourceMenu` as this is written.
 
+---
+
+### R-48 · The extension is the control room and the only interface; the engine executes and reports
+
+**2026-08-22 · architecture · records a decision of his that was never in this register**
+
+> «اصلا كان هناك خطة بفصل المحرك عن extension وتم تحديد دور كل منهم وتم اعتماد ان
+> extension هى المتحكم الرئيسى وان المحرك له مهام محددة فقط · راجع هذه النقطة لزيادة
+> التوثيق»
+
+**He is right on every count and the review found the gap is not the decision — it is
+where the decision lives.** [PLATFORM-PLAN.md](PLATFORM-PLAN.md) states it plainly and has
+since it was written:
+
+> *ScrapeX (extension) — the control room, and the only interface*
+
+and Decision 9 of that plan: *"Databases are **managed only through ScrapeX** — location,
+backup, restore, migration. **The controls live in the extension; Engine executes
+them.**"* The transports are separated too — control over native messaging, data over
+HTTP on `127.0.0.1` — and four rules are derived from it there.
+
+**SO WHY RECORD IT AGAIN HERE. Because `CLAUDE.md` sends every session to
+`docs/RULINGS.md` "before designing anything", and this decision was not in it.**
+`PLATFORM-PLAN.md` is a plan, indexed from `STATE.md` under its track, and `CLAUDE.md`'s
+map does not name it. A session designing a feature therefore never met the one decision
+that governs which side of the wire that feature belongs on. That is a filing defect of
+exactly the kind `C7` exists to prevent, one register over — and its cost is measurable.
+
+### Five requests of 2026-08-22 are one architectural debt, and none was recognised as such
+
+Every one of these was raised, measured and filed **as its own defect** before anyone
+noticed they are the same defect:
+
+| request | what it is, as a boundary violation |
+|---|---|
+| `REQ-38` | The panel sets a **10,000 ms** deadline on `POST /api/bundle`. The build measured **73 seconds**. The controller is sizing work only the executor can size — and the abort does not stop the engine, so it writes 314 MB and reports failure |
+| `REQ-39` | The extension holds the **only** Drive token and stores no answer. Nothing else can ask what Drive holds, so `R-43`'s "Drive is the source of truth for DATA" is unqueryable |
+| `REQ-35` | The panel **guesses** how the engine was started, from an empty version string. The engine knows and is never asked, so "running from source" renders as "Not detected" |
+| `REQ-32` / `R-45` | The row's record card — 967 lines — runs on the **engine's** HTML page and not in the panel. "The only interface" is not the only interface |
+| `REQ-07` / `DEC-8` | The engine still serves a complete data UI at `/source/{key}`. This is the migration that exists to end it, open since 2026-08-12 |
+
+**The pattern is one sentence: the boundary is decided and not enforced, and every
+violation costs him something he can see** — a button that cannot work, a healthy engine
+reported absent, a backup nobody can confirm, a feature that exists on the wrong side.
+
+### The rules that follow, stated so they can be tested
+
+`PLATFORM-PLAN.md`'s four rules are about data and transports. These four are about
+**authority**, which is what today's five violations each got wrong:
+
+1. **The engine is the authority on itself.** Its version, its run mode, its schema, its
+   health. The panel **reads** these; it never infers them from an absence. A guess is how
+   "running from source" became "Not detected".
+2. **Only the side doing the work may bound the work.** A deadline, a page size, a row cap
+   or a chunk size is the engine's to state and the panel's to respect — because only the
+   engine knows what a 1.18 GB warehouse costs. Where the panel must set one, it takes the
+   number from the engine.
+3. **Whoever holds the credential owes a report.** The extension alone can reach Drive, so
+   the extension alone can say what Drive holds — and it must record that where the engine
+   can read it, or the state dies with the panel.
+4. **A user-facing surface belongs in the extension.** The engine may keep pages for
+   development and for local tools; it may not be the place a capability *only* exists.
+   Every such page is a migration owed, and `REQ-07` is the standing one.
+
+### What this ruling does not do
+
+**It does not deprecate the engine's web UI**, and it must not be read that way. `DEC-8`
+measured that page as the SOURCE of the port — 3,212 lines of `grid.js`, of which about
+forty are data work — so it is the asset the migration spends, not debt to delete. The
+rule is that a capability may not live *only* there.
+
+**And it does not settle who runs a crawl.** Control is the extension's, execution the
+engine's, and the crawl is execution — but which registry a generic crawl belongs in is
+still open (`REQ-25`, and the question at the foot of `GENERIC-FETCH-SEAM.md`). This
+ruling narrows nothing that was open.
+
+**Filed with `CLAUDE.md`'s map corrected in the same commit**, per **C2**, so the next
+session meets the boundary in the register it is told to read rather than in a plan it is
+not told about.
+
+---
+
+### R-49 · `MIGRATION-PLAN.md` is the base plan, and its date is the test
+
+**2026-08-23 · architecture · settles seven recorded contradictions at once**
+
+> «دى الخطة الاساسية واى تعارض معاها قبل هذا التاريخ فهو تغير بعد هذا التاريخ اسالنى
+> عنه · التاريخ المقصود هو تاريخ الخطة»
+
+**The rule, stated so a session can apply it without him:**
+
+[MIGRATION-PLAN.md](MIGRATION-PLAN.md) is **the base plan**. Its date is
+**2026-08-12** — *"Drafted 2026-08-12. Every number here was measured today, not
+recalled."* (`MIGRATION-PLAN.md:22`; it reached the repository on 2026-08-15, and the
+drafting date is the one that counts).
+
+| the contradicting text is dated | what a session does |
+|---|---|
+| **before 2026-08-12** | **the plan wins.** Mark the older text superseded per `C4` and move on. Do not ask |
+| **after 2026-08-12** | **ask him.** Do not resolve it, do not pick the newer one by default |
+
+**Why this is worth a ruling rather than a note.** Two studies on 2026-08-23 returned
+**twenty recorded contradictions** about which side of the wire a responsibility belongs
+on, and every one of them was unanswerable by a session, because the repository holds
+several documents that each state a division of labour and **none of them cites or
+supersedes another**. This ruling makes the answerable ones answerable and leaves only
+the genuinely open ones on his desk. It is the same move as `R-02` — an un-computable
+mapping is his — applied to a pile rather than to one field.
+
+### Applying it, measured at LINE level rather than file level
+
+The dates below are **the age of the contradicting sentence**, not of the file that
+holds it. That distinction is the whole exercise: the first study dated text by each
+file's last commit and thereby **inverted the seniority** of two documents in its own
+headline finding, which its verifiers caught (`LESSONS.md` §7, the fourth shape).
+
+| contradicting text | dated | verdict |
+|---|---|---|
+| `PLATFORM-PLAN.md` §4's `fetch ─→ extract ─→ domain ─→ store`, all inside the engine | **2026-08-05** (file last touched 08-08) | **superseded** on the division of labour |
+| `PLATFORM-PLAN.md` Decision 25 — *"The second group is dead on a device with no engine installed"* | **2026-08-05** | **superseded**; also factually false for Data since 2026-08-12 (`REQ-40`) |
+| `PLATFORM-PLAN.md` Decision 9 — *"A browser extension cannot create a SQLite file"* | **2026-08-05** | **superseded** as a flat claim. The plan's own `C1` names `wa-sqlite + OPFS` as the thing that removes `127.0.0.1`, and the repository's spike then built the whole schema in OPFS |
+| `MASTER-PLAN.md` **Topology A** — the browser-native TS/MV3 extension as the public product, warehouse in `wa-sqlite` | **2026-07-18** (his own decision; file 07-19 → 08-05) | **superseded.** This closes `Q-6`, open since 2026-08-16, without asking him again |
+| `COMPATIBILITY.md:20-22` — *"A crawl job belongs to the Local Runtime, not to the Side Panel lifecycle"* | **2026-07-19** (single commit) | **not a conflict.** The plan agrees — *"Jobs stay in the engine"* (`:61`) — so the older text stands where it does not contradict |
+| `GENERIC-FETCH-SEAM.md:11-12` — the HTML is handed in *"by the panel capturing the page the user is looking at"*, i.e. **fetch on the panel** | **2026-08-09** | **superseded.** The plan keeps *fetching* in the engine. Its `extract`-is-the-engine's half is untouched |
+| `ENGINEERING.md:61` (S2) — *"All parsing/normalization in pure JS modules"*, i.e. extract on the extension | **2026-07-18**, the initial commit | **superseded.** And note: the first study called this the *newer* text and built a headline on it. It is the oldest line in the comparison |
+| `./README.md:121` — the engine's read-only browse UI, documented as a feature | **2026-07-18** | **superseded** as a statement of where the interface belongs; still true as a description of what exists |
+| `./README.md:107` — *"The owner ruled on 2026-08-11 that the engine fetches data and saves it locally"* | **2026-08-12** (`8272bf3`, #165) | **not a conflict — it agrees**, and it is the same day. This is the text closest to «المحرك مهمته fetch» |
+
+**Nine items, and not one of them needed him.** Eight are superseded by his rule; one
+was never a conflict. That is what the ruling bought.
+
+### The one thing it does NOT settle, and it is now the only open question of the set
+
+`R-48`'s rule 4 is dated **2026-08-22**, which is **after** the base plan:
+
+> *"A user-facing surface belongs in the extension. The engine may keep pages for
+> development and for local tools; **it may not be the place a capability only
+> exists.**"*
+
+Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
+
+> *"Export stays in the engine — it is SQL over SQLite, not a file move."*
+
+**Export is a user-facing capability that exists only in the engine today**
+(`scrapex/webui/app.py:1193`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+are his, the newer one contradicts the older, and **the rule says a newer conflict is
+his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
+engine` (`:61`) is the same shape and rides with it.
+
+### What this ruling does not do
+
+**It does not make the base plan correct about facts.** The plan's own banner records
+two of its statements that measurement overturned, and `REQ-40` records a third: its
+`C1` points at `wa-sqlite`, the library the repository's own OPFS spike calls *"the one
+part that is simply the wrong choice."* **Seniority settles a conflict of intent; it
+never settles a question of measurement** — a newer number beats an older number
+regardless of which document holds it, and that is not what this ruling is about.
+
+**And it does not retire the older documents.** Per `C4` the superseded text stays in
+place, marked, pointing here. A reader needs to see that the four-stage diagram was
+once the plan in order to understand why the code still looks like it.
+
+---
+
+### R-50 · The engine is a helper to the extension, and any task the extension CAN do moves to it
+
+**2026-08-23 · architecture · gives the boundary a test, and supersedes part of the base plan**
+
+> «قاعدة البيانات موجودة على الجهاز والمحرك معطوب افشل فى التصدير هذا غير مقبول · ثانيا
+> قاعدة البيانات موجودة وانا مش عارف اتصفح ايضا مرفوض · ولذلك هذه الادوات تنقل الى الاداة
+> طالما يمكن استخدامها · المحرك اداة مساعدة للاداة وليس الشى الرئيسى اذا اى مهمة تستطيع
+> تنفيذها الاداة تنقل لها»
+
+**He was asked one question and answered a larger one.** The question was narrow: `R-48`'s
+rule 4 (*"it may not be the place a capability only exists"*, 2026-08-22) contradicts the
+base plan's *"Export stays in the engine"* (`MIGRATION-PLAN.md:60`, 2026-08-12), and
+[R-49](#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test) sends a
+post-dated conflict to him. **This is the answer, and it is the general rule two studies
+and thirty-eight measured responsibilities had failed to produce.**
+
+### The rule
+
+> **The engine is a helper to the extension, not the main thing. Any task the extension
+> CAN perform, moves to it.**
+
+**The test is CAPABILITY, not category.** Every previous attempt at this boundary asked
+*which layer does this belong to* — control against execution, interface against data,
+fetch against display — and every one of them produced a table that contradicted another
+table. His test asks one question of each responsibility: **can the extension do this?**
+If yes, it moves. If no, the engine keeps it and that is the *only* reason the engine
+keeps anything.
+
+### The two failures he named, in his own words, and they are the whole justification
+
+| what he said | why it settles the question |
+|---|---|
+| *"the database is on the machine and the engine is broken, so I fail to export — **this is unacceptable**"* | Export is a read of a file that is sitting on his disk. A broken helper must not stand between him and his own data |
+| *"the database is there and I cannot browse — **also refused**"* | Same shape, and it is `REQ-40`'s premise stated as a verdict rather than a request |
+
+**Both were live on 2026-08-23 when he said it.** The engine he had installed could not
+serve a page at all — `packaging/build_engine.py` bundled two data directories and the
+runtime opens five — so *"the engine is broken and I cannot export"* was not hypothetical.
+He was describing his own machine.
+
+### What it supersedes, per C4
+
+**`MIGRATION-PLAN.md:60` — *"Export stays in the engine — it is SQL over SQLite, not a
+file move"* — is superseded as a statement of WHERE THE CAPABILITY LIVES.** Its
+engineering observation stays true: export *is* SQL over SQLite. What no longer follows is
+that the engine may be the only place it exists.
+
+**And the reasoning that produced it is the trap this ruling closes.** *"It is SQL over
+SQLite, not a file move"* is an argument about **implementation**, and it was used to
+answer a question about **ownership**. Under `R-50` those are separate: the engine may
+still execute the query, and the capability may not live only there. `Jobs stay in the
+engine` (`MIGRATION-PLAN.md:61`) is the same shape and is now open to the same test —
+**but it was deferred by him personally, so it needs his word and not this rule's.**
+
+### How a session applies it, and what it costs
+
+Ask of each responsibility, in this order:
+
+1. **Can the extension do it at all?** Not *should* — *can*. Answer with a measurement,
+   not an opinion: the repository's own OPFS spike (`spikes/opfs-sqlite/FINDINGS.md`) is
+   what that kind of answer looks like.
+2. **If it cannot, the engine keeps it** — and the reason is recorded as a technical
+   limit, so the day the limit lifts the row is revisited rather than inherited.
+3. **If it can, it moves** — and until it has moved, the engine's copy is a **migration
+   owed** and is named as one (`R-48` rule 4).
+
+**This reverses the direction of the whole inventory.** The thirty-eight-responsibility
+table produced on 2026-08-23 assigned twenty-two to the engine, and it assigned them by
+asking where each one *belongs*. Every one of those twenty-two must now be re-asked as
+*can the extension do this*, and the answer for many of them is a measurement nobody has
+taken.
+
+### What this ruling does NOT say
+
+**It does not say the engine stops doing these things.** A helper that does the work is
+still the helper doing the work. What it forbids is the engine being the **only** place a
+capability exists — which is `R-48` rule 4, now with a test attached.
+
+**It does not settle the fetch boundary.** The engine reaches sites the extension has no
+host permission for, and that is a genuine *cannot*. `R-50` is why it stays, and gives it
+a better reason than seniority.
+
+**And it is NOT discharged by making the engine start.** The session that found the
+packaging defect said so itself, unprompted, and it is the sharpest reading of this ruling
+anyone has offered: *"I made the engine start. My change removes today's cause; it does not
+remove the coupling."* `engine-v0.3.1` fixes **why** the engine was broken this morning. It
+does not touch the fact that **a broken engine takes the export down with it**, which is the
+thing he called unacceptable. A session reading this ruling beside that merge could easily
+conclude the matter is closed. **It is not, and the distinction is cause against coupling.**
+
+**And it does not license a rebuild.** `DEC-8` measured the engine's data page as the
+SOURCE of the port — 3,212 lines of `grid.js`, about forty of them data work — so moving a
+capability means **porting the asset**, not writing a second one. `R-50` decides *where*,
+never *how*.
+
+### The mechanism that produced this ruling, recorded because it worked
+
+`R-49` was written an hour before this one and its whole content is a routing rule: older
+conflicts are superseded, newer ones go to him. **It routed exactly one question out of
+twenty, he answered it, and the answer turned out to be the general rule.** That is the
+argument for `R-49` and for `C3` together — the pile was unanswerable until the one
+genuinely open item in it was isolated and put in front of him alone.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**

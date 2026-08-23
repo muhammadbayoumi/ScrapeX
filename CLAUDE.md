@@ -119,12 +119,20 @@ file: «ولها الحق انها تطور workflow لتجنب المشاكل �
 | [docs/BACKLOG.md](docs/BACKLOG.md) | what *we* found — open problems, declared debt, decided-not-built, questions for him | when hunting for what needs doing |
 | [docs/LESSONS.md](docs/LESSONS.md) | hard-won engineering knowledge — the traps that cost real time, the failures that are silent | before touching ingest, the warehouse, the design system, or the version ledger |
 | [docs/APPROACHES.md](docs/APPROACHES.md) | **the methods available** for writing code and solving problems, and which wins where two disagree | when choosing how to attack a task |
+| [docs/PLATFORM-PLAN.md](docs/PLATFORM-PLAN.md) | **the architecture** — the extension is the control room and the only interface, the engine executes; the two transports, and the axes that must never collapse | before designing anything that spans the two, with [R-48](docs/RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports) |
 | [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md) | **how the primary session runs several sessions and agents at once** — the merge sequence, register numbers, rescuing unsaved work, and what a green is allowed to mean | before spawning a session, claiming a register number, or merging anything |
 | [ENGINEERING.md](ENGINEERING.md) | the code rules — architecture, quality, testing, performance | before writing code |
 | [docs/plans/](docs/plans/README.md) | the plans, current and historical | when picking up a track |
 
+The measurement behind [R-49](docs/RULINGS.md#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test)
+and [R-50](docs/RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+is [docs/ENGINE-ROLE-MEASURED.md](docs/ENGINE-ROLE-MEASURED.md) — every engine route,
+native command and CLI subcommand measured against the code, and the four-question boundary
+test. **It is a snapshot at `31c369e` and says so**, which is why its citations are checked
+against that commit and not against `HEAD`.
+
 Other long-standing documents — `docs/MIGRATION-PLAN.md`,
-`docs/COMPATIBILITY.md`, `docs/PLATFORM-PLAN.md`, `docs/GENERIC-FETCH-SEAM.md`,
+`docs/COMPATIBILITY.md`, `docs/GENERIC-FETCH-SEAM.md`,
 `docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md`, `docs/BALADY-ENG-OFFICES.md`,
 `docs/UAE-SOURCES.md`, `docs/GULF-EGYPT-SOURCES.md`, `docs/DIESEL-PRICES.md`,
 `docs/BITUMEN-PRICES.md`, `docs/CONCRETE-MATERIALS.md` — are indexed from

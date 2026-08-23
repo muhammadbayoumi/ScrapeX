@@ -183,6 +183,18 @@ measurements that outlived their base**.
 on `main`; `REQ-30` is its root and is truthful until then."* A note that fixes itself is
 one nobody has to remember.
 
+**And cite the SENTENCE, not the file.** Paste the words you are relying on beside the
+reference, so a reader comparing the two can see in one glance whether the source
+supports the claim. This is the only remedy that works on all four shapes of a wrong
+citation (`LESSONS.md` §7), and it costs nothing.
+
+**It is also the one thing `PINNED` structurally cannot express.** A `PINNED` row proves
+a symbol sits on a line; it never proves the *document's claim* about that line. So a
+paragraph can be pinned, green, and wrong about what it cites. Measured the same day: an
+entry that quoted *"a generic dataset is a table like any other table"* beside
+`scrapex/webui/app.py:1048` survived two rebases which moved that line twice — the quoted
+fragment, not the number, is what made it recoverable.
+
 ---
 
 ## 5 · Never lose work: commit before you verify
@@ -213,6 +225,91 @@ git -C <worktree> push origin refs/safety/<name>-<date>:refs/heads/safety/<name>
 Then tell that session exactly what you did and that its index is untouched. Also push
 any **unpushed commit** on a branch nobody has pushed — a whole commit living in one
 worktree is as fragile as an index.
+
+### Make the green carry its own proof, rather than asking a person to check
+
+§7 below says a green must describe the tree that gets committed, and §5 says commit
+before you verify. **Both were written as advice that asks someone to remember** — and
+the session that wrote them broke them four times in one afternoon: twice by rebasing
+mid-suite, once by editing the tree mid-run, and once by never committing at all.
+
+A session fixed that by moving the check into the artefact. Record these five facts
+**before** the run starts, and a green that is about the wrong tree becomes visible
+instead of plausible:
+
+```bash
+# ONE FILE PER RUN, NAMED FOR THE COMMIT. Never a fixed path -- see below.
+head=$(git rev-parse --short HEAD)
+RUN="run-${head}-$(date -u +%Y%m%dT%H%M%SZ).log"
+
+# REFUSE a second concurrent run rather than interleave into one artefact.
+# `mkdir` is atomic; a plain -f test is not.
+mkdir .suite.lock 2>/dev/null || { echo "another run holds .suite.lock"; exit 1; }
+trap 'rmdir .suite.lock' EXIT
+
+# A stale .pyc kept a mutation alive through a byte-identical restore -- see §7.
+find . -name '*.pyc' -delete 2>/dev/null
+
+newest_edit=$(git ls-files -z | xargs -0 -n 500 stat -c '%Y %n' 2>/dev/null \
+              | sort -rn | head -1)
+started=$(date -u +%s)
+{
+  echo "head:        $(git rev-parse HEAD)"
+  echo "base:        $(git rev-parse origin/main)"
+  echo "worktree:    $(git status --porcelain | wc -l) uncommitted lines"
+  echo "newest edit: ${newest_edit}"
+  echo "started:     ${started} ($(date -u -d "@${started}" +%Y-%m-%dT%H:%M:%SZ))"
+  echo "---"
+} > "$RUN"          # <- the header goes in the SAME file as the result
+
+SCRAPEX_FULL_MIGRATIONS=1 python -m pytest -q >> "$RUN" 2>&1
+status=$?           # <- the line IMMEDIATELY after pytest, nothing in between
+printf 'PYTEST_EXIT=%s\n' "$status" >> "$RUN"
+```
+
+**THE INVARIANT: a green is only a green if `started` > `newest edit` AND `worktree`
+reads 0.** Either one false and the run describes a tree nobody is merging. Both facts
+are in the artefact, so nobody has to remember to look — which is the whole difference
+between a rule and a guard.
+
+`status=$?` on the line immediately after `pytest` is not style. `cmd; echo "exit=$?"`
+in a compound reports the **echo**'s status, and that read as green here with two real
+failures in it.
+
+**Two portability notes, because a block in a document gets copied:**
+
+- `stat -c` and `date -u -d @…` are **GNU** forms. Correct on Git Bash under Windows and
+  on Linux CI — this project's only two environments — and they fail on BSD/macOS.
+- `xargs -0 -n 500` batches deliberately. Without `-n`, `git ls-files -z | xargs -0 stat`
+  builds one argument list from every tracked file; it works while the repository is
+  small and is **one `ARG_MAX` away from silently returning nothing**, which empties
+  `newest_edit` and makes the check vacuous. That is the same failure family as
+  everything else on this page: **a check that reads as passing because its input
+  disappeared.** The session that contributed this block found the gap in its own
+  runner while generalising it.
+
+**And two defects that were in THIS BLOCK as first written, found by the session that had
+to live with it.** Both are corrected above; they are recorded here because a document
+that quietly fixes itself teaches nobody.
+
+- **Never a fixed log path, and put the header in the same file as the result.** The first
+  version wrote `$OUT`, `$EXIT` and `$META` to three fixed paths and truncated them on
+  start. **Measured 2026-08-23: two runs of two different commits interleaved into one
+  file**, both appending after a second truncation, leaving *two* `PYTEST_EXIT` lines.
+  Reading the tail gave `1`; the task notification for that run reported `0`. **Neither
+  reading was attributable and the history was gone, because the successor had overwritten
+  it.** A fixed log path is a measurement whose base its own successor erases — the exact
+  failure this block exists to prevent, occurring inside the block. The session quoted a
+  figure from that log to the primary before catching it and then **withdrew it
+  unprompted**, which is the only reason the defect is known at all.
+- **A field that can only ever read zero is worse than no field.** Rebuilding the runner,
+  that session added a `concurrent pytest processes` count so contention would be visible.
+  On its first run the field read **0** while two other sessions' suites were demonstrably
+  live: `ps -W` under Git Bash reports **executable names and never arguments**, so a grep
+  for `pytest` matches nothing, always. It was caught by cross-checking against the Windows
+  process list rather than trusting a brand-new instrument. **A field added to make a run
+  trustworthy became the least trustworthy thing in it.** So when you add a check, make it
+  FAIL on purpose first — otherwise you have added a decoration.
 
 **Audit for this rather than waiting for it.** One command over every worktree:
 
@@ -271,6 +368,56 @@ before pushing. That is minutes against a round trip, and it is the single bigge
 throughput win available.
 
 ---
+
+### Escalate on suspicion, resolve on evidence
+
+**A primary that only escalates when it is certain will be silent exactly when it
+matters.** A suspicion about a merge is worth a message the moment it exists — the cost of
+being wrong is one command from the session you asked, and the cost of being right and
+quiet is a silently reverted change nobody re-reads.
+
+**And a secondary that acts on an escalation without checking turns one session's
+inference into two sessions' fact.** That is the direction the damage actually runs.
+
+**Measured, 2026-08-23.** A secondary reported that `docs/ORCHESTRATION.md` was absent
+from the citation guard's `DOCUMENTS`. The primary inferred that a rebase had reverted an
+already-merged change and escalated hard, telling it to stop before pushing. **The
+inference was wrong** — the entry was on `main`, and it appeared in the secondary's own
+diff as a *context* line, not an addition. The secondary answered with
+`git diff origin/main -- <file>`, three hunks, all deliberate, nothing reverted.
+
+**And the alarm still paid for itself, which is the point.** The check found a *different*
+and worse defect than the one alleged: a **confident false comment**, claiming the entry as
+that change's work and asserting the list *"did not"* carry the document — sitting four
+lines under `main`'s comment saying the opposite. It would have merged, because nobody
+re-reads a comment. The same false premise had already reached a `LESSONS` section as
+*"eight markdown files"* against a tuple of nine.
+
+> **The failure mode this pairing prevents is not the wrong alarm. It is the RIGHT alarm
+> acted on without a check.**
+
+**The corollary, and it is the cheaper half of both episodes:** the reflex to be careful is
+not the same as being careful, and the difference is usually one command.
+`git show origin/main:<file> | grep` answers *"is it already there?"*.
+`git diff origin/main -- <file> | grep '^@@'` answers *"will this conflict?"*. Both are
+cheaper than the deliberation they replace, and on the same day one session deliberated
+twice over questions either command would have closed.
+
+**Two more rules that fall out of it, both learned the expensive way the same day:**
+
+- **Verify the OUTCOME, not the script — then verify the verifier.** A script that silently
+  did nothing reads perfectly, so re-reading it proves nothing; only the resulting file
+  answers. `str.replace` returns the original on no match, and an unconditional `print`
+  above it will announce a change that never happened. **Every edit script in that change
+  opened with `assert s.count(old) == 1` except one, and the one without it is the one that
+  lied.** When the primary then audited its own ten edits of the day by grepping the files
+  rather than re-reading the scripts, nine confirmed and the tenth reported missing — a bug
+  in *the checker*, a search string spanning a line break that could never match. **A false
+  alarm costs trust the way a false pass costs correctness.**
+- **A right check pointed at the wrong object returns a green you did not ask for.** That
+  secondary correctly tested *"would adding this break anything"* and needed *"is it
+  already there"* — and the guard answers the first identically whether the entry is present
+  or absent, because an unlisted document is simply never scanned.
 
 ## 8 · Delegating: a brief is not a record
 
