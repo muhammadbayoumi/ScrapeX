@@ -29,7 +29,16 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .. import bundle, compaction, localinbox, nativehost, pricehistory, rates, retention
+from .. import (
+    bundle,
+    compaction,
+    localinbox,
+    nativehost,
+    pricehistory,
+    provenance,
+    rates,
+    retention,
+)
 from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
@@ -1676,7 +1685,17 @@ def create_app(
                 # None when the database is level with the code, which is the
                 # normal case — so the panel shows nothing rather than a badge
                 # that is always there and therefore never read.
-                "schema_lag": schema_lag}
+                "schema_lag": schema_lag,
+                # IS THE CODE BEHIND THE DISK? `schema_lag` above asks whether the
+                # DATABASE is behind the code, and it was written because a lag the
+                # engine can measure must not be something the owner discovers from
+                # a stack trace. This is the same sentence about the other pair, and
+                # it had no answer at all until 2026-08-23: `version` above says
+                # "0.3.0" for ten different trees, so it can say what this engine
+                # ADVERTISES and never what it IS. The compact form rides the timed
+                # poll; the module list is on /api/version with the ledger, for the
+                # reason stated there.
+                "build": provenance.summary()}
 
     @app.get("/api/version")
     def api_version(extension_version: str | None = None):
@@ -1699,9 +1718,17 @@ def create_app(
         try:
             # An absent or empty parameter is "the caller did not say", which is
             # a different answer from "the caller said something unreadable".
-            return version_report(extension_version or None)
+            report = version_report(extension_version or None)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        # WHAT THIS ENGINE IS, beside what it advertises. Every number above is a
+        # declaration read out of `scrapex/version.py`; this is the only field on
+        # either endpoint that is MEASURED from the running process. It carries the
+        # changed-module list that `/api/health` deliberately leaves out, because
+        # this endpoint is fetched once rather than polled — the same split the
+        # capability ledger already makes.
+        report["provenance"] = provenance.report()
+        return report
 
     @app.get("/api/features")
     def api_features():
@@ -3468,6 +3495,13 @@ def create_app(
             "notices": list(r.notices),
         }
 
+    # WHICH CODE IS THIS PROCESS RUNNING? Sealed HERE, on the last line before the
+    # app is handed to the server, because this is the moment every module the
+    # engine will serve with has been imported and none of them can have changed
+    # yet. Sealing earlier misses `webui.app` itself — the module the incident of
+    # 2026-08-23 was actually about; sealing later takes the baseline after the
+    # edit it exists to notice. See `scrapex/provenance.py`.
+    provenance.seal()
     return app
 
 

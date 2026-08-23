@@ -89,7 +89,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 | [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
 | [REQ-33](#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) | The dataset cards said "no successful crawl yet" over 17,304 crawled rows | **Done** — the date is derived from the evidence; the two registries stay his | 2026-08-22 |
-| [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **Captured** — the engine knows how it was started and never reports it | 2026-08-22 |
+| [REQ-35](#req-35--the-card-must-say-the-engine-is-running-from-source-not-that-it-is-missing) | The card must say the engine is running from source, not that it is missing | **In flight** — the engine now reports its run mode and commit; the check-window wording is still owed | 2026-08-22 |
 | [REQ-36](#req-36--the-three-dots-are-missing-on-a-contractor-card-and-unprofessional-on-the-others) | The three dots are missing on a contractor card, and unprofessional on the others | **In flight** — a session is measuring which treatment he means before restyling | 2026-08-22 |
 | [REQ-37](#req-37--one-card-per-site-and-its-crawls-are-options-under-it--the-way-gpp-does-it) | One card per site, and its crawls are options under it — the way GPP does it | **In flight** ([R-47](RULINGS.md#r-47--muqawil-is-one-card-with-two-crawls-and-the-two-stored-datasets-stay-two)) — muqawil is ONE card and the population is stated once; the two crawl OPTIONS are blocked on a panel path to a dataset crawl ([OP-52](BACKLOG.md)) | 2026-08-22 |
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
@@ -1348,7 +1348,7 @@ install page beside the first:
 | an action whose label says what it will do | **built** — the button reads `Update to 1.0.2` when a version is installed |
 | what it will refuse to talk to | **built** — `protocol_version` and `minimum_extension_version` are published beside the release and read *before* installing |
 | release-feed polling that survives a CDN and a rate limit | **built** — `extension/releases.js`, minute-bucket cache key, own timeout, four named states |
-| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3565`) |
+| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3621`) |
 | diagnostics, a setup guide, copyable technical details | **built and wired** |
 | **download progress** | **CANNOT BE BUILT AS IT STANDS** — see below |
 | **verifying the checksum it displays** | **never checked — the SHA-256 on screen is decorative** — nothing compares anything to it |
@@ -1364,7 +1364,7 @@ installer does:
     manifest.json permissions: activeTab, identity, nativeMessaging,
                                sidePanel, storage, tabs        <- no `downloads`
 
-    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3564
+    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3620
 
 It hands a URL to the browser and lets go. It cannot show progress, it cannot read
 the file off disk to hash it, and it can never launch a process. **So the panel can
@@ -1633,7 +1633,7 @@ queue is still the open question at the foot of that document. The measurement, 
 four findings it produced and the mutation results are in
 [BACKLOG.md](BACKLOG.md) as `OP-44`.
 ## REQ-35 · The card must say the engine is running from source, not that it is missing
-**Captured 2026-08-22 · Not built**
+**Captured 2026-08-22 · In flight — partly built**
 
 > «المحرك يعمل الان عن طريقك ويتجدد باستمرار لاننا نطوره · انا عاوز طريقة توضح فى الكارد
 > ان المحرك غير مثبت على الجهاز ولكنه يعمل فى نظام developer · ويظهر المحرك يعمل»
@@ -1659,7 +1659,7 @@ in `/api/health` reports **how** this engine is running.
 
 **So the shape is: the engine reports its own run mode, and the panel has a third
 word.** Not the panel guessing from an empty version string, which is what it does
-now (`extension/app.js:3484` on empty `state.engineVersion`) — a guess is how
+now (`extension/app.js:3526` on empty `state.engineVersion`) — a guess is how
 "running from source" became "not detected" in the first place.
 
 **And it is not cosmetic.** He works from two machines and the update path is real:
@@ -1670,6 +1670,33 @@ update that would overwrite his checkout.
 
 **Blocked on nothing.** It is one field on an endpoint the panel already polls, plus
 the words on the card.
+
+**THE FIELD IS BUILT; THE WORDS ARE HALF BUILT. And the cause named above is wrong —
+kept rather than erased, per `C4`, because the mistake is instructive.** Measured
+2026-08-23 against the live engine on port 8000:
+
+| asked | answer |
+|---|---|
+| `GET /api/health` version | **`"0.3.1"`** — not empty, and never was |
+| how long it took | **486 ms**, against a 2,500 ms deadline |
+| top-level keys | **11**, and **none states how the engine was started** |
+
+So the paragraph above is right that the panel has no word for developer mode, right
+that the engine knows and is never asked, and **wrong about the mechanism**. The panel
+is not guessing from an empty version string the engine sent. `state.engineVersion` is
+empty because **no answer has arrived yet**: `setEngineChecking()` renders the spec
+rows before the request returns, so *Installed version — Not detected* appears during
+**every check window on a perfectly healthy engine**, then is overwritten ~half a
+second later. That is a render-ordering defect and it is **not fixed** by the
+provenance work.
+
+**What was built** (`scrapex/provenance.py`, `LESSONS` §14): `/api/health` now carries a
+`build` block stating `mode` — `source` or `frozen` — with the commit the process
+started on, and the panel renders it as a **Build** row under *Installed version*. So
+"running from source" now has a word, which is the request's substance. **What is
+not:** the words *Not detected* still flash during the check window, because that
+sentence is written before any answer exists to render. **Partly closed, and the
+remaining half is a two-line guard on the render, not a new field.**
 
 ---
 

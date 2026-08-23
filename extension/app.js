@@ -110,6 +110,9 @@ const state = {
   // browser right now, which is exactly as long as this panel lives.
   signedOutAccounts: new Set(),
   installedVersion: "", engineVersion: "", versionReport: null,
+  // What the engine says it IS, as opposed to the number it advertises. `null`
+  // means no engine has answered, or one answered that predates the field.
+  engineBuild: null,
   versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
@@ -501,6 +504,11 @@ function setStatus(engine) {
     : engine.timedOut ? "timeout"
     : engine.reachable ? "stopped" : "unavailable";
   state.engineVersion = engine.version || "";
+  // KEPT WHOLE, and not reduced to a boolean here. `mode`, `stale` and `moved`
+  // are three separate answers and one of them is legitimately unknown on an
+  // installed build — collapsing them at the door is how `null` becomes `false`
+  // and an honest "cannot know" turns into a claim.
+  state.engineBuild = engine.build || null;
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
   // exactly one place: the Diagnostics output, which only appears when someone
@@ -3475,6 +3483,40 @@ function engineProtocolText() {
   return String(state.engineProtocol);
 }
 
+// THE THIRD WORD REQ-35 ASKS FOR, and the answer to the 2026-08-23 incident.
+//
+// "Installed version 0.3.0" is true of three different things — the published
+// build, a checkout sitting on that tag, and a process still running that tree
+// while the disk moved on — and the owner met the third one while his panel told
+// him a 17,304-row dataset had never been crawled. So the engine now reports what
+// it IS and this function turns that into the words on the card.
+//
+// NOTHING IS INFERRED FROM AN ABSENCE. An engine that reports no build block is an
+// engine from before the field existed, not an engine in trouble: it gets "Not
+// reported", the same treatment `engineProtocolText` gives a missing protocol. And
+// `stale === null` — an installed build, which genuinely cannot compare itself to a
+// source tree it does not have — renders as the mode alone with no verdict, because
+// a verdict there would be a guess dressed as a measurement.
+function engineBuildText(build) {
+  if (!build) return { value: "Not reported", verdict: "", detail: "" };
+  const short = build.commit ? String(build.commit).slice(0, 7) : "";
+  if (build.mode === "frozen") {
+    return { value: short ? `installed · ${short}` : "installed build",
+             verdict: "", detail: build.detail || "" };
+  }
+  if (build.mode !== "source") {
+    return { value: "Unknown", verdict: "", detail: build.detail || "" };
+  }
+  const value = short ? `source · ${short}` : "source";
+  // Two different reasons to restart, and the sharper one wins the badge: code
+  // this engine LOADED has changed, which is the defect that cost the owner a
+  // wrong belief about his data. A checkout that merely moved is a weaker signal
+  // and says so in its own words.
+  if (build.stale === true) return { value, verdict: "Restart needed", detail: build.detail || "" };
+  if (build.moved === true) return { value, verdict: "Checkout moved", detail: build.detail || "" };
+  return { value, verdict: "", detail: "" };
+}
+
 // THE COMPATIBILITY PARAGRAPH IS GONE, not moved. It said the mismatch a second
 // time in a `.notice` class no loaded stylesheet defined, so it rendered as bare
 // text; the banner now carries `data-tone="danger"` and the Protocol row states
@@ -3483,6 +3525,20 @@ function renderEngineStatusUI() {
   const installed = state.engineVersion || "";
   $("engine-installed-version").textContent = installed || "Not detected";
   $("engine-protocol-row").textContent = engineProtocolText();
+  const build = engineBuildText(state.engineBuild);
+  $("engine-build-value").textContent = build.value;
+  $("engine-build-detail").textContent = build.detail;
+  const buildBadge = $("engine-build-verdict");
+  buildBadge.textContent = build.verdict;
+  // `off` IS THE AMBER BADGE and it is the only amber one there is: the kit
+  // defines `.badge`, `.badge.ok`, `.badge.off` and `.badge.danger` and NOTHING
+  // ELSE (design/components.css:618-650). `badge warn` was written here first and
+  // would have rendered as the plain grey one — the identical failure to the
+  // `.notice` class in the comment below, which no loaded stylesheet defined and
+  // which therefore said nothing at all. A new variant is four edits and a palette
+  // sweep (docs/LESSONS.md §5); amber already means "attend to this".
+  buildBadge.className = build.verdict === "Restart needed" ? "badge off" : "badge";
+  buildBadge.classList.toggle("hidden", !build.verdict);
   // The version beside the name on the catalogue row: shown only when there IS
   // one, because an empty `.tech` chip beside a name reads as a missing value
   // rather than as an engine nobody has installed.
@@ -3707,7 +3763,8 @@ function renderEngineDetail(id) {
     ? SCRAPEX_ENGINE.sub : "Candidate backend · not installable yet";
   $("engine-licence").textContent = engine.licence;
 
-  for (const row of ["engine-spec-installed", "engine-spec-latest",
+  for (const row of ["engine-spec-installed", "engine-spec-build",
+                     "engine-spec-latest",
                      "engine-spec-protocol", "engine-spec-power"]) {
     $(row).classList.toggle("hidden", !installed);
   }
@@ -3796,6 +3853,13 @@ async function copyEngineDetails() {
   const lines = [
     `Status: ${$("engine-status").textContent}`,
     `Installed version: ${$("engine-installed-version").textContent}`,
+    // THE LINE THAT WOULD HAVE ENDED THE 2026-08-23 INVESTIGATION IN ONE PASTE.
+    // This block is what he copies when something looks wrong, and on that
+    // morning every line in it was true and none of them said the engine was
+    // serving a tree the disk had left behind three minutes after it started.
+    `Build: ${$("engine-build-value").textContent}`
+      + `${$("engine-build-verdict").textContent
+            ? " — " + $("engine-build-verdict").textContent : ""}`,
     `Latest version: ${$("engine-latest-version").textContent}`,
     `Protocol: ${$("engine-protocol-row").textContent}`,
     `Backend: ${backend}`,

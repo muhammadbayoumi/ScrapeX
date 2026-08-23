@@ -167,6 +167,13 @@ RESERVED: dict[str, dict[int, str]] = {
     # Each row is deleted by whichever pull request follows its holder's merge, per the
     # rule above — NOT by this branch, which merges before both and would otherwise leave
     # a real hole undeclared.
+    # 60 AND 61 WERE HERE AND ARE NOT ANY MORE. #265 created both rows, naming this
+    # very branch as their holder, and #265 has merged — so by this file's own rule
+    # ("delete a row the moment its PR lands... unless the branch that fills the
+    # number has already merged") the branch that FILLS them deletes them, which is
+    # this one. `OP-60` and `OP-61` are now DECLARED in docs/BACKLOG.md, and a number
+    # that is reserved AND declared fails test_a_reserved_number_is_not_also_declared.
+    # Nothing else was touched.
     "OP": {
         45: "branch claude/drive-without-a-server",
         # 49 AND 50 ARE NEW ON THIS BRANCH AND NOT NEW IN THE WORLD. The Drive
@@ -177,70 +184,6 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
-        # 60, 61 AND 62 ARE THIS BRANCH'S HOLES, created when it took `OP-63` after
-        # #261 declared 53..59. Two of the three name a ref because a SWEEP found
-        # them, and that sweep is the point of this comment.
-        #
-        # THE PRIMARY HANDED OUT TWO COLLIDING NUMBERS IN ONE DAY — 60, then 61 —
-        # and said so, from the session that owns `ORCHESTRATION.md` §3. Its tables
-        # covered the branches it knew about; this branch was in neither. What found
-        # the second collision was a third session sweeping the highest declared
-        # `OP` across EVERY ref instead of across a named list:
-        #
-        #   git for-each-ref --format='%(refname:short)' refs/remotes/origin \
-        #     | while read -r r; do git show "$r:docs/BACKLOG.md" 2>/dev/null \
-        #       | grep -oE '^#{2,4} +OP-[0-9]+'; done | sort -u
-        #
-        # RUN INDEPENDENTLY HERE BEFORE ACCEPTING 63, and it confirmed the handover
-        # rather than resting on it: `feat/the-engine-knows-which-code-it-is-running`
-        # declares BOTH 60 and 61 on `origin`, and no ref anywhere declares 62 or 63.
-        # **A number you were handed is provisional until you have swept for it** —
-        # which is §3's "an unpushed claim is invisible and still real" arriving from
-        # the other direction: a PUSHED claim is visible and still missed, if you look
-        # at a list of branches instead of at all of them.
-        # 62 IS THE WEAK ROW AND SAYS SO. A third session holds it on the primary's
-        # word and **no ref carries it** — the sweep above found nothing above 61
-        # anywhere. So this row cannot name the branch §3 requires, and inventing one
-        # would be worse than admitting the gap. It carries an action rather than a
-        # claim: replace it with the ref the moment that holder pushes, or delete it
-        # if 62 turns out free. Do not leave it standing on a session that has ended
-        # — that is the wart the paragraph above this dict was written about, and it
-        # passed every guard the whole time it was wrong.
-        #
-        # AND 62 IS NOT RESERVED HERE. It was this branch's third hole, and
-        # #265 has since MERGED it — `OP-62 · The published engine could not
-        # serve one page` is declared on `main`. A row for a declared number
-        # fails `test_a_reserved_number_is_not_also_declared`, and this file's
-        # own rule says delete a row the moment its pull request lands.
-        # 60 AND 61, HELD ELSEWHERE, AND THIS BRANCH LANDS `OP-62` OVER THEM. Both
-        # are declared on `feat/the-engine-knows-which-code-it-is-running`, pushed:
-        # `OP-60 · A frozen engine cannot name the commit it was built from` and
-        # `OP-61 · A continuation citation is invisible to the citation guard`. Read
-        # them back with
-        #   git grep -E "^#{2,4} +OP-"         #     origin/feat/the-engine-knows-which-code-it-is-running -- docs/BACKLOG.md
-        #
-        # 60 WAS HANDED TO THIS BRANCH AS FREE, twice, by a session that had checked
-        # `main` and not the branches in flight. `main` really does run unbroken to 59
-        # -- the number was gone in a place `main` cannot see, which is the entire
-        # reason §3 of ORCHESTRATION.md says a claim can be real and invisible.
-        60: "branch feat/the-engine-knows-which-code-it-is-running",
-        # 61 WAS A DUPLICATE AND HAS BEEN RULED, TO THIS HOLDER.
-        # `fix/one-card-per-site-and-an-honest-noun` declared its own `OP-61 · The
-        # word "products" over a contractor directory` and was told to move to 63.
-        # The ruling went to the lower-churn branch rather than to precedence, and
-        # the primary session said so instead of letting the open-PR rule pretend to
-        # decide it.
-        #
-        # AT THE MOMENT THIS ROW WAS WRITTEN THE RENUMBER HAD NOT LANDED: `origin/
-        # fix/one-card-per-site-and-an-honest-noun` still declared 61, so a reader
-        # grepping the refs would find TWO holders and think this row wrong. It is
-        # recorded rather than smoothed over, because this file's own scar is a row
-        # that named a holder who had moved and passed every guard while doing it.
-        # THE 63 IS NOW PUSHED — `origin/fix/one-card-per-site-and-an-honest-noun`
-        # declares `OP-63` and no ref declares its old 61 — so the parenthetical this
-        # row carried has been deleted exactly as the line above instructed, and
-        # nothing else with it. The row now names one holder a reader can check.
-        61: "branch feat/the-engine-knows-which-code-it-is-running",
     },
     "DEC": {},
 }

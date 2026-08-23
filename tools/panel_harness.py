@@ -109,7 +109,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
-         worker_alive=True) -> str:
+         worker_alive=True, engine_build=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -151,14 +151,31 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         (EXT / "manifest.json").read_text(encoding="utf-8"))["version"]
     extension_version = manifest_version if extension_version is None else extension_version
     engine_version = VERSION if engine_version is None else engine_version
+    # `engine_build` is the sixth knob. None means "what a live engine says today":
+    # a source run, level with the disk — which is the truth on the owner's machine
+    # whenever he has just restarted, and the state that must render as no badge at
+    # all. `False` REMOVES the key, which is an engine built before the field
+    # existed and is not a fault. A dict overrides it outright, which is how the
+    # stale and moved states are rendered: they cannot be produced from a live
+    # engine on demand, which is the whole reason this harness exists.
+    build = {"mode": "source", "sealed_at": "2026-08-23T05:00:00+00:00",
+             "commit": "d10e974f97cb65103df74e470f3821af32b78002",
+             "commit_now": "d10e974f97cb65103df74e470f3821af32b78002",
+             "moved": False, "stale": False,
+             "detail": "running from source, and level with the code on disk."}
+    if isinstance(engine_build, dict):
+        build = engine_build
+    health = {"ok": True, "app": "scrapex", "version": engine_version,
+              "worker_alive": worker_alive,
+              "latest_extension_version": VERSION,
+              "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+              "protocol_version": PROTOCOL_VERSION if protocol_version is None
+                                  else protocol_version,
+              "sources_with_data": 2}
+    if engine_build is not False:
+        health["build"] = build
     routes = {
-        "/api/health": {"ok": True, "app": "scrapex", "version": engine_version,
-                        "worker_alive": worker_alive,
-                        "latest_extension_version": VERSION,
-                        "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
-                        "protocol_version": PROTOCOL_VERSION if protocol_version is None
-                                            else protocol_version,
-                        "sources_with_data": 2},
+        "/api/health": health,
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},
         "/api/jobs": {"jobs": jobs or []},
         "/api/records": records or {"records": [], "total": 0, "next_cursor": None},

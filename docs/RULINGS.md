@@ -134,8 +134,8 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1662`, drawn by
-`extension/app.js:595` and `:629`). The moment the engine moves ahead of
+(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1671`, drawn by
+`extension/app.js:607` and `:641`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
 went from 396 to 494 against a 440 viewport — 54px clipped. Under "bump every
@@ -928,7 +928,7 @@ The four parts, in the order they were put to him:
 **1. The panel can never be the installer, and this is a limit rather than a
 backlog item.** Measured 2026-08-21: `extension/manifest.json` grants
 `activeTab, identity, nativeMessaging, sidePanel, storage, tabs` and **no
-`downloads`**, so `extension/app.js:3564` is `window.open(installer.url)` — it hands
+`downloads`**, so `extension/app.js:3620` is `window.open(installer.url)` — it hands
 a URL to the browser and lets go. Chrome will not let an extension show download
 progress it does not own, read a file off disk to hash it, or launch a process.
 **No amount of UI work changes any of those three.**
@@ -1535,7 +1535,7 @@ Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
 > *"Export stays in the engine — it is SQL over SQLite, not a file move."*
 
 **Export is a user-facing capability that exists only in the engine today**
-(`scrapex/webui/app.py:1193`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+(`scrapex/webui/app.py:1321`, `@app.get("/export/{source_key}.xlsx")`). Both statements
 are his, the newer one contradicts the older, and **the rule says a newer conflict is
 his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
 engine` (`:61`) is the same shape and rides with it.

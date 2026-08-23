@@ -232,7 +232,7 @@ rhetoric in a measurement file is how a number stops being checked.
 *"The router-factory pattern is already applied inside the same file to four
 fragments"* — it is not inside the file. `grep -nE 'def [a-z_]*(router|_api)\w*\(' scrapex/webui/app.py`
 returns nothing. All four factories live in **sibling modules** and are imported
-(`app.py:47`, `:161`, `:162`):
+(`app.py:56`, `:161`, `:162`):
 
 | module | lines | routes |
 |---|---|---|
@@ -301,8 +301,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1673` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2722` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1682` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2749` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2722`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2749`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4549`) prints that sentence whenever the key is absent or
+(`extension/app.js:4613`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1280,7 +1280,7 @@ confirmation that the published build installs on his machine; that stays on
 > panel reading `Latest version 0.2.1 · Available to install`. **Nothing is broken
 > anywhere on that path, and this is the third time that sentence has had to be
 > written about it.** `extension/releases.js:32` reads
-> `ScrapeX/json/version.json` from the hub, `extension/app.js:3514` prints the
+> `ScrapeX/json/version.json` from the hub, `extension/app.js:3570` prints the
 > `version` it finds, the workflow writes that same field
 > (`.github/workflows/release-engine.yml:379`), and
 > `tests/test_the_two_release_paths.py:276` already pins the writer's output to the
@@ -1322,7 +1322,7 @@ confirmation that the published build installs on his machine; that stays on
 >
 > So a released engine built from `main` can now open his warehouse. **What is NOT
 > closed is the panel's sentence**: an engine that refuses to start still never binds
-> a port, so `extension/app.js:3416` still reports "Not detected" for a schema fault,
+> a port, so `extension/app.js:3424` still reports "Not detected" for a schema fault,
 > a permissions fault and an absent engine alike. That half is now `OP-38`.
 
 **The diagnosis, kept as written — it is why the merge mattered.**
@@ -1350,7 +1350,7 @@ from the branch that owns v8, against the same file: `"status": "Healthy"`, and
 
 **And the panel cannot say any of this.** An engine that refuses to start never
 binds a port, so `checkEngine` gets a connection error and
-`extension/app.js:3416` reports **"Not detected"** — which is false and sends the
+`extension/app.js:3424` reports **"Not detected"** — which is false and sends the
 reader to reinstall something that is already installed. The engine knows the
 sentence; there is no channel that carries it to a panel.
 
@@ -1632,7 +1632,7 @@ is not filed as fixed with it.
 
 An engine that refuses to start never binds a port. So `checkEngine` in
 `extension/engine.js` gets a connection error, and
-`extension/app.js:3416` reports:
+`extension/app.js:3424` reports:
 
     text: "Not detected"      detail: "The panel could not reach the Engine."
 
@@ -1785,20 +1785,20 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4655](../extension/app.js#L4655)) — and the engine stamps the
+([extension/app.js:4719](../extension/app.js#L4719)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:697](../scrapex/webui/app.py#L697)).
+worse for a dataset"* ([scrapex/webui/app.py:706](../scrapex/webui/app.py#L697)).
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2967](../scrapex/webui/app.py#L2967)).
+for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2967)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1167](../scrapex/webui/app.py#L1167)) —
+any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1167)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -1844,7 +1844,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:956](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2008](../extension/app.js#L2008)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2008)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -1885,11 +1885,11 @@ accessibility. They have not, and the difference is requirement-driven:
 
 * Run mode disables options **individually**, because which run modes are on offer
   depends on the selection — `for (const option of select.options) option.disabled =
-  !allow[option.value]` ([extension/app.js:2173](../extension/app.js#L2173)). Its
+  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2173)). Its
   `focusOption` filters disabled candidates because it genuinely has some.
 * The finance converter disables **the whole control** when there are no stored
   rates — `select.disabled = !state.financeRates.length`
-  ([extension/app.js:1141](../extension/app.js#L1141)) — and mirrors that onto the
+  ([extension/app.js:1149](../extension/app.js#L1141)) — and mirrors that onto the
   trigger inside `sync()`. It never has a disabled option, so it has nothing to
   filter.
 * Type-ahead exists only on the finance side, and a currency list needs it where
@@ -2340,6 +2340,15 @@ describes would have been a poor joke. **`#258` has since merged at `d10e974` an
 both symbols happened to survive at 1594 and 1633**, which is luck and not
 stability. Re-derive them rather than trusting them.
 
+**AND THE LUCK RAN OUT ONE PULL REQUEST LATER, which is worth adding rather than
+editing the numbers above away.** The branch that added `scrapex/provenance.py`
+inserted lines into `extension/app.js` above both symbols: they are at **1602 and
+1641** on that branch. The paragraph above is still true *at `4522158`*, and it says
+so — that scoping is the only reason it did not simply become wrong. It is also the
+best illustration this register has of why the numbers were kept out of `path:line`
+form: no guard could have told you they had moved, because no guard can see a line
+number written as prose.
+
 **The interesting part is that both citations still point INSIDE the file**, so
 Tier 1 would have passed them even if the file were guarded; only the `PINNED`
 table catches a citation that moved off its symbol. #256 has since added a check
@@ -2366,7 +2375,7 @@ Two do not, and neither failure has anything to do with datasets:
 | **Recent changes** | `/source/{key}#changes` | the page renders, and **`id="changes"` exists nowhere in the repository** — `grep -rn 'id="changes"' scrapex/ extension/` returns nothing. The fragment is ignored, so the entry lands at the top of the source page |
 
 **The changes page it should be opening already exists**: `GET /changes?source_key=`
-is a real route (`scrapex/webui/app.py:1285`, re-derived at `31c369e`; #257 moved
+is a real route (`scrapex/webui/app.py:1294`, re-derived at `31c369e`; #257 moved
 it from 1223) and answers 200. So this is a wrong
 URL rather than a missing feature — one line, but it changes what a card does on
 his screen, which is why it was recorded instead of fixed inside a PR about the
@@ -2583,6 +2592,79 @@ checked `RUNTIME_DATA` against the real `.exe` table of contents and found no ga
 and the worry that `contractstamp` reads a `.py` at runtime was refuted — it is a
 developer-only path.
 
+### OP-60 · A frozen engine cannot name the commit it was built from, and says so
+
+**Status: OPEN by design, and the honest half of a fix that landed.** Measured
+2026-08-23 while building `scrapex/provenance.py` (`LESSONS` §14).
+
+A source-run engine can now answer *which code am I running* — it seals what it
+loaded and compares it against the disk. **A PyInstaller one-file `.exe` cannot.** It
+carries no `.git`, no source tree, and its modules unpack into a per-run temp
+directory that says nothing about whether newer code exists anywhere. So it answers:
+
+    mode    "frozen"
+    commit  null
+    stale   null      <- unknown, NEVER false
+
+**That is correct, not a stub**, and a test pins it (`stale is not False`): on the one
+build where staleness cannot be measured, claiming `False` would tell the owner his
+engine is current when nobody knows. The gap is narrower than "the frozen build is
+unguarded": what is missing is only the **commit it was built from**, which no amount
+of run-time inspection can recover and which only the build can write down.
+
+**The fix is a build-time stamp**, and it is small: the release workflow writes the
+commit it is building into a generated module, and `provenance` reads it if present.
+
+**NOT DONE HERE, and the reason is a live constraint rather than laziness.** The
+primary session is cutting `engine-v0.3.1` from `.github/workflows/release-engine.yml`,
+and a change to that workflow from a branch merging into the same window is a change to
+the thing being run. `R-35`'s gate also refuses a version edit from this branch. So the
+reader is the whole of this change and the writer is the next one.
+
+**Do not close this by making a frozen build guess.** The `None` is the feature.
+
+### OP-61 · A continuation citation is invisible to the citation guard
+
+**Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
+defect — that distinction is the whole entry.**
+
+A citation written as `` (`extension/app.js:1602`, `:1641`) `` carries two references
+and the guard sees one. `CITATION` in
+`tests/test_the_documents_cite_what_they_claim.py` requires a path before the colon, so
+it matches `app.js:1641` and does not match a bare `:1641`. Measured directly: the
+regex returns a match for the first string and `None` for the second.
+
+| | |
+|---|---|
+| continuation citations in the guarded documents at `f1844af` | **19** |
+| of those, resolving to a blank line or past EOF | **0** |
+| spot-checked and correct | the `docs/STATE.md` pair citing `scrapex/features.py:54` and `:65` |
+| moved silently by this branch's edits, guard green throughout | **4** |
+
+**What makes it real is the fourth row.** Edits on the branch that added
+`scrapex/provenance.py` shifted `extension/app.js` by eight lines; four continuation
+citations went with it; the guard passed the whole time; they were found by reading the
+diff by hand. Tier 2 cannot help, because a `PINNED` row is keyed on a path the tier-1
+sweep never discovered — there is nothing to pin.
+
+**What makes it NOT urgent is the second row.** None of the nineteen is currently
+wrong. The class also pre-dates the branch that found it; only the four movements were
+its own.
+
+**The remedy, and the trap to avoid.** The obvious guard — inherit the path from the
+nearest preceding citation — is *deciding by adjacency*, which this repository has
+measured and rejected twice (the prose-inference tier the guard's own docstring
+records, and the keyword allowlist `LESSONS` §13 threw away). **The non-inferring fix
+is to forbid the continuation form:** require every citation in a guarded document to
+name its path. One mechanical rule, zero inference, and nineteen invisible citations
+become nineteen the existing tiers already handle.
+
+**Cost:** rewriting nineteen citations across five documents — a conflict surface of
+its own, which is why it was not bundled into the branch that found it.
+
+**And there is a table this is the fifth row of, which is not on `main`.** *Four shapes
+of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
+unmerged. Whoever lands that branch should add the row.
 
 ### OP-63 · The word "products" over a contractor directory, on two surfaces
 
@@ -3359,7 +3441,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:840` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:848` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.
@@ -4138,7 +4220,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2722` that the fix never reached
+   second `worker_alive` computation at `app.py:2749` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been
