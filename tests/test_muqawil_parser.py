@@ -323,9 +323,19 @@ def test_the_identity_is_passed_in_and_not_parsed_out():
     # attempt weakening it: with `contractor_id="881"` and the fixture also being
     # 881, scraping the id off the page's first href would pass every assertion.
     #
-    # An INT cannot come off the page — every href yields a string — so the row
-    # holding `"881"` proves both halves at once: the value came from the caller,
-    # and `str()` converted it.
+    # AND THIS PROVES ONE HALF, NOT BOTH — said plainly because the previous
+    # version of this comment claimed both and a reviewer disproved it. An int
+    # cannot come off a page, so `"881"` in the row proves `str()` ran. It does
+    # NOT prove the value came from the caller: after `str()`, an id scraped off
+    # the page's first href is the same string, and that mutation still passes.
+    #
+    # THE ORIGINAL PROOF IS IMPOSSIBLE BY CONSTRUCTION NOW. It worked by passing
+    # an id the page does not carry, and `OP-64`'s guard exists to refuse exactly
+    # that page. The two properties cannot both be tested through this function
+    # any more, and pretending otherwise is worse than losing one: the companion
+    # below tests the guard, this tests the conversion, and the "came from the
+    # caller" half is now guarded by the guard itself — a page that names a
+    # different contractor never reaches the assignment.
     row = bilingual_profile_candidate(english, arabic, contractor_id=881).rows[0]
 
     assert row["contractor_id"] == "881"

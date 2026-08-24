@@ -544,6 +544,14 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         frontier = list(dict.fromkeys(frontier))
         outside = 0
         say(f"named {len(ids)} contractor(s) — the registered scope is not consulted")
+        # AND A REUSED RUN-REF WILL SKIP THEM ALL, which is the opposite of why
+        # anyone names ids. `already_stored` is scoped to the run-ref below, so
+        # re-fetching a page that IS stored — the documented `OP-64` remediation —
+        # needs a ref that has not seen it. Said here rather than left to be
+        # discovered as "resumed 49, stored 0".
+        if already_stored(conn, run_ref):
+            say(f"  NOTE: {run_ref} already holds pages. Named ids stored under it "
+                f"will be skipped as resumed — use a fresh --run-ref to re-fetch")
     else:
         frontier, outside = detail_frontier(conn, directory, scope, slice_of)
     held = already_stored(conn, run_ref)
@@ -1038,7 +1046,12 @@ def _named_ids(raw: str) -> tuple[str, ...]:
         one = raw_id.strip()
         if not one:
             continue
-        (wanted if one.isdigit() else bad).append(one)
+        # ASCII DIGITS, NOT `isdigit()`. `str.isdigit()` is true of `٤٢`, `４２`
+        # and `²` — and `_contractor_of`'s `\d` is not, so those reach the URL,
+        # come back as evidence, and a later `--approve` routes them to the
+        # LISTING parser. That is verbatim the failure this function's docstring
+        # claims to close.
+        (wanted if (one.isascii() and one.isdigit()) else bad).append(one)
     if bad:
         _refuse(f"--ids takes contractor ids, which are digits. These are not: "
                 f"{', '.join(repr(b) for b in bad[:5])}")
@@ -1163,9 +1176,14 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
                 # that "the page is the cost". Measured, it was not.
                 listing_numbers = _listing_membership_numbers(conn)
             theirs = listing_numbers.get(str(contractor))
-            if not theirs:
+            mine_number = str(candidate.rows[0].get("membership_number") or "").strip()
+            # BOTH SIDES OF THE SILENCE. A missing witness was counted; a profile
+            # whose OWN number is blank was not, and it is skipped just as quietly
+            # — which leaves "checked and clean" and "never checked" identical for
+            # exactly the population whose number is documented as unreliable.
+            if not theirs or not mine_number:
                 unwitnessed += 1
-            mine = str(candidate.rows[0].get("membership_number") or "").strip()
+            mine = mine_number
             if theirs and mine and theirs != mine:
                 refused.append((key, (
                     f"membership number {mine} on the profile page but {theirs} on "
@@ -1406,7 +1424,11 @@ def run(args: argparse.Namespace) -> int:
                 factory = DatabaseRegistry.defaults().engine.connect
                 say(f"fetching with {args.workers} workers — the pace is unchanged, "
                     "the waits overlap")
-            named = _named_ids(args.ids)
+            # NO `--ids` IS NOT AN EMPTY `--ids`. `_named_ids` refuses a list that
+            # names nobody, which is right — and calling it on the default `""`
+            # turned the ORDINARY detail crawl into a usage error naming a flag the
+            # user never typed. Round three found it by running the command.
+            named = _named_ids(args.ids) if args.ids.strip() else ()
             details(conn, directory, fetch, fetcher, args.run_ref,
                     ceiling=args.ceiling, workers=args.workers, connect=factory,
                     ids=named)

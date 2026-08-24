@@ -4480,6 +4480,16 @@ async function loadDatasets() {
       card.addEventListener("keydown", (event) => {
         if (!["Enter", " "].includes(event.key)) return;
         if (event.target.closest(".split-button")) return;
+        // THE SAME BRANCH THE CLICK PATH GOT, and it was missing here — so a
+        // keyboard user tabbing to the coverage button and pressing Enter had it
+        // suppressed and opened the PARENT dataset instead. The second table was
+        // still unreachable for exactly the person the change was written for.
+        const covered = event.target.closest("[data-open-dataset]");
+        if (covered) {
+          event.preventDefault();
+          openDataset(covered.dataset.openDataset);
+          return;
+        }
         event.preventDefault();
         openDataset(card.dataset.open);
       });
@@ -4759,7 +4769,7 @@ function sourceActions(source) {
   const covered = (source.coverage || []).map((c) => ({
     action: `table:${c.dataset_key}`,
     label: `Open ${c.label}`,
-    why: `The ${c.stored.toLocaleString()} rows of ${c.label}, in the same page.`,
+    why: `The ${fmtCount(c.stored)} rows of ${c.label}, in the same page.`,
     route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET,
   }));
   return [...base, ...covered];
@@ -4778,7 +4788,7 @@ function sourceMenu(source) {
   if (!actions.some((item) => item.ready !== false)) return "";
   const options = actions.map((item) => `
     <button class="split-button-option" role="menuitem" type="button"
-            data-split-action="${item.action}"${item.ready === false ? " disabled" : ""}
+            data-split-action="${esc(item.action)}"${item.ready === false ? " disabled" : ""}
             title="${esc(item.why)}">${esc(item.label)}${
       item.ready === false ? ' <span class="muted">· not built yet</span>' : ""
     }</button>`).join("");
