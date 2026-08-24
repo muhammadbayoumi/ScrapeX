@@ -107,7 +107,7 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | | |
 |---|---|
 | the listing | 17,417 sighted of 17,414 declared — `D = 0` **for the sighting ledger**, which is not the population: see the reconciliation below, where the union is **17,452** |
-| `generic_record` | **17,304 listing rows** and **17,341 profile rows** (14 of them retired by `OP-64`), climbing while `R-51`'s recovery approval runs — 17,264 before it started, 17,385 expected when it ends |
+| `generic_record` | **17,304 listing rows** and **17,385 profile rows** (14 of them retired by `OP-64`) — 17,264 before `R-51`'s recovery approval, which added exactly the 121 it was measured to add |
 | `generic_page_snapshot` | **36,358 profile snapshots**, covering **17,452 distinct contractor ids — the whole union, with nothing left to fetch** |
 | `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
 | `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
@@ -135,12 +135,13 @@ address the English page cannot supply for anyone; 8 stay refused** because Arab
 shorter side there and which box *it* dropped is unknowable. `OP-66` carries the
 measurement.
 
-**SNAPSHOT, MID-RUN, AND IT SAYS SO.** `--approve --run-ref profiles-2026-08-22` was
-started at 13:23 on 2026-08-24 and reads 17,417 stored page pairs with no network at all.
-As of **14:42** it had written **77 of the expected 121**, taking profile rows from
-17,264 to **17,341** and the gap from 188 to **111**. These three numbers move until it
-finishes; the ones that do not are 121 / 24 / 8 / 59, which were measured against the
-whole corpus before the run began.
+**AND IT HAS RUN.** `--approve --run-ref profiles-2026-08-22` read 17,417 stored page
+pairs in **83.9 minutes with no network requests at all**: profile rows **17,264 →
+17,385, exactly 121 added**, of which **24 carry an address** — the prediction to the row
+— and the gap **188 → 67**, which is the 8 refused plus the 59 dead ids. 17,249 pages were
+unchanged and wrote nothing, and **0 were re-parsed with new values**: not one
+already-approved row was rewritten. Checked across the whole table, **0 rows** have
+`activity_ar` equal to `address`, which is the corruption a tail-drop would have caused.
 
 A refresh crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not
 about coverage. The 148-and-35 reconciliation below was measured mid-crawl; the 35 became

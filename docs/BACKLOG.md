@@ -2666,6 +2666,58 @@ its own, which is why it was not bundled into the branch that found it.
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
 
+### OP-67 · A SECOND obfuscated email on the page is stored as Cloudflare's placeholder text
+
+**Found 2026-08-24 while checking the `R-51` recovery run for damage.** It found none — and
+found this instead, which predates that work entirely.
+
+**16 rows hold the literal string `[email protected]` in a declared column:** 13 in
+`contractor_profiles` (all in `address`) and 3 in `contractors`. Verified against the
+newly written rows: **0 of the 16 are among the 121 `R-51` recovered**, so this is not the
+alignment repair's doing.
+
+**The cause. `read_email` takes the FIRST `data-cfemail` on the page and there can be
+two.** Contractor `1006`'s English profile carries exactly two:
+
+```
+BOX: Organization Email  [email protected]
+     data-cfemail -> ayman@smart-const.com          <- read_email finds this one. Correct.
+BOX: Address  Al Khobar Al Shemaliyah Cross 15 - Buldg. # 7484 - ...
+     data-cfemail -> info@smart-const.com           <- nothing decodes this one
+```
+
+`_CFEMAIL.search(html)` is a `search`, so `organization_email` is right on all 17,385 rows.
+But the address box's **text** is stored verbatim, and where the second obfuscated address
+sat there is now a placeholder:
+
+```
+1006: 'Al Khobar Al Shemaliyah Cross 15 - Buldg. # 7484 - 4th Floor - Office # 10
+       P.O. Box 1861 Al Khobar 31952 Tel: 00966138941919 - Fax: 00966138965511
+       [email protected] www.smart-const.com'
+4776: 'Tel: 0138196000 Fax: 0138113334 Email: [email protected]
+       Www.Alosais.com P.O. BOX 1083. Dammam 31431, KSA'
+```
+
+**Why nobody saw it.** This is failure #1 of `scrapex/extract/muqawil.py`'s own module
+docstring — *"every contractor stores the literal `[email protected]` and any 'is the
+column populated' test passes forever"* — and the guard written for it watches
+`organization_email`, which is the field that was never wrong. The address is 90% correct,
+so it reads as a full value; the placeholder sits at the END on only 5 of the 13, buried
+mid-string on the other 8. **1,392 of 17,385 rows carry an address at all**, so this is 13
+of 1,392 — under one percent, and invisible at any sample size a person would eyeball.
+
+**The fix, and it is not where the bug looks.** `read_email` is correct and should not
+change; what is wrong is that a box's TEXT is read without decoding the `data-cfemail`
+inside that box. `read_profile` should decode per box — replace each obfuscated span with
+its own decoded value while reading the pair — which fixes `address` and any future field
+the site hides an address inside. Replayable from the stored snapshots with no network,
+like `OP-66`.
+
+**NOT BUILT, AND DELIBERATELY NOT IN `#267`.** It predates `R-51`, it touches
+`read_profile` — the same critical parser the adversarial loop is currently converging on
+— and folding it in would restart that loop for a defect affecting 16 rows. Recorded here
+with its measurement so it is picked up on its own, which is what this register is for.
+
 ### OP-66 · The Arabic profile publishes an address box the English one does not, and 129 contractors are held out by it
 
 **Found 2026-08-24 by the owner asking whether another crawl was needed.** It is not, and
@@ -2770,7 +2822,23 @@ committed as fixtures, and mutation-tested on eleven branches — one mutant sur
 first draft and proved the order check was passing for the wrong reason.
 
 **Measured after the repair, replaying the 188 through the parser:** 121 merge, 24 of them
-carrying an address they did not have, 8 still refused, 59 still at layer 1. The 59 belong
+carrying an address they did not have, 8 still refused, 59 still at layer 1.
+
+**AND THEN RUN FOR REAL, which is the number that counts.**
+`--approve --run-ref profiles-2026-08-22` over 17,417 stored pairs, **83.9 minutes, zero
+network requests**:
+
+| | |
+|---|---|
+| profile rows | 17,264 → **17,385** — **exactly 121 added** |
+| of those 121, carrying an address | **24** — the prediction, to the row |
+| listing rows with no profile row | 188 → **67** = the 8 refused plus the 59 dead ids |
+| pages unchanged, writing nothing | 17,249 (`DEC-10` idempotency held) |
+| re-parsed with NEW values | **0** — not one already-approved row was rewritten |
+| rows where `activity_ar` equals `address` | **0** — the corruption a tail-drop would have caused, on the whole table and not just the new rows |
+
+The 67 that remain are the floor this repair cannot lower: 59 need a page the site no
+longer serves, and 8 need an Arabic label read. `REQ-42` owns the 59. The 59 belong
 to `REQ-42` (a withdrawn contractor entered with a state that says so) and are separate
 from this.
 
