@@ -840,6 +840,33 @@ build, because the broken build's number was already large. Guarded by
 which also refuses to pass if no button lies under the menu at all: a guard whose
 overlap has drifted away proves nothing and must say so rather than go green.
 
+### And a new CLASS has homes too — one of them is the catalogue
+
+A token has four homes; a **component** has three, and the third is the one that
+gets forgotten because the first two are automated. Adding `.coverage-open` to
+`design/components.css` and running `python tools/sync_design_assets.py`
+regenerated both distributed copies and left the sheet correct on every surface —
+and the full suite still came back **`1 failed, 3330 passed`**, on
+`tests/test_ui_kit.py::test_every_shared_component_is_in_the_catalogue`: the
+component existed in the shared vocabulary and nowhere on `design/gallery.html`.
+That is UI-1 working exactly as designed, and the point of writing it down is the
+*order* in which it was found.
+
+**Why it was not caught earlier in the round.** `test_ui_kit.py` carries
+`pytestmark = pytest.mark.extension`, so it is not in the default selection a
+`pytest tests/test_design_system.py` after a sync will run. The sync tool is the
+obvious thing to run after touching `design/`, it passes, and it says nothing about
+the catalogue — because the catalogue is not a generated artefact, it is a page
+somebody has to write an example on. Two green signals either side of a gap.
+
+**Apply:** a rule added to `design/components.css` is not finished until a live
+example of it stands in `design/gallery.html`. Run
+`pytest tests/test_ui_kit.py tests/test_design_system.py` together — the pair is the
+real gate, and neither half is sufficient. Keep the example inside the vocabulary
+the gallery actually loads: it links `tokens.css` and `components.css` and nothing
+else, so a demo dressed in `.dataset-card` (which lives in `extension/app.css`)
+would render wrong on the one page whose job is to render right.
+
 ---
 
 ## 6 · Two OAuth clients, therefore two grants
