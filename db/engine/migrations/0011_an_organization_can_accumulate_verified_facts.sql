@@ -65,6 +65,9 @@ CREATE TABLE organization_source_record (
     UNIQUE (enrichment_definition_id, source_external_id)
 );
 
+CREATE INDEX ix_organization_source_record_org
+    ON organization_source_record(enrichment_definition_id, organization_id);
+
 CREATE TABLE organization_fact (
     organization_fact_id INTEGER PRIMARY KEY,
     organization_id      TEXT NOT NULL
@@ -131,6 +134,7 @@ CREATE TRIGGER trg_enrichment_definition_datasets_differ_insert
 BEFORE INSERT ON organization_enrichment_definition
 FOR EACH ROW
 WHEN NEW.source_dataset_id = NEW.output_dataset_id
+  OR NEW.detail_dataset_id = NEW.source_dataset_id
   OR NEW.detail_dataset_id = NEW.output_dataset_id
 BEGIN
     SELECT RAISE(ABORT, 'the enrichment output must be a new dataset');

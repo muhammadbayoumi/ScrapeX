@@ -31,19 +31,18 @@ FIELD_MASK = ",".join((
 ))
 
 
-def _post(api_key: str, body: dict) -> dict:
-    with httpx.Client(timeout=httpx.Timeout(15.0, connect=6.0)) as client:
-        response = client.post(
-            ENDPOINT,
-            json=body,
-            headers={
-                "Content-Type": "application/json",
-                "X-Goog-Api-Key": api_key,
-                "X-Goog-FieldMask": FIELD_MASK,
-            },
-        )
-        response.raise_for_status()
-        return response.json()
+def _post_with_client(client: httpx.Client, api_key: str, body: dict) -> dict:
+    response = client.post(
+        ENDPOINT,
+        json=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": FIELD_MASK,
+        },
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 class GooglePlacesProvider:
@@ -51,7 +50,19 @@ class GooglePlacesProvider:
 
     def __init__(self, api_key: str, post: Callable[[str, dict], dict] | None = None):
         self._api_key = api_key
-        self._post = post or _post
+        self._client = None
+        if post is not None:
+            self._post = post
+        else:
+            self._client = httpx.Client(
+                timeout=httpx.Timeout(15.0, connect=6.0), trust_env=False
+            )
+            self._post = lambda key, body: _post_with_client(self._client, key, body)
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     def run(self, identity: OrganizationIdentity) -> ProviderResult:
         query = " ".join(filter(None, (
@@ -70,7 +81,9 @@ class GooglePlacesProvider:
         try:
             payload = self._post(self._api_key, body)
         except Exception as exc:
-            return ProviderResult(self.name, checked=False, error=str(exc))
+            return ProviderResult(
+                self.name, checked=False, error=str(exc), system_error=True
+            )
         candidates = payload.get("places") or []
         if not candidates:
             return ProviderResult(self.name, (
@@ -99,13 +112,18 @@ class GooglePlacesProvider:
             "verification_status": status,
             "evidence": evidence,
         }
+        google_phone = str(
+            place.get("internationalPhoneNumber")
+            or place.get("nationalPhoneNumber")
+            or ""
+        )
         values = {
             "google_place_id": place.get("id"),
             "google_maps_url": maps_url,
+            "google_maps_cid_url": maps_url if "cid=" in maps_url.casefold() else None,
             "google_business_name": (place.get("displayName") or {}).get("text"),
             "google_formatted_address": place.get("formattedAddress"),
-            "google_phone": place.get("internationalPhoneNumber")
-                            or place.get("nationalPhoneNumber"),
+            "google_phone": google_phone,
             "google_website": place.get("websiteUri"),
             "google_business_status": place.get("businessStatus"),
             "gmaps_rating": place.get("rating"),
@@ -113,6 +131,14 @@ class GooglePlacesProvider:
             "google_match_status": status,
             "google_match_score": score,
         }
+        source_phone = normalized_phone(identity.phone)
+        candidate_phone = normalized_phone(google_phone)
+        if (
+            status == "verified"
+            and len(candidate_phone) >= 7
+            and candidate_phone != source_phone
+        ):
+            values["verified_phone_secondary"] = google_phone
         facts = [FieldFact(key, value, **common)
                  for key, value in values.items() if value not in (None, "")]
         return ProviderResult(self.name, tuple(facts))
@@ -138,8 +164,10 @@ def _score(identity: OrganizationIdentity, place: dict) -> float:
     phone = str(place.get("internationalPhoneNumber")
                 or place.get("nationalPhoneNumber") or "")
     website = str(place.get("websiteUri") or "")
+    identity_phone = normalized_phone(identity.phone)
+    candidate_phone = normalized_phone(phone)
     phone_matches = bool(
-        identity.phone and normalized_phone(identity.phone) == normalized_phone(phone)
+        len(identity_phone) >= 7 and identity_phone == candidate_phone
     )
     domain = email_domain(identity.email)
     domain_matches = bool(domain and domain == host_of(website))

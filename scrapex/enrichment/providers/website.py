@@ -16,6 +16,14 @@ from ..matching import email_domain, host_of, name_similarity, normalized_phone
 from ..models import FieldFact, OrganizationIdentity, ProviderResult
 
 _ISO = re.compile(r"\bISO\s*[-:]?\s*(\d{4,5}(?::\d{4})?)\b", re.IGNORECASE)
+_CERTIFICATION_CONTEXT = re.compile(
+    r"certif|accredit|اعتماد|معتمد|شهاد|حاصل", re.IGNORECASE
+)
+_NEGATED_CERTIFICATION = re.compile(
+    r"\b(?:not|never|without|formerly|expired|lapsed)\b|"
+    r"غير\s+معتمد|غير\s+حاصل|لا\s+(?:نحمل|نملك|توجد)",
+    re.IGNORECASE,
+)
 _CAREERS = re.compile(
     r"career|careers|vacanc|recruit|jobs?|employment|وظائف|توظيف", re.IGNORECASE
 )
@@ -52,38 +60,58 @@ def _public_host(host: str) -> bool:
     return True
 
 
-def _default_fetch(url: str) -> FetchedPage:
-    with httpx.Client(
+def _public_peer(response: httpx.Response) -> bool:
+    """Verify the connected peer too, closing the DNS-rebinding gap."""
+    stream = response.extensions.get("network_stream")
+    if stream is None:
+        return False
+    server = stream.get_extra_info("server_addr")
+    if not server:
+        return False
+    try:
+        return ipaddress.ip_address(server[0]).is_global
+    except (ValueError, TypeError):
+        return False
+
+
+def _new_client() -> httpx.Client:
+    return httpx.Client(
         follow_redirects=False,
+        trust_env=False,
         timeout=httpx.Timeout(12.0, connect=6.0),
         headers={"User-Agent": "ScrapeX/organization-enrichment"},
-    ) as client:
-        current = url
-        for _ in range(6):
-            host = urlsplit(current).hostname or ""
-            if not _public_host(host):
-                raise ValueError(f"website candidate {host!r} does not resolve publicly")
-            with client.stream("GET", current) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location", "")
-                    if not location:
-                        raise ValueError("website candidate returned an empty redirect")
-                    current = urljoin(current, location)
-                    continue
-                response.raise_for_status()
-                content_type = response.headers.get("content-type", "").casefold()
-                if "html" not in content_type and "xhtml" not in content_type:
-                    raise ValueError(
-                        f"website candidate returned {content_type or 'unknown content'}"
-                    )
-                content = bytearray()
-                for chunk in response.iter_bytes():
-                    content.extend(chunk)
-                    if len(content) > 2_000_000:
-                        raise ValueError("website candidate returned more than 2 MB")
-                encoding = response.encoding or "utf-8"
-                html = bytes(content).decode(encoding, errors="replace")
-                return FetchedPage(str(response.url), html, response.status_code)
+    )
+
+
+def _fetch_with_client(client: httpx.Client, url: str) -> FetchedPage:
+    current = url
+    for _ in range(6):
+        host = urlsplit(current).hostname or ""
+        if not _public_host(host):
+            raise ValueError(f"website candidate {host!r} does not resolve publicly")
+        with client.stream("GET", current) as response:
+            if not _public_peer(response):
+                raise ValueError("website candidate connected to a non-public address")
+            if response.is_redirect:
+                location = response.headers.get("location", "")
+                if not location:
+                    raise ValueError("website candidate returned an empty redirect")
+                current = urljoin(current, location)
+                continue
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "").casefold()
+            if "html" not in content_type and "xhtml" not in content_type:
+                raise ValueError(
+                    f"website candidate returned {content_type or 'unknown content'}"
+                )
+            content = bytearray()
+            for chunk in response.iter_bytes():
+                content.extend(chunk)
+                if len(content) > 2_000_000:
+                    raise ValueError("website candidate returned more than 2 MB")
+            encoding = response.encoding or "utf-8"
+            html = bytes(content).decode(encoding, errors="replace")
+            return FetchedPage(str(response.url), html, response.status_code)
     raise ValueError("website candidate redirected more than five times")
 
 
@@ -91,7 +119,17 @@ class WebsiteProvider:
     name = "website"
 
     def __init__(self, fetch: Callable[[str], FetchedPage] | None = None):
-        self._fetch = fetch or _default_fetch
+        self._client = None
+        if fetch is not None:
+            self._fetch = fetch
+        else:
+            self._client = _new_client()
+            self._fetch = lambda url: _fetch_with_client(self._client, url)
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     def run(self, identity: OrganizationIdentity) -> ProviderResult:
         mapped_host = host_of(identity.website)
@@ -262,7 +300,7 @@ def _facts_from_pages(
         if description:
             descriptions.append((description, page.url))
         text = soup.get_text(" ", strip=True)
-        certifications.extend(f"ISO {match}" for match in _ISO.findall(text))
+        certifications.extend(_certifications(text))
         specialties.extend(_json_ld_values(soup))
         for link in soup.find_all("a", href=True):
             href = str(link.get("href") or "").strip()
@@ -306,3 +344,16 @@ def _facts_from_pages(
         facts.append(FieldFact("verified_phone_secondary", phones[0][0],
                                source_url=phones[0][1], **common))
     return facts
+
+
+def _certifications(text: str) -> list[str]:
+    """Return ISO numbers only when the page positively claims certification."""
+    values = []
+    for match in _ISO.finditer(text):
+        context = text[max(0, match.start() - 80):match.end() + 80]
+        if (
+            _CERTIFICATION_CONTEXT.search(context)
+            and not _NEGATED_CERTIFICATION.search(context)
+        ):
+            values.append(f"ISO {match.group(1)}")
+    return values

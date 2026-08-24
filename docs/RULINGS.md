@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:494`, again in `scrapex/webui/app.py:1671`, drawn by
+(`scrapex/version.py:494`, again in `scrapex/webui/app.py:1679`, drawn by
 `extension/app.js:607` and `:641`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
@@ -1535,7 +1535,7 @@ Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
 > *"Export stays in the engine — it is SQL over SQLite, not a file move."*
 
 **Export is a user-facing capability that exists only in the engine today**
-(`scrapex/webui/app.py:1321`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+(`scrapex/webui/app.py:1329`, `@app.get("/export/{source_key}.xlsx")`). Both statements
 are his, the newer one contradicts the older, and **the rule says a newer conflict is
 his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
 engine` (`:61`) is the same shape and rides with it.

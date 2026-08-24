@@ -4446,6 +4446,7 @@ async function loadDatasets() {
     }
     box.innerHTML = withData.map((s) => `
       <article class="card dataset-card" data-open="${esc(s.source_key)}"
+               data-site="${esc(s.site_key || "")}"
                role="link" tabindex="0"
                aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
         ${sourceMenu(s)}
@@ -4456,7 +4457,10 @@ async function loadDatasets() {
       </article>`).join("");
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
       const key = root.closest("[data-open]").dataset.open;
-      window.ScrapeXSplitButton.wire(root, (action) => runSourceAction(action, key));
+      const siteKey = root.closest("[data-open]").dataset.site;
+      window.ScrapeXSplitButton.wire(
+        root, (action) => runSourceAction(action, key, siteKey),
+      );
     });
     box.querySelectorAll("[data-open]").forEach((card) => {
       // THE MENU IS INSIDE THE CARD, AND THE CARD IS ITSELF A LINK. Without
@@ -4755,17 +4759,19 @@ function sourceMenu(source) {
 }
 
 /** Everything a source menu can do, in one place so the card stays a template. */
-async function runSourceAction(action, key) {
+async function runSourceAction(action, key, siteKey = "") {
   // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
   // and this page ships in the extension. It still reads the engine for its
   // rows — the difference is that the PAGE is ours.
   if (action === "table") {
+    const site = siteKey ? "&site=" + encodeURIComponent(siteKey) : "";
     return chrome.tabs.create({url: chrome.runtime.getURL(
-      "data.html?source=" + encodeURIComponent(key))});
+      "data.html?source=" + encodeURIComponent(key) + site)});
   }
   if (action === "enrich") {
+    const site = siteKey ? "&site=" + encodeURIComponent(siteKey) : "";
     return chrome.tabs.create({url: chrome.runtime.getURL(
-      "enrichment.html?source=" + encodeURIComponent(key))});
+      "enrichment.html?source=" + encodeURIComponent(key) + site)});
   }
   if (action === "changes") return openTab(`/source/${key}#changes`);
   if (action === "settings") return openTab(`/sources/${key}`);

@@ -15,7 +15,9 @@ For Muqawil, the default definition is:
 
 The same workspace can use any approved dataset whose fields can supply a stable entity
 key and at least one organization name. The UI proposes a mapping, but the owner reviews
-it before the definition is created.
+it before the definition is created. Dataset identity is the pair `site_key` +
+`dataset_key`; a repeated dataset key on another site is never resolved by taking the
+first database row.
 
 ## Storage model
 
@@ -43,11 +45,16 @@ guess.
 - **Official Website** derives a candidate only from a mapped website or a non-generic
   organization email. It rejects private and non-public network targets, limits response
   size, follows only same-host discovery links and extracts extra facts only after the
-  published organization name matches.
+  published organization name matches. ISO numbers require an explicit, positive
+  certification context; a mention, negation, former certification or expired
+  certification is not stored as a certification.
 - **Google Places** is optional and enabled by
   `SCRAPEX_GOOGLE_PLACES_API_KEY`. It combines name, coordinate, phone and domain evidence;
-  coordinates are a bias and never an identity by themselves. Google billing, quotas and
-  API terms apply to every enabled run.
+  invalid coordinates are omitted, and coordinates are a bias rather than an identity by
+  themselves. It is never selected by default, even when configured: the owner must opt in
+  for each definition because Google billing, quotas and API terms apply to every enabled
+  run. `google_maps_cid_url` remains null unless Google returns a URL that actually carries
+  a CID; a Place ID is not relabelled as a CID.
 - **LinkedIn** is shown as unavailable until a verified provider is configured. ScrapeX
   does not turn an unverified search result into a company profile or employee count.
 
@@ -63,11 +70,16 @@ The extension opens `enrichment.html` from **Enrich organizations** on a dataset
 It creates the definition through `/api/enrichment/definitions`, queues a run, and polls
 the normal `/api/jobs/{job_ref}` contract. The engine worker dispatches the job by
 `job_kind`, commits at record boundaries and honors the existing pause, resume and cancel
-controls. A checkpoint stores the last source record, making retries idempotent.
+controls. Source records are read in bounded pages of 50 and network clients are reused for
+one job. A checkpoint stores the last source record, making retries idempotent.
 
 Only one unfinished job may exist for a definition. Provider failures are recorded per
 organization and do not discard successful facts from other organizations. Uncertain
 facts are exposed by the definition's review endpoint instead of being silently promoted.
+Three consecutive provider-system failures open that provider's circuit for the remaining
+organizations, preventing a dead paid or remote service from stalling the whole dataset.
+Such a run ends as `completed_with_errors`, and reopening the workspace restores its latest
+job and controls rather than presenting a second Run action as if nothing were active.
 
 ## Extension points
 

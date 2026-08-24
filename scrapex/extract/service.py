@@ -792,7 +792,7 @@ def browse_records(
 
 
 def dataset_schema_fields(
-    conn: sqlite3.Connection, dataset_key: str,
+    conn: sqlite3.Connection, dataset_key: str, *, site_key: str | None = None,
 ) -> tuple[int, list[sqlite3.Row]] | None:
     """This dataset's id and its CURRENT schema's fields, in schema order.
 
@@ -808,11 +808,17 @@ def dataset_schema_fields(
     to the price path rather than having to ask twice — the same contract
     `dataset_table_payload` already offers.
     """
-    found = conn.execute(
+    sql = (
         "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
-        "FROM dataset_definition AS d "
-        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
-        (dataset_key,)).fetchone()
+        "FROM dataset_definition AS d JOIN site_profile AS s "
+        "ON s.site_profile_id = d.site_profile_id "
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL AND s.valid_to IS NULL "
+    )
+    parameters: tuple[str, ...] = (dataset_key,)
+    if site_key:
+        sql += "AND s.site_key = ? "
+        parameters += (site_key,)
+    found = conn.execute(sql + "ORDER BY d.dataset_definition_id LIMIT 1", parameters).fetchone()
     if found is None:
         return None
     dataset_id = int(found["id"])
@@ -831,7 +837,8 @@ def dataset_schema_fields(
 
 
 def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
-                          *, cap: int | None = None) -> dict[str, Any] | None:
+                          *, cap: int | None = None,
+                          site_key: str | None = None) -> dict[str, Any] | None:
     """One generic dataset in the shape the grid already renders.
 
     THE PAGE NEEDS NO CHANGE, AND THAT IS THE WHOLE DESIGN. `grid.js` never asks
@@ -884,7 +891,7 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     A caller that needs a bound still passes one; what changed is that the
     default no longer decides for him.
     """
-    resolved = dataset_schema_fields(conn, dataset_key)
+    resolved = dataset_schema_fields(conn, dataset_key, site_key=site_key)
     if resolved is None:
         return None
     dataset_id, fields = resolved

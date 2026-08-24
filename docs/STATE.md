@@ -78,7 +78,9 @@ Places providers, a resumable `organization_enrichment` job kind, and namespaced
 routes. The extension has **Enrich organizations** on dataset cards and a full-page
 workspace for mapping, provider selection, creation, progress, pause/resume/cancel, data
 browsing and the manual-review queue. LinkedIn remains unavailable until a verified
-provider exists. See [ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md) for the
+provider exists. Google Places is explicit paid opt-in, source identity includes its site,
+and repeated provider-system failures open a circuit rather than stalling the rest of a
+large directory. See [ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md) for the
 contract and [REQ-43](REQUESTS.md#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source)
 for the owner's request.
 
@@ -1304,7 +1306,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:494](../scrapex/version.py) and
-[scrapex/webui/app.py:1671](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1679](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

@@ -301,8 +301,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1682` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2749` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1690` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2760` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -310,7 +310,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2749`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2760`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4613`) prints that sentence whenever the key is absent or
+(`extension/app.js:4617`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1785,20 +1785,20 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4725](../extension/app.js#L4725)) — and the engine stamps the
+([extension/app.js:4729](../extension/app.js#L4729)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:706](../scrapex/webui/app.py#L697)).
+worse for a dataset"* ([scrapex/webui/app.py:707](../scrapex/webui/app.py#L707)).
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2967)).
+for anything else ([scrapex/webui/app.py:3005](../scrapex/webui/app.py#L3005)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1167)) —
+any other table"* ([scrapex/webui/app.py:1182](../scrapex/webui/app.py#L1182)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -4220,7 +4220,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2749` that the fix never reached
+   second `worker_alive` computation at `app.py:2760` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

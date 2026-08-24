@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 from typing import Any
 
@@ -29,6 +30,10 @@ from .providers import build_providers, provider_availability
 
 class EnrichmentError(ValueError):
     """A safe refusal that the API can return directly to the extension."""
+
+
+_SOURCE_BATCH_SIZE = 50
+_PROVIDER_CIRCUIT_LIMIT = 3
 
 
 _ROLE_CANDIDATES = {
@@ -59,17 +64,31 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _dataset(conn: sqlite3.Connection, key: str) -> sqlite3.Row:
-    row = conn.execute(
+def _dataset(
+    conn: sqlite3.Connection, key: str, site_key: str | None = None
+) -> sqlite3.Row:
+    sql = (
         "SELECT d.*, s.site_key, s.display_name AS site_display_name, s.base_url "
         "FROM dataset_definition AS d JOIN site_profile AS s "
         "ON s.site_profile_id = d.site_profile_id "
-        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
-        (key,),
-    ).fetchone()
-    if row is None:
-        raise EnrichmentError(f"unknown active dataset {key!r}")
-    return row
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL AND s.valid_to IS NULL "
+    )
+    parameters: tuple[str, ...] = (key,)
+    if site_key:
+        sql += "AND s.site_key = ? AND s.valid_to IS NULL "
+        parameters += (site_key,)
+    rows = conn.execute(
+        sql + "ORDER BY d.dataset_definition_id LIMIT 2", parameters
+    ).fetchall()
+    if not rows:
+        scope = f" for site {site_key!r}" if site_key else ""
+        raise EnrichmentError(f"unknown active dataset {key!r}{scope}")
+    if len(rows) > 1:
+        sites = ", ".join(repr(row["site_key"]) for row in rows)
+        raise EnrichmentError(
+            f"dataset key {key!r} is ambiguous across sites {sites}; provide site_key"
+        )
+    return rows[0]
 
 
 def _fields(conn: sqlite3.Connection, dataset_id: int) -> list[dict[str, Any]]:
@@ -136,6 +155,12 @@ def _definition_public(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
         "AND r.status = 'active'",
         (row["output_dataset_id"],),
     ).fetchone()
+    latest_job = conn.execute(
+        "SELECT j.job_ref, j.status FROM organization_enrichment_job AS e "
+        "JOIN crawl_job AS j ON j.job_id = e.job_id "
+        "WHERE e.enrichment_definition_id = ? ORDER BY j.job_id DESC LIMIT 1",
+        (row["enrichment_definition_id"],),
+    ).fetchone()
     return {
         "enrichment_definition_id": row["enrichment_definition_id"],
         "site_key": row["site_key"],
@@ -152,6 +177,7 @@ def _definition_public(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, 
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "last_run_at": row["last_run_at"],
+        "latest_job": dict(latest_job) if latest_job is not None else None,
         "counts": {
             "organizations": int(counts["organizations"] or 0),
             "verified": int(counts["verified"] or 0),
@@ -177,8 +203,13 @@ def _existing_for_source(
     return get_definition(conn, int(row[0])) if row else None
 
 
-def propose_definition(conn: sqlite3.Connection, source_dataset_key: str) -> dict[str, Any]:
-    source = _dataset(conn, source_dataset_key)
+def propose_definition(
+    conn: sqlite3.Connection,
+    source_dataset_key: str,
+    *,
+    site_key: str | None = None,
+) -> dict[str, Any]:
+    source = _dataset(conn, source_dataset_key, site_key)
     if json.loads(source["locator_json"] or "{}").get("kind") == \
             "organization_enrichment":
         raise EnrichmentError("an enrichment output cannot be used as its own source")
@@ -245,6 +276,7 @@ def propose_definition(conn: sqlite3.Connection, source_dataset_key: str) -> dic
         },
         "datasets": datasets,
         "proposal": {
+            "site_key": source["site_key"],
             "source_dataset_key": source_dataset_key,
             "detail_dataset_key": detail["dataset_key"] if detail else None,
             "output_dataset_key": _default_output_key(source_dataset_key),
@@ -252,8 +284,9 @@ def propose_definition(conn: sqlite3.Connection, source_dataset_key: str) -> dic
             "entity_key_field": identity,
             "detail_key_field": detail_key,
             "field_mapping": mapping,
-            "providers": [item["key"] for item in provider_availability()
-                          if item["available"]],
+            # Paid providers are always an explicit opt-in, even when their
+            # credential is configured on this engine.
+            "providers": ["website"],
         },
         "field_roles": list(FIELD_ROLES),
         "provider_availability": provider_availability(),
@@ -327,12 +360,30 @@ def _create_output_schema(conn: sqlite3.Connection, dataset_id: int) -> int:
 def create_definition(
     conn: sqlite3.Connection, request: DefinitionCreate
 ) -> dict[str, Any]:
-    source = _dataset(conn, request.source_dataset_key)
+    source = _dataset(conn, request.source_dataset_key, request.site_key)
     if json.loads(source["locator_json"] or "{}").get("kind") == \
             "organization_enrichment":
         raise EnrichmentError("an enrichment output cannot be used as its own source")
     existing = _existing_for_source(conn, int(source["dataset_definition_id"]))
     if existing is not None:
+        proposed_output_key = request.output_dataset_key or _default_output_key(
+            request.source_dataset_key
+        )
+        proposed_output_name = request.output_dataset_name or "Organization Enrichment"
+        same_definition = (
+            existing["detail_dataset_key"] == request.detail_dataset_key
+            and existing["output_dataset_key"] == proposed_output_key
+            and existing["output_dataset_name"] == proposed_output_name
+            and existing["entity_key_field"] == request.entity_key_field
+            and existing["detail_key_field"] == request.detail_key_field
+            and existing["field_mapping"] == request.field_mapping
+            and sorted(existing["providers"])
+            == sorted(str(item) for item in request.providers)
+        )
+        if not same_definition:
+            raise EnrichmentError(
+                "this source already has a different enrichment definition"
+            )
         return existing
     source_fields = {item["field_key"] for item in _fields(
         conn, int(source["dataset_definition_id"])
@@ -341,10 +392,12 @@ def create_definition(
         raise EnrichmentError(
             f"entity key {request.entity_key_field!r} is not in the source dataset"
         )
-    detail = _dataset(conn, request.detail_dataset_key) \
+    detail = _dataset(conn, request.detail_dataset_key, str(source["site_key"])) \
         if request.detail_dataset_key else None
     detail_fields: set[str] = set()
     if detail is not None:
+        if detail["dataset_definition_id"] == source["dataset_definition_id"]:
+            raise EnrichmentError("source and detail datasets must be different")
         if detail["site_profile_id"] != source["site_profile_id"]:
             raise EnrichmentError("source and detail datasets must belong to one site")
         detail_fields = {item["field_key"] for item in _fields(
@@ -507,6 +560,13 @@ def _float(value: Any) -> float | None:
         return None
 
 
+def _coordinate(value: Any, minimum: float, maximum: float) -> float | None:
+    parsed = _float(value)
+    if parsed is None or not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        return None
+    return parsed
+
+
 def _identity(
     definition: sqlite3.Row, source: sqlite3.Row, detail: dict[str, Any] | None
 ) -> OrganizationIdentity:
@@ -526,11 +586,11 @@ def _identity(
         key = mapping.get(role, "")
         primary = source_data.get(key)
         detailed = (detail or {}).get(key)
-        if role in ("company_name", "company_name_ar", "profile_url") and \
-                primary not in (None, ""):
-            selected = primary
-        else:
-            selected = detailed if detailed not in (None, "") else primary
+        # The field picker lists Source before Detail and de-duplicates equal
+        # keys. Therefore a populated source field must win an ambiguous key;
+        # otherwise the UI would say Source while the engine silently read
+        # Detail. A uniquely named detail field still works as expected.
+        selected = primary if primary not in (None, "") else detailed
         return str(selected or "").strip()
 
     return OrganizationIdentity(
@@ -543,8 +603,8 @@ def _identity(
         company_name_ar=value("company_name_ar"),
         email=value("email"),
         phone=value("phone"),
-        latitude=_float(value("latitude")),
-        longitude=_float(value("longitude")),
+        latitude=_coordinate(value("latitude"), -90.0, 90.0),
+        longitude=_coordinate(value("longitude"), -180.0, 180.0),
         city=value("city"),
         country=value("country"),
         profile_url=value("profile_url"),
@@ -688,7 +748,13 @@ def _materialized_data(
                                                                "linkedin")})
     data["evidence_urls"] = sorted({str(row["source_url"]) for row in rows
                                      if row["source_url"]})
-    first = min((str(row["first_seen_at"]) for row in rows), default=utc_now_iso())
+    entity = conn.execute(
+        "SELECT created_at FROM organization_entity WHERE organization_id = ?",
+        (identity.organization_id,),
+    ).fetchone()
+    first = str(entity["created_at"]) if entity is not None else min(
+        (str(row["first_seen_at"]) for row in rows), default=utc_now_iso()
+    )
     # The visible row changes when evidence changes, not merely because an
     # identical fact was checked again. `last_seen_at` still records that
     # reinforcement in organization_fact; using it here would create a new
@@ -770,8 +836,43 @@ def _detail_lookup(
         data = json.loads(row["data_json"])
         key = str(data.get(definition["detail_key_field"]) or "").strip()
         if key:
+            if key in result:
+                raise EnrichmentError(
+                    f"detail dataset has duplicate active join key {key!r}"
+                )
             result[key] = data
     return result
+
+
+def _active_source_rows(
+    conn: sqlite3.Connection, dataset_id: int, after_id: int
+):
+    """Yield a stable, bounded page at a time instead of loading the crawl whole."""
+    cursor_id = after_id
+    while True:
+        rows = conn.execute(
+            "SELECT r.*, p.source_url FROM generic_record AS r "
+            "JOIN generic_page_snapshot AS p "
+            "ON p.page_snapshot_id = r.source_snapshot_id "
+            "WHERE r.dataset_definition_id = ? AND r.status = 'active' "
+            "AND r.generic_record_id > ? ORDER BY r.generic_record_id LIMIT ?",
+            (dataset_id, cursor_id, _SOURCE_BATCH_SIZE),
+        ).fetchall()
+        if not rows:
+            return
+        yield from rows
+        cursor_id = int(rows[-1]["generic_record_id"])
+
+
+def _close_providers(providers) -> None:
+    close_all = getattr(providers, "close", None)
+    if close_all is not None:
+        close_all()
+        return
+    for provider in providers:
+        close = getattr(provider, "close", None)
+        if close is not None:
+            close()
 
 
 def _park_for_control(conn: sqlite3.Connection, job: dict) -> bool:
@@ -835,18 +936,16 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
     conn.commit()
     details = _detail_lookup(conn, definition)
     providers = build_providers(json.loads(linked["providers_json"] or "[]"))
-    source_rows = conn.execute(
-        "SELECT r.*, p.source_url FROM generic_record AS r "
-        "JOIN generic_page_snapshot AS p ON p.page_snapshot_id = r.source_snapshot_id "
-        "WHERE r.dataset_definition_id = ? AND r.status = 'active' "
-        "AND r.generic_record_id > ? "
-        "ORDER BY r.generic_record_id",
-        (definition["source_dataset_id"], after_id),
-    ).fetchall()
+    source_rows = _active_source_rows(
+        conn, int(definition["source_dataset_id"]), after_id
+    )
     errors: list[str] = list(checkpoint.get("errors", []))
+    disabled_providers: set[str] = set()
+    consecutive_system_errors: dict[str, int] = {}
     for source in source_rows:
         current = jobs.get_job(conn, job_ref)
         if _park_for_control(conn, current):
+            _close_providers(providers)
             return jobs.get_job(conn, job_ref)
         try:
             source_data = json.loads(source["data_json"])
@@ -877,13 +976,32 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
                           for fact in _source_facts(identity))
             provider_errors = 0
             for provider in providers:
+                if provider.name in disabled_providers:
+                    continue
                 result = provider.run(identity)
+                if result.system_error:
+                    consecutive_system_errors[provider.name] = (
+                        consecutive_system_errors.get(provider.name, 0) + 1
+                    )
+                else:
+                    consecutive_system_errors[provider.name] = 0
                 if result.error:
                     provider_errors += 1
                     jobs.append_log(
                         conn, job["job_id"],
                         f"{identity.external_id}: {result.provider}: {result.error}",
                         level=LogLevel.WARNING,
+                    )
+                if consecutive_system_errors[provider.name] >= _PROVIDER_CIRCUIT_LIMIT:
+                    disabled_providers.add(provider.name)
+                    counters["providers_disabled"] = int(
+                        counters.get("providers_disabled", 0)
+                    ) + 1
+                    jobs.append_log(
+                        conn, job["job_id"],
+                        f"{provider.name}: disabled after "
+                        f"{_PROVIDER_CIRCUIT_LIMIT} consecutive system errors",
+                        level=LogLevel.ERROR,
                     )
                 changed += sum(_upsert_fact(conn, identity.organization_id, fact)
                                for fact in result.facts)
@@ -928,6 +1046,7 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
                 last_heartbeat_at=utc_now_iso(),
             )
             conn.commit()
+    _close_providers(providers)
     # A company that is no longer active in the source does not stay current in
     # the derived table. Its row and fact history remain queryable; only the
     # current materialization is marked unavailable.
@@ -947,8 +1066,13 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
         "WHERE enrichment_definition_id = ?",
         (utc_now_iso(), utc_now_iso(), definition["enrichment_definition_id"]),
     )
-    status = JobStatus.COMPLETED_WITH_ERRORS if errors else JobStatus.COMPLETED
-    jobs._finish(conn, job["job_id"], status, "; ".join(errors[-5:]) or None)
+    provider_error_count = int(counters.get("provider_errors", 0))
+    status = JobStatus.COMPLETED_WITH_ERRORS \
+        if errors or provider_error_count else JobStatus.COMPLETED
+    summary = "; ".join(errors[-5:])
+    if not summary and provider_error_count:
+        summary = f"{provider_error_count} provider request(s) failed"
+    jobs._finish(conn, job["job_id"], status, summary or None)
     return jobs.get_job(conn, job_ref)
 
 

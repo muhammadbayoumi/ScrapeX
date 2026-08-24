@@ -35,6 +35,7 @@ class DefinitionCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    site_key: CatalogKey | None = None
     source_dataset_key: CatalogKey
     detail_dataset_key: CatalogKey | None = None
     output_dataset_key: CatalogKey | None = None
@@ -43,7 +44,7 @@ class DefinitionCreate(BaseModel):
     detail_key_field: CatalogKey | None = None
     field_mapping: dict[str, CatalogKey] = Field(default_factory=dict)
     providers: list[ProviderName] = Field(
-        default_factory=lambda: [ProviderName.WEBSITE]
+        default_factory=lambda: [ProviderName.WEBSITE], min_length=1
     )
 
     @field_validator("field_mapping")
@@ -108,6 +109,7 @@ class ProviderResult:
     facts: tuple[FieldFact, ...] = ()
     checked: bool = True
     error: str = ""
+    system_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,7 @@ OUTPUT_FIELDS: tuple[OutputField, ...] = (
     OutputField("verified_phone_secondary"),
     OutputField("google_place_id"),
     OutputField("google_maps_url", "url"),
+    OutputField("google_maps_cid_url", "url"),
     OutputField("google_business_name"),
     OutputField("google_formatted_address"),
     OutputField("google_phone"),

@@ -2252,5 +2252,7 @@ it never becomes a confident value because a search result looked plausible.
 definition service, Official Website and optional Google Places providers, an explicitly
 unavailable LinkedIn slot, job dispatch and controls, API routes, the dataset-card action,
 the extension workspace, the wide output dataset and focused end-to-end tests. It remains
-In flight until the repository gates complete and the branch is handed to the primary
-session; this secondary session does not merge or publish it.
+In flight until the owner chooses to merge it. The branch is published as
+`origin/feat/organization-enrichment`; the adversarial follow-up hardens cross-site dataset
+identity, paid-provider opt-in, bounded reads, provider circuits, website SSRF protection,
+coordinate and email validation, and persistent job state.

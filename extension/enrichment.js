@@ -19,6 +19,7 @@ const ROLE_LABELS = {
 
 const params = new URLSearchParams(window.location.search);
 let sourceKey = params.get("source") || "";
+let siteKey = params.get("site") || "";
 let model = null;
 let definition = null;
 let currentJob = null;
@@ -154,11 +155,13 @@ function renderCounts() {
 
 function lockDefinition() {
   const locked = Boolean(definition);
+  const latestStatus = definition?.latest_job?.status;
+  const jobActive = Boolean(latestStatus && !TERMINAL.has(latestStatus));
   for (const node of document.querySelectorAll(
     ".config-card input, .config-card select",
   )) node.disabled = locked || node.dataset.available === "false";
   $("create-definition").disabled = locked;
-  $("run-enrichment").disabled = !locked;
+  $("run-enrichment").disabled = !locked || jobActive;
   $("open-data").disabled = !locked;
   $("definition-state").textContent = locked ? "Active" : "Draft";
   renderCounts();
@@ -173,6 +176,7 @@ function render(payload) {
     output_dataset_name: definition.output_dataset_name,
   } : payload.proposal;
   sourceKey = proposal.source_dataset_key;
+  siteKey = payload.site.site_key;
   $("workspace-summary").textContent =
     `${payload.site.display_name} · ${sourceKey} · source rows stay unchanged`;
   fillSelect(
@@ -194,7 +198,10 @@ function render(payload) {
   $("output-key").value = proposal.output_dataset_key || "";
   $("output-name").value = proposal.output_dataset_name || "Organization Enrichment";
   lockDefinition();
-  if (definition) refreshReview();
+  if (definition) {
+    refreshReview();
+    restoreLatestJob();
+  }
 }
 
 async function load(nextSource = sourceKey) {
@@ -207,7 +214,10 @@ async function load(nextSource = sourceKey) {
   message();
   $("workspace-summary").textContent = "Reading the source definition…";
   try {
-    const payload = await api(`/api/enrichment/sources/${encodeURIComponent(nextSource)}`);
+    const siteQuery = siteKey ? `?site_key=${encodeURIComponent(siteKey)}` : "";
+    const payload = await api(
+      `/api/enrichment/sources/${encodeURIComponent(nextSource)}${siteQuery}`,
+    );
     if (generation === backendGeneration()) render(payload);
   } catch (error) {
     if (generation !== backendGeneration()) return;
@@ -229,6 +239,7 @@ async function createDefinition() {
   $("create-definition").disabled = true;
   const detailKey = $("detail-dataset").value || null;
   const payload = {
+    site_key: siteKey || null,
     source_dataset_key: $("source-dataset").value,
     detail_dataset_key: detailKey,
     output_dataset_key: $("output-key").value.trim() || null,
@@ -254,6 +265,9 @@ async function createDefinition() {
 
 function renderJob(job) {
   currentJob = job;
+  if (definition) {
+    definition.latest_job = {job_ref: job.job_ref, status: job.status};
+  }
   $("run-card").classList.remove("hidden");
   $("job-status").textContent = job.status.replaceAll("_", " ");
   const progress = job.progress || {};
@@ -267,11 +281,25 @@ function renderJob(job) {
     metric("Facts changed", counters.facts_changed),
     metric("Rows changed", counters.rows_changed),
     metric("Provider errors", counters.provider_errors),
+    metric("Providers disabled", counters.providers_disabled),
     metric("Record errors", counters.errors),
   );
   $("pause-job").disabled = !["preparing", "running"].includes(job.status);
   $("resume-job").disabled = job.status !== "paused";
   $("cancel-job").disabled = TERMINAL.has(job.status);
+  lockDefinition();
+}
+
+async function restoreLatestJob() {
+  const latest = definition?.latest_job;
+  if (!latest?.job_ref || currentJob?.job_ref === latest.job_ref) return;
+  try {
+    const job = await api(`/api/jobs/${encodeURIComponent(latest.job_ref)}`);
+    renderJob(job);
+    if (!TERMINAL.has(job.status) && !pollTimer) pollJob();
+  } catch (error) {
+    message(error.message, "error");
+  }
 }
 
 async function pollJob() {
@@ -309,7 +337,7 @@ async function runEnrichment() {
   } catch (error) {
     message(error.message, "error");
   } finally {
-    $("run-enrichment").disabled = false;
+    lockDefinition();
   }
 }
 
@@ -376,7 +404,8 @@ $("run-enrichment").addEventListener("click", runEnrichment);
 $("open-data").addEventListener("click", () => {
   if (!definition) return;
   chrome.tabs.create({url: chrome.runtime.getURL(
-    `data.html?source=${encodeURIComponent(definition.output_dataset_key)}`,
+    `data.html?source=${encodeURIComponent(definition.output_dataset_key)}`
+      + `&site=${encodeURIComponent(definition.site_key)}`,
   )});
 });
 $("pause-job").addEventListener("click", () => controlJob("pause"));

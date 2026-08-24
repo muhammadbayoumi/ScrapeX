@@ -879,7 +879,7 @@ citations were already wrong:
 the obvious guard — passes all three. What makes this class dangerous is that the
 citation looks healthy: a reader follows it, lands on plausible code twenty lines
 early, and reasons from the wrong place with full confidence. Three more were
-found in `BACKLOG.md` the same afternoon (`app.py:1366`, `:2363`,
+found in `BACKLOG.md` the same afternoon (`app.py:1374`, `:2363`,
 `extension/app.js:885`), and two of mine were wrong within an hour of writing
 them — `scrapex/features.py:57` and `:62` are a closing bracket and a docstring;
 the flags are at 54 and 60.
