@@ -33,6 +33,13 @@ import re
 
 import pytest
 
+# Guards the extension: this file reads `extension/app.html` and
+# `extension/onboarding.html`, so an extension-only change must run it. Without the
+# mark this file would stop running on exactly the change most likely to unbalance
+# a tag — which `tests/test_the_extension_gate_is_complete.py` caught the moment it
+# was written, in the full suite it was written to be part of.
+pytestmark = pytest.mark.extension
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Hand-authored markup we ship or serve. Jinja templates are excluded on purpose: a
