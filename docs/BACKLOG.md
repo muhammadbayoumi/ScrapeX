@@ -2724,6 +2724,22 @@ column written row by row cannot.
   filter?" and never asked "does the derived state say the right thing?" — which is where
   the defect actually is.**
 
+**AND IT IS NOT A DISPLAY BUG — IT IS A PUBLISHED COLUMN.** `publish.py`'s
+`dataset_workbook_tables` turns every payload column into a workbook column
+([scrapex/publish.py:135](../scrapex/publish.py#L135)), and the payload carries six:
+`observed_state`, `observed_state_meaning`, `observed_last_seen`, `observed_first_seen`,
+`observed_last_changed`, `observed_status`. Read from the live warehouse just now:
+
+```
+observed_state          'absent'
+observed_state_meaning  'The most recent crawl did not show this row'
+```
+
+on 17,256 of 17,304 rows. So the false sentence is written **into the Google Sheet the mbiX
+Excel add-in reads** — the single boundary `CLAUDE.md` says the two systems meet at. That
+moves this from "a screen is wrong" to "the product's only output is wrong", and it is why
+this entry leads the register rather than sitting in it.
+
 **Why this is not folded into `#267`.** It is not caused by that work, it touches the state
 derivation every dataset row on the Data screen reads, and `R-51`'s own three new columns
 land directly on top of it. Recorded here so it is picked up as its own change with its own
