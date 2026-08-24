@@ -2666,6 +2666,69 @@ its own, which is why it was not bundled into the branch that found it.
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
 
+### OP-68 · "The last crawl" is a TIMESTAMP, so 17,256 of 17,304 contractors are shown as having disappeared
+
+**Found 2026-08-24 by an adversarial review verifying `#267`'s numbers. It predates `#267`
+entirely** — `contractors` was not touched by that work, and the skew is older than the
+`R-51` recovery run.
+
+**`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
+`newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
+identifier ([scrapex/extract/service.py:929](../scrapex/extract/service.py#L929)):
+
+```python
+if last_seen_at is None or last_seen_at < newest:
+    return STATE_ABSENT
+```
+
+A crawl writes its rows over half an hour, so only the rows written in the **final second**
+survive that comparison. Measured read-only on the live warehouse:
+
+| | `contractors` | `contractor_profiles` |
+|---|---|---|
+| `newest` = `MAX(last_seen_at)` | `2026-08-22T07:39:56Z` | `2026-08-24T11:47:30Z` |
+| rows equal to it | **48** | **1** |
+| rows earlier than it → `STATE_ABSENT` | **17,256** | 17,384 |
+| distinct `last_seen_at` values | **1,034** | 3,412 |
+| `dataset_sighting` rows | 17,417 | **0** |
+
+**So the Data screen tells the owner that 17,256 of his 17,304 contractors have stopped
+being published — after a crawl that read every one of them.** That is the loudest possible
+false alarm on the one screen whose job is to show what the site is doing.
+
+The profile table is wrong differently and it is worse for being quiet: `dataset_sighting`
+holds **zero** rows for `contractor_profiles`, so `sighted_at is None` fires two checks
+earlier and all 17,371 read `unsighted`. The absence bug is masked by a gap in the ledger.
+
+**The reasoning that fixes it is already in the file, eight lines below the defect.**
+`scrapex/sightings.py:403-407` explains that `last_absent_at` needs `>=` rather than `>`
+*"because both timestamps are `strftime(...,'now')` at SECOND resolution"*. The same
+argument applies to `newest` and was never carried across. A run identifier — or the crawl
+run's own start time — answers "was this row seen by the last crawl?"; the maximum of a
+column written row by row cannot.
+
+**Two statements nearby are also false, and both predate `#267`:**
+
+* [scrapex/extract/service.py:601](../scrapex/extract/service.py#L601) says *"`last_seen_at`
+  still moved: the upsert above sets it unconditionally, so a confirmation is recorded on
+  the RECORD."* The `DEC-10` early `return` at
+  [scrapex/extract/service.py:503](../scrapex/extract/service.py#L503) fires **before** that
+  upsert. Measured: **0** profile rows have a `last_seen_at` on 2026-08-24 with an earlier
+  `first_seen_at`; all 17,264 pre-`R-51` rows still read 2026-08-23, after a full
+  re-approval that touched every one of them.
+* `docs/RULINGS.md` claims `dataset_table_payload` *"filters `AND status = 'active'`"* and
+  drops the observation facts. Both were true once and are not now: `ec53b17` (#235) removed
+  the filter under `R-27`, and the payload attaches `observed_first_seen`,
+  `observed_last_seen`, `observed_status`, `observed_last_changed`, `observed_state` and
+  `observed_state_meaning`. **The audit that produced that paragraph asked "does it
+  filter?" and never asked "does the derived state say the right thing?" — which is where
+  the defect actually is.**
+
+**Why this is not folded into `#267`.** It is not caused by that work, it touches the state
+derivation every dataset row on the Data screen reads, and `R-51`'s own three new columns
+land directly on top of it. Recorded here so it is picked up as its own change with its own
+review, which is what this register is for.
+
 ### OP-67 · A SECOND obfuscated email on the page is stored as Cloudflare's placeholder text
 
 **Found 2026-08-24 while checking the `R-51` recovery run for damage.** It found none — and
@@ -2763,7 +2826,7 @@ dict whose insertion order is not the page's, because `read_profile` adds
 `organization_email` and `commercial_registration` after the info-box loop.
 `merge_locales` reads `english.labels[index]` and — since `R-51` — the Arabic value at
 the position `align_locales` works out
-([scrapex/extract/muqawil.py:1702](../scrapex/extract/muqawil.py#L1702)). Re-measured
+([scrapex/extract/muqawil.py:1715](../scrapex/extract/muqawil.py#L1715)). Re-measured
 against **those**:
 
 | pages | shape | the last label on each side | is the odd box at the END? |

@@ -116,12 +116,21 @@ CITATION = re.compile(
 # `#L` anchor -- `[path:706](../path#L697)`. Four groups: the whole label, the line
 # it SHOWS, the href without its fragment, and the line it OPENS.
 #
-# THE LABEL MAY BE DRESSED, and an adversarial review measured why that matters:
-# ``[`app.py:706`](...#L697)`` is this repository's dominant inline-code idiom and the
-# first version of this pattern could not see it -- four such links already exist,
-# none with an anchor YET, so the next one written would have been invisible. Bold and
-# emphasis markers are allowed for the same reason, and a lowercase `#l697` because
-# GitHub accepts it.
+# THE LABEL MAY BE DRESSED, and the honest reason is narrower than the one first
+# written here. That comment claimed ``[`app.py:706`](...#L697)`` was "this
+# repository's dominant inline-code idiom" with "four such links already existing".
+# Measured across every `*.md` in the repository: **zero** backticked-label citations
+# exist. There are seven backticked-label links, and not one is a citation -- none
+# carries `:digits`, so the widened pattern would not match them even with an anchor
+# added. All 45 real linked citations are undressed, and widening the class changed
+# **0** matches and **0** verdicts.
+#
+# So this is defence in depth for a shape nobody writes YET, which is a fair thing to
+# build and not the thing the old comment said. The correction is recorded rather than
+# quietly swapped, because it was written in the very commit whose subject was fixing
+# four statements that had drifted from the code -- and it drifted from the documents
+# in the same breath. Bold and emphasis markers are allowed on the same footing, and a
+# lowercase `#l697` because GitHub accepts it.
 #
 # WHAT IT STILL CANNOT SEE, named rather than implied: a reference-style link
 # (`[label][ref]`), a raw HTML `<a href>`, and a link split across two lines -- this
@@ -376,6 +385,17 @@ PINNED = (
     # stay unpinned -- the new label/anchor test is the guard they needed.
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 665,
      "the row menu offers Update,"),
+    # `OP-66`'s account of R-51 rests on WHICH array `merge_locales` reads, and the
+    # citation for it was false in both halves once before: it named :1589, R-51
+    # pushed ninety lines above it, and it landed on another function's docstring
+    # while the claim itself had also changed. Repaired to :1702 and PINNED here,
+    # because a citation whose whole job is to show the reader the shifted index is
+    # a citation that has to be ON that line. Tier 1 alone would not notice again.
+    # AND IT DRIFTED AGAIN BEFORE THE INK WAS DRY, thirteen lines, from correcting
+    # the module header above it in the same commit -- which is the whole argument
+    # for pinning it rather than trusting a number in prose.
+    ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1715,
+     "arabic_value = arabic.values[lined_up.arabic_of[index]]"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

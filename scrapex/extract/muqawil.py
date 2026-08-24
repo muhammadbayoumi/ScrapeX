@@ -38,14 +38,27 @@ spelled `رقم العضويه`, with `ه` and not `ة`, and a parser keyed on i
 difference no reader would ever notice.
 
 AND `AT MOST` IS THE WORD THAT COST 129 CONTRACTORS. This paragraph read "ELEVEN
-pairs in BOTH locales, index for index", measured on the two committed fixtures —
-and the corpus does not look like the fixtures: of 17,452 stored pairs, **15,380
-publish NINE boxes, 1,511 publish ten and 359 publish eleven**. Worse, the two
-locales do not always omit the SAME box: on 121 pairs the Arabic page prints a
-`عنوان` box the English page does not. So the matching position is NOT always the
-same index, `align_locales` works out what it is, and `R-51` is the ruling. The
-Arabic label is still never read — the gap is located from the English side, which
-is what makes that possible.
+pairs in BOTH locales, index for index", measured on the two committed fixtures --
+and the corpus does not look like the fixtures. All 17,452 stored id pairs, by
+(English, Arabic) box count:
+
+    (9, 9)   15,380      (9, 10)     97      not a profile at all    73
+    (10, 10)  1,511      (10, 11)    24      -- 59 dead ids (OP-64)
+    (11, 11)    359      (10, 9)      7      -- plus 14 retired impostors
+                         (11, 10)     1
+    agree    17,250      differ     129      total                17,452
+
+Two things that census says and the sentence it replaced did not. **The counts
+disagree on 129 pairs**, because the two locales do not always omit the SAME box: on
+121 the Arabic page prints a `عنوان` box the English page does not. And the earlier
+figures 15,380 / 1,511 / 359 were the AGREEING column alone -- they sum to 17,250,
+not 17,452, so quoting them as "of 17,452 pairs, N publish nine boxes" left 202
+unaccounted for. Nor is "nine boxes" a property of a pair: per locale it is 15,477
+English pages and 15,387 Arabic.
+
+So the matching position is NOT always the same index. `align_locales` works out
+what it is and `R-51` is the ruling. The Arabic label is still never read -- the gap
+is located from the English side, which is what makes that possible.
 """
 from __future__ import annotations
 
