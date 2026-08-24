@@ -2702,38 +2702,75 @@ English page does not publish at all:
 
 `CONTRACTOR-SOURCE.md` already records that the address is Arabic-only; what is new is that
 on these pages the English side omits the box **entirely**, so the counts differ and
-`merge_locales` refuses. The count gap is +2 in `read_profile`'s terms on every one of the
-121 pairs that could be compared — 10/12, 11/13, 12/14, 13/15, 14/16, 15/17, 16/18 — never
-+1 and never +3, which is what a systematic difference looks like rather than noise.
+`merge_locales` refuses.
 
-**THE REFUSAL IS CORRECT, AND THAT IS THE FINDING.** The tempting repair — tolerate a
-trailing extra Arabic box — was tested and is wrong. Measured with an instrument that needs
-no translation, **digits**, since `4030179603` is the same characters in both locales:
+**AND THE FIRST VERSION OF THIS ENTRY MEASURED IT WITH THE WRONG ARRAY.** It reported a gap
+of **+2** on every pair and concluded that **"121 of 121 are MISALIGNED"**, so no repair was
+possible. Both claims were artefacts of the instrument: they compared `Reading.fields`, a
+dict whose insertion order is not the page's, because `read_profile` adds
+`organization_email` and `commercial_registration` after the info-box loop.
+`merge_locales` reads `english.labels[index]` and `arabic.values[index]`
+(`scrapex/extract/muqawil.py:1589`). Re-measured against **those**:
+
+| pages | shape | the last label on each side | is the odd box at the END? |
+|---:|---|---|---|
+| **97** | AR one longer | EN `Region` · AR `عنوان` | **yes** — Arabic simply adds the address |
+| **24** | AR one longer | EN `Activity` · AR `الخدمة` | **no — it is interior** |
+| **7** | EN one longer | EN `Address` | yes |
+| **1** | EN one longer | EN `Activity` | no |
+
+The gap is **±1 on every one of the 129, never ±2**, and **no pair is misaligned before the
+divergence** — the digit instrument reports zero disagreements, because the odd box always
+falls after the last numeric field. So digits cannot decide this question either; the LABEL
+POSITIONS can.
+
+**THE REFUSAL IS STILL CORRECT, AND THE 24 ARE THE PROOF.** Contractor `20000713`:
 
 ```
-refused pairs examined                        121
-  every shared numeric box agrees (ALIGNED)     0
-  at least one disagrees   (MISALIGNED)       121
+    8   EN Region                AR المنطقه
+    9   EN Activity              AR عنوان        <-- diverges here, in the MIDDLE
+   10   EN     --                AR الخدمة
 ```
 
-**121 of 121**, and always at the same index:
+Zipping to the shorter list would write the Arabic **address** into `activity_ar` for those
+24. So the tempting repair — tolerate a trailing extra box — is wrong, and `merge_locales`
+is right to refuse rather than zip. What was wrong was the conclusion that NO repair exists.
 
-```
-[en] 9.  commercial_registration  4030179603
-[ar] 9.  عنوان                    جدة - حي الزهراء - شارع حلمي كتبي ...
-```
+**The repair that does exist, and reads no Arabic label.** `PROFILE_FIELDS`
+(`scrapex/extract/muqawil.py:121`) is an ordered map of the **eleven** English labels **in
+page order**. Every one of the 129 English pages carries a subsequence of those eleven, in
+order, with no unrecognised label — checked, zero strays. So when the English page omits a
+box, *which* box it omitted and *where* is known, and the Arabic list can be indexed around
+that gap. Measured over all 188:
 
-The Arabic-only box sits in the MIDDLE, before the commercial registration, and shifts
-everything after it. Pairing by position would have written an address into
-`commercial_registration` for 129 contractors — which is verbatim what the error message
-says it prevents.
+| count | outcome under the canonical-position repair |
+|---:|---|
+| **121** | **recoverable** — Arabic is the longer side, so the gap is deducible from English |
+| **8** | refused — Arabic is the SHORTER side, and which field *it* dropped cannot be deduced without reading an Arabic label |
+| 59 | untouched — layer 1 still refuses them, and rightly (`OP-64`) |
 
-**What would fix it: pairing by label identity rather than by position.** Independent of the
-network, replayable from the snapshots already stored, and worth **+129 contractors with
-their address** — a field the English page cannot supply for anyone.
+**Why this preserves the property the current code is built on.** `merge_locales`'s docstring
+argues that reading no Arabic label is what stops a spelling change in one from breaking the
+merge — and the site's own `المنطقه` is spelled with `ه` where `ة` belongs, so that argument
+has teeth: a hand-written Arabic vocabulary would have to carry the site's typo and would
+break the day they fix it. The canonical-position repair reads Arabic **values** only, exactly
+as today.
 
-**Not built, and not costed.** The 59 belong to `REQ-42` (a withdrawn contractor entered
-with a state that says so); these 129 are a parser question and are separate from it.
+**Worth +121 contractors with their address** — a field the English page cannot supply for
+anyone. Independent of the network, replayable from the snapshots already stored.
+
+**BUILT AND RULED, 2026-08-24 — `R-51`.** He was shown the two options and chose the
+second: «نفذ ب». `align_locales` (`scrapex/extract/muqawil.py`) locates the gap from the
+English side and `merge_locales` asks it; no Arabic label is read, which is the property
+the old refusal was built on and is worth more than the 129. Guarded by
+`tests/test_the_two_locales_line_up_around_a_missing_box.py` on two real page pairs
+committed as fixtures, and mutation-tested on eleven branches — one mutant survived the
+first draft and proved the order check was passing for the wrong reason.
+
+**Measured after the repair, replaying the 188 through the parser:** 121 merge, 24 of them
+carrying an address they did not have, 8 still refused, 59 still at layer 1. The 59 belong
+to `REQ-42` (a withdrawn contractor entered with a state that says so) and are separate
+from this.
 
 ### OP-65 · A snapshot records the URL we ASKED for, never the one we landed on
 

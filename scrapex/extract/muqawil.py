@@ -43,6 +43,7 @@ import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from bs4 import BeautifulSoup, Tag
 
@@ -1565,34 +1566,144 @@ def check_drift(paged_rows: Iterable[tuple[int, dict[str, str]]], *,
                   if len(where) > 1})
 
 
+#: The eleven labels above, as a list, because their ORDER is the fact the
+#: alignment below rests on: `PROFILE_FIELDS` is written in the order the page
+#: prints its boxes, so a label's position in it is that box's canonical position.
+#: Derived, never a second hand-written tuple — a copy would drift.
+_CANONICAL_LABELS = list(PROFILE_FIELDS)
+
+
+class _Alignment(NamedTuple):
+    """How one page's boxes line up with its sibling's.
+
+    `arabic_of` maps an ENGLISH index to the Arabic index holding the same field.
+    `extra_label` is the canonical label of the one Arabic box English does not
+    publish, or None when which box it is cannot be told apart.
+    """
+
+    arabic_of: dict[int, int]
+    extra_label: str | None
+
+
+def align_locales(english: Reading, arabic: Reading) -> _Alignment | None:
+    """Line up two readings of one contractor, or return None if they cannot be.
+
+    WHY THIS EXISTS. `merge_locales` refused any pair whose box counts differed,
+    which was right and cost 129 contractors — measured 2026-08-24 over the whole
+    stored corpus, every one of them with both pages on disk. The site publishes
+    the SAME eleven boxes in the SAME order in both languages, but a page may omit
+    one, and the two languages do not always omit the same one: on 121 of the 129
+    the Arabic page carries a `عنوان` box the English page does not print at all.
+
+    WHY IT STILL READS NO ARABIC LABEL, which is the property the old docstring was
+    built on and which is worth more than the 129. `PROFILE_FIELDS` is ordered, so
+    an English label's position in it IS its box's canonical position. If English
+    omits a box, WHICH canonical position it omitted is therefore known — and the
+    Arabic list can be indexed around that gap without ever asking what the Arabic
+    box is called. That matters concretely: the site spells `المنطقه` with `ه`
+    where `ة` belongs, so a hand-written Arabic vocabulary would have to carry the
+    site's own typo and would break the day they fix it.
+
+    THE THREE ANSWERS.
+      * equal counts -> the identity map, which is exactly what the code did before.
+      * Arabic one longer -> the map, shifted by one after the missing position,
+        PROVIDED the shift is the same whichever absent position the extra box
+        occupies. Measured: unambiguous on all 121, ambiguous on none.
+      * anything else -> None. In particular ARABIC BEING THE SHORTER SIDE cannot
+        be aligned: which field Arabic dropped is exactly what reading no Arabic
+        label leaves unknowable. Eight pages, refused, and counted rather than
+        guessed.
+    """
+    if len(english.labels) == len(arabic.labels):
+        return _Alignment({index: index for index in range(len(english.labels))}, None)
+    if len(arabic.labels) != len(english.labels) + 1:
+        return None
+
+    # A LABEL THE MAP DOES NOT KNOW HAS NO CANONICAL POSITION, so the gap cannot be
+    # located and the pair is refused rather than aligned on a guess. `read_profile`
+    # keeps such a label under a slug of its own, which is the right thing for a
+    # single page and not enough to align two.
+    try:
+        seen = [_CANONICAL_LABELS.index(label) for label in english.labels]
+    except ValueError:
+        return None
+    if seen != sorted(seen) or len(set(seen)) != len(seen):
+        # OUT OF ORDER OR REPEATED means the premise — one canonical order, printed
+        # the same way in both languages — does not hold for this page, and every
+        # inference below rests on it.
+        return None
+
+    absent = [position for position in range(len(_CANONICAL_LABELS))
+              if position not in seen]
+    if not absent:
+        return None
+    # THE EXTRA BOX IS ONE OF THE ABSENT POSITIONS AND WE NEED NOT KNOW WHICH,
+    # so long as every English label agrees about whether it sits before or after
+    # it. When English omits Address AND Activity and Arabic has one of them, both
+    # candidates are past every English position, so the shift is zero either way.
+    # When they straddle an English label the answer would differ, and that is the
+    # one case this refuses.
+    first, last = min(absent), max(absent)
+    if any((first < position) != (last < position) for position in seen):
+        return None
+
+    arabic_of = {index: index + (1 if first < position else 0)
+                 for index, position in enumerate(seen)}
+    # THE EXTRA'S OWN FIELD IS NAMEABLE ONLY WHEN ENGLISH OMITS EXACTLY ONE BOX.
+    # With two absent positions the extra is one of them and nothing here can say
+    # which, so its value is dropped rather than filed under a guess — measured, that
+    # is 97 pages whose row is otherwise complete, against 24 that gain their address.
+    extra = _CANONICAL_LABELS[absent[0]] if len(absent) == 1 else None
+    return _Alignment(arabic_of, extra)
+
+
 def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
     """One contractor from its two pages, with the `_ar` half attached.
 
-    PAIRED BY INDEX, NEVER BY LABEL. Both locales publish the same eleven boxes
+    PAIRED BY POSITION, NEVER BY LABEL. Both locales publish the same eleven boxes
     in the same order, so the English label names the field and the Arabic page
-    supplies the value sitting at the same position. Nothing here ever reads an
-    Arabic label, which is exactly why a spelling difference in one cannot break
-    it.
+    supplies the value sitting at the matching position. Nothing here ever reads an
+    Arabic label, which is exactly why a spelling difference in one cannot break it
+    — and the site spells `المنطقه` with `ه` where `ة` belongs, so that is not a
+    hypothetical.
 
-    A page whose box count differs from its sibling's is REFUSED rather than
-    zipped to the shorter of the two: zipping would silently attach the wrong
-    Arabic value to every field after the divergence, and a wrong value is worse
-    than a missing one in a table whose whole purpose is to be believed.
+    THE MATCHING POSITION IS NOT ALWAYS THE SAME INDEX, and it took 129 contractors
+    to find out. `align_locales` above works it out; this function only ever asks.
+
+    A pair that cannot be aligned is still REFUSED rather than zipped to the shorter
+    of the two. That is not caution, it is measured: on 24 of the 129 the Arabic
+    page's extra box sits BETWEEN `Region` and `Activity`, so zipping would have
+    written an Arabic address into `activity_ar`.
     """
-    if len(english.labels) != len(arabic.labels):
+    lined_up = align_locales(english, arabic)
+    if lined_up is None:
         raise ValueError(
             f"the English page published {len(english.labels)} fields and the "
-            f"Arabic one {len(arabic.labels)}; pairing them by position would "
-            "attach the wrong Arabic value to every field after the difference")
+            f"Arabic one {len(arabic.labels)}, and the two cannot be lined up: "
+            "pairing them by position would attach the wrong Arabic value to every "
+            "field after the difference")
 
     merged = dict(english.fields)
     for index, label in enumerate(english.labels):
         key = PROFILE_FIELDS.get(label) or f"x_{_slug(label)}"
         if key in NOT_BILINGUAL:
             continue
-        arabic_value = arabic.values[index]
+        arabic_value = arabic.values[lined_up.arabic_of[index]]
         if arabic_value and arabic_value != merged.get(key):
             merged[f"{key}_ar"] = arabic_value
+
+    # THE BOX ENGLISH DOES NOT PRINT AT ALL. Measured on 24 pages, it is the
+    # address — a field `CONTRACTOR-SOURCE.md` already records as Arabic-only, so
+    # the Arabic page is not a second-best source for it, it is the ONLY one. Filed
+    # under the field's own key when that field is single-valued, and under `_ar`
+    # when it is not, because a bilingual column whose English half was never
+    # published must not pretend the Arabic value is both.
+    if lined_up.extra_label is not None:
+        key = PROFILE_FIELDS[lined_up.extra_label]
+        taken = {lined_up.arabic_of[index] for index in range(len(english.labels))}
+        spare = [index for index in range(len(arabic.labels)) if index not in taken]
+        if len(spare) == 1 and arabic.values[spare[0]]:
+            merged[key if key in NOT_BILINGUAL else f"{key}_ar"] = arabic.values[spare[0]]
 
     # DERIVED, never read twice. `Is Saudi Contractor` is the same fact as
     # `Membership Type` and the owner asked for both; computing it here means
