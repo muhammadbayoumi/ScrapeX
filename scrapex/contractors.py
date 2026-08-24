@@ -797,7 +797,12 @@ Membership = tuple[tuple[str, ...], tuple[str, ...], tuple[str, str, str] | None
 def _interest_paths(english: str, arabic: str) -> list[Membership]:
     """`interests`, paired across the two pages. Raises when the counts differ.
 
-    PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Both locales
+    PAIRED BY POSITION AND REFUSED WHEN THE COUNTS DIFFER. This used to say "like
+    `merge_locales`", and since `R-51` that is no longer true: interests have no
+    canonical order to locate a gap against — `PROFILE_FIELDS` is what makes the
+    profile boxes recoverable, and there is no equivalent for a node list. So this
+    refuses where `merge_locales` now aligns, and the difference is a real one
+    rather than an oversight. Both locales
     publish the nodes in the same order, so position names the same node in each. A
     count that differs means it no longer does, and writing anyway would attach an
     English name to a different Arabic one.

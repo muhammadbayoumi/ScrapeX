@@ -115,9 +115,22 @@ CITATION = re.compile(
 # The same citation, but only where it is the LABEL of a markdown link carrying an
 # `#L` anchor -- `[path:706](../path#L697)`. Four groups: the whole label, the line
 # it SHOWS, the href without its fragment, and the line it OPENS.
+#
+# THE LABEL MAY BE DRESSED, and an adversarial review measured why that matters:
+# ``[`app.py:706`](...#L697)`` is this repository's dominant inline-code idiom and the
+# first version of this pattern could not see it -- four such links already exist,
+# none with an anchor YET, so the next one written would have been invisible. Bold and
+# emphasis markers are allowed for the same reason, and a lowercase `#l697` because
+# GitHub accepts it.
+#
+# WHAT IT STILL CANNOT SEE, named rather than implied: a reference-style link
+# (`[label][ref]`), a raw HTML `<a href>`, and a link split across two lines -- this
+# walks `splitlines()`, so a newline hides such a link twice over. All three are
+# absent from every document today; a bare numeric fragment like `#123` is refused on
+# purpose, because `#2026-08-24` is a real heading anchor and would match as line 2026.
 LINKED_CITATION = re.compile(
-    r"\[([^\]\n]*?\.(?:" + SUFFIXES + r"):(\d+)(?:-\d+)?)\]"
-    r"\(([^)\n]*?)#L(\d+)(?:-L?\d+)?\)")
+    r"\[([^\]\n]*?\.(?:" + SUFFIXES + r"):(\d+)(?:-\d+)?[`*_ ]*)\]"
+    r"\(([^)\n]*?)#[Ll](\d+)(?:-L?\d+)?\)")
 
 # Tier 2. (document, path, line, the text that must be on or beside that line).
 # The window is +/- WINDOW lines, because a citation may point at a decorator, a

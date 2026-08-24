@@ -107,7 +107,7 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | | |
 |---|---|
 | the listing | 17,417 sighted of 17,414 declared — `D = 0` **for the sighting ledger**, which is not the population: see the reconciliation below, where the union is **17,452** |
-| `generic_record` | **17,304 listing rows** and **17,264 profile rows** (14 of them retired by `OP-64`). The profile approval is FINISHED — the line here read *"still running (10,133 of 17,417)"* until 2026-08-24 |
+| `generic_record` | **17,304 listing rows** and **17,341 profile rows** (14 of them retired by `OP-64`), climbing while `R-51`'s recovery approval runs — 17,264 before it started, 17,385 expected when it ends |
 | `generic_page_snapshot` | **36,358 profile snapshots**, covering **17,452 distinct contractor ids — the whole union, with nothing left to fetch** |
 | `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
 | `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
@@ -117,21 +117,35 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 ### And the crawl is finished — asked and answered 2026-08-24
 
 He asked whether another crawl was needed. **No, and not for coverage ever again**: every
-one of the 17,452 ids in the union has a profile snapshot stored. What is still missing is
-**rows, not pages** — 188 contractors have a listing row and no profile row, and all 188
-have their snapshot on disk. Replaying the current parser over them, read-only:
+one of the 17,452 ids in the union has a profile snapshot stored. What was missing was
+**rows, not pages** — 188 contractors had a listing row and no profile row, and all 188
+had their snapshot on disk. Replaying the parser over them, read-only:
 
 | count | refused by | fixable by crawling? |
 |---:|---|---|
 | **59** | `PageIsNotAProfile` — the id is dead and the site answers with the listing (`OP-64`) | **no, the page does not exist** |
-| **129** | `merge_locales` — the Arabic page publishes an address box the English one omits (`OP-66`) | **no, it is a parser question** |
-| **0** | would approve today | re-approval writes nothing |
+| **129** | `merge_locales` — the Arabic page publishes an address box the English one omits | **no, it was a parser question** |
+| **0** | would approve without a code change | re-approval wrote nothing |
 
-The 148-and-35 reconciliation below was measured mid-crawl. **Re-measured 2026-08-24: 148
-still have a profile and no listing row; the 35 are now 188**, which is the profile crawl
-having reached the rest of the listing while the parser refused this population. A refresh
-crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not about
-coverage.
+**And the 129 are being recovered, not described.** He ruled on it the same day
+([R-51](RULINGS.md#r-51--the-two-locales-are-lined-up-around-a-missing-box-and-no-arabic-label-is-ever-read)):
+`align_locales` locates the missing box from the ENGLISH side, so the two locales line up
+without an Arabic label ever being read. **121 of the 129 align; 24 of those gain an
+address the English page cannot supply for anyone; 8 stay refused** because Arabic is the
+shorter side there and which box *it* dropped is unknowable. `OP-66` carries the
+measurement.
+
+**SNAPSHOT, MID-RUN, AND IT SAYS SO.** `--approve --run-ref profiles-2026-08-22` was
+started at 13:23 on 2026-08-24 and reads 17,417 stored page pairs with no network at all.
+As of **14:42** it had written **77 of the expected 121**, taking profile rows from
+17,264 to **17,341** and the gap from 188 to **111**. These three numbers move until it
+finishes; the ones that do not are 121 / 24 / 8 / 59, which were measured against the
+whole corpus before the run began.
+
+A refresh crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not
+about coverage. The 148-and-35 reconciliation below was measured mid-crawl; the 35 became
+188 as the profile crawl reached the rest of the listing while the parser refused this
+population.
 
 ### Two counts, and the 183 contractors between them — measured 2026-08-23
 

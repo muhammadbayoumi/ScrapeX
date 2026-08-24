@@ -33,10 +33,16 @@ from the English side alone. That property is worth more than the 129: the site 
 `المنطقه` with `ه` where `ة` belongs, so a hand-written Arabic vocabulary would have to
 carry the site's own typo and would break the day they fix it.
 
-THE FIXTURES ARE REAL PAGES, trimmed to the block the parser reads with not one byte
-of it edited — the info-box block IS the defect, so a synthetic fixture with the right
-counts could prove a counter fired and never reach this. The trim was verified against
-the untrimmed page: same labels, same values.
+THE FIXTURES ARE REAL PAGES, cut down to the block the parser reads — the info-box
+block IS the defect, so a synthetic fixture with the right counts could prove a counter
+fired and never reach it. What is guaranteed is what matters and it is stated exactly:
+`read_profile` returns the SAME labels and the SAME values from the fixture as from the
+untrimmed snapshot, which was asserted while the fixtures were written. An earlier draft
+of this paragraph claimed "not one byte edited"; an adversarial review measured that the
+block was re-indented out of its 48-space nesting, so the fixture is not a substring of
+the page. The claim was too strong and is now the one that can be checked. One
+parser-visible field IS lost — `commercial_registration`, which lives in the
+contract-request form the trim removes — so no assertion here reads it.
 """
 from __future__ import annotations
 
@@ -246,3 +252,93 @@ def test_a_bilingual_extra_goes_to_the_ar_half_and_leaves_the_base_empty():
     merged = merge_locales(english, arabic)
     assert merged.get("city_ar") == "مدينة"
     assert not merged.get("city"), "the Arabic value was written into the English column"
+
+
+def test_an_omitted_email_box_is_not_filled_from_the_boxs_obfuscated_text():
+    """FAILURE #1 OF THIS MODULE'S DOCSTRING, nearly reintroduced by the extra-box
+    branch. Cloudflare obfuscates the address, so the info-box reads the literal
+    `[email protected]` on every page in both locales — the real value comes from
+    `data-cfemail` through `read_email`, which `read_profile` has already put in
+    `fields`. An adversarial review reproduced the regression on contractor 3574.
+
+    No page in the corpus omits this box today; all 24 single-omission cases are
+    `Address`. That is a fact about the site, not a property of the code.
+    """
+    english = _reading(tuple(CANON[:6]) + tuple(CANON[7:]))       # omits `Organization Email`
+    arabic = Reading(
+        fields={"organization_email": "real.person@example.test"},
+        labels=tuple(f"ar{index}" for index in range(11)),
+        values=tuple(f"v{index}" for index in range(6))
+                + ("[email protected]",)
+                + tuple(f"v{index}" for index in range(7, 11)))
+    lined = align_locales(english, arabic)
+    assert lined is not None and lined.extra_label == "Organization Email"
+
+    merged = merge_locales(english, arabic)
+    assert merged["organization_email"] == "real.person@example.test", (
+        "the address came from the info-box instead of from data-cfemail: "
+        + repr(merged.get("organization_email")))
+    assert "[email protected]" not in merged.values(), (
+        "Cloudflare's placeholder was stored as if it were an address, which is the "
+        "silent failure this module was built to prevent")
+
+
+# ---- three gaps a later review's mutation run found -------------------------
+#
+# Eleven mutants were tested when this file was written and all were caught. A
+# subsequent adversarial review ran twenty-one and found three genuine survivors,
+# all of them shapes the SITE does not currently print — so the tests pinned the
+# arithmetic only for today's data. The three below close them. Thirteen mutants now
+# run and twelve are caught.
+#
+# THE THIRTEENTH IS AN EQUIVALENT MUTANT AND IS RECORDED, NOT CHASED. Pivoting the
+# shift on `last` instead of `first` survives, and it must: the ambiguity check two
+# lines above guarantees `(first < position) == (last < position)` for every position
+# in `seen`, so the two pivots cannot disagree on any input that reaches them. A test
+# written to kill it would have to assert on an unreachable state, which is a test
+# that lies about what the code does. Five more of the twenty-one were equivalent for
+# the same kind of reason (`<=` for `<`, `absent[-1]` for `absent[0]`, `spare[-1]` for
+# `spare[0]`, and two on the `spare` length check, which is provably always 1).
+
+def test_a_leading_gap_shifts_every_index():
+    """MUTANT: `arabic_of = {index: position}` — using the canonical position as the
+    Arabic index. Indistinguishable from the real thing whenever the absent block is
+    TRAILING, which is every page in the corpus (`(Address, Activity)` or `(Address,)`).
+
+    With a LEADING gap the two answers diverge on the very first box, so this is the
+    test that pins the arithmetic rather than the data."""
+    english = _reading(tuple(CANON[2:]))                    # omits boxes 0 and 1
+    arabic = _reading(tuple(f"ar{index}" for index in range(10)))
+    lined = align_locales(english, arabic)
+    assert lined is not None
+    # Arabic holds nine of English's boxes plus ONE of the two absent ones, so English's
+    # first box sits at Arabic index 1 — not at its canonical position 2.
+    assert lined.arabic_of[0] == 1, (
+        f"a leading gap was mis-shifted: {lined.arabic_of}")
+    assert lined.arabic_of == {index: index + 1 for index in range(9)}
+
+
+def test_english_publishing_every_box_while_arabic_has_more_is_refused():
+    """MUTANT: deleting `if not absent: return None`. With all eleven English boxes
+    present there is no absent position for the extra to occupy, `min([])` raises, and
+    a clean refusal becomes `ValueError: min() arg is an empty sequence` — a different
+    exception, from a different place, saying nothing about the page."""
+    english = _reading(tuple(CANON))
+    arabic = _reading(tuple(f"ar{index}" for index in range(12)))
+    assert align_locales(english, arabic) is None
+    with pytest.raises(ValueError, match="cannot be lined up"):
+        merge_locales(english, arabic)
+
+
+def test_an_extra_box_with_no_value_leaves_the_column_absent():
+    """MUTANT: dropping the `and value` guard. An empty box would then write `''`,
+    and an empty string is not the same fact as a missing column — one says the site
+    published nothing there, the other says it published emptiness. `R-45` is that
+    the site is the only source of truth, and it did not say this."""
+    english = _reading(tuple(CANON[:9]) + (CANON[10],))       # omits `Address`
+    arabic = Reading(fields={}, labels=tuple(f"ar{index}" for index in range(11)),
+                     values=tuple(f"v{index}" for index in range(9)) + ("", "v10"))
+    lined = align_locales(english, arabic)
+    assert lined is not None and lined.extra_label == "Address"
+    assert "address" not in merge_locales(english, arabic), (
+        "an empty box was stored as an empty address")

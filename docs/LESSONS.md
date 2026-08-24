@@ -878,6 +878,7 @@ tests/test_design_system.py` is the real gate — neither half is sufficient.
 `sync_design_assets.py` is the obvious thing to run after touching `design/` and it says
 nothing about the catalogue, because the catalogue is not a generated artefact; it is a
 page somebody has to write an example on. Two green signals sat either side of that gap.
+
 ---
 
 ## 6 · Two OAuth clients, therefore two grants

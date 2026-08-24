@@ -29,13 +29,23 @@ TWO FAILURES HERE ARE SILENT, AND BOTH HAVE A GUARD OF THEIR OWN.
      iframe: `lat:` and `lng:` inside a `<script>`. The day that script changes
      there is no error to catch — only two columns that quietly become NULL.
 
-WHY THE ENGLISH LABEL IS THE KEY, AND THE ARABIC ONE IS NEVER READ. Measured on
-the two committed fixtures: a profile has ELEVEN `.info-box` pairs in BOTH
-locales, in the same order, index for index. So the English page is read by its
-labels — which are stable — and the Arabic value is taken from the SAME INDEX.
-The Arabic labels are never matched against anything, which is the point: the
-Arabic membership-number label is spelled `رقم العضويه`, with `ه` and not `ة`,
-and a parser keyed on it breaks on a difference no reader would ever notice.
+WHY THE ENGLISH LABEL IS THE KEY, AND THE ARABIC ONE IS NEVER READ. A profile
+publishes AT MOST eleven `.info-box` pairs, in one fixed order, in both locales.
+So the English page is read by its labels — which are stable — and the Arabic
+value is taken from the matching position. The Arabic labels are never matched
+against anything, which is the point: the Arabic membership-number label is
+spelled `رقم العضويه`, with `ه` and not `ة`, and a parser keyed on it breaks on a
+difference no reader would ever notice.
+
+AND `AT MOST` IS THE WORD THAT COST 129 CONTRACTORS. This paragraph read "ELEVEN
+pairs in BOTH locales, index for index", measured on the two committed fixtures —
+and the corpus does not look like the fixtures: of 17,452 stored pairs, **15,380
+publish NINE boxes, 1,511 publish ten and 359 publish eleven**. Worse, the two
+locales do not always omit the SAME box: on 121 pairs the Arabic page prints a
+`عنوان` box the English page does not. So the matching position is NOT always the
+same index, `align_locales` works out what it is, and `R-51` is the ruling. The
+Arabic label is still never read — the gap is located from the English side, which
+is what makes that possible.
 """
 from __future__ import annotations
 
@@ -316,7 +326,8 @@ def _slug(label: str) -> str:
     produced the SAME key — measured 2026-08-21 on a real profile: **ten Arabic labels
     collapsed into two keys**, losing eight of them to a silent dict collision.
 
-    Nothing consumes that today, because `merge_locales` pairs the two readings BY INDEX
+    Nothing consumes that today, because `merge_locales` pairs the two readings by
+    POSITION, which `align_locales` computes and which is not always the same index
     and never reads an Arabic label — its docstring says so and that is why the merge is
     correct. But a public attribute that silently drops eight of ten entries is a loaded
     gun for the next caller, and this repository has already paid for exactly this once:
@@ -1702,8 +1713,22 @@ def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
         key = PROFILE_FIELDS[lined_up.extra_label]
         taken = {lined_up.arabic_of[index] for index in range(len(english.labels))}
         spare = [index for index in range(len(arabic.labels)) if index not in taken]
-        if len(spare) == 1 and arabic.values[spare[0]]:
-            merged[key if key in NOT_BILINGUAL else f"{key}_ar"] = arabic.values[spare[0]]
+        # `organization_email` IS NEVER THE BOX'S TEXT, and taking it from there would
+        # reintroduce failure #1 of this module's own docstring. Cloudflare obfuscates
+        # it, so the box reads the literal `[email protected]` on every page in both
+        # locales; the real address comes from `data-cfemail` via `read_email`, which
+        # `read_profile` has already put in `fields` for whichever page it read. An
+        # adversarial review reproduced this on contractor 3574 by omitting one English
+        # box the way the site omits `Address` on 24 real pages: the branch wrote
+        # `[email protected]` over an address it had decoded correctly.
+        #
+        # UNREACHABLE ON TODAY'S CORPUS — all 24 single-omission cases are `Address` —
+        # and fixed anyway, because "no page does this yet" is a fact about the site
+        # and not a property of the code.
+        value = (arabic.fields.get(key) if key == "organization_email"
+                 else arabic.values[spare[0]] if spare else "")
+        if len(spare) == 1 and value:
+            merged[key if key in NOT_BILINGUAL else f"{key}_ar"] = value
 
     # DERIVED, never read twice. `Is Saudi Contractor` is the same fact as
     # `Membership Type` and the owner asked for both; computing it here means

@@ -2709,8 +2709,10 @@ of **+2** on every pair and concluded that **"121 of 121 are MISALIGNED"**, so n
 possible. Both claims were artefacts of the instrument: they compared `Reading.fields`, a
 dict whose insertion order is not the page's, because `read_profile` adds
 `organization_email` and `commercial_registration` after the info-box loop.
-`merge_locales` reads `english.labels[index]` and `arabic.values[index]`
-(`scrapex/extract/muqawil.py:1589`). Re-measured against **those**:
+`merge_locales` reads `english.labels[index]` and — since `R-51` — the Arabic value at
+the position `align_locales` works out
+([scrapex/extract/muqawil.py:1702](../scrapex/extract/muqawil.py#L1702)). Re-measured
+against **those**:
 
 | pages | shape | the last label on each side | is the odd box at the END? |
 |---:|---|---|---|
