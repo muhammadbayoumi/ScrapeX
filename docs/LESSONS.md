@@ -433,7 +433,7 @@ HTTP 200 and ~373 KB where a profile averages 118 KB. `read_profile` calls `_box
 over the whole document and `fields[key] = value` is LAST-WINS across its 160
 `div.info-box` pairs, so it wrote the values of the **last** card on that listing under
 the id that had been asked for: five declared columns — membership number, company size
-and its Arabic, training hours and its Arabic — plus nine undeclared `x_*` fields.
+and its Arabic, training hours and its Arabic — plus twelve undeclared `x_*` fields.
 Address, email and the coordinates came out null. **39 ids were served the listing; 14
 produced a row and 25 produced none**, and twelve of the fourteen took the same
 stranger's card.

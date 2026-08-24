@@ -106,7 +106,7 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 
 | | |
 |---|---|
-| the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
+| the listing | 17,417 sighted of 17,414 declared — `D = 0` **for the sighting ledger**, which is not the population: see the reconciliation below, where the union is **17,452** |
 | `generic_record` | **17,304 listing rows**, and the profile approval is still running (10,133 of 17,417 when this line was written) |
 | `generic_page_snapshot` | **56,941**, of which **34,834** are the completed profile crawl |
 | `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |

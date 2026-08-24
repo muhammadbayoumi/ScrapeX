@@ -1012,6 +1012,45 @@ def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int
     return len(guilty)
 
 
+def _named_ids(raw: str) -> tuple[str, ...]:
+    """`--ids` parsed, and REFUSED rather than emptied.
+
+    TWO WAYS THIS WAS DANGEROUS, both found by adversarial review.
+
+    AN EMPTY RESULT FELL THROUGH TO THE WHOLE SITE. `--ids ","` — or a trailing
+    comma in a paste, or `--ids " "` — produced an empty tuple, `details()` took
+    the `else` branch, and the registered scope is `full_then_listing`: **34,806
+    pages and about seventeen hours**, from a command that named nobody. The run
+    did not even say so, because the `named N contractor(s)` line never printed.
+
+    AND THE VALUES REACHED A URL UNCHECKED. `profile_urls` interpolates, so
+    `--ids '?page=9999'` built `/en/contractors/?page=9999/143` — a LISTING url —
+    and `'../../admin'` walked out of the path entirely. Whatever came back was
+    stored as `DETAIL` evidence under the run-ref, and `_contractor_of` cannot
+    match those URLs, so a later `--approve` would route them to the LISTING
+    parser and write rows from a document the scope never sanctioned.
+
+    A contractor id on muqawil is digits. Anything else is a typo or an
+    injection, and both deserve the same answer.
+    """
+    wanted, bad = [], []
+    for raw_id in raw.split(","):
+        one = raw_id.strip()
+        if not one:
+            continue
+        (wanted if one.isdigit() else bad).append(one)
+    if bad:
+        _refuse(f"--ids takes contractor ids, which are digits. These are not: "
+                f"{', '.join(repr(b) for b in bad[:5])}")
+    if not wanted:
+        _refuse("--ids named no contractor. Left to fall through this would crawl "
+                "the registered scope instead — 34,806 pages on muqawil — which is "
+                "the opposite of what naming ids asks for")
+    # DEDUPED, ORDER KEPT: a pasted list repeats, and fetching one contractor twice
+    # is two requests the site did not need to serve.
+    return tuple(dict.fromkeys(wanted))
+
+
 def _listing_membership_numbers(conn) -> dict[str, str]:
     """Every listing row's membership number, by contractor id, in one pass.
 
@@ -1040,32 +1079,6 @@ def _listing_membership_numbers(conn) -> dict[str, str]:
     return numbers
 
 
-def _membership_on_the_listing(conn, contractor_id: str) -> str | None:
-    """What the LISTING card says this contractor's membership number is.
-
-    THE LISTING'S FIELD IS THE ONE THAT CAN BE TRUSTED, and that is measured rather
-    than assumed: `card_membership_number` is unique across all 17,304 listing rows
-    with none blank, exactly as the owner said it would be. The PROFILE page's
-    `membership_number` is not — 13,347 rows carry 13,333 distinct values.
-
-    Returns None when the contractor has no listing row, which is a real state: 148
-    contractors were reached by the profile crawl and never by an approved listing
-    card, and a cross-check has nothing to say about them.
-    """
-    row = conn.execute(
-        "SELECT r.data_json FROM generic_record AS r "
-        "JOIN dataset_definition AS d "
-        "ON d.dataset_definition_id = r.dataset_definition_id "
-        "WHERE d.dataset_key = 'contractors' AND d.valid_to IS NULL "
-        "AND r.status = 'active' "
-        "AND json_extract(r.data_json, '$.contractor_id') = ?",
-        (str(contractor_id),)).fetchone()
-    if row is None:
-        return None
-    value = json.loads(row[0]).get("card_membership_number")
-    return str(value).strip() if value not in (None, "") else None
-
-
 def approve(conn, directory: Directory, run_ref: str) -> None:
     pairs = _pairs(conn, run_ref)
     say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
@@ -1074,6 +1087,9 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     reparsed = 0
     lonely = 0
     mismatched = 0
+    #: Profile pages the cross-check could not judge because no listing row
+    #: carried a number for them. Reported, never inferred from silence.
+    unwitnessed = 0
     #: Built on first use, not on entry: a run with no profile pages should not
     #: pay for a table it never consults.
     listing_numbers: dict[str, str] | None = None
@@ -1128,6 +1144,15 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         # profile's would produce a row that passes every check and is still half
         # somebody else's; the honest outcome is no row and a named page.
         if contractor is not None:
+            # A SNAPSHOT, AND IT SAYS SO. An adversarial review found the lazy
+            # build froze the map at the first profile page: `approve` walks
+            # listing and profile pages of one run in a single loop and WRITES
+            # listing rows as it goes, so a contractor whose card landed later in
+            # the same run resolved to None and was skipped — silently, for
+            # exactly the contractors that run had just discovered. It still
+            # fails open, because refusing on a missing witness would refuse the
+            # 148 that legitimately have none; what changed is that the misses
+            # are counted below instead of vanishing.
             if listing_numbers is None:
                 # ONE PASS, ONCE, NOT A SCAN PER PAGE. Measured by an adversarial
                 # review: `json_extract` in a WHERE cannot use an index, so each
@@ -1138,6 +1163,8 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
                 # that "the page is the cost". Measured, it was not.
                 listing_numbers = _listing_membership_numbers(conn)
             theirs = listing_numbers.get(str(contractor))
+            if not theirs:
+                unwitnessed += 1
             mine = str(candidate.rows[0].get("membership_number") or "").strip()
             if theirs and mine and theirs != mine:
                 refused.append((key, (
@@ -1182,6 +1209,12 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
+    if unwitnessed:
+        # "CHECKED AND CLEAN" AND "NEVER CHECKED" MUST NOT LOOK ALIKE, which is
+        # the whole argument of `OP-64`. A run that prints no mismatch line today
+        # could mean either, and only this number separates them.
+        say(f"  {unwitnessed:,} page(s) had no listing card to check against, so "
+            f"the membership cross-check did not run on them (OP-64 layer 2)")
     if mismatched:
         # NAMED, NOT FOLDED INTO `refused`. A page refused for a locale mismatch
         # is the site publishing two shapes; a page refused for THIS is the site
@@ -1373,7 +1406,7 @@ def run(args: argparse.Namespace) -> int:
                 factory = DatabaseRegistry.defaults().engine.connect
                 say(f"fetching with {args.workers} workers — the pace is unchanged, "
                     "the waits overlap")
-            named = tuple(one.strip() for one in args.ids.split(",") if one.strip())
+            named = _named_ids(args.ids)
             details(conn, directory, fetch, fetcher, args.run_ref,
                     ceiling=args.ceiling, workers=args.workers, connect=factory,
                     ids=named)

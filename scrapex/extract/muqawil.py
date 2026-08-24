@@ -231,8 +231,8 @@ class PageIsNotAProfile(ValueError):
     listing across 78 snapshots (both locales for each). 14 produced a row; 25
     produced none. Each of the 14 carries FIVE declared columns belonging to a
     stranger — `membership_number`, `company_size`, `company_size_ar`,
-    `training_credit_hours`, `training_credit_hours_ar` — plus nine undeclared
-    `x_*` fields. `address`, `organization_email` and the coordinates ARE null.
+    `training_credit_hours`, `training_credit_hours_ar` — plus TWELVE undeclared
+    `x_*` fields, which with `contractor_id` is the 18 below. `address`, `organization_email` and the coordinates ARE null.
     Twelve of the fourteen took the same stranger's card. The rows looked
     ordinary: 18.0 populated fields against 18.2 on a healthy one.
 
@@ -1127,6 +1127,15 @@ def read_profile(html: str, *, contractor_id: str | None = None) -> Reading:
             f"this page links to {len(strangers)} contractor(s) other than "
             f"{contractor_id} — it is the contractors listing, which is what the "
             f"site answers with when an id no longer resolves, at HTTP 200")
+    # AND A PAGE ABOUT NOBODY IS NOT A PROFILE EITHER. `strangers` is empty when
+    # `linked` is empty, so the check above passes a login wall, an interstitial or
+    # a truncated body straight through to `_boxes`. Every one of 150 real profile
+    # snapshots links to itself; zero links is not a shape the site produces.
+    if contractor_id and not linked:
+        raise PageIsNotAProfile(
+            f"this page links to no contractor at all, and every real profile links "
+            f"to itself — it is not contractor {contractor_id}'s page, and may not "
+            f"be a profile page at all")
     if not contractor_id and len(linked) > ONE_CONTRACTOR:
         raise PageIsNotAProfile(
             f"this page is about {len(linked)} contractors, and a profile is about "

@@ -314,12 +314,24 @@ def test_the_identity_is_passed_in_and_not_parsed_out():
     from scrapex.extract.muqawil import bilingual_profile_candidate
 
     english, arabic = _profile_pair()
-    row = bilingual_profile_candidate(english, arabic, contractor_id="881").rows[0]
+    # AN INT, ON PURPOSE, and this is the property the guard nearly cost.
+    #
+    # The original passed `"20044482"` — an id the fixture does not carry — and
+    # THAT was the proof: a value appearing nowhere on the page can only have been
+    # passed in. `OP-64`'s guard refuses that page now, correctly, so the proof had
+    # to be rebuilt rather than dropped. An adversarial review caught the first
+    # attempt weakening it: with `contractor_id="881"` and the fixture also being
+    # 881, scraping the id off the page's first href would pass every assertion.
+    #
+    # An INT cannot come off the page — every href yields a string — so the row
+    # holding `"881"` proves both halves at once: the value came from the caller,
+    # and `str()` converted it.
+    row = bilingual_profile_candidate(english, arabic, contractor_id=881).rows[0]
 
-    # PASSED IN, not read off the page: the value is the argument, byte for byte,
-    # including its type. Nothing in the row is derived from the href.
     assert row["contractor_id"] == "881"
-    assert isinstance(row["contractor_id"], str)
+    assert isinstance(row["contractor_id"], str), (
+        "the id reached the row without str() — an int identity breaks the join "
+        "with the listing, whose contractor_id is text")
 
 
 def test_a_page_that_names_a_different_contractor_is_refused():

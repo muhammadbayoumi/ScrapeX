@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4613`) prints that sentence whenever the key is absent or
+(`extension/app.js:4635`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1785,7 +1785,7 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4719](../extension/app.js#L4719)) — and the engine stamps the
+([extension/app.js:4741](../extension/app.js#L4741)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
@@ -2676,7 +2676,9 @@ reading the symptom. The cause, measured live:
 
 ```
 asked   /en/contractors/20074580/143
-landed  /ar/contractors                 <- the site REDIRECTED us
+302  ->  /contractors
+302  ->  /en/contractors
+landed  /en/contractors        <- two hops, to the listing
 HTTP    200        372,141 bytes        the listing, 20 contractor links
 
 control
@@ -2685,9 +2687,13 @@ landed  /en/contractors/1004/143
 HTTP    200        122,717 bytes        a real profile
 ```
 
-**muqawil redirects a withdrawn id to the contractors listing** and answers 200. It even
-switches the locale — `en` was asked for and `ar` came back — which is a redirect's
-fingerprint and not an empty page's.
+**muqawil redirects a withdrawn id to the contractors listing** and answers 200, in TWO
+hops through a locale-less `/contractors`.
+
+> **CORRECTED.** This entry first said the locale switched — *"`en` was asked for and `ar`
+> came back"* — and made that the fingerprint. Re-measured live: `en` was asked for and
+> `en` came back. The real fingerprint is the two-hop 302 chain, which is stronger and
+> which the first measurement never recorded.
 
 ### Why nothing in the project could notice
 
@@ -2756,15 +2762,25 @@ About 70 of the 34,834 snapshots (95% CI 0–206) are the wrong document.
 >
 > **What is actually wrong, dumped from `generic_record_id=20579`:** FIVE declared
 > columns carry the stranger's values — `membership_number`, `company_size`,
-> `company_size_ar`, `training_credit_hours`, `training_credit_hours_ar` — plus nine
+> `company_size_ar`, `training_credit_hours`, `training_credit_hours_ar` — plus **twelve**
 > undeclared `x_*` fields. `address`, `organization_email` and the coordinates ARE null,
 > which is the half my correction got right.
 >
-> **And the blast radius is 39 ids, not 14.** 78 snapshots, both locales for each; 14
+> **And the blast radius is 39 ids, not 14** *(as of 2026-08-23T16:00Z — see the note
+> below; it was 72 before this entry was even committed)*. 78 snapshots, both locales; 14
 > produced a row, **25 produced none**, which is why counting rows undercounted the
 > defect by 2.8x. Of the 39, **28** sit in the id block `20074580`–`20075073` — 9.96% of
 > that block against 0.224% crawl-wide, **44x** — and **eleven** are outside it with no
 > story, not two.
+>
+> **AND THIS CENSUS WAS STALE BEFORE THE COMMIT THAT STATES IT.** Round two measured the
+> clock: 39 ids / 78 snapshots was exact at `16:00Z`, and by `16:44Z` — when the commit
+> asserting it was authored — a targeted re-crawl had made it **72 ids / 154 snapshots**,
+> because re-fetching a dead id stores the listing again. **A census of a growing corpus
+> needs an as-of instant or it is a claim about the past written in the present tense.**
+> The undercount factor is not 2.8x but 5.2x, and the block percentages below
+> (9.96%, 44x) were computed from an intermediate denominator and do not reproduce: the
+> block holds 321 ids with profile snapshots, so it is 8.72% and 39x.
 >
 > **It is the LAST card on the listing, not the first.** `fields[key] = value` is
 > last-wins over every `div.info-box` pair on the page, and the poisoned page has 160 of
@@ -2793,6 +2809,13 @@ About 70 of the 34,834 snapshots (95% CI 0–206) are the wrong document.
 > membership number reaches the wrong company.
 
 ### What it needs
+
+> **SUPERSEDED, and the paragraph below is the design this entry's own correction
+> refuted.** It is kept per `C4`. What shipped counts CONTRACTOR LINKS, not cards: a
+> profile links to exactly itself and a listing to many, so there is no threshold to
+> defend. The card count was measured with a regex the parser does not use — through
+> `soup.select` a real profile has six — and 160 real listing pages carry fewer than 15
+> cards, so the gap it relied on did not exist on the side it guarded.
 
 A **shape check before parsing**: a profile page is not a listing, and 22 section-cards
 where 7 are expected is the site saying "this id is gone" in the only way it does — with
