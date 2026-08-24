@@ -70,6 +70,8 @@ RECIPES = {
     "update": ("POST /api/jobs", "post", "/api/jobs",
                {"source_keys": [KEY], "run_mode": "current"}),
     "table": ("GET /api/table/{key}", "get", f"/api/table/{KEY}", None),
+    "enrich": ("GET /api/enrichment/sources/{key}", "get",
+               f"/api/enrichment/sources/{KEY}", None),
     "changes": ("GET /source/{key}", "get", f"/source/{KEY}", None),
     "settings": ("GET /sources/{key}", "get", f"/sources/{KEY}", None),
     "pause": ("POST /api/sources/{key}/active", "post",
@@ -212,8 +214,14 @@ def test_an_action_offered_on_a_dataset_answers_and_carries_content(client):
             f"{entry['action']} is offered on a dataset card and "
             f"{entry['route']} answered {response.status_code}")
         payload = response.json()
-        assert payload["rows"], f"{entry['route']} answered 200 with no rows"
-        assert payload["columns"], f"{entry['route']} answered 200 with no columns"
+        if entry["action"] == "table":
+            assert payload["rows"], f"{entry['route']} answered 200 with no rows"
+            assert payload["columns"], f"{entry['route']} answered 200 with no columns"
+        elif entry["action"] == "enrich":
+            assert payload["proposal"]["source_dataset_key"] == KEY
+            assert payload["datasets"], f"{entry['route']} has no source datasets"
+            assert payload["provider_availability"], (
+                f"{entry['route']} has no provider contract")
 
 
 def test_an_action_withheld_for_its_route_really_is_refused(client):

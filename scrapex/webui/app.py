@@ -569,8 +569,8 @@ def create_app(
     app.state.runner = JobRunner(
         str(price_path), lambda: app.state.manifest,
         path_provider=lambda: app.state.db_path) if start_worker else None
-    if app.state.runner is not None:
-        app.state.runner.start()
+    # Start the worker only after every route has been registered. The final
+    # boundary below keeps app construction out of the orphan-resume race.
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -2242,6 +2242,9 @@ def create_app(
         general_read_conn, _general_write, prefix="/api/catalog"
     ))
     app.include_router(create_extraction_router(general_read_conn, _general_write))
+    from ..enrichment.api import create_enrichment_router
+
+    app.include_router(create_enrichment_router(general_read_conn, _general_write))
 
     def _dataset_fields(source_key: str, schema_fields):
         """Choose-Columns for a DATASET: its own fields, and only its own.
@@ -3696,6 +3699,8 @@ def create_app(
     # yet. Sealing earlier misses `webui.app` itself — the module the incident of
     # 2026-08-23 was actually about; sealing later takes the baseline after the
     # edit it exists to notice. See `scrapex/provenance.py`.
+    if app.state.runner is not None:
+        app.state.runner.start()
     provenance.seal()
     return app
 
@@ -3838,6 +3843,7 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     done = job.get("progress_done") or 0
     return {
         "job_ref": job["job_ref"],
+        "job_kind": job.get("job_kind", "crawl"),
         "status": job["status"],
         "run_mode": job["run_mode"],
         "source_keys": job["source_keys"],
@@ -3846,7 +3852,12 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
         # SITES done, which is all this ever measured. It keeps its name and
         # loses the percentage: 0/1 is a true statement about a one-source job
         # and "0%" was not.
-        "progress": {"done": done, "total": total},
+        "progress": {
+            "done": done,
+            "total": total,
+            **({"unit": "organizations"}
+               if job.get("job_kind") == "organization_enrichment" else {}),
+        },
         # PAGES fetched against a stated denominator — what the bar draws.
         "fetch": _fetch_progress(job),
         # Why this job is not moving, when it is not. None for the job that holds
