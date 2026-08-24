@@ -381,6 +381,46 @@
   .dataset-card:hover .dataset-card-open { color: var(--accent-ink); }
   .dataset-card-open svg { width: 1rem; height: 1rem; fill: currentColor; }
 
+  /* A COVERAGE ENTRY IS A DOOR THAT LOOKS LIKE THE TEXT IT REPLACED.
+     `countLine` used to emit quiet muted text; it now emits a <button> per covered
+     dataset, because the folded card (R-47) left the second table with no route.
+     Without this rule the global `button` styling in components.css applies —
+     filled background, 1px border, full control height, medium weight — and the
+     card's count line becomes a row of chunky buttons on the panel's main surface.
+     An adversarial review caught it before he saw it. It stays a link in appearance
+     and a button in behaviour, which is what it is: keyboard-reachable, and not a
+     nested anchor inside a card that is itself role="link".
+
+     AND IT LIVES HERE, NOT IN `design/components.css`, WHICH IS WHERE IT WAS FIRST
+     PUT. The shared sheet is generated into BOTH surfaces, and the engine emits no
+     `coverage-open` at all: `_dataset_listing` builds `coverage` for the JSON API
+     (`webui/app.py:1800`) and no engine template renders it, so the rule shipped to
+     `scrapex/webui/static/components.css` was dead on arrival. It also inherited the
+     shared sheet's UI-1 obligation — a live example in `design/gallery.html` — and
+     the example written for it was wrong on three counts, because the gallery links
+     only `tokens.css` and `components.css` and could not show the component in the
+     card it actually lives in. Both problems were the same mistake: the sheet was
+     chosen from where the OTHER rules were, not from which surface emits the class.
+     Specificity, not order, is what beats the global `button`: `.coverage-open` is
+     0-1-0 against 0-0-1, so this wins wherever the sheets load. */
+  .coverage-open {
+    background: none;
+    border: 0;
+    padding: 0;
+    min-height: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+
+  .coverage-open:hover,
+  .coverage-open:focus-visible {
+    color: var(--fg);
+    text-decoration-style: solid;
+  }
+
   /* THE ACTIONS MENU ON A DATASET CARD, and the three things that were wrong
      for this place — two it inherited, and a third that the fix for the first one
      caused. All three were mine, from the menu that replaced the chevron, and

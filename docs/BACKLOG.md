@@ -1789,16 +1789,16 @@ stands where it stood is the filter that replaced it
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:706](../scrapex/webui/app.py#L697)).
+worse for a dataset"* ([scrapex/webui/app.py:665](../scrapex/webui/app.py#L665)).
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2967)).
+for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2994)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1167)) —
+any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1176)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -1844,7 +1844,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2008)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L964)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2016)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -1885,11 +1885,11 @@ accessibility. They have not, and the difference is requirement-driven:
 
 * Run mode disables options **individually**, because which run modes are on offer
   depends on the selection — `for (const option of select.options) option.disabled =
-  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2173)). Its
+  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2181)). Its
   `focusOption` filters disabled candidates because it genuinely has some.
 * The finance converter disables **the whole control** when there are no stored
   rates — `select.disabled = !state.financeRates.length`
-  ([extension/app.js:1149](../extension/app.js#L1141)) — and mirrors that onto the
+  ([extension/app.js:1149](../extension/app.js#L1149)) — and mirrors that onto the
   trigger inside `sync()`. It never has a disabled option, so it has nothing to
   filter.
 * Type-ahead exists only on the finance side, and a currency list needs it where
@@ -2666,6 +2666,75 @@ its own, which is why it was not bundled into the branch that found it.
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
 
+### OP-66 · The Arabic profile publishes an address box the English one does not, and 129 contractors are held out by it
+
+**Found 2026-08-24 by the owner asking whether another crawl was needed.** It is not, and
+answering that question found this.
+
+**The crawl is complete.** 36,358 profile snapshots on disk, **17,452 distinct contractor
+ids — the full union — and zero left to fetch.** What is missing is not pages; it is rows.
+
+| | |
+|---|---|
+| listing rows (`contractors`) | 17,304 |
+| profile rows (`contractor_profiles`) | 17,264, of which 14 retired by `OP-64` |
+| listing row with **no profile row at all** | **188** |
+| listing row with no *active* profile row | 202 (the 188 plus the 14) |
+| profile row with no listing row | 148 |
+
+Every one of the 188 has a stored snapshot. Replaying the current parser over them —
+read-only, no network — splits them cleanly:
+
+| count | refused by | can a crawl fix it? |
+|---:|---|---|
+| **59** | `PageIsNotAProfile` — layer 1 of `OP-64`; the id is dead and the site answers with the listing | **No, ever.** The page does not exist |
+| **129** | `merge_locales` — the two locales publish different box counts | **No.** The pages are on disk |
+| **0** | would approve today | re-approval adds nothing |
+
+**The cause of the 129, measured.** The Arabic page carries a `عنوان` (address) box that the
+English page does not publish at all:
+
+```
+[en]  9 info-boxes   ...  8. Region  Eastern Province
+[ar] 10 info-boxes   ...  8. المنطقه الشرقية
+                          9. عنوان  الرياض - شارع العليا - مقابل أبراج العليا
+```
+
+`CONTRACTOR-SOURCE.md` already records that the address is Arabic-only; what is new is that
+on these pages the English side omits the box **entirely**, so the counts differ and
+`merge_locales` refuses. The count gap is +2 in `read_profile`'s terms on every one of the
+121 pairs that could be compared — 10/12, 11/13, 12/14, 13/15, 14/16, 15/17, 16/18 — never
++1 and never +3, which is what a systematic difference looks like rather than noise.
+
+**THE REFUSAL IS CORRECT, AND THAT IS THE FINDING.** The tempting repair — tolerate a
+trailing extra Arabic box — was tested and is wrong. Measured with an instrument that needs
+no translation, **digits**, since `4030179603` is the same characters in both locales:
+
+```
+refused pairs examined                        121
+  every shared numeric box agrees (ALIGNED)     0
+  at least one disagrees   (MISALIGNED)       121
+```
+
+**121 of 121**, and always at the same index:
+
+```
+[en] 9.  commercial_registration  4030179603
+[ar] 9.  عنوان                    جدة - حي الزهراء - شارع حلمي كتبي ...
+```
+
+The Arabic-only box sits in the MIDDLE, before the commercial registration, and shifts
+everything after it. Pairing by position would have written an address into
+`commercial_registration` for 129 contractors — which is verbatim what the error message
+says it prevents.
+
+**What would fix it: pairing by label identity rather than by position.** Independent of the
+network, replayable from the snapshots already stored, and worth **+129 contractors with
+their address** — a field the English page cannot supply for anyone.
+
+**Not built, and not costed.** The 59 belong to `REQ-42` (a withdrawn contractor entered
+with a state that says so); these 129 are a parser question and are separate from it.
+
 ### OP-65 · A snapshot records the URL we ASKED for, never the one we landed on
 
 **Found 2026-08-23 by the owner asking whether the new guard was even correct.** It is —
@@ -2730,6 +2799,12 @@ rows, 17,304 distinct values, zero blank. The repeats are in the PROFILE dataset
 13,347 rows, 13,333 distinct, **three values shared**, one of them (`117511752`) sitting
 on **thirteen different contractor ids**. Fourteen contractors carry a different
 membership number in the profile table from the one on their listing card.
+
+**Re-measured 2026-08-24, after the profile crawl finished: 17,264 rows, 17,250 distinct,
+still exactly three shared values and still 14 excess rows** — `117511752` on 13 ids,
+`121612167` on 2, `587458748` on 2. The row count above was taken mid-crawl and did not
+say so, which is the defect; the finding itself did not move, and 3,917 further profiles
+added not one new collision.
 
 **The cause is not bad data entry. The site served the wrong document.**
 

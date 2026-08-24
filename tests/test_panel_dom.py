@@ -1133,13 +1133,24 @@ def test_the_noun_over_a_count_is_decided_by_what_the_engine_reports(open_panel)
     # the second table with no route from the panel. Both the label and the KEY are
     # escaped: both come out of the warehouse, and the key is the newer half of the
     # same XSS boundary.
+    #
+    # THE LABEL CARRIES A QUOTE, and that is not decoration. An adversarial review
+    # measured the first version of this block: the fixture label was `<b>x</b>`,
+    # both assertions read the button TEXT and the `data-open-dataset` attribute,
+    # and `title="Open ${esc(c.label)}"` was read by neither. Dropping that one
+    # `esc()` left the test green — while `label` is `dataset_definition.source_name`,
+    # the same warehouse string this comment calls the XSS boundary, and an
+    # unescaped quote in `title` is an attribute breakout.
     covered = page.evaluate("""() => countLine({kind: 'dataset', observations: 4,
-        coverage: [{dataset_key: 'p"x', label: '<b>x</b>', stored: 1, population: 4}]})""")
-    assert "&lt;b&gt;x&lt;/b&gt;: 1 of 4 (25.0%)" in covered, (
+        coverage: [{dataset_key: 'p"x', label: '<b>q"z</b>', stored: 1, population: 4}]})""")
+    assert "&lt;b&gt;q&quot;z&lt;/b&gt;: 1 of 4 (25.0%)" in covered, (
         "the label stopped being escaped, or the pair stopped being shown: " + covered)
-    assert "&quot;" in covered and 'data-open-dataset="p&quot;x"' in covered, (
+    assert 'data-open-dataset="p&quot;x"' in covered, (
         "the dataset key reached the attribute unescaped, and a key with a quote "
         "closes it: " + covered)
+    assert 'title="Open &lt;b&gt;q&quot;z&lt;/b&gt;"' in covered, (
+        "the TITLE attribute took the label unescaped. A quote there closes the "
+        "attribute and everything after it is markup: " + covered)
 
     # A COVERAGE ENTRY WITH NO KEY IS NOT A DOOR, so it is not drawn and the card
     # falls back to its own count. A button resolving to `/source/` is the "button

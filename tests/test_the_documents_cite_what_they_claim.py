@@ -112,6 +112,13 @@ SUFFIXES = "py|js|css|html|json|yml|yaml|sh|md|toml|sql"
 CITATION = re.compile(
     r"(?<![\w/.\-])((?:[\w.\-]+/)*[\w.\-]+\.(?:" + SUFFIXES + r")):(\d+)(?:-(\d+))?\b")
 
+# The same citation, but only where it is the LABEL of a markdown link carrying an
+# `#L` anchor -- `[path:706](../path#L697)`. Four groups: the whole label, the line
+# it SHOWS, the href without its fragment, and the line it OPENS.
+LINKED_CITATION = re.compile(
+    r"\[([^\]\n]*?\.(?:" + SUFFIXES + r"):(\d+)(?:-\d+)?)\]"
+    r"\(([^)\n]*?)#L(\d+)(?:-L?\d+)?\)")
+
 # Tier 2. (document, path, line, the text that must be on or beside that line).
 # The window is +/- WINDOW lines, because a citation may point at a decorator, a
 # `def`, or the line under either and still be honest.
@@ -346,6 +353,16 @@ PINNED = (
     ("docs/BACKLOG.md", "extension/app.js", 964,
      "function setupFinanceConverterSelect("),
     ("docs/BACKLOG.md", "extension/app.js", 2016, "function setupRunModeSelect("),
+    # AND THE ONE CITATION THE ANCHOR SWEEP FOUND ACTUALLY FALSE. `docs/BACKLOG.md`
+    # quotes this docstring as the reason the panel hides Update/Wipe/Rename on a
+    # dataset row, and it read `app.py:706` under `#L697` -- two different wrong
+    # numbers, while the subject sat at 665. Tier 1 could not see it: 706 is a real,
+    # non-blank line of the same function. Pinned because the argument in that entry
+    # rests on the quote, and a quote whose line has drifted is a quote a reader
+    # cannot check. Its six neighbours were only stale HREFS under correct labels and
+    # stay unpinned -- the new label/anchor test is the guard they needed.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 665,
+     "the row menu offers Update,"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
@@ -426,6 +443,40 @@ def test_every_citation_names_a_line_that_exists(index):
                           f"{count} lines")
 
     assert not beyond, "\n  ".join(["citations past the end of their file:", *beyond])
+
+
+def test_a_citations_link_target_agrees_with_the_label_it_shows():
+    """Tier 1, and the half every other test in this file was blind to.
+
+    A citation is usually a markdown link: the LABEL reads `app.py:706` and the HREF
+    ends `#L697`. `CITATION` matches the label only, so tier 1 checks the number a
+    reader SEES and never the line the link OPENS -- and those are exactly what drift
+    apart, because a sweep that renumbers labels does not touch hrefs.
+
+    MEASURED WHEN THIS WAS WRITTEN: seven disagreements, all in `docs/BACKLOG.md`,
+    every anchor 8 to 27 lines behind its label. Six were stale hrefs under correct
+    labels. The seventh is the reason this is a test and not a one-off sweep:
+    `app.py:706` under `#L697`, where the subject had moved to **665**. Both numbers
+    wrong, and tier 1 passed because 706 is a real, non-blank line of the same file.
+    A citation can be false without being broken, and that is the gap here.
+    """
+    disagreements = []
+    for name in DOCUMENTS:
+        document = ROOT / name
+        if not document.is_file():
+            continue
+        for number, line in enumerate(
+                document.read_text(encoding="utf-8").splitlines(), start=1):
+            for label, shown, href, target in LINKED_CITATION.findall(line):
+                if shown != target:
+                    disagreements.append(
+                        f"{name}:{number}: [{label}] shows :{shown} "
+                        f"and opens {href}#L{target}")
+
+    assert not disagreements, (
+        "a citation's label and its link name different lines. Whichever is right, "
+        "a reader who clicks lands somewhere the prose does not describe:\n  "
+        + "\n  ".join(disagreements))
 
 
 def test_no_citation_lands_on_a_blank_line(index):

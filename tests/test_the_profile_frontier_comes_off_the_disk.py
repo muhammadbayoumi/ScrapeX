@@ -624,3 +624,61 @@ def test_workers_do_not_raise_the_request_rate(conn, tmp_path):
         f"six workers made {len(urls)} requests in {took:.2f}s where at least "
         f"{owed:.2f}s was owed -- the concurrency raised the RATE instead of "
         "overlapping the waits, which is what R-21 and SR-8 forbid")
+
+
+# ---- named ids are not subject to the registered scope ----------------------
+#
+# `details()`'s scope gates moved into the `else` of `if ids:` so that the documented
+# `OP-64` remediation — re-fetch one contractor — works whatever the site is
+# registered as. An adversarial review measured what tested it: of twelve calls to
+# `details(` in this file, **not one passed `ids=`**, so moving the gates back above
+# the branch left the whole suite green. These three are the witness.
+
+def test_a_named_id_is_fetched_under_listing_only(conn, capsys):
+    """THE CASE THE REPAIR EXISTS FOR. Under `listing_only` the frontier is empty by
+    design and `details` returns early saying so — right for a frontier the scope
+    builds, and wrong for a page a person named. `OP-64`'s remediation would have done
+    nothing at all the day the owner sets `listing_only`, which is his to set."""
+    from scrapex.contractors import details
+
+    _registered(conn, "listing_only")
+    asked: list[str] = []
+
+    details(conn, get_directory(None), _fetch_recording(asked), None, "ids-run",
+            ids=("881",))
+
+    assert asked, ("listing_only swallowed a named id, so the OP-64 remediation is "
+                   "unrunnable on a site registered listing_only")
+    assert all("/881/" in url for url in asked), asked
+    said = capsys.readouterr().out
+    assert "the registered scope is not consulted" in said, (
+        "a run that ignores the registration must say so: " + said)
+
+
+def test_a_named_id_is_fetched_under_listing_plus_slice_with_no_slice(conn):
+    """THE OTHER GATE, which does not return but `SystemExit`s. Refusing a frontier it
+    cannot select is right; refusing a page already named is not."""
+    from scrapex.contractors import details
+
+    _registered(conn, "listing_plus_slice", None)
+    asked: list[str] = []
+
+    details(conn, get_directory(None), _fetch_recording(asked), None, "ids-run",
+            ids=("881",))
+
+    assert asked, "a named id was refused because the SCOPE could not select one"
+
+
+def test_the_gates_are_still_there_when_no_ids_are_named(conn, capsys):
+    """AND MOVING THEM IS ONLY CORRECT IF THE `else` STILL HAS THEM. Asserted here
+    beside the two above so that a repair deleting a gate cannot read as a repair
+    that relocated it."""
+    from scrapex.contractors import details
+
+    _registered(conn, "listing_only")
+    asked: list[str] = []
+
+    details(conn, get_directory(None), _fetch_recording(asked), None, "no-ids-run")
+
+    assert asked == [], "listing_only fetched profile pages with no ids named"
+    assert "no profile pages to fetch" in capsys.readouterr().out

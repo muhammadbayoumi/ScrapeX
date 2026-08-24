@@ -857,33 +857,6 @@ button.chip {
   font-variant-numeric: tabular-nums;
 }
 
-/* A COVERAGE ENTRY IS A DOOR THAT LOOKS LIKE THE TEXT IT REPLACED.
-   `countLine` used to emit quiet muted text; it now emits a <button> per covered
-   dataset, because the folded card (R-47) left the second table with no route.
-   Without this rule the global `button` styling at the top of this file applies —
-   filled background, 1px border, full control height, medium weight — and the
-   card's count line becomes a row of chunky buttons on the panel's main surface.
-   An adversarial review caught it before he saw it. It stays a link in appearance
-   and a button in behaviour, which is what it is: keyboard-reachable, and not a
-   nested anchor inside a card that is itself role="link". */
-.coverage-open {
-  background: none;
-  border: 0;
-  padding: 0;
-  min-height: 0;
-  font: inherit;
-  color: inherit;
-  text-decoration: underline dotted;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
-
-.coverage-open:hover,
-.coverage-open:focus-visible {
-  color: var(--fg);
-  text-decoration-style: solid;
-}
-
 .name,
 .content {
   unicode-bidi: plaintext;

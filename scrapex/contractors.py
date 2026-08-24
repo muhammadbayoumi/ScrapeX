@@ -547,7 +547,12 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         # re-fetching a page that IS stored — the documented `OP-64` remediation —
         # needs a ref that has not seen it. Said here rather than left to be
         # discovered as "resumed 49, stored 0".
-        if already_stored(conn, run_ref):
+        # READ ONCE, NOT TWICE. This used to call `already_stored` for its
+        # truthiness and let the shared read below build the same frozenset again —
+        # two full passes over `generic_page_snapshot` for one run-ref, on the one
+        # path a person waits on interactively.
+        held = already_stored(conn, run_ref)
+        if held:
             say(f"  NOTE: {run_ref} already holds pages. Named ids stored under it "
                 f"will be skipped as resumed — use a fresh --run-ref to re-fetch")
     else:
@@ -562,7 +567,7 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
                     "named, so there is nothing to select. Set site_profile.crawl_slice")
         frontier, outside = detail_frontier(conn, directory, scope, slice_of)
-    held = already_stored(conn, run_ref)
+        held = already_stored(conn, run_ref)
     todo = [url for url in frontier if url not in held]
     resumed = len(frontier) - len(todo)
     say(f"frontier {len(frontier):,} profile page(s), read from disk with no network")
@@ -1303,7 +1308,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--approve", action="store_true",
                        help="interpret the stored pages of --run-ref into rows. "
                             "Re-fetches nothing")
-    parser.add_argument("--ids", default="",
+    # `default=None`, AND THAT IS THE WHOLE FIX FOR A HOLE THAT REOPENED FIVE TIMES.
+    # With `default=""` the value cannot answer the question the guard asks: an
+    # untyped flag and `--ids ""` are the same empty string, so any guard written on
+    # the VALUE must treat one of the two wrongly. Rounds two through four each chose
+    # a different one. `None` means "not typed" and can mean nothing else, so the two
+    # questions — was it supplied, and is its content usable — stop competing for one
+    # variable.
+    parser.add_argument("--ids", default=None,
                        help="with --details, fetch ONLY these contractor ids, "
                             "comma-separated. This is how a row written from the "
                             "wrong page is re-fetched (OP-64); the registered scope "
@@ -1383,7 +1395,7 @@ def validate(args: argparse.Namespace) -> None:
     # to repair reads as a request that was honoured.
     # REFUSED RATHER THAN IGNORED, for the same reason as `--repair`: `--ids` without
     # `--details` names work nothing will do.
-    if args.ids and not args.details:
+    if args.ids is not None and not args.details:
         _refuse("--ids only means something with --details, which is what fetches "
                 "profile pages")
     if args.repair and not args.impostors:
@@ -1433,19 +1445,23 @@ def run(args: argparse.Namespace) -> int:
                 factory = DatabaseRegistry.defaults().engine.connect
                 say(f"fetching with {args.workers} workers — the pace is unchanged, "
                     "the waits overlap")
-            # NO `--ids` IS NOT AN EMPTY `--ids`. `_named_ids` refuses a list that
-            # names nobody, which is right — and calling it on the default `""`
-            # turned the ORDINARY detail crawl into a usage error naming a flag the
-            # user never typed. Round three found it by running the command.
-            # `if args.ids` — THE FLAG WAS SUPPLIED — and not `.strip()`.
+            # NO `--ids` IS NOT AN EMPTY `--ids`, and `is not None` is how that is
+            # asked. Calling `_named_ids` unconditionally turned the ORDINARY detail
+            # crawl into a usage error naming a flag the user never typed; guarding
+            # on the value sent an empty one back to the whole site.
             #
-            # Round two refused `--ids "  "`. Round three's repair for the opposite
-            # bug guarded on `.strip()`, which sent whitespace back down the exact
-            # path round two closed: `named = ()`, `details` takes the else branch,
-            # and the registered scope is 34,806 pages. Two repairs, one hole,
-            # opened and closed and opened again — which is why the guard now asks
-            # whether the flag was TYPED, and lets `_named_ids` judge its content.
-            named = _named_ids(args.ids) if args.ids else ()
+            # `is not None` — THE FLAG WAS SUPPLIED — and nothing about its content.
+            #
+            # FOUR STATES OF ONE HOLE, each opened by the repair for the last:
+            #   round 2  no guard          `--ids ","`  -> () -> the whole 34,806-page scope
+            #   round 3  no condition      `--details` alone -> usage error, primary path dead
+            #   round 4  `.strip()`        `--ids "  "` -> () -> the scope again
+            #   round 5  `if args.ids`     `--ids ""`   -> () -> the scope again
+            # Every one of them was a guard reading the VALUE to answer a question
+            # about the FLAG. With `default=None` above, the flag answers for itself
+            # and `_named_ids` judges the content — including `""`, which names
+            # nobody and is refused like any other empty list.
+            named = _named_ids(args.ids) if args.ids is not None else ()
             details(conn, directory, fetch, fetcher, args.run_ref,
                     ceiling=args.ceiling, workers=args.workers, connect=factory,
                     ids=named)

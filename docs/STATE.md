@@ -107,12 +107,31 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | | |
 |---|---|
 | the listing | 17,417 sighted of 17,414 declared — `D = 0` **for the sighting ledger**, which is not the population: see the reconciliation below, where the union is **17,452** |
-| `generic_record` | **17,304 listing rows**, and the profile approval is still running (10,133 of 17,417 when this line was written) |
-| `generic_page_snapshot` | **56,941**, of which **34,834** are the completed profile crawl |
+| `generic_record` | **17,304 listing rows** and **17,264 profile rows** (14 of them retired by `OP-64`). The profile approval is FINISHED — the line here read *"still running (10,133 of 17,417)"* until 2026-08-24 |
+| `generic_page_snapshot` | **36,358 profile snapshots**, covering **17,452 distinct contractor ids — the whole union, with nothing left to fetch** |
 | `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
 | `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
 | datasets | `contractors` and `contractor_profiles` |
 | schema | **v9** (`0009` = the link table) |
+
+### And the crawl is finished — asked and answered 2026-08-24
+
+He asked whether another crawl was needed. **No, and not for coverage ever again**: every
+one of the 17,452 ids in the union has a profile snapshot stored. What is still missing is
+**rows, not pages** — 188 contractors have a listing row and no profile row, and all 188
+have their snapshot on disk. Replaying the current parser over them, read-only:
+
+| count | refused by | fixable by crawling? |
+|---:|---|---|
+| **59** | `PageIsNotAProfile` — the id is dead and the site answers with the listing (`OP-64`) | **no, the page does not exist** |
+| **129** | `merge_locales` — the Arabic page publishes an address box the English one omits (`OP-66`) | **no, it is a parser question** |
+| **0** | would approve today | re-approval writes nothing |
+
+The 148-and-35 reconciliation below was measured mid-crawl. **Re-measured 2026-08-24: 148
+still have a profile and no listing row; the 35 are now 188**, which is the profile crawl
+having reached the rest of the listing while the parser refused this population. A refresh
+crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not about
+coverage.
 
 ### Two counts, and the 183 contractors between them — measured 2026-08-23
 

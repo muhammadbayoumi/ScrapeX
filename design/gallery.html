@@ -837,28 +837,7 @@
 &lt;/div&gt;</pre>
   </div>
 
-  <div class="g-item">
-    <h3>The coverage line is a door, not a sentence</h3>
-    <p class="g-why">
-      A source card that folds two datasets into one (<code class="code">R-47</code>)
-      left the second table with no route in the panel &mdash; he looked for the
-      contractor profiles and could not find them. So each covered dataset is now its
-      own <code class="code">&lt;button&gt;</code> on the count line.
-      A <strong>button</strong> and not a link: the card around it is already
-      <code class="code">role="link"</code>, and an <code class="code">&lt;a&gt;</code>
-      inside it would be a nested link. <code class="code">.coverage-open</code> is the
-      rule that undoes the global button styling &mdash; without it these render as
-      chunky filled controls on the card's own surface.
-    </p>
-    <div class="g-demo">
-      <section class="card">
-        <div class="n">
-          <button type="button" class="coverage-open">Contractors: 17,304 of 17,452 &middot; 99%</button>
-          &middot;
-          <button type="button" class="coverage-open">Contractor profiles: 17,452 of 17,452 &middot; 100%</button>
-        </div>
-        <div class="n muted">Last seen today</div>
-      </section>
+</section>
     </div>
     <pre>&lt;button type="button" class="coverage-open" data-open-dataset="contractors"&gt;&hellip;&lt;/button&gt;</pre>
   </div>

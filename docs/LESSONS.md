@@ -840,33 +840,44 @@ build, because the broken build's number was already large. Guarded by
 which also refuses to pass if no button lies under the menu at all: a guard whose
 overlap has drifted away proves nothing and must say so rather than go green.
 
-### And a new CLASS has homes too — one of them is the catalogue
+### Choose the stylesheet by WHICH SURFACE EMITS THE CLASS, not by where the neighbours are
 
-A token has four homes; a **component** has three, and the third is the one that
-gets forgotten because the first two are automated. Adding `.coverage-open` to
-`design/components.css` and running `python tools/sync_design_assets.py`
-regenerated both distributed copies and left the sheet correct on every surface —
-and the full suite still came back **`1 failed, 3330 passed`**, on
-`tests/test_ui_kit.py::test_every_shared_component_is_in_the_catalogue`: the
-component existed in the shared vocabulary and nowhere on `design/gallery.html`.
-That is UI-1 working exactly as designed, and the point of writing it down is the
-*order* in which it was found.
+`.coverage-open` dresses a button `extension/app.js` emits. It went into
+`design/components.css` — the shared sheet — because that is where `button` and the
+other card rules live, and `tools/sync_design_assets.py` regenerated it into both
+surfaces. Every gate was green except one, and the full suite came back **`1 failed,
+3330 passed`** on
+`tests/test_ui_kit.py::test_every_shared_component_is_in_the_catalogue`.
 
-**Why it was not caught earlier in the round.** `test_ui_kit.py` carries
-`pytestmark = pytest.mark.extension`, so it is not in the default selection a
-`pytest tests/test_design_system.py` after a sync will run. The sync tool is the
-obvious thing to run after touching `design/`, it passes, and it says nothing about
-the catalogue — because the catalogue is not a generated artefact, it is a page
-somebody has to write an example on. Two green signals either side of a gap.
+**The failing test was the smaller of the two problems.** Chasing it produced a live
+example in `design/gallery.html`, which passed — and an adversarial review then measured
+the example against the code that emits the class: a `·` separator where `coverageShare`
+writes ` (99.8%)`, a whole-number percentage where it writes one decimal, a parent
+entry that `_dataset_listing` never puts in `coverage` at all, and a `100%` the
+component cannot produce. **A green example that teaches a rendering the code cannot
+produce is worse than the red test**, because nothing will ever fail again.
 
-**Apply:** a rule added to `design/components.css` is not finished until a live
-example of it stands in `design/gallery.html`. Run
-`pytest tests/test_ui_kit.py tests/test_design_system.py` together — the pair is the
-real gate, and neither half is sufficient. Keep the example inside the vocabulary
-the gallery actually loads: it links `tokens.css` and `components.css` and nothing
-else, so a demo dressed in `.dataset-card` (which lives in `extension/app.css`)
-would render wrong on the one page whose job is to render right.
+**And the sheet itself was the root.** The engine emits no `coverage-open` anywhere —
+`_dataset_listing` builds `coverage` for the JSON API the panel consumes, and no engine
+template renders it. So the shared sheet shipped a dead rule to
+`scrapex/webui/static/components.css`, *and* levied UI-1's obligation on a component
+only one surface has, *and* the catalogue links `tokens.css` and `components.css` only,
+so it could not show the component inside the `.dataset-card` it actually lives in. One
+wrong choice, three consequences.
 
+**Apply:** before adding a rule to `design/components.css`, grep for the class in the
+OTHER surface. No hit means it is not shared vocabulary and belongs in
+`extension/app.css` or `scrapex/webui/static/webui.css` — where it needs no catalogue
+entry, ships to nobody who cannot use it, and sits beside the component it dresses.
+Specificity decides the cascade, not file order: `.coverage-open` is 0-1-0 against
+`button`'s 0-0-1, so a per-surface sheet still beats the shared `button` rule.
+
+**And if it IS shared:** the rule is not finished until a live example stands in
+`design/gallery.html`, and the pair `pytest tests/test_ui_kit.py
+tests/test_design_system.py` is the real gate — neither half is sufficient.
+`sync_design_assets.py` is the obvious thing to run after touching `design/` and it says
+nothing about the catalogue, because the catalogue is not a generated artefact; it is a
+page somebody has to write an example on. Two green signals sat either side of that gap.
 ---
 
 ## 6 · Two OAuth clients, therefore two grants
