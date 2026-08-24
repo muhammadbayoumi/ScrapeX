@@ -2796,6 +2796,13 @@ here would be answering for him — `R-02`'s shape exactly. The options, with th
 put A against B against C to him as its own decision.** Splitting it that way means the
 published lie stops today without a schema change being rushed to carry it.
 
+**RULED 2026-08-24 — «نفذ ب».** `R-52`: a generic crawl is a RUN with an identity, in a
+table of its own — one row per crawl, not the per-contractor attendance register `0006`
+weighed and refused at 17,403 rows a crawl. `started_at` is what `absent` compares
+against, `finished_at` is what stops a run still in flight from declaring departures, and
+the same table gives `declare_frontier` the denominator `STATE.md` has been missing. Step
+3's ledger fix stands on its own and lands first.
+
 **Why this is not folded into `#267`.** It is not caused by that work, it touches the state
 derivation every dataset row on the Data screen reads, and `R-51`'s own three new columns
 land directly on top of it. Recorded here so it is picked up as its own change with its own

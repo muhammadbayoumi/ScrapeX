@@ -2315,3 +2315,60 @@ That first study compared `Reading.fields` — a dict whose order is not the pag
 reported a gap of +2 and "121 of 121 misaligned". Against the arrays `merge_locales`
 actually reads the gap is ±1 on all 129 and nothing is misaligned. `LESSONS` §9 is about
 that class of error and this is an instance of it.
+
+---
+
+### R-52 · A generic crawl is a RUN with an identity, not the maximum of a timestamp column
+
+**Ruled 2026-08-24.** Shown that three of the eight row states rest on `newest` — the
+maximum of `generic_record.last_seen_at` — and offered three ways out, he chose the
+second: **«نفذ ب»**, a generic crawl-run table.
+
+**What he was choosing between**, and the measured reason a choice was needed at all
+([OP-68](BACKLOG.md#op-68--the-last-crawl-is-a-timestamp-so-17256-of-17304-contractors-are-shown-as-having-disappeared)):
+
+| | change | what it buys |
+|---|---|---|
+| A | `dataset_sighting` gains `last_run_ref`, and a crawl stamps it | an exact answer for all three states; one migration |
+| **B — ruled** | **a generic crawl-run table, started and finished** | the same, **plus a real progress denominator and history** |
+| C | leave `new` / `updated` blank until A or B | no false state, and two columns that say nothing |
+
+**The defect this answers.** `newest` is a timestamp to the second and a crawl writes its
+rows over half an hour, so only rows written in the final second compare equal to it.
+Measured on the live warehouse: **17,256 of 17,304** contractors read `absent` after a
+crawl that read every one of them, and **one** profile row read `new` where **121** had
+arrived that day. The false sentence is not confined to the screen — `publish.py` turns
+every payload column into a workbook column, so *"The most recent crawl did not show this
+row"* is written into the Google Sheet the mbiX add-in reads.
+
+**Why nothing stored could answer it.** `crawl_run` is the price path alone — 159 rows,
+`source_id` pointing at a price source, nothing for a dataset. `dataset_sighting` carries
+`first_run_ref` and `last_absent_run_ref` and no `last_run_ref`. A partitioned listing
+crawl is **93 run refs** sharing only a prefix. And `first_seen_at` is an APPROVAL time
+while `generic_page_snapshot.captured_at` is a FETCH time — the `R-51` recovery approved
+pages fetched two days earlier, so comparing the two would call a two-day-old page new.
+
+**AND `0006` ALREADY REJECTED A TABLE HERE, WHICH IS WHY THIS ONE IS NOT THAT TABLE.**
+`db/engine/migrations/0006_a_row_says_when_it_was_last_proved_absent.sql` weighed *"a
+`(dataset_key, external_id, run_ref)` table"* — the full attendance register — and refused
+it at **17,403 rows per crawl**. What `R-52` adds is **one row per crawl**, not one per
+contractor per crawl: three orders of magnitude cheaper, and it answers a different
+question. The attendance register stays rejected.
+
+**What it must carry, and why each field is load-bearing rather than nice to have:** the
+dataset it crawled, the run ref the operator typed, when it started, when it finished, and
+whether it finished at all. `started_at` is what `absent` needs — a row not seen since
+before the last run began was not seen by it — and `finished_at` is what makes the answer
+honest, because a run still in flight has not failed to see anybody yet. A crawl that
+never finished must not be able to declare 17,000 departures.
+
+**And the progress denominator is not a bonus, it is a standing complaint being paid off.**
+`docs/STATE.md` records that a generic crawl has no real denominator, so
+`declare_frontier` has nothing to divide by. The same table that says when a run began can
+say how many pages it expected.
+
+**The half that needed no ruling was fixed under `OP-68` regardless:** `absent` now rests
+on the sighting ledger's own `last_absent_at`, which `mark_unavailable` exists to write and
+which step 5 already read for `returned`. Measured, the ledger said **0** absent while the
+timestamp comparison said 17,256 — so that half was a defect with a right answer, not a
+decision, and waiting for a schema to carry it would have left the published lie standing.
