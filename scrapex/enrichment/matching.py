@@ -1,6 +1,7 @@
 """Deterministic identity checks shared by enrichment providers."""
 from __future__ import annotations
 
+import ipaddress
 import math
 import re
 import unicodedata
@@ -61,8 +62,38 @@ def email_domain(value: str) -> str:
     raw = (value or "").strip().casefold()
     if raw.count("@") != 1:
         return ""
-    domain = host_of(raw.rsplit("@", 1)[1])
-    return "" if domain in GENERIC_EMAIL_DOMAINS else domain
+    local, raw_domain = raw.rsplit("@", 1)
+    if (
+        not local
+        or any(character.isspace() for character in local + raw_domain)
+        or any(character in raw_domain for character in "/:?#[]")
+    ):
+        return ""
+    domain = raw_domain.rstrip(".")
+    try:
+        ascii_domain = domain.encode("idna").decode("ascii")
+    except UnicodeError:
+        return ""
+    labels = ascii_domain.split(".")
+    if (
+        len(ascii_domain) > 253
+        or len(labels) < 2
+        or any(
+            not label
+            or len(label) > 63
+            or label.startswith("-")
+            or label.endswith("-")
+            or re.fullmatch(r"[a-z0-9-]+", label) is None
+            for label in labels
+        )
+    ):
+        return ""
+    try:
+        ipaddress.ip_address(ascii_domain)
+        return ""
+    except ValueError:
+        pass
+    return "" if ascii_domain in GENERIC_EMAIL_DOMAINS else ascii_domain
 
 
 def haversine_metres(

@@ -47,8 +47,15 @@ def create_enrichment_router(
             ) from exc
 
     @router.get("/sources/{source_dataset_key}")
-    def source_proposal(source_dataset_key: str):
-        return read(lambda conn: service.propose_definition(conn, source_dataset_key))
+    def source_proposal(
+        source_dataset_key: str,
+        site_key: Annotated[str | None, Query()] = None,
+    ):
+        return read(
+            lambda conn: service.propose_definition(
+                conn, source_dataset_key, site_key=site_key
+            )
+        )
 
     @router.post("/definitions", status_code=status.HTTP_201_CREATED)
     def create_definition(request: DefinitionCreate):

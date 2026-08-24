@@ -6,19 +6,31 @@ import shutil
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from scrapex import catalog
 from scrapex.catalog_models import (
+    DatasetCreate,
+    DiscoveryMethod,
     RelationshipCreate,
     RelationshipFieldPairCreate,
     RelationshipReviewStatus,
+    SiteCreate,
 )
 from scrapex.catalog_relations import propose_relationship, review_relationship
 from scrapex.config import MANIFEST_FILE
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.enrichment import service as enrichment
-from scrapex.enrichment.models import DefinitionCreate, FieldFact, ProviderResult
+from scrapex.enrichment.matching import email_domain
+from scrapex.enrichment.models import (
+    DefinitionCreate,
+    FieldFact,
+    OrganizationIdentity,
+    ProviderResult,
+)
+from scrapex.enrichment.providers import website as website_provider
 from scrapex.enrichment.providers.google_places import GooglePlacesProvider
 from scrapex.enrichment.providers.website import FetchedPage, WebsiteProvider
 from scrapex.extract import service as extraction
@@ -158,12 +170,18 @@ def test_the_engine_migration_keeps_definitions_facts_and_job_kind(conn):
     } <= objects
     columns = {row[1] for row in conn.execute("PRAGMA table_info(crawl_job)")}
     assert "job_kind" in columns
+    indexes = {row[1] for row in conn.execute(
+        "PRAGMA index_list(organization_source_record)"
+    )}
+    assert "ix_organization_source_record_org" in indexes
 
 
-def test_muqawil_is_proposed_as_listing_plus_profile(conn):
+def test_muqawil_is_proposed_as_listing_plus_profile(conn, monkeypatch):
+    monkeypatch.setenv("SCRAPEX_GOOGLE_PLACES_API_KEY", "configured-but-paid")
     payload = enrichment.propose_definition(conn, "contractors")
     proposal = payload["proposal"]
 
+    assert proposal["site_key"] == "muqawil_org"
     assert proposal["detail_dataset_key"] == "contractor_profiles"
     assert proposal["entity_key_field"] == "contractor_id"
     assert proposal["detail_key_field"] == "contractor_id"
@@ -172,6 +190,44 @@ def test_muqawil_is_proposed_as_listing_plus_profile(conn):
     assert proposal["field_mapping"]["email"] == "organization_email"
     assert proposal["field_mapping"]["latitude"] == "latitude"
     assert payload["provider_availability"][0]["key"] == "website"
+    assert next(item for item in payload["provider_availability"]
+                if item["key"] == "google_places")["available"] is True
+    assert proposal["providers"] == ["website"]
+
+
+def test_duplicate_dataset_keys_require_the_site_instead_of_guessing(conn):
+    catalog.register_site(
+        conn,
+        SiteCreate(
+            site_key="other_directory",
+            display_name="Other Directory",
+            base_url="https://directory.example/",
+        ),
+    )
+    catalog.register_dataset(
+        conn,
+        "other_directory",
+        DatasetCreate(
+            dataset_key="contractors",
+            original_name="Contractors",
+            dataset_kind="list",
+            discovery_method=DiscoveryMethod.MANUAL,
+        ),
+    )
+
+    with pytest.raises(enrichment.EnrichmentError, match="ambiguous across sites"):
+        enrichment.propose_definition(conn, "contractors")
+
+    exact = enrichment.propose_definition(
+        conn, "contractors", site_key="muqawil_org"
+    )
+    assert exact["site"]["site_key"] == "muqawil_org"
+    assert exact["proposal"]["site_key"] == "muqawil_org"
+    exact_table = extraction.dataset_table_payload(
+        conn, "contractors", site_key="muqawil_org"
+    )
+    assert exact_table is not None
+    assert exact_table["total"] == 4
 
 
 def test_creation_adds_a_wide_dataset_and_a_confirmed_link(conn):
@@ -189,7 +245,7 @@ def test_creation_adds_a_wide_dataset_and_a_confirmed_link(conn):
     assert {
         "website_url", "company_domain", "iso_certifications", "core_specialties",
         "careers_contact", "linkedin_company_url", "key_decision_makers",
-        "google_maps_url", "gmaps_rating", "reviews_count",
+        "google_maps_url", "google_maps_cid_url", "gmaps_rating", "reviews_count",
         "verified_phone_secondary", "verification_score",
     } <= fields
     relation = conn.execute(
@@ -216,6 +272,38 @@ def test_creation_refuses_to_reuse_an_existing_dataset_as_output(conn):
     ).fetchone()[0] == 0
 
 
+def test_definition_requires_evidence_and_a_distinct_detail_dataset(conn):
+    proposal = enrichment.propose_definition(conn, "contractors")["proposal"]
+    with pytest.raises(ValueError, match="at least 1 item"):
+        DefinitionCreate(**{**proposal, "providers": []})
+
+    same_detail = DefinitionCreate(**{
+        **proposal,
+        "detail_dataset_key": "contractors",
+        "detail_key_field": proposal["entity_key_field"],
+    })
+    with pytest.raises(
+        enrichment.EnrichmentError,
+        match="source and detail datasets must be different",
+    ):
+        enrichment.create_definition(conn, same_detail)
+
+
+def test_definition_creation_is_idempotent_but_never_ignores_changed_settings(conn):
+    request = _request(conn)
+    first = enrichment.create_definition(conn, request)
+
+    repeated = enrichment.create_definition(conn, request)
+    assert repeated["enrichment_definition_id"] == first["enrichment_definition_id"]
+
+    changed = request.model_copy(update={"output_dataset_name": "Different Result"})
+    with pytest.raises(
+        enrichment.EnrichmentError,
+        match="already has a different enrichment definition",
+    ):
+        enrichment.create_definition(conn, changed)
+
+
 def test_fact_history_versions_changed_evidence_but_not_an_identical_recheck(conn):
     conn.execute("INSERT INTO organization_entity (organization_id) VALUES ('org_test')")
     first = FieldFact(
@@ -238,6 +326,86 @@ def test_fact_history_versions_changed_evidence_but_not_an_identical_recheck(con
         "WHERE organization_id = 'org_test' AND field_key = 'website_url'"
     ).fetchone()
     assert tuple(history) == (2, 1)
+
+
+def test_an_ambiguous_field_key_uses_the_source_value_the_picker_names():
+    definition = {
+        "field_mapping_json": json.dumps({"company_name": "name", "email": "email"}),
+        "entity_key_field": "id", "site_key": "site", "source_dataset_key": "firms",
+        "base_url": "https://source.example",
+    }
+    source = {
+        "data_json": json.dumps({
+            "id": "42", "name": "Source Name", "email": "source@example.com",
+        }),
+        "generic_record_id": 7, "source_snapshot_id": 9,
+        "source_url": "https://source.example/42",
+    }
+
+    identity = enrichment._identity(
+        definition, source,
+        {"name": "Detail Name", "email": "detail@example.com"},
+    )
+
+    assert identity.company_name == "Source Name"
+    assert identity.email == "source@example.com"
+
+
+def test_only_a_plausible_non_generic_email_can_propose_a_company_domain():
+    assert email_domain("info@example.com") == "example.com"
+    assert email_domain("person@gmail.com") == ""
+    assert email_domain("@example.com") == ""
+    assert email_domain("info@localhost") == ""
+    assert email_domain("info@8.8.8.8") == ""
+    assert email_domain("info@example.com/path") == ""
+    assert email_domain("info@example..com") == ""
+    assert email_domain("bad local@example.com") == ""
+    assert email_domain("info@-example.com") == ""
+
+
+def test_invalid_coordinates_are_omitted_before_a_provider_request():
+    definition = {
+        "field_mapping_json": json.dumps({
+            "company_name": "name", "latitude": "lat", "longitude": "lng",
+        }),
+        "entity_key_field": "id", "site_key": "site", "source_dataset_key": "firms",
+        "base_url": "https://source.example",
+    }
+    source = {
+        "data_json": json.dumps({
+            "id": "42", "name": "Source Name", "lat": "91", "lng": "Infinity",
+        }),
+        "generic_record_id": 7, "source_snapshot_id": 9,
+        "source_url": "https://source.example/42",
+    }
+
+    identity = enrichment._identity(definition, source, None)
+
+    assert identity.latitude is None
+    assert identity.longitude is None
+
+
+def test_first_enriched_at_stays_the_entity_creation_time(conn):
+    conn.execute(
+        "INSERT INTO organization_entity (organization_id, created_at) VALUES (?,?)",
+        ("org_timestamp", "2020-01-02T03:04:05Z"),
+    )
+    enrichment._upsert_fact(
+        conn,
+        "org_timestamp",
+        FieldFact(
+            "website_url", "https://example.com", "website",
+            confidence=0.9, verification_status="verified",
+        ),
+    )
+    identity = OrganizationIdentity(
+        organization_id="org_timestamp", external_id="1", source_record_id=1,
+        source_snapshot_id=1, source_url="https://source.example/1",
+    )
+
+    materialized = enrichment._materialized_data(conn, identity)
+
+    assert materialized["first_enriched_at"] == "2020-01-02T03:04:05Z"
 
 
 def test_a_run_refuses_a_provider_that_is_no_longer_configured(conn, monkeypatch):
@@ -281,6 +449,19 @@ class _FakeWebsite:
                 confidence=0.96, verification_status="verified",
             ),
         ))
+
+
+class _SystemFailureProvider:
+    name = "google_places"
+
+    def __init__(self):
+        self.calls = 0
+
+    def run(self, identity):
+        self.calls += 1
+        return ProviderResult(
+            self.name, checked=False, error="quota unavailable", system_error=True
+        )
 
 
 def _run(conn, definition_id: int, monkeypatch, provider) -> dict:
@@ -376,6 +557,61 @@ def test_runs_are_resumable_idempotent_and_keep_changed_fact_history(conn, monke
     assert enrichment.get_definition(conn, definition_id)["counts"]["organizations"] == 4
 
 
+def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    provider = _SystemFailureProvider()
+
+    completed = _run(
+        conn, definition["enrichment_definition_id"], monkeypatch, provider
+    )
+
+    assert provider.calls == enrichment._PROVIDER_CIRCUIT_LIMIT
+    assert completed["status"] == "completed_with_errors"
+    assert completed["counters"]["provider_errors"] == 3
+    assert completed["counters"]["providers_disabled"] == 1
+    assert "3 provider request(s) failed" in completed["error_summary"]
+
+
+def test_duplicate_detail_join_keys_are_refused_instead_of_last_row_winning(conn):
+    detail_id = conn.execute(
+        "SELECT dataset_definition_id FROM dataset_definition "
+        "WHERE dataset_key = 'contractor_profiles'"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO generic_record "
+        "(dataset_definition_id, record_key, schema_version_id, data_json, "
+        "source_snapshot_id, source_locator, content_hash) "
+        "SELECT dataset_definition_id, record_key || '-duplicate', schema_version_id, "
+        "data_json, source_snapshot_id, source_locator || '#duplicate', content_hash "
+        "FROM generic_record WHERE dataset_definition_id = ? LIMIT 1",
+        (detail_id,),
+    )
+    definition = enrichment.create_definition(conn, _request(conn))
+    row = enrichment._definition_row(
+        conn, definition["enrichment_definition_id"]
+    )
+
+    with pytest.raises(
+        enrichment.EnrichmentError, match="duplicate active join key"
+    ):
+        enrichment._detail_lookup(conn, row)
+
+
+def test_source_rows_are_streamed_in_bounded_pages(conn, monkeypatch):
+    source_id = conn.execute(
+        "SELECT dataset_definition_id FROM dataset_definition "
+        "WHERE dataset_key = 'contractors'"
+    ).fetchone()[0]
+    monkeypatch.setattr(enrichment, "_SOURCE_BATCH_SIZE", 2)
+
+    rows = list(enrichment._active_source_rows(conn, source_id, 0))
+
+    assert len(rows) == 4
+    assert [row["generic_record_id"] for row in rows] == sorted(
+        row["generic_record_id"] for row in rows
+    )
+
+
 def test_the_extension_api_creates_and_queues_the_same_definition(registry, tmp_path):
     manifest = tmp_path / "sources.yaml"
     shutil.copy(MANIFEST_FILE, manifest)
@@ -393,6 +629,10 @@ def test_the_extension_api_creates_and_queues_the_same_definition(registry, tmp_
     job = client.get(f"/api/jobs/{queued.json()['job_ref']}").json()
     assert job["job_kind"] == "organization_enrichment"
     assert job["progress"]["unit"] == "organizations"
+    refreshed = client.get("/api/enrichment/sources/contractors").json()
+    assert refreshed["definition"]["latest_job"] == {
+        "job_ref": queued.json()["job_ref"], "status": "queued",
+    }
     duplicate = client.post(
         f"/api/enrichment/definitions/{definition_id}/runs", json={}
     )
@@ -471,6 +711,40 @@ def test_website_provider_extracts_only_after_the_published_name_matches():
     assert mismatch_facts["website_match_status"] == "manual_review"
     assert "iso_certifications" not in mismatch_facts
 
+    mention_only = WebsiteProvider(lambda url: FetchedPage(
+        url, "<html><head><title>Example Builders</title></head>"
+             "<body>Our consultants can explain ISO 9001 to customers.</body></html>"
+    )).run(_identity())
+    mention_facts = {fact.field_key: fact.value for fact in mention_only.facts}
+    assert "iso_certifications" not in mention_facts
+
+    negated = WebsiteProvider(lambda url: FetchedPage(
+        url, "<html><head><title>Example Builders</title></head>"
+             "<body>We are not certified to ISO 9001.</body></html>"
+    )).run(_identity())
+    negated_facts = {fact.field_key: fact.value for fact in negated.facts}
+    assert "iso_certifications" not in negated_facts
+
+
+def test_website_peer_verification_fails_closed_for_rebinding_or_missing_peer():
+    class Stream:
+        def __init__(self, address):
+            self.address = address
+
+        def get_extra_info(self, name):
+            return self.address if name == "server_addr" else None
+
+    public = httpx.Response(
+        200, extensions={"network_stream": Stream(("8.8.8.8", 443))}
+    )
+    private = httpx.Response(
+        200, extensions={"network_stream": Stream(("127.0.0.1", 443))}
+    )
+
+    assert website_provider._public_peer(public) is True
+    assert website_provider._public_peer(private) is False
+    assert website_provider._public_peer(httpx.Response(200)) is False
+
 
 def test_google_places_requires_identity_evidence_before_verification():
     place = {
@@ -487,13 +761,19 @@ def test_google_places_requires_identity_evidence_before_verification():
     }
     provider = GooglePlacesProvider("secret", post=lambda key, body: {"places": [place]})
     result = provider.run(_identity(
-        phone="+966112223333", latitude=24.7136, longitude=46.6753,
+        phone="+966500000000", latitude=24.7136, longitude=46.6753,
         city="Riyadh", country="Saudi Arabia",
     ))
     facts = {fact.field_key: fact.value for fact in result.facts}
     assert facts["google_match_status"] == "verified"
     assert facts["reviews_count"] == 91
     assert facts["google_maps_url"].endswith("cid=123")
+    assert facts["google_maps_cid_url"].endswith("cid=123")
+    assert facts["verified_phone_secondary"] == "+966 11 222 3333"
+
+    malformed_phone = provider.run(_identity(phone="N/A", email=""))
+    malformed_facts = {fact.field_key: fact.value for fact in malformed_phone.facts}
+    assert malformed_facts["google_match_score"] == 0.62
 
     mismatch = provider.run(_identity(
         company_name="Another Company", email="info@another.example",

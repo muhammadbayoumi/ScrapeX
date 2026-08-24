@@ -9,6 +9,22 @@ from .google_places import GooglePlacesProvider
 from .website import WebsiteProvider
 
 
+class ProviderSet(list):
+    """A provider batch owns reusable network clients for exactly one job."""
+
+    def close(self) -> None:
+        for provider in self:
+            close = getattr(provider, "close", None)
+            if close is not None:
+                close()
+
+    def __del__(self):  # pragma: no cover - the explicit job close is authoritative
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 def provider_availability() -> list[dict[str, Any]]:
     google_ready = bool(os.environ.get("SCRAPEX_GOOGLE_PLACES_API_KEY", "").strip())
     return [
@@ -38,7 +54,7 @@ def provider_availability() -> list[dict[str, Any]]:
 
 
 def build_providers(names: list[str]):
-    providers = []
+    providers = ProviderSet()
     for name in names:
         if name == ProviderName.WEBSITE.value:
             providers.append(WebsiteProvider())
