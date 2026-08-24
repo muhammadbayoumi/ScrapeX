@@ -132,9 +132,17 @@ by set arithmetic over the ids, not by estimate:
 
 `17,417 − 148 + 35 = 17,304` closes exactly.
 
-**Neither number is the population.** The honest total is the **union, 17,452**, and even
-that is a floor: the sweep that produced the profile frontier **stopped at its pass
-ceiling rather than converging**, its sixth pass still bringing 62 unseen names.
+**Neither number is the population.** The honest total is the **union, 17,452**.
+
+> **THE "FLOOR" ARGUMENT IS WEAKER THAN THIS PARAGRAPH FIRST CLAIMED**, and an adversarial
+> review is what narrowed it. It said the sweep *"stopped at its pass ceiling rather than
+> converging"*. That is true of the sweep whose pages were never stored — it read one
+> language, kept nothing, and reached "at least 17,283". But the two sweeps whose evidence
+> IS on disk **converged**: `deficit-2026-08-21b` brought +28 / +6 / **+0** over its last
+> three passes, and `residual-2026-08-21` +0 / +1 / +1. So "any two passes drift" is well
+> supported — 4,556 contractors on more than one page in a single pass — while "the
+> population is larger than 17,452" rests on the sweep that kept no evidence, and is a
+> weaker claim than it was written as.
 
 **Why two passes of one directory disagree.** The listing reorders under the crawl —
 4,556 of one pass's contractors turned up on more than one page — so the two passes ran

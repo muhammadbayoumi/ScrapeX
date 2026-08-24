@@ -2170,7 +2170,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:813](LESSONS.md#L813)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:831](LESSONS.md#L831)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -2665,6 +2665,54 @@ its own, which is why it was not bundled into the branch that found it.
 **And there is a table this is the fifth row of, which is not on `main`.** *Four shapes
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
+
+### OP-65 · A snapshot records the URL we ASKED for, never the one we landed on
+
+**Found 2026-08-23 by the owner asking whether the new guard was even correct.** It is —
+and the question found something better than the guard.
+
+`OP-64` diagnoses a dead profile id from the CONTENT of the page that comes back. That was
+reading the symptom. The cause, measured live:
+
+```
+asked   /en/contractors/20074580/143
+landed  /ar/contractors                 <- the site REDIRECTED us
+HTTP    200        372,141 bytes        the listing, 20 contractor links
+
+control
+asked   /en/contractors/1004/143
+landed  /en/contractors/1004/143
+HTTP    200        122,717 bytes        a real profile
+```
+
+**muqawil redirects a withdrawn id to the contractors listing** and answers 200. It even
+switches the locale — `en` was asked for and `ar` came back — which is a redirect's
+fingerprint and not an empty page's.
+
+### Why nothing in the project could notice
+
+`generic_page_snapshot` stores **`source_url`**, which is the URL the crawler *requested*.
+There is no column for the URL the response actually came from, and `httpx` follows
+redirects silently (`follow_redirects=True` at `scrapex/funnel.py:194` and three other
+call sites). So a page fetched from somewhere else is stored under the address we wanted,
+and every reader downstream — the parser, the approval, the coverage report — believes it.
+
+**This is a whole class, not one site's quirk.** Any source that answers a gone resource
+with a redirect to an index page produces the same silent substitution, and `OP-64`'s
+remedy would have to be written again per parser. A `final_url` on the snapshot catches
+all of them at the seam where the evidence is created.
+
+### What it needs
+
+1. **A `final_url` column** on `generic_page_snapshot`, written by the fetch seam.
+2. **A refusal at the seam, not in the parser**: if the final URL is not the requested one,
+   the page is evidence of a redirect and not of the thing that was asked for. `OP-64`'s
+   layer 1 then becomes a second line rather than the only one.
+3. **The 78 snapshots already stored under the wrong address stay wrong**, because the
+   fact was never captured. They are identifiable by content and that is all.
+
+**It does not replace `OP-64`.** A page can be substituted without a redirect, and the link
+test still catches that. But the redirect is the cheaper signal and it arrives first.
 
 ### OP-64 · The site answers a dead profile id with the LISTING page, and the parser believes it
 

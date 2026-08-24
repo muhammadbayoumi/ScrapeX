@@ -96,6 +96,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
 | [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Captured** — measured: 148 have a profile and no listing row (all 148 already on disk, zero requests), 35 have a listing row and no profile (70 requests); the listing reorders under the crawl so any two passes drift | 2026-08-23 |
+| [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all 203 with no valid profile row DO have their listing card, 24 fields each, and 0 have nothing; the state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 
 ---
 
@@ -2260,6 +2261,68 @@ Whether reconciliation runs **automatically at the end of a crawl** or is a comm
 invokes. Automatic closes the gap without anyone noticing it existed; a command keeps the
 gap visible and reportable, which is this project's usual preference — see
 [R-32](RULINGS.md) on the tool being a platform rather than one behaviour.
+
+---
+
+## REQ-42 · A contractor the site withdrew is entered with what we know and a state that says so
+**Captured 2026-08-23**
+
+> «لو اختفى اى مقاول من الموقع ولازال لدينا معلومات عنه ربما مش كاملة ادخله الى قاعدة
+> البيانات يدويا واكتب حالته · وايضا هذا يستدعى مراجعة عدائية لان الجودة فى الدقة»
+
+**He ruled on the 203, and the ruling is the opposite of what the code does now.** A
+contractor whose profile page no longer resolves currently produces **no profile row at
+all** — the page is refused (`OP-64` layer 1) and nothing is written. He wants the row
+written from what we hold, carrying a state that says it is partial and why.
+
+### It is not a concession, because we hold a great deal
+
+Measured 2026-08-23, over the 203 contractors with no valid profile row:
+
+| | |
+|---|---|
+| we hold their **listing card** | **203 of 203 — all of them** |
+| we hold nothing at all | **0** |
+
+And the card is not thin. For contractor `1016`: name and `company_name_ar`, city and
+region in both languages, company size in both, classification and its grade, membership
+number, account status, training hours, main/sub-contractor flags, the logo, and both
+profile URLs — **24 fields**. What is missing is only what the profile page alone
+publishes: email, coordinates, address, licences, interests.
+
+So the choice is not between a good row and a partial one. It is between **a partial row
+that says it is partial** and **no row at all**, which reads as a contractor that never
+existed.
+
+### And this is `dataset_table_payload`'s own rule, extended
+
+The payload already refuses to filter `status`, quoting him: *"a contractor the site
+stopped publishing would simply VANISH from his screen"*. Today's states already carry
+this — `absent`, `unavailable`, `retired`, each with a sentence a reader sees. This
+request says the same principle must apply one level earlier: **not only "do not hide a
+row we have", but "write the row we can".**
+
+### The state has to distinguish three different facts, which today it does not
+
+| what happened | whose fault | today |
+|---|---|---|
+| the site withdrew the contractor | the site's | no profile row |
+| the profile page was never fetched | ours (coverage) | no profile row |
+| we wrote a row from the wrong page | ours (a defect) | `retired` |
+
+All three currently look alike from the profile table's side: a missing row. **They are
+three different answers to "why is this incomplete" and a reader needs to know which.**
+
+### Open, and his
+
+The **state vocabulary**: whether "withdrawn by the site" is a new `status` value, a
+`generic_record` state alongside `absent`/`unavailable`, or a field on the row. It touches
+`sightings.row_state` and every surface that renders it, so it is a naming decision before
+it is a code one.
+
+**He asked for an adversarial review of this specifically** — *«الجودة فى الدقة»* — and it
+earns one: this is the first feature that would write rows the site did not serve, which
+is a different risk class from everything else in the contractor track.
 
 ---
 

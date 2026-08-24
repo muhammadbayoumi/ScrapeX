@@ -408,6 +408,24 @@ only when handed a falsy token. Either mutation alone is caught.
 It is recorded rather than papered over. Contorting a test to kill an equivalent
 mutant would be the lie.
 
+### Store where a response CAME FROM, not only where it was asked for
+
+**2026-08-23.** muqawil redirects a withdrawn profile id to the contractors listing and
+answers 200 — and switches the locale on the way, `en` asked and `ar` returned.
+`generic_page_snapshot` has a `source_url` column holding the URL the crawler
+*requested*, and none for the URL the response actually came from. `httpx` follows
+redirects silently. So the wrong page is filed under the right address and everything
+downstream believes it.
+
+**The guard written first read the CONTENT** — does this page link to contractors other
+than the one asked for. That works, and it is the symptom. The cause is one comparison at
+the fetch seam, before any parsing, and it catches every source that answers a gone
+resource with an index page rather than a 404. Recorded as `OP-65`.
+
+**The general shape: a guard at the symptom must be written once per parser; a guard at
+the cause is written once.** Ours was in the parser because that is where the damage
+surfaced, which is the natural place to look and the wrong place to fix.
+
 ### A 200 can be the wrong document, and a parser that only reads fields cannot tell
 
 **2026-08-23.** muqawil answers a dead profile id with **the contractors listing**, at

@@ -211,7 +211,7 @@ PINNED = (
     # that tier 1 and tier 2 both accepted. A citation of prose needs pinning more
     # than a citation of code does -- code has a symbol a reader can grep for, and a
     # paragraph about palette tokens reads exactly as plausibly as one about layers.
-    ("docs/BACKLOG.md", "docs/LESSONS.md", 813, "The extension's layers are three"),
+    ("docs/BACKLOG.md", "docs/LESSONS.md", 831, "The extension's layers are three"),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
