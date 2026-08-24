@@ -1021,10 +1021,30 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
     assert card.locator(".split-button-trigger").count() == 1, (
         "a dataset card carries no actions menu; it has one action that works")
 
+    # ONE ROW PER TABLE THE CARD STANDS FOR, not a fixed count.
+    #
+    # This asserted `== 1` while a folded card stood for two datasets, so the
+    # second table had no route from the menu — `/source/contractor_profiles`
+    # answered 200 and nothing in the panel went there. He found it by looking:
+    # «لا اعرف كيف اصل اليها عن طريق الواجهة». The count is now derived from what
+    # the engine says the card covers, so it cannot drift again the way a literal
+    # would.
     offered = card.locator("[data-split-action]")
-    assert offered.count() == 1
-    assert offered.first.get_attribute("data-split-action") == "table"
+    actions = [offered.nth(i).get_attribute("data-split-action")
+               for i in range(offered.count())]
+    assert actions[0] == "table", f"the card's own table is no longer first: {actions}"
     assert "Open the data table" in (offered.first.text_content() or "")
+
+    # TWO INDEPENDENT PATHS RENDER THE SAME FACT, so they check each other.
+    # `countLine` builds the coverage BUTTONS and `sourceActions` builds the menu
+    # ROWS, from one `coverage` array by different code. A folded card that offers
+    # a door in one place and not the other is the bug this test now guards.
+    doors = card.locator("[data-open-dataset]")
+    keys = [doors.nth(i).get_attribute("data-open-dataset") for i in range(doors.count())]
+    assert keys, "the count line offers no coverage button, so the fold hid a table"
+    assert actions[1:] == [f"table:{key}" for key in keys], (
+        f"the menu and the count line disagree about which tables this card stands "
+        f"for: {actions[1:]} against {keys}")
 
     # NOT A MENU OF GREYED-OUT ROWS, which is the other half of his complaint and
     # the failure mode `sourceMenu`'s own comment rejects: "a button that cannot
@@ -1109,16 +1129,29 @@ def test_the_noun_over_a_count_is_decided_by_what_the_engine_reports(open_panel)
         "() => countLine({observations: 6969, products: 1812})"
     ) == "1,812 products"
 
-    # COVERAGE WINS OVER BOTH, and the label is escaped — it comes out of the
-    # warehouse, which `esc()` is the panel's whole XSS boundary for.
+    # COVERAGE WINS OVER BOTH — and it is now a BUTTON, because `R-47`s fold left
+    # the second table with no route from the panel. Both the label and the KEY are
+    # escaped: both come out of the warehouse, and the key is the newer half of the
+    # same XSS boundary.
+    covered = page.evaluate("""() => countLine({kind: 'dataset', observations: 4,
+        coverage: [{dataset_key: 'p"x', label: '<b>x</b>', stored: 1, population: 4}]})""")
+    assert "&lt;b&gt;x&lt;/b&gt;: 1 of 4 (25.0%)" in covered, (
+        "the label stopped being escaped, or the pair stopped being shown: " + covered)
+    assert "&quot;" in covered and 'data-open-dataset="p&quot;x"' in covered, (
+        "the dataset key reached the attribute unescaped, and a key with a quote "
+        "closes it: " + covered)
+
+    # A COVERAGE ENTRY WITH NO KEY IS NOT A DOOR, so it is not drawn and the card
+    # falls back to its own count. A button resolving to `/source/` is the "button
+    # that cannot work" this card was cleaned of.
     assert page.evaluate("""() => countLine({kind: 'dataset', observations: 4,
-        coverage: [{label: '<b>x</b>', stored: 1, population: 4}]})""") \
-        == "&lt;b&gt;x&lt;/b&gt;: 1 of 4 (25.0%)"
+        coverage: [{label: 'P', stored: 1, population: 4}]})""") == "4 rows"
 
     # A POPULATION OF NOTHING IS NOT A PERCENTAGE OF ANYTHING. "0.0%" would read as
     # a measured floor; the share is omitted and the pair still shown.
-    assert page.evaluate("""() => countLine({kind: 'dataset', observations: 0,
-        coverage: [{label: 'P', stored: 0, population: 0}]})""") == "P: 0 of 0"
+    assert "P: 0 of 0" in page.evaluate("""() => countLine({kind: 'dataset',
+        observations: 0,
+        coverage: [{dataset_key: 'p', label: 'P', stored: 0, population: 0}]})""")
 
 
 #: Everything about a trigger that a person can SEE. Read off both screens and

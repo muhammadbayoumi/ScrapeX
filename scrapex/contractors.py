@@ -513,18 +513,16 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     scope, slice_of = read_scope(conn, directory.key)
     say(f"registered scope: {scope.value}"
         + (f", slice {slice_of!r}" if slice_of else ""))
-    if scope is CrawlScope.LISTING_ONLY:
-        # NOT AN ERROR. The registration is his answer, and a command that fetched
-        # profiles anyway would be answering for him — which is what Decision 23 made
-        # the column for.
-        say("listing_only, so there are no profile pages to fetch. Change "
-            "site_profile.crawl_scope to ask for them.")
-        return
-    if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
-        _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
-                "named, so there is nothing to select. Set site_profile.crawl_slice")
 
     if ids:
+        # AND NAMED IDS ARE NOT SUBJECT TO THE SCOPE, which is why the scope
+        # checks moved INTO the `else` below. Under `listing_only`
+        # `details` returns early — "no profile pages to fetch" — and under
+        # `listing_plus_slice` with no slice it refuses. Both are right for a
+        # frontier the scope builds, and wrong for a page a person named: the
+        # documented `OP-64` remediation is re-fetching one contractor, and it
+        # would have done nothing at all the day the owner sets `listing_only`.
+        #
         # NAMED IDS REPLACE THE FRONTIER, they do not filter it. This is the half of
         # `OP-64` that was missing: rows written from the wrong document have to be
         # fetched AGAIN, and until now nothing could ask for one contractor. `--only`
@@ -553,6 +551,16 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             say(f"  NOTE: {run_ref} already holds pages. Named ids stored under it "
                 f"will be skipped as resumed — use a fresh --run-ref to re-fetch")
     else:
+        if scope is CrawlScope.LISTING_ONLY:
+            # NOT AN ERROR. The registration is his answer, and a command that fetched
+            # profiles anyway would be answering for him — which is what Decision 23 made
+            # the column for.
+            say("listing_only, so there are no profile pages to fetch. Change "
+                "site_profile.crawl_scope to ask for them.")
+            return
+        if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
+            _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
+                    "named, so there is nothing to select. Set site_profile.crawl_slice")
         frontier, outside = detail_frontier(conn, directory, scope, slice_of)
     held = already_stored(conn, run_ref)
     todo = [url for url in frontier if url not in held]
@@ -1231,8 +1239,9 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         # "CHECKED AND CLEAN" AND "NEVER CHECKED" MUST NOT LOOK ALIKE, which is
         # the whole argument of `OP-64`. A run that prints no mismatch line today
         # could mean either, and only this number separates them.
-        say(f"  {unwitnessed:,} page(s) had no listing card to check against, so "
-            f"the membership cross-check did not run on them (OP-64 layer 2)")
+        say(f"  {unwitnessed:,} page(s) were not cross-checked — either no listing "
+            f"card carried a number for them, or the profile page published none "
+            f"(OP-64 layer 2)")
     if mismatched:
         # NAMED, NOT FOLDED INTO `refused`. A page refused for a locale mismatch
         # is the site publishing two shapes; a page refused for THIS is the site
@@ -1428,7 +1437,15 @@ def run(args: argparse.Namespace) -> int:
             # names nobody, which is right — and calling it on the default `""`
             # turned the ORDINARY detail crawl into a usage error naming a flag the
             # user never typed. Round three found it by running the command.
-            named = _named_ids(args.ids) if args.ids.strip() else ()
+            # `if args.ids` — THE FLAG WAS SUPPLIED — and not `.strip()`.
+            #
+            # Round two refused `--ids "  "`. Round three's repair for the opposite
+            # bug guarded on `.strip()`, which sent whitespace back down the exact
+            # path round two closed: `named = ()`, `details` takes the else branch,
+            # and the registered scope is 34,806 pages. Two repairs, one hole,
+            # opened and closed and opened again — which is why the guard now asks
+            # whether the flag was TYPED, and lets `_named_ids` judge its content.
+            named = _named_ids(args.ids) if args.ids else ()
             details(conn, directory, fetch, fetcher, args.run_ref,
                     ceiling=args.ceiling, workers=args.workers, connect=factory,
                     ids=named)

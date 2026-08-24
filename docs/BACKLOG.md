@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4635`) prints that sentence whenever the key is absent or
+(`extension/app.js:4649`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1785,7 +1785,7 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4741](../extension/app.js#L4741)) — and the engine stamps the
+([extension/app.js:4755](../extension/app.js#L4755)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or

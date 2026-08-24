@@ -4619,7 +4619,11 @@ function countLine(s) {
   // A BUTTON AND NOT AN ANCHOR, because the card itself is a link: an `<a>` inside
   // it would be a nested link, and the card's own click handler already has to
   // guard against the menu swallowing it. The same guard covers this.
-  const covered = (s.coverage || []).map((c) =>
+  // A COVERAGE ENTRY WITH NO KEY IS NOT A DOOR. The engine always sends one
+  // today, so this only fires against an older engine or a stale bundle — and a
+  // button whose click resolves to `/source/` is the "button that cannot work"
+  // this whole card was cleaned of.
+  const covered = (s.coverage || []).filter((c) => c && c.dataset_key).map((c) =>
     `<button type="button" class="coverage-open" data-open-dataset="${esc(c.dataset_key)}"` +
     ` title="Open ${esc(c.label)}">${esc(c.label)}: ${fmtCount(c.stored)} of ` +
     `${fmtCount(c.population)}${coverageShare(c)}</button>`).join(" · ");
@@ -4766,7 +4770,7 @@ function sourceActions(source) {
   // The proof is the same one the base entry carries: these keys reach the same
   // route, `/api/table/{key}`, which resolves a dataset before it asks the
   // manifest.
-  const covered = (source.coverage || []).map((c) => ({
+  const covered = (source.coverage || []).filter((c) => c && c.dataset_key).map((c) => ({
     action: `table:${c.dataset_key}`,
     label: `Open ${c.label}`,
     why: `The ${fmtCount(c.stored)} rows of ${c.label}, in the same page.`,

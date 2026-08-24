@@ -2092,8 +2092,8 @@ archive, and let the Data page read it"* (#167), **2026-08-12 09:18** — the sa
 The rail's boundary IS built and IS guarded: `.rail-tablist` at `extension/app.css:1144`
 with its reason at `:1137-1143`, asserted green at `4522158` by
 `test_the_rail_groups_say_which_pages_need_an_engine` and
-`test_finance_tab_sits_immediately_above_workspace` (`tests/test_panel_dom.py:3244` and
-`:1177`). What is false is only Decision 25's **consequence sentence** — *"The second group
+`test_finance_tab_sits_immediately_above_workspace` (`tests/test_panel_dom.py:3358` and
+`:1291`). What is false is only Decision 25's **consequence sentence** — *"The second group
 is dead on a device with no engine installed"* — and it is false for **exactly one** of the
 four pages it covers. Source, Run and Google Finance have no offline route; **Data does.**
 That is a `C2` documentation-drift defect, one sentence wide.
