@@ -2740,6 +2740,62 @@ Excel add-in reads** — the single boundary `CLAUDE.md` says the two systems me
 moves this from "a screen is wrong" to "the product's only output is wrong", and it is why
 this entry leads the register rather than sitting in it.
 
+**AND IT IS THREE STATES, NOT ONE.** The docstring states the flawed premise out loud
+([scrapex/sightings.py:365](../scrapex/sightings.py#L365)): *"`newest` is the dataset's
+latest `last_seen_at` — 'the last crawl'. Everything is relative to it."* Everything is,
+and three of the eight states rest on it:
+
+| step | test | what it gets wrong |
+|---|---|---|
+| 3 · `absent` | `last_seen_at < newest` | **17,256 of 17,304** contractors |
+| 4 · `new` | `first_seen_at >= newest` | **1** profile reads `new`; **121** were first seen today |
+| 6 · `updated` | `changed_at >= newest` | same second-resolution window |
+
+So the screen under-reports what arrived by the same arithmetic that over-reports what
+left. `R-27`'s own instruction was «لا تدع المستخدم يستنتج الحالة» — and the column that
+exists so he does not have to infer is wrong in both directions.
+
+**THE HALF THAT NEEDS NO RULING, and it is the half that lies in the sheet.** `absent`
+must come from the ledger's own absence record, not from a timestamp race.
+`mark_unavailable` / `mark_departures` exist to write exactly that, step 5 already reads
+`last_absent_at` for `returned`, and step 3 ignores it. Measured, the ledger is right and
+the comparison is noise:
+
+```
+dataset_sighting for 'contractors':  17,417 rows
+   ever marked absent          0
+   absent NOW                  0        <- the ledger's answer
+   the timestamp says absent  17,256    <- what the screen and the sheet publish
+```
+
+So `if last_absent_at is not None and (last_seen_at is None or last_absent_at > last_seen_at)`
+is the whole change for step 3, and it needs no new column and no decision.
+
+**THE HALF THAT IS HIS TO RULE.** What "the last crawl" MEANS for `new` and `updated`,
+because this pipeline has no single answer today:
+
+* `crawl_run` is the **price** path only — `source_id` points at a price source, and a
+  generic crawl writes nothing to it. 159 rows, none for a dataset.
+* `dataset_sighting` carries `first_run_ref` and `last_absent_run_ref` and **no
+  `last_run_ref`** — the missing third of three is conspicuous.
+* A partitioned listing crawl is **93 run refs**, not one, and they share only a prefix.
+* And `first_seen_at` is an **approval** time while `generic_page_snapshot.captured_at` is
+  a **fetch** time; the R-51 recovery approved pages fetched two days earlier. Comparing
+  the two would call a two-day-old page "new".
+
+So "seen by the last crawl" is not derivable from what is stored, and inventing a rule
+here would be answering for him — `R-02`'s shape exactly. The options, with their cost:
+
+| | change | what it buys |
+|---|---|---|
+| **A** | `dataset_sighting` gains `last_run_ref`; a crawl stamps it | an exact answer for all three states; one migration |
+| **B** | a generic `dataset_crawl` run table, started and finished | the same, plus a real progress denominator and history |
+| **C** | leave `new`/`updated` blank until A or B | no false state, and two columns that say nothing |
+
+**Recommended: fix step 3 now under this OP — it is the one that reaches the sheet — and
+put A against B against C to him as its own decision.** Splitting it that way means the
+published lie stops today without a schema change being rushed to carry it.
+
 **Why this is not folded into `#267`.** It is not caused by that work, it touches the state
 derivation every dataset row on the Data screen reads, and `R-51`'s own three new columns
 land directly on top of it. Recorded here so it is picked up as its own change with its own
