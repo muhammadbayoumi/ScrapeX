@@ -95,6 +95,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
+| [REQ-43](#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source) | Enrich any company dataset inside ScrapeX, with Muqawil as the first source | **In flight** — built and verified on `feat/organization-enrichment`; merging is the owner's | 2026-08-24 |
 
 ---
 
@@ -2213,3 +2214,43 @@ not before**, per `R-02`.
 verifiers caught it: it dated *text* by each **file's** last commit, which inverts the
 seniority of two documents in one of its headline contradictions. A line's age is not its
 file's age, and this register should not repeat the mistake.
+
+---
+
+## REQ-43 · Enrich any company dataset inside ScrapeX, with Muqawil as the first source
+**Captured 2026-08-24 · In flight on `feat/organization-enrichment`**
+
+> «اريد ان نعمل زر جديد لمصدر مقاول ينشى جدول اضافى فى المعلومات الى انت بتجيبها يعنى
+> تكون الميزة مبنية فى الاداة غير منفصلة»
+>
+> «اريد التصميم الجديد احدد له مصدر يحوى شركات او مقاولين من ثم ينشى جدول جديد به
+> المعلومات الى اتفقنا عليها وبكدا احنا حصلنا على تفاصيل اكتر ممكن تزيد مع الوقت لهذا
+> المقاول او الشركة»
+>
+> «كل رؤوس الاعمدة او المحتوى english لا تكتب عربى الا اذا كانت المعلومة جاءت باللغة
+> العربية»
+
+The owner first described the enrichment fields, then corrected the product boundary:
+this is not a one-off Muqawil script. ScrapeX must let him select an approved company or
+contractor dataset, map its organization identity and optional detail dataset, create a
+new linked dataset, and enrich that organization progressively as more evidence becomes
+available.
+
+Muqawil establishes the first real shape without becoming the architecture:
+`contractors` is the Listing dataset, `contractor_profiles` is the Profile dataset,
+`contractor_id` is their reviewed join, and `contractor_enrichment` is the new derived
+dataset. Listing and Profile remain separate source truth.
+
+The owner approved implementation after first asking for the architecture. The accepted
+boundary is recorded in [ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md): the
+extension owns configuration, execution controls, progress and browsing; the engine owns
+provider calls, evidence, matching, persistence and resumable jobs. Every enriched field
+keeps a provider, source URL, confidence and history. An uncertain match enters review;
+it never becomes a confident value because a search result looked plausible.
+
+**Built on the feature branch:** the engine migration and evidence model, generic
+definition service, Official Website and optional Google Places providers, an explicitly
+unavailable LinkedIn slot, job dispatch and controls, API routes, the dataset-card action,
+the extension workspace, the wide output dataset and focused end-to-end tests. It remains
+In flight until the repository gates complete and the branch is handed to the primary
+session; this secondary session does not merge or publish it.

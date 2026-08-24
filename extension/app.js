@@ -4650,7 +4650,8 @@ function freshnessLine(s) {
 //   RESOLVES_A_DATASET   the route answers 2xx for a dataset key, so the action
 //                        is offered. `/api/table/{key}` asks the dataset
 //                        catalogue BEFORE the manifest — its own comment calls a
-//                        generic dataset "a table like any other table".
+//                        generic dataset "a table like any other table". The
+//                        enrichment route resolves it through the same catalogue.
 //   MANIFEST_ONLY        the route looks the key up in sources.yaml and answers
 //                        404 for anything else. Measured, not assumed.
 //   NO_SECTION           the route answers, and the thing the action promises is
@@ -4676,6 +4677,9 @@ const SOURCE_ACTIONS = [
   {action: "table", label: "Open the data table",
    why: "This source's rows, in a page that ships with the extension.",
    route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET},
+  {action: "enrich", label: "Enrich organizations",
+   why: "Create or update a linked organization enrichment dataset.",
+   route: "GET /api/enrichment/sources/{key}", proof: RESOLVES_A_DATASET},
   // THE ONE ACTION WHOSE ROUTE ANSWERS AND WHOSE PROMISE STILL DOES NOT HOLD:
   // `/source/{key}` renders for a dataset (measured, 200 and 42 KB of grid), and
   // the page carries no changes section for one — `browse_observations` and
@@ -4708,11 +4712,13 @@ const SOURCE_ACTIONS = [
  * that decides what a dataset is.
  *
  * A dataset keeps the actions whose route was MEASURED to resolve a dataset key.
- * That is one of the six today. The previous rule — no menu at all — was right
- * about the other five and wrong about this one, and it stayed wrong because
+ * The table was one of six when this proof system was built. The previous rule
+ * — no menu at all — was right about the other five and wrong about that one,
+ * and it stayed wrong because
  * nothing tested it: `tools/panel_harness.py` carried no dataset-kind source, so
  * `test_dataset_action_opens_the_workspace_directly` could assert that EVERY card
- * has a menu and pass.
+ * has a menu and pass. Organization enrichment is the second catalogue-backed
+ * action; its API proof lives beside the table proof.
  */
 function sourceActions(source) {
   return source.kind === "dataset"
@@ -4756,6 +4762,10 @@ async function runSourceAction(action, key) {
   if (action === "table") {
     return chrome.tabs.create({url: chrome.runtime.getURL(
       "data.html?source=" + encodeURIComponent(key))});
+  }
+  if (action === "enrich") {
+    return chrome.tabs.create({url: chrome.runtime.getURL(
+      "enrichment.html?source=" + encodeURIComponent(key))});
   }
   if (action === "changes") return openTab(`/source/${key}#changes`);
   if (action === "settings") return openTab(`/sources/${key}`);

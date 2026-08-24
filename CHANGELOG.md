@@ -10,22 +10,21 @@ work predates this file, the commit that built it — evidence read out of
 record of what was done; this file answers a narrower question: which version
 has it.
 
-## 0.3.1
+## 0.3.2
 
-Minimum supported extension: `0.2.2`.
+Minimum supported extension: `0.3.2`.
 
-No new capabilities. Fixes and internal change only — an extension and an engine that spoke to each other before this version still do.
-
+- **organization_enrichment** — Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches. _Runs in: panel, engine._
 
 ## 0.2.2
 
-Minimum supported extension: `0.2.2`.
+Minimum supported extension: `0.3.2`.
 
 - **robots_per_source** (adf31b2) — Read what a site's robots.txt asks of a crawler, then decide per source: follow the tool default, obey that site, or write a rule for it alone. _Runs in: panel, engine._
 
 ## 0.2.0
 
-Minimum supported extension: `0.2.2`.
+Minimum supported extension: `0.3.2`.
 
 - **compatibility_notice** (7ca7a75) — Be told, rather than left to find out, when the installed extension is older than the features the engine deploys. _Runs in: panel._
 - **crawl_pace** (c63ec21) — Choose whether each site's requested crawl delay is honoured, and set the minimum seconds between requests and the request timeout. _Runs in: panel, engine._

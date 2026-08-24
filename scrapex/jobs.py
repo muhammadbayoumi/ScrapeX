@@ -46,6 +46,7 @@ from .vocab import (
 
 _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
                    "attributes", "skipped_ignored", "rejected_out_of_scope")
+JOB_KINDS = frozenset({"crawl", "organization_enrichment"})
 
 
 # ---- store -------------------------------------------------------------------
@@ -53,7 +54,8 @@ _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
 def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
                run_mode: RunMode | str = RunMode.UPDATE,
                status: JobStatus | str = JobStatus.QUEUED,
-               checkpoint: dict | None = None) -> str:
+               checkpoint: dict | None = None,
+               job_kind: str = "crawl") -> str:
     """Persist a new job and return its public job_ref.
 
     `checkpoint` seeds the job with a resume point it did not earn by being
@@ -67,13 +69,28 @@ def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
     keys = [str(k) for k in source_keys]
     if not keys:
         raise ValueError("a job needs at least one source_key")
+    if job_kind not in JOB_KINDS:
+        raise ValueError(f"unknown job kind {job_kind!r}")
     job_ref = f"job_{uuid.uuid4().hex[:12]}"
-    conn.execute(
-        "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, progress_total, "
-        "checkpoint_json) VALUES (?,?,?,?,?,?)",
-        (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys),
-         json.dumps(checkpoint) if checkpoint else None),
-    )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(crawl_job)")}
+    if "job_kind" in columns:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, "
+            "progress_total, checkpoint_json, job_kind) VALUES (?,?,?,?,?,?,?)",
+            (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys),
+             json.dumps(checkpoint) if checkpoint else None, job_kind),
+        )
+    else:
+        if job_kind != "crawl":
+            raise ValueError(
+                "organization enrichment needs the current Engine database schema"
+            )
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, "
+            "progress_total, checkpoint_json) VALUES (?,?,?,?,?,?)",
+            (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys),
+             json.dumps(checkpoint) if checkpoint else None),
+        )
     conn.commit()
     return job_ref
 
@@ -315,6 +332,7 @@ def _seed_source_expectations(conn: sqlite3.Connection, job_id: int,
 
 def _as_job(row: sqlite3.Row) -> dict:
     job = dict(row)
+    job.setdefault("job_kind", "crawl")
     job["source_keys"] = json.loads(job["source_keys"] or "[]")
     job["counters"] = json.loads(job["counters_json"] or "{}")
     job["checkpoint"] = json.loads(job["checkpoint_json"] or "{}")
@@ -788,6 +806,8 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     job = get_job(conn, job_ref)
     if job is None:
         raise KeyError(f"unknown job_ref {job_ref!r}")
+    if job.get("job_kind", "crawl") != "crawl":
+        raise ValueError(f"job {job_ref!r} is not a crawl job")
     if job["status"] in {s.value for s in TERMINAL_JOB_STATUSES}:
         return job
 
@@ -1439,13 +1459,21 @@ class JobRunner:
             conn = None
             try:
                 conn = dbmod.connect(str(self._db_path))
-                run_job_once(conn, job_ref, self._manifest_provider(),
-                             capture=self._capture or self._locked_capture,
-                             backup=lambda: backup_database(self._db_path),
-                             # Only the worker knows a real path to reopen, so
-                             # only the worker can offer concurrency.
-                             connect=lambda: dbmod.connect(str(self._db_path)),
-                             admission=admission)
+                job = get_job(conn, job_ref)
+                if job is None:
+                    raise KeyError(f"unknown job_ref {job_ref!r}")
+                if job.get("job_kind", "crawl") == "organization_enrichment":
+                    from .enrichment.service import run_enrichment_job_once
+
+                    run_enrichment_job_once(conn, job_ref)
+                else:
+                    run_job_once(conn, job_ref, self._manifest_provider(),
+                                 capture=self._capture or self._locked_capture,
+                                 backup=lambda: backup_database(self._db_path),
+                                 # Only the worker knows a real path to reopen, so
+                                 # only the worker can offer concurrency.
+                                 connect=lambda: dbmod.connect(str(self._db_path)),
+                                 admission=admission)
             except Exception as exc:
                 traceback.print_exc(file=sys.stderr)
                 self._record_failure(conn, exc)

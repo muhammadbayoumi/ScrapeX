@@ -488,13 +488,12 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.2.2", (
+    assert MINIMUM_EXTENSION_VERSION == "0.3.2", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
-    # MOVED FROM 0.2.0 ON 2026-08-10, deliberately, with the republish this
-    # message demands done in the same change: `robots_per_source` puts a
-    # control on the source editor, so a panel older than 0.2.2 does not have
-    # the screen the engine now expects it to have.
+    # MOVED FROM 0.2.2 ON 2026-08-24, deliberately, with the extension bump in
+    # this change: organization enrichment is initiated and configured from a
+    # new extension workspace, so an older panel cannot execute the capability.
     #
     # The trap this test exists to catch was live for about a minute. Raising
     # the floor to 0.2.2 while extension/manifest.json still said 0.2.1 would
@@ -541,7 +540,7 @@ def test_the_extension_may_be_tagged_for_the_store_on_its_own():
         "talk to, so a build the engine would refuse could be uploaded")
 
 
-def test_a_merely_older_extension_is_not_outdated():
+def test_a_merely_older_extension_is_not_outdated(monkeypatch):
     """`R-07`, AND IT TOOK TWO COLLISIONS TO GET BUILT. The engine's verdict is a GATE —
     "this extension lacks a capability it needs" — and never an ADVERT, because "a newer
     extension exists" is Chrome's answer and the engine knows only its own number.
@@ -555,11 +554,15 @@ def test_a_merely_older_extension_is_not_outdated():
     So: an extension at the minimum, missing nothing, is CURRENT — whatever the engine's
     own number happens to be.
     """
-    from scrapex.version import MINIMUM_EXTENSION_VERSION, VERSION, missing_capabilities
+    from scrapex.version import MINIMUM_EXTENSION_VERSION, missing_capabilities
 
     assert missing_capabilities(MINIMUM_EXTENSION_VERSION) == (), (
         "the premise: this extension lacks nothing")
-    assert is_older(MINIMUM_EXTENSION_VERSION, VERSION), (
+    # This feature release deliberately moves the panel floor and engine head
+    # together. Simulate the next engine-only patch to keep the historical
+    # property under test without pretending 0.3.1 has this workspace.
+    monkeypatch.setattr(version, "VERSION", "0.3.3")
+    assert is_older(MINIMUM_EXTENSION_VERSION, version.VERSION), (
         "and it IS older in number, or this test proves nothing")
 
     assert version_report(MINIMUM_EXTENSION_VERSION)["outdated"] is False

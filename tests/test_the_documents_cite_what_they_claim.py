@@ -129,12 +129,12 @@ PINNED = (
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
-    ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "scrapex/webui/app.py", 1671, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
     ("docs/RULINGS.md", "scrapex/webui/app.py", 1671, '"latest_extension_version": VERSION'),
-    ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
@@ -238,7 +238,7 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4719,
+    ("docs/BACKLOG.md", "extension/app.js", 4725,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 706, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the

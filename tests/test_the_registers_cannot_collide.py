@@ -122,6 +122,8 @@ RESERVED: dict[str, dict[int, str]] = {
     # hole nobody owns, which is the rule the comment above already states.
     "REQ": {
         34: "branch claude/drive-without-a-server",
+        41: "branch docs/two-counts-and-the-gap-between-them",
+        42: "branch docs/two-counts-and-the-gap-between-them",
     },
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a

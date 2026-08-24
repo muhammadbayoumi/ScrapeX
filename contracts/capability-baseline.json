@@ -1,6 +1,6 @@
 {
-  "version": "0.3.1",
-  "minimum_extension_version": "0.2.2",
+  "version": "0.3.2",
+  "minimum_extension_version": "0.3.2",
   "capabilities": {
     "crawl_pace": "0.2.0",
     "robots_per_source": "0.2.2",
@@ -9,6 +9,7 @@
     "source_admin": "0.2.0",
     "version_visibility": "0.2.0",
     "compatibility_notice": "0.2.0",
-    "display_method_and_unit": "0.2.0"
+    "display_method_and_unit": "0.2.0",
+    "organization_enrichment": "0.3.2"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "version": "0.3.1",
+  "version": "0.3.2",
   "schema": [
     "0002_the_price_source_key_is_named_for_what_it_is.sql",
     "0003_a_source_says_how_deep_its_crawl_goes.sql",
@@ -9,7 +9,8 @@
     "0007_a_taxonomy_says_which_site_it_belongs_to.sql",
     "0008_a_page_remembers_how_to_ask_whether_it_changed.sql",
     "0009_a_contractor_points_at_a_taxonomy_instead_of_repeating_it.sql",
-    "0010_a_membership_carries_what_the_site_said_about_it.sql"
+    "0010_a_membership_carries_what_the_site_said_about_it.sql",
+    "0011_an_organization_can_accumulate_verified_facts.sql"
   ],
   "protocol": "1",
   "endpoints": [

@@ -1022,9 +1022,13 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
         "a dataset card carries no actions menu; it has one action that works")
 
     offered = card.locator("[data-split-action]")
-    assert offered.count() == 1
-    assert offered.first.get_attribute("data-split-action") == "table"
-    assert "Open the data table" in (offered.first.text_content() or "")
+    assert offered.count() == 2
+    actions = {
+        item.get_attribute("data-split-action"): item.text_content() or ""
+        for item in offered.all()
+    }
+    assert "Open the data table" in actions["table"]
+    assert "Enrich organizations" in actions["enrich"]
 
     # NOT A MENU OF GREYED-OUT ROWS, which is the other half of his complaint and
     # the failure mode `sourceMenu`'s own comment rejects: "a button that cannot

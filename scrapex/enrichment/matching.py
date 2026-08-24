@@ -1,0 +1,85 @@
+"""Deterministic identity checks shared by enrichment providers."""
+from __future__ import annotations
+
+import math
+import re
+import unicodedata
+from difflib import SequenceMatcher
+from urllib.parse import urlsplit
+
+GENERIC_EMAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "hotmail.com", "outlook.com", "live.com",
+    "yahoo.com", "yahoo.co.uk", "icloud.com", "me.com", "aol.com",
+    "proton.me", "protonmail.com", "mail.com", "gmx.com", "gmx.net",
+})
+
+_NON_WORD = re.compile(r"[^\w\u0600-\u06ff]+", re.UNICODE)
+_PHONE = re.compile(r"\D+")
+_LEGAL_WORDS = {
+    "company", "co", "corp", "corporation", "limited", "ltd", "llc",
+    "establishment", "contracting", "contractors", "trading",
+    "شركة", "مؤسسة", "للمقاولات", "مقاولات", "المحدودة",
+}
+
+
+def normalized_name(value: str) -> str:
+    folded = unicodedata.normalize("NFKC", value or "").casefold()
+    words = [word for word in _NON_WORD.sub(" ", folded).split()
+             if word not in _LEGAL_WORDS]
+    return " ".join(words)
+
+
+def name_similarity(left: str, right: str) -> float:
+    a, b = normalized_name(left), normalized_name(right)
+    if not a or not b:
+        return 0.0
+    containment = (
+        min(len(a), len(b)) / max(len(a), len(b)) if a in b or b in a else 0.0
+    )
+    a_words, b_words = set(a.split()), set(b.split())
+    union = a_words | b_words
+    jaccard = len(a_words & b_words) / len(union) if union else 0.0
+    sequence = SequenceMatcher(None, a, b).ratio()
+    return round(max(containment, jaccard, sequence), 4)
+
+
+def normalized_phone(value: str) -> str:
+    digits = _PHONE.sub("", value or "")
+    return digits[-9:] if len(digits) >= 9 else digits
+
+
+def host_of(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+    host = (parsed.hostname or "").casefold().strip(".")
+    return host.removeprefix("www.")
+
+
+def email_domain(value: str) -> str:
+    raw = (value or "").strip().casefold()
+    if raw.count("@") != 1:
+        return ""
+    domain = host_of(raw.rsplit("@", 1)[1])
+    return "" if domain in GENERIC_EMAIL_DOMAINS else domain
+
+
+def haversine_metres(
+    latitude: float, longitude: float, other_latitude: float, other_longitude: float
+) -> float:
+    radius = 6_371_000.0
+    lat1, lat2 = math.radians(latitude), math.radians(other_latitude)
+    dlat = lat2 - lat1
+    dlon = math.radians(other_longitude - longitude)
+    part = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * \
+        math.sin(dlon / 2) ** 2
+    return radius * 2 * math.atan2(math.sqrt(part), math.sqrt(1 - part))
+
+
+def status_for_score(score: float) -> str:
+    if score >= 0.88:
+        return "verified"
+    if score >= 0.72:
+        return "probable"
+    return "manual_review"

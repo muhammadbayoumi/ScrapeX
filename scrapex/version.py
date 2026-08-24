@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 
 
 class Surface(StrEnum):
@@ -215,6 +215,17 @@ CAPABILITIES: tuple[Capability, ...] = (
         panel_control="",
         settings=(),
         commit="55ae064",
+    ),
+    Capability(
+        key="organization_enrichment",
+        since="0.3.2",
+        summary="Turn any approved company or contractor dataset into a linked, "
+                "progressively verified organization dataset with field-level evidence "
+                "and manual review for uncertain matches.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="enrichment.html",
+        settings=(),
+        commit="",
     ),
 )
 

@@ -291,7 +291,7 @@ treat them as facts.
 - The docstring's stated root cause — *"the loop hands its whole pass to
   `run_job_once`"* — **is stale**. Jobs run on their own threads
   (`jobs.py:1450`) and `touch_runtime_heartbeat` fires every poll
-  (`jobs.py:1334`): 6 distinct heartbeats in 12 s.
+  (`jobs.py:1362`): 6 distinct heartbeats in 12 s.
 - The real cause: when a job **holds an open write transaction** — which a long
   ingest does — `touch_runtime_heartbeat` raises
   `sqlite3.OperationalError: database is locked` from `jobs.py:1035` and the
@@ -1785,7 +1785,7 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4719](../extension/app.js#L4719)) — and the engine stamps the
+([extension/app.js:4725](../extension/app.js#L4725)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or

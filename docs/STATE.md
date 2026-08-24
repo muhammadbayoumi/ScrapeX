@@ -66,6 +66,22 @@ This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
 
+### Organization enrichment is implemented on its feature branch
+
+`REQ-43` is in flight on `feat/organization-enrichment`. The feature is generic: an
+approved organization dataset plus an optional related detail dataset creates a third,
+linked enrichment dataset. Muqawil is the first configured source
+(`contractors` + `contractor_profiles` → `contractor_enrichment`), not a special pipeline.
+
+The engine now has field-level evidence and history, cautious Website and optional Google
+Places providers, a resumable `organization_enrichment` job kind, and namespaced API
+routes. The extension has **Enrich organizations** on dataset cards and a full-page
+workspace for mapping, provider selection, creation, progress, pause/resume/cancel, data
+browsing and the manual-review queue. LinkedIn remains unavailable until a verified
+provider exists. See [ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md) for the
+contract and [REQ-43](REQUESTS.md#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source)
+for the owner's request.
+
 **AND THE OPENING LINE ABOVE IS NOW ITSELF A CASE STUDY, filed as instance 3 in
 [LESSONS §14](LESSONS.md).** It read `31c369e` while `main` was `d10e974`, and
 `4522158` landed while that was being written. The line is not being rewritten to
@@ -1287,7 +1303,7 @@ written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
-[scrapex/version.py:483](../scrapex/version.py) and
+[scrapex/version.py:494](../scrapex/version.py) and
 [scrapex/webui/app.py:1671](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 

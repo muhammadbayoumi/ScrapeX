@@ -5,6 +5,19 @@ Opened **2026-08-16** on the owner's instruction: «اريد اضافة مصدر
 contractor source (a completely separate table, a table that will be for this source only),
 a table completely separate from the product tables.*
 
+## The enrichment dataset is derived, not a third crawl stage
+
+The owner added a later requirement on 2026-08-24: ScrapeX can now take an approved
+company or contractor dataset and build a linked enrichment dataset from external
+evidence. For this source, `contractors` remains the Listing result and
+`contractor_profiles` remains the Profile result; the derived output defaults to
+`contractor_enrichment` and joins through `contractor_id`.
+
+This distinction is permanent. Website, Google Places and future provider values do not
+rewrite what Muqawil published. Their field-level evidence and history live under the
+generic organization enrichment model described in
+[ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md).
+
 **Nothing here is declared or crawled.** SR-13 stands: nothing is collected that is not in
 `sources.yaml`, and this is not in `sources.yaml`. This file exists so the specification the
 owner wrote by hand does not live only in a chat transcript — he works from two machines,
