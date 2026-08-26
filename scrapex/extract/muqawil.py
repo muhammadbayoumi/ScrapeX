@@ -29,13 +29,36 @@ TWO FAILURES HERE ARE SILENT, AND BOTH HAVE A GUARD OF THEIR OWN.
      iframe: `lat:` and `lng:` inside a `<script>`. The day that script changes
      there is no error to catch — only two columns that quietly become NULL.
 
-WHY THE ENGLISH LABEL IS THE KEY, AND THE ARABIC ONE IS NEVER READ. Measured on
-the two committed fixtures: a profile has ELEVEN `.info-box` pairs in BOTH
-locales, in the same order, index for index. So the English page is read by its
-labels — which are stable — and the Arabic value is taken from the SAME INDEX.
-The Arabic labels are never matched against anything, which is the point: the
-Arabic membership-number label is spelled `رقم العضويه`, with `ه` and not `ة`,
-and a parser keyed on it breaks on a difference no reader would ever notice.
+WHY THE ENGLISH LABEL IS THE KEY, AND THE ARABIC ONE IS NEVER READ. A profile
+publishes AT MOST eleven `.info-box` pairs, in one fixed order, in both locales.
+So the English page is read by its labels — which are stable — and the Arabic
+value is taken from the matching position. The Arabic labels are never matched
+against anything, which is the point: the Arabic membership-number label is
+spelled `رقم العضويه`, with `ه` and not `ة`, and a parser keyed on it breaks on a
+difference no reader would ever notice.
+
+AND `AT MOST` IS THE WORD THAT COST 129 CONTRACTORS. This paragraph read "ELEVEN
+pairs in BOTH locales, index for index", measured on the two committed fixtures --
+and the corpus does not look like the fixtures. All 17,452 stored id pairs, by
+(English, Arabic) box count:
+
+    (9, 9)   15,380      (9, 10)     97      not a profile at all    73
+    (10, 10)  1,511      (10, 11)    24      -- 59 dead ids (OP-64)
+    (11, 11)    359      (10, 9)      7      -- plus 14 retired impostors
+                         (11, 10)     1
+    agree    17,250      differ     129      total                17,452
+
+Two things that census says and the sentence it replaced did not. **The counts
+disagree on 129 pairs**, because the two locales do not always omit the SAME box: on
+121 the Arabic page prints a `عنوان` box the English page does not. And the earlier
+figures 15,380 / 1,511 / 359 were the AGREEING column alone -- they sum to 17,250,
+not 17,452, so quoting them as "of 17,452 pairs, N publish nine boxes" left 202
+unaccounted for. Nor is "nine boxes" a property of a pair: per locale it is 15,477
+English pages and 15,387 Arabic.
+
+So the matching position is NOT always the same index. `align_locales` works out
+what it is and `R-51` is the ruling. The Arabic label is still never read -- the gap
+is located from the English side, which is what makes that possible.
 """
 from __future__ import annotations
 
@@ -43,6 +66,7 @@ import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from bs4 import BeautifulSoup, Tag
 
@@ -196,6 +220,51 @@ _LATLNG = re.compile(
 _PROFILE_HREF = re.compile(r"/(?:en|ar)/contractors/(\d+)/\d+")
 
 
+#: HOW MANY CONTRACTORS ONE PAGE IS ABOUT. A profile page links to exactly ONE
+#: contractor — itself; the contractors listing links to a page-full of them.
+#: Measured through `soup.select`, which is the path the parser actually takes:
+#:
+#:     800 real profile pages (400 EN + 400 AR)   distinct links: min 1, max 1
+#:     400 listing pages                          distinct links: min 3, max 20
+#:
+#: THIS REPLACED A CARD COUNT, and the replacement is the whole lesson. The first
+#: version thresholded `div.section-card` at 15, justified by "7-9 on a profile,
+#: 22 on the listing, nothing between". Both halves were wrong. An adversarial
+#: review found 160 real listing pages carrying FEWER than 15 cards — the last
+#: page of every filtered slice — so the gap it relied on did not exist on the
+#: side it was guarding against. And the 7-9 census had been taken with a REGEX
+#: while the parser uses BeautifulSoup, which does not see the `section-card`
+#: inside a `<script>` template: through `select` a real profile has SIX. The
+#: number was measured with the wrong instrument and defended with a gap that was
+#: not there. One contractor versus many needs no threshold at all.
+ONE_CONTRACTOR = 1
+
+
+class PageIsNotAProfile(ValueError):
+    """The site answered a profile request with a different document.
+
+    WHY THIS IS AN EXCEPTION AND NOT A NULL. muqawil answers an id that no longer
+    resolves with **the contractors listing**, at HTTP 200 and ~373 KB where a
+    profile averages 118 KB. `read_profile` then matches THREE of the eleven
+    `PROFILE_FIELDS` labels that a listing card happens to share — Membership
+    Number, Company Size, Training credit hours — and `fields[key] = value` is
+    LAST-WINS over all of the page's `div.info-box` pairs, so the values come
+    from the LAST card on that listing, not the first.
+
+    THE DAMAGE, COUNTED RATHER THAN SAMPLED. 39 contractor ids were served the
+    listing across 78 snapshots (both locales for each). 14 produced a row; 25
+    produced none. Each of the 14 carries FIVE declared columns belonging to a
+    stranger — `membership_number`, `company_size`, `company_size_ar`,
+    `training_credit_hours`, `training_credit_hours_ar` — plus TWELVE undeclared
+    `x_*` fields, which with `contractor_id` is the 18 below. `address`, `organization_email` and the coordinates ARE null.
+    Twelve of the fourteen took the same stranger's card. The rows looked
+    ordinary: 18.0 populated fields against 18.2 on a healthy one.
+
+    A missing field is a fact about a contractor. A missing DOCUMENT is not, and
+    the two must not arrive at the warehouse looking alike. `OP-64`.
+    """
+
+
 class CoordinatesMoved(LookupError):
     """The inline script no longer carries `lat:`/`lng:` where it did.
 
@@ -270,7 +339,8 @@ def _slug(label: str) -> str:
     produced the SAME key — measured 2026-08-21 on a real profile: **ten Arabic labels
     collapsed into two keys**, losing eight of them to a silent dict collision.
 
-    Nothing consumes that today, because `merge_locales` pairs the two readings BY INDEX
+    Nothing consumes that today, because `merge_locales` pairs the two readings by
+    POSITION, which `align_locales` computes and which is not always the same index
     and never reads an Arabic label — its docstring says so and that is why the merge is
     correct. But a public attribute that silently drops eight of ten entries is a loaded
     gun for the next caller, and this repository has already paid for exactly this once:
@@ -1050,14 +1120,53 @@ def read_licensed_activities(html: str) -> tuple[LicensedActivity, ...]:
     return tuple(found)
 
 
-def read_profile(html: str) -> Reading:
+def read_profile(html: str, *, contractor_id: str | None = None) -> Reading:
     """One profile page, in whichever language it was fetched.
 
     The labels are returned alongside the mapped fields so the Arabic page can
     be paired to the English one BY INDEX — which is the only pairing that does
     not depend on reading an Arabic label correctly.
+
+    `contractor_id` IS OPTIONAL AND SHOULD ALWAYS BE GIVEN. Without it the page
+    is only checked for being about ONE contractor; with it, for being about the
+    RIGHT one. Every production caller knows the id — the crawl built the URL
+    from it — so the weaker check exists for tests and ad-hoc reads, not for the
+    pipeline. See `PageIsNotAProfile`.
     """
     soup = BeautifulSoup(html, "html.parser")
+
+    # WHO IS THIS PAGE ABOUT, BEFORE WHAT IT SAYS. See `PageIsNotAProfile`:
+    # reading the fields of the wrong document produces a ROW rather than an
+    # error, and a row is what reaches the warehouse.
+    #
+    # WHEN THE CALLER KNOWS THE ID THIS IS EXACT. The crawl reaches a profile by
+    # building `/{lang}/contractors/{id}/143`, so the id is always known on the
+    # production path — and a page that links to a contractor OTHER than the one
+    # asked for is not that contractor's page, whatever its shape. That closes
+    # the case a count cannot: a filtered listing whose last page holds one card.
+    linked = {found.group(1) for anchor in soup.find_all("a", href=_PROFILE_HREF)
+              for found in [_PROFILE_HREF.search(anchor["href"])] if found}
+    strangers = linked - {str(contractor_id)} if contractor_id else set()
+    if contractor_id and strangers:
+        raise PageIsNotAProfile(
+            f"this page links to {len(strangers)} contractor(s) other than "
+            f"{contractor_id} — it is the contractors listing, which is what the "
+            f"site answers with when an id no longer resolves, at HTTP 200")
+    # AND A PAGE ABOUT NOBODY IS NOT A PROFILE EITHER. `strangers` is empty when
+    # `linked` is empty, so the check above passes a login wall, an interstitial or
+    # a truncated body straight through to `_boxes`. Every one of 150 real profile
+    # snapshots links to itself; zero links is not a shape the site produces.
+    if contractor_id and not linked:
+        raise PageIsNotAProfile(
+            f"this page links to no contractor at all, and every real profile links "
+            f"to itself — it is not contractor {contractor_id}'s page, and may not "
+            f"be a profile page at all")
+    if not contractor_id and len(linked) > ONE_CONTRACTOR:
+        raise PageIsNotAProfile(
+            f"this page is about {len(linked)} contractors, and a profile is about "
+            f"one — it is the contractors listing, which is what the site answers "
+            f"with when an id no longer resolves, at HTTP 200")
+
     pairs = _boxes(soup)
 
     fields: dict[str, str] = {}
@@ -1481,34 +1590,158 @@ def check_drift(paged_rows: Iterable[tuple[int, dict[str, str]]], *,
                   if len(where) > 1})
 
 
+#: The eleven labels above, as a list, because their ORDER is the fact the
+#: alignment below rests on: `PROFILE_FIELDS` is written in the order the page
+#: prints its boxes, so a label's position in it is that box's canonical position.
+#: Derived, never a second hand-written tuple — a copy would drift.
+_CANONICAL_LABELS = list(PROFILE_FIELDS)
+
+
+class _Alignment(NamedTuple):
+    """How one page's boxes line up with its sibling's.
+
+    `arabic_of` maps an ENGLISH index to the Arabic index holding the same field.
+    `extra_label` is the canonical label of the one Arabic box English does not
+    publish, or None when which box it is cannot be told apart.
+    """
+
+    arabic_of: dict[int, int]
+    extra_label: str | None
+
+
+def align_locales(english: Reading, arabic: Reading) -> _Alignment | None:
+    """Line up two readings of one contractor, or return None if they cannot be.
+
+    WHY THIS EXISTS. `merge_locales` refused any pair whose box counts differed,
+    which was right and cost 129 contractors — measured 2026-08-24 over the whole
+    stored corpus, every one of them with both pages on disk. The site publishes
+    the SAME eleven boxes in the SAME order in both languages, but a page may omit
+    one, and the two languages do not always omit the same one: on 121 of the 129
+    the Arabic page carries a `عنوان` box the English page does not print at all.
+
+    WHY IT STILL READS NO ARABIC LABEL, which is the property the old docstring was
+    built on and which is worth more than the 129. `PROFILE_FIELDS` is ordered, so
+    an English label's position in it IS its box's canonical position. If English
+    omits a box, WHICH canonical position it omitted is therefore known — and the
+    Arabic list can be indexed around that gap without ever asking what the Arabic
+    box is called. That matters concretely: the site spells `المنطقه` with `ه`
+    where `ة` belongs, so a hand-written Arabic vocabulary would have to carry the
+    site's own typo and would break the day they fix it.
+
+    THE THREE ANSWERS.
+      * equal counts -> the identity map, which is exactly what the code did before.
+      * Arabic one longer -> the map, shifted by one after the missing position,
+        PROVIDED the shift is the same whichever absent position the extra box
+        occupies. Measured: unambiguous on all 121, ambiguous on none.
+      * anything else -> None. In particular ARABIC BEING THE SHORTER SIDE cannot
+        be aligned: which field Arabic dropped is exactly what reading no Arabic
+        label leaves unknowable. Eight pages, refused, and counted rather than
+        guessed.
+    """
+    if len(english.labels) == len(arabic.labels):
+        return _Alignment({index: index for index in range(len(english.labels))}, None)
+    if len(arabic.labels) != len(english.labels) + 1:
+        return None
+
+    # A LABEL THE MAP DOES NOT KNOW HAS NO CANONICAL POSITION, so the gap cannot be
+    # located and the pair is refused rather than aligned on a guess. `read_profile`
+    # keeps such a label under a slug of its own, which is the right thing for a
+    # single page and not enough to align two.
+    try:
+        seen = [_CANONICAL_LABELS.index(label) for label in english.labels]
+    except ValueError:
+        return None
+    if seen != sorted(seen) or len(set(seen)) != len(seen):
+        # OUT OF ORDER OR REPEATED means the premise — one canonical order, printed
+        # the same way in both languages — does not hold for this page, and every
+        # inference below rests on it.
+        return None
+
+    absent = [position for position in range(len(_CANONICAL_LABELS))
+              if position not in seen]
+    if not absent:
+        return None
+    # THE EXTRA BOX IS ONE OF THE ABSENT POSITIONS AND WE NEED NOT KNOW WHICH,
+    # so long as every English label agrees about whether it sits before or after
+    # it. When English omits Address AND Activity and Arabic has one of them, both
+    # candidates are past every English position, so the shift is zero either way.
+    # When they straddle an English label the answer would differ, and that is the
+    # one case this refuses.
+    first, last = min(absent), max(absent)
+    if any((first < position) != (last < position) for position in seen):
+        return None
+
+    arabic_of = {index: index + (1 if first < position else 0)
+                 for index, position in enumerate(seen)}
+    # THE EXTRA'S OWN FIELD IS NAMEABLE ONLY WHEN ENGLISH OMITS EXACTLY ONE BOX.
+    # With two absent positions the extra is one of them and nothing here can say
+    # which, so its value is dropped rather than filed under a guess — measured, that
+    # is 97 pages whose row is otherwise complete, against 24 that gain their address.
+    extra = _CANONICAL_LABELS[absent[0]] if len(absent) == 1 else None
+    return _Alignment(arabic_of, extra)
+
+
 def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
     """One contractor from its two pages, with the `_ar` half attached.
 
-    PAIRED BY INDEX, NEVER BY LABEL. Both locales publish the same eleven boxes
+    PAIRED BY POSITION, NEVER BY LABEL. Both locales publish the same eleven boxes
     in the same order, so the English label names the field and the Arabic page
-    supplies the value sitting at the same position. Nothing here ever reads an
-    Arabic label, which is exactly why a spelling difference in one cannot break
-    it.
+    supplies the value sitting at the matching position. Nothing here ever reads an
+    Arabic label, which is exactly why a spelling difference in one cannot break it
+    — and the site spells `المنطقه` with `ه` where `ة` belongs, so that is not a
+    hypothetical.
 
-    A page whose box count differs from its sibling's is REFUSED rather than
-    zipped to the shorter of the two: zipping would silently attach the wrong
-    Arabic value to every field after the divergence, and a wrong value is worse
-    than a missing one in a table whose whole purpose is to be believed.
+    THE MATCHING POSITION IS NOT ALWAYS THE SAME INDEX, and it took 129 contractors
+    to find out. `align_locales` above works it out; this function only ever asks.
+
+    A pair that cannot be aligned is still REFUSED rather than zipped to the shorter
+    of the two. That is not caution, it is measured: on 24 of the 129 the Arabic
+    page's extra box sits BETWEEN `Region` and `Activity`, so zipping would have
+    written an Arabic address into `activity_ar`.
     """
-    if len(english.labels) != len(arabic.labels):
+    lined_up = align_locales(english, arabic)
+    if lined_up is None:
         raise ValueError(
             f"the English page published {len(english.labels)} fields and the "
-            f"Arabic one {len(arabic.labels)}; pairing them by position would "
-            "attach the wrong Arabic value to every field after the difference")
+            f"Arabic one {len(arabic.labels)}, and the two cannot be lined up: "
+            "pairing them by position would attach the wrong Arabic value to every "
+            "field after the difference")
 
     merged = dict(english.fields)
     for index, label in enumerate(english.labels):
         key = PROFILE_FIELDS.get(label) or f"x_{_slug(label)}"
         if key in NOT_BILINGUAL:
             continue
-        arabic_value = arabic.values[index]
+        arabic_value = arabic.values[lined_up.arabic_of[index]]
         if arabic_value and arabic_value != merged.get(key):
             merged[f"{key}_ar"] = arabic_value
+
+    # THE BOX ENGLISH DOES NOT PRINT AT ALL. Measured on 24 pages, it is the
+    # address — a field `CONTRACTOR-SOURCE.md` already records as Arabic-only, so
+    # the Arabic page is not a second-best source for it, it is the ONLY one. Filed
+    # under the field's own key when that field is single-valued, and under `_ar`
+    # when it is not, because a bilingual column whose English half was never
+    # published must not pretend the Arabic value is both.
+    if lined_up.extra_label is not None:
+        key = PROFILE_FIELDS[lined_up.extra_label]
+        taken = {lined_up.arabic_of[index] for index in range(len(english.labels))}
+        spare = [index for index in range(len(arabic.labels)) if index not in taken]
+        # `organization_email` IS NEVER THE BOX'S TEXT, and taking it from there would
+        # reintroduce failure #1 of this module's own docstring. Cloudflare obfuscates
+        # it, so the box reads the literal `[email protected]` on every page in both
+        # locales; the real address comes from `data-cfemail` via `read_email`, which
+        # `read_profile` has already put in `fields` for whichever page it read. An
+        # adversarial review reproduced this on contractor 3574 by omitting one English
+        # box the way the site omits `Address` on 24 real pages: the branch wrote
+        # `[email protected]` over an address it had decoded correctly.
+        #
+        # UNREACHABLE ON TODAY'S CORPUS — all 24 single-omission cases are `Address` —
+        # and fixed anyway, because "no page does this yet" is a fact about the site
+        # and not a property of the code.
+        value = (arabic.fields.get(key) if key == "organization_email"
+                 else arabic.values[spare[0]] if spare else "")
+        if len(spare) == 1 and value:
+            merged[key if key in NOT_BILINGUAL else f"{key}_ar"] = value
 
     # DERIVED, never read twice. `Is Saudi Contractor` is the same fact as
     # `Membership Type` and the owner asked for both; computing it here means
@@ -1632,7 +1865,10 @@ def bilingual_profile_candidate(english: str, arabic: str, *,
     columns — but the locator says `div.info-box` rather than `div.section-card`
     because that is where a person would go to look.
     """
-    merged = merge_locales(read_profile(english), read_profile(arabic))
+    # THE ID GOES DOWN WITH THE HTML. `read_profile` can only refuse the wrong
+    # document if it knows which one was asked for — see `PageIsNotAProfile`.
+    merged = merge_locales(read_profile(english, contractor_id=contractor_id),
+                           read_profile(arabic, contractor_id=contractor_id))
     merged["contractor_id"] = str(contractor_id)
     return _candidate_from(
         [merged], table_index=table_index, declared=PROFILE_FIELD_ORDER,

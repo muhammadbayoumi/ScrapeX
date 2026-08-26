@@ -561,6 +561,7 @@ from the id, not fetched. Types are `field_definition.data_type`.
 | `profile_url` / `profile_url_ar` | url | u | `/{lang}/contractors/{id}/143` |
 | `contract_request_url` / `_ar` | url | u | |
 | `map_location_url` | url | pr | |
+| `membership_number` | text | pr | **NOT unique on the profile page.** The listing's `card_membership_number` is: 17,304 rows, 17,304 distinct, none blank. The profile field has 3 repeated values across 17,264 rows — 13 ids share `117511752` and two pairs share one number each, 14 excess rows in all — and 14 contractors disagree with their own listing card. **Measured 2026-08-24**; the figure first written here was `13,347 rows`, taken while the profile crawl was still running, and it did not say so. The three-values finding survived the crawl unchanged, which is why the count moving is worth stamping rather than the finding — traced to the site answering a dead id with the LISTING page (`OP-64`), not to data entry |
 | `latitude` · `longitude` | decimal | **js** | inline script only |
 | `membership_level` / `_ar` | text | pr | e.g. `Platinum Membership` |
 | `account_status` / `_ar` | text | sc | e.g. `Account Verified` |

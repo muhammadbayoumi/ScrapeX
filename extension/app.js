@@ -4466,11 +4466,30 @@ async function loadDatasets() {
       // land on the icon, the summary or the option inside it.
       card.addEventListener("click", (event) => {
         if (event.target.closest(".split-button")) return;
+        // THE COVERAGE BUTTON OPENS ITS OWN DATASET, not the card's. Without this
+        // the click bubbles and the fold's second table stays unreachable by the
+        // one control that names it.
+        const covered = event.target.closest("[data-open-dataset]");
+        if (covered) {
+          event.stopPropagation();
+          openDataset(covered.dataset.openDataset);
+          return;
+        }
         openDataset(card.dataset.open);
       });
       card.addEventListener("keydown", (event) => {
         if (!["Enter", " "].includes(event.key)) return;
         if (event.target.closest(".split-button")) return;
+        // THE SAME BRANCH THE CLICK PATH GOT, and it was missing here — so a
+        // keyboard user tabbing to the coverage button and pressing Enter had it
+        // suppressed and opened the PARENT dataset instead. The second table was
+        // still unreachable for exactly the person the change was written for.
+        const covered = event.target.closest("[data-open-dataset]");
+        if (covered) {
+          event.preventDefault();
+          openDataset(covered.dataset.openDataset);
+          return;
+        }
         event.preventDefault();
         openDataset(card.dataset.open);
       });
@@ -4588,9 +4607,26 @@ async function browseFromDrive(box) {
  * missing, which is what `R-47` ruled it should carry.
  */
 function countLine(s) {
-  const covered = (s.coverage || []).map((c) =>
-    `${esc(c.label)}: ${fmtCount(c.stored)} of ${fmtCount(c.population)}` +
-    `${coverageShare(c)}`).join(" · ");
+  // EACH COVERED DATASET IS A WAY IN, not a sentence about one.
+  //
+  // `R-47` folded muqawil's two datasets into one card, which was right — he asked
+  // for one source, once. But the fold left the SECOND table with no route: the
+  // card's only "Open the data table" carries the folded key, so `/source/
+  // contractor_profiles` answered 200 and nothing in the panel went there. He
+  // found it by looking for it and not finding it: «لا اعرف كيف اصل اليها عن طريق
+  // الواجهة».
+  //
+  // A BUTTON AND NOT AN ANCHOR, because the card itself is a link: an `<a>` inside
+  // it would be a nested link, and the card's own click handler already has to
+  // guard against the menu swallowing it. The same guard covers this.
+  // A COVERAGE ENTRY WITH NO KEY IS NOT A DOOR. The engine always sends one
+  // today, so this only fires against an older engine or a stale bundle — and a
+  // button whose click resolves to `/source/` is the "button that cannot work"
+  // this whole card was cleaned of.
+  const covered = (s.coverage || []).filter((c) => c && c.dataset_key).map((c) =>
+    `<button type="button" class="coverage-open" data-open-dataset="${esc(c.dataset_key)}"` +
+    ` title="Open ${esc(c.label)}">${esc(c.label)}: ${fmtCount(c.stored)} of ` +
+    `${fmtCount(c.population)}${coverageShare(c)}</button>`).join(" · ");
   if (covered) return covered;
   if (s.kind === "dataset") return `${fmtCount(s.observations)} rows`;
   return `${fmtCount(s.products)} products`;
@@ -4715,9 +4751,32 @@ const SOURCE_ACTIONS = [
  * has a menu and pass.
  */
 function sourceActions(source) {
-  return source.kind === "dataset"
+  const base = source.kind === "dataset"
     ? SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)
     : SOURCE_ACTIONS;
+  // ONE ROW PER TABLE THE CARD STANDS FOR, and the fold is why this exists.
+  //
+  // `R-47` collapsed muqawil's two datasets into one card. The menu kept ONE
+  // "Open the data table", carrying the folded key — so the second table had no
+  // route from the panel at all, though `/source/contractor_profiles` answered
+  // 200 the whole time. He looked for it and could not find it: «لا اعرف كيف اصل
+  // اليها عن طريق الواجهة».
+  //
+  // BUILT FROM `coverage`, NOT FROM A LIST HERE. The engine already declares which
+  // datasets the card stands for — a hand-written second entry would rot the first
+  // time a source publishes a third table, which is the rot the comment above this
+  // block describes happening to `if (source.kind === "dataset") return ""`.
+  //
+  // The proof is the same one the base entry carries: these keys reach the same
+  // route, `/api/table/{key}`, which resolves a dataset before it asks the
+  // manifest.
+  const covered = (source.coverage || []).filter((c) => c && c.dataset_key).map((c) => ({
+    action: `table:${c.dataset_key}`,
+    label: `Open ${c.label}`,
+    why: `The ${fmtCount(c.stored)} rows of ${c.label}, in the same page.`,
+    route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET,
+  }));
+  return [...base, ...covered];
 }
 
 function sourceMenu(source) {
@@ -4733,7 +4792,7 @@ function sourceMenu(source) {
   if (!actions.some((item) => item.ready !== false)) return "";
   const options = actions.map((item) => `
     <button class="split-button-option" role="menuitem" type="button"
-            data-split-action="${item.action}"${item.ready === false ? " disabled" : ""}
+            data-split-action="${esc(item.action)}"${item.ready === false ? " disabled" : ""}
             title="${esc(item.why)}">${esc(item.label)}${
       item.ready === false ? ' <span class="muted">· not built yet</span>' : ""
     }</button>`).join("");
@@ -4756,6 +4815,13 @@ async function runSourceAction(action, key) {
   if (action === "table") {
     return chrome.tabs.create({url: chrome.runtime.getURL(
       "data.html?source=" + encodeURIComponent(key))});
+  }
+  // `table:<dataset_key>` — the same page, a table the CARD does not carry the key
+  // for. See `sourceActions`: a folded card stands for more than one dataset and
+  // the key has to travel with the action rather than with the card.
+  if (action.startsWith("table:")) {
+    return chrome.tabs.create({url: chrome.runtime.getURL(
+      "data.html?source=" + encodeURIComponent(action.slice("table:".length)))});
   }
   if (action === "changes") return openTab(`/source/${key}#changes`);
   if (action === "settings") return openTab(`/sources/${key}`);

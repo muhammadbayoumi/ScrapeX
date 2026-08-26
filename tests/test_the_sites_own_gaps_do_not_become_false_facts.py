@@ -7,7 +7,7 @@ retired three suspicions and produced these two instead:
 | suspected | measured |
 |---|---|
 | `activity` stores the string `"None"` | it is `None`, the value. The field is genuinely absent on 669 of 712. **Not a defect** |
-| `merge_locales` wrongly refuses 8 pairs | the two locales really do publish 9 labels against 10. The refusal is correct and its reasoning is written. **Not a defect** |
+| `merge_locales` wrongly refuses 8 pairs | the two locales really do publish 9 labels against 10, and the refusal was correct **as written**. **SUPERSEDED 2026-08-24 by `R-51`**: 121 pairs of exactly that shape are now ALIGNED, because the gap can be located from the English side. The 8 that stay refused are the other direction — Arabic the SHORTER side, 7 at (10, 9) and one at (11, 10) — where which box *Arabic* dropped is unknowable without reading an Arabic label. So this row was right about the pages and wrong about the verdict |
 | `longitude = 0` is a parse failure | the page itself says `var latlang = { lat: 24.4493518, lng: 0 }`. The parser is right. **The defect is storing it** |
 
 AND THE MEASUREMENT FOUND ONE NOBODY HAD SUSPECTED: `read_profile` on an Arabic page
@@ -152,9 +152,18 @@ def test_an_absent_field_is_none_and_not_the_string_none():
 
 
 def test_a_differing_label_count_is_still_refused():
-    """SUSPECTED AND RETIRED. Eight of 712 pairs publish 9 labels against 10, and
-    refusing them is correct: pairing by index across a divergence attaches the wrong
-    Arabic value to every field after it. 704 of 712 — 98.9% — pair cleanly."""
+    """WHAT THIS ACTUALLY BUILDS IS ENGLISH LONGER, and since `R-51` that is the only
+    direction still refused — which makes the test right and its old reasoning wrong.
+
+    It truncates the ARABIC reading, so the pair is 11-EN against 10-AR. `R-51` aligns
+    the opposite shape (Arabic longer) by locating the gap among the English labels;
+    it cannot do the same here, because which box ARABIC dropped is exactly what
+    reading no Arabic label leaves unknowable. Measured on the corpus: 7 pairs at
+    (10, 9) and one at (11, 10), all refused, all counted.
+
+    The docstring this replaced said "eight of 712 pairs publish 9 labels against 10,
+    and refusing them is correct". The pages were real; the verdict was superseded —
+    121 pairs of that shape now align. `LESSONS` §7 is that class of drift."""
     english = read_profile(_html("en"))
     shorter = read_profile(_html("ar"))
     object.__setattr__(shorter, "labels", tuple(shorter.labels[:-1]))

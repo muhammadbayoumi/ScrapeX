@@ -408,6 +408,82 @@ only when handed a falsy token. Either mutation alone is caught.
 It is recorded rather than papered over. Contorting a test to kill an equivalent
 mutant would be the lie.
 
+### Store where a response CAME FROM, not only where it was asked for
+
+**2026-08-23.** muqawil redirects a withdrawn profile id to the contractors listing and
+answers 200 — and switches the locale on the way, `en` asked and `ar` returned.
+`generic_page_snapshot` has a `source_url` column holding the URL the crawler
+*requested*, and none for the URL the response actually came from. `httpx` follows
+redirects silently. So the wrong page is filed under the right address and everything
+downstream believes it.
+
+**The guard written first read the CONTENT** — does this page link to contractors other
+than the one asked for. That works, and it is the symptom. The cause is one comparison at
+the fetch seam, before any parsing, and it catches every source that answers a gone
+resource with an index page rather than a 404. Recorded as `OP-65`.
+
+**The general shape: a guard at the symptom must be written once per parser; a guard at
+the cause is written once.** Ours was in the parser because that is where the damage
+surfaced, which is the natural place to look and the wrong place to fix.
+
+### A 200 can be the wrong document, and a parser that only reads fields cannot tell
+
+**2026-08-23.** muqawil answers a dead profile id with **the contractors listing**, at
+HTTP 200 and ~373 KB where a profile averages 118 KB. `read_profile` calls `_boxes()`
+over the whole document and `fields[key] = value` is LAST-WINS across its 160
+`div.info-box` pairs, so it wrote the values of the **last** card on that listing under
+the id that had been asked for: five declared columns — membership number, company size
+and its Arabic, training hours and its Arabic — plus twelve undeclared `x_*` fields.
+Address, email and the coordinates came out null. **39 ids were served the listing; 14
+produced a row and 25 produced none**, and twelve of the fourteen took the same
+stranger's card.
+
+> **THIS PARAGRAPH WAS WRONG TWICE BEFORE IT WAS RIGHT**, and the corrections are the
+> lesson. It first said *"city, size and email"*; that was narrowed to *"the membership
+> number alone"*; both were measured false by adversarial review — city and email are
+> null, size is not. Then *"the first card"* was the last, and *"thirteen ids"* was
+> twelve impostors plus one rightful owner. Every wrong version was written from a
+> probe rather than from the stored rows, which were one query away.
+
+**Nothing downstream could catch it.** The row was complete, every field populated, every
+value well-formed. `check_unique` would have caught it on the listing dataset and does not
+run on profiles. It surfaced only because the owner asked whether a count was duplicated.
+
+**So: check WHO a page is about before reading what it says.** The first fix counted
+`section-card` and thresholded at 15 — *"7-9 on a profile, 22 on the listing, nothing
+between"*. Both halves were false. 160 real listing pages carry **fewer** than 15 cards
+(the last page of every filtered slice), so the gap did not exist on the side being
+guarded; and the 7-9 census was taken with a **regex** while the parser uses
+BeautifulSoup, which does not expose the `section-card` inside a `<script>` template —
+through `select` a real profile has **six**.
+
+What replaced it needs no threshold: **a profile page links to exactly one contractor,
+itself.** 800 real profile pages gave min 1 and max 1; 400 listing pages gave 3 to 20.
+And the caller passes the id, so the test is exact rather than statistical — a page
+linking to anyone else is refused whatever its shape. Recorded as `OP-64`.
+
+### A discriminator has to be tested against a known-good example first
+
+Measuring how widespread the above was, the first pass classified a profile as *"a page
+with no section-cards"*. A real profile has **seven**, so **398 of 400** sampled pages
+were binned as unclassifiable and the run reported **0.5%** computed from the two that
+survived. The percentage looked plausible and was an artefact of the instrument.
+
+It was caught by reading the whole table rather than the headline: 99.5% unclassified is
+not a result, it is a broken tool. Decoding three known snapshots showed the real shape in
+one command, and the re-run gave 0.2% with 99.8% correctly identified.
+
+**AND THE RE-RUN WAS STILL WRONG, WHICH IS THE REAL LESSON.** It sampled 500 when the
+exact count cost twelve seconds, and reported *"about 70 (95% CI 0-206)"* — a normal
+approximation at `np = 1`, where the interval is not valid. The census says **78**. Then
+the same file's threshold was measured with a regex while the code uses `soup.select`,
+and the two disagree by one card on every page. **A tool tested once is not a tool
+tested**: the second instrument was as unexamined as the first, and only an adversarial
+review that re-measured from scratch found it.
+
+**Print what a measurement could NOT classify, next to what it could.** A count that
+silently drops what it does not understand will report confidently on the remainder.
+
 ### Presence is not arrival: asserting the column, not the value
 
 Four of the seven declared bilingual pairs on the contractor dataset shipped
@@ -763,6 +839,45 @@ build, because the broken build's number was already large. Guarded by
 `tests/test_panel_dom.py::test_an_open_source_menu_is_not_overpainted_by_the_next_cards_button`,
 which also refuses to pass if no button lies under the menu at all: a guard whose
 overlap has drifted away proves nothing and must say so rather than go green.
+
+### Choose the stylesheet by WHICH SURFACE EMITS THE CLASS, not by where the neighbours are
+
+`.coverage-open` dresses a button `extension/app.js` emits. It went into
+`design/components.css` — the shared sheet — because that is where `button` and the
+other card rules live, and `tools/sync_design_assets.py` regenerated it into both
+surfaces. Every gate was green except one, and the full suite came back **`1 failed,
+3330 passed`** on
+`tests/test_ui_kit.py::test_every_shared_component_is_in_the_catalogue`.
+
+**The failing test was the smaller of the two problems.** Chasing it produced a live
+example in `design/gallery.html`, which passed — and an adversarial review then measured
+the example against the code that emits the class: a `·` separator where `coverageShare`
+writes ` (99.8%)`, a whole-number percentage where it writes one decimal, a parent
+entry that `_dataset_listing` never puts in `coverage` at all, and a `100%` the
+component cannot produce. **A green example that teaches a rendering the code cannot
+produce is worse than the red test**, because nothing will ever fail again.
+
+**And the sheet itself was the root.** The engine emits no `coverage-open` anywhere —
+`_dataset_listing` builds `coverage` for the JSON API the panel consumes, and no engine
+template renders it. So the shared sheet shipped a dead rule to
+`scrapex/webui/static/components.css`, *and* levied UI-1's obligation on a component
+only one surface has, *and* the catalogue links `tokens.css` and `components.css` only,
+so it could not show the component inside the `.dataset-card` it actually lives in. One
+wrong choice, three consequences.
+
+**Apply:** before adding a rule to `design/components.css`, grep for the class in the
+OTHER surface. No hit means it is not shared vocabulary and belongs in
+`extension/app.css` or `scrapex/webui/static/webui.css` — where it needs no catalogue
+entry, ships to nobody who cannot use it, and sits beside the component it dresses.
+Specificity decides the cascade, not file order: `.coverage-open` is 0-1-0 against
+`button`'s 0-0-1, so a per-surface sheet still beats the shared `button` rule.
+
+**And if it IS shared:** the rule is not finished until a live example stands in
+`design/gallery.html`, and the pair `pytest tests/test_ui_kit.py
+tests/test_design_system.py` is the real gate — neither half is sufficient.
+`sync_design_assets.py` is the obvious thing to run after touching `design/` and it says
+nothing about the catalogue, because the catalogue is not a generated artefact; it is a
+page somebody has to write an example on. Two green signals sat either side of that gap.
 
 ---
 

@@ -112,6 +112,35 @@ SUFFIXES = "py|js|css|html|json|yml|yaml|sh|md|toml|sql"
 CITATION = re.compile(
     r"(?<![\w/.\-])((?:[\w.\-]+/)*[\w.\-]+\.(?:" + SUFFIXES + r")):(\d+)(?:-(\d+))?\b")
 
+# The same citation, but only where it is the LABEL of a markdown link carrying an
+# `#L` anchor -- `[path:706](../path#L697)`. Four groups: the whole label, the line
+# it SHOWS, the href without its fragment, and the line it OPENS.
+#
+# THE LABEL MAY BE DRESSED, and the honest reason is narrower than the one first
+# written here. That comment claimed ``[`app.py:706`](...#L697)`` was "this
+# repository's dominant inline-code idiom" with "four such links already existing".
+# Measured across every `*.md` in the repository: **zero** backticked-label citations
+# exist. There are seven backticked-label links, and not one is a citation -- none
+# carries `:digits`, so the widened pattern would not match them even with an anchor
+# added. All 45 real linked citations are undressed, and widening the class changed
+# **0** matches and **0** verdicts.
+#
+# So this is defence in depth for a shape nobody writes YET, which is a fair thing to
+# build and not the thing the old comment said. The correction is recorded rather than
+# quietly swapped, because it was written in the very commit whose subject was fixing
+# four statements that had drifted from the code -- and it drifted from the documents
+# in the same breath. Bold and emphasis markers are allowed on the same footing, and a
+# lowercase `#l697` because GitHub accepts it.
+#
+# WHAT IT STILL CANNOT SEE, named rather than implied: a reference-style link
+# (`[label][ref]`), a raw HTML `<a href>`, and a link split across two lines -- this
+# walks `splitlines()`, so a newline hides such a link twice over. All three are
+# absent from every document today; a bare numeric fragment like `#123` is refused on
+# purpose, because `#2026-08-24` is a real heading anchor and would match as line 2026.
+LINKED_CITATION = re.compile(
+    r"\[([^\]\n]*?\.(?:" + SUFFIXES + r"):(\d+)(?:-\d+)?[`*_ ]*)\]"
+    r"\(([^)\n]*?)#[Ll](\d+)(?:-L?\d+)?\)")
+
 # Tier 2. (document, path, line, the text that must be on or beside that line).
 # The window is +/- WINDOW lines, because a citation may point at a decorator, a
 # `def`, or the line under either and still be honest.
@@ -211,7 +240,7 @@ PINNED = (
     # that tier 1 and tier 2 both accepted. A citation of prose needs pinning more
     # than a citation of code does -- code has a symbol a reader can grep for, and a
     # paragraph about palette tokens reads exactly as plausibly as one about layers.
-    ("docs/BACKLOG.md", "docs/LESSONS.md", 755, "The extension's layers are three"),
+    ("docs/BACKLOG.md", "docs/LESSONS.md", 831, "The extension's layers are three"),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
@@ -238,7 +267,7 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4719,
+    ("docs/BACKLOG.md", "extension/app.js", 4755,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 706, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
@@ -267,7 +296,7 @@ PINNED = (
     # The sentence itself, so it is clear the card reads a MISSING key and not a
     # missing crawl -- which is why writing a `crawl_run` row would not have moved
     # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4613, "const last = s.last_success;"),
+    ("docs/BACKLOG.md", "extension/app.js", 4649, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in site_profile.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
@@ -346,6 +375,27 @@ PINNED = (
     ("docs/BACKLOG.md", "extension/app.js", 964,
      "function setupFinanceConverterSelect("),
     ("docs/BACKLOG.md", "extension/app.js", 2016, "function setupRunModeSelect("),
+    # AND THE ONE CITATION THE ANCHOR SWEEP FOUND ACTUALLY FALSE. `docs/BACKLOG.md`
+    # quotes this docstring as the reason the panel hides Update/Wipe/Rename on a
+    # dataset row, and it read `app.py:706` under `#L697` -- two different wrong
+    # numbers, while the subject sat at 665. Tier 1 could not see it: 706 is a real,
+    # non-blank line of the same function. Pinned because the argument in that entry
+    # rests on the quote, and a quote whose line has drifted is a quote a reader
+    # cannot check. Its six neighbours were only stale HREFS under correct labels and
+    # stay unpinned -- the new label/anchor test is the guard they needed.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 665,
+     "the row menu offers Update,"),
+    # `OP-66`'s account of R-51 rests on WHICH array `merge_locales` reads, and the
+    # citation for it was false in both halves once before: it named :1589, R-51
+    # pushed ninety lines above it, and it landed on another function's docstring
+    # while the claim itself had also changed. Repaired to :1702 and PINNED here,
+    # because a citation whose whole job is to show the reader the shifted index is
+    # a citation that has to be ON that line. Tier 1 alone would not notice again.
+    # AND IT DRIFTED AGAIN BEFORE THE INK WAS DRY, thirteen lines, from correcting
+    # the module header above it in the same commit -- which is the whole argument
+    # for pinning it rather than trusting a number in prose.
+    ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1715,
+     "arabic_value = arabic.values[lined_up.arabic_of[index]]"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
@@ -426,6 +476,40 @@ def test_every_citation_names_a_line_that_exists(index):
                           f"{count} lines")
 
     assert not beyond, "\n  ".join(["citations past the end of their file:", *beyond])
+
+
+def test_a_citations_link_target_agrees_with_the_label_it_shows():
+    """Tier 1, and the half every other test in this file was blind to.
+
+    A citation is usually a markdown link: the LABEL reads `app.py:706` and the HREF
+    ends `#L697`. `CITATION` matches the label only, so tier 1 checks the number a
+    reader SEES and never the line the link OPENS -- and those are exactly what drift
+    apart, because a sweep that renumbers labels does not touch hrefs.
+
+    MEASURED WHEN THIS WAS WRITTEN: seven disagreements, all in `docs/BACKLOG.md`,
+    every anchor 8 to 27 lines behind its label. Six were stale hrefs under correct
+    labels. The seventh is the reason this is a test and not a one-off sweep:
+    `app.py:706` under `#L697`, where the subject had moved to **665**. Both numbers
+    wrong, and tier 1 passed because 706 is a real, non-blank line of the same file.
+    A citation can be false without being broken, and that is the gap here.
+    """
+    disagreements = []
+    for name in DOCUMENTS:
+        document = ROOT / name
+        if not document.is_file():
+            continue
+        for number, line in enumerate(
+                document.read_text(encoding="utf-8").splitlines(), start=1):
+            for label, shown, href, target in LINKED_CITATION.findall(line):
+                if shown != target:
+                    disagreements.append(
+                        f"{name}:{number}: [{label}] shows :{shown} "
+                        f"and opens {href}#L{target}")
+
+    assert not disagreements, (
+        "a citation's label and its link name different lines. Whichever is right, "
+        "a reader who clicks lands somewhere the prose does not describe:\n  "
+        + "\n  ".join(disagreements))
 
 
 def test_no_citation_lands_on_a_blank_line(index):

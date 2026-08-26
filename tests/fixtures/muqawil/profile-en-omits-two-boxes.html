@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"/>
+<title>Contractors | sca</title></head>
+<body>
+<a href="/en/contractors/20059311/143">self</a>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-ID"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Membership Number</div>
+<div class="info-value">562356239</div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-ID"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Membership</div>
+<div class="info-value">
+                                                        Non-Saudi Contractor</div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-ID"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Member Since</div>
+<div class="info-value">2024/10/02
+                                                    </div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-company"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Company Size</div>
+<div class="info-value">Very Small Company Size</div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-time"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Training credit hours</div>
+<div class="info-value">0 h                                                    </div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-phone"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Organization Mobile Number</div>
+<div class="info-value">0536862666</div>
+</div>
+</div>
+<div class="info-box has-action">
+<div class="info-icon">
+<span class="icon-email"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Organization Email </div>
+<div class="info-value"><a href="/cdn-cgi/l/email-protection#eba98e8984c6dfdedbab83849f868a8287c5888486"><span class="__cf_email__" data-cfemail="a7e5c2c5c88a939297e7cfc8d3cac6cecb89c4c8ca">[email protected]</span></a>
+</div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-locaion"></span>
+</div>
+<div class="info-details">
+<div class="info-name">City</div>
+<div class="info-value">ABHA</div>
+</div>
+</div>
+<div class="info-box">
+<div class="info-icon">
+<span class="icon-locaion"></span>
+</div>
+<div class="info-details">
+<div class="info-name">Region</div>
+<div class="info-value">Asir</div>
+</div>
+</div>
+<script>
+    var isRadarChartLoaded = false;
+
+    function getRadarChart() {
+        if (!isRadarChartLoaded) {
+            LoadRadarChart();
+        }
+    }
+
+    function addRadarChartHTML(item, index) {
+        var _lang = document.getElementById('_lang').value;
+        var chartContainer = document.getElementById("radar_chart_container");
+        chartContainer.innerHTML = `<div>
+                        <h4 class="card-title">
+
+                            ${_lang == 'ar' ? item.categoryNameAr : item.categoryNameEn} <span>  على حسب النشاط </span>
+                        </h4>
+                        <div class="radar-chart-wrapper">
+                            <canvas id="radarChart_${index + 1}"></canvas>
+                        </div>
+                    </div>
+                    <div class="section-card">
+                        <h4 class="card-title">
+                            ${_lang == 'ar' ? item.categoryNameAr : item.categoryNameEn} <span>  على حسب الحجم </span>
+                        </h4>
+                        <div class="radar-chart-wrapper">
+                            <canvas id="radarChartBySize_${index + 1}"></canvas>
+                        </div>
+                    </div>`;
+    }
+
+    function LoadRadarChart() {
+        console.log('Radar Chart Loaded');
+
+        // return false;
+        var _lang = document.getElementById('_lang').value;
+
+        var organization_registration_number = 5850150403;
+
+        if (organization_registration_number != null) {
+
+
+            var URL = 'https://muqawil.org/en/contractors/getContractorRadarChart/:id';
+
+            URL = URL.replace(':id', 5850150403);
+
+            $.ajax({
+                url: URL,
+                type: "GET",
+                data: {},
+
+                success: function(result) {
+
+                    isRadarChartLoaded = true;
+                    console.log('chart: ', result)
+                    if (result.length > 0) {
+                        // console.log('chart: ',result)
+                        //right chart HTML =================>
+
+                        result.forEach((itm, index) => {
+                            //radar_chart_container
+                            addRadarChartHTML(itm, index)
+
+
+                        })
+                        var radarReportObject = JSON.stringify(result).replace(/&quot;/g, '"');
+                        radarReportObject = JSON.parse(radarReportObject);
+                        var responseArray = Object.entries(radarReportObject[0].data);
+
+                        var responseFormatedArray = [];
+                        responseArray.forEach((itm) => {
+                            responseFormatedArray.push(itm[1]);
+
+                        })
+
+
+                        radarReportObject[0].data = responseFormatedArray;
+                        Chart.defaults.font.size = 18;
+                        for (var i = 0; i < radarReportObject.length; i++) {
+
+                            const data = {
+
+                                labels: [],
+                                datasets: [{
+                                        label: 'معدل اداء المنشأة',
+                                        data: [],
+                                        fill: true,
+                                        backgroundColor: 'rgba(72, 160, 53, 0.2)',
+                                        borderColor: 'rgb(72, 160, 53)',
+                                        pointBackgroundColor: 'rgb(72, 160, 53)',
+                                        pointBorderColor: '#fff',
+                                        pointHoverBackgroundColor: '#fff',
+                                        pointHoverBorderColor: 'rgb(72, 160, 53)'
+                                    },
+                                    {
+                                        label: 'معدل اداء المنشأت في نفس الفئة',
+                                        data: [],
+                                        fill: true,
+                                        backgroundColor: 'rgba(0,121,235, 0.2)',
+                                        borderColor: 'rgb(0,121,235)',
+                                        pointBackgroundColor: 'rgb(0,121,235)',
+                                        pointBorderColor: '#fff',
+                                        pointHoverBackgroundColor: '#fff',
+                                        pointHoverBorderColor: 'rgb(0,121,235)'
+                                    }
+                                ]
+                            };
+                            radarReportObject[i].data.forEach(s => {
+                                data.labels.push(_lang == 'ar' ? s.displayNameAr : s.displayNameEn);
+                                data.datasets[0].data.push(s.contractorValue);
+                                data.datasets[1].data.push(s.othersValue);
+                            });
+
+
+                            const dataBySize = {
+
+                                labels: [],
+                                datasets: [{
+                                        label: 'معدل اداء المنشأة',
+                                        data: [],
+                                        fill: true,
+                                        backgroundColor: 'rgba(72, 160, 53, 0.2)',
+                                        borderColor: 'rgb(72, 160, 53)',
+                                        pointBackgroundColor: 'rgb(72, 160, 53)',
+                                        pointBorderColor: '#fff',
+                                        pointHoverBackgroundColor: '#fff',
+                                        pointHoverBorderColor: 'rgb(72, 160, 53)'
+                                    },
+                                    {
+                                        label: 'معدل اداء المنشأت في نفس الفئة',
+                                        data: [],
+                                        fill: true,
+                                        backgroundColor: 'rgba(0,121,235, 0.2)',
+                                        borderColor: 'rgb(0,121,235)',
+                                        pointBackgroundColor: 'rgb(0,121,235)',
+                                        pointBorderColor: '#fff',
+                                        pointHoverBackgroundColor: '#fff',
+                                        pointHoverBorderColor: 'rgb(0,121,235)'
+                                    }
+                                ]
+                            };
+                            radarReportObject[i].data.forEach(s => {
+                                dataBySize.labels.push(_lang == 'ar' ? s.displayNameAr : s
+                                    .displayNameEn);
+                                dataBySize.datasets[0].data.push(s.contractorValue);
+                                dataBySize.datasets[1].data.push(s.otherValueBySize);
+                            });
+
+                            new Chart(document.getElementById('radarChart_' + (i + 1)), {
+                                type: 'radar',
+                                data: data,
+                                options: {
+                                    scales: {
+
+                                        r: {
+                                            ticks: {
+                                                beginAtZero: true,
+                                                min: 0,
+                                            },
+                                            pointLabels: {
+                                                font: {
+                                                    fontSize: 50,
+                                                    family: '"NeoSansArabicRegular" !important'
+                                                }
+                                            }
+                                        }
+                                    },
+                                    elements: {
+                                        line: {
+                                            borderWidth: 3
+                                        }
+                                    },
+                                    plugins: {
+                                        legend: {
+                                            //display: false, // This hides all text in the legend and also the labels.
+                                        }
+                                    }
+                                }
+                            });
+
+                            new Chart(document.getElementById('radarChartBySize_' + (i + 1)), {
+                                type: 'radar',
+                                data: dataBySize,
+                                options: {
+                                    scales: {
+                                        r: {
+                                            ticks: {
+                                                beginAtZero: true,
+                                                min: 0,
+                                            },
+                                            pointLabels: {
+                                                font: {
+                                                    // size: '40px !important',
+                                                    family: '"NeoSansArabicRegular" !important'
+                                                }
+                                            }
+                                        }
+                                    },
+                                    elements: {
+                                        line: {
+                                            borderWidth: 3
+                                        }
+                                    },
+                                    plugins: {
+                                        legend: {
+                                            //display: false, // This hides all text in the legend and also the labels.
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                }
+            });
+        }
+    }
+
+    $(document).ready(function() {
+
+        // getRadarChart();
+
+
+    });
+
+
+    function myMap() {
+        $("#show_map_button").hide();
+        $("#map").show();
+
+        var mapCanvas = document.getElementById("map");
+        // The location of Uluru
+        var latlang = {
+            lat: 24.4493518,
+            lng: 46.6220053
+        };
+
+
+        var mapOptions = {
+            center: latlang,
+            zoom: 10,
+            mapTypeControl: true,
+
+        };
+        var map = new google.maps.Map(mapCanvas, mapOptions);
+
+
+        var latlang20059311 = {
+            lat: 24.4493518,
+            lng: 46.6220053
+        };
+
+        var contentString20059311 = '<div id="content">' +
+            '<div id="siteNotice">' +
+            '</div>' +
+            '<h1 id="firstHeading" class="firstHeading" style="font-size:14px">Name : Maskan al raha company</h1>' +
+            '<h1 id="firstHeading" class="firstHeading" style="font-size:13px">phone : 966536862666</h1>' +
+            '</div>';
+
+        var infowindow20059311 = new google.maps.InfoWindow({
+            content: contentString20059311
+        });
+
+        var marker20059311 = new google.maps.Marker({
+            position: latlang20059311,
+            map: map,
+            title: 'Maskan al raha company'
+        });
+        marker20059311.addListener('click', function() {
+            infowindow20059311.open(map, marker20059311);
+        });
+
+
+    }
+
+    function contractor_licnesing_field_values_display(flag) {
+        if (flag == 'show') {
+            $('#contractor_licnesing_field_values_main_heading').hide();
+            $('#contractor_licnesing_field_values_detail').show();
+        } else {
+            $('#contractor_licnesing_field_values_detail').hide();
+            $('#contractor_licnesing_field_values_main_heading').show();
+        }
+
+    }
+</script>
+</body>
+</html>

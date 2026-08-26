@@ -106,15 +106,90 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 
 | | |
 |---|---|
-| the listing | **17,417 sighted of 17,414 declared — `D = 0`**, complete |
-| `generic_record` | **16,411** — 15,707 listing rows + 704 profiles |
-| `generic_page_snapshot` | **20,379** (~203 MB of bodies), 1,424 of them Dammam profiles |
-| `classification_node` | **214** nodes, depths `{1: 8, 2: 20, 3: 186}` |
-| `generic_record_node` | **15,559** memberships — `R-38` proved on real data |
+| the listing | 17,417 sighted of 17,414 declared — `D = 0` **for the sighting ledger**, which is not the population: see the reconciliation below, where the union is **17,452** |
+| `generic_record` | **17,304 listing rows** and **17,385 profile rows** (14 of them retired by `OP-64`) — 17,264 before `R-51`'s recovery approval, which added exactly the 121 it was measured to add |
+| `generic_page_snapshot` | **36,358 profile snapshots**, covering **17,452 distinct contractor ids — the whole union, with nothing left to fetch** |
+| `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
+| `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
 | datasets | `contractors` and `contractor_profiles` |
 | schema | **v9** (`0009` = the link table) |
 
-**That ratio is the whole of `R-38`:** 15,559 memberships share 214 nodes. Shape A would
+### And the crawl is finished — asked and answered 2026-08-24
+
+He asked whether another crawl was needed. **No, and not for coverage ever again**: every
+one of the 17,452 ids in the union has a profile snapshot stored. What was missing was
+**rows, not pages** — 188 contractors had a listing row and no profile row, and all 188
+had their snapshot on disk. Replaying the parser over them, read-only:
+
+| count | refused by | fixable by crawling? |
+|---:|---|---|
+| **59** | `PageIsNotAProfile` — the id is dead and the site answers with the listing (`OP-64`) | **no, the page does not exist** |
+| **129** | `merge_locales` — the Arabic page publishes an address box the English one omits | **no, it was a parser question** |
+| **0** | would approve without a code change | re-approval wrote nothing |
+
+**And the 129 are being recovered, not described.** He ruled on it the same day
+([R-51](RULINGS.md#r-51--the-two-locales-are-lined-up-around-a-missing-box-and-no-arabic-label-is-ever-read)):
+`align_locales` locates the missing box from the ENGLISH side, so the two locales line up
+without an Arabic label ever being read. **121 of the 129 align; 24 of those gain an
+address the English page cannot supply for anyone; 8 stay refused** because Arabic is the
+shorter side there and which box *it* dropped is unknowable. `OP-66` carries the
+measurement.
+
+**AND IT HAS RUN.** `--approve --run-ref profiles-2026-08-22` read 17,417 stored page
+pairs in **83.9 minutes with no network requests at all**: profile rows **17,264 →
+17,385, exactly 121 added**, of which **24 carry an address** — the prediction to the row
+— and the gap **188 → 67**, which is the 8 refused plus the 59 dead ids. 17,249 pages were
+unchanged and wrote nothing, and **0 were re-parsed with new values**: not one
+already-approved row was rewritten. Checked across the whole table, **0 rows** have
+`activity_ar` equal to `address`, which is the corruption a tail-drop would have caused.
+
+A refresh crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not
+about coverage. The 148-and-35 reconciliation below was measured mid-crawl; the 35 became
+188 as the profile crawl reached the rest of the listing while the parser refused this
+population.
+
+### Two counts, and the 183 contractors between them — measured 2026-08-23
+
+**The owner did the arithmetic and it was right**: 34,834 profile pages ÷ 2 = **17,417**
+contractors, and every one of the 17,417 has BOTH halves — `EN 17,417 · AR 17,417 ·
+lonely 0`. The division is exact, not approximate.
+
+But the listing table holds **17,304**, and the difference is not rounding. Reconciled
+by set arithmetic over the ids, not by estimate:
+
+| | |
+|---|---|
+| have a profile crawled, **no listing row** | **148** |
+| have a listing row, **no profile crawled** | **35** |
+| in both | 17,269 |
+| **the union — what is known to exist** | **17,452** |
+
+`17,417 − 148 + 35 = 17,304` closes exactly.
+
+**Neither number is the population.** The honest total is the **union, 17,452**.
+
+> **THE "FLOOR" ARGUMENT IS WEAKER THAN THIS PARAGRAPH FIRST CLAIMED**, and an adversarial
+> review is what narrowed it. It said the sweep *"stopped at its pass ceiling rather than
+> converging"*. That is true of the sweep whose pages were never stored — it read one
+> language, kept nothing, and reached "at least 17,283". But the two sweeps whose evidence
+> IS on disk **converged**: `deficit-2026-08-21b` brought +28 / +6 / **+0** over its last
+> three passes, and `residual-2026-08-21` +0 / +1 / +1. So "any two passes drift" is well
+> supported — 4,556 contractors on more than one page in a single pass — while "the
+> population is larger than 17,452" rests on the sweep that kept no evidence, and is a
+> weaker claim than it was written as.
+
+**Why two passes of one directory disagree.** The listing reorders under the crawl —
+4,556 of one pass's contractors turned up on more than one page — so the two passes ran
+against two different arrangements of the same site. The 148 slipped between pages while
+the listing was being read; the 35 were in the listing on 21 August and were not in the
+frontier the sweep handed the profile crawl.
+
+**Both gaps are cheap and neither needs a re-crawl of any size.** All 148 were found in
+listing snapshots ALREADY ON DISK — checked by decoding 20,683 stored listing pages and
+matching ids, 148 of 148 present — so they are an approval, not a fetch. The 35 need 70
+requests, about a minute and a quarter at the governed pace.
+
+**That ratio is the whole of `R-38`:** 391,761 memberships share 243 nodes — **1,612x**, re-measured 2026-08-23 after the profile approval; the 15,559-over-214 figures this line carried were a day and two crawls old. Shape A would
 have stored 15,559 repeated strings; the study measured that at 4.7x and it is
 conservative.
 

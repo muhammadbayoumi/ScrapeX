@@ -34,6 +34,7 @@ three different readings.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sqlite3
 import sys
@@ -475,7 +476,8 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
 
 
 def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
-            ceiling: int = 0, *, workers: int = 1, connect=None) -> None:
+            ceiling: int = 0, *, workers: int = 1, connect=None,
+            ids: tuple[str, ...] = ()) -> None:
     """Fetch the profile pages the registered scope asks for, each stored as evidence.
 
     WHY THIS IS A PHASE OF ITS OWN AND NOT PART OF `--crawl`. The listing crawl is
@@ -511,19 +513,61 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     scope, slice_of = read_scope(conn, directory.key)
     say(f"registered scope: {scope.value}"
         + (f", slice {slice_of!r}" if slice_of else ""))
-    if scope is CrawlScope.LISTING_ONLY:
-        # NOT AN ERROR. The registration is his answer, and a command that fetched
-        # profiles anyway would be answering for him — which is what Decision 23 made
-        # the column for.
-        say("listing_only, so there are no profile pages to fetch. Change "
-            "site_profile.crawl_scope to ask for them.")
-        return
-    if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
-        _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
-                "named, so there is nothing to select. Set site_profile.crawl_slice")
 
-    frontier, outside = detail_frontier(conn, directory, scope, slice_of)
-    held = already_stored(conn, run_ref)
+    if ids:
+        # AND NAMED IDS ARE NOT SUBJECT TO THE SCOPE, which is why the scope
+        # checks moved INTO the `else` below. Under `listing_only`
+        # `details` returns early — "no profile pages to fetch" — and under
+        # `listing_plus_slice` with no slice it refuses. Both are right for a
+        # frontier the scope builds, and wrong for a page a person named: the
+        # documented `OP-64` remediation is re-fetching one contractor, and it
+        # would have done nothing at all the day the owner sets `listing_only`.
+        #
+        # NAMED IDS REPLACE THE FRONTIER, they do not filter it. This is the half of
+        # `OP-64` that was missing: rows written from the wrong document have to be
+        # fetched AGAIN, and until now nothing could ask for one contractor. `--only`
+        # takes cell labels and reaches `crawl` alone, so the remediation this command
+        # printed could not be run — an adversarial review found the message before a
+        # user did.
+        #
+        # `profile_urls` IS THE SAME BUILDER THE FULL FRONTIER USES, so a targeted
+        # fetch cannot address a page the scope would never have reached.
+        # THE SAME CONSTRUCTION detail_frontier USES twenty lines up, and it is
+        # muqawil-specific there too. Generalising it belongs with the rest of the
+        # hardcoded keys an adversarial review named, not in this repair.
+        source = MuqawilPageSource(last_page=1)
+        frontier: list[str] = []
+        for contractor_id in ids:
+            frontier.extend(source.profile_urls(directory.base_url, contractor_id))
+        frontier = list(dict.fromkeys(frontier))
+        outside = 0
+        say(f"named {len(ids)} contractor(s) — the registered scope is not consulted")
+        # AND A REUSED RUN-REF WILL SKIP THEM ALL, which is the opposite of why
+        # anyone names ids. `already_stored` is scoped to the run-ref below, so
+        # re-fetching a page that IS stored — the documented `OP-64` remediation —
+        # needs a ref that has not seen it. Said here rather than left to be
+        # discovered as "resumed 49, stored 0".
+        # READ ONCE, NOT TWICE. This used to call `already_stored` for its
+        # truthiness and let the shared read below build the same frozenset again —
+        # two full passes over `generic_page_snapshot` for one run-ref, on the one
+        # path a person waits on interactively.
+        held = already_stored(conn, run_ref)
+        if held:
+            say(f"  NOTE: {run_ref} already holds pages. Named ids stored under it "
+                f"will be skipped as resumed — use a fresh --run-ref to re-fetch")
+    else:
+        if scope is CrawlScope.LISTING_ONLY:
+            # NOT AN ERROR. The registration is his answer, and a command that fetched
+            # profiles anyway would be answering for him — which is what Decision 23 made
+            # the column for.
+            say("listing_only, so there are no profile pages to fetch. Change "
+                "site_profile.crawl_scope to ask for them.")
+            return
+        if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
+            _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
+                    "named, so there is nothing to select. Set site_profile.crawl_slice")
+        frontier, outside = detail_frontier(conn, directory, scope, slice_of)
+        held = already_stored(conn, run_ref)
     todo = [url for url in frontier if url not in held]
     resumed = len(frontier) - len(todo)
     say(f"frontier {len(frontier):,} profile page(s), read from disk with no network")
@@ -753,7 +797,12 @@ Membership = tuple[tuple[str, ...], tuple[str, ...], tuple[str, str, str] | None
 def _interest_paths(english: str, arabic: str) -> list[Membership]:
     """`interests`, paired across the two pages. Raises when the counts differ.
 
-    PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Both locales
+    PAIRED BY POSITION AND REFUSED WHEN THE COUNTS DIFFER. This used to say "like
+    `merge_locales`", and since `R-51` that is no longer true: interests have no
+    canonical order to locate a gap against — `PROFILE_FIELDS` is what makes the
+    profile boxes recoverable, and there is no equivalent for a node list. So this
+    refuses where `merge_locales` now aligns, and the difference is a real one
+    rather than an oversight. Both locales
     publish the nodes in the same order, so position names the same node in each. A
     count that differs means it no longer does, and writing anyway would attach an
     English name to a different Arabic one.
@@ -911,6 +960,156 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
     return written, repeated
 
 
+def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int:
+    """LAYER 3 of `OP-64`: find the rows written from somebody else's page, and drop them.
+
+    THE MARKER IS THE LISTING'S OWN NUMBER. `card_membership_number` is unique across
+    every listing row and never blank; the profile page's is neither. So a profile row
+    whose number disagrees with its own listing card was not written from that
+    contractor's page — the site answered a dead id with the contractors listing, at
+    HTTP 200, and the first card on it supplied the number.
+
+    IT DELETES RATHER THAN REPAIRS, and the difference is the point. Copying the
+    listing's number over the profile's would leave a row that passes every check and
+    is still not that contractor's: its address, city and coordinates came from
+    nowhere, and they are NULL rather than wrong only because the profile parser
+    could not find the labels it wanted. A row that cannot be trusted is worth less
+    than no row, because no row is visibly absent and this one is invisibly false.
+
+    The ids come back so a caller can re-fetch them. A re-fetch is the honest repair:
+    if the site answers with the listing again, the id really is gone and belongs in
+    a not-found list rather than in the table.
+    """
+    dataset = directory.profiles.dataset_key if directory.profiles else None
+    if dataset is None:
+        return 0
+    rows = conn.execute(
+        "SELECT r.generic_record_id, r.data_json FROM generic_record AS r "
+        "JOIN dataset_definition AS d "
+        "ON d.dataset_definition_id = r.dataset_definition_id "
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL AND r.status = 'active'",
+        (dataset,)).fetchall()
+    # THE LISTING IS READ ONCE, and this is not a micro-optimisation. Asking
+    # `_membership_on_the_listing` per row runs `json_extract` over every listing
+    # row for every profile row — 17,304 x 17,263 comparisons, which took minutes
+    # and is the same answer as one pass. That function stays for the single-row
+    # case in `approve`, where it is called once per page and the page is the cost.
+    # THE SAME READER LAYER 2 USES, so the two cannot disagree about who is who —
+    # and it does not filter `status`, for the reason its docstring gives.
+    listing = _listing_membership_numbers(conn)
+
+    guilty: list[tuple[int, str, str, str]] = []
+    for record_id, blob in rows:
+        body = json.loads(blob)
+        contractor = str(body.get("contractor_id") or "")
+        mine = str(body.get("membership_number") or "").strip()
+        if not contractor or not mine:
+            continue
+        theirs = listing.get(contractor)
+        if theirs and theirs != mine:
+            guilty.append((record_id, contractor, mine, theirs))
+
+    say(f"impostors: {len(guilty)} profile row(s) disagree with their listing card")
+    for _, contractor, mine, theirs in sorted(guilty, key=lambda g: g[1])[:10]:
+        say(f"  {contractor}: profile says {mine}, listing says {theirs}")
+    if len(guilty) > 10:
+        say(f"  … and {len(guilty) - 10} more")
+    if dry_run:
+        say("  DRY RUN — nothing removed. Pass --repair to remove them.")
+        return len(guilty)
+    if not guilty:
+        # NOTHING TO DO IS NOT A WRITE. The first version ran `executemany` over
+        # an empty list, committed, and printed a re-fetch line for zero rows.
+        return 0
+
+    # RETIRED, NOT ERASED. `status` is how this warehouse withdraws a row without
+    # losing that it was ever written, and a deletion nobody can see is how the next
+    # session re-derives the same wrong number and believes it.
+    conn.executemany("UPDATE generic_record SET status = 'retired' "
+                     "WHERE generic_record_id = ?", [(g[0],) for g in guilty])
+    conn.commit()
+    # NO RE-FETCH COMMAND IS PRINTED, because none exists. The first version
+    # suggested `--details --only <ids>` and an adversarial review found that
+    # `--only` takes CELL LABELS and is passed to `crawl` alone, so the line
+    # either exited 2 or re-fetched the whole 34k-page frontier. A remediation
+    # that cannot be run is worse than none: it looks like the loop is closed.
+    say(f"  retired {len(guilty)} row(s). THEY ARE NOT RE-FETCHED — no command "
+        f"targets specific ids today, which is the open half of OP-64.")
+    return len(guilty)
+
+
+def _named_ids(raw: str) -> tuple[str, ...]:
+    """`--ids` parsed, and REFUSED rather than emptied.
+
+    TWO WAYS THIS WAS DANGEROUS, both found by adversarial review.
+
+    AN EMPTY RESULT FELL THROUGH TO THE WHOLE SITE. `--ids ","` — or a trailing
+    comma in a paste, or `--ids " "` — produced an empty tuple, `details()` took
+    the `else` branch, and the registered scope is `full_then_listing`: **34,806
+    pages and about seventeen hours**, from a command that named nobody. The run
+    did not even say so, because the `named N contractor(s)` line never printed.
+
+    AND THE VALUES REACHED A URL UNCHECKED. `profile_urls` interpolates, so
+    `--ids '?page=9999'` built `/en/contractors/?page=9999/143` — a LISTING url —
+    and `'../../admin'` walked out of the path entirely. Whatever came back was
+    stored as `DETAIL` evidence under the run-ref, and `_contractor_of` cannot
+    match those URLs, so a later `--approve` would route them to the LISTING
+    parser and write rows from a document the scope never sanctioned.
+
+    A contractor id on muqawil is digits. Anything else is a typo or an
+    injection, and both deserve the same answer.
+    """
+    wanted, bad = [], []
+    for raw_id in raw.split(","):
+        one = raw_id.strip()
+        if not one:
+            continue
+        # ASCII DIGITS, NOT `isdigit()`. `str.isdigit()` is true of `٤٢`, `４２`
+        # and `²` — and `_contractor_of`'s `\d` is not, so those reach the URL,
+        # come back as evidence, and a later `--approve` routes them to the
+        # LISTING parser. That is verbatim the failure this function's docstring
+        # claims to close.
+        (wanted if (one.isascii() and one.isdigit()) else bad).append(one)
+    if bad:
+        _refuse(f"--ids takes contractor ids, which are digits. These are not: "
+                f"{', '.join(repr(b) for b in bad[:5])}")
+    if not wanted:
+        _refuse("--ids named no contractor. Left to fall through this would crawl "
+                "the registered scope instead — 34,806 pages on muqawil — which is "
+                "the opposite of what naming ids asks for")
+    # DEDUPED, ORDER KEPT: a pasted list repeats, and fetching one contractor twice
+    # is two requests the site did not need to serve.
+    return tuple(dict.fromkeys(wanted))
+
+
+def _listing_membership_numbers(conn) -> dict[str, str]:
+    """Every listing row's membership number, by contractor id, in one pass.
+
+    THE LISTING'S FIELD IS THE ONE THAT CAN BE TRUSTED, measured rather than
+    assumed: `card_membership_number` is unique across all 17,304 listing rows
+    with none blank, exactly as the owner said it would be. The PROFILE page's
+    `membership_number` is not.
+
+    `status` IS NOT FILTERED HERE, and that is deliberate. `sightings.mark_unavailable`
+    sets a listing row to `unavailable` for a contractor the site stopped publishing
+    — which is the SAME population whose profile ids die — so filtering to `active`
+    would silently switch the cross-check off for exactly the contractors it exists
+    to protect. An `unavailable` row's membership number is still what the site
+    published, and that is all this comparison needs.
+    """
+    numbers: dict[str, str] = {}
+    for (blob,) in conn.execute(
+            "SELECT r.data_json FROM generic_record AS r "
+            "JOIN dataset_definition AS d "
+            "ON d.dataset_definition_id = r.dataset_definition_id "
+            "WHERE d.dataset_key = 'contractors' AND d.valid_to IS NULL"):
+        body = json.loads(blob)
+        number = str(body.get("card_membership_number") or "").strip()
+        if number:
+            numbers[str(body.get("contractor_id") or "")] = number
+    return numbers
+
+
 def approve(conn, directory: Directory, run_ref: str) -> None:
     pairs = _pairs(conn, run_ref)
     say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
@@ -918,6 +1117,13 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     recovered = 0
     reparsed = 0
     lonely = 0
+    mismatched = 0
+    #: Profile pages the cross-check could not judge because no listing row
+    #: carried a number for them. Reported, never inferred from silence.
+    unwitnessed = 0
+    #: Built on first use, not on entry: a run with no profile pages should not
+    #: pay for a table it never consults.
+    listing_numbers: dict[str, str] | None = None
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
@@ -955,6 +1161,54 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         if not candidate.approvable:
             refused.append((key, candidate.warnings[0] if candidate.warnings else "?"))
             continue
+        # LAYER 2 OF `OP-64`: THE TWO PAGES MUST AGREE ABOUT WHO THIS IS.
+        #
+        # The shape check in `read_profile` stops a listing page being parsed AS a
+        # profile, and it is the better guard because it fires before any value is
+        # read. This one catches what that cannot: a page of the right shape whose
+        # content belongs to somebody else. The listing card's number is unique
+        # across 17,304 rows, so a profile that disagrees with it is not reporting a
+        # different fact about the same contractor — it is reporting a different
+        # contractor.
+        #
+        # It REFUSES rather than corrects. Writing the listing's number over the
+        # profile's would produce a row that passes every check and is still half
+        # somebody else's; the honest outcome is no row and a named page.
+        if contractor is not None:
+            # A SNAPSHOT, AND IT SAYS SO. An adversarial review found the lazy
+            # build froze the map at the first profile page: `approve` walks
+            # listing and profile pages of one run in a single loop and WRITES
+            # listing rows as it goes, so a contractor whose card landed later in
+            # the same run resolved to None and was skipped — silently, for
+            # exactly the contractors that run had just discovered. It still
+            # fails open, because refusing on a missing witness would refuse the
+            # 148 that legitimately have none; what changed is that the misses
+            # are counted below instead of vanishing.
+            if listing_numbers is None:
+                # ONE PASS, ONCE, NOT A SCAN PER PAGE. Measured by an adversarial
+                # review: `json_extract` in a WHERE cannot use an index, so each
+                # lookup SCANNED all 34,567 generic_record rows at 78 ms — against
+                # 104 ms to parse the page pair it was checking. Over a full run
+                # that is 22 minutes added to 30. `disown_impostors` already built
+                # this dict and this function excused itself from it on the grounds
+                # that "the page is the cost". Measured, it was not.
+                listing_numbers = _listing_membership_numbers(conn)
+            theirs = listing_numbers.get(str(contractor))
+            mine_number = str(candidate.rows[0].get("membership_number") or "").strip()
+            # BOTH SIDES OF THE SILENCE. A missing witness was counted; a profile
+            # whose OWN number is blank was not, and it is skipped just as quietly
+            # — which leaves "checked and clean" and "never checked" identical for
+            # exactly the population whose number is documented as unreliable.
+            if not theirs or not mine_number:
+                unwitnessed += 1
+            mine = mine_number
+            if theirs and mine and theirs != mine:
+                refused.append((key, (
+                    f"membership number {mine} on the profile page but {theirs} on "
+                    f"the listing card, and the listing's is unique across every row "
+                    f"— this page is not contractor {contractor} (OP-64)")))
+                mismatched += 1
+                continue
         try:
             result = service.approve_candidate(
                 conn, english[0],
@@ -991,6 +1245,21 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
+    if unwitnessed:
+        # "CHECKED AND CLEAN" AND "NEVER CHECKED" MUST NOT LOOK ALIKE, which is
+        # the whole argument of `OP-64`. A run that prints no mismatch line today
+        # could mean either, and only this number separates them.
+        say(f"  {unwitnessed:,} page(s) were not cross-checked — either no listing "
+            f"card carried a number for them, or the profile page published none "
+            f"(OP-64 layer 2)")
+    if mismatched:
+        # NAMED, NOT FOLDED INTO `refused`. A page refused for a locale mismatch
+        # is the site publishing two shapes; a page refused for THIS is the site
+        # publishing somebody else. They need different repairs, so a run that
+        # cannot tell them apart cannot tell anyone what to do next. `OP-64`.
+        say(f"  {mismatched:,} page(s) refused because the profile and the listing "
+            f"disagree about the membership number — the id no longer resolves and "
+            f"the site answered with another contractor (OP-64)")
     if linked or relinked:
         # BOTH NUMBERS, for the reason `Marking` gives: a run that wrote 17,000
         # memberships and one that confirmed 17,000 are the same total and different news.
@@ -1044,6 +1313,24 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--approve", action="store_true",
                        help="interpret the stored pages of --run-ref into rows. "
                             "Re-fetches nothing")
+    # `default=None`, AND THAT IS THE WHOLE FIX FOR A HOLE THAT REOPENED FIVE TIMES.
+    # With `default=""` the value cannot answer the question the guard asks: an
+    # untyped flag and `--ids ""` are the same empty string, so any guard written on
+    # the VALUE must treat one of the two wrongly. Rounds two through four each chose
+    # a different one. `None` means "not typed" and can mean nothing else, so the two
+    # questions — was it supplied, and is its content usable — stop competing for one
+    # variable.
+    parser.add_argument("--ids", default=None,
+                       help="with --details, fetch ONLY these contractor ids, "
+                            "comma-separated. This is how a row written from the "
+                            "wrong page is re-fetched (OP-64); the registered scope "
+                            "is not consulted")
+    parser.add_argument("--impostors", action="store_true",
+                       help="OP-64: list profile rows whose membership number "
+                            "disagrees with their listing card. Reads only")
+    parser.add_argument("--repair", action="store_true",
+                       help="with --impostors, retire the rows it finds. "
+                            "Without it, --impostors is a dry run")
     parser.add_argument("--run-ref", default="",
                        help="required for --crawl and --approve. Reused, it "
                             "RESUMES: pages this ref already stored are not "
@@ -1078,8 +1365,9 @@ def validate(args: argparse.Namespace) -> None:
     that would have to raise it, and a usage error printed by the wrong parser
     prints the wrong usage line.
     """
-    if not (args.plan or args.crawl or args.details or args.approve or args.coverage):
-        _refuse("choose one of --plan, --crawl, --details, --approve or --coverage")
+    if not (args.plan or args.crawl or args.details or args.approve
+            or args.coverage or args.impostors):
+        _refuse("choose one of --plan, --crawl, --details, --approve, --coverage or --impostors")
     if (args.crawl or args.details or args.approve) and not args.run_ref:
         _refuse("--crawl, --details and --approve need --run-ref: it is what makes an "
                 "interrupted crawl resumable and what --approve reads")
@@ -1100,6 +1388,24 @@ def validate(args: argparse.Namespace) -> None:
         _refuse("generic extraction is disabled in this build "
                 "(scrapex/features.py), so --approve would write rows the feature "
                 "manifest says are not available. Nothing was read or written")
+    # `--repair` WRITES TO THE SAME TABLE `--approve` DOES, so it stands behind the
+    # same gate. An adversarial review found it outside: a build whose manifest says
+    # generic extraction is unavailable could still retire rows in it. `--impostors`
+    # alone only reads, so it is left open — a diagnosis is not a change.
+    if args.impostors and args.repair and not is_enabled(FeatureKey.GENERIC_EXTRACTION):
+        _refuse("generic extraction is disabled in this build "
+                "(scrapex/features.py), so --repair would retire rows the feature "
+                "manifest says are not available. Run --impostors alone to look")
+    # REFUSED RATHER THAN IGNORED, like `--ceiling` above: `--repair` with nothing
+    # to repair reads as a request that was honoured.
+    # REFUSED RATHER THAN IGNORED, for the same reason as `--repair`: `--ids` without
+    # `--details` names work nothing will do.
+    if args.ids is not None and not args.details:
+        _refuse("--ids only means something with --details, which is what fetches "
+                "profile pages")
+    if args.repair and not args.impostors:
+        _refuse("--repair has no meaning without --impostors, which is what finds "
+                "the rows it would retire")
 
 
 def _refuse(message: str) -> None:
@@ -1144,10 +1450,30 @@ def run(args: argparse.Namespace) -> int:
                 factory = DatabaseRegistry.defaults().engine.connect
                 say(f"fetching with {args.workers} workers — the pace is unchanged, "
                     "the waits overlap")
+            # NO `--ids` IS NOT AN EMPTY `--ids`, and `is not None` is how that is
+            # asked. Calling `_named_ids` unconditionally turned the ORDINARY detail
+            # crawl into a usage error naming a flag the user never typed; guarding
+            # on the value sent an empty one back to the whole site.
+            #
+            # `is not None` — THE FLAG WAS SUPPLIED — and nothing about its content.
+            #
+            # FOUR STATES OF ONE HOLE, each opened by the repair for the last:
+            #   round 2  no guard          `--ids ","`  -> () -> the whole 34,806-page scope
+            #   round 3  no condition      `--details` alone -> usage error, primary path dead
+            #   round 4  `.strip()`        `--ids "  "` -> () -> the scope again
+            #   round 5  `if args.ids`     `--ids ""`   -> () -> the scope again
+            # Every one of them was a guard reading the VALUE to answer a question
+            # about the FLAG. With `default=None` above, the flag answers for itself
+            # and `_named_ids` judges the content — including `""`, which names
+            # nobody and is refused like any other empty list.
+            named = _named_ids(args.ids) if args.ids is not None else ()
             details(conn, directory, fetch, fetcher, args.run_ref,
-                    ceiling=args.ceiling, workers=args.workers, connect=factory)
+                    ceiling=args.ceiling, workers=args.workers, connect=factory,
+                    ids=named)
         if args.approve:
             approve(conn, directory, args.run_ref)
+        if args.impostors:
+            disown_impostors(conn, directory, dry_run=not args.repair)
         if args.coverage:
             # THE DEFAULT WINDOW IS THE LEDGER'S OWN NEWEST SIGHTING, so running this
             # straight after a crawl asks "who did THAT crawl not show us" without

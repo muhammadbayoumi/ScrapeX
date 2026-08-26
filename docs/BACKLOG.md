@@ -1074,7 +1074,7 @@ profile crawl was running against it):
 
 **THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
 `"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4613`) prints that sentence whenever the key is absent or
+(`extension/app.js:4649`) prints that sentence whenever the key is absent or
 carries no `started_at`. So a `crawl_run` row for muqawil would have changed
 nothing on the card — the fix had to arrive at that key.
 
@@ -1785,20 +1785,20 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 **That absence is deliberate, and it is written down in both halves.**
 `sourceMenu` returned an empty string for a dataset — the line is gone, and what
 stands where it stood is the filter that replaced it
-([extension/app.js:4719](../extension/app.js#L4719)) — and the engine stamps the
+([extension/app.js:4755](../extension/app.js#L4755)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:706](../scrapex/webui/app.py#L697)).
+worse for a dataset"* ([scrapex/webui/app.py:665](../scrapex/webui/app.py#L665)).
 It was the right call for five of the six entries and it is still right for them:
 `update`, `pause` and `settings` post to routes that read the manifest, and
 `/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2967)).
+for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2994)).
 
 **But `Open the data table` would work, and it was built after the blanket
 hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
 the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1167)) —
+any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1176)) —
 so `/api/table/contractors` serves the directory in full. The panel hides the one
 entry that works on the marker that was introduced for the five that do not.
 
@@ -1844,7 +1844,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2008)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L964)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2016)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -1885,11 +1885,11 @@ accessibility. They have not, and the difference is requirement-driven:
 
 * Run mode disables options **individually**, because which run modes are on offer
   depends on the selection — `for (const option of select.options) option.disabled =
-  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2173)). Its
+  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2181)). Its
   `focusOption` filters disabled candidates because it genuinely has some.
 * The finance converter disables **the whole control** when there are no stored
   rates — `select.disabled = !state.financeRates.length`
-  ([extension/app.js:1149](../extension/app.js#L1141)) — and mirrors that onto the
+  ([extension/app.js:1149](../extension/app.js#L1149)) — and mirrors that onto the
   trigger inside `sync()`. It never has a disabled option, so it has nothing to
   filter.
 * Type-ahead exists only on the finance side, and a currency list needs it where
@@ -2170,7 +2170,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:755](LESSONS.md#L755)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:831](LESSONS.md#L831)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -2665,6 +2665,499 @@ its own, which is why it was not bundled into the branch that found it.
 **And there is a table this is the fifth row of, which is not on `main`.** *Four shapes
 of a wrong citation* lives on `origin/docs/the-boundary-becomes-a-ruling` at `c6d9212`,
 unmerged. Whoever lands that branch should add the row.
+
+### OP-68 · "The last crawl" is a TIMESTAMP, so 17,256 of 17,304 contractors are shown as having disappeared
+
+**Found 2026-08-24 by an adversarial review verifying `#267`'s numbers. It predates `#267`
+entirely** — `contractors` was not touched by that work, and the skew is older than the
+`R-51` recovery run.
+
+**`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
+`newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
+identifier ([scrapex/extract/service.py:929](../scrapex/extract/service.py#L929)):
+
+```python
+if last_seen_at is None or last_seen_at < newest:
+    return STATE_ABSENT
+```
+
+A crawl writes its rows over half an hour, so only the rows written in the **final second**
+survive that comparison. Measured read-only on the live warehouse:
+
+| | `contractors` | `contractor_profiles` |
+|---|---|---|
+| `newest` = `MAX(last_seen_at)` | `2026-08-22T07:39:56Z` | `2026-08-24T11:47:30Z` |
+| rows equal to it | **48** | **1** |
+| rows earlier than it → `STATE_ABSENT` | **17,256** | 17,384 |
+| distinct `last_seen_at` values | **1,034** | 3,412 |
+| `dataset_sighting` rows | 17,417 | **0** |
+
+**So the Data screen tells the owner that 17,256 of his 17,304 contractors have stopped
+being published — after a crawl that read every one of them.** That is the loudest possible
+false alarm on the one screen whose job is to show what the site is doing.
+
+The profile table is wrong differently and it is worse for being quiet: `dataset_sighting`
+holds **zero** rows for `contractor_profiles`, so `sighted_at is None` fires two checks
+earlier and all 17,371 read `unsighted`. The absence bug is masked by a gap in the ledger.
+
+**The reasoning that fixes it is already in the file, eight lines below the defect.**
+`scrapex/sightings.py:403-407` explains that `last_absent_at` needs `>=` rather than `>`
+*"because both timestamps are `strftime(...,'now')` at SECOND resolution"*. The same
+argument applies to `newest` and was never carried across. A run identifier — or the crawl
+run's own start time — answers "was this row seen by the last crawl?"; the maximum of a
+column written row by row cannot.
+
+**Two statements nearby are also false, and both predate `#267`:**
+
+* [scrapex/extract/service.py:601](../scrapex/extract/service.py#L601) says *"`last_seen_at`
+  still moved: the upsert above sets it unconditionally, so a confirmation is recorded on
+  the RECORD."* The `DEC-10` early `return` at
+  [scrapex/extract/service.py:503](../scrapex/extract/service.py#L503) fires **before** that
+  upsert. Measured: **0** profile rows have a `last_seen_at` on 2026-08-24 with an earlier
+  `first_seen_at`; all 17,264 pre-`R-51` rows still read 2026-08-23, after a full
+  re-approval that touched every one of them.
+* `docs/RULINGS.md` claims `dataset_table_payload` *"filters `AND status = 'active'`"* and
+  drops the observation facts. Both were true once and are not now: `ec53b17` (#235) removed
+  the filter under `R-27`, and the payload attaches `observed_first_seen`,
+  `observed_last_seen`, `observed_status`, `observed_last_changed`, `observed_state` and
+  `observed_state_meaning`. **The audit that produced that paragraph asked "does it
+  filter?" and never asked "does the derived state say the right thing?" — which is where
+  the defect actually is.**
+
+**AND IT IS NOT A DISPLAY BUG — IT IS A PUBLISHED COLUMN.** `publish.py`'s
+`dataset_workbook_tables` turns every payload column into a workbook column
+([scrapex/publish.py:135](../scrapex/publish.py#L135)), and the payload carries six:
+`observed_state`, `observed_state_meaning`, `observed_last_seen`, `observed_first_seen`,
+`observed_last_changed`, `observed_status`. Read from the live warehouse just now:
+
+```
+observed_state          'absent'
+observed_state_meaning  'The most recent crawl did not show this row'
+```
+
+on 17,256 of 17,304 rows. So the false sentence is written **into the Google Sheet the mbiX
+Excel add-in reads** — the single boundary `CLAUDE.md` says the two systems meet at. That
+moves this from "a screen is wrong" to "the product's only output is wrong", and it is why
+this entry leads the register rather than sitting in it.
+
+**AND IT IS THREE STATES, NOT ONE.** The docstring states the flawed premise out loud
+([scrapex/sightings.py:365](../scrapex/sightings.py#L365)): *"`newest` is the dataset's
+latest `last_seen_at` — 'the last crawl'. Everything is relative to it."* Everything is,
+and three of the eight states rest on it:
+
+| step | test | what it gets wrong |
+|---|---|---|
+| 3 · `absent` | `last_seen_at < newest` | **17,256 of 17,304** contractors |
+| 4 · `new` | `first_seen_at >= newest` | **1** profile reads `new`; **121** were first seen today |
+| 6 · `updated` | `changed_at >= newest` | same second-resolution window |
+
+So the screen under-reports what arrived by the same arithmetic that over-reports what
+left. `R-27`'s own instruction was «لا تدع المستخدم يستنتج الحالة» — and the column that
+exists so he does not have to infer is wrong in both directions.
+
+**THE HALF THAT NEEDS NO RULING, and it is the half that lies in the sheet.** `absent`
+must come from the ledger's own absence record, not from a timestamp race.
+`mark_unavailable` / `mark_departures` exist to write exactly that, step 5 already reads
+`last_absent_at` for `returned`, and step 3 ignores it. Measured, the ledger is right and
+the comparison is noise:
+
+```
+dataset_sighting for 'contractors':  17,417 rows
+   ever marked absent          0
+   absent NOW                  0        <- the ledger's answer
+   the timestamp says absent  17,256    <- what the screen and the sheet publish
+```
+
+So `if last_absent_at is not None and (last_seen_at is None or last_absent_at > last_seen_at)`
+is the whole change for step 3, and it needs no new column and no decision.
+
+**THE HALF THAT IS HIS TO RULE.** What "the last crawl" MEANS for `new` and `updated`,
+because this pipeline has no single answer today:
+
+* `crawl_run` is the **price** path only — `source_id` points at a price source, and a
+  generic crawl writes nothing to it. 159 rows, none for a dataset.
+* `dataset_sighting` carries `first_run_ref` and `last_absent_run_ref` and **no
+  `last_run_ref`** — the missing third of three is conspicuous.
+* A partitioned listing crawl is **93 run refs**, not one, and they share only a prefix.
+* And `first_seen_at` is an **approval** time while `generic_page_snapshot.captured_at` is
+  a **fetch** time; the R-51 recovery approved pages fetched two days earlier. Comparing
+  the two would call a two-day-old page "new".
+
+So "seen by the last crawl" is not derivable from what is stored, and inventing a rule
+here would be answering for him — `R-02`'s shape exactly. The options, with their cost:
+
+| | change | what it buys |
+|---|---|---|
+| **A** | `dataset_sighting` gains `last_run_ref`; a crawl stamps it | an exact answer for all three states; one migration |
+| **B** | a generic `dataset_crawl` run table, started and finished | the same, plus a real progress denominator and history |
+| **C** | leave `new`/`updated` blank until A or B | no false state, and two columns that say nothing |
+
+**Recommended: fix step 3 now under this OP — it is the one that reaches the sheet — and
+put A against B against C to him as its own decision.** Splitting it that way means the
+published lie stops today without a schema change being rushed to carry it.
+
+**RULED 2026-08-24 — «نفذ ب».** `R-52`: a generic crawl is a RUN with an identity, in a
+table of its own — one row per crawl, not the per-contractor attendance register `0006`
+weighed and refused at 17,403 rows a crawl. `started_at` is what `absent` compares
+against, `finished_at` is what stops a run still in flight from declaring departures, and
+the same table gives `declare_frontier` the denominator `STATE.md` has been missing. Step
+3's ledger fix stands on its own and lands first.
+
+**Why this is not folded into `#267`.** It is not caused by that work, it touches the state
+derivation every dataset row on the Data screen reads, and `R-51`'s own three new columns
+land directly on top of it. Recorded here so it is picked up as its own change with its own
+review, which is what this register is for.
+
+### OP-67 · A SECOND obfuscated email on the page is stored as Cloudflare's placeholder text
+
+**Found 2026-08-24 while checking the `R-51` recovery run for damage.** It found none — and
+found this instead, which predates that work entirely.
+
+**16 rows hold the literal string `[email protected]` in a declared column:** 13 in
+`contractor_profiles` (all in `address`) and 3 in `contractors`. Verified against the
+newly written rows: **0 of the 16 are among the 121 `R-51` recovered**, so this is not the
+alignment repair's doing.
+
+**The cause. `read_email` takes the FIRST `data-cfemail` on the page and there can be
+two.** Contractor `1006`'s English profile carries exactly two:
+
+```
+BOX: Organization Email  [email protected]
+     data-cfemail -> ayman@smart-const.com          <- read_email finds this one. Correct.
+BOX: Address  Al Khobar Al Shemaliyah Cross 15 - Buldg. # 7484 - ...
+     data-cfemail -> info@smart-const.com           <- nothing decodes this one
+```
+
+`_CFEMAIL.search(html)` is a `search`, so `organization_email` is right on all 17,385 rows.
+But the address box's **text** is stored verbatim, and where the second obfuscated address
+sat there is now a placeholder:
+
+```
+1006: 'Al Khobar Al Shemaliyah Cross 15 - Buldg. # 7484 - 4th Floor - Office # 10
+       P.O. Box 1861 Al Khobar 31952 Tel: 00966138941919 - Fax: 00966138965511
+       [email protected] www.smart-const.com'
+4776: 'Tel: 0138196000 Fax: 0138113334 Email: [email protected]
+       Www.Alosais.com P.O. BOX 1083. Dammam 31431, KSA'
+```
+
+**Why nobody saw it.** This is failure #1 of `scrapex/extract/muqawil.py`'s own module
+docstring — *"every contractor stores the literal `[email protected]` and any 'is the
+column populated' test passes forever"* — and the guard written for it watches
+`organization_email`, which is the field that was never wrong. The address is 90% correct,
+so it reads as a full value; the placeholder sits at the END on only 5 of the 13, buried
+mid-string on the other 8. **1,392 of 17,385 rows carry an address at all**, so this is 13
+of 1,392 — under one percent, and invisible at any sample size a person would eyeball.
+
+**The fix, and it is not where the bug looks.** `read_email` is correct and should not
+change; what is wrong is that a box's TEXT is read without decoding the `data-cfemail`
+inside that box. `read_profile` should decode per box — replace each obfuscated span with
+its own decoded value while reading the pair — which fixes `address` and any future field
+the site hides an address inside. Replayable from the stored snapshots with no network,
+like `OP-66`.
+
+**NOT BUILT, AND DELIBERATELY NOT IN `#267`.** It predates `R-51`, it touches
+`read_profile` — the same critical parser the adversarial loop is currently converging on
+— and folding it in would restart that loop for a defect affecting 16 rows. Recorded here
+with its measurement so it is picked up on its own, which is what this register is for.
+
+### OP-66 · The Arabic profile publishes an address box the English one does not, and 129 contractors are held out by it
+
+**Found 2026-08-24 by the owner asking whether another crawl was needed.** It is not, and
+answering that question found this.
+
+**The crawl is complete.** 36,358 profile snapshots on disk, **17,452 distinct contractor
+ids — the full union — and zero left to fetch.** What is missing is not pages; it is rows.
+
+| | |
+|---|---|
+| listing rows (`contractors`) | 17,304 |
+| profile rows (`contractor_profiles`) | 17,264, of which 14 retired by `OP-64` |
+| listing row with **no profile row at all** | **188** |
+| listing row with no *active* profile row | 202 (the 188 plus the 14) |
+| profile row with no listing row | 148 |
+
+Every one of the 188 has a stored snapshot. Replaying the current parser over them —
+read-only, no network — splits them cleanly:
+
+| count | refused by | can a crawl fix it? |
+|---:|---|---|
+| **59** | `PageIsNotAProfile` — layer 1 of `OP-64`; the id is dead and the site answers with the listing | **No, ever.** The page does not exist |
+| **129** | `merge_locales` — the two locales publish different box counts | **No.** The pages are on disk |
+| **0** | would approve today | re-approval adds nothing |
+
+**The cause of the 129, measured.** The Arabic page carries a `عنوان` (address) box that the
+English page does not publish at all:
+
+```
+[en]  9 info-boxes   ...  8. Region  Eastern Province
+[ar] 10 info-boxes   ...  8. المنطقه الشرقية
+                          9. عنوان  الرياض - شارع العليا - مقابل أبراج العليا
+```
+
+`CONTRACTOR-SOURCE.md` already records that the address is Arabic-only; what is new is that
+on these pages the English side omits the box **entirely**, so the counts differ and
+`merge_locales` refuses.
+
+**AND THE FIRST VERSION OF THIS ENTRY MEASURED IT WITH THE WRONG ARRAY.** It reported a gap
+of **+2** on every pair and concluded that **"121 of 121 are MISALIGNED"**, so no repair was
+possible. Both claims were artefacts of the instrument: they compared `Reading.fields`, a
+dict whose insertion order is not the page's, because `read_profile` adds
+`organization_email` and `commercial_registration` after the info-box loop.
+`merge_locales` reads `english.labels[index]` and — since `R-51` — the Arabic value at
+the position `align_locales` works out
+([scrapex/extract/muqawil.py:1715](../scrapex/extract/muqawil.py#L1715)). Re-measured
+against **those**:
+
+| pages | shape | the last label on each side | is the odd box at the END? |
+|---:|---|---|---|
+| **97** | AR one longer | EN `Region` · AR `عنوان` | **yes** — Arabic simply adds the address |
+| **24** | AR one longer | EN `Activity` · AR `الخدمة` | **no — it is interior** |
+| **7** | EN one longer | EN `Address` | yes |
+| **1** | EN one longer | EN `Activity` | no |
+
+The gap is **±1 on every one of the 129, never ±2**, and **no pair is misaligned before the
+divergence** — the digit instrument reports zero disagreements, because the odd box always
+falls after the last numeric field. So digits cannot decide this question either; the LABEL
+POSITIONS can.
+
+**THE REFUSAL IS STILL CORRECT, AND THE 24 ARE THE PROOF.** Contractor `20000713`:
+
+```
+    8   EN Region                AR المنطقه
+    9   EN Activity              AR عنوان        <-- diverges here, in the MIDDLE
+   10   EN     --                AR الخدمة
+```
+
+Zipping to the shorter list would write the Arabic **address** into `activity_ar` for those
+24. So the tempting repair — tolerate a trailing extra box — is wrong, and `merge_locales`
+is right to refuse rather than zip. What was wrong was the conclusion that NO repair exists.
+
+**The repair that does exist, and reads no Arabic label.** `PROFILE_FIELDS`
+(`scrapex/extract/muqawil.py:121`) is an ordered map of the **eleven** English labels **in
+page order**. Every one of the 129 English pages carries a subsequence of those eleven, in
+order, with no unrecognised label — checked, zero strays. So when the English page omits a
+box, *which* box it omitted and *where* is known, and the Arabic list can be indexed around
+that gap. Measured over all 188:
+
+| count | outcome under the canonical-position repair |
+|---:|---|
+| **121** | **recoverable** — Arabic is the longer side, so the gap is deducible from English |
+| **8** | refused — Arabic is the SHORTER side, and which field *it* dropped cannot be deduced without reading an Arabic label |
+| 59 | untouched — layer 1 still refuses them, and rightly (`OP-64`) |
+
+**Why this preserves the property the current code is built on.** `merge_locales`'s docstring
+argues that reading no Arabic label is what stops a spelling change in one from breaking the
+merge — and the site's own `المنطقه` is spelled with `ه` where `ة` belongs, so that argument
+has teeth: a hand-written Arabic vocabulary would have to carry the site's typo and would
+break the day they fix it. The canonical-position repair reads Arabic **values** only, exactly
+as today.
+
+**Worth +121 contractors with their address** — a field the English page cannot supply for
+anyone. Independent of the network, replayable from the snapshots already stored.
+
+**BUILT AND RULED, 2026-08-24 — `R-51`.** He was shown the two options and chose the
+second: «نفذ ب». `align_locales` (`scrapex/extract/muqawil.py`) locates the gap from the
+English side and `merge_locales` asks it; no Arabic label is read, which is the property
+the old refusal was built on and is worth more than the 129. Guarded by
+`tests/test_the_two_locales_line_up_around_a_missing_box.py` on two real page pairs
+committed as fixtures, and mutation-tested on eleven branches — one mutant survived the
+first draft and proved the order check was passing for the wrong reason.
+
+**Measured after the repair, replaying the 188 through the parser:** 121 merge, 24 of them
+carrying an address they did not have, 8 still refused, 59 still at layer 1.
+
+**AND THEN RUN FOR REAL, which is the number that counts.**
+`--approve --run-ref profiles-2026-08-22` over 17,417 stored pairs, **83.9 minutes, zero
+network requests**:
+
+| | |
+|---|---|
+| profile rows | 17,264 → **17,385** — **exactly 121 added** |
+| of those 121, carrying an address | **24** — the prediction, to the row |
+| listing rows with no profile row | 188 → **67** = the 8 refused plus the 59 dead ids |
+| pages unchanged, writing nothing | 17,249 (`DEC-10` idempotency held) |
+| re-parsed with NEW values | **0** — not one already-approved row was rewritten |
+| rows where `activity_ar` equals `address` | **0** — the corruption a tail-drop would have caused, on the whole table and not just the new rows |
+
+The 67 that remain are the floor this repair cannot lower: 59 need a page the site no
+longer serves, and 8 need an Arabic label read. `REQ-42` owns the 59. The 59 belong
+to `REQ-42` (a withdrawn contractor entered with a state that says so) and are separate
+from this.
+
+### OP-65 · A snapshot records the URL we ASKED for, never the one we landed on
+
+**Found 2026-08-23 by the owner asking whether the new guard was even correct.** It is —
+and the question found something better than the guard.
+
+`OP-64` diagnoses a dead profile id from the CONTENT of the page that comes back. That was
+reading the symptom. The cause, measured live:
+
+```
+asked   /en/contractors/20074580/143
+302  ->  /contractors
+302  ->  /en/contractors
+landed  /en/contractors        <- two hops, to the listing
+HTTP    200        372,141 bytes        the listing, 20 contractor links
+
+control
+asked   /en/contractors/1004/143
+landed  /en/contractors/1004/143
+HTTP    200        122,717 bytes        a real profile
+```
+
+**muqawil redirects a withdrawn id to the contractors listing** and answers 200, in TWO
+hops through a locale-less `/contractors`.
+
+> **CORRECTED.** This entry first said the locale switched — *"`en` was asked for and `ar`
+> came back"* — and made that the fingerprint. Re-measured live: `en` was asked for and
+> `en` came back. The real fingerprint is the two-hop 302 chain, which is stronger and
+> which the first measurement never recorded.
+
+### Why nothing in the project could notice
+
+`generic_page_snapshot` stores **`source_url`**, which is the URL the crawler *requested*.
+There is no column for the URL the response actually came from, and `httpx` follows
+redirects silently (`follow_redirects=True` at `scrapex/funnel.py:194` and three other
+call sites). So a page fetched from somewhere else is stored under the address we wanted,
+and every reader downstream — the parser, the approval, the coverage report — believes it.
+
+**This is a whole class, not one site's quirk.** Any source that answers a gone resource
+with a redirect to an index page produces the same silent substitution, and `OP-64`'s
+remedy would have to be written again per parser. A `final_url` on the snapshot catches
+all of them at the seam where the evidence is created.
+
+### What it needs
+
+1. **A `final_url` column** on `generic_page_snapshot`, written by the fetch seam.
+2. **A refusal at the seam, not in the parser**: if the final URL is not the requested one,
+   the page is evidence of a redirect and not of the thing that was asked for. `OP-64`'s
+   layer 1 then becomes a second line rather than the only one.
+3. **The 78 snapshots already stored under the wrong address stay wrong**, because the
+   fact was never captured. They are identifiable by content and that is all.
+
+**It does not replace `OP-64`.** A page can be substituted without a redirect, and the link
+test still catches that. But the redirect is the cheaper signal and it arrives first.
+
+### OP-64 · The site answers a dead profile id with the LISTING page, and the parser believes it
+
+**Found 2026-08-23 by the owner asking whether the counts were duplicated.** They were
+not. Chasing why the membership number repeated found this instead.
+
+**`card_membership_number` on the listing is unique and the owner's rule holds**: 17,304
+rows, 17,304 distinct values, zero blank. The repeats are in the PROFILE dataset —
+13,347 rows, 13,333 distinct, **three values shared**, one of them (`117511752`) sitting
+on **thirteen different contractor ids**. Fourteen contractors carry a different
+membership number in the profile table from the one on their listing card.
+
+**Re-measured 2026-08-24, after the profile crawl finished: 17,264 rows, 17,250 distinct,
+still exactly three shared values and still 14 excess rows** — `117511752` on 13 ids,
+`121612167` on 2, `587458748` on 2. The row count above was taken mid-crawl and did not
+say so, which is the defect; the finding itself did not move, and 3,917 further profiles
+added not one new collision.
+
+**The cause is not bad data entry. The site served the wrong document.**
+
+```
+GET /en/contractors/20034161/143
+    <title>       Contractors | Muqawil Platform
+    decoded       375,363 bytes, 22 section-cards
+a real profile    ~122,000 bytes,  7 section-cards
+```
+
+For an id that no longer resolves, muqawil answers **the contractors listing** with HTTP
+200. `read_profile` calls `_boxes(soup)` over the whole document, so it read the first
+card of that listing and attributed a stranger's values — `160916095`, `Small`, `96 h`,
+`RIYADH - Riyadh` — to whichever id had been asked for. **That is why thirteen ids share
+one membership number: they all took the same stranger's card.**
+
+**Measured, and it is small.** A random sample of 500 decoded snapshots:
+
+| | | |
+|---|---|---|
+| real profile | 499 | 99.8% |
+| listing served instead | 1 | 0.2% |
+
+About 70 of the 34,834 snapshots (95% CI 0–206) are the wrong document.
+
+> **CORRECTED TWICE, and the second correction reverses half of the first.** This entry
+> first said the rows hold *"another company's address, city, size and email"*. I
+> corrected that to *"the membership number alone"*. **Two adversarial reviews measured
+> both and both were wrong** — the first overstated it, mine understated it.
+>
+> **What is actually wrong, dumped from `generic_record_id=20579`:** FIVE declared
+> columns carry the stranger's values — `membership_number`, `company_size`,
+> `company_size_ar`, `training_credit_hours`, `training_credit_hours_ar` — plus **twelve**
+> undeclared `x_*` fields. `address`, `organization_email` and the coordinates ARE null,
+> which is the half my correction got right.
+>
+> **And the blast radius is 39 ids, not 14** *(as of 2026-08-23T16:00Z — see the note
+> below; it was 72 before this entry was even committed)*. 78 snapshots, both locales; 14
+> produced a row, **25 produced none**, which is why counting rows undercounted the
+> defect by 2.8x. Of the 39, **28** sit in the id block `20074580`–`20075073` — 9.96% of
+> that block against 0.224% crawl-wide, **44x** — and **eleven** are outside it with no
+> story, not two.
+>
+> **AND THIS CENSUS WAS STALE BEFORE THE COMMIT THAT STATES IT.** Round two measured the
+> clock: 39 ids / 78 snapshots was exact at `16:00Z`, and by `16:44Z` — when the commit
+> asserting it was authored — a targeted re-crawl had made it **72 ids / 154 snapshots**,
+> because re-fetching a dead id stores the listing again. **A census of a growing corpus
+> needs an as-of instant or it is a claim about the past written in the present tense.**
+> The undercount factor is not 2.8x but 5.2x, and the block percentages below
+> (9.96%, 44x) were computed from an intermediate denominator and do not reproduce: the
+> block holds 321 ids with profile snapshots, so it is 8.72% and 39x.
+>
+> **It is the LAST card on the listing, not the first.** `fields[key] = value` is
+> last-wins over every `div.info-box` pair on the page, and the poisoned page has 160 of
+> them. The values this entry originally quoted — `160916095`, `Small`, `96 h` — belong
+> to the FIRST card and appear in no stored row.
+>
+> The numbers below are kept as written, with their errors, because `C4` says a changed
+> mind keeps its predecessor:
+>
+> ```
+> id 20034161   membership 117511752   (its listing card says 355735571)
+>               city=None  email=None  latitude=None  company_size='Very Small'
+> ```
+>
+> The profile parser looks for `PROFILE_FIELD_ORDER`'s labels, does not find them on a
+> listing page, and emits **nulls**; only the membership number leaked through. Populated
+> fields average 18.0 on the wrong rows against 18.2 on healthy ones — they are not
+> impersonating anyone, they are empty with one borrowed number.
+>
+> The original claim came from probing the page with `_boxes()`, which is what
+> `read_listing` uses; the stored rows came from the profile path, which behaves
+> differently. **A probe is not the pipeline.** The rows themselves were the only honest
+> witness and they were one query away.
+>
+> It still is not harmless: thirteen ids collide on one number, and anyone searching by
+> membership number reaches the wrong company.
+
+### What it needs
+
+> **SUPERSEDED, and the paragraph below is the design this entry's own correction
+> refuted.** It is kept per `C4`. What shipped counts CONTRACTOR LINKS, not cards: a
+> profile links to exactly itself and a listing to many, so there is no threshold to
+> defend. The card count was measured with a regex the parser does not use — through
+> `soup.select` a real profile has six — and 160 real listing pages carry fewer than 15
+> cards, so the gap it relied on did not exist on the side it guarded.
+
+A **shape check before parsing**: a profile page is not a listing, and 22 section-cards
+where 7 are expected is the site saying "this id is gone" in the only way it does — with
+a 200. Refuse the page rather than parse it; the id belongs in a not-found list, not in
+the table. `PROFILE_FIELD_ORDER` already distinguishes the two documents at approval time
+(`scrapex/contractors.py`), so the knowledge exists and is applied one step too late.
+
+**And the rows already written must be found and removed**, not left: they are wrong in
+the most expensive way, being plausible. The listing's own membership number identifies
+them — a profile row whose number disagrees with its listing card is the marker.
+
+### A note on the measurement itself, because it nearly shipped wrong
+
+The first attempt discriminated on *"a profile has no section-cards"*. A real profile has
+**seven**, so 398 of 400 sampled fell into "other" and the run reported **0.5%** from two
+survivors. The number was an artefact of a broken instrument, not a finding. It was caught
+because 99.5% unclassified is not a result. **A discriminator has to be measured against a
+known-good example before it is trusted to count anything.**
 
 ### OP-63 · The word "products" over a contractor directory, on two surfaces
 
