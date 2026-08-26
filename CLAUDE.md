@@ -131,6 +131,12 @@ native command and CLI subcommand measured against the code, and the four-questi
 test. **It is a snapshot at `31c369e` and says so**, which is why its citations are checked
 against that commit and not against `HEAD`.
 
+**The muqawil dataset was audited after the crawl finished** —
+[docs/MUQAWIL-AUDIT-2026-08-26.md](docs/MUQAWIL-AUDIT-2026-08-26.md), thirty-two agents,
+28 confirmed defects separated from what the site itself publishes wrongly, and a
+deliverable-by-deliverable verdict on the plan. **It is a snapshot at `5722b6f`, not `main`,
+and its header says so** — check its citations against that commit.
+
 **If a session ended abruptly, start at [docs/HANDOFF-2026-08-23.md](docs/HANDOFF-2026-08-23.md)** —
 the queue in the owner's order, the six things not to do with a measured incident behind each,
 and the crawl's resume command.

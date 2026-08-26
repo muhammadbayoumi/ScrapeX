@@ -35,19 +35,51 @@ any moment, how much of what is built serves the category he asked about.
 | 0 · the truth repair — the chooser stops lying on a dataset table | **both** | **DONE** — this branch. Eleven price-path keys were reaching `contractors`; hiding a column was a silent no-op. Both mutation-tested |
 | 1 · AR \| EN in the panel | **both** | **not started.** The smallest real port, ~98 lines, and the payload already carries `bilingual`. `DEC-8`'s own example of a feature carried in NAME and left in FACT |
 | 2 · Choose-Columns in the panel | **both** | **not started.** EXTRACT the panel's existing pair into a shared module — do not write a second one |
-| 3 · the record card | **contractors** first, then products | **not started, and it is `REQ-32`.** The engine has this for products already; the port and the dataset build are one shell with two bodies. **⛔ GATED on the fetch-boundary question below — it needs a new engine endpoint** |
+| 3 · the record card | **contractors** first, then products | **not started, and it is `REQ-32`.** The engine has this for products already; the port and the dataset build are one shell with two bodies. **UNGATED 2026-08-26** by `R-50`: the read is SQL over a file the panel does not hold, so the engine keeps the endpoint and the panel owns the surface |
 | 4 · filters, column menus, export | **both** | **not started.** The bulk of the chrome — ~1,400 lines and the least inventive |
-| 5 · promotion | **products** | **not started, and worth the least.** `source_attribute_promotion` has never carried a row on any source. **⛔ GATED on the fetch-boundary question below — promotion WRITES domain state** |
+| 5 · promotion | **products** | **not started, and worth the least.** `source_attribute_promotion` has never carried a row on any source. **UNGATED 2026-08-26** by `R-48`: a write that decides which fields are columns is control, and control is the extension's with the engine executing. Still last — `source_attribute_promotion` has never carried a row |
 | 6 · the workbook link comes off the source card | — | **terminal gate.** Only when 1–5 are in |
 | — · saved views | products | **BLOCKED on [O-5](../RULINGS.md#open--awaiting-the-owners-ruling).** Do not start |
 
 ---
 
-## ⛔ The open question steps 3 and 5 sit behind — DO NOT resolve it here
+## ✅ ANSWERED 2026-08-26 — the gate below is LIFTED, and one of its two premises was wrong
 
-**«المحرك مهمته fetch».** He has said the engine's job is *fetch*, and a research
-workflow on exactly that boundary is running. **Until it answers, steps 3 and 5 do not
-start**, and this section exists so nobody builds past it by accident.
+**This section said steps 3 and 5 must not start until a boundary study answered. It
+answered on 2026-08-23 and this gate stayed shut for three days.** That is a `C2` defect
+with a measurable cost — two steps marked DO-NOT-START against a question the owner had
+already ruled on twice — and it was found by another session reading the plan, not by its
+author.
+
+**What he ruled**, both on `main`:
+
+- **[R-50](../RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)**
+  — *the engine is a helper to the extension, and any task the extension CAN perform moves
+  to it.* **The test is capability, not category.**
+- **[R-48](../RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)**
+  — the extension is the control room; the engine executes and reports.
+
+**So «fetch only» was never the answer, and the table below was asking the wrong question.**
+The narrowest formulation the record supports is **fetch *and write SQLite*** — every
+statement of it attaches storage, including his own: *"leave the engine only fetch +
+SQLite"* (`MIGRATION-PLAN.md:43-45`). A step that needs the engine to read `generic_record`
+was never outside the boundary.
+
+**Both steps are UNGATED, and each for its own reason:**
+
+- **Step 3 · the record card.** Under `R-50` the question is not *"is this fetch?"* but
+  *"can the extension do it?"* A read of `generic_record` plus its revisions is SQL over a
+  SQLite file the panel does not hold, so **the engine keeps it for `R-50`'s only permitted
+  reason** — and the panel owns the surface. Build it.
+- **Step 5 · promotion.** A write that changes which fields are columns is a *control*
+  decision, and `R-48` puts control in the extension with the engine executing. So it is
+  not blocked either — but it is still **worth the least**: `source_attribute_promotion` has
+  never carried a row on any source, which is why it stays last rather than becoming urgent.
+
+**The dependency map below is kept rather than deleted, per `C4`**, because it was correct
+reasoning from a premise that turned out to be false, and the shape of the error is more
+useful than its absence: **it split the steps by "does this ask the engine to do more than
+fetch", and the boundary is not drawn there.**
 
 **Why it lands on this plan at all.** The two remaining capabilities are not symmetrical
 with steps 1, 2 and 4:
@@ -147,8 +179,15 @@ renders through the `is_dataset` branch — and **it is itself incomplete for co
 A port of a page cannot deliver a feature the page does not have.
 
 Four of the five endpoints the engine's data page consumes run on `read_conn()`, the
-price warehouse, and are structurally products-only. Only `/api/table` uses
-`general_read_conn()` and resolves the catalogue first.
+price warehouse, and are structurally products-only.
+
+**CORRECTED 2026-08-26 — and this plan's own step 0 is what falsified it.** This paragraph
+said *"only `/api/table` uses `general_read_conn()` and resolves the catalogue first."*
+**`GET /api/fields` does too**, at `scrapex/webui/app.py:2269` — which is precisely what
+step 0 changed when it made that endpoint truthful for a dataset. So the sentence was
+already false in the commit that shipped beside it. Kept and corrected rather than
+rewritten, per `C4`: **a plan contradicted by its own delivered step is a `C2` bug, not a
+footnote**, and it was found by a session reviewing the plan rather than by its author.
 
 | capability | engine · products | engine · contractors | panel |
 |---|---|---|---|
