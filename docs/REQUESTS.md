@@ -95,6 +95,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
+| [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 
 ---
 
@@ -2213,3 +2214,78 @@ not before**, per `R-02`.
 verifiers caught it: it dated *text* by each **file's** last commit, which inverts the
 seniority of two documents in one of its headline contradictions. A line's age is not its
 file's age, and this register should not repeat the mistake.
+
+---
+
+## REQ-44 · The state gets its own column, and the user never infers it
+**Captured 2026-08-21 · ruled as `R-27` and built in #235 the same day · reached the board only on 2026-08-26 · Done**
+
+> «ضيف الحالات التى ذكرتها ولا يتم تغطيتها الان وايضا عمود يوضح الحالة الجديدة لا تدع
+> المستخدم يستنتج الحالة»
+
+*Add the states you named that are not covered now, and a column that shows the new state —
+do not leave the user to infer the state.*
+
+**FIVE DAYS LATE, AND THE LATENESS IS WHY THIS ENTRY EXISTS AT ALL.** His instruction was
+**ruled** as [R-27](RULINGS.md#r-27--a-row-never-disappears-from-the-users-view-its-state-becomes-a-column)
+and **built** the same day — migration `0006_a_row_says_when_it_was_last_proved_absent.sql`,
+merged as #235 (`ec53b17`) — and it never reached this board. It survived in the code that
+implements it: quoted in that migration's header, in `scrapex/sightings.py:102` and `:361`,
+in `scrapex/extract/service.py:51` and `:958`, and in
+`tests/test_a_dataset_is_a_table_like_any_other.py:849`. **Six citations in code and
+migrations, zero on the register that tracks what he asked for.**
+
+**It was found by a guard refusing a pull request.**
+`tests/test_a_request_of_his_reaches_the_board.py::test_every_finding_that_quotes_him_is_reachable_from_the_request_board`
+failed on `#267` because `OP-68` quotes him and nothing on the board carried the quote. The
+guard was written after this exact failure happened three times in one afternoon; **the debt
+it caught here is older than the branch it blocked**, and blocking that branch is how it
+surfaced.
+
+### What he asked for, in two halves
+
+| half | state |
+|---|---|
+| **add the states not yet covered** | **Done.** Six were computable from what the schema held — `new`, `updated`, `confirmed`, `absent`, `unsighted`, `retired`. One was not, and migration `0006` is the reason it now is: **`returned`** — absent in an earlier crawl, and here again |
+| **a column that shows the state, so the reader never infers it** | **Built, and now WRONG.** See below |
+
+### The column he asked for is currently telling him the opposite of the truth
+
+**[`OP-68`](BACKLOG.md) measured it read-only on the live warehouse**, and it is the loudest
+false alarm the product can produce:
+
+| | `contractors` | `contractor_profiles` |
+|---|---|---|
+| rows reported **absent** | **17,256 of 17,304** | 17,384 |
+| rows reported **new** | — | **1**, where **121** were first seen that day |
+| `dataset_sighting` rows | 17,417 | **0** |
+
+**The screen tells him 17,256 of his 17,304 contractors have stopped being published — after
+a crawl that read every one of them.** The cause is that `newest` is `MAX(last_seen_at)` **to
+the second**, and a crawl writes its rows over half an hour, so only rows written in the
+final second survive the comparison. The reasoning that fixes it is already in the same file
+eight lines below the defect, where `last_absent_at` uses `>=` *"because both timestamps are
+`strftime(…,'now')` at SECOND resolution"* — and that argument was never carried across.
+
+**So this request is `Done` and its product is lying, which is a worse state than
+`Not built`.** `Not built` shows him nothing; this shows him a number and the number is
+wrong. That is why the board row says **"Done, and the column now lies"** rather than
+**Done**.
+
+### Why it is filed here rather than folded into `OP-68`
+
+**`OP-68` is a finding — we measured it. This is a request — he said it.** `CLAUDE.md`'s
+boundary is exactly that test, and the two must not drift into each other. `OP-68` stays in
+`BACKLOG.md` as the defect; this entry is the instruction the defect betrays.
+
+**And it is filed independently of `#267` deliberately.** That branch has been red for two
+days holding a data recovery. Had this record ridden along with it, it would depend on that
+branch landing — which is the identical mechanism that lost `OP-69` for three days. A record
+that can be lost by a stalled branch is not a record.
+
+### What is owed
+
+The fix is `OP-68`'s to carry. What this entry adds is the standard the fix is measured
+against, in his words: **the user never infers the state.** A state column that is present
+and wrong does not satisfy that; it violates it more completely than a missing column would,
+because it is believed.

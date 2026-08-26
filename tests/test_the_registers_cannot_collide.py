@@ -122,6 +122,14 @@ RESERVED: dict[str, dict[int, str]] = {
     # hole nobody owns, which is the rule the comment above already states.
     "REQ": {
         34: "branch claude/drive-without-a-server",
+        # 41 AND 42 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267) and 43
+        # to `feat/organization-enrichment`. All three became holes HERE the moment this
+        # branch declared `REQ-44`, because the gap check runs from 1 to `max(numbers)`.
+        # #267 has an open pull request and 43's branch is pushed, so both keep their
+        # numbers and this branch steps past them. Delete each row the day its PR lands.
+        41: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        42: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        43: "branch feat/organization-enrichment",
     },
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
