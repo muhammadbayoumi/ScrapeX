@@ -2564,3 +2564,95 @@ every claim is, and whether the claim can still be read after that base has move
 the answer is *yes*, the fix is to make the claim carry its base or re-derive it
 (§12, `ORCHESTRATION` §4). **When the artefact is a process rather than a file, no
 amount of re-deriving helps — the artefact has to be able to answer for itself.**
+
+---
+
+## 15 · An assertion that lists the allowed answers passes when every answer is wrong
+
+**Measured 2026-08-26, reviewing the plan that moves the source page into the
+extension.** Three guards were examined and all three were the same defect wearing
+different clothes: *the expectation was retyped beside the thing it guards instead
+of derived from it.* Retyped expectations do not merely go stale — they go stale
+**silently and in the safe-looking direction**, which is why none of the three had
+ever failed.
+
+### The instance that is worst, because the column exists to prevent guessing
+
+`observed_state` exists on his instruction — «عمود يوضح الحالة الجديدة لا تدع
+المستخدم يستنتج الحالة». The test covering it
+([tests/test_a_dataset_is_a_table_like_any_other.py:869](../tests/test_a_dataset_is_a_table_like_any_other.py#L869))
+asserts membership:
+
+```
+assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
+                                 "absent", "unsighted", "retired", "unavailable"}
+```
+
+`unsighted` is in that set. So a table where **every single row** collapsed to
+`unsighted` is green. And there is a live path that does exactly that:
+[scrapex/extract/service.py:895](../scrapex/extract/service.py#L895) resolves the
+identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
+two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
+every sighting lookup misses, and the whole column is wrong with nothing to say so.
+
+**Two facts make this a lesson rather than a hypothetical.** `grep -rn "key_part"
+tests/` returns **zero** — the identity resolution has no test at any arity. And the
+comment two lines above the collapse names the trigger: *"`contractor_id` is
+muqawil's answer; Balady's and the UAE's will not be."* The next source is the
+event, and `docs/BALADY-ENG-OFFICES.md` and `docs/UAE-SOURCES.md` are already
+written.
+
+### The general form, and the cheap test for it
+
+**An assertion whose right-hand side is a SET is only as strong as the worst member
+of that set.** Ask of any such assertion: *if the code returned this same value for
+every row, would this still pass?* When the answer is yes, it is measuring that the
+code produced a string, not that it produced the right one.
+
+The fix is not a bigger set. It is asserting the value a **named** fixture must
+produce — one row that is genuinely `confirmed`, one genuinely `unsighted` — so the
+mapping is checked rather than the vocabulary.
+
+### The same shape twice more, both closed the same way
+
+- **The payload contract.** `test_it_answers_every_key_the_grid_reads` asserted
+  thirteen keys typed into the test. `grid.js` reads ten, and three of the thirteen
+  it never reads. Worse, it opens no file, so a **new** `payload.x` read in `grid.js`
+  failed no test — the crash the docstring names was the one case it could not see.
+  Closed by deriving both sides from the artefacts
+  ([tests/test_the_table_payload_answers_every_key_its_readers_read.py](../tests/test_the_table_payload_answers_every_key_its_readers_read.py)),
+  the mechanism `R-15`'s citation guard already established.
+- **CI's browser floor.** `.github/workflows/ci.yml` said it in its own comment —
+  *"a per-file 'at least one' would not have noticed 48 becoming 1"* — and then
+  applied a real number to one suite of ten. `test_grid_dom.py` (20) and
+  `test_tab_page_dom.py` (10), the two suites that draw the Data page, sat on `-ge 1`.
+
+**So the rule generalises past tests:** a guard that states its own reasoning and
+then applies it narrowly is more dangerous than one that never stated it, because
+the stated reasoning reads as coverage.
+
+## 16 · Reading the renderer is not drawing it, and the gap was one word wide
+
+**Same review, and it cost ten minutes rather than an afternoon only because a
+harness existed.** `grid.js` pushes the moved-column card into
+`detailSections.get("specifications")`, so a test written from the source waits for
+`[data-inspector-view="specifications"]`. It times out: the record panel renders
+**exactly two** view buttons, `details` and `history`. "specifications" is a
+*section inside* Details, not a view of its own — a distinction invisible in the
+line that names it.
+
+**And a second one in the same test.** The card's heading is upper-cased by CSS, and
+`innerText` reports the transformed text, so `"Moved out of the table" in panel` is
+false while the card is plainly drawn. A behavioural assertion must not be able to
+fail because a stylesheet changed its mind about capitals.
+
+**Apply:** when a gate says *"the card appears"*, the only thing that can prove it is
+a browser. Both misreadings above were made while looking directly at the correct
+line of source, which is the argument the plan makes for its own harness — the Data
+page shipped **broken** once with 2,460 engine and 398 extension tests green on it —
+arrived at again from the other end.
+
+**And the corollary that is easy to skip:** the negative control must open the same
+view as the positive test. Asserting "no card" against a panel whose section was
+never opened passes for the wrong reason, and an absent card and an unopened section
+are indistinguishable from outside.
