@@ -122,6 +122,11 @@ RESERVED: dict[str, dict[int, str]] = {
     # hole nobody owns, which is the rule the comment above already states.
     "REQ": {
         34: "branch claude/drive-without-a-server",
+        # 43 belongs to `feat/organization-enrichment`, which is pushed and unmerged.
+        # 41 and 42 were reserved to #267 and their rows are GONE because #267 has
+        # landed -- which is the rule this table states about itself. Delete this row
+        # the day that branch lands too.
+        43: "branch feat/organization-enrichment",
     },
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
@@ -176,6 +181,12 @@ RESERVED: dict[str, dict[int, str]] = {
     # Nothing else was touched.
     "OP": {
         45: "branch claude/drive-without-a-server",
+        # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
+        # open). They became holes HERE the moment this branch declared `OP-69`, because
+        # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and
+        # this branch's own claim came later, so #267 keeps them under the rule that an
+        # open PR outranks a bare branch -- and the five rows are the cost of skipping
+        # past them rather than arguing over them. Delete all five the day #267 merges.
         # 49 AND 50 ARE NEW ON THIS BRANCH AND NOT NEW IN THE WORLD. The Drive
         # branch has held all three of 45, 49 and 50 since before #255; they only
         # became holes HERE when this branch declared `OP-51` and `OP-52`, because
