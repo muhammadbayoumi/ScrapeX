@@ -782,6 +782,21 @@ def create_app(
         "button that cannot work is worse than no button" rule #258 built a guard
         for. The profile crawl reaches the card as COVERAGE instead, which is
         `R-47`'s second point and the number he actually wants.
+
+        WHY THIS IS ENGINE WORK UNDER `R-50`, and the question is worth stating because
+        the answer is not automatic. `R-50` landed the same day: *the engine is a helper
+        to the extension, and any task the extension CAN do moves to it* — and the test
+        is **capability**, not category. The fold reads `dataset_relationship` and joins
+        two row counts, which is SQL over a SQLite file, so the panel cannot do it from
+        what it holds: it speaks HTTP to this process and has no warehouse of its own.
+        The engine therefore keeps it for `R-50`'s *only* permitted reason.
+
+        THE ALTERNATIVE READING IS REAL AND IS NOT TAKEN: ship both dataset rows AND the
+        relationship to the panel and let it fold. That would satisfy `R-50` too, and it
+        is a WIDER contract — the panel would then own a join it has no other use for —
+        so it is not obviously better. It is left un-taken rather than un-noticed, and
+        nothing here blocks the engine-down case: a machine with no engine reads its
+        Drive bundle through `datasetSummaries`, which never calls this route.
         """
         rows = _dataset_rows()
         if len(rows) < 2:
