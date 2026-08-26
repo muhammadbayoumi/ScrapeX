@@ -222,9 +222,16 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
         ROOT / "scrapex" / "webui" / "static" / "tokens.css",
         ROOT / "scrapex" / "webui" / "static" / "appearance.js",
     }
+    # Hex plus EVERY functional notation, not just `rgba?(`. While #FFFFFF sat
+    # in app.css (2026-08-18, reverted) this regex would have waved through
+    # `hsl(0 0% 100%)` and `light-dark(white, var(--bg))` — same defect, next
+    # cheapest spellings. `color-mix(` stays legal: it is arithmetic on tokens,
+    # not a literal, and both components sheets lean on it. The dot in the
+    # functional lookbehind keeps `.color(...)` method calls out of the net.
     colour = re.compile(
         r"(?<![&A-Za-z0-9_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|"
-        r"[0-9a-fA-F]{3})(?![A-Za-z0-9_-])|rgba?\(",
+        r"[0-9a-fA-F]{3})(?![A-Za-z0-9_-])|rgba?\(|"
+        r"(?<![.A-Za-z0-9_-])(?:hsla?|hwb|oklab|oklch|lab|lch|light-dark|color)\(",
     )
     # `href="#add"` is a fragment reference to a sprite symbol, and `add` is
     # three hex digits. Every page that reaches the sprite through a path has a
@@ -244,6 +251,116 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
                     offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == [], f"colour literals outside the shared system: {offenders}"
 
+
+def test_ui_named_colour_words_stay_out_of_stylesheet_code():
+    """`background: white` is the hex literal's cheapest spelling, and the
+    guard above cannot ban the word — it reads comments on purpose, and
+    describing a colour IN WORDS is the sanctioned way to write a comment
+    here. So the split: strip CSS comments (keeping every newline, so offender
+    line numbers stay true) and hold the remaining CODE to the same rule.
+    Keywords that name no palette entry — `transparent`, `currentColor`, and
+    the system colours (`Canvas`, `CanvasText`, `AccentColor`, ...) — stay
+    legal everywhere; they follow the user's theme instead of overriding it.
+    CSS only: the functional/hex regex already covers JS and HTML, and
+    stripping JS comments cannot be done safely with a regex."""
+    allowed = {
+        ROOT / "design" / "tokens.css",
+        ROOT / "extension" / "tokens.css",
+        ROOT / "scrapex" / "webui" / "static" / "tokens.css",
+    }
+    names = (
+        "aliceblue antiquewhite aqua aquamarine azure beige bisque black "
+        "blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse "
+        "chocolate coral cornflowerblue cornsilk crimson cyan darkblue "
+        "darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki "
+        "darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon "
+        "darkseagreen darkslateblue darkslategray darkslategrey darkturquoise "
+        "darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick "
+        "floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod "
+        "gray green greenyellow grey honeydew hotpink indianred indigo ivory "
+        "khaki lavender lavenderblush lawngreen lemonchiffon lightblue "
+        "lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen "
+        "lightgrey lightpink lightsalmon lightseagreen lightskyblue "
+        "lightslategray lightslategrey lightsteelblue lightyellow lime "
+        "limegreen linen magenta maroon mediumaquamarine mediumblue "
+        "mediumorchid mediumpurple mediumseagreen mediumslateblue "
+        "mediumspringgreen mediumturquoise mediumvioletred midnightblue "
+        "mintcream mistyrose moccasin navajowhite navy oldlace olive "
+        "olivedrab orange orangered orchid palegoldenrod palegreen "
+        "paleturquoise palevioletred papayawhip peachpuff peru pink plum "
+        "powderblue purple rebeccapurple red rosybrown royalblue saddlebrown "
+        "salmon sandybrown seagreen seashell sienna silver skyblue slateblue "
+        "slategray slategrey snow springgreen steelblue tan teal thistle "
+        "tomato turquoise violet wheat white whitesmoke yellow yellowgreen"
+    ).split()
+    named = re.compile(
+        r"(?i)(?<![A-Za-z0-9_.#-])(?:" + "|".join(names) + r")(?![A-Za-z0-9_.(-])"
+    )
+    offenders = []
+    for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui"):
+        for path in folder.rglob("*.css"):
+            if path in allowed or "vendor" in path.parts:
+                continue
+            code = re.sub(
+                r"/\*.*?\*/",
+                lambda m: "\n" * m.group(0).count("\n"),
+                path.read_text(encoding="utf-8"),
+                flags=re.S,
+            )
+            for number, line in enumerate(code.splitlines(), 1):
+                if named.search(line):
+                    offenders.append(f"{path.relative_to(ROOT)}:{number}")
+    assert offenders == [], f"named colours in stylesheet code: {offenders}"
+
+
+def test_every_masked_mark_survives_forced_colours():
+    """A mark painted as `background` behind a `mask` vanishes in Windows High
+    Contrast, and it vanishes SILENTLY -- nothing throws, no test looks, and
+    the logo is simply gone.
+
+    THE MECHANISM, because the fix looks redundant until you know it: forced
+    colours mode discards author `background-color` values and substitutes a
+    system colour. The mask still cuts its shape, but the paint behind it is
+    now Canvas on a Canvas page, so the mark is invisible. `currentColor` does
+    not rescue it: `color` is forced to CanvasText separately, and the
+    discarded background never reads it. Only a system colour survives, which
+    is why each rule below repaints with CanvasText.
+
+    So: every selector that reveals `--brand-mark` through a mask must be
+    named inside a `forced-colors: active` block in the same sheet.
+    """
+    blocks = re.compile(r"@media\s*\(forced-colors:\s*active\)\s*\{", re.I)
+    rule = re.compile(r"([^{}]+)\{([^{}]*)\}")
+    missing = []
+    for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui"):
+        for path in folder.rglob("*.css"):
+            if "vendor" in path.parts:
+                continue
+            # Comments go first, or a sentence ABOUT a mark parses as a selector
+            # for it and the guard reports on prose.
+            text = re.sub(r"/\*.*?\*/", "", path.read_text(encoding="utf-8"), flags=re.S)
+            # The forced-colours media blocks, brace-matched from each opener so
+            # a nested rule cannot end the block early.
+            covered = ""
+            for opener in blocks.finditer(text):
+                depth, index = 1, opener.end()
+                while depth and index < len(text):
+                    depth += {"{": 1, "}": -1}.get(text[index], 0)
+                    index += 1
+                covered += text[opener.end():index]
+            for selectors, body in rule.findall(text):
+                if "--brand-mark" not in body or "mask" not in body:
+                    continue
+                for selector in selectors.split(","):
+                    name = selector.strip().split()[-1] if selector.strip() else ""
+                    # Whole name, not substring: `mark` must not be answered by
+                    # `.welcome-mark`, which is how a loose `in` check passes
+                    # while the mark it names stays invisible.
+                    if name and not re.search(re.escape(name) + r"(?![\w-])", covered):
+                        missing.append(f"{path.relative_to(ROOT)}: {name}")
+    assert missing == [], (
+        "masked marks with no forced-colours repaint, so they disappear in "
+        f"Windows High Contrast: {missing}")
 
 def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     """An icon is a component, not decoration: missing IDs leave an invisible

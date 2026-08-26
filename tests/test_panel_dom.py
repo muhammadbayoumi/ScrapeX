@@ -3009,6 +3009,94 @@ def test_the_profile_states_live_in_one_persistent_centered_card(open_panel):
     assert card.get_attribute("aria-modal") is None
 
 
+def test_the_profile_page_paints_to_every_edge_of_the_shell(open_panel):
+    """The page background must reach all four edges of the panel shell.
+
+    The full-bleed is done by hand: `margin: calc(-1 * var(--sp-4))` cancels
+    main's padding, so the view has to EARN back the height it repaints. It
+    used `height: 100%` — the parent's CONTENT box — which left the paint one
+    padding plus one margin short: a 32px strip of the shell's --surface under
+    the page's --bg. Light mode hid it for a day only because a raw white
+    canvas (#FFFFFF, reverted 2026-08-19) happened to match the shell; dark
+    mode showed it the whole time. `flex: 1` absorbs the negative margins the
+    way every sibling view does. This pins all four edges so neither spelling
+    of the mistake comes back.
+    """
+    page = open_panel()
+    page.wait_for_function(
+        "() => document.querySelector('#view-profile')"
+        "     .getAnimations().every((a) => a.playState === 'finished')")
+    box = page.evaluate("""() => {
+      const r = (s) => { const b = document.querySelector(s).getBoundingClientRect();
+        return {top: b.top, right: b.right, bottom: b.bottom, left: b.left}; };
+      return {view: r('#view-profile'), main: r('main')};
+    }""")
+    for edge in ("top", "right", "bottom", "left"):
+        off = abs(box["view"][edge] - box["main"][edge])
+        assert off < 1, (
+            f"#view-profile's {edge} edge misses main's by {off:.0f}px — the "
+            "full-bleed is short again; check the flex/height line against the "
+            "negative margin in extension/app.css")
+
+
+def test_a_visible_notice_is_not_flush_against_the_profile_page(open_panel):
+    """The full-bleed page must not swallow the gap above a warning.
+
+    `margin: calc(-1 * var(--shell-pad))` exists to cancel main's padding, but
+    main is a flex column with a gap, and a negative TOP margin spends that gap
+    as well — leaving a red compatibility card touching the page canvas with no
+    separation at all. So the top bleed is dropped whenever a notice is showing
+    above it, and only the other three sides bleed.
+    """
+    page = open_panel(extension_version="0.1.0", engine_version="0.2.0")
+    assert page.locator("#version-notice").is_visible(), (
+        "the notice never appeared, so this test proves nothing")
+    assert page.is_visible("#view-profile")
+
+    box = page.evaluate("""() => {
+      const r = (s) => { const b = document.querySelector(s).getBoundingClientRect();
+        return {top: b.top, bottom: b.bottom}; };
+      return {notice: r('#version-notice'), view: r('#view-profile'), main: r('main')};
+    }""")
+    gap = box["view"]["top"] - box["notice"]["bottom"]
+    assert gap > 8, (
+        f"only {gap:.0f}px between the compatibility notice and the profile "
+        "page — the page's negative top margin is eating main's gap again")
+    # And the page must still stop AT the shell's bottom, not past it: with a
+    # notice above, a page sized to the full parent height overflows and its
+    # card loses its bottom padding to main's clip.
+    over = box["view"]["bottom"] - box["main"]["bottom"]
+    assert over < 1, (
+        f"the profile page runs {over:.0f}px past the bottom of the shell with "
+        "a notice above it, so its content is being clipped")
+
+def test_the_manage_account_page_paints_to_every_edge_of_the_shell(open_panel):
+    """#view-manage-account is the profile page's full-bleed twin: the same
+    negative margin, and it had the same `height: 100%` short-bleed. One
+    assertion each, so the twins cannot drift apart again."""
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+    # showView animates a view in with translateY(8px) -> 0 over 180ms
+    # (extension/app.js). Measuring inside that window reads the transform as a
+    # short bleed: this assertion failed at 2.8px of 8 before the wait existed.
+    page.wait_for_function(
+        "() => document.querySelector('#view-manage-account')"
+        "     .getAnimations().every((a) => a.playState === 'finished')")
+    box = page.evaluate("""() => {
+      const r = (s) => { const b = document.querySelector(s).getBoundingClientRect();
+        return {top: b.top, right: b.right, bottom: b.bottom, left: b.left}; };
+      return {view: r('#view-manage-account'), main: r('main')};
+    }""")
+    for edge in ("top", "right", "bottom", "left"):
+        off = abs(box["view"][edge] - box["main"][edge])
+        assert off < 1, (
+            f"#view-manage-account's {edge} edge misses main's by {off:.0f}px — "
+            "the full-bleed is short again; check the flex/height line against "
+            "the negative margin in extension/app.css")
+
+
 @pytest.mark.parametrize("width,height", [(400, 800), (400, 520), (320, 440)])
 def test_the_signed_in_profile_starts_at_the_top_and_still_fits(
         open_panel, width, height):

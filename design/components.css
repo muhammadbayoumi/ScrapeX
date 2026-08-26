@@ -971,6 +971,12 @@ code {
   textarea {
     border: 1px solid CanvasText;
   }
+  /* The logo is a background revealed through a mask, and forced colors
+     replaces author backgrounds — Canvas through the mask is an invisible
+     mark. CanvasText is the one paint the mode keeps. */
+  .brand-logo {
+    background: CanvasText;
+  }
 }
 /* Appearance is one token-driven setting component shared by Workspace and
    Android-style side panel. The controls map to three distinct jobs:
