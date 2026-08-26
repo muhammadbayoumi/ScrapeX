@@ -247,6 +247,19 @@ jobs:
           # that regressed before and a per-file "at least one" would not have
           # noticed 48 becoming 1.
           test "$(collected tests/test_panel_dom.py)" -ge 40
+          # AND THE SAME REASONING NOW COVERS THE TWO SUITES THAT DRAW THE DATA
+          # PAGE, because the sentence above was true of them and applied to
+          # neither. Counted 2026-08-26 with `--collect-only -q`, not remembered:
+          # test_grid_dom.py 20, test_tab_page_dom.py 10. Both sat on the `-ge 1`
+          # floor, so either could have fallen to a single test and stayed green.
+          #
+          # They are named because the plan that moves the source page into the
+          # extension proves steps 1, 3 and 4 through these two files and no
+          # others, and its own argument for them is that the Data page already
+          # shipped BROKEN once with 2,460 engine and 398 extension tests green
+          # on it. A gate defending against that must not be the loosest one.
+          test "$(collected tests/test_grid_dom.py)" -ge 20
+          test "$(collected tests/test_tab_page_dom.py)" -ge 10
 
       - name: The extension gate must not have emptied
         # The same reasoning as the line above, for the set the split depends
