@@ -4584,7 +4584,7 @@ red check mean "unpaid", so a red that meant "broken" was invisible. **A guard
 that cries wolf daily is not a guard**; this one had also never been exercised
 against a passing case.
 
-### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-20
+### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-26
 
 > **RE-MEASURED 2026-08-20, and "MOSTLY fixed" is too generous.** Thirteen runs of
 > `test_a_killed_engine_does_not_leave_a_job_claiming_to_run` across two
@@ -4615,6 +4615,47 @@ against a passing case.
 > Consequence unchanged and worth restating: `_source_is_busy` reads that status,
 > so a real crash leaves the source blocked from every future crawl with nothing
 > anywhere saying why. That is the defect; the flaky test is only how it is seen.
+>
+> **Re-measured 2026-08-26, and this run adds the one pairing the thirteen did not
+> have: the SAME SHA, green in CI and red here.** Seen from
+> `fix/the-release-gate-fetches-a-page` at `0e26139`, based on `35962cc`. Full
+> suite: **1 failed, 3287 passed** — the failure the same assertion at
+> `tests/test_the_engine_survives_being_killed.py:266`. Then that file alone, three
+> consecutive runs: **pass, FAIL, FAIL.**
+>
+> **`35962cc` is green in CI**, and the local failures are on a tree whose engine
+> code is byte-identical to it. So this is not "fails on unmodified code" a fourth
+> time — it is *the same commit passing on a CI runner and failing on this machine*,
+> which is the discriminator the entry has been missing. **A timing-sensitive test
+> and a load-exposed race are not distinguished by "it flakes"; they are
+> distinguished by whether the machine is the variable.** This says it is.
+>
+> **And the "never conclude from runs on one side only" rule above was satisfied by
+> PROOF rather than by sampling.** Rather than run the unmodified checkout too, the
+> branch was shown to be incapable of causing it:
+>
+>     git diff origin/main --name-only -- scrapex/ db/ packaging/                       -> 0 files
+>     git diff origin/main --name-only -- tests/test_the_engine_survives_being_killed.py -> 0 files
+>
+> Four files change on that branch and none of them is engine code or the test. That
+> is stronger than four passes on the other side, because a sample can be unlucky and
+> a byte-identical tree cannot. **The rule's intent is "do not conclude from one
+> side"; running both sides is one way of obeying it and not the only one.**
+>
+> Conditions, stated rather than assumed: an engine was listening on `127.0.0.1:8000`
+> throughout (a `pythonw` started 07:22 that morning, belonging to another session),
+> and several interactive sessions were live on the machine. Whether a crawl was in
+> flight was **not** verified, so this is a loaded machine of unknown load — the
+> deliberate-crawl measurement of 2026-08-20 above remains the better-controlled one.
+>
+> The reasoning that led here arrived at this entry's own conclusion independently,
+> from the test's failure message alone and with no knowledge of the entry: if load
+> can leave a job stuck at `running` in a test, load can leave one stuck in reality.
+> **Recorded because agreement reached twice by different routes is evidence, and
+> because it is the second time this entry's consequence has had to be re-derived by
+> someone who could not see it** — the first was the session that found the entry
+> after concluding it. A defect that keeps being rediscovered is under-advertised
+> rather than well-documented.
 
 Found 2026-08-11 while removing the engine's Google surface. The suite went red
 on `test_a_killed_engine_does_not_leave_a_job_claiming_to_run`, and the first
