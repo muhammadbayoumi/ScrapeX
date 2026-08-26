@@ -176,6 +176,17 @@ RESERVED: dict[str, dict[int, str]] = {
     # Nothing else was touched.
     "OP": {
         45: "branch claude/drive-without-a-server",
+        # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
+        # open). They became holes HERE the moment this branch declared `OP-69`, because
+        # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and
+        # this branch's own claim came later, so #267 keeps them under the rule that an
+        # open PR outranks a bare branch -- and the five rows are the cost of skipping
+        # past them rather than arguing over them. Delete all five the day #267 merges.
+        64: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        65: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        66: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        67: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
+        68: "branch docs/two-counts-and-the-gap-between-them (PR #267)",
         # 49 AND 50 ARE NEW ON THIS BRANCH AND NOT NEW IN THE WORLD. The Drive
         # branch has held all three of 45, 49 and 50 since before #255; they only
         # became holes HERE when this branch declared `OP-51` and `OP-52`, because

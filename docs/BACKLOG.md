@@ -2793,6 +2793,86 @@ for a crawl that never ran.
 
 ## 3. Decided, not yet built
 
+### OP-69 · The release gate proves the engine STARTED, never that it can serve a page
+
+**Found 2026-08-23 by the session that wrote `OP-62`'s fix. Filed 2026-08-26, and the
+three-day gap is the defect worth recording first.**
+
+**THIS ENTRY IS LATE AND THE LATENESS IS THE LESSON.** The session that fixed `OP-62`
+scoped this gap deliberately OUT of that change — correctly, because widening a defect fix
+into a new feature is how a fix stops being reviewable — and then **told the primary
+session about it rather than leaving it.** The primary said it would take it and give it a
+number. **It never wrote it down.** For three days it existed in a chat channel, which is
+the one place `CLAUDE.md` says does not count: *"the repository is the only memory. A note
+that is not committed did not happen."* The finder had to come back and ask for the number
+a second time, having first checked `BACKLOG.md`, `STATE.md`, `REQUESTS.md`, `LESSONS.md`
+and `RULINGS.md` and found nothing.
+
+**So it is filed before the fix rather than with it.** Had it been filed with the fix, and
+had the fix not been authorised, the record would have been lost a second time by the same
+mechanism.
+
+### The gap
+
+`OP-62` was the published engine unable to serve a single page: `packaging/build_engine.py`
+told PyInstaller to carry two data paths and the runtime opens five. It is fixed — all five
+are in `RUNTIME_DATA` and `tests/test_the_frozen_engine_carries_its_own_files.py` guards
+them by enumerating what the source actually opens rather than restating the recipe.
+
+**The release gate, however, still stops one step short of the thing that fails.** Its final
+check runs the built `.exe` and requires four lines of output, the last being `ScrapeX UI`.
+That line is printed by `scrapex/cli.py`'s `_cmd_ui` only once `create_app` **has returned** —
+which is a real and deliberate improvement, because `StaticFiles(check_dir=True)` refuses to
+mount a missing directory and so a bundle without `scrapex/webui/static` cannot reach it.
+
+**But `Jinja2Templates` does NOT check its directory at construction.** `RUNTIME_DATA`'s own
+comment says so in as many words:
+
+> *"Jinja2Templates does NOT check its directory at construction, so a missing templates
+> tree is not a startup error; it is a `TemplateNotFound` on whichever page the owner opens
+> first."*
+
+So a build missing `scrapex/webui/templates` **starts cleanly, prints all four lines,
+passes the gate, reports itself healthy — and answers every page with
+`TemplateNotFound`.** The same is true of `apps_script/StagingAppScript.txt`, whose absence
+is quieter still: the route answers 404 saying the script *"is not bundled"*, which was true
+of every engine ever shipped until `OP-62` closed it.
+
+**This is the same shape as `OP-62` itself, which is why it is worth a number rather than a
+shrug: a gate that proves the step before the one that breaks.** `OP-62`'s own history is
+the argument — the gate had already been widened once, after `0.2.1` shipped a black window,
+and it *still* stopped one line short of the failure `0.3.0` shipped.
+
+### What today's guard does and does not cover
+
+**Covered, and this matters when scoping the work:**
+`tests/test_the_frozen_engine_carries_its_own_files.py` stages a bundle from `RUNTIME_DATA`,
+starts the engine inside it, and asserts every `templates/**/*.html` in the repository is
+present — enumerated from the tree, not restated. It carries its own mutation test, which
+removes the static directory and requires the check to fail.
+
+**Not covered:** nothing anywhere fetches a page from the built artefact. The suite proves
+the *recipe* is complete against today's source; it does not prove the *published binary*
+answers `200`. Those differ the moment a build step, a PyInstaller upgrade or a
+`--exclude-module` changes what actually lands in the archive — and the artefact is the thing
+the owner installs.
+
+### The remedy, which is small
+
+In `.github/workflows/release-engine.yml`, after the existing double-click step: bind a port,
+fetch `/`, require a **200 with real content** rather than merely a status line. It must
+assert something a template produced, or it proves only that uvicorn is listening.
+
+**And it must keep the timeout shape the current step uses.** `ScrapeX UI` is the last thing
+printed before uvicorn takes the process, which is why that step passes on a *timeout* rather
+than an exit code. A fetch step has to start the engine in the background, poll the port, and
+then be sure to kill it — a release job that leaks a listening engine is its own defect.
+
+### Who holds it
+
+Being built on `fix/the-release-gate-fetches-a-page` by the session that found it, base
+`35962cc`. **This entry deliberately does not depend on that branch landing.**
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.
