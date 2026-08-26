@@ -56,6 +56,13 @@ from pathlib import Path
 
 import pytest
 
+#: MARKED, and the gate that demanded it was right for this file specifically. Two
+#: of the three readers are `extension/` sources, so without the mark this guard
+#: would not run on an extension-only change -- which is precisely the change most
+#: likely to add a `payload.x` read to `datatable.js` or `data.js`. It would have
+#: been blind in the one scope it was written for.
+pytestmark = pytest.mark.extension
+
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Every file that reads the table payload. `grid.js` is the engine's page; the other
