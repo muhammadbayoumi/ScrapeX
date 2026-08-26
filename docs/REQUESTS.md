@@ -98,6 +98,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Captured** — re-measured 2026-08-24 now the profile crawl has finished: 148 have a profile and no listing row (all 148 already on disk, zero requests); **188** have a listing row and no profile, and **zero of them need fetching** — every one has a profile snapshot stored and was refused at approval, 59 by `OP-64` (the id is dead and the site answers with the listing) and 129 by `merge_locales` (see `OP-66`). The figure here read `35` when it was written, taken mid-crawl. The listing reorders under the crawl so any two passes drift | 2026-08-23 |
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
+| [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
 
 ---
 
@@ -2401,3 +2402,88 @@ The fix is `OP-68`'s to carry. What this entry adds is the standard the fix is m
 against, in his words: **the user never infers the state.** A state column that is present
 and wrong does not satisfy that; it violates it more completely than a missing column would,
 because it is believed.
+
+---
+
+## REQ-45 · The crawl button does not work for muqawil
+**Captured 2026-08-26 · root cause proven · partly blocked on `REQ-25`**
+
+> «مشكلة زر الزحف لا يعمل مع موقع مقاول»
+
+**The button does not fail. It is not there** — and that is a deliberate decision whose
+reason is four links long, every one measured on the live engine rather than argued.
+
+| link | evidence |
+|---|---|
+| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4064` |
+| 2 | that route validates the key against `app.state.manifest` — `scrapex/webui/app.py:3349-3353`, whose own comment reads *"fail before queueing, not mid-crawl"* |
+| 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** muqawil lives in `site_profile`, not `source_site` |
+| 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` |
+
+**Confirmed against the running engine:**
+
+```
+POST /api/jobs {"source_keys":["contractors"]}
+  -> HTTP 404   {"detail":"unknown source_key 'contractors'"}
+```
+
+**And the panel hides the action on purpose.** `#258` measured exactly this and labelled it:
+`MANIFEST_ONLY = "route-404-for-a-dataset-key"` against `{action: "update", label: "Update
+now", route: "POST /api/jobs"}`. The rule it applies is *a button that cannot work is worse
+than no button.* **So what he is seeing is the absence of a path, not a broken control** —
+and every muqawil crawl to date, all 34,834 pages, ran from a terminal.
+
+### The whole crawl menu, measured — because it is four kinds of pass, not one
+
+He asked what the options even are: «اى كل الاختيارات الى ممكن نعملها فى الزحف لمصدر مقاول؟»
+Read off `scrapex/cli.py`'s own parser:
+
+| kind | passes | network |
+|---|---|---|
+| **price it** | `--plan` — sizes all 56 cells | ~114 requests |
+| **fetch** | `--crawl` (the listing, partitioned) · `--details` (profiles, frontier built from stored pages) | yes |
+| **interpret** | `--approve` — stored pages into rows | **zero** |
+| **inspect** | `--coverage` · `--impostors` (dry) | **zero** |
+| **repair** | `--ids` · `--impostors --repair` | only `--ids` fetches |
+
+**Four of the six passes make no network request at all**, so *"Update now"* as a single
+button never described any of them. And the **scope** is not a flag: `--details` says the
+scope *"comes from `site_profile.crawl_scope` and never from a flag"*, with three values —
+`listing_only`, `listing_plus_slice`, `full_then_listing`.
+
+### What blocks the button itself, and it is not small
+
+**`REQ-25`** — which registry owns a generic crawl. And measuring for this entry found the
+question is wider than it was filed as: **there are TWO `site_profile` rows for one site.**
+
+| id | key | scope | datasets |
+|---|---|---|---|
+| **2** | `muqawil_org` | `full_then_listing` | **both** — 17,304 + 17,371 rows |
+| **1** | `muqawil` | `listing_only` | **none — an orphan** |
+
+So *"which key does the button use"* is a live question with a wrong answer available.
+
+### The four parts that need NO ruling, and he approved all four
+
+Asked for options useful *«فى كل الاحوال»* — under any answer to `REQ-25` — he took all four.
+This is `CLAUDE.md`'s own instruction applied: build what does not depend on the open ruling
+and leave the undecided fact visible rather than absorbed by a default.
+
+1. **The scope becomes visible and settable.** Already ruled **twice** and built **zero**
+   times: `PLATFORM-PLAN.md` Decision 17 — *"Crawl scope is a per-source setting"* — and
+   Decision 23 — *"A newly added source has no default crawl scope; ScrapeX asks, and no
+   crawl starts until the owner answers."* Measured: `crawl_scope` appears **nowhere** in
+   `scrapex/webui/app.py` or in any `extension/*.js`, so it is settable only by editing the
+   database by hand. Meanwhile `--details` **refuses** under `listing_only` and tells the
+   owner to *"change the scope"* — with no place to change it.
+2. **The three zero-network passes get a surface** — `--coverage`, `--impostors` dry, and
+   the resume state. Reads over stored data: no job queue, no manifest, no crawl registry.
+   They answer the three questions he keeps asking and that keep being answered by hand.
+3. **The orphan `site_profile` row is closed.** Dead under every answer, and it removes a
+   trap from `REQ-25`'s own decision.
+4. **The 404 says why.** `unknown source_key 'contractors'` is false — the key is known and
+   lives in another registry. A refusal that names the reason and points at `REQ-25` is the
+   difference between *"broken"* and *"waiting on a decision"*.
+
+**What is NOT safe to build before `REQ-25`:** the button. Which key and which registry is
+the open question itself, and guessing it is how a default absorbs a ruling.
