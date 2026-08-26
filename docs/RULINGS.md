@@ -2372,3 +2372,154 @@ on the sighting ledger's own `last_absent_at`, which `mark_unavailable` exists t
 which step 5 already read for `returned`. Measured, the ledger said **0** absent while the
 timestamp comparison said 17,256 — so that half was a defect with a right answer, not a
 decision, and waiting for a schema to carry it would have left the published lie standing.
+
+---
+
+### R-53 · The profile schema is re-approved onto a clean version, not reopened
+
+**2026-08-26 · data model · he chose option (b) of three measured**
+
+**The state he ruled on**, measured read-only and re-measured independently by a second
+pass:
+
+| | |
+|---|---|
+| live `contractor_profiles` rows bound to schema version 2, marked `retired` | **17,371 of 17,371** |
+| ingestions behind the **approved** version 3 | **14** — the impostor pages `OP-64` retired |
+| fields the approved version declares | **39** |
+| of those, empty on every live row | **12**, every one an `x_*` **listing** key |
+
+So the published contract described fourteen pages while seventeen thousand real ones were
+bound to a version marked dead, and **the next field muqawil publishes would have made the
+whole page refused rather than recorded** — `R-31`'s subset rule.
+
+**HIS CHOICE: re-approve all 17,371 rows onto a clean 27-field v4.** He was offered the
+cheaper route — reopen v2 as approved and retire v3 — and did not take it.
+
+**What the choice buys over the cheap one.** Both remove the 12 phantom columns from the
+grid and the workbook and lift the refusal. Only this one leaves a **correct version
+history**: no live row on a dead version, and the 14 retired impostor rows do not silently
+lose the columns they were approved under. It writes 17,371 rows and 17,371 revisions and
+needs **no network** — every snapshot is on disk.
+
+**Why it was ruled first of the four.** It is the only defect in the muqawil set whose cost
+grows while attention is elsewhere. Every other one is wrong today and stays equally wrong;
+this one waits for muqawil to publish a field, and **muqawil sets that date.**
+
+---
+
+### R-54 · The state column is fixed at its root first: a confirmation moves `last_seen_at`
+
+**2026-08-26 · data model · AMENDS the method of [R-52](#r-52--a-generic-crawl-is-a-run-with-an-identity-and-the-plan-for-it), which stands**
+
+**`R-52` stands. Its plan does not, and this is the `C5` disagreement it was owed** — the
+evidence contradicted a ruling, so it is recorded rather than quietly worked around, and
+`R-52` is amended rather than erased (`C4`).
+
+**What the audit found and this session re-measured with its own queries:**
+
+| | |
+|---|---|
+| profile records whose `last_seen_at` reads `2026-08-23` | **17,250** |
+| records reading `2026-08-24` | 121 |
+| **their memberships** dated `2026-08-24` | **397,526 — every one** |
+| **records OLDER than their own memberships** | **17,259** |
+
+The same pass refreshed a row's memberships and never moved the row's own `last_seen_at`,
+because `approve_candidate` returns before the upsert when a row is merely confirmed.
+
+**So filling the sighting ledger — which is what `R-52` planned — would have made those
+17,250 rows compare an August 23 timestamp against an August 24 run and read `absent`
+instead of `unsighted`.** One false state for another, the work spent, the defect surviving,
+and **the result looking finished.**
+
+**And the second state is worse than the first, which is why this could not be deferred.**
+`unsighted` says *"stored before the ledger existed"* — confusing, and it claims nothing
+about the site. **`absent` says the site stopped publishing this contractor**, which is a
+false claim about a real company's standing, on 17,250 of them, and `publish.py` carries
+every payload column into the Google Sheet the add-in reads.
+
+**HIS CHOICE: the root first.** A confirming pass moves `last_seen_at` on the record; then
+state is computed against the **run** that wrote the row rather than against
+`MAX(last_seen_at)`. He was offered the ledger-first route with its cost stated and did not
+take it.
+
+**Why the root and not the ledger.** `newest` is `MAX(last_seen_at)` to the *second* while a
+crawl writes for half an hour, so only the final second ever survived the comparison — and
+the reasoning that fixes it was already eight lines below the defect, where `last_absent_at`
+uses `>=` *"because both timestamps are `strftime(…,'now')` at SECOND resolution"*. **Any fix
+starting from the ledger builds on a field that does not move.**
+
+`R-52`'s own contribution is untouched and is what makes this buildable: a run has an
+identity, so *"was this row seen by the last crawl?"* becomes answerable without comparing
+timestamps at all.
+
+---
+
+### R-55 · Absence is more honest than a placeholder, and one ruling covers both fields
+
+**2026-08-26 · data and `R-45`'s boundary · he chose one ruling over two**
+
+Two fields store a value the site emits for *everyone*, so the column reports coverage it
+does not have:
+
+| field | measured |
+|---|---|
+| `latitude` / `longitude` | **14,621 of 17,371 (84.2%)** carry the identical pair `24.4493518, 46.6220053` — Riyadh's centre, the site's default pin. It places all of Jizan and Tabuk at one point |
+| `logo_url` | **100% non-empty**, and **13,042 of 17,304 (75.4%)** is a directory with no filename |
+
+**Neither is rendered by any consumer**, so this was never about something he sees. It is
+about whether a metric tells the truth: a test asking *"is this column populated?"* passes
+forever on both.
+
+**HIS CHOICE: one ruling for both — store absence.** NULL for the filename-less directory
+and for the default coordinate pair. Coverage becomes an honest **24%** on the logo and
+**16%** on coordinates, against 100% and 99.89%.
+
+**This is an extension, not an exception** — and the document that already asked for it
+names the wrong string, which is worth knowing before anyone writes the guard.
+`CONTRACTOR-SOURCE.md:560` says the site *"falls back to `default.jpg`, which must be stored
+as NULL and never as the placeholder"*. **The principle is exactly this ruling. The string is
+not in the data: measured 2026-08-26, `default.jpg` appears in ZERO of 17,304 values.** The
+real placeholder is the bare directory `https://muqawil.org/public/contractor/companyLogo/`
+on **13,042** rows, and the other 4,262 values are 4,262 distinct filenames. **So a guard
+written against the documented string would never fire once** — which is the same shape as
+everything else in `LESSONS.md` §7: a check that passes because its subject is not what it
+is looking for.
+
+The repository has also already applied *absent rather than corrected* to the `lng: 0` case
+on 19 rows, so the reasoning has a precedent as well as a document. **`R-45` is not overridden:
+we still never edit what the site published about a contractor.** A value the site emits
+identically for everyone carries no information about anyone, and recording *"we do not
+know"* is not a correction of the site — it is a refusal to claim knowledge we never had.
+
+**The boundary this draws, for the next field like it.** A site-wide constant dressed as a
+per-record value is an ABSENCE. A value that differs between records is DATA, however
+strange it looks — which is why the nine impossible-but-genuine values in the audit's §4
+stay exactly as the site published them.
+
+---
+
+### R-56 · The 263 stranded listing rows are fixed by a fresh listing crawl
+
+**2026-08-26 · collection · he chose (c) of four priced options**
+
+**The 263** are active listing rows frozen on retired schema **v1**, missing six keys
+including `profile_url`, and **the only rows in the table that never received the
+City/Region split** — so `DSN-05` is unmet for precisely these and met for the other
+15,577, which partition on `' - '` with **0 anomalies**.
+
+**HIS CHOICE: a fresh listing crawl** — priced at **58 minutes at concurrency 4**, or 2.7
+hours serial. It lands all 263 on v2 with their `profile_url` and the split.
+
+**What it buys over the cheaper routes, and the cheaper ones were offered.** Deriving the
+six values in place costs zero network and zero refusal — and **leaves the 263 frozen at a
+`last_seen_at` of 2026-08-20 while the sighting ledger says the 21st**, which under `R-54`
+is exactly the skew we have just ruled must not exist. A crawl refreshes the timestamp as a
+side effect of doing the work honestly. Wipe-and-re-approve works in ~20 minutes and
+`R-40` says it *"destroys history every time"*.
+
+**And one route must not be attempted:** re-approving the 228 stored snapshots is
+**refused** by `ExtractionConflict` and writes nothing, because the parse would add columns.
+It is measured, it is in the audit's §7-5, and a session should not spend an afternoon
+rediscovering it.
