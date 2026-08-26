@@ -82,7 +82,16 @@ VOID = frozenset({
 #: rather than deleted so the reported line numbers stay the file's own — a guard that
 #: names the wrong line sends its reader hunting.
 _OPAQUE = re.compile(
-    r"<!--.*?-->|<script\b.*?</script\s*>|<style\b.*?</style\s*>|<!\[CDATA\[.*?\]\]>",
+    # `</script\s*>` WAS WRONG AND CodeQL CAUGHT IT (py/bad-tag-filter, high).
+    # An HTML end tag may carry anything up to the `>` -- `</script bar>` and
+    # `</script\t\n foo>` are both valid script end tags -- so `\s*` missed them,
+    # the block stayed unblanked, and its CONTENTS were then walked as markup by a
+    # guard whose whole job is to read markup. No untrusted input reaches this (it
+    # reads our own shipped templates), so the security impact is nil and the
+    # PARSING bug is real: a template that wrote `</script >` with anything after
+    # the name would have been mis-walked. `[^>]*` is what the spec allows.
+    r"<!--.*?-->|<script\b.*?</script\b[^>]*>|<style\b.*?</style\b[^>]*>"
+    r"|<!\[CDATA\[.*?\]\]>",
     re.S | re.I)
 _TAG = re.compile(r"<(/?)([a-zA-Z][\w:-]*)([^>]*?)(/?)>", re.S)
 
