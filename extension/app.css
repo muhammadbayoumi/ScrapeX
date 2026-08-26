@@ -1307,12 +1307,26 @@
   #view-profile {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* `flex: 1`, NOT `height: 100%`, for the reason spelled out in full on
+       #view-engine-detail below: a flex item of `main` does not grow by
+       default, so the percentage resolved to main's CONTENT height and the
+       negative bottom margin could not stretch it -- leaving a 2 x --panel-pad
+       band of `main`'s --surface under the page. This screen shipped with that
+       band; light mode hid it only while the canvas was a raw white literal
+       (reverted in a683d70), and dark mode showed it the whole time. */
+    flex: 1;
     min-height: 0;
     overflow: hidden;
     margin: calc(-1 * var(--panel-pad));
     padding: var(--panel-pad);
     background: var(--bg);
+  }
+  /* The negative top margin is there to cancel main's padding, but main is a
+     flex column with a row gap and the margin spends that too -- putting a
+     visible compatibility notice flush against the page with no separation at
+     all. Below a notice, only the other three sides bleed. */
+  #version-notice:not(.hidden) ~ :is(#view-profile, #view-manage-account) {
+    margin-top: 0;
   }
   .profile-stage {
     display: flex;
@@ -1320,6 +1334,9 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
   }
   .profile-card {
     box-sizing: border-box;
@@ -1339,6 +1356,22 @@
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-sm);
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  /* The same thumb every other scroller in the panel draws. The ONE part of
+     that recipe these two omit is `scrollbar-gutter: stable`, and the reason is
+     the centring: it reserves the gutter on the end edge only, which would hold
+     the card -- and the centred text inside it -- permanently off-axis. The
+     task views can take it because their content is start-aligned. */
+  :is(.profile-stage, .profile-card)::-webkit-scrollbar { width: .45rem; }
+  :is(.profile-stage, .profile-card)::-webkit-scrollbar-track { background: transparent; }
+  :is(.profile-stage, .profile-card)::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
   }
   @media (max-height: 500px) {
     .profile-card { min-height: auto; }
@@ -2069,7 +2102,9 @@
   #view-manage-account {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* `flex: 1`, NOT `height: 100%` -- the same band, same cause, same fix as
+       #view-profile above and #view-engine-detail below. */
+    flex: 1;
     min-height: 0;
     overflow: hidden;
     margin: calc(-1 * var(--panel-pad));
@@ -3760,4 +3795,24 @@
       flex: 1 1 auto;
       min-width: min(100%, 10rem);
     }
+  }
+
+  /* ---- Forced colours (Windows High Contrast) ----------------------------
+     The mode DISCARDS author background-colors and substitutes a system one.
+     Every mark below is a background revealed through a mask, so what the mask
+     cuts out is Canvas on a Canvas page: an invisible logo, reported by
+     nothing. `currentColor` does not save it either -- `color` is forced
+     separately and the discarded background never reads it. A system colour is
+     the one paint that survives, so each mark borrows the text colour.
+     Guarded by test_every_masked_mark_survives_forced_colours. */
+  @media (forced-colors: active) {
+    .welcome-mark,
+    #welcome-checking .welcome-mark,
+    .appearance-preview-logo {
+      background: CanvasText;
+    }
+    /* The sweep is the only thing on the checking card that says "working",
+       and it is two painted backgrounds -- both blanked by the same rule. */
+    .checking-bar { border: 1px solid CanvasText; }
+    .checking-bar-thumb { background: CanvasText; }
   }
