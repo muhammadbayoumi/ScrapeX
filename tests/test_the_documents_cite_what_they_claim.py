@@ -319,12 +319,13 @@ PINNED = (
     # on any one of them would go hunting for a defect that is not there.
     ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
     ("docs/BACKLOG.md", "extension/app.js", 3570, "latest.version"),
-    # 379, and it was 352, and 344 before that. Twice now the same pull request
+    # 488, and it was 379, 352, and 344 before that. THREE times now the same
+    # pull request
     # has added comment lines above it and had to correct the number it had just
     # written down — the guard catching its author, in the exact shape LESSONS §7
     # describes. The third move was the 0.3.0 packaging fix, which explained the
     # new `ScrapeX UI` demand in twenty-seven lines of comment directly above.
-    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 379, '"version": VERSION'),
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 488, '"version": VERSION'),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
      'got["version"] == manifest["version"]'),
     # And the line whose VALUE went stale under a citation that stayed correct --

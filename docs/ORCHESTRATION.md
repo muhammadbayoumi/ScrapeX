@@ -432,6 +432,63 @@ like its silence.
 | `grep -c '^ERROR'` is **0** | collection errors are not failures |
 | the exit code is **pytest's** | `cmd; echo "exit=$?"` in a compound reports the **echo**'s status. This read as green with two real failures |
 | the run started **after** the last edit | compare mtimes; a green about an older tree is not a green |
+| the exit code of a **pipeline** | `pytest ... \| tail -4` reports **tail's** status. 2026-08-26: the harness said *exit code 0* for a suite that had one real failure, and the branch was one step from being offered for a push on it |
+| a **field** came back empty | a monitor called `jq` on a machine where `jq` is not installed, so every field was empty and forty iterations would have read as *still running* |
+
+**Four of those six are one sentence, and it is worth having as a sentence:** *an exit
+code describes the last thing that ran, and an empty field describes nothing at all —
+neither is a green.* `echo` after a compound, `tail` after a pipe, `gh pr checks
+--watch` returning 0 while a second run still had jobs pending, and a `jq` that was
+never installed. **Read the ROWS the tool produced, not the status it exited with** —
+and if you cannot see rows, you have not verified anything yet.
+
+**And the fifth reads as FAILURE when it is not, which is the same defect pointing the
+other way.** 2026-08-26: a monitor read `gh pr view`'s check set **while it was still
+being updated** and reported `failed=CodeQL` at a moment when the truth was already
+`success` — the superseded head's row was still attached alongside the new one.
+
+**The direction matters.** The first four hide a defect and let it ship. The fifth
+**stops sound work**: a session that believes its own green branch is red will rebase
+it, re-run it, or hand it back. Both cost, and one rule covers all five:
+
+> **Never read a status from a set that still carries `pending` rows. Wait for the set
+> to settle, then read the ROWS.**
+
+Which is a loop, not a flag, and it is three lines:
+
+```bash
+for _ in $(seq 1 80); do
+  rows=$(gh pr checks <N> 2>/dev/null)
+  [ -n "$rows" ] && [ "$(printf '%s\n' "$rows" | grep -c pending)" -eq 0 ] && break
+  sleep 30
+done
+gh pr checks <N> | awk -F'\t' '{print $2}' | sort | uniq -c   # the tally, from the rows
+```
+
+**Expect DUPLICATE rows and do not treat them as an error.** A pull request routinely
+carries two workflow runs at once, so `test` and `lint` each appear twice; that is why
+`--watch` can return 0 while the second run is still going, and why the tally is taken
+over every row rather than over distinct check names. On `#269` this produced fourteen
+rows for seven checks, all `pass`, and the duplication was the normal case rather than a
+symptom.
+
+**THE OBSERVABLE SIGNATURE, which is cheaper to notice than the cause.** Two monitors
+watched `#267` at the same moment and **disagreed** — one reported `failed=CodeQL`, the
+other `pending=6 failed=`, on the same pull request, seconds apart. **Neither was
+lying**: the set was mid-update and they read different snapshots of it.
+
+> **If two reads of one check set disagree, the set is moving.** That is not a bug in
+> either read — it is the signature of an unsettled set. Wait, and read again.
+
+And it argues against the arrangement that produced it: **two monitors on one pull
+request is noise, not corroboration.** The older one was watching a superseded head and
+was stopped.
+
+**And `CLEAN` is not one of these statuses at all.** `mergeStateStatus: CLEAN` describes
+whether git can merge the branch — **not whether the branch is correct**. Measured the
+same day: `gh` reported `CLEAN` on `#267` while a real, high-severity CodeQL alert was
+outstanding against it. A session reading `CLEAN` as "safe to merge" would have merged
+it. Read the rows for that too.
 
 **A guard is untrusted until the defect it names makes it red.** Restore the defect, watch
 it fail, restore the fix, re-run the control. Mutation caught, that afternoon: three

@@ -1051,6 +1051,50 @@ its own docstring, and the design a session threw away the same morning because
 *it decides honesty by adjacency*. **A known gap, named, beats a guard that infers
 intent.**
 
+### A guard that reads a whole step cannot tell doing a thing from mentioning it
+
+**Found 2026-08-23 by mutating a gate while writing it, and found three times in
+one change** — which is what makes it a rule rather than a slip. Every check below
+was written carefully, passed on the real workflow, and passed just as happily on a
+workflow with the command deleted:
+
+| the check | what still satisfied it after the command was deleted |
+|---|---|
+| `"curl -fsS" in step` | `-fsS` on a *different* curl further down |
+| `"/static/" in step` | the words `/static/tokens.css` in the REFUSED message |
+| `re.search(r"kill\s", step)` | the comment *"even if the kill below fails"* |
+
+**The mechanism is the same every time, and it is a property of good comments.** A
+step explains what it does directly above doing it, so the explanation survives
+deleting the thing explained. The better the prose, the more reliably it fools a
+substring check — which inverts the usual assumption that a well-commented block is
+easier to reason about.
+
+**And a fourth was subtler than a comment.** A check for `127.0.0.1:8000` was
+satisfied by the *asset* fetch after the *page* fetch was deleted, leaving the gate
+greping a `page.html` nothing had written. Not prose that time — a sibling command
+that happened to share the substring.
+
+**Apply:**
+
+* **Ask about the COMMAND, not the block.** `_commands()` in
+  `tests/test_the_release_proves_the_double_click.py` strips comment lines and every
+  presence check reads that instead. Two lines, and it closed three holes.
+* **Assert the specific thing, not a substring of it.** Not "some curl has `-f`" but
+  *"every curl has `-f`"*; not "a URL on that port" but *"the root, specifically"*.
+  A substring is a proxy, and a proxy is what drifts.
+* **The only way to find these is to break the thing on purpose.** All four were
+  invisible to reading and to a green suite. Twelve mutations were run against this
+  one step; four of them passed at first and are now the reason the checks read the
+  way they do. **A gate written without mutating it is a gate whose failure modes
+  are unknown, not absent** — and this file guards a release, where an unfalsifiable
+  check is indistinguishable from a working one until a user finds out.
+
+**This is the same family as [`R-15`'s citations](#r-15s-guard-reaches-only-the-documents-on-claudemds-map-so-a-citation-anywhere-else-must-name-a-symbol)
+and it is worth seeing as one thing:** a document that *resolves* can still be wrong,
+and a guard that *passes* can still be checking nothing. Both fail by pointing at
+something real that is not the subject.
+
 ### R-15's guard reaches only the documents on CLAUDE.md's map, so a citation anywhere else must name a symbol
 
 **Found 2026-08-23 by an adversarial review of the packaging fix, in that fix's own

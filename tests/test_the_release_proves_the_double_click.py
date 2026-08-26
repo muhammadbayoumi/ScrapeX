@@ -63,6 +63,26 @@ ARGUMENT = re.compile(r"^[\w./-]")
 
 GREPPED = re.compile(r"""grep\s+-q\s+["'](?P<pattern>[^"']+)["']""")
 
+#: A curl INVOCATION and its flags, so a check can ask about each one separately
+#: rather than about the step as a lump. Both of this file's substring tests were
+#: fooled by text belonging to a different line until mutation said so.
+CURL = re.compile(r"curl(?P<flags>(?:\s+-\S+)*)(?P<rest>[^\n]*)")
+FAIL_ON_ERROR = re.compile(r"-\w*f")
+
+
+def _commands(run: str) -> str:
+    """A run-step with its comment lines removed.
+
+    THREE OF THIS FILE'S CHECKS WERE SATISFIED BY A COMMENT before mutation said
+    so, and the shape is always the same: a step explains what it does directly
+    above doing it, so the words survive deleting the command. A guard that reads
+    the whole block cannot tell "this step kills the engine" from "this step
+    mentions killing the engine". Anything asking whether a COMMAND is present
+    asks this instead.
+    """
+    return "\n".join(line for line in run.splitlines()
+                     if not line.lstrip().startswith("#"))
+
 
 @pytest.fixture(scope="module")
 def steps() -> list[dict]:
@@ -71,9 +91,15 @@ def steps() -> list[dict]:
     return [step for step in document["jobs"]["build"]["steps"] if step.get("run")]
 
 
-@pytest.fixture(scope="module")
-def bare_run(steps) -> str:
-    """The one run-step that launches the built engine with no arguments."""
+def _bare_launches(steps) -> list[str]:
+    """Every run-step that launches the built engine the way Explorer does.
+
+    THERE ARE TWO NOW, and the assertion that used to demand exactly one said
+    "say which is the gate" — so they are told apart by MECHANISM rather than by
+    step name, because a name is prose and drifts. One CONSUMES the process to
+    read what it printed; the other backgrounds it and talks to it over HTTP.
+    Neither can be written the other's way, which is what makes the test sound.
+    """
     found = [
         step["run"] for step in steps
         for match in LAUNCH.finditer(step["run"])
@@ -85,7 +111,38 @@ def bare_run(steps) -> str:
         "shipped as a black window in 0.2.1, and asking it `--version` does not "
         "exercise it"
     )
-    assert len(found) == 1, "two steps double-click the engine; say which is the gate"
+    return found
+
+
+@pytest.fixture(scope="module")
+def bare_run(steps) -> str:
+    """The step that double-clicks the engine and READS WHAT IT PRINTED."""
+    found = [run for run in _bare_launches(steps) if "127.0.0.1" not in run]
+    assert len(found) == 1, (
+        "expected exactly one step that launches the engine bare and judges its "
+        f"OUTPUT; found {len(found)}. Two would each be half a gate"
+    )
+    return found[0]
+
+
+@pytest.fixture(scope="module")
+def serve_run(steps) -> str:
+    """The step that double-clicks the engine and ASKS IT FOR A PAGE.
+
+    A separate step rather than more lines in the one above, and separate for a
+    mechanical reason: reading a process's output means waiting for it to end,
+    and talking to it over HTTP means it must still be running. One step cannot
+    do both to one process.
+    """
+    found = [run for run in _bare_launches(steps) if "127.0.0.1" in run]
+    assert found, (
+        "NOTHING IN THE RELEASE EVER ASKS THE BUILT ENGINE FOR A PAGE. Every "
+        "check stops at what it printed, and an engine missing "
+        "scrapex/webui/templates prints all of it: Jinja2Templates does not "
+        "check its directory at construction, so the engine starts, reports "
+        "itself healthy, and answers every page with a TemplateNotFound"
+    )
+    assert len(found) == 1, "two steps fetch a page; say which is the gate"
     return found[0]
 
 
@@ -338,3 +395,153 @@ def _occurrences(source: str, needle: str) -> list[int]:
         found.append(at)
         at = source.find(needle, at + 1)
     return found
+
+
+# ---- the gate that asks for a page ------------------------------------------
+# `OP-69`. Everything above judges what the engine PRINTED. An engine missing
+# `scrapex/webui/templates` prints all of it and cannot render one page, because
+# `Jinja2Templates` does not check its directory at construction the way
+# `StaticFiles` does -- which is the only reason the 0.3.0 defect was loud.
+
+#: The template every page extends. The marker the workflow greps for has to be
+#: in HERE, or the grep is unfalsifiable and the gate is decoration.
+BASE_TEMPLATE = ROOT / "scrapex" / "webui" / "templates" / "base.html"
+
+
+def test_the_release_asks_the_built_engine_for_a_page(serve_run):
+    """THE QUESTION THE OWNER ASKS THE ENGINE, asked by the release first.
+
+    `curl -f` is the point rather than a flag: without it curl exits 0 on a 500
+    and writes the error body to the file, so every content check below would run
+    against an error page and could still pass.
+    """
+    # EVERY curl, not "a curl somewhere in the step". Found by mutation: dropping
+    # `-f` from the PAGE fetch left `-f` on the ASSET fetch, and a substring test
+    # passed while an HTTP 500 had become a release-passing answer.
+    fetches = [c for c in CURL.finditer(_commands(serve_run))]
+    assert fetches, "the step never fetches anything"
+    unguarded = [c.group(0).strip() for c in fetches if not FAIL_ON_ERROR.search(c.group("flags"))]
+    assert not unguarded, (
+        f"these fetches do not use `curl -f`: {unguarded}. Without it curl exits "
+        "0 on a 500 and writes the error body to the output file, so every "
+        "content check below runs against an error page and can still pass"
+    )
+    # THE ROOT, specifically, and not merely "some URL on that port". Found by
+    # mutation: deleting the page fetch while keeping the asset fetch left a curl
+    # at `127.0.0.1:8000/static/tokens.css`, which satisfied a check for the port
+    # and left the gate greping a `page.html` nothing had written. The root is the
+    # page a person opens, and it is the one that proves a TEMPLATE rendered.
+    assert any(re.search(r"127\.0\.0\.1:8000/[\"'\s]", c.group(0)) for c in fetches), (
+        "nothing fetches http://127.0.0.1:8000/ itself. A static asset is served "
+        "by StaticFiles and proves nothing about Jinja2 — only the root proves a "
+        "template rendered, which is the entire hole this step exists to close"
+    )
+
+
+def test_a_200_is_not_enough_and_the_step_knows_it(serve_run):
+    """AN ERROR PAGE IS A 200. So the gate must look at what came back.
+
+    This is the same lesson as `test_a_silent_first_run_is_refused` one layer on:
+    there, an exit code could not tell a working engine from a black window; here,
+    a status code cannot tell a rendered app from a stack trace.
+    """
+    demanded = [m.group("pattern") for m in GREPPED.finditer(serve_run)]
+    assert demanded, (
+        "the step accepts any 200 at all. A `TemplateNotFound` page, a redirect "
+        "notice and the app shell are all 200s, and only one of them means the "
+        "engine works"
+    )
+
+
+def test_every_marker_it_demands_is_really_in_the_template(serve_run):
+    """THE GUARD MUST NOT DRIFT FROM THE THING IT GUARDS.
+
+    A marker nobody renders fails every release for a reason that has nothing to
+    do with the engine; a marker loosened to something trivially true stops
+    guarding anything. Both kinds of drift become this one failure -- the same
+    shape as `test_every_line_it_demands_is_one_the_double_click_actually_prints`,
+    pointed at the template instead of at the print statements.
+    """
+    assert BASE_TEMPLATE.is_file(), (
+        f"{BASE_TEMPLATE} is gone; the release greps a page for a marker that "
+        "was supposed to come from it"
+    )
+    shell = BASE_TEMPLATE.read_text(encoding="utf-8")
+    demanded = [m.group("pattern") for m in GREPPED.finditer(serve_run)]
+    missing = [marker for marker in demanded if marker not in shell]
+    assert not missing, (
+        f"the release demands {missing} of the page the engine serves, and "
+        f"nothing in {BASE_TEMPLATE.name} renders it. Either the template was "
+        "renamed and this gate now fails every good release, or the marker was "
+        "loosened and it no longer proves a template rendered at all"
+    )
+
+
+def test_it_proves_the_static_mount_carries_BYTES_not_just_a_directory(serve_run):
+    """`StaticFiles` is satisfied by an empty directory. The panel is not.
+
+    The 0.3.0 defect was a missing directory, which raised. A directory present
+    and empty raises nothing at all: the engine starts, `/static/...` answers 404
+    per file, and every page renders unstyled. Asking for one real asset and
+    requiring real bytes is what separates the two.
+    """
+    # A FETCH, not a mention. Found by mutation: deleting the asset fetch left the
+    # words `/static/tokens.css` behind in the REFUSED message below it, and a
+    # substring test read that as the check still being there.
+    assert any("/static/" in c.group(0) for c in CURL.finditer(_commands(serve_run))), (
+        "nothing FETCHES a static asset — naming one in an error message is not "
+        "asking for it — so a bundle whose static directory exists and is empty "
+        "passes the whole release"
+    )
+    assert re.search(r"-lt\s+\d+", serve_run), (
+        "the static asset is fetched and its size is never judged, so a "
+        "zero-byte or truncated file is a pass"
+    )
+
+
+def test_the_page_gate_bounds_itself_and_makes_its_own_warehouse(serve_run):
+    """The same two disciplines the double-click step already carries.
+
+    BOUNDED, because this step starts an engine that never returns on purpose and
+    must not hang the release; the `timeout` sits inside the background job so the
+    engine dies on its own even if the kill fails.
+
+    ITS OWN DATA ROOT, because a first run CREATES and MIGRATES a database. This
+    step is also what a person reaches for when reproducing a release locally, and
+    there it would open the owner's real warehouse.
+    """
+    assert "timeout " in _commands(serve_run), (
+        "nothing bounds the served engine; a first run that works never returns, "
+        "so this step would hang the release rather than gate it"
+    )
+    assert re.search(r"SCRAPEX_DATA_ROOT\s*=", _commands(serve_run)), (
+        "the page gate runs against the default data root, so it opens — and "
+        "migrates — whatever warehouse the machine already has"
+    )
+    # ASKED OF THE CODE, NOT OF THE PROSE. Found by mutation, and it is the third
+    # time in this one change that a substring belonging to a comment satisfied a
+    # check about a command: deleting the `kill` left the words "even if the kill
+    # below fails" in the comment above it, and `kill\s` matched that happily.
+    assert re.search(r"kill\s", _commands(serve_run)), (
+        "the engine is never stopped; the runner would carry a listening engine "
+        "into every later step, which is a release job leaking a server"
+    )
+
+
+def test_the_two_gates_cannot_be_collapsed_into_one(bare_run, serve_run):
+    """They are separate for a MECHANICAL reason, not a stylistic one.
+
+    Reading a process's output means waiting for it to end. Talking to it over
+    HTTP means it must still be running. One step cannot do both to one process —
+    and a session tidying the workflow by merging them would silently lose
+    whichever half it wrote second.
+    """
+    assert bare_run != serve_run
+    assert "$(" in bare_run, (
+        "the double-click step no longer CAPTURES the engine's output, which is "
+        "the only evidence separating a working engine from a black window"
+    )
+    assert serve_run.rstrip().count("&\n") or "&" in serve_run, (
+        "the page gate does not background the engine, so it cannot be running "
+        "while the fetch happens"
+    )

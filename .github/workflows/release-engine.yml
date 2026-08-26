@@ -339,6 +339,115 @@ jobs:
             exit 1
           fi
 
+      - name: And it must actually serve a page
+        # THE STEP ABOVE PROVES `create_app` RETURNED. IT DOES NOT PROVE A PAGE.
+        #
+        # That distinction is the whole of this step, and it is the third instance
+        # of one shape: the gate stops one step before the thing that fails.
+        #
+        #   0.2.1  asked `--version`, the one argument nobody types
+        #   0.3.0  demanded three lines, all printed BEFORE create_app
+        #   here   demands `ScrapeX UI`, printed after create_app -- and still
+        #          only proves an app was BUILT, never that it answers
+        #
+        # A build missing `scrapex/webui/templates` walks straight through the step
+        # above. `Jinja2Templates` does NOT check its directory when it is
+        # constructed -- unlike `StaticFiles`, which is the only reason 0.3.0 was
+        # loud instead of silent. So that engine starts, prints every line this
+        # workflow demands, reports itself healthy to the panel, and answers every
+        # page the owner opens with `TemplateNotFound`. Nothing in a release log
+        # would show it.
+        #
+        # AND THE GAP IS NARROWER THAN "NOTHING CHECKS TEMPLATES", which is worth
+        # stating precisely so nobody scopes this twice.
+        # `tests/test_the_frozen_engine_carries_its_own_files.py` already stages a
+        # `_MEIPASS` layout from `RUNTIME_DATA` and asserts that EVERY
+        # `templates/**/*.html` in the tree arrived in it, with its own mutation
+        # test. So the RECIPE is guarded, against today's source.
+        #
+        # THE BINARY IS NOT GUARDED AT ALL. Nothing between that test and a user's
+        # desktop ever asks the built `.exe` for a page: not the size ceiling, not
+        # `--version`, not the double-click step. Every one of them reads the
+        # artefact's OUTPUT; none of them reads its ANSWER. That is what this step
+        # is, and it is the only check in the file that talks to the thing that
+        # actually ships.
+        #
+        # SO THIS ASKS THE ENGINE THE QUESTION THE OWNER ASKS IT: give me a page.
+        #
+        # BARE INVOCATION AGAIN, not `ui`, because a double-click is what a person
+        # does and `_set_up_then_serve` hands it `["ui", "--no-open"]` on the
+        # default port. Backgrounded rather than captured, because the point is to
+        # talk to it WHILE it runs -- the step above cannot, having consumed the
+        # process to read its output.
+        #
+        # NO `Origin` HEADER, and that is deliberate rather than lazy: the engine
+        # refuses web origins before any handler runs (`app.py`'s origin guard), and
+        # a browser sends none on a top-level navigation. `curl` matching the
+        # browser is what makes a 200 here mean what it means.
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SCRAPEX_DATA_ROOT=".serves-a-page-root"
+          mkdir -p "$SCRAPEX_DATA_ROOT"
+
+          # `timeout` INSIDE the background job, so the engine dies on its own even
+          # if the kill below fails. A release must not hang on its own check.
+          timeout 180 ./dist/scrapex-engine.exe < /dev/null > serve.log 2>&1 &
+          engine=$!
+
+          # Bounded wait. A first run creates a database and applies every
+          # migration before it binds, so "not answering yet" is normal for a while
+          # and is not the same as "will never answer".
+          ready=""
+          for _ in $(seq 1 60); do
+            if curl -fsS -o page.html "http://127.0.0.1:8000/" 2>/dev/null; then
+              ready="yes"; break
+            fi
+            sleep 2
+          done
+
+          stop() { kill "$engine" 2>/dev/null || true; }
+          trap stop EXIT
+
+          if [ -z "$ready" ]; then
+            echo "REFUSED: the engine never answered http://127.0.0.1:8000/ ." >&2
+            echo "It may have printed every line the step above demands and still" >&2
+            echo "be unable to serve. Its own output follows:" >&2
+            cat serve.log >&2
+            exit 1
+          fi
+
+          # A 200 IS NOT ENOUGH, and this is the part worth having. An error page
+          # is a 200. What proves a TEMPLATE rendered is a marker out of base.html,
+          # and `tests/test_the_release_proves_the_double_click.py` asserts this
+          # exact string is still in that file -- so a rename fails there, loudly,
+          # instead of quietly making this grep unfalsifiable.
+          if ! grep -q "workspace-sidebar" page.html; then
+            echo "REFUSED: / answered, and what came back is not the app shell." >&2
+            echo "That is what a missing scrapex/webui/templates looks like:" >&2
+            echo "Jinja2Templates does not check its directory at construction, so" >&2
+            echo "the engine starts perfectly and every page is a TemplateNotFound." >&2
+            head -c 2000 page.html >&2
+            exit 1
+          fi
+
+          # AND THE STATIC MOUNT MUST CARRY BYTES, not merely exist. `StaticFiles`
+          # is satisfied by a directory; the panel needs the files in it.
+          curl -fsS -o token.css "http://127.0.0.1:8000/static/tokens.css"
+          size=$(wc -c < token.css)
+          echo "/ rendered the app shell; /static/tokens.css is $size bytes"
+
+          # A FLOOR, NOT AN EQUALITY. Comparing against the repo file's byte count
+          # would be comparing across the CRLF boundary `.gitattributes` creates --
+          # the repository stores LF and Windows checks out CRLF -- and a check that
+          # fails for line endings on a good build is worse than no check. A floor
+          # catches the failure that actually happens: an empty or truncated bundle.
+          if [ "$size" -lt 1000 ]; then
+            echo "REFUSED: /static/tokens.css came back at $size bytes." >&2
+            echo "The mount exists and the file behind it does not." >&2
+            exit 1
+          fi
+
       - name: Checksum, so a download can be proved whole
         shell: bash
         run: |
