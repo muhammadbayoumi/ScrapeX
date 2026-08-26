@@ -46,6 +46,18 @@ OBSERVED_FIRST_SEEN = "observed_first_seen"
 OBSERVED_LAST_SEEN = "observed_last_seen"
 OBSERVED_CHANGED = "observed_last_changed"
 OBSERVED_STATUS = "observed_status"
+#: THE ROW'S HANDLE, and it is not a column. `offer_id` is what the products payload
+#: carries so `grid.js` can open a card for the row that was selected — it rides in
+#: `rows` and is absent from `BROWSE_COLUMNS`, so it never draws. A dataset row had no
+#: equivalent: `generic_record_id` was SELECTed and then dropped on the floor by the
+#: emitting loop, so `grid.js`'s `rows.filter((row) => row.offer_id)` matched nothing
+#: and selecting a contractor could not open anything at all.
+#:
+#: `observed_` PREFIXED like the rest, for the reason the block above gives: it is a
+#: fact about our storage rather than one the site published, and no site's own label
+#: slugs to it. Deliberately NOT added to `OBSERVED_COLUMNS` — a handle the reader
+#: never sees is the whole point.
+OBSERVED_RECORD_ID = "observed_record_id"
 
 #: THE STATE COLUMN LEADS, on his instruction: «عمود يوضح الحالة الجديدة لا تدع
 #: المستخدم يستنتج الحالة». The dates stay — they are the evidence behind the state and
@@ -905,24 +917,6 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     total = conn.execute(
         "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ?",
         (dataset_id,)).fetchone()[0]
-    # LIMIT only when a caller asked for one. `LIMIT -1` is SQLite's own idiom
-    # for no limit and is used rather than building two query strings, so the
-    # bounded and unbounded paths cannot drift apart.
-    # EVERY FACT THE STATE NEEDS, IN ONE QUERY. `changed_at` is the newest revision
-    # for this record, which is what makes `updated` knowable — and it is only
-    # meaningful because `R-20` stopped writing a revision when nothing changed.
-    # Before that every row had one every crawl and `updated` would have been every
-    # row. `LEFT JOIN`, because a record whose only revision is its first has none
-    # after it and must not vanish from its own table.
-    stored = conn.execute(
-        "SELECT r.generic_record_id, r.record_key, r.data_json, r.status, "
-        "       r.first_seen_at, r.last_seen_at, "
-        "       (SELECT MAX(v.observed_at) FROM generic_record_revision AS v "
-        "         WHERE v.generic_record_id = r.generic_record_id) AS changed_at "
-        "  FROM generic_record AS r WHERE r.dataset_definition_id = ? "
-        " ORDER BY r.generic_record_id LIMIT ?",
-        (dataset_id, -1 if cap is None else int(cap))).fetchall()
-
     # WHEN THE MOST RECENT CRAWL SAW ANYTHING — one aggregate, not a per-row
     # question. Derived, never stored: written into the row it would be stale the
     # moment the next crawl ran (`R-27`).
@@ -942,6 +936,37 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
                 "  FROM dataset_sighting WHERE dataset_key = ?", (dataset_key,))
         }
 
+    # LIMIT only when a caller asked for one. `LIMIT -1` is SQLite's own idiom
+    # for no limit and is used rather than building two query strings, so the
+    # bounded and unbounded paths cannot drift apart.
+    # EVERY FACT THE STATE NEEDS, IN ONE QUERY. `changed_at` is the newest revision
+    # for this record, which is what makes `updated` knowable — and it is only
+    # meaningful because `R-20` stopped writing a revision when nothing changed.
+    # Before that every row had one every crawl and `updated` would have been every
+    # row. `LEFT JOIN`, because a record whose only revision is its first has none
+    # after it and must not vanish from its own table.
+    #
+    # STREAMED, AND EXECUTED LAST ON PURPOSE. It used to end in `.fetchall()` up
+    # beside the COUNT, which meant every raw `data_json` string stayed live for the
+    # whole of the loop below that parses them — two full-population structures in
+    # memory at once, plus `sighted` as a third. Measured on a 28-field,
+    # 17,304-row fixture: `stored` alone 60 MB, `stored` + `rows` 160 MB, peak with
+    # the serialised body 307 MB against a 43 MB wire payload — 7.2x, and that
+    # figure EXCLUDES `sighted`. Iterating the cursor drops the first of the three.
+    #
+    # It is executed here rather than above `newest` so that nothing runs on this
+    # connection between opening this cursor and draining it. `conn.execute` hands
+    # back a fresh cursor each call and interleaving would in fact be safe, but a
+    # reader should not have to know that to trust the function.
+    stored = conn.execute(
+        "SELECT r.generic_record_id, r.record_key, r.data_json, r.status, "
+        "       r.first_seen_at, r.last_seen_at, "
+        "       (SELECT MAX(v.observed_at) FROM generic_record_revision AS v "
+        "         WHERE v.generic_record_id = r.generic_record_id) AS changed_at "
+        "  FROM generic_record AS r WHERE r.dataset_definition_id = ? "
+        " ORDER BY r.generic_record_id LIMIT ?",
+        (dataset_id, -1 if cap is None else int(cap)))
+
     rows = []
     for row in stored:
         record = json.loads(row["data_json"])
@@ -950,6 +975,7 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         # BESIDE THE SITE'S FIELDS, NEVER MERGED INTO THEM. These are facts about our
         # OBSERVATION, not facts the site published, and `data_json` is source truth —
         # so they are added to the row the grid renders and never written back.
+        record[OBSERVED_RECORD_ID] = row["generic_record_id"]
         record[OBSERVED_FIRST_SEEN] = row["first_seen_at"]
         record[OBSERVED_LAST_SEEN] = row["last_seen_at"]
         record[OBSERVED_STATUS] = row["status"]
