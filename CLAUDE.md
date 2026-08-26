@@ -131,6 +131,10 @@ native command and CLI subcommand measured against the code, and the four-questi
 test. **It is a snapshot at `31c369e` and says so**, which is why its citations are checked
 against that commit and not against `HEAD`.
 
+**If a session ended abruptly, start at [docs/HANDOFF-2026-08-23.md](docs/HANDOFF-2026-08-23.md)** —
+the queue in the owner's order, the six things not to do with a measured incident behind each,
+and the crawl's resume command.
+
 Other long-standing documents — `docs/MIGRATION-PLAN.md`,
 `docs/COMPATIBILITY.md`, `docs/GENERIC-FETCH-SEAM.md`,
 `docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md`, `docs/BALADY-ENG-OFFICES.md`,
