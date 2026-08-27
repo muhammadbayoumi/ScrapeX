@@ -34,7 +34,15 @@ pip install -e .[dev]                    # + .[browser] for Playwright, .[ui] fo
 python -m pytest                         # tests must be green
 python -m scrapex.cli init-db            # creates %USERPROFILE%\.scrapex\harvest.db
 python -m scrapex.cli validate-manifest  # checks sources.yaml (same gate runs in CI)
+git config core.hooksPath .githooks      # installs the pre-push guard (see below)
 ```
+
+> **What that last line buys.** `.githooks/pre-push` refuses to push an `engine-v*` tag
+> while this machine's warehouse is at a schema version the code being tagged cannot
+> open. That has happened twice — `OP-33` and `OP-84` — and both times it only became
+> visible when the released engine was double-clicked and refused. **A hook is inert
+> until it is installed**, which is why the check that cannot be skipped lives in
+> `release-engine.yml` instead; this one exists because CI cannot see your machine.
 
 > **`scrapex` command not found?** pip installs `scrapex.exe` into your Python
 > Scripts dir, which may not be on PATH. Either use the always-works form

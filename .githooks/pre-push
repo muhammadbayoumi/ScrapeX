@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Guard 2 of the two: refuse to push an engine tag while THIS machine's warehouse is
+# ahead of the code being tagged.
+#
+# WHY IT EXISTS. Twice now the owner's warehouse has ended up at a schema version no
+# engine built from `main` could open: migrations 0007/0008 on 2026-08-21 (OP-33) and
+# 0011/0012 on 2026-08-27 (OP-84), both applied from an unmerged branch. Each time the
+# fault only became visible when he double-clicked the released engine and it refused.
+#
+# WHAT IT CANNOT DO, said here rather than discovered later. A hook is inert until
+# somebody runs `git config core.hooksPath .githooks` (README, "Setup"), so this is the
+# half that can be skipped. The half that cannot is the step named
+# "No unmerged branch may hold a migration this release does not carry" in
+# .github/workflows/release-engine.yml, which runs on the tag whatever any machine has
+# configured. This hook exists because CI cannot see this machine, and R-64 asked for both.
+#
+# IT ONLY SPEAKS ABOUT ENGINE TAGS. Every other push -- a branch, a scrapex-v* tag --
+# passes through untouched and pays nothing, because the check costs a database open.
+
+set -uo pipefail
+
+engine_tag=""
+while read -r local_ref _local_sha _remote_ref _remote_sha; do
+    case "$local_ref" in
+        refs/tags/engine-v*) engine_tag="${local_ref#refs/tags/}" ;;
+    esac
+done
+
+[ -n "$engine_tag" ] || exit 0
+
+# `database-status` is the engine's own answer to this question, and it is read-only.
+# Asking it rather than reading PRAGMA user_version here keeps one owner for the
+# comparison: the CLI already knows what this build can read.
+status=$(python -m scrapex.cli database-status 2>/dev/null) || {
+    echo "pre-push: could not run 'scrapex database-status', so this check cannot speak." >&2
+    echo "          Not blocking $engine_tag on a broken probe -- silence must not read as a pass," >&2
+    echo "          so fix the probe or push with --no-verify and say why." >&2
+    exit 1
+}
+
+case "$status" in
+    *'"ok": false'*|*'"ok":false'*)
+        echo >&2
+        echo "REFUSED: $engine_tag would ship an engine this machine's warehouse cannot open." >&2
+        echo >&2
+        printf '%s\n' "$status" | sed -n 's/^/    /p' >&2
+        echo >&2
+        echo "This is OP-33 and OP-84. Land the missing migrations on main first." >&2
+        echo "R-64: no tag is cut while the warehouse is ahead of the code." >&2
+        exit 1
+        ;;
+esac
+
+echo "pre-push: $engine_tag -- the warehouse opens on this code."

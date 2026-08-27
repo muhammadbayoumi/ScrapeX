@@ -119,6 +119,58 @@ jobs:
           test "$tag" = "$version"
           echo "ENGINE_VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: No unmerged branch may hold a migration this release does not carry
+        # THE GUARD OP-33 NEEDED AND DID NOT GET, AND THE REASON IT RETURNED.
+        # OP-33 (2026-08-21) was migrations 0007/0008 living on an unmerged branch
+        # after being applied to the owner's live warehouse, so the engine a
+        # release would build could not open his database. It was closed by
+        # merging #243 -- by a merge, not by a guard -- and on 2026-08-27 the
+        # identical fault returned as 0011/0012 on `feat/organization-enrichment`,
+        # measured: `database-status` answered "Needs a newer ScrapeX (schema v12;
+        # this build reads v10)".
+        #
+        # `migration-authority` in ci.yml cannot catch this: it reads the diff of
+        # the branch it runs on and knows nothing of any other branch. Nothing
+        # else in this repository can see across branches, and nothing at all can
+        # see the owner's machine -- which is what the pre-push hook in
+        # `.githooks/` is for. This is the CI half of R-64.
+        #
+        # It compares CEILINGS, not counts. A branch that is merely behind is
+        # fine; a branch that has NUMBERED a migration this release does not
+        # carry is what makes a warehouse unopenable, because the owner may
+        # already have run it.
+        shell: bash
+        run: |
+          set -euo pipefail
+          ceiling() {
+            git ls-tree --name-only "$1" db/engine/migrations/ 2>/dev/null \
+              | sed -n 's|.*/0*\([0-9][0-9]*\)_.*|\1|p' | sort -n | tail -1
+          }
+          # fetch-depth: 0 above gives full history for THIS ref only; the other
+          # branches still have to be asked for. Blob-less keeps it to seconds.
+          git fetch --no-tags --prune --filter=blob:none \
+            origin '+refs/heads/*:refs/remotes/origin/*' >/dev/null 2>&1
+          here=$(ceiling HEAD)
+          : "${here:?this commit has no migrations at all, which cannot be right}"
+          echo "this release carries migrations up to $here"
+          ahead=""
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+                       | grep -v '^origin/HEAD$' || true); do
+            n=$(ceiling "$ref")
+            if [ -n "$n" ] && [ "$n" -gt "$here" ]; then
+              ahead="$ahead$ref (up to $n)%0A"
+            fi
+          done
+          if [ -n "$ahead" ]; then
+            echo "::error title=A branch holds a migration this release does not carry::$ahead"
+            echo
+            echo "REFUSED. The owner may already have run one of these against his live"
+            echo "warehouse, and then this release cannot open it -- see R-64 and OP-84."
+            echo "Land the migrations on main first, or delete the branch if it is dead."
+            exit 1
+          fi
+          echo "no branch is ahead of this release"
+
       - name: This release must be newer than the one already published
         # TAKEN FROM THE ADD-IN, WHICH LEARNED IT THE EXPENSIVE WAY. Every
         # other check in this file asks whether the release is CONSISTENT WITH
