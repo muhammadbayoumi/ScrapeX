@@ -2656,3 +2656,83 @@ arrived at again from the other end.
 view as the positive test. Asserting "no card" against a panel whose section was
 never opened passes for the wrong reason, and an absent card and an unopened section
 are indistinguishable from outside.
+
+---
+
+## 17 · Three findings that only a caller, a mutation, or a count could have produced
+
+All three lived in one plan's checklist rather than here. Each was found by running
+something rather than by reading it, which is why nothing in the suites named them.
+
+### 1 · A compression ratio measured against a dictionary drawn from the same sample is a self-comparison
+
+`STORAGE.md` recommended `zstd` + one real page as a raw dictionary on a measured **187×**
+for listings. Counted on the finished warehouse — 20,683 listing pages, 500 sampled, decoded
+through `scrapex/snapshotbody.py:193` — the shipped ratio is **46.3×**. The profile figure
+held (46× projected, **51.7×** measured); only the listing one moved, and it moved 4×.
+
+**The mechanism, stated as unproven:** the 187× came from 40 pages sharing a near-identical
+skeleton, with the dictionary page taken from among them. Production spans 56 city×size
+cells whose filter markup differs. **The choice of codec is still right** — 46× beats every
+alternative in that table — but the number that argued for it was not a prediction.
+
+**The cheap test:** if a dictionary, a fixture or a baseline comes out of the same sample it
+is scored against, the score is an upper bound, not an expectation. Draw it from outside, or
+say which it is.
+
+### 2 · Two sequences paired by position are a guess unless something proves they are the same length
+
+`enumerate(detail_urls(page))` handed the index to `belongs_to_slice`, which indexes listing
+**rows** while `detail_urls` yields **URLs** (`scrapex/pagesource.py:183` and `:187`).
+Right only when a page yields one URL per row. muqawil yields one per **locale**: measured on
+a stored page, **17 cards and 34 URLs**, so url index 1 was contractor 0's Arabic page being
+asked about card 1 — a different contractor — and **17 of the 34 indices pointed past the
+last card** and were silently dropped. A slice would have fetched a set that is neither the
+slice nor its complement, and it reads as a smaller city.
+
+**Two reasons nothing caught it.** Nothing used the slice path, and **every fake in the
+walker's own slice tests yields one URL per row** — the single case the assumption fits.
+Fixed by having the source pair each URL with its row (`detail_rows`,
+`scrapex/sites/muqawil.py:292`) and by making `belongs_to_slice` **refuse** a row past the
+last instead of answering `False`, which is what made the overshoot invisible. **0 mismatches
+of 34** on the same real page; six mutations killed.
+
+### 3 · A line that reads like protection and cannot fail is worse than no line
+
+A `retired` guard at the top of the departure loop was dead code: both branches already
+named the status they act on. **A mutation deleted the guard and every test passed.** It was
+removed, with the reason written where it had been — because the next reader would have
+treated it as the thing keeping retired rows safe.
+
+**And the opposite case, from the same loop, is why "delete dead guards" is not the lesson.**
+A nested outcome reports `provably_complete = True` *correctly* — the flag is a claim about
+its own `scope` — so the `nested` check beside it **is** load-bearing: without it one cell's
+proof delists the rest of the country. Two lines that look alike; one cannot fail and one is
+the only thing standing between a proof and a false delisting. **The test is a mutation, not
+a reading.**
+
+### 4 · A test that compares a literal timestamp against `now` asserts nothing after that date
+
+`tests/test_a_dataset_is_a_table_like_any_other.py` pinned the newest crawl at
+`2026-08-21T12:00:00Z` and set only the last row's `first_seen_at` to it, expecting one
+`new` row. The other rows kept whatever `stored()` wrote — **`now`** — and `row_state`
+returns `STATE_NEW` on `first_seen_at >= newest`. At 13:28Z that is true of every row.
+
+**Proved by moving the stamp and nothing else:** `2026-08-21T12:00:00Z` → **FAIL, 3 new**;
+`2027-08-21T12:00:00Z` → **pass**.
+
+**It does not heal overnight, and that distinction is the whole cost.** `now` only
+increases, so the comparison is true for ever from 12:00Z that day. #243's own comment
+called it a dependency on the *time of day* — true of 2026-08-21 alone. **Told it is
+time-of-day, a reader waits for the morning, and the morning never fixes it.** `main` was
+red from then on, and `release-engine.yml` runs the suite before it builds, so `OP-32` —
+the release he had asked for — could not ship while it stood.
+
+**The repair is to pin both sides**, not to move the literal: the `last_seen_at` lines two
+above already did, and `first_seen_at` pinned one. Three mutations killed, **two of them in
+production code** — a test edited into passing would have survived those.
+
+**The sweep, so this is a class and not an anecdote:** the other 13 test files holding a
+hardcoded 2026 timestamp pass every value to `row_state()` explicitly, so no `now` is
+involved, and **no future-dated literal exists anywhere in `tests/`** that would arm the
+same bomb for a later date. Every such literal is a date on which the suite changes its mind.

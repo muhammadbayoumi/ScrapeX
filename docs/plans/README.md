@@ -20,22 +20,45 @@ of what was decided when. See
 
 ## Current
 
-| plan | date | status |
+**ONE plan is live** ([R-58](../RULINGS.md#r-58--drive-is-the-second-plan-muqawil-finishes-first-and-its-problems-with-it)).
+**A row below the live one is QUEUED whatever its own file says about itself** — eight rows
+here carried `LIVE` at once on 2026-08-26, which meant none of them was the plan.
+One sentence per row on purpose ([R-57](../RULINGS.md#r-57--a-document-carries-what-is-needed-and-consequential-and-nothing-else)):
+what the plan is for goes in the plan.
+
+| # | plan | what it is |
 |---|---|---|
-| [2026-08-26-what-remains-of-muqawil.md](2026-08-26-what-remains-of-muqawil.md) | 2026-08-26 | **LIVE.** What is left of muqawil once the crawl finished, as ten steps he asked to have ordered — «رتب لى المتبقى من الخطة فى خطوات». Its evidence is [MUQAWIL-AUDIT-2026-08-26.md](../MUQAWIL-AUDIT-2026-08-26.md): 28 confirmed defects, 15 refuted claims kept visible, and the crawl itself sound at **34,834 of 34,834** and 100.7% of the politeness floor. **The ordering principle is argued, not preferred**: whatever has a deadline we do not control, then values we PUBLISH that are false, then data the site publishes and we lack, then data we hold and he cannot reach. **Step 1 is the only one whose cost grows while we look elsewhere** — 17,371 of 17,371 live rows bound to a `retired` schema version whose approved successor was taught by 14 impostor pages, so the next new muqawil field gets the page REFUSED. **Step 2 records a `C5` disagreement with `R-52`**: filling the sighting ledger flips 17,250 rows from `unsighted` to `absent`, because a confirming pass never moves `last_seen_at` on the record — 17,259 records are older than their own memberships. **Its main finding is that five of the ten steps are blocked on him and they are every defect that publishes something false**, so the route to a correct dataset runs through five decisions and not through more crawling |
-| [2026-08-24-a-generic-crawl-is-a-run.md](2026-08-24-a-generic-crawl-is-a-run.md) | 2026-08-24 | **LIVE.** `R-52` / `OP-68` — «نفذ ب». Three of the eight row states rest on `newest`, the MAXIMUM of `generic_record.last_seen_at`, which is a timestamp to the second while a crawl writes for half an hour. Measured: **17,256 of 17,304** contractors read `absent` after a crawl that read every one, and **1** profile read `new` where **121** arrived. Not a screen bug — `publish.py` turns every payload column into a workbook column, so *"The most recent crawl did not show this row"* reaches the Google Sheet the add-in reads. **Two changes and the first does not wait for the second**: `absent` comes off the sighting ledger (no schema, no ruling — the ledger says 0 where the timestamp says 17,256), then `dataset_crawl` gives a run an identity. **One row per crawl, not the attendance register `0006` refused** at 17,403 rows a crawl |
-| [2026-08-22-the-source-page-moves-into-the-extension.md](2026-08-22-the-source-page-moves-into-the-extension.md) | 2026-08-22 | **LIVE.** `REQ-07` — the engine's `/source/{key}` moves into the extension's `data.html?source=`, answered by `DEC-8` as a PORT and re-verified at `4522158`. Written because he asked for the plan itself and asked it to survive: «ضع خطة لتنفيذها كلها وتتبع التنفيذ حتى لا نفقده». **Seven steps, a status table, and a gate per step**, each marked with the category it serves — his reason for [R-45](../RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card) was contractors while `REQ-07`'s four capabilities are all products-shaped. **Step 0 is DONE**: the chooser was offering the price header on a contractor table and then ignoring the answer. It also carries the correction that `R-45`'s *"no per-row card on either surface"* is **wrong** — the card has existed on the engine since 2026-07-22, and the search that missed it looked for `rowFormatter`. Saved views blocked on [O-5](../RULINGS.md#open--awaiting-the-owners-ruling); promotion measured as never once used on any source |
-| [2026-08-20-finish-muqawil-then-the-source-queue.md](2026-08-20-finish-muqawil-then-the-source-queue.md) | 2026-08-20 | **LIVE.** Finish muqawil completely — «كلّ ما ينشره الموقع» — then the six queued sources. **Written to be picked up on his other machine**, per [R-08](../RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository): the studying is finished, the building has started, and the build order plus what is blocked on him is in one place. Coverage is 11,059 of 17,403 with **zero** profile pages fetched. **Step 1 is now built** — the partitioned crawl, verified against the live directory at an exhaustiveness deficit of **0** — and has RUN: 47 of 56 cells proven, exhaustiveness deficit 0, 13,727 ids sighted. **It now carries the CHECKLIST** of everything open on muqawil — requested-and-unbuilt, not-started, and built-but-unwired — which is the tracking surface he asked for |
-| [2026-08-21-the-tool-itself.md](2026-08-21-the-tool-itself.md) | 2026-08-21 | **LIVE.** Everything tool-wide, opened on his instruction so general work stops competing with muqawil: «اى تعديلات عامه … ضعها فى خطة عامة للاداة ككل». Holds `REQ-20` (the rename must reach every user — a release blocker), `R-21` (one owner for every outbound request, his unified connection point), `REQ-04`, `REQ-11`, and the generic-source machinery muqawil exposed but does not own. **Nothing here starts before the quick wins and the muqawil plan**, by his order |
-| [2026-08-22-finish-muqawil-workers-crawl-columns.md](2026-08-22-finish-muqawil-workers-crawl-columns.md) | 2026-08-22 | **LIVE.** Finish muqawil: workers for `--details` (**done**, #249 — 87 h to 11–14, and it found a real dictionary race), then the 34,834-page profile crawl, then the 48 columns, then `R-19`'s remaining four groups — three of which measure as *do not build*. Written on the machine that did NOT have the warehouse, which is [R-08](../RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository) proving itself again |
-| [2026-08-16-muqawil-contractor-source.md](2026-08-16-muqawil-contractor-source.md) | 2026-08-16 | **LIVE.** The contractor directory — the plan behind #202–#209 and PR #211. Holds the owner's three rulings ([R-10](../RULINGS.md#r-10--the-contractor-directory--three-rulings)), the four build steps, verification, and four open questions. Was `iterative-dreaming-prism.md` |
-| [../MIGRATION-PLAN.md](../MIGRATION-PLAN.md) | 2026-08-12 | **LIVE.** The Console, the migration, and the debt. Already in the repo (moved 2026-08-15, [R-08](../RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository)). Its living state is [HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md) — and **two of its claims were measured false**; that table is in the handoff |
+| **1 · LIVE** | [2026-08-26-what-remains-of-muqawil.md](2026-08-26-what-remains-of-muqawil.md) | Ten steps in the order he asked for. **Five are blocked on him, and they are every defect that publishes a false value** — so the route to a correct dataset runs through five decisions, not through more crawling. Evidence: [MUQAWIL-AUDIT-2026-08-26.md](../MUQAWIL-AUDIT-2026-08-26.md) |
+| **1a** | [2026-08-24-a-generic-crawl-is-a-run.md](2026-08-24-a-generic-crawl-is-a-run.md) | Step 2 of the above in detail — `R-52` / `OP-68`, and the `C5` disagreement that became [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at). Step 1 of it needs no ruling |
+| **2** | Drive | Branch `claude/drive-without-a-server` at `e00711d` — pushed, **no PR since 2026-08-22**. Second by his ruling |
+| 3 | [2026-08-22-the-source-page-moves-into-the-extension.md](2026-08-22-the-source-page-moves-into-the-extension.md) | `REQ-07` — the engine's `/source/{key}` becomes the panel's. Step 0 is done; the gate on steps 3 and 5 was lifted 2026-08-26 |
+| 4 | [2026-08-21-the-tool-itself.md](2026-08-21-the-tool-itself.md) | Everything tool-wide, opened so general work stops competing with muqawil. Holds `REQ-20`, `R-21`, `REQ-04`, `REQ-11` |
+| 5 | [../MIGRATION-PLAN.md](../MIGRATION-PLAN.md) | The base plan ([R-49](../RULINGS.md#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test)). Its living state is [HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md) |
 
 ## Historical
 
 Kept because they record decisions, measurements and reasoning that nothing else
 holds. Do not follow them as instructions without checking
 [../STATE.md](../STATE.md) first.
+
+**Folded 2026-08-27, not archived** ([R-60](../RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive)) —
+`git show d6f4967:docs/plans/<name>` returns either in full:
+
+- **`2026-08-20-finish-muqawil-then-the-source-queue.md`** (671 lines) — its checklist was
+  the tracking surface, and every open item on it is now on a register: `REQ-45` (no path
+  from the panel), `O-2`, [Q-25](../BACKLOG.md#q-25--is-a-stored-page-evidence-or-only-a-parse-cache)
+  (lifted off its §E, where it had no entry), and its three unrecorded engineering findings
+  are [LESSONS §17](../LESSONS.md#17--three-findings-that-only-a-caller-a-mutation-or-a-count-could-have-produced).
+  Its §D measurement of `STORAGE.md`'s ratio is what produced
+  [OP-83](../BACKLOG.md#op-83--1728-snapshots-were-never-compressed--69-of-the-stored-bytes-623-mb-recoverable).
+- **`2026-08-16-muqawil-contractor-source.md`** (170 lines) — all six build steps shipped in
+  #202-#209 and #211. Its measured site facts are in
+  [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) — `data-cfemail`, the `143` segment, 20
+  rows a page, 865 pages, Cloudflare not blocking — checked term by term before deleting.
+  Its rulings are `R-10`.
+- **`2026-08-22-finish-muqawil-workers-crawl-columns.md`** (152 lines) — steps 1 and 3 done
+  (#249), step 2 done when the crawl finished at 34,834 of 34,834, step 4 is `R-19`. Its
+  appendix of his four sync decisions is `R-44`, which carries all four.
 
 | plan | date | what it is |
 |---|---|---|
