@@ -3142,103 +3142,6 @@ the four tiles kept, with the ones that do not apply shown as blank rather than 
 this source has", which is the same distinction `last_successful_run` already documents
 for a crawl that never ran.
 
-## 3. Decided, not yet built
-
-### Q-25 · Is a stored page evidence, or only a parse cache?
-
-**Asked 2026-08-27 · his to answer · lifted off `STORAGE.md` §5, where it had no register entry**
-
-`SR-1` says the source of truth is what the site publishes. A stored page is therefore
-**evidence of what it published on a date** — which matters for a disputed row, a contractor
-whose classification changed, or a claim about what the directory held before an edit. Or it
-is only a cache that saves a re-fetch when a parser is corrected.
-
-**What his answer changes, and it is one row of `STORAGE.md` §4 and no others:** if evidence
-over time matters, *"keep a hash and re-fetch"* is out for profiles as well as listings. It
-is already out for listings for a different reason — the directory reorders every thirty
-seconds, so a listing page is not reproducible at all.
-
-**Why it is registered now rather than left in `STORAGE.md`.** It was asked there, deferred
-in the 2026-08-20 muqawil plan's §E, and appeared on no register — the same shape as `REQ-04`,
-which sat ruled and unbuilt for sixteen days after dropping out of view and is the reason
-`C7` exists. The question has not aged: at **921.5 MB across 57,041 snapshots** the cost of
-keeping them is now measured rather than projected (`OP-83`).
-
----
-
-### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
-
-**Asked 2026-08-26 · his to answer · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
-
-Measured read-only on the live warehouse:
-
-| id | `site_key` | `base_url` | `crawl_scope` | active rows |
-|---|---|---|---|---|
-| **2** | `muqawil_org` | `https://muqawil.org/` | `full_then_listing` | **34,675** |
-| **1** | `muqawil` | `https://muqawil.org/ar/contractors` | `listing_only` | **0** |
-
-**Three reasons this is a question and not a cleanup:**
-
-1. **It decides what the crawl button sends.** `REQ-45` waits on which registry starts a
-   generic crawl; whichever key that names, **one of these rows is the wrong one.** Closing
-   the empty one first would settle the question by tidying.
-2. **`site_profile` sits behind his review** in `COMPATIBILITY.md`, and the table carries
-   `valid_to` — so the pattern is to CLOSE a row, never delete. Even a close asserts which
-   key is retired.
-3. **The empty row is not obviously the wrong one.** Its `base_url` is the *more precise* of
-   the two — `/ar/contractors` is the actual directory, while id 2 holds the site root. *"The
-   row with the data wins"* is defensible and not the only answer.
-
-**Neither row is seeded by code:** `'muqawil'` appears in no file under `scrapex/` or `db/`;
-both were inserted at runtime by `scrapex/catalog.py:147` and `:171`. And `site_key` is
-`NOT NULL UNIQUE`, **which stops two rows sharing a key and does nothing about two keys for
-one site** — so this recurs when `jobs` or `tenders` is registered.
-
----
-
-### OP-83 · 1,728 snapshots were never compressed — 69% of the stored bytes, 623 MB recoverable
-
-**Found 2026-08-27 by counting the warehouse instead of quoting the study.**
-
-| | |
-|---|---|
-| snapshots in `generic_page_snapshot` | **57,041**, 921.5 MB of `html_content` |
-| of them `html_codec = 'plain'` | **1,728 rows — 636.8 MB** |
-| share of the bytes / of the rows | **69.1% / 3.0%** |
-| captured | `2026-08-17T06:44:32Z` … `2026-08-20T05:56:40Z` — before the codec shipped |
-| distinct URLs | 1,728 — no duplicates to dedupe first |
-| at the measured 46.3× | **13.8 MB. 623 MB recoverable, zero network** |
-
-**These are the first listing crawl's 864 pages in both locales.** Compression landed after
-them and nothing went back. `scrapex/snapshotbody.py:193` reads either codec, so they are
-correct today — just large. The measurement that replaced the projection is in
-[STORAGE.md](STORAGE.md#measured-on-the-finished-warehouse--2026-08-27-and-the-headline-was-4x-optimistic).
-
-**Why this is an `OP` and not a plan.** Re-encoding a stored row rewrites evidence, and
-`generic_page_snapshot` is the table this repository treats as immutable. The `content_hash`
-stays valid — it is taken over the decoded body — but a session must confirm that before
-touching a row, and `scrapex/warehousemerge.py:198` already refuses a non-`plain` row whose
-`html_dict_id` is null. **Not urgent:** 623 MB on a 1.2 GB database is worth doing, and
-nothing breaks while it waits.
-
----
-
-### OP-82 · The palette registry is two hard-coded aliases, not a registry
-
-**Found 2026-08-27 by sweeping the documents, not by a failure.**
-
-[scrapex/webui/app.py:195](../scrapex/webui/app.py#L195) rejects anything outside
-`{"whatsapp", "github"}`. Under [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
-those two names are **legacy aliases** and the real names are `brand` and `blue`, with
-`alternatives` extensible. So the route enforces the compatibility layer and knows nothing
-of the thing it is compatible with.
-
-**Not urgent** — no third palette exists to add. It is registered because the ruling that
-contradicts the code was itself invisible until today, and the next session to add a palette
-would find the refusal before it found the rule.
-
----
-
 ### OP-69 · The release gate proves the engine STARTED, never that it can serve a page
 
 **Found 2026-08-23 by the session that wrote `OP-62`'s fix. Filed 2026-08-26, and the
@@ -3318,6 +3221,57 @@ then be sure to kill it — a release job that leaks a listening engine is its o
 
 Being built on `fix/the-release-gate-fetches-a-page` by the session that found it, base
 `35962cc`. **This entry deliberately does not depend on that branch landing.**
+
+---
+
+### OP-83 · 1,728 snapshots were never compressed — 69% of the stored bytes, 623 MB recoverable
+
+**Found 2026-08-27 by counting the warehouse instead of quoting the study.**
+
+| | |
+|---|---|
+| snapshots in `generic_page_snapshot` | **57,041**, 921.5 MB of `html_content` |
+| of them `html_codec = 'plain'` | **1,728 rows — 636.8 MB** |
+| share of the bytes / of the rows | **69.1% / 3.0%** |
+| captured | `2026-08-17T06:44:32Z` … `2026-08-20T05:56:40Z` — before the codec shipped |
+| distinct URLs | 1,728 — no duplicates to dedupe first |
+| at the measured 46.3× | **13.8 MB. 623 MB recoverable, zero network** |
+
+**These are the first listing crawl's 864 pages in both locales.** Compression landed after
+them and nothing went back. `scrapex/snapshotbody.py:193` reads either codec, so they are
+correct today — just large. The measurement that replaced the projection is in
+[STORAGE.md](STORAGE.md#measured-on-the-finished-warehouse--2026-08-27-and-the-headline-was-4x-optimistic).
+
+**Why this is an `OP` and not a plan.** Re-encoding a stored row rewrites evidence, and
+`generic_page_snapshot` is the table this repository treats as immutable. The `content_hash`
+stays valid — it is taken over the decoded body — but a session must confirm that before
+touching a row, and `scrapex/warehousemerge.py:198` already refuses a non-`plain` row whose
+`html_dict_id` is null. **Not urgent:** 623 MB on a 1.2 GB database is worth doing, and
+nothing breaks while it waits.
+
+---
+
+---
+
+### OP-82 · The palette registry is two hard-coded aliases, not a registry
+
+**Found 2026-08-27 by sweeping the documents, not by a failure.**
+
+[scrapex/webui/app.py:195](../scrapex/webui/app.py#L195) rejects anything outside
+`{"whatsapp", "github"}`. Under [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+those two names are **legacy aliases** and the real names are `brand` and `blue`, with
+`alternatives` extensible. So the route enforces the compatibility layer and knows nothing
+of the thing it is compatible with.
+
+**Not urgent** — no third palette exists to add. It is registered because the ruling that
+contradicts the code was itself invisible until today, and the next session to add a palette
+would find the refusal before it found the rule.
+
+---
+
+---
+
+## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
@@ -4041,6 +3995,62 @@ table, everything else in the **row's own card**, because contractors will have 
 sources and a column is a promise every source must keep. The question is kept below,
 unedited, because the answer is only legible beside what was asked (**C4**).
 
+### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
+
+**Asked 2026-08-26 · his to answer · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
+
+Measured read-only on the live warehouse:
+
+| id | `site_key` | `base_url` | `crawl_scope` | active rows |
+|---|---|---|---|---|
+| **2** | `muqawil_org` | `https://muqawil.org/` | `full_then_listing` | **34,675** |
+| **1** | `muqawil` | `https://muqawil.org/ar/contractors` | `listing_only` | **0** |
+
+**Three reasons this is a question and not a cleanup:**
+
+1. **It decides what the crawl button sends.** `REQ-45` waits on which registry starts a
+   generic crawl; whichever key that names, **one of these rows is the wrong one.** Closing
+   the empty one first would settle the question by tidying.
+2. **`site_profile` sits behind his review** in `COMPATIBILITY.md`, and the table carries
+   `valid_to` — so the pattern is to CLOSE a row, never delete. Even a close asserts which
+   key is retired.
+3. **The empty row is not obviously the wrong one.** Its `base_url` is the *more precise* of
+   the two — `/ar/contractors` is the actual directory, while id 2 holds the site root. *"The
+   row with the data wins"* is defensible and not the only answer.
+
+**Neither row is seeded by code:** `'muqawil'` appears in no file under `scrapex/` or `db/`;
+both were inserted at runtime by `scrapex/catalog.py:147` and `:171`. And `site_key` is
+`NOT NULL UNIQUE`, **which stops two rows sharing a key and does nothing about two keys for
+one site** — so this recurs when `jobs` or `tenders` is registered.
+
+---
+
+---
+
+### Q-25 · Is a stored page evidence, or only a parse cache?
+
+**Asked 2026-08-27 · his to answer · lifted off `STORAGE.md` §5, where it had no register entry**
+
+`SR-1` says the source of truth is what the site publishes. A stored page is therefore
+**evidence of what it published on a date** — which matters for a disputed row, a contractor
+whose classification changed, or a claim about what the directory held before an edit. Or it
+is only a cache that saves a re-fetch when a parser is corrected.
+
+**What his answer changes, and it is one row of `STORAGE.md` §4 and no others:** if evidence
+over time matters, *"keep a hash and re-fetch"* is out for profiles as well as listings. It
+is already out for listings for a different reason — the directory reorders every thirty
+seconds, so a listing page is not reproducible at all.
+
+**Why it is registered now rather than left in `STORAGE.md`.** It was asked there, deferred
+in the 2026-08-20 muqawil plan's §E, and appeared on no register — the same shape as `REQ-04`,
+which sat ruled and unbuilt for sixteen days after dropping out of view and is the reason
+`C7` exists. The question has not aged: at **921.5 MB across 57,041 snapshots** the cost of
+keeping them is now measured rather than projected (`OP-83`).
+
+---
+
+---
+
 **Q-17 · The licences: a readiness level almost nobody publishes, and three activities the site names wrongly in English.**
 Two decisions in one place because they are the same table.
 *(a)* `مستوى الجاهزية` is **empty on 1,490 of 1,500 rows** — five distinct values across
@@ -4278,25 +4288,25 @@ reachable from an extension whose id the old manifest does not know.)*
 
 ---
 
-## 6a. In flight right now — 2026-08-11
+## 6a. Entries first recorded on 2026-08-11, and one issue still open
 
-*The only section that goes stale by the hour. Check it against `gh pr list`
-before trusting it.*
+**The in-flight table that opened this section is gone.** It was dated 2026-08-11 and said
+of itself *"the only section that goes stale by the hour"*; it then sat sixteen days.
+[STATE.md](STATE.md) owns what is in flight, and a second copy of that job is a second thing
+to keep true. `git show 8bc6241:docs/BACKLOG.md` has it.
 
-| what | where | state |
-|---|---|---|
-| ~~Side panel startup~~ | **MERGED `815ecae` (#152)** | Owner-verified in real Chrome after the rebase. Nine semantic conflicts resolved by a separate session, which also surfaced four gate failures none of us had run and one silent-pass bug in a test guard. |
-| ~~Carry the split databases over~~ | **MERGED `61ded7e` (#159)** | Ran on the owner's real data before merge — pointer moved, `database-status` Healthy, 338,000 rows with zero short. Full suite green locally and in CI on the rebased head. |
-| ~~The 48px touch target~~ | **MERGED `6ccdd3c` (#162)** | Not a flake under load, as I had guessed: `showView` animates every view in over 180ms and the test measured ~17ms in, reading a box through a live transform as a float32 quad. 47.99999237060547 is 48 − 2⁻¹⁷. **And the mutation test found worse** — a global `.button { min-height: var(--control-height) }` meant `height >= 48` could never have caught a height regression at all. The guard was blind on the axis it named. |
-| Four panel-placement defects | issue #160 | Not started. The version banner should now be gone — the extension is 0.2.2. |
-| The untested remote-control promise | issue #161 | Not started |
+**Checked against GitHub rather than against the table:** [issue
+#161](https://github.com/muhammadbayoumi/ScrapeX/issues/161) — *"the panel says closing it
+never stops a run"* — is **CLOSED**, so the row reading *"Not started"* was wrong. [issue
+#160](https://github.com/muhammadbayoumi/ScrapeX/issues/160) — *"the panel talks about the
+engine in the wrong places, and says it twice differently"*, four panel-placement defects —
+is **OPEN and recorded nowhere else in this system**, which is why it is written here.
 
-**Owner-side, no code involved:** the privacy policy is published and its whole
-chain verified; the Chrome Web Store listing still needs uploading without the
-`key` field. The engine stays **unsigned** by decision on 2026-08-11 — sole user,
-so a certificate buys trust from strangers there are none of. Do not re-propose
-it; the only consequence is Defender scanning each new download once, which the
-splash now covers.
+**And one decision from that table, so it is not re-proposed:** the engine stays **unsigned**
+by his decision of 2026-08-11 — sole user, so a certificate buys trust from strangers there
+are none of.
+
+The entries below were recorded the same day and are live on their own terms.
 
 ### OP-18 · A test guard was blind to the thing it was written to find
 
@@ -4574,140 +4584,57 @@ the cycle depends on timing, not to run it again until it is green.
 
 ## 6c. The extension/engine separation, audited — 2026-08-11
 
-The owner asked whether the extension is fully separated from the engine. What
-follows is what was measured, including the note that turned out to be my own
-misreading. Four were raised; one was a defect, two were correct by design, one
-did not exist. A fifth was found only by comparing the two directories directly
-instead of trusting the tool's own list.
+**He asked whether the extension is fully separated from the engine. It is.** Zero `.py` or
+`.pyc` under `extension/`; the shipped package is `cp -r extension build/scrapex` minus
+`tests/`, `README.md` and `*.pem` (`release-extension.yml:85`), so no Python byte reaches the
+store. Two independent release triggers, neither building the other's artifact. Runtime
+contact is two narrow paths and nothing else — native messaging for CONTROL, HTTP on
+`127.0.0.1:8000` for DATA.
 
-**Separated, verified.** Zero `.py` or `.pyc` under `extension/`. The shipped
-package is literally `cp -r extension build/scrapex` minus `tests/`, `README.md`
-and `*.pem` (`release-extension.yml:85`), so no Python byte reaches the store.
-Two independent release triggers — `scrapex-v*` and `engine-v*` — neither
-building the other's artifact. Runtime contact is two narrow paths and nothing
-else: native messaging for CONTROL, HTTP on `127.0.0.1:8000` for DATA
-(`extension/transport.js`). The extension id is a runtime argument to
-`nativehost.build_manifest`, not a constant in Python.
+**Four notes were raised and a fifth found by comparing the directories rather than trusting
+a tool's list. The verdicts, and what each left behind:**
 
-### SEP-1 · The extension's own tests are written in Python — DECISION, not debt
-
-`release-extension.yml:64` installs the Python package and runs
-`pytest -m extension`; 21 test files carry that mark. CI *also* runs
-`node --test extension/tests/*.test.mjs` — 9 files, **zero npm dependencies**.
-
-The split is not accidental. The Python tests drive a real Chrome through
-Playwright and assert rendered geometry, resolved CSS and live DOM; node cannot
-do that without an npm dependency, and this repository refuses npm dependencies
-on purpose (the reason is written out in `extension/bundleview.js`, which reads
-a gzip stream with the browser's own `DecompressionStream` rather than bundling
-a zip library).
-
-So the recorded position is: the extension's **runtime** carries no Python; its
-**browser-driving test harness** does, by choice. The cost is stated rather than
-paid — if `extension/` is ever moved to its own repository, that harness has to
-be ported or replaced, and that is a real day of work, not a footnote. Nobody
-has asked for a separate repository, and until someone does this is not debt.
-
-### SEP-2 · Generated copies that did not say they were generated — FIXED
-
-Five files exist on both sides of the boundary. Four were generated from
-`design/` by `tools/sync_design_assets.py` and carried no marking at all —
-`extension/appearance.js` opened straight with `(function () {`, and
-`design/tokens.css` said *"canonical source … run the tool after editing this
-file"*, a sentence copied verbatim into both generated copies where **both
-halves of it become false**.
-
-This is not theoretical: it is the trap this session fell into. See Q1b in
-`ENGINEERING.md` for the rule and `test_every_generated_copy_says_it_is_one` for
-the guard, which was mutation-tested — the banner was stripped from one copy and
-the test failed by name before it was restored.
-
-### SEP-3 · `timezone.js` had a rule of its own — FIXED
-
-The fifth file. `extension/timezone.js` and `scrapex/webui/static/timezone.js`
-were 493 identical lines with **no source between them**, kept equal by
-`test_display_time_zone.py::test_the_two_copies_of_the_module_are_identical`.
-
-That test works and was never missing — the first draft of this audit was about
-to report it as an unguarded duplicate, and re-reading the file refuted that.
-What the test could not do is say which copy is right. Its failure message reads
-*"copy one over the other"*, and a reader who had just fixed the extension copy
-and a reader who had just fixed the workspace copy receive the same instruction;
-one of them reverts the other's work while obeying it.
-
-`timezone.js` is now authored in `design/` and generated into both, like the
-other four. The byte-equality test is kept — it guards the property directly
-rather than through the tool, and deleting a working test to lean on a script is
-the weaker arrangement.
-
-### SEP-4 · `PROTOCOL_VERSION` in two languages — CORRECT, no change
-
-`scrapex/native.py:49` and `extension/transport.js:25` both state the number,
-because JavaScript cannot import Python. `test_native.py::test_the_two_protocol_constants_cannot_drift`
-holds them together, and it has the shape section 6b demands: it asserts the
-regex **found** the line, by name, before comparing the value. A reformatted
-declaration fails the test rather than passing it vacuously. It is inside the
-extension gate (`test_every_test_file_that_reads_the_extension_carries_the_mark`),
-so a change to `transport.js` cannot route around it. There is exactly one
-literal on each side — `engine.js` and `webui/app.py` both import rather than
-restate. Closed as a correct contract coupling.
-
-### SEP-5 · "The engine reads the extension's manifest" — WITHDRAWN, my error
-
-I reported that `scrapex/version.py:10` makes the engine depend on
-`extension/manifest.json`, reversing the dependency. It does not. `version.py`
-contains no `open`, no `read_text`, no `Path` and no `json.load` at all — line 10
-is prose in the module docstring saying the extension's number is deliberately
-**not** there, and explaining why the two versions are allowed to differ. I read
-a docstring as code.
-
-The only Python that reads that manifest is `tools/panel_harness.py:121`, a
-development harness that never ships. There is no reversed runtime dependency.
-Recorded here so the note is not raised a second time by someone reading the
-same docstring.
+| | verdict | what remains |
+|---|---|---|
+| **SEP-1** · the extension's tests are written in Python | **DECISION, not debt** | The Python tests drive real Chrome through Playwright and assert rendered geometry; node cannot without an npm dependency, which this repository refuses on purpose. **The cost is stated rather than paid:** if `extension/` ever moves to its own repository that harness must be ported — a real day of work. Nobody has asked, so it is not debt |
+| **SEP-2** · four generated copies did not say they were generated | **FIXED** | `design/tokens.css` said *"canonical source … run the tool after editing this file"* and that sentence was copied verbatim into both generated copies, **where both halves of it become false**. The rule is `ENGINEERING.md` Q1b; the guard is `test_every_generated_copy_says_it_is_one`, mutation-tested by stripping the banner |
+| **SEP-3** · `timezone.js` was 493 identical lines with no source | **FIXED** | It is authored in `design/` and generated into both now. **The byte-equality test was never missing** — the first draft of this audit was about to report it as unguarded and re-reading refuted that. What it could not do is say *which* copy is right: its message reads *"copy one over the other"*, and two readers who each just fixed a different copy obey it by reverting each other |
+| **SEP-4** · `PROTOCOL_VERSION` stated in two languages | **CORRECT, no change** | JavaScript cannot import Python. `test_native.py` holds them together and asserts the regex **found** the line before comparing, so a reformatted declaration fails rather than passing vacuously. Exactly one literal per side |
+| **SEP-5** · *"the engine reads the extension's manifest"* | **WITHDRAWN — my error** | `scrapex/version.py:10` is prose in a docstring saying the extension's number is deliberately **not** there. I read a docstring as code. The only Python that reads that manifest is `tools/panel_harness.py:121`, a harness that never ships. Recorded so the note is not raised a second time |
 
 ## 6d. The whole file re-measured — 2026-08-12
 
-Six agents read the code, the git history and the live warehouse, one entry at a
-time, and were told explicitly never to verify a claim against this file's own
-prose. A sceptic then tried to refute every closure, because striking an item off
-is the only irreversible move here: an item wrongly left open costs a second
-look, an item wrongly closed is forgotten.
+Six agents read the code, the git history and the live warehouse one entry at a time, told
+never to verify a claim against this file's own prose. A sceptic then tried to refute every
+closure, **because striking an item off is the only irreversible move here**: an item wrongly
+left open costs a second look, an item wrongly closed is forgotten.
 
 | | |
 |---|---|
 | items measured | 47 |
-| still open (or *changed* — real, but not the problem described) | **45** |
-| genuinely closed | **2** — Q-1, Q-3 |
-| closures claimed and **refuted** | **6** — OP-2, ت2, Q-2, Q-4, Q-5, Q-11 |
+| still open, or *changed* — real, but not the problem described | **45** |
+| genuinely closed | **2** — `Q-1`, `Q-3` |
+| closures claimed and **refuted** | **6** — `OP-2`, `ت2`, `Q-2`, `Q-4`, `Q-5`, `Q-11` |
 
-**What this file got wrong, as a class.** Not the judgements — the *numbers*, and
-the *statuses of things fixed elsewhere*. Almost every figure quoted more than
-once had drifted: `app.py` 2,955 → 3,347 lines; Sika 78 → 185 observations;
-branches 117 → 148; currencies 93 → 119 requests; sources "six of twelve" →
-seven. Two entries described fixes that exist (OP-13, OP-14) and one described a
-fix that **does not** (OP-18). The lesson is mechanical, not moral: a number
-written down once is a number nobody re-counts, so every figure now carries the
-date it was measured.
+**What this file got wrong, as a class: not the judgements — the numbers.** Almost every
+figure quoted more than once had drifted — `app.py` 2,955 → 3,347 lines, Sika 78 → 185
+observations, branches 117 → 148, currencies 93 → 119 requests, sources *"six of twelve"* →
+seven. Two entries described fixes that exist and one described a fix that **does not**
+(`OP-18`). **The lesson is mechanical, not moral:** a number written down once is a number
+nobody re-counts, so every figure now carries the date it was measured
+([LESSONS §14](LESSONS.md#14--a-measurement-that-outlives-its-base--and-the-instance-that-was-a-live-process)).
 
-**Three things are broken on the owner's machine right now** — not paperwork:
+**The three live faults it found are registered by number** — `BV-3` (ALSWEED refused with
+HTTP 429 because `crawl_honour_delay` is `'0'`), `OP-6`/`ت2` (Settings says *"Not running"*
+while a crawl runs, and the heartbeat freezes under `database is locked`), and `OP-18` (the
+diagnostic-page guard is still blind, which this file had claimed was fixed).
 
-1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
-   `crawl_honour_delay` is `'0'`. **BV-3**.
-2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2749` that the fix never reached
-   — and the runtime heartbeat freezes under `database is locked` when a job
-   holds a write transaction. **OP-6 · ت2**.
-3. **The diagnostic-page guard is still blind**, and this file said it had been
-   fixed. **OP-18**.
-
-**And two failures of mine, recorded because they are the same failure twice.**
-#177's guards are string greps over `app.py`'s text — the code the commit changed
-has no executing coverage (**OP-2**). The same day, a test I wrote for the
-spreadsheet chooser passed against the mutation because it drove the helper
-rather than the feature; that one was caught before merging, by attacking my own
-branch. The rule that follows: **a guard must fail when the behaviour is broken,
-which is only demonstrable by breaking it.**
+**And two failures of mine, recorded because they are the same failure twice.** #177's guards
+are string greps over `app.py`'s text, so the code the commit changed has no executing
+coverage (`OP-2`); the same day a test I wrote for the spreadsheet chooser passed against its
+mutation because it drove the helper rather than the feature — caught before merging, by
+attacking my own branch. **A guard must fail when the behaviour is broken, which is only
+demonstrable by breaking it.**
 
 ---
 
