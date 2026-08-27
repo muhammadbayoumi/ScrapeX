@@ -150,6 +150,16 @@ def test_a_key_either_register_knows_answers_200(client, key, kind, registry):
     assert body["passes"], "a source with no passes is a menu with no entries"
 
 
+def test_both_kinds_answer_the_same_top_level_keys(client):
+    """ONE SHAPE FOR THE PANEL. A key present on one kind and absent on the other
+    teaches a reader to guard every access, and then to stop noticing which guards
+    mean something."""
+    price = set(client.get(f"/api/dry/{PRICE}").json())
+    dataset = set(client.get(f"/api/dry/{DATASET}").json())
+
+    assert price == dataset, f"only on price: {price - dataset}; only on dataset: {dataset - price}"
+
+
 def test_an_unknown_key_is_404_and_names_both_registries(client):
     response = client.get("/api/dry/NOT_A_SOURCE")
 
@@ -482,6 +492,25 @@ def test_coverage_comes_from_the_sightings_module(client, monkeypatch):
     assert body["coverage"][0]["missing"] >= 1, (
         f"{NEVER_STORED} was sighted and never stored; coverage says nothing is "
         "missing, so the block is vacuous")
+
+
+def test_a_never_sighted_dataset_does_not_publish_100_percent_coverage(engine):
+    """`Coverage.fraction` is **1.0** when nothing has been sighted, while the same
+    object's sentence says coverage *"cannot be stated. That is not the same as
+    complete."* Publishing the number would print 100% over the sentence denying it.
+
+    Live, 2026-08-27: `contractor_profiles` carries **0** sightings, so this is the
+    ordinary case for a dataset built from profile pages — not an edge."""
+    registry, _ = engine
+    conn = registry.engine.connect()
+    try:
+        block = dryrun._coverage(conn, "a_dataset_nothing_has_sighted")
+    finally:
+        conn.close()
+
+    assert block["seen"] == 0, "the ledger has sightings for this key, so nothing is proved"
+    assert block["fraction"] is None
+    assert "cannot be stated" in block["sentence"]
 
 
 def test_the_route_and_the_cli_share_one_departure_window(client, engine):

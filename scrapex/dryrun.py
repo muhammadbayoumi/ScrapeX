@@ -158,7 +158,13 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
     body: dict = {
         "dataset_key": dataset_key,
         "seen": figure.seen, "stored": figure.stored, "missing": figure.missing,
-        "fraction": figure.fraction, "sentence": str(figure),
+        # NULL RATHER THAN 1.0 WHEN NOTHING HAS BEEN SIGHTED. `Coverage.fraction`
+        # returns 1.0 there while `Coverage.__str__` says coverage "cannot be stated.
+        # That is not the same as complete" — so publishing the number would print
+        # 100% over the sentence denying it. Live: `contractor_profiles` has 0
+        # sightings, so this is the ordinary case and not an edge. `R-55`.
+        "fraction": figure.fraction if figure.seen else None,
+        "sentence": str(figure),
         "frequencies": {str(times): count
                         for times, count in sighting_frequencies(
                             general, dataset_key).items()},
@@ -317,6 +323,10 @@ def dry_payload(source_key: str, *, general: sqlite3.Connection,
 
     directory = _directory_for(target)
     body["scope"] = _scope(target)
+    # THE SAME TOP-LEVEL KEYS FOR BOTH KINDS, so the panel reads one shape. A key
+    # present on one kind and absent on the other is how a reader learns to guard
+    # every access, and then stops noticing which guards mean something.
+    body["coverage_note"] = None
     body["coverage"] = [_coverage(general, key) for key in target.dataset_keys]
     body["impostors"] = _impostors(general, directory)
     body["last_run"] = _dataset_last_run(general)

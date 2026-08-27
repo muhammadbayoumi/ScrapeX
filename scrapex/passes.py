@@ -99,7 +99,7 @@ _DIRECTORY: dict[str, Pass] = {
     "coverage": Pass(
         key="coverage", label="What we are missing",
         does="Stored against sighted, the frequency sample, sighted-and-never-stored, "
-             "and departures",
+             "and departures measured against the ledger's newest sighting",
         writes=(), network=0,
         network_phrase="zero requests, read from the warehouse"),
     "impostors": Pass(
