@@ -2839,3 +2839,55 @@ target's own domain, refuse an HTTPS→HTTP downgrade, cap the response body.
 crawl already fetched**, which is exactly how the enrichment provider found 64 of them.
 `HttpFetcher` follows redirects for hosts it was pointed at by stored HTML, and nothing
 checks where they land.
+
+---
+
+### R-68 · The two crawls reconcile themselves at the end of every crawl, in both directions
+
+**2026-08-27 · collection · answers [REQ-41](REQUESTS.md#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself), the last step that was waiting on him**
+
+> «لازم الكود لو لاقى مقاول مش موجود فى profile **يجيبه**، مقاول مش فى listing **يجيبه**»
+
+| | measured |
+|---|---|
+| have a profile, no listing row | **148 — zero network, their pages are on disk** |
+| have a listing row, no profile | **35**, and up to 81 counting step 7's unsearched side |
+| why they disagree at all | the listing **reorders under the crawl** — 4,556 contractors appeared on more than one page in a single pass |
+
+**So the drift is structural, not a defect.** Any two passes separated in time read two
+different arrangements of one site; ours were separated by two days. That is why he refused to
+have the 183 fixed and asked for the reconciliation to live in the code.
+
+**HIS CHOICE: automatic at the end of every crawl, both directions.** He was offered the split
+— free side automatic, fetching side by command — and did not take it. **His words name the
+fetch explicitly**, twice, and *"a command a person runs"* is the session doing it that he
+objected to: *«كل مستخدم هيلاقى اختلافات»*, and no other user has a session.
+
+**The one constraint the build must carry:** the fetching side is bounded and **reports what it
+did inside the crawl's own report**, so a reconciliation can never become silent extra
+requests. `R-21` and `SR-8` are not weakened by being automatic; they are weakened by being
+unreported.
+
+---
+
+### R-69 · The build order for the four unblocked muqawil steps, and `0.4.1` stands
+
+**2026-08-27 · sequencing · two answers recorded together because one is a consequence of the other**
+
+**Order: step 1 → 2 → 5 → 3.** Step 1 first because it is the only defect in the set **whose
+cost grows while attention is elsewhere** — the next field muqawil publishes makes the whole
+page refused (`R-53`). Then the State column (`R-54`, the loudest false publication: 34,364 of
+34,689 rows). Then the placeholder pair (`R-55`, zero network). **Step 3 last because it is the
+only one that waits on a 58-minute crawl** (`R-56`).
+
+He was offered the state column first, and the batch-of-three, and took neither. The
+batch-of-three was offered with its own risk stated: three changes to the approval and state
+paths in one pull request make a failing mutation harder to attribute, which is `OP-18`'s
+lesson.
+
+**And `0.4.1` stands on `main`** for migrations `0011`/`0012`. The gate proved the contract
+includes the migration list, so `VERSION` had to move; PATCH describes it because the twelve
+tables have **no reader on `main` at all**, so no capability became reachable. **It also leaves
+`0.5.0` exactly where he put it** — on `feat/organization-enrichment` — rather than renumbering
+his own ruling as a side effect of a fix. He was offered `0.5.0` here with `0.6.0` for the
+branch and kept `0.4.1`.

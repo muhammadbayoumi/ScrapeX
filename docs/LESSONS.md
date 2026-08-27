@@ -2590,7 +2590,7 @@ assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
 
 `unsighted` is in that set. So a table where **every single row** collapsed to
 `unsighted` is green. And there is a live path that does exactly that:
-[scrapex/extract/service.py:895](../scrapex/extract/service.py#L895) resolves the
+[scrapex/extract/service.py:915](../scrapex/extract/service.py#L915) resolves the
 identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
 two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
 every sighting lookup misses, and the whole column is wrong with nothing to say so.

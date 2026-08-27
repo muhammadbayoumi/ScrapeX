@@ -95,7 +95,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-38](#req-38--the-backup-must-check-its-own-digest-and-the-panel-must-be-able-to-finish-the-build) | The backup must check its own digest, and the panel must be able to finish the build | **Captured** — measured: the digest is written and never read; the button aborts at 10 s on a 5-minute build | 2026-08-22 |
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
-| [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Captured** — re-measured 2026-08-24 now the profile crawl has finished: 148 have a profile and no listing row (all 148 already on disk, zero requests); **188** have a listing row and no profile, and **zero of them need fetching** — every one has a profile snapshot stored and was refused at approval, 59 by `OP-64` (the id is dead and the site answers with the listing) and 129 by `merge_locales` (see `OP-66`). The figure here read `35` when it was written, taken mid-crawl. The listing reorders under the crawl so any two passes drift | 2026-08-23 |
+| [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Ruled** — 2026-08-27 as [R-68](RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions): automatic at the end of every crawl, **both directions**. He refused the free-side-only split — his words name the fetch twice, and a command is the session doing it. 148 need zero network; the fetching side is bounded and reported inside the crawl's own report | 2026-08-23 |
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
@@ -2220,7 +2220,9 @@ verifiers caught it: it dated *text* by each **file's** last commit, which inver
 seniority of two documents in one of its headline contradictions. A line's age is not its
 file's age, and this register should not repeat the mistake.
 ## REQ-41 · The two crawls disagree, so the code must reconcile them itself
-**Captured 2026-08-23**
+**Captured 2026-08-23 · Ruled 2026-08-27**
+
+> **Ruled as [R-68](RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions): automatic at the end of every crawl, in both directions.** He was offered the split — the 148 free side automatic, the fetching side by command — and refused it. **His words name the fetch explicitly, twice**, and a command a person runs is the session doing it that this request exists to remove: *«كل مستخدم هيلاقى اختلافات»*, and no other user has a session. The fetching side is bounded and reports inside the crawl's own report, so it can never become silent extra requests.
 
 > «هو طريقتين الزحف مختلفة بين contractor و contractor profile وبكدا اى مستخدم هيعمل زحف
 > هيلاقى اختلافات فلازم الكود لو لاقى مقاول مش موجود فى profile يجيبه مقاول مش موجود فى
@@ -2346,7 +2348,7 @@ do not leave the user to infer the state.*
 and **built** the same day — migration `0006_a_row_says_when_it_was_last_proved_absent.sql`,
 merged as #235 (`ec53b17`) — and it never reached this board. It survived in the code that
 implements it: quoted in that migration's header, in `scrapex/sightings.py:102` and `:361`,
-in `scrapex/extract/service.py:63` and `:984`, and in
+in `scrapex/extract/service.py:63` and `:1004`, and in
 `tests/test_a_dataset_is_a_table_like_any_other.py:849`. **Six citations in code and
 migrations, zero on the register that tracks what he asked for.**
 

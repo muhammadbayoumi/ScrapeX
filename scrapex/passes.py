@@ -21,7 +21,8 @@ from .vocab import RunMode
 #: The passes a DIRECTORY source has. `contractors.validate` reads this tuple, so a
 #: seventh pass cannot reach the command line without appearing here.
 DIRECTORY_PASSES: tuple[str, ...] = (
-    "plan", "crawl", "details", "approve", "coverage", "impostors")
+    "plan", "crawl", "details", "approve", "coverage", "impostors",
+    "reapprove_schema")
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,18 @@ _DIRECTORY: dict[str, Pass] = {
         does="Lists profile rows whose membership number disagrees with their listing "
              "card; --repair is what retires them",
         writes=(), network=0,
+        network_phrase="zero requests, read from the warehouse"),
+    "reapprove_schema": Pass(
+        key="reapprove_schema", label="Re-approve the contract onto the live shape",
+        does="Re-approves the live rows onto the field set they actually carry, when the "
+             "approved version was taught by pages that have since been retired; "
+             "--repair is what applies it",
+        # It writes no VALUE and no revision: only which version a row is bound to, plus
+        # the two version rows. `R-53`'s own text says 17,371 revisions and cannot be
+        # right -- `generic_record_revision` is UNIQUE on (record, snapshot, hash) and
+        # nothing here changes a hash.
+        writes=("dataset_schema_version", "schema_version_field", "generic_record"),
+        network=0,
         network_phrase="zero requests, read from the warehouse"),
 }
 

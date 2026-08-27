@@ -362,9 +362,29 @@ def _ensure_schema(
     approval: CandidateApproval,
     schema_hash: str,
 ) -> int:
+    # A SHAPE MAY MATCH A DEAD VERSION, AND BINDING A NEW PAGE TO IT IS THE DEFECT.
+    #
+    # This lookup had no filter on status until 2026-08-27, so a page whose field set
+    # matched a RETIRED version was bound to that retired version — measured on
+    # `contractor_profiles`, where a fresh 27-field page joined v2, dead since
+    # 2026-08-23T13:59:07Z. `OP-68`'s State column and the audit's "poisoned schema" are
+    # both downstream of rows sitting on a version marked dead.
+    #
+    # `UNIQUE (dataset_definition_id, schema_hash)` is what hid it: it guaranteed exactly
+    # one row to find, so nobody asked whether the one row could be dead. Migration `0013`
+    # lifted that constraint precisely so this query can prefer the live one, and his ruling
+    # of 2026-08-27 made the fix apply to EVERY dataset rather than to muqawil alone.
+    #
+    # WHEN ONLY A RETIRED VERSION MATCHES, THIS FALLS THROUGH ON PURPOSE. Opening a new
+    # version then goes through `_retire_or_refuse`, so `R-31` still decides: if the page's
+    # set is a subset of what is currently approved it is REFUSED, which is right — a subset
+    # is the signature of a bad sample. Returning the retired version instead would record
+    # the page against a dead contract to avoid a refusal, which is the trade this defect
+    # was making silently.
     existing = conn.execute(
         "SELECT schema_version_id FROM dataset_schema_version "
-        "WHERE dataset_definition_id = ? AND schema_hash = ? LIMIT 1",
+        "WHERE dataset_definition_id = ? AND schema_hash = ? AND valid_to IS NULL "
+        "LIMIT 1",
         (dataset_id, schema_hash),
     ).fetchone()
     if existing is not None:
@@ -1062,3 +1082,205 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         "moved_to_details": [column for column in site_columns
                              if column["key"] in hidden],
     }
+
+
+def reapprove_onto_clean_version(
+    conn: sqlite3.Connection,
+    dataset_key: str,
+    *,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """`R-53`: re-approve live rows onto the field set they actually carry.
+
+    THE CASE THIS EXISTS FOR, measured on `contractor_profiles` 2026-08-27. Its APPROVED
+    version was v3 — 39 fields, taught by the 14 impostor pages `OP-64` later disowned —
+    while all 17,371 live rows sat on v2, 27 fields, RETIRED. The 12 fields v3 adds are
+    `x_*` listing keys and every one is EMPTY on all 17,371. So the published contract
+    described fourteen pages that no longer count, and the seventeen thousand real ones were
+    bound to a version marked dead. The cost is not cosmetic: **the next field the site
+    publishes makes the whole page REFUSED rather than recorded**, and muqawil sets that
+    date, not us.
+
+    WHY THIS IS NOT A CHANGE TO `R-31`, which is the important part. The ordinary approval
+    path REFUSES a subset, because a subset is how a broken parser and a bad sample look —
+    `_retire_or_refuse` explains it with #234's 823 refused pages. This operation asks for
+    exactly that forbidden shape, so it does not touch that rule: it is a separate, named
+    repair that must PROVE the subset is safe and refuses itself otherwise. The three
+    preconditions below are the proof, and each is checked against the database rather than
+    against the ruling's own numbers.
+
+    IT WRITES NO REVISIONS, AND THE RULING'S ARITHMETIC WAS WRONG ABOUT THAT. `R-53` says it
+    "writes 17,371 rows and 17,371 revisions". It cannot: no VALUE changes here — only which
+    version a row is bound to — and `generic_record_revision` is `UNIQUE (generic_record_id,
+    source_snapshot_id, content_hash)`. Measured: all 17,371 already carry a revision for
+    their current `(snapshot, hash)`, so one each would collide on every single row.
+    `SR-6`/`R-20` say the same from the other side — an unchanged value is confirmed, not
+    appended. Recorded as a `C5` disagreement; the CHOICE the ruling made stands.
+
+    Returns what it did, or what it would do when `dry_run`. Never both.
+    """
+    dataset = conn.execute(
+        "SELECT dataset_definition_id AS id FROM dataset_definition "
+        "WHERE dataset_key = ? AND valid_to IS NULL LIMIT 1", (dataset_key,)).fetchone()
+    if dataset is None:
+        raise ExtractionNotFound(f"no dataset carries the key {dataset_key!r}")
+    dataset_id = int(dataset["id"])
+
+    def fields_of(version_id: int) -> list[tuple[int, str]]:
+        return [(int(row["field_definition_id"]), str(row["field_key"]))
+                for row in conn.execute(
+                    "SELECT svf.field_definition_id, f.field_key "
+                    "  FROM schema_version_field AS svf "
+                    "  JOIN field_definition AS f "
+                    "    ON f.field_definition_id = svf.field_definition_id "
+                    " WHERE svf.schema_version_id = ? ORDER BY svf.field_order",
+                    (version_id,))]
+
+    approved = conn.execute(
+        "SELECT schema_version_id AS id, version_number FROM dataset_schema_version "
+        "WHERE dataset_definition_id = ? AND valid_to IS NULL LIMIT 1",
+        (dataset_id,)).fetchone()
+    if approved is None:
+        raise ExtractionConflict(
+            f"{dataset_key!r} has no approved schema version, so there is nothing to "
+            "re-approve away from. That is a different fault and this repair will not "
+            "invent a contract for it.")
+
+    # The target is the version the LIVE rows are on, chosen by COUNTING rows rather than by
+    # taking the highest number: "the shape the data actually has" is the only defensible
+    # definition of the set to re-approve.
+    target = conn.execute(
+        "SELECT g.schema_version_id AS id, count(*) AS rows_on_it "
+        "  FROM generic_record AS g "
+        " WHERE g.dataset_definition_id = ? AND g.status = 'active' "
+        " GROUP BY g.schema_version_id ORDER BY rows_on_it DESC LIMIT 1",
+        (dataset_id,)).fetchone()
+    if target is None:
+        raise ExtractionConflict(
+            f"{dataset_key!r} has no active records, so there is no shape to re-approve.")
+    target_id, live_rows = int(target["id"]), int(target["rows_on_it"])
+    if target_id == int(approved["id"]):
+        return {"dataset_key": dataset_key, "already_correct": True,
+                "approved_version_id": target_id, "records_moved": 0,
+                "dropped_fields": [], "dry_run": dry_run}
+
+    approved_fields = fields_of(int(approved["id"]))
+    target_fields = fields_of(target_id)
+    approved_keys = {key for _, key in approved_fields}
+    target_keys = {key for _, key in target_fields}
+
+    # PRECONDITION 1 — the target invents nothing. A key the approved contract never had
+    # would mean this is not a subset repair but a parser change wearing one.
+    invented = sorted(target_keys - approved_keys)
+    if invented:
+        raise ExtractionConflict(
+            f"the live rows of {dataset_key!r} carry {invented!r}, which the approved "
+            "version never declared. That is a schema CHANGE, not a poisoned contract, and "
+            "it belongs on the ordinary approval path where `R-31` can judge it.")
+
+    dropped = sorted(approved_keys - target_keys)
+    if not dropped:
+        raise ExtractionConflict(
+            f"{dataset_key!r}'s approved and live field sets are identical, so the only "
+            "difference is which version is marked approved. Nothing here would change a "
+            "field; fix the version's status rather than opening another one.")
+
+    # PRECONDITION 2 — every field being dropped is empty on every ACTIVE row. This is the
+    # whole safety of the operation: a field with a value on a live row is a field the site
+    # published about a live company, and `R-45` puts it beyond our reach.
+    #
+    # ACTIVE, AND THE FIRST DRAFT SAID "EVERY ROW" AND WAS REFUSED BY ITS OWN CHECK. On
+    # `contractor_profiles` the twelve `x_*` keys hold values on exactly 14 rows each — the
+    # impostor pages that TAUGHT the version being retired, which `OP-64` has since marked
+    # `retired`. Asking about every row therefore refuses the repair for the sake of the very
+    # rows that caused the fault.
+    #
+    # Scoping to active rows takes nothing from them, and that is provable rather than
+    # asserted: precondition 3 below forbids any ACTIVE row from being bound to the version
+    # this retires, so the 14 keep v3, v3 keeps declaring all 39 fields, and their values
+    # stay readable under the contract they were approved under. That is exactly what `R-53`
+    # asked for — *"the 14 retired impostor rows do not silently lose the columns they were
+    # approved under"* — and it is why the two preconditions are load-bearing together and
+    # neither is safe alone.
+    carrying: dict[str, int] = {}
+    for key in dropped:
+        held = conn.execute(
+            "SELECT count(*) FROM generic_record "
+            " WHERE dataset_definition_id = ? AND status = 'active' "
+            "   AND json_extract(data_json, '$.' || ?) IS NOT NULL "
+            "   AND trim(coalesce(json_extract(data_json, '$.' || ?), '')) <> ''",
+            (dataset_id, key, key)).fetchone()[0]
+        if held:
+            carrying[key] = int(held)
+    if carrying:
+        raise ExtractionConflict(
+            f"refusing to drop {sorted(carrying)!r} from {dataset_key!r}'s contract: they "
+            f"hold values on {carrying} ACTIVE row(s). A field the site has published about "
+            "a live company is not a phantom, and `R-45` says the site is the only source "
+            "of truth.")
+
+    # PRECONDITION 3 — nothing LIVE depends on the version being retired. On
+    # `contractor_profiles` the 14 rows bound to v3 are the impostors, all already retired.
+    live_on_approved = conn.execute(
+        "SELECT count(*) FROM generic_record "
+        " WHERE dataset_definition_id = ? AND status = 'active' AND schema_version_id = ?",
+        (dataset_id, int(approved["id"]))).fetchone()[0]
+    if live_on_approved:
+        raise ExtractionConflict(
+            f"{live_on_approved} active row(s) of {dataset_key!r} are bound to the approved "
+            "version this would retire. Retiring it would strand them exactly as the fault "
+            "being repaired stranded the others.")
+
+    plan: dict[str, Any] = {
+        "dataset_key": dataset_key,
+        "already_correct": False,
+        "retiring_version_id": int(approved["id"]),
+        "retiring_version_number": int(approved["version_number"]),
+        "shape_taken_from_version_id": target_id,
+        "field_count": len(target_fields),
+        "dropped_fields": dropped,
+        "records_to_move": live_rows,
+        "revisions_written": 0,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        return plan
+
+    # ORDER MATTERS AND `ux_dataset_schema_version_active` ENFORCES IT: exactly one row per
+    # dataset may have `valid_to IS NULL`, so the old approval is retired BEFORE the new one
+    # is inserted. Inserting first raises a UNIQUE violation rather than quietly producing
+    # two approved versions, which is the failure mode worth having.
+    conn.execute(
+        "UPDATE dataset_schema_version "
+        "   SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ','now'), status = 'retired' "
+        " WHERE schema_version_id = ?", (int(approved["id"]),))
+    next_number = int(conn.execute(
+        "SELECT COALESCE(MAX(version_number), 0) + 1 AS n FROM dataset_schema_version "
+        " WHERE dataset_definition_id = ?", (dataset_id,)).fetchone()["n"])
+    target_hash = conn.execute(
+        "SELECT schema_hash FROM dataset_schema_version WHERE schema_version_id = ?",
+        (target_id,)).fetchone()["schema_hash"]
+    # The new version carries the TARGET's hash, so `_ensure_schema` resolves a page of this
+    # shape to it. Migration `0013` lifted `UNIQUE (dataset_definition_id, schema_hash)` for
+    # this reason and no other.
+    new_id = int(conn.execute(
+        "INSERT INTO dataset_schema_version "
+        "(dataset_definition_id, version_number, schema_hash) VALUES (?,?,?)",
+        (dataset_id, next_number, target_hash)).lastrowid)
+    # The SAME `field_definition` rows, in the same order. Registering fresh ones would
+    # orphan every value already stored under the old ids.
+    for position, (field_id, _key) in enumerate(target_fields):
+        conn.execute(
+            "INSERT INTO schema_version_field "
+            "(schema_version_id, field_definition_id, field_order) VALUES (?,?,?)",
+            (new_id, field_id, position))
+    moved = conn.execute(
+        "UPDATE generic_record SET schema_version_id = ? "
+        " WHERE dataset_definition_id = ? AND status = 'active' AND schema_version_id = ?",
+        (new_id, dataset_id, target_id)).rowcount
+    logging.getLogger(__name__).info(
+        "%s: v%s approved with %s fields, dropping %s; %s record(s) moved, 0 revisions",
+        dataset_key, next_number, len(target_fields), dropped, moved)
+    plan.update({"approved_version_id": new_id, "approved_version_number": next_number,
+                 "records_moved": int(moved), "dry_run": False})
+    return plan
