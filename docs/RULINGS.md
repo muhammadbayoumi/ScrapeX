@@ -2725,7 +2725,7 @@ testing one uses a copy.
 protects the data; it does nothing about the warehouse getting ahead of the engine.**
 
 **HE APPROVED BOTH GUARDS**, because `OP-33` was closed by a merge and not by a guard, and
-that is exactly why the class returned:
+that is exactly why the class returned. **Both are BUILT, in #276:**
 
 1. **In CI** — `release-engine.yml` asks GitHub for branches whose migration ceiling exceeds
    `main`'s and **refuses, naming them**. It is the only place that can see across branches,
