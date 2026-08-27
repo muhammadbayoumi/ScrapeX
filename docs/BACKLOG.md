@@ -2913,7 +2913,7 @@ entirely** — `contractors` was not touched by that work, and the skew is older
 
 **`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
 `newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
-identifier ([scrapex/extract/service.py:929](../scrapex/extract/service.py#L929)):
+identifier ([scrapex/extract/service.py:923](../scrapex/extract/service.py#L923)):
 
 ```python
 if last_seen_at is None or last_seen_at < newest:
@@ -2948,10 +2948,10 @@ column written row by row cannot.
 
 **Two statements nearby are also false, and both predate `#267`:**
 
-* [scrapex/extract/service.py:601](../scrapex/extract/service.py#L601) says *"`last_seen_at`
+* [scrapex/extract/service.py:613](../scrapex/extract/service.py#L613) says *"`last_seen_at`
   still moved: the upsert above sets it unconditionally, so a confirmation is recorded on
   the RECORD."* The `DEC-10` early `return` at
-  [scrapex/extract/service.py:503](../scrapex/extract/service.py#L503) fires **before** that
+  [scrapex/extract/service.py:515](../scrapex/extract/service.py#L515) fires **before** that
   upsert. Measured: **0** profile rows have a `last_seen_at` on 2026-08-24 with an earlier
   `first_seen_at`; all 17,264 pre-`R-51` rows still read 2026-08-23, after a full
   re-approval that touched every one of them.

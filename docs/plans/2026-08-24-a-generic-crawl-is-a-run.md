@@ -69,7 +69,7 @@ magnitude cheaper and answers a different question. That refusal stands.
    newest one. Decide it in the code with a comment, and test the resume.
 2. **`scrapex/partitioncrawl.py`** — the 93 cells. They must all belong to ONE run row,
    keyed on the base ref, not 93 rows.
-3. **`scrapex/extract/service.py:929`** — `newest` is computed here and handed to
+3. **`scrapex/extract/service.py:923`** — `newest` is computed here and handed to
    `derive_state`. It becomes "the newest `success` run's `started_at` for this dataset",
    read from `dataset_crawl`, and `None` when there is none — which the ladder already
    handles honestly (`STATE_CONFIRMED`).
