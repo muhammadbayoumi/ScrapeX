@@ -20,6 +20,11 @@ of what was decided when. See
 
 ## Current
 
+**ONE plan is live at a time** ([R-58](../RULINGS.md#r-58--drive-is-the-second-plan-muqawil-finishes-first-and-its-problems-with-it)).
+Seven rows here carried `**LIVE.**` at once on 2026-08-26, which meant none of them was the
+plan. The queue, in his order: **1 muqawil** (this file's top row) · **2 Drive** · then the rest.
+A row below the live one is QUEUED however its status cell reads until that cell is rewritten.
+
 | plan | date | status |
 |---|---|---|
 | [2026-08-26-what-remains-of-muqawil.md](2026-08-26-what-remains-of-muqawil.md) | 2026-08-26 | **LIVE.** What is left of muqawil once the crawl finished, as ten steps he asked to have ordered — «رتب لى المتبقى من الخطة فى خطوات». Its evidence is [MUQAWIL-AUDIT-2026-08-26.md](../MUQAWIL-AUDIT-2026-08-26.md): 28 confirmed defects, 15 refuted claims kept visible, and the crawl itself sound at **34,834 of 34,834** and 100.7% of the politeness floor. **The ordering principle is argued, not preferred**: whatever has a deadline we do not control, then values we PUBLISH that are false, then data the site publishes and we lack, then data we hold and he cannot reach. **Step 1 is the only one whose cost grows while we look elsewhere** — 17,371 of 17,371 live rows bound to a `retired` schema version whose approved successor was taught by 14 impostor pages, so the next new muqawil field gets the page REFUSED. **Step 2 records a `C5` disagreement with `R-52`**: filling the sighting ledger flips 17,250 rows from `unsighted` to `absent`, because a confirming pass never moves `last_seen_at` on the record — 17,259 records are older than their own memberships. **Its main finding is that five of the ten steps are blocked on him and they are every defect that publishes something false**, so the route to a correct dataset runs through five decisions and not through more crawling |

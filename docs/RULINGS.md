@@ -2523,3 +2523,45 @@ side effect of doing the work honestly. Wipe-and-re-approve works in ~20 minutes
 **refused** by `ExtractionConflict` and writes nothing, because the parse would add columns.
 It is measured, it is in the audit's §7-5, and a session should not spend an afternoon
 rediscovering it.
+---
+
+### R-57 · A document carries what is needed and consequential, and nothing else
+
+**2026-08-26 · how this system is written**
+
+> «لازم نقلل عدد السطور فى doc ونكتب الى نحتاجه فقط ومؤثر مش حشو على الفادى يستهلك وقت بدون فائدة»
+
+**Measured when he said it:** 73 markdown files, **39,676 lines**, **+7,251 in four days** —
+18% of the corpus in four days, most of it this session's. He is the only reader, and he said
+it had become hard to review and track.
+
+**The rule.** An entry carries the quote, the number, the choice and the consequence. **Not
+the argument defending them.** Prefer a table to a paragraph and a number to an adjective —
+then delete the sentence introducing the table. Never state one fact in two documents; cite
+the one that owns it.
+
+**The test:** would he act differently if this sentence were deleted? If not, delete it.
+
+**What this does NOT relax.** `C3` and `C7` still compel the entries themselves — brevity
+applies to the prose inside a record, never to whether the record exists. `R-15`'s citations
+stay. Superseded text stays under `C4`.
+
+**First application is this entry**, at a third of the length the four before it ran to.
+
+---
+
+### R-58 · Drive is the second plan: muqawil finishes first, and its problems with it
+
+**2026-08-26 · sequencing · answers "which plan is live"**
+
+> «هناك خطة drive هى الخطة الثانية بعد الانتهاء من مقاول وحل كل المشاكل»
+
+**One plan is live at a time.** Muqawil is first and is not finished when the crawl ends — it
+finishes when the problems the audit found are solved. Then Drive.
+
+| # | plan |
+|---|---|
+| **1 · LIVE** | muqawil — [2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md), whose steps 1–5 are his rulings and 6–10 are not |
+| **2** | Drive — branch `claude/drive-without-a-server` at `e00711d`, pushed, **no PR since 2026-08-22** |
+| 3+ | the rest, ordered rather than all marked `LIVE`. Seven were `LIVE` at once when he ruled, which meant none of them was the plan |
+

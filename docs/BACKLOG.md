@@ -5169,7 +5169,7 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 | `DESIGN-SYSTEM.md` | **live** |
 | `recon/heidelberg-materials-eg.md` | **live** — Q-1…Q-5 |
 | `COMPATIBILITY.md`, `GENERIC_CATALOG.md`, `archive/db1-domain-database-isolation.SUPERSEDED.md` | **live** — the generic/price split (G0/G1/DB1). Not touched since 07-20; nothing in the last 130 commits builds on them, so their roadmap half is dormant **(inferred)** |
-| `CLAUDE-after-database-separation-20260720.md`, `CLAUDE-after-price-history-20260720.md` | **historical.** These are two saved copies of the original product brief, not plans. Keep; do not read them as current requirements |
+| `archive/CLAUDE-after-database-separation-20260720.SUPERSEDED.md`, `archive/CLAUDE-after-price-history-20260720.SUPERSEDED.md` | **historical.** These are two saved copies of the original product brief, not plans. Keep; do not read them as current requirements |
 
 ## Appendix C — memory files that are NOT about ScrapeX
 
