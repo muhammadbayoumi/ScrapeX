@@ -3033,6 +3033,58 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-87 · `feat/organization-enrichment` reviewed before merge — four blockers, and the architecture is sound
+
+**Reviewed 2026-08-27 on his ruling** («أقرأُه وأُبلِغُك قبلَ أىّ دمج»). 7,832 lines, 44 files,
+queue position 3. **The two suspicions that brought it here were both wrong, and both are
+recorded as withdrawn rather than quietly dropped.**
+
+| # | finding | verdict |
+|---|---|---|
+| 1 | **`REQ-44` collides.** The branch uses it for the website/LinkedIn request; `main`'s `REQ-44` is his own instruction that the state gets its own column (`R-27`, #235). `REQ-43` is free and stays | **blocks merge** — renumber to `REQ-47` |
+| 2 | **Three versions disagree.** The branch sets engine `0.3.4` and `extension/manifest.json` `0.3.3`, and its capability declares `since="0.3.2"` — a version that will never be released. `main` is `0.4.1` and he ruled the branch takes **`0.5.0`** | **blocks merge** |
+| 3 | **It hand-rolls the schema-version lifecycle.** In `scrapex/enrichment/service.py` — a file that exists only on the branch, readable with `git show feat/organization-enrichment:scrapex/enrichment/service.py` — it computes `max(version_number)+1`, retires the active version with a raw `UPDATE … status='retired'`, and inserts `dataset_schema_version` + `schema_version_field` directly — while `extract/service.py`'s `_retire_or_refuse` owns exactly that under `R-31`. **It does call `catalog.register_field`**, so fields are not reimplemented, only the version lifecycle | **declared debt** — see below |
+| 4 | **A third outbound HTTP owner** — `R-66`, `R-67`, `OP-86` | ruled, not a blocker |
+
+**Why 3 is debt and not a blocker, stated so it is not re-argued.** `R-31`'s subset rule exists
+because a shrinking field set is how a broken parser looks. This schema is a fixed
+`OUTPUT_FIELDS` constant, not parsed from a site, so the failure `R-31` guards cannot occur
+here. What remains is a second implementation of one lifecycle — the pattern the muqawil audit
+already recorded when `dataset_table_payload` reimplemented `fields.hidden_columns`.
+
+### The two suspicions that were wrong
+
+**It does not violate `R-45`, and the schema forbids it from doing so.** Its three
+`UPDATE generic_record` writes are all `WHERE dataset_definition_id = <output_id> AND
+source_locator LIKE 'organization:%'` and all set only `status='unavailable'`, `OP-26`'s ruled
+marker. **The muqawil dataset is read and never written.** And it is not a convention:
+migration `0011` carries `trg_enrichment_definition_datasets_differ_insert`, which
+`RAISE(ABORT, 'the enrichment output must be a new dataset')`. It also refuses an enrichment
+output as its own source.
+
+**And the guard edits were legitimate.** It changes
+`tests/test_the_documents_cite_what_they_claim.py` and
+`tests/test_the_registers_cannot_collide.py`, which is what brought it under suspicion — a
+branch that edits its own guards. Read: they are PINNED line numbers following its own code
+shifts (`app.py` 1671→1679, `version.py` 483→494) and two register-collision rows. **That is
+what the guard is for, and the branch did the right thing.**
+
+### What it is, measured
+
+A new subsystem: `scrapex/enrichment/` (4,000+ lines), `extension/enrichment.{js,html,css}`
+(1,060), two migrations (415 lines of SQL, now on `main`), 1,523 lines of its own tests.
+**No secret is committed** — `google_places` takes the key as a parameter, and it made **zero**
+observations, so no paid call was billed. Its website provider is careful: `robots.txt`, and it
+refused **64** off-domain redirects, **10** HTTPS downgrades and every private peer during its
+live run.
+
+**Its live run is what produced `OP-84`'s discovery** and was cancelled at his ruling: job
+`job_f0f269d7336a`, **4,046 of 17,304**, `facts_changed` 25,132, `needs_manual_review` 435.
+The rows are in his warehouse and the run is resumable — `item_status='pending'` is its own
+ledger.
+
+---
+
 ### OP-86 · `crawl_obey_disallow` is a robots setting with no surface on either side
 
 **Found 2026-08-27 while enumerating the keys [R-66](RULINGS.md#r-66--every-outbound-request-knob-is-a-setting-the-user-controls-and-robots-is-one-of-them) names**
