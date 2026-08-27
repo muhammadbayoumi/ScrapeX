@@ -2990,9 +2990,25 @@ Being built on `fix/the-release-gate-fetches-a-page` by the session that found i
 
 ---
 
-### OP-84 · The warehouse is ahead of `main` again, and `OP-33`'s remedy was a merge rather than a guard
+### OP-84 · ~~The warehouse is ahead of `main` again, and `OP-33`'s remedy was a merge rather than a guard~~ — CLOSED 2026-08-27, and this time with the guard
 
 **Found 2026-08-27 · proved by running · [R-64](RULINGS.md#r-64--a-migration-reaches-his-warehouse-only-after-it-is-on-main-and-no-tag-is-cut-while-his-warehouse-is-ahead) rules it**
+
+> **CLOSED 2026-08-27 in #276, and closed differently from `OP-33`.** `0011` and `0012` are on
+> `main`, and `database-status` from `main` now answers `"ok": true · "Healthy" ·
+> schema_version 12` — read after the merge, not before it.
+>
+> **`OP-33` was closed by a merge, which is why it came back.** This one is closed by a merge
+> **and two guards**: the step *"No unmerged branch may hold a migration this release does not
+> carry"* in `release-engine.yml`, proved to refuse against the real refs
+> (`origin/main` ceiling 10 → REFUSED naming `origin/feat/organization-enrichment(12)`), and
+> `.githooks/pre-push`, executed in `tests/test_no_tag_is_cut_while_the_warehouse_is_ahead.py`
+> with a stubbed probe. **Nine mutations, nine killed** — and the ninth found a hole in the
+> test itself, where an assertion matched a second occurrence of the string it was checking.
+>
+> **What is NOT closed:** `feat/organization-enrichment` is still unmerged and unreviewed at
+> 7,832 lines, its `REQ-44` collides with `main`'s, and its 12 tables now exist on `main` with
+> **no reader** until it lands. It is queue position 3.
 
 | | |
 |---|---|
