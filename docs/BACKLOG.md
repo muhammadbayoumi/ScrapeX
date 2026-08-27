@@ -431,24 +431,14 @@ question — whether **seven of twelve** is the set the owner *intends* — is
 
 ### OP-3 · ~~Five currencies have no exchange rate~~ — CLOSED 2026-08-11, and it was never five
 
-> Measured: 123 currencies in use, 119 with a rate, four without — and three of
-> those four were not gaps. `UNKNOWN` is a placeholder belonging entirely to the
-> deleted SPARK_ESHOP, `USD` is the base, and `SLL`/`ZWD` retired in 2022 and
-> 2009. Named in `UNQUOTABLE` (#156). The original text below is kept because its
-> premise — a page-shape change — was wrong, and that is worth knowing.
+**CLOSED 2026-08-11, and it was never five.** Measured: 123 currencies in use, 119 with a
+rate, four without — and three of the four were not gaps. `UNKNOWN` belonged to the deleted
+SPARK_ESHOP, `USD` is the base, `SLL`/`ZWD` retired in 2022 and 2009. Named in `UNQUOTABLE`
+(#156).
 
-**Status: open.** Live `scrapex_meta.runtime_rates_note`, 2026-07-29T12:18:32Z: 116 rates
-stored, five refused —
-
-> `PEN`, `SLL`, `SYP`, `VEF`, `ZWD`: *no rate found on the page (neither `data-last-price`
-> nor the display figure) — the page shape has changed*
-
-The message blames the page shape, but four of the five are currencies that have been
-redenominated or withdrawn (SYP, VEF, ZWD, SLL), which suggests Google Finance simply does
-not quote them any more — a different problem with a different fix. GPP prices in 100+
-currencies, so those countries' converted column is blank.
-**Next action:** open one of those quote URLs by hand. If the pair is gone, drop it from
-the fetch list with the reason recorded; if the pair is there, the parser is what broke.
+**Kept because its premise was wrong:** the stored note blamed *"the page shape has
+changed"*, when the cause was that Google Finance no longer quotes withdrawn currencies. A
+message that names the wrong cause sends the next reader to the parser.
 
 ### OP-4 · `scrapex/webui/app.py` is 3,347 lines / 95 routes, and the extraction it started stopped
 **Status: open. Re-measured 2026-08-12.**
@@ -599,38 +589,31 @@ back-filling, or the backfill will be undone by the next crawl.
 
 ### OP-12 · ~~No linter, formatter or type checker~~ — PARTLY CLOSED 2026-08-11
 
-> ruff gates `scrapex/` and caught three of my own mistakes in one day. `mypy
-> --strict` was RUN over the price files and reported 72 findings — 14
-> correctness-shaped, of which 10 were false and 2 real, both fixed (#157). The
-> GATE is deliberately not added: 60 of the 72 are annotations and that churn
-> buys no defect. Widening ruff to `tests/` and `tools/` is still open.
+**PARTLY CLOSED 2026-08-11 — and the open half is the half that was never true.** The
+original line said *"no `ruff`, no `mypy`, no `eslint` anywhere"*, which was **false when it
+was written**. It is the clearest case in this file of a status line outliving what it
+described.
 
-**Status: open, but NOT as the line below said.** ~~No `ruff`, no `mypy`, no
-`eslint` anywhere~~ — that sentence was false when it was written down and is kept
-struck through rather than deleted, because it is the clearest example in this
-file of a status line surviving the thing it described.
-
-Measured 2026-08-12 from `.github/workflows/ci.yml`:
-
-| gate | what it covers |
+| gate | covers |
 |---|---|
 | `ruff==0.16.2` (`ci.yml:30`) | `scrapex/` **only** |
 | `eslint@9.39.0` (`ci.yml:38`) | `extension`, `scrapex/webui/static`, `contract`, `apps_script` |
-| mypy | **nowhere.** No CI step, no `pyproject` section, no `mypy.ini`, no pre-commit |
+| mypy | **nowhere** — no CI step, no `pyproject` section, no config, no pre-commit |
 
-`python -m ruff check tests/ tools/` → **395 errors, 233 auto-fixable** (378 of
-them in `tests/` alone). mypy 2.3.0 is already installed on the owner's machine,
-so nothing but a missing CI step stands between here and a gate.
+`ruff check tests/ tools/` gives **395 errors, 233 auto-fixable**, 378 of them in `tests/`.
+`mypy --strict` was run once over the price files: 72 findings, 14 correctness-shaped, of
+which **2 real** and both fixed (#157). The gate was deliberately not added — 60 of the 72
+are annotations and that churn buys no defect.
 
-**Next action:** widen ruff to `tests/` and `tools/` (fix the 233, decide the
-rest), and either add the mypy gate or move it to §5 as a declared debt with its
-reason — the current state is neither.
+**Still open:** widen ruff to `tests/` and `tools/`, and either add the mypy gate or move it
+to §5 as declared debt with its reason. The current state is neither.
 
 ### OP-13 · ~~There are no end-to-end or chaos tests~~ — CLOSED 2026-08-11
-Killing the engine mid-job, corrupting a checkpoint, force-closing the browser
-were all named in ENGINEERING T7 and none was implemented. They exist now:
-`tests/test_the_engine_survives_being_killed.py` and the end-to-end test added in
-the same PR. **The chaos test's own reliability is the live problem — see OP-19.**
+
+**CLOSED 2026-08-11.** `ENGINEERING` T7 named killing the engine mid-job, corrupting a
+checkpoint and force-closing the browser, and none existed. They do now --
+`tests/test_the_engine_survives_being_killed.py` and the end-to-end test in the same PR.
+**The chaos test's own reliability is the live problem — `OP-19`.**
 
 ### OP-14 · The Native Messaging size ceiling — the backwards sentence is already gone
 **Status: changed, minutes of work left.** `scrapex/native.py` no longer carries
@@ -782,31 +765,22 @@ reconcile them. **He chose none of them** — see the note above. It never block
 
 ### OP-23 · ~~`carry_over` cannot carry a pre-0058 installation~~ — FIXED 2026-08-20, and the fix was a ruling first
 
-> **CLOSED THE SAME EVENING IT WAS FOUND, because the owner ruled that it was not a
-> backlog item.** I had recorded it here and stepped around it by creating a second
-> warehouse. He refused that:
-> [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
-> — a database is upgraded, never replaced, and a migration that refuses on real data
-> is a release blocker rather than debt. The diagnosis below stands as written; what
-> changed is who it was for.
->
-> **Fixed and verified on the real installation:** `Backfill` in
-> `scrapex/databases/carry_over.py` supplies the columns the engine schema requires
-> and the split-era schema never had, reusing migration 0058's own
-> `legacy_unwitnessed` rather than minting a second literal, conditional exactly as
-> 0058 is. The carry-over then ran: **3,739 offers, 3,739 observations, 3,739 periods,
-> 17,111 attributes, 7,410 change events, 966 products — not one row short**, 261
-> offers marked legacy, 3,478 without a unit untouched, old files read-only and still
-> in place. Guarded by
-> `tests/test_a_carry_over_upgrades_rather_than_starting_over.py`; six mutations killed.
->
-> **Two things it had to be at the INSERT rather than after it**, both measured:
-> the trigger fires on INSERT so a later `UPDATE` never runs; and copy-then-migrate —
-> the elegant design, which would have got every migration's backfill for free — is
-> architecturally closed, because the engine schema is DERIVED and starts a new stream
-> at v1. A copy of `marketlens.db` is refused on `application_id` (1398295884) before
-> its `user_version` of 55 is even read. That measurement is why the row-copy design
-> in `carry_over` is correct by necessity and not by oversight.
+**FIXED 2026-08-20, the same evening it was found, and the fix was a ruling first.** I had
+recorded it here and stepped around it by creating a second warehouse. He refused that:
+[R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+-- a database is upgraded, never replaced, and a migration that refuses on real data is a
+release blocker, not debt.
+
+`Backfill` in `scrapex/databases/carry_over.py` supplies the columns the engine schema
+requires and the split era never had, **reusing migration 0058's own `legacy_unwitnessed`
+rather than minting a second literal**. It then ran on the real installation: 3,739 offers,
+3,739 observations, 3,739 periods, 17,111 attributes, 7,410 change events, 966 products --
+**not one row short**. Six mutations killed.
+
+**Two reasons it had to be at the INSERT, both measured:** the trigger fires on INSERT, so a
+later `UPDATE` never runs; and copy-then-migrate is architecturally closed — a copy of
+`marketlens.db` is refused on `application_id` before its `user_version` is even read. That
+is why the row-copy design is correct by necessity rather than by oversight.
 
 ### The diagnosis, kept because it is where the fix came from
 
@@ -1157,55 +1131,23 @@ Re-authored by line number, with the anchor lines asserted before anything is wr
 
 ### OP-29 · ~~An invalid escape sequence in a test docstring is a future `SyntaxError`~~ — FIXED 2026-08-21
 
-> **CLOSED THE DAY AFTER IT WAS FILED, and the one character is a guard now rather
-> than a memory.** `tests/test_relaunch_log.py:85` opens `r"""`, so the Windows path
-> the docstring quotes is text rather than three escape sequences. Measured before
-> and after with one command:
->
-> ```
-> PYTHONPATH=. python -m pytest tests/test_relaunch_log.py \
->   tests/test_the_extension_gate_is_complete.py \
->   tests/test_the_docs_gate_is_complete.py -p no:randomly -q -rw
-> ```
->
-> **Before:** two entries in pytest's warnings summary — one against
-> `tests/test_relaunch_log.py:85` from importing the module, and one `<unknown>:85`
-> attributed to *both* gate tests at once, which is exactly the shape the diagnosis
-> below predicted. **After:** no warnings summary at all, 16 passed, exit 0.
-> The docstring's own text did not change — an invalid escape was already kept
-> verbatim, so nothing but the warning ever differed.
->
-> **The sweep found nothing else, and that is a measurement rather than a glance.**
-> All **273** tracked `.py` files were compiled and every string literal classified:
-> **zero** invalid escapes remain; the only three non-raw literals holding a
-> valid-but-silent escape are deliberate byte constants (a UTF-8 BOM, a length
-> prefix, the PNG magic); and all **171** regex patterns in the repository are
-> already raw — so none of them holds a `\b` that would mean *backspace* where a
-> word boundary was meant, which is this defect's silent twin and would never warn.
-> `tests/test_gpp.py:496` reads like a fourth finding and is not: it is a `"""\`
-> line continuation, and it looked like backslash-CR only because the checkout is
-> CRLF — trap 2 of [../CLAUDE.md](../CLAUDE.md) biting the scan that was hunting
-> trap-shaped bugs.
->
-> **Guarded, so a revert is loud.** The `r"""` is pinned in `PINNED` in
-> `tests/test_the_documents_cite_what_they_claim.py`, so deleting the `r` now fails
-> tier 2 of the citation guard instead of printing a warning nobody reads.
+**FIXED 2026-08-21, the day after it was filed.** `tests/test_relaunch_log.py:85` now opens
+`r"""`, so the Windows path it quotes is text rather than three escape sequences. Python 3.12
+warned; a later Python makes it a `SyntaxError` and the file stops importing.
 
-**The diagnosis, kept as it was written on 2026-08-21 — the present tense below
-is that morning's, not today's.**
+**The sweep is the value, not the one character.** All **273** tracked `.py` files were
+compiled and every literal classified: **zero** invalid escapes remain; the only three
+non-raw literals holding a valid-but-silent escape are deliberate byte constants (BOM, length
+prefix, PNG magic); and **all 171 regex patterns are already raw**, so none holds a `\b`
+meaning *backspace* where a word boundary was meant — this defect's silent twin, which never
+warns.
 
-Every full suite prints `<unknown>:85: SyntaxWarning: invalid escape sequence '\.'`,
-raised by both gate tests because they compile the suite's own sources to count it.
-Traced 2026-08-21 to a **non-raw** docstring at `tests/test_relaunch_log.py:84`, which
-quotes a Windows path verbatim:
+`tests/test_gpp.py:496` read like a fourth finding and was a line continuation that only
+looked like backslash-CR because the checkout is CRLF — **trap 2 of `CLAUDE.md` biting the
+scan that was hunting trap-shaped bugs.**
 
-    ...\.scrapex\engine.log
-
-`\.` and `\e` are not escape sequences. Python 3.12 warns; **a future Python makes
-this a `SyntaxError`**, and then the file stops importing. The fix is one character —
-`r"""` — and it is filed rather than folded into an unrelated pull request because a
-warning that has been printing for a while is not an emergency, and because a
-docstring quoting a path is exactly the case that will recur.
+The `r` is pinned in `PINNED`, so deleting it fails tier 2 of the citation guard rather than
+printing a warning nobody reads.
 
 ### OP-30 · Two migration ledgers, one number space — and engine `0006` is the first to collide
 
@@ -1287,88 +1229,39 @@ impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 
 ### OP-44 · ~~A dataset card said "no successful crawl yet" over 17,304 crawled rows~~ — FIXED 2026-08-22
 
-**He reported it from his own panel** — on the board as
-[REQ-33](REQUESTS.md#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows).
-The two muqawil datasets read
+**FIXED 2026-08-22.** He reported it from his own panel --
+[REQ-33](REQUESTS.md#req-33--the-dataset-cards-said-no-successful-crawl-over-crawled-rows) --
+two muqawil cards reading *"no successful crawl yet"* over **17,304** rows while the price
+sources beside them read a date.
 
-    muqawil.org · Saudi Contractors Authority · contractors [Row 17,304]
-    17,304 products
-    no successful crawl yet
+**The cause was not the missing `crawl_run` row.** `_dataset_rows` wrote
+`"last_success": None` as a **literal**, and `freshnessLine` prints that sentence whenever the
+key is absent. A `crawl_run` row for muqawil would have changed nothing on the card.
 
-while `aramco.com` and `spark-eshop.com` beside them read *"Last crawled 16 August
-2026, 8:00 AM"*. 17,304 rows plainly came from a crawl, so the display was wrong
-about something it had the evidence to answer.
+**And the row could not honestly be written:** `crawl_run.source_id` is `NOT NULL REFERENCES
+source_site(source_id)` and muqawil lives in `site_profile` — which registry a source lands
+in is exactly what
+[REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user) holds,
+and it is his to decide rather than a side effect of fixing a caption.
 
-**Measured on his live warehouse, read-only, 2026-08-22** (schema v9, while the
-profile crawl was running against it):
+**So the freshness is DERIVED and nothing new is stored:** `last_evidence_captured_at` reads
+`max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says the dataset
+was built from — **`generic_ingestion`, not `generic_record.source_snapshot_id`**, because a
+record keeps pointing at the snapshot that last *changed* it (`R-20`), so a confirming
+re-crawl would leave the date stale, which is the complaint itself. Six mutations killed, and
+the one that mattered swapped those two.
 
-| | |
-|---|---|
-| `crawl_run` | **155 rows over twelve source keys** — `ADVANCEDCASTLE` … `SPARK_ESHOP`, and **not one for muqawil** |
-| `source_site` | the same twelve keys. **muqawil is not among them** |
-| `site_profile` | `muqawil` and `muqawil_org` — the other registry |
-| `generic_record` | `contractors` **17,304**, `contractor_profiles` **704** |
-| `generic_page_snapshot` | **24,480** pages, 1,728 with no `crawl_run_ref`, **139** distinct refs |
-| the evidence behind the rows | `contractors` last captured **2026-08-21T17:56:31Z**, `contractor_profiles` **2026-08-21T21:44:48Z** |
+**Two measurements from it live in `LESSONS`:** the `INDEXED BY` finding (353-373 ms by rowid,
+**0.9 ms** through the index, identical answer) and why `max(page_snapshot_id)` stops being a
+cheaper spelling once `R-43`'s merge inserts another machine's `captured_at` under fresh local
+ids.
 
-**THE CAUSE WAS NOT THE MISSING `crawl_run` ROW.** `_dataset_rows` wrote
-`"last_success": None` as a **literal**, and `freshnessLine`
-(`extension/app.js:4649`) prints that sentence whenever the key is absent or
-carries no `started_at`. So a `crawl_run` row for muqawil would have changed
-nothing on the card — the fix had to arrive at that key.
+**And no measure goes beside the date, on purpose.** `dataset_sighting` already means *what
+the site showed us* — **17,417 sighted against 17,304 stored** — so putting the stored count
+under the word `seen` would answer a question this schema answers exactly, and wrongly.
 
-**And the row could not honestly be written anyway.** `crawl_run.source_id` is
-`NOT NULL REFERENCES source_site(source_id)` (`db/engine/schema.sql:122`), and
-muqawil has no `source_site` row: which registry a source lands in is exactly the
-split [REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user)
-holds and it is his decision, not a side effect of fixing a caption.
-`crawl_run.job_id` points into `crawl_job`, and *"does a generic crawl belong in
-the same job queue as a price crawl?"* is an open question for him at the foot of
-[GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) — writing the row from a CLI that
-the scheduler does not drive would answer it by default. The same document says
-of the second-run question: *"It may be enough to ask `generic_ingestion`; check
-before adding a column."*
-
-**So the freshness is DERIVED, and nothing new is stored.**
-`extract/service.last_evidence_captured_at` reads
-`max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says
-this dataset was built from, and `_dataset_freshness` puts it in
-`ingest.last_successful_run`'s shape so the panel keeps one code path.
-
-Four findings the measurement produced that the fix turns on:
-
-* **`generic_ingestion`, not `generic_record.source_snapshot_id`.** A record keeps
-  pointing at the snapshot that last **changed** it (`R-20`), so a confirming
-  re-crawl would leave the date stale — the very complaint. On his warehouse:
-  3,883 ingestions against 2,139 distinct record snapshots for `contractors`, and
-  the two answers differ (`17:56:31Z` against `17:54:31Z`).
-* **`ix_generic_page_snapshot_page` is worth 390x and had never been read.**
-  It is `(page_snapshot_id, captured_at)` (`db/engine/schema.sql:843`); SQLite
-  prefers the rowid because the planner cannot see that the row carries a
-  compressed ~100 KB body. Measured over 24,480 pages: **353–373 ms** by rowid,
-  **0.9 ms** through `INDEXED BY`, identical answer.
-* **`max(page_snapshot_id)` is NOT a cheaper spelling of the same thing.** It
-  agrees on this machine (0.2 ms) because `save_snapshot` never supplies
-  `captured_at` — but `warehousemerge.py:269` INSERTs the other machine's
-  `captured_at` verbatim under fresh local ids, so after the merge `R-43` makes
-  routine the highest id can be the oldest page.
-* **No measure goes beside the date, because *seen* is already taken.** Both
-  surfaces print `rows_seen` after the instant and fall back to
-  `requests_count`. The obvious candidate was the row count — and
-  `dataset_sighting` already means *what the site showed us*: on `contractors`,
-  **17,417 sighted against 17,304 stored**. Putting the stored count under the
-  word `seen` would be a wrong answer to a question this schema answers exactly.
-  `requests_count` is no better, because retries, 304s and the Arabic half of
-  every page leave no second row. Both stay 0, the line reads *"Last crawled …"*
-  and stops, and the count keeps its own line on the card.
-
-Six mutations, six killed. The one that mattered is M5 — swapping
-`generic_ingestion` for `generic_record` — which the newest-page test caught for
-exactly the reason above.
-
-**Still open, and it is his:** the two registries. This closes the display; it
-does not merge `site_profile` into `source_site`, and a dataset still has no run
-ledger of its own. If he wants one, that is `REQ-25`'s shape to decide.
+**Still open, and it is his:** the two registries. This closed the display; a dataset still
+has no run ledger of its own.
 
 ---
 
@@ -1444,157 +1337,61 @@ hoping. (a) as an immediate mitigation.*
 
 ### OP-32 · ~~The fix for the black window has sat in the repository, unreleased~~ — RELEASED 2026-08-22 as `engine-v0.3.0`
 
-**Status: CLOSED 2026-08-22 — the gate that let it happen was closed first, then he
-published.** The entry is kept in full rather than trimmed: it is the only record of
-why an install path where every component worked still handed him a black window.
-Reported by the owner on 2026-08-21 as *"it did not install — black screen"*, and
-captured as [REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
+**RELEASED 2026-08-22 as `engine-v0.3.0` — the gate that let it happen was closed first,
+then he published.** Reported as *"it did not install — black screen"*, captured as
+[REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
 
-**The install path is neither missing nor broken. It is STALE, which is worse,
-because every part of it works.** The panel reads the manifest, gets `0.2.1`,
-correctly says *"Available to install"*, and hands over a byte-perfect download.
-What arrives is the build from **before** `_first_run` existed:
+**The install path was neither missing nor broken. It was STALE, which is worse, because every
+part of it worked.** The panel read the manifest, got `0.2.1`, correctly said *"Available to
+install"*, and handed over a byte-perfect download of the build from **before `_first_run`
+existed** — which landed six hours after that release, `--splash` the next day. Measured on
+the published artifact twice: zero bytes, and with stdin held open as a real console holds it,
+still running after twenty seconds, with nothing in `~/.scrapex/engine.log` because it never
+reached code that could write.
 
-| | |
-|---|---|
-| published | `engine-v0.2.1`, tag → commit `4386d25`, 2026-08-09T09:47Z |
-| bare invocation there | `4386d25:packaging/engine_entry.py:62` → `return serve()` — the native host. **A citation of a past commit**: today's line 62 is a comment |
-| `_first_run` landed | `7a067c5`, 2026-08-09T19:09+03:00 — **six hours after the release** |
-| `--splash` landed | `756fa39`, 2026-08-10 |
-| `scrapex/version.py:76` | `VERSION = "0.3.0"` — 0.2.2 when this was written, 0.3.0 since #247 |
-| engine tags in the repo | `engine-v0.2.1`. That is the whole list, re-checked 2026-08-22. |
+**WHY CI PASSED IT, and this is the part a test prevents.** The release asked the built binary
+exactly one question — `--version` — the one argument no user ever types, on the one branch
+that was already correct. `tests/test_native.py` had guarded the *source* dispatch since #141;
+**nothing had ever run the artifact.** Now
+`tests/test_the_release_proves_the_double_click.py` launches it with no arguments under a
+timeout and refuses a build whose output is empty. Eleven mutations, eleven killed.
 
-**Measured on the published artifact, twice, on 2026-08-21.** Stdin closed: zero
-bytes, exit 0 — the window opens and vanishes. Stdin held open, as a real console
-holds it: zero bytes, **still running after twenty seconds**. Nothing was written to
-`~/.scrapex/engine.log`, which is still dated 2026-08-01, because it never reached
-the code that could write.
+**It was half-seen and not followed through:** `OP-15` recorded on 2026-08-11 that the card
+read *"Installed 0.2.2 / Latest released 0.2.1"* and filed it as a **wording** defect. The
+numbers were the finding.
 
-**WHY CI PASSED IT, and this is the part a test can prevent.** The release asked the
-built binary exactly one question — `--version` — which is the one argument no user
-ever types, on the one branch that was already correct.
-`tests/test_native.py::test_the_entry_point_tells_its_three_callers_apart` has
-guarded the *source* dispatch since #141; **nothing has ever run the artifact.** Now
-`tests/test_the_release_proves_the_double_click.py` and a new workflow step do: the
-release launches the engine with no arguments, bounded by a timeout because a good
-first run never returns, and refuses a build whose output is empty or which cannot
-get past preparing a database. Eleven mutations, eleven killed — one of which caught
-this guard accepting a data root that was named but never assigned.
+**And its own next action had gone stale while it waited** — six copies of `engine-v0.2.2`
+across three documents while `VERSION` had moved to 0.3.0, so the release the documents were
+telling him to cut would have been **refused before anything was built**. Corrected in #253
+and guarded by `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`,
+which found all six on the untouched documents before a mutation was tried.
 
-**It was half-seen and not followed through.** `OP-15` already recorded, on
-2026-08-11, that the Engine card read *"Installed version 0.2.2 / Latest released
-0.2.1"* — and filed it as a **wording** defect about the two meanings of
-"installed". The numbers were the finding: the release had not happened.
+**The limit of that guard, stated rather than discovered later:** it proves the tag he is told
+to push is the tag the workflow accepts. It cannot prove a release was cut, because nothing
+committed here knows what the hub holds. `Q-16` asks whether he wants a scheduled workflow
+that does look.
 
-~~**Next action, and it is his.**~~ **— HE TOOK IT. `engine-v0.3.0` IS PUBLISHED,
-2026-08-22.** *«اقطع الوسم»*, said after reading this entry, so the finding is what
-produced the release. Recorded as facts rather than as a green workflow run:
-
-| | |
-|---|---|
-| tag | `engine-v0.3.0` → `451468d`, which is `main` |
-| the version at that tag | `scrapex/version.py:76` **0.3.0**, `pyproject.toml` mirror **0.3.0** — so the workflow's `test "$tag" = "$version"` had two numbers that agreed |
-| workflow | completed, 28m36s |
-| the manifest the panel reads | `"version": "0.3.0"`, `"tag": "engine-v0.3.0"`, `"published_at": "2026-08-22T13:17:13Z"`, `"minimum_extension_version": "0.2.2"`, protocol 1 |
-| what it said before | `0.2.1`, unchanged since 9 August |
-
-**The floor it published is 0.2.2, and that is the number that matters most here:**
-`extension/manifest.json` is also 0.2.2, so this release demands nothing the
-installed extension cannot do — checked before the tag by
-`tests/test_version.py`'s floor guard, not after it.
-
-**This entry is CLOSED as the defect it described.** What is not closed is the
-confirmation that the published build installs on his machine; that stays on
-`REQ-28`.
-
-> **AND THE VERSION GAP THAT OPENS NEXT IS NOT THIS DEFECT RETURNING.** Migration
-> `0010` is a contract change, so `R-35` moved the source to **0.3.1** against a
-> published **0.3.0** — which is the ordinary state between two hand-cut releases,
-> not a fault. `OP-32` was three things at once: nothing released across two bumps,
-> the newest installable engine silent on a double-click, and the documents naming a
-> tag the workflow would refuse. A gap alone is none of them.
-
-> **STILL OPEN A DAY LATER, AND THE INSTRUCTION HAD GONE STALE WHILE IT WAITED.**
-> He reported it again on 2026-08-22 — *«المحرك الموجود على github 0.2.1»* — with the
-> panel reading `Latest version 0.2.1 · Available to install`. **Nothing is broken
-> anywhere on that path, and this is the third time that sentence has had to be
-> written about it.** `extension/releases.js:32` reads
-> `ScrapeX/json/version.json` from the hub, `extension/app.js:3570` prints the
-> `version` it finds, the workflow writes that same field
-> (`.github/workflows/release-engine.yml:379`), and
-> `tests/test_the_two_release_paths.py:276` already pins the writer's output to the
-> reader's input. The manifest says 0.2.1 because 0.2.1 is the only engine tag that
-> exists.
->
-> **What HAD broken is this entry's own next action.** It said `engine-v0.2.2` while
-> `VERSION` had moved to 0.2.2 at `adf31b2` and then to **0.3.0** at `e963269`
-> (2026-08-22, #247, a schema change under `R-35`). The release workflow's first
-> step is `test "$tag" = "$version"`, so the release the documents were telling him
-> to cut would have been **refused before anything was built**. Six copies of
-> `engine-v0.2.2` across `STATE.md`, `REQUESTS.md` and this file — two of them the
-> whole command to copy, three the sentence telling him to cut it, one a note about
-> a past failure — and nothing compared any of them with the source. Corrected in
-> [#253](https://github.com/muhammadbayoumi/ScrapeX/pull/253), and guarded by
-> `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py`: an
-> engine tag named as an *instruction* must equal `VERSION`, while a tag named in
-> narrative prose is left alone so history is not rewritten to keep a test green.
-> **It found all six on the untouched documents before a single mutation was
-> tried.**
->
-> **The limit of that guard, stated rather than discovered later:** it proves the
-> tag he is told to push is the tag the workflow accepts. It cannot prove a release
-> was cut, because nothing committed here knows what the hub holds — the tag list is
-> absent from a `fetch-depth: 1` checkout and the hub is a network fetch, and either
-> would turn this into a guard that skips or flakes. `Q-16` asks whether he wants a
-> scheduled workflow that does look.
+**A later version gap is not this defect returning.** `OP-32` was three things at once:
+nothing released across two bumps, the newest installable engine silent on a double-click, and
+the documents naming a tag the workflow would refuse. A gap alone is none of them.
 
 ### OP-33 · ~~The owner's own warehouse is ahead of `main`, so the engine refuses to start on his machine~~ — FIXED 2026-08-21 by #243
 
-> **CLOSED BY THE MERGE, NOT BY THIS WORK.** `claude/his-four-rulings` landed as
-> [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243) (`eb691d9`) and brought
-> engine migrations **0007** and **0008** with it, so `main` reads schema v8. Verified
-> against his live file from the merged tree, read-only:
->
-> ```
-> "status": "Healthy",  "schema_version": 8,  "ok": true
-> ```
->
-> So a released engine built from `main` can now open his warehouse. **What is NOT
-> closed is the panel's sentence**: an engine that refuses to start still never binds
-> a port, so `extension/app.js:3424` still reports "Not detected" for a schema fault,
-> a permissions fault and an absent engine alike. That half is now `OP-38`.
+**FIXED 2026-08-21 — by the merge, not by this work.** `claude/his-four-rulings` landed as
+[#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243) with engine migrations **0007**
+and **0008**, so `main` reads schema v8 and a released engine can open his warehouse. Verified
+read-only against his live file: `"status": "Healthy", "schema_version": 8`.
 
-**The diagnosis, kept as written — it is why the merge mattered.**
+**The diagnosis, because it is why the merge mattered.** `PRAGMA user_version` on his warehouse
+was **8** while `db/engine/migrations/` on `main` stopped at 0006, so `scrapex database-status`
+answered *"Needs a newer ScrapeX"* and `scrapex ui` exited 1. The two migrations existed in
+exactly one place — an unmerged worktree branch that had already been run against his live
+warehouse — and `R-24` forbids the obvious shortcut of replacing the database.
 
-    $ scrapex database-status
-    "status": "Needs a newer ScrapeX",
-    "action": "This database was written by a later version (schema v8; this
-               build reads v6). Update ScrapeX and retry, and do not downgrade
-               the database."
-    $ scrapex ui --no-open
-    error: the engine database is needs a newer scrapex — ... ; exit 1
-
-`PRAGMA user_version` on `~/.scrapex/engine/scrapex-engine.db` is **8**.
-`db/engine/migrations/` on `main` stops at `0006_a_row_says_when_it_was_last_proved_absent.sql`.
-**0007 and 0008 exist in exactly one place** — the worktree
-`.claude/worktrees/determined-liskov-0c89fe`, branch `claude/his-four-rulings`,
-unmerged — and that branch's code was run against his live warehouse on 2026-08-21,
-leaving the `pre-ledger-repair` and `pre-reapprove` backups beside it.
-
-So the engine a release would ship **cannot open his database**, and `R-24` (a
-database is upgraded, never replaced) is what forbids the obvious shortcut. Verified
-from the branch that owns v8, against the same file: `"status": "Healthy"`, and
-`scrapex ui --no-open` there answers `/api/health` **200** with
-`worker_alive: true` in about 16 seconds.
-
-**And the panel cannot say any of this.** An engine that refuses to start never
-binds a port, so `checkEngine` gets a connection error and
-`extension/app.js:3424` reports **"Not detected"** — which is false and sends the
-reader to reinstall something that is already installed. The engine knows the
-sentence; there is no channel that carries it to a panel.
-
-**Next action:** merge `claude/his-four-rulings` before, or with, the release. Until
-then the only engine that runs on this machine is that worktree's.
+**What is NOT closed is the panel's sentence.** An engine that refuses to start never binds a
+port, so `extension/app.js:3424` reports **"Not detected"** for a schema fault, a permissions
+fault and an absent engine alike — false, and it sends the reader to reinstall what is already
+installed. That half is `OP-38`.
 
 ### OP-34 · A launch that dies in a console writes nothing to `engine.log`
 
@@ -1617,55 +1414,32 @@ for the machine the owner is not sitting at.
 
 ### OP-35 · ~~Half the CLI is unreachable from the shipped engine, and says nothing about it~~ — FIXED 2026-08-21
 
-> **CLOSED ON HIS INSTRUCTION — *«ابدأ بـ OP-36 و OP-35 وضمهم لنفس tree»*.**
-> `KNOWN_COMMANDS` is gone. `packaging/engine_entry.py:18` now calls
-> `known_commands()`, which asks `scrapex.cli.subcommands()` — and that reads the
-> subparser choices off `build_parser()` itself. **Derived, not extended:** a longer
-> literal would have fixed today and drifted again.
->
-> Measured after: **24 of 24** reachable, against 12 before. `database-status` and
-> `relaunch` among the twelve recovered.
->
-> Guarded by `tests/test_the_frozen_engine_can_start_itself.py`, which asserts the
-> two sets are equal AND names the twelve casualties separately — because equality
-> alone would still pass if both sides shrank together. The one private-argparse
-> poke lives in `cli.py`, and `subcommands()` **raises** rather than returning an
-> empty set if argparse ever changes shape: an empty set would make every argument
-> look like Chrome, which is this defect total instead of partial.
+**FIXED 2026-08-21 on his instruction.** `KNOWN_COMMANDS` is gone:
+`packaging/engine_entry.py:18` calls `known_commands()`, which reads the subparser choices off
+`build_parser()` itself. **Derived, not extended** — a longer literal would have fixed today
+and drifted again. **24 of 24 reachable, against 12 before.**
 
-**The diagnosis, kept as written.** Found while diagnosing `OP-32`; it is the SAME
-defect, one layer along.
+**The defect was `OP-32`'s, one layer along.** The frozen binary hand-maintained the set of
+subcommands it would forward; anything else was assumed to be Chrome and went to `serve()`,
+which waits on stdin and prints nothing. Measured on the published artifact **with a control**,
+so this is not read off the source:
 
-`packaging/engine_entry.py:18` hand-maintains the set of subcommands the frozen
-binary will forward to the CLI. Anything not in it is assumed to be Chrome and goes
-to `serve()` — which waits on stdin and prints nothing. The set lists **12**
-commands. `scrapex.cli.build_parser()` has **24**:
-
-    autostart  backup-databases  carry-over  contractors  database-status
-    export-version  relaunch  restore-database  run-due  schedule  sources
-    wipe-source
-
-**Measured on the published 0.2.1 artifact, with a control**, so this is not read
-off the source. One of the three is in the set; two are not:
-
-| typed at `scrapex-engine.exe` | in the set? | exit | bytes printed |
+| typed at `scrapex-engine.exe` | in the set? | exit | bytes |
 |---|---|---|---|
-| `status` | yes | 1 | **94** — *"engine database is missing: Reconnect the storage…"* |
+| `status` | yes | 1 | **94** — a useful sentence |
 | `database-status` | no | 0 | **0** |
 | `autostart` | no | 0 | **0** |
 
-The listed one answers, correctly and usefully. The unlisted ones are the black
-window again. **`OP-33` was
-diagnosed with `database-status`** — the command that names a schema-ahead warehouse
-in one line — and it is on that list, so the shipped engine cannot answer the
-question a stuck user most needs answered. So are `backup-databases`,
-`restore-database` and `carry-over`: the three that exist to protect his data.
+**`OP-33` was diagnosed with `database-status`** — the command that names a schema-ahead
+warehouse in one line — so the shipped engine could not answer the question a stuck user most
+needs answered. Neither could `backup-databases`, `restore-database` or `carry-over`: the three
+that exist to protect his data.
 
-**The fix is not to extend the literal**, which is what drifted. Derive the set from
-`build_parser()`'s own choices, so a new subcommand is reachable the day it is added
-and this cannot happen a third time. Then the guard is one line comparing the two.
-
-**Next action:** derive `KNOWN_COMMANDS`, add the comparison test, and mutate it.
+Guarded by `tests/test_the_frozen_engine_can_start_itself.py`, which asserts the two sets are
+equal **and names the twelve casualties separately**, because equality alone still passes if
+both sides shrink together. `subcommands()` **raises** rather than returning an empty set if
+argparse ever changes shape — an empty set would make every argument look like Chrome, which
+is this defect total instead of partial.
 
 ### OP-36 · FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it
 
@@ -1778,92 +1552,26 @@ patched `sys.frozen` and `sys.executable`.
 
 ### OP-37 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
 
-> **CLOSED THE SAME DAY — AND TWICE, INDEPENDENTLY, WHICH IS THE INTERESTING PART.**
-> He instructed *«ابدأ بـ OP-35»* (its number before the #243 merge renumbered it),
-> and while this branch was writing the fix, [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
-> landed **the identical one line** on `main` from another session. Two sessions
-> reached the same repair without seeing each other, which is corroboration rather
-> than waste — and it is not an invention either: **the sibling test in this same
-> file's neighbour already uses the correct pattern for the same column.** `tests/test_a_crawl_says_what_it_saw.py:215` pins every row's
-> `last_seen_at` with a bare `UPDATE` and *then* overrides the one it is about. The
-> broken test pinned both sides of `last_seen_at` and only one side of
-> `first_seen_at`. One line closes the gap.
->
-> **AND THE FIX WAS PROVED NOT TO HAVE NEUTERED THE TEST**, which is the real risk
-> when a red test goes green. Three mutations, three killed:
->
-> | mutation | result |
-> |---|---|
-> | remove the new pin | **KILLED** — the bomb returns, so the fix is load-bearing |
-> | `row_state`: `first_seen_at >= newest` → `>` (**production code**) | **KILLED** — the `new` rule is still guarded |
-> | `row_state`: stop calling an unseen row `absent` (**production code**) | **KILLED** — the `absent` rule is still guarded |
->
-> The two production mutations are the ones that matter: a test edited into
-> passing would have survived them.
->
-> **AND ONE CORRECTION TO #243'S ACCOUNT, per C5.** Its comment calls this a
-> dependency on the TIME OF DAY — *"new for the whole afternoon and not at all in
-> the morning"*. That is true of **2026-08-21 alone**. From the next day onward
-> `now` is past `12:00:00Z` at every hour, so the test could never have passed
-> again at any time of day. The distinction decides what a reader does: told it is
-> time-of-day, they wait for the morning, and the morning never fixes it. The
-> comment in the test now says so. All 40 tests in the file pass, and the class
-> was swept — the other 13 files holding a hardcoded 2026 timestamp pass every
-> value to `row_state()` explicitly, so no `now` is involved, and **no
-> future-dated literal exists anywhere in `tests/`** that would arm the same bomb
-> for a later date.
+**FIXED 2026-08-21, the same day — and twice, independently, which is the interesting part.**
+While this branch wrote the fix, [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
+landed **the identical one line** on `main` from another session. Two sessions reaching the
+same repair unseen is corroboration rather than waste — and it was not invented either: the
+sibling test in the same file already used the correct pattern for the same column.
 
-**The diagnosis, kept as written — the present tense below is that afternoon's.**
-It was the most urgent entry in this file, because `OP-32`'s next action could not
-be taken while it stood.
+**It was a time bomb and it had gone off.** The test pinned the newest crawl at
+`2026-08-21T12:00:00Z` and set only the last row's `first_seen_at` to it; the others kept
+`now`, and `row_state` returns `new` on `first_seen_at >= newest`. From 12:00Z that is true for
+ever, so **`main` was red from then on** — and `release-engine.yml` runs the suite before it
+builds, so `OP-32` could not ship and `R-18` was unsatisfiable for every open pull request.
 
-    FAILED tests/test_a_dataset_is_a_table_like_any_other.py::
-           test_gone_and_new_are_measured_against_the_most_recent_crawl
-    assert 3 == 1   # "and the one that first appeared is new"
+**The class is now
+[LESSONS §17.4](LESSONS.md#4--a-test-that-compares-a-literal-timestamp-against-now-asserts-nothing-after-that-date)**,
+carrying the correction that made it worth writing: #243 called it a dependency on the *time of
+day*, which was true of 2026-08-21 alone. Told that, a reader waits for the morning.
 
-**Reproduced on the untouched `main` checkout at `38a1e24`**, so it is not this PR's.
+Three mutations killed, **two of them in production code** — a test edited into passing would
+have survived those.
 
-**IT IS A TIME BOMB AND IT HAS GONE OFF.** The test hardcodes the newest crawl at
-`2026-08-21T12:00:00Z` (`tests/test_a_dataset_is_a_table_like_any_other.py:906`, and the row it
-means to single out at `:909`) and
-then sets **only the last row's** `first_seen_at` to the same stamp, expecting exactly
-one `new` row. But the other rows' `first_seen_at` is whatever `stored()` wrote at
-insertion — *now* — and `row_state` decides:
-
-    if first_seen_at is not None and first_seen_at >= newest:
-        return STATE_NEW
-
-At 2026-08-21T13:28Z, `now >= 2026-08-21T12:00:00Z` for **every** row, so all three
-are `new`. Proved by moving the stamp and nothing else:
-
-| the stamp | result |
-|---|---|
-| `2026-08-21T12:00:00Z` as committed | **FAIL**, 3 new |
-| `2027-08-21T12:00:00Z` | **pass** |
-
-**AND IT DOES NOT HEAL OVERNIGHT.** `now` only increases, so the comparison is true
-for ever from 12:00Z on 2026-08-21. This is not today's flake — **`main` is red from
-now on.** It passed every run before 12:00Z, which is why #235 merged green.
-
-**Why it blocks the release.** `.github/workflows/release-engine.yml` runs the whole
-suite in *"The engine must pass its own tests before it is shipped"* **before** it
-builds. So the release failed at that step whatever it was tagged, and `OP-32` — the
-thing the owner actually asked for — could not ship until this was repaired. `R-18`
-(merge it when it is green) was also unsatisfiable for every open pull request while
-it stood.
-
-**The repair, which preserves what the test means.** Its intent is *one* row first
-appeared in the newest crawl and the others predate it. The `last_seen_at` lines two
-above already pin both sides explicitly; `first_seen_at` pins only one. Pin the other
-side too, rather than leaving it at insertion time:
-
-    conn.execute("UPDATE generic_record SET first_seen_at = '2026-01-01T00:00:00Z'")
-    conn.execute("UPDATE generic_record SET first_seen_at = '2026-08-21T12:00:00Z' "
-                 " WHERE generic_record_id = ?", (ids[-1],))
-
-**The class, and it is worth a `LESSONS` line if it recurs:** a test that compares a
-literal timestamp against `now` is only asserting anything while `now` is on the right
-side of it. Every such literal is a date on which the suite changes its mind.
 ### OP-38 · "Not detected" is what the panel says about an engine that is installed and refusing
 
 **Status: OPEN.** The half of `OP-33` the #243 merge did not close, split out so it
@@ -1959,111 +1667,22 @@ Recorded as `Q-15`.
 
 ### OP-42 · ~~A generic dataset card offers no actions at all, and one of the six would work~~ — FIXED 2026-08-22, and he asked for it before the fix was scheduled
 
-**Status: CLOSED. Fixed the same day it was recorded, because he read the same
-screenshot and asked for it in his own words: «ال 3 نقاط لا تظهر فى كارد مقاول» —
-captured as `REQ-36`.**
+**FIXED 2026-08-22, the same day it was recorded, because he read the same screenshot and
+asked for it in his own words — `REQ-36`.**
 
-**What shipped, and it is not the narrow fix this entry proposed.** The entry
-suggested "a per-entry predicate rather than gating the whole menu on `kind`". A
-per-entry predicate is still a hand-written claim about somebody else's routing,
-which is the exact thing that rotted here — the blanket hide was right when it was
-written and wrong ten days later, and nothing noticed. So each action now declares
-**the engine route it drives** and **a proof of what that route does with a dataset
-key**, and `tests/test_a_dataset_card_offers_what_works.py` CALLS every one of them
-against a real approved dataset. Both directions are asserted: an action that is
-offered must answer 2xx and carry rows, and an action that is withheld must be
-proven unable. The engine's behaviour decides; the panel's list is a mirror that
-cannot silently stop matching.
+**What shipped is not the narrow fix this entry proposed.** It suggested a per-entry predicate,
+which is still a hand-written claim about somebody else's routing — the exact thing that
+rotted here. The blanket hide was right when it was written and became wrong when `/api/table`
+learned to resolve a dataset key, and nothing connected the two.
 
-**Measured, and this is the whole answer to "which of the six":**
+**Measured, and it is the whole answer to "which of the six":** the panel driven with two
+`kind: "dataset"` rows offered **no menu at all**, while `Open the data table` was built and
+working for a dataset.
 
-| action | route it drives | with a dataset key | offered? |
-|---|---|---|---|
-| `table` | `GET /api/table/{key}` | **200**, 4 rows, 25 columns | **yes** |
-| `sheet` | `GET /api/export/{key}` | 404 `no source called 'contractors'` | no |
-| `update` | `POST /api/jobs` | 404 `unknown source_key` | no |
-| `pause` | `POST /api/sources/{key}/active` | 404 `unknown source` | no |
-| `settings` | `GET /sources/{key}` | 404 — **and the route does not exist for anyone**, see `OP-51` | no |
-| `changes` | `GET /source/{key}` | 200, and **no changes section on the page** | no |
-
-One live row, no greyed rows — which is his other ruling of the same day, recorded
-under `REQ-36`: a menu of dead entries is the "button that cannot work" this menu's
-own comment already rejected.
-
-**ONE ROW TODAY IS NOT A CONTRADICTION OF `R-47`, which arrived while this was open.**
-That ruling gives the muqawil card **two crawl options**, and this menu offers none —
-because `POST /api/jobs` answers 404 for a dataset key, measured. The two fit together
-rather than fighting: `R-47` says what the card must eventually offer, and the
-mechanism built here is what makes adding it safe. A crawl entry cannot be added
-without declaring the route it drives and a proof of what that route does with a
-dataset key, and the guard fails until the proof holds — so the day a panel path to a
-dataset crawl exists, the entry can be added and *cannot* be added before. That is the
-opposite failure mode from the one this entry is about, and it is guarded in the same
-place.
-
-**And the hole this entry predicted was real.** It said the guard "currently points
-the other way" because the harness stub had no dataset-kind source. Adding one made
-`test_dataset_action_opens_the_workspace_directly` fail immediately — 2 triggers
-against 3 cards — so the false rule was executed for the first time on 2026-08-22.
-The stub carries a dataset permanently now, which is what stops it recurring, and
-it surfaced two more places the same way: `OP-51` and `OP-52`.
-
-**The original entry is kept below in full, because its diagnosis is what the fix
-was built on.**
-
-**Status when written: OPEN. Found 2026-08-22, in the same screenshots as the
-double-⋮ defect, and it is a SEPARATE cause from it.**
-
-**He asked about one thing in that screenshot; this is the other thing in it.** His
-question was «لماذا تظهر مرتين» — a `⋮` appearing twice, a stacking-context bug,
-fixed and recorded as `REQ-30`. Reading the same picture to reproduce it turned up
-a second fact he did not raise: `aramco.com` and `spark-eshop.com` carry a `⋮` and
-the two `muqawil.org` cards carry none. So it belongs here and not in
-[REQUESTS.md](REQUESTS.md) — we found it.
-
-**That absence is deliberate, and it is written down in both halves.**
-`sourceMenu` returned an empty string for a dataset — the line is gone, and what
-stands where it stood is the filter that replaced it
-([extension/app.js:4755](../extension/app.js#L4755)) — and the engine stamps the
-marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
-`_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
-Rename, and every one of those is a price-path action that would answer 400 or
-worse for a dataset"* ([scrapex/webui/app.py:665](../scrapex/webui/app.py#L665)).
-It was the right call for five of the six entries and it is still right for them:
-`update`, `pause` and `settings` post to routes that read the manifest, and
-`/api/export/{key}` validates the key against `manifest.sources` and answers 404
-for anything else ([scrapex/webui/app.py:2994](../scrapex/webui/app.py#L2994)).
-
-**But `Open the data table` would work, and it was built after the blanket
-hide.** `data.html?source=KEY` fetches `/api/table/{key}`, and that route looks
-the key up in the dataset catalogue FIRST — *"a generic dataset is a table like
-any other table"* ([scrapex/webui/app.py:1176](../scrapex/webui/app.py#L1176)) —
-so `/api/table/contractors` serves the directory in full. The panel hides the one
-entry that works on the marker that was introduced for the five that do not.
-
-**Measured, not assumed** — the panel driven with two `kind: "dataset"` rows
-shaped exactly as `_dataset_rows` builds them:
-
-| card | `.split-button-trigger` |
-|---|---|
-| `LONG_AR` | 1 |
-| `SHORT` | 1 |
-| `contractors` | 0 |
-| `contractor_profiles` | 0 |
-
-**And the guard for this is not just missing, it currently points the other
-way.** `tests/test_panel_dom.py::test_dataset_action_opens_the_workspace_directly`
-asserts *"every dataset card must carry exactly one actions menu"*, which holds
-only because `tools/panel_harness.py`'s stub contains no dataset-kind source at
-all. Add one honestly and that assertion fails — so the rule `sourceMenu`
-implements has never been executed by any test. Whichever way this is decided,
-the stub needs a dataset row and that assertion needs to be per-kind.
-
-**The narrow fix** is to give `SOURCE_ACTIONS` a per-entry predicate rather than
-gating the whole menu on `kind`, and to show a dataset the entries that work.
-Deliberately not done inside the double-⋮ fix: that one is a CSS stacking bug
-with a hit test to prove it, and this one changes what the panel offers, which is
-the owner's call under `R-32`'s reading of what a dataset is.
+**And the guard this entry asked for pointed the other way** — it pinned the absence rather
+than the capability, so it would have kept the menu hidden after the route learned to answer.
+That is the shape to look for: **a guard that asserts today's limitation is a lock, not a
+test.**
 
 ### OP-46 · The custom `<select>` is built twice, and `focusOption` is character-identical in both
 
@@ -4810,119 +4429,21 @@ the zip is not the thing to reconsider.
 
 ### OP-20 · ~~CI has not executed since 2026-08-19, and the reason is billing~~ — CLOSED 2026-08-23
 
-> **RESOLVED, and by the owner in one command.** The repository was **made
-> public** on 2026-08-20, and Actions came back with it: public repositories get
-> unmetered minutes on the standard runners, so the unpaid-minutes block on a
-> private free-plan repository simply stopped applying. The switch was confirmed
-> at the plan level rather than by the flag alone — `branches/main/protection`
-> had been answering `403 Upgrade to Pro` and began answering `404 Branch not
-> protected`.
->
-> **And the runs are real.** Measured 2026-08-23 on `main`: `CI` succeeded at
-> 05:21, 10:30 and 11:19, with the `test` job taking minutes rather than
-> failing in seconds with zero steps. PR #220's checks executed in full — `test`
-> 5m53s and 12m27s across two runs. So **#214 and #219, both merged with CI
-> never having run, have since been verified by real runs**, and SR-23 is a rule
-> anyone can follow again.
->
-> **The cost this entry predicted was paid in full, and the bill is below.**
-> It wrote: *"a red check that means 'unpaid' is indistinguishable at a glance
-> from a red check that means 'broken' — which is how a real failure gets waved
-> through."* A scheduled workflow had been failing **every day since at least
-> 2026-08-16** and nobody looked, because every red looked explained. It is kept
-> below rather than deleted, because the reasoning is what caught it.
+**CLOSED 2026-08-23 — resolved by him in one command: the repository was made public.**
+Measured on `main` the same day: `CI` succeeded again after failing **0-3 seconds with ZERO
+steps** on every run since `2026-08-19T14:28Z`. **This was an account setting and only the
+owner could clear it** — nothing in the repository could.
 
+**The item worth carrying is what the four red days hid.** `publish-docs.yml` compared a hash
+of a shell variable rather than of the served bytes, so it had been failing for **eight days**
+while the served copy was byte-identical the whole time. Fixed by writing curl's output to
+`$RUNNER_TEMP` and hashing the file, keeping the served-nothing check.
 
-
-**Measured 2026-08-20.** Every workflow run since `2026-08-19T14:28Z` fails in
-**0-3 seconds with ZERO steps** — lint, test, contract-parity, scope,
-migration-authority, and the store-documents publish alike. The last run that
-actually executed anything was `2026-08-19T11:50Z` on
-`claude/blissful-swartz-bdca44` (13/11/9 steps, the test job 1,030 seconds, and it
-failed on code). The last CI success was `2026-08-19T11:11Z`.
-
-GitHub's own annotation on the job, read out of the API rather than guessed:
-
-> *"The job was not started because recent account payments have failed or your
-> spending limit needs to be increased. Please check the 'Billing & plans' section
-> in your settings"*
-
-**This is an account setting and only the owner can clear it.** Nothing in the
-code is involved, and `repos/.../actions/permissions` is `enabled: true,
-allowed_actions: all`, so it is not a policy block.
-
-**What it has already cost, and this is the part that matters:**
-
-- **#214 — the whole documentation system — merged with CI never having run.**
-  Its own merge run at `2026-08-20T04:57Z` is one of the zero-step failures. The
-  system now telling every session to trust these documents was itself verified
-  only locally.
-- **SR-23 cannot be satisfied at all right now.** *"CI must be green on every
-  push"* is not a rule anyone can follow while no job starts, and a red check that
-  means "unpaid" is indistinguishable at a glance from a red check that means
-  "broken" — which is how a real failure gets waved through.
-- Every open pull request shows three failing checks that say nothing about its
-  code. #219, #213 and `ci/the-suite-a-docs-change-actually-needs` all inherit it.
-
-**Until it is cleared, a local full-suite run is the only verification available**,
-and a PR should say so rather than showing a red tick and hoping the reader knows
-why.
-
-#### The failure it predicted, found and fixed — 2026-08-23
-
-**No number of its own on purpose.** `OP-60` and `OP-61` are held by branch
-`feat/the-engine-knows-which-code-it-is-running`, and #263's handoff records them
-as that branch's. The rule in [ORCHESTRATION.md](ORCHESTRATION.md) would give me
-`OP-60` — an open pull request outranks a branch without one, and #264 is open
-while that branch has none — but moving *them* costs two renumbers and
-contradicts a committed handoff, and this is not a sibling finding anyway. **It is
-this entry's own thesis coming true**, so it belongs inside it.
-
-`Publish the documents the store links to` has failed on **every scheduled run
-from at least 2026-08-16 to 2026-08-23** — eight consecutive days, measured, not
-sampled. The error each time:
-
-```
-the chooser served to owners is not the file this repository tests.
-  repository: d43aa7600b053f9ecc473734bd31f75883003facfc80c1865e7bb11b11b3ea2c
-  served:     cc04efaff465335b81de2583321437467d8b23d8dfd25579991ec2ec3dc30e80
-```
-
-**The served copy was byte-identical the whole time.** Fetching
-`https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html` on 2026-08-23
-gives 10,231 bytes hashing to `d43aa76…` — which *is* the repository's own
-normalised hash, and `difflib` reports **zero** differing lines.
-
-**The bug was one shell newline.** `.github/workflows/publish-docs.yml` had:
-
-```bash
-mine=$(sha256sum docs/picker/scrapex-picker.html | cut -d' ' -f1)
-served=$(curl -sL --max-time 20 "$PAGE" 2>/dev/null || true)
-theirs=$(printf '%s' "$served" | sha256sum | cut -d' ' -f1)
-```
-
-Command substitution `$(curl …)` **strips every trailing newline** from the body,
-and `printf '%s'` puts none back — while `sha256sum` of the file keeps its own. So
-`theirs` could never equal `mine` for a file ending in a newline, which this one
-does. Proved by construction: the served bytes hash to `d43aa76…`, and the same
-bytes with the final newline removed hash to **exactly the `cc04efa…` CI
-printed**.
-
-**The docs loop twenty lines above is unaffected, and the asymmetry is the whole
-bug** — it *pipes* curl into `sha256sum` instead of capturing it, so nothing eats
-its newline.
-
-**Fixed** by hashing the bytes rather than a shell variable: curl writes to
-`$RUNNER_TEMP` and `sha256sum` reads the file, with `[ ! -s "$body" ]` keeping
-the served-nothing check. Verified locally against the live page — the old
-expression mismatches and the new one matches.
-
-**Why it went eight days unread.** Two reasons, and both are lessons rather than
-excuses. The guard *"cannot fix what it finds"* by design, so its failure is
-normal-looking noise on a schedule nobody watches. And this entry had made every
-red check mean "unpaid", so a red that meant "broken" was invisible. **A guard
-that cries wolf daily is not a guard**; this one had also never been exercised
-against a passing case.
+**Why it went eight days unread, and both halves are lessons.** The guard *"cannot fix what it
+finds"* by design, so its failure is normal-looking noise on a schedule nobody watches — and
+this entry had made **every** red check mean *"unpaid"*, so a red that meant *"broken"* was
+invisible. **A guard that cries wolf daily is not a guard**, and this one had never been
+exercised against a passing case.
 
 ### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-26
 

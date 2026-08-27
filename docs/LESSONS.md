@@ -2710,3 +2710,29 @@ its own `scope` — so the `nested` check beside it **is** load-bearing: without
 proof delists the rest of the country. Two lines that look alike; one cannot fail and one is
 the only thing standing between a proof and a false delisting. **The test is a mutation, not
 a reading.**
+
+### 4 · A test that compares a literal timestamp against `now` asserts nothing after that date
+
+`tests/test_a_dataset_is_a_table_like_any_other.py` pinned the newest crawl at
+`2026-08-21T12:00:00Z` and set only the last row's `first_seen_at` to it, expecting one
+`new` row. The other rows kept whatever `stored()` wrote — **`now`** — and `row_state`
+returns `STATE_NEW` on `first_seen_at >= newest`. At 13:28Z that is true of every row.
+
+**Proved by moving the stamp and nothing else:** `2026-08-21T12:00:00Z` → **FAIL, 3 new**;
+`2027-08-21T12:00:00Z` → **pass**.
+
+**It does not heal overnight, and that distinction is the whole cost.** `now` only
+increases, so the comparison is true for ever from 12:00Z that day. #243's own comment
+called it a dependency on the *time of day* — true of 2026-08-21 alone. **Told it is
+time-of-day, a reader waits for the morning, and the morning never fixes it.** `main` was
+red from then on, and `release-engine.yml` runs the suite before it builds, so `OP-32` —
+the release he had asked for — could not ship while it stood.
+
+**The repair is to pin both sides**, not to move the literal: the `last_seen_at` lines two
+above already did, and `first_seen_at` pinned one. Three mutations killed, **two of them in
+production code** — a test edited into passing would have survived those.
+
+**The sweep, so this is a class and not an anecdote:** the other 13 test files holding a
+hardcoded 2026 timestamp pass every value to `row_state()` explicitly, so no `now` is
+involved, and **no future-dated literal exists anywhere in `tests/`** that would arm the
+same bomb for a later date. Every such literal is a date on which the suite changes its mind.
