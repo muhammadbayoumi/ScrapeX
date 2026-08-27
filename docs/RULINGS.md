@@ -2565,3 +2565,32 @@ finishes when the problems the audit found are solved. Then Drive.
 | **2** | Drive — branch `claude/drive-without-a-server` at `e00711d`, pushed, **no PR since 2026-08-22** |
 | 3+ | the rest, ordered rather than all marked `LIVE`. Seven were `LIVE` at once when he ruled, which meant none of them was the plan |
 
+---
+
+### R-59 · The palette registry: `brand` is default, `alternatives` is extensible, teal is debt
+
+**2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked**
+
+Six decisions of his lived **only** in `docs/design-system/SCRAPEX_GLOBAL_MAPPING.md` —
+zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. That breaks
+`C3`, so they are recorded here and the file is deleted.
+
+1. **`brand` is the default palette.** `alternatives` is an extensible collection, `blue` is
+   its first entry, every palette carries `light` and `dark`. **Device/System picks the
+   scheme; it is not a palette.**
+2. **Teal is deprecated** — legacy colour residue and migration debt, not brand and not a
+   future palette.
+3. **`whatsapp` and `github` are legacy compatibility aliases** for `brand` and `blue`.
+4. **Components consume semantic roles** — `accent`, `on-accent`, `surface`, `on-surface` —
+   and never a palette identifier.
+5. **Shared inside ScrapeX is not a global mbiX contract.** Copied CSS/JS and ScrapeX
+   endpoints are an internal layer; only what is reusable beyond ScrapeX is a candidate.
+6. **The FastAPI/Jinja surfaces are an explicit LOCAL-WEB profile.**
+
+**Decisions 1 and 3 are half-built:** `scrapex/webui/app.py:195` refuses any palette outside
+`{"whatsapp", "github"}` — the aliases are enforced and the registry they alias does not
+exist. Registered as `OP-82`.
+
+**Not carried:** that file's §11 listed ten questions pending the *other* products' audits.
+They are mbiXaddin's and mbiXsite's to answer, not this repository's. `git show
+d6f4967:docs/design-system/SCRAPEX_GLOBAL_MAPPING.md` has them.
