@@ -17,11 +17,11 @@ order is argued rather than preferred.
 | # | step | state | gate |
 |---|---|---|---|
 | 0 | The crawl, the workers, the storage | **DONE** | 34,834 of 34,834; 9.75 h at 1.007 s/page = 100.7% of the politeness floor; 4.40 GB in 80,676,567 bytes |
-| 1 | **The poisoned profile schema** | ⛔ **his ruling** | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
-| 2 | **`R-52` re-ruled, then the State column fixed** | ⛔ **his ruling** | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
-| 3 | The 263 stranded listing rows | ⛔ **his ruling** (§7-5) | all 263 on schema v2 with `profile_url` and the City/Region split |
-| 4 | The two-directional gap: 148 + 81 | ⛔ **his ruling** (`REQ-41`) | one command, or automatic at end of crawl; 148 need zero network |
-| 5 | The placeholder pair: map pin + `logo_url` | ⛔ **his ruling** (§7-3, §7-4) | one ruling covering both, or two explicit refusals |
+| 1 | **The poisoned profile schema** | ✅ **RULED 2026-08-26 — [R-53](../RULINGS.md#r-53--the-profile-schema-is-re-approved-onto-a-clean-version-not-reopened)**: re-approve all 17,371 rows onto a clean 27-field v4, not reopen v2. **Buildable now** | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
+| 2 | **`R-52` re-ruled, then the State column fixed** | ✅ **RULED 2026-08-26 — [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at)**: the root first — a confirming pass moves `last_seen_at`, then state is computed against the RUN. `R-52` amended, not erased. **Buildable now** | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
+| 3 | The 263 stranded listing rows | ✅ **RULED 2026-08-26 — [R-56](../RULINGS.md#r-56--the-263-stranded-listing-rows-are-fixed-by-a-fresh-listing-crawl)**: a fresh listing crawl, 58 min at concurrency 4. **NOT** a re-approve — `ExtractionConflict` refuses that and writes nothing | all 263 on schema v2 with `profile_url` and the City/Region split |
+| 4 | The two-directional gap: 148 + 81 | ⛔ **his ruling** (`REQ-41`) — **the only step still waiting on him** | one command, or automatic at end of crawl; 148 need zero network |
+| 5 | The placeholder pair: map pin + `logo_url` | ✅ **RULED 2026-08-26 — [R-55](../RULINGS.md#r-55--absence-is-more-honest-than-a-placeholder-and-one-ruling-covers-both-fields)**: one ruling for both — store absence. Coverage becomes an honest 24% and 16%. **Buildable now** | one ruling covering both, or two explicit refusals |
 | 6 | Balady Services — 886 pages, 0 rows | **not started** | `balady_services` holds a row per service per contractor, and 406 flattened records are recoverable |
 | 7 | The 18,179 unreferenced Arabic snapshots | **not measured** | a decision that rests on knowing whether they carry a field the English page does not |
 | 8 | **`R-19`'s query — 397,526 memberships, no surface** | **not started** | he can filter contractors by interest and by licensed activity, from the panel |
@@ -206,7 +206,9 @@ imports `scrapex.extract.muqawil` instead.
   They are open and they change nothing in tiers 1–4 — except step 8's *where*, which
   `R-50` already answers.
 
-## Five of the ten steps are blocked on him, and that is the plan's main finding
+## ~~Five of the ten steps are blocked on him~~ — ONE is, as of 2026-08-26
+
+> **Four of the five were ruled the day after this plan was written, and this section went stale for a day.** `R-53`, `R-54`, `R-55` and `R-56` answer steps 1, 2, 5 and 3 — every mapping checked against the step's own GATE text rather than inferred from the numbers. **Only step 4 (`REQ-41`) still waits on him**, and steps 1, 2, 3 and 5 are buildable now. The paragraph below is kept because its reasoning about WHY those five were the blocking ones is what made them get ruled.
 
 Steps 1 through 5 are **⛔ his ruling**, and they are the whole of tiers 1 and 2 — every
 defect that publishes something false. Steps 6 through 10 can start today without him.
