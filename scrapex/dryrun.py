@@ -186,6 +186,15 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
 def _impostors(general: sqlite3.Connection, directory: Directory | None) -> dict:
     """`contractors.disown_impostors(..., dry_run=True)`, which counts and returns.
 
+    ZERO IS THE RIGHT ANSWER TODAY AND THE AUDIT SAYS FOURTEEN, so a reader who has
+    read `MUQAWIL-AUDIT-2026-08-26.md` will think this is broken. It is not: `OP-64`'s
+    `--repair` has already run, and `disown_impostors` reads `r.status = 'active'`.
+    Measured on the live warehouse 2026-08-27 — `contractor_profiles` holds **17,371
+    active and 14 retired**; **14 of 14 retired** rows disagree with their listing
+    card and **0 of 17,371 active** ones do. The fourteen are exactly the audit's,
+    withdrawn rather than deleted (`status`, never a DELETE), so the dry pass has
+    nothing left to find.
+
     IT APPENDS ITS FINDING TO `~/.scrapex/contractors.log`, because `say` is how
     that module reports. That is the one side effect this route has and it touches
     no database.

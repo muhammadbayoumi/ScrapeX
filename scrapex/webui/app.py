@@ -3359,6 +3359,9 @@ def create_app(
         drift that must not be renumbered. This route sits below every cited line, so
         the import belongs where the route is.
         """
+        # DO NOT MOVE THIS TO MODULE SCOPE. It is deliberate, it is measured, and the
+        # primary session ruled on 2026-08-27 that the trade is not worth a style
+        # point: see the paragraph above for the 36 documented lines it would shift.
         from ..dryrun import dry_payload, refuse_writes, unknown_key_detail
 
         general = general_read_conn()

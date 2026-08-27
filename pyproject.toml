@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "scrapex"
 # A MIRROR of scrapex/version.py:VERSION — setuptools cannot import the package
 # to ask. tests/test_version.py reads this line back and fails when they drift.
-version = "0.3.2"
+version = "0.4.0"
 description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite warehouse. Categories: products, contractors"
 requires-python = ">=3.12"
 dependencies = [

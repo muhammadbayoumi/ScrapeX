@@ -10,7 +10,7 @@ work predates this file, the commit that built it — evidence read out of
 record of what was done; this file answers a narrower question: which version
 has it.
 
-## 0.3.2
+## 0.4.0
 
 Minimum supported extension: `0.2.2`.
 
