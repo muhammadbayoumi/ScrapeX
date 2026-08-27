@@ -109,7 +109,7 @@ number in it had moved. That `docs/plans/` sits outside the citation guard's `DO
 
 **Found 2026-08-26. Two halves, and the second is what lets the first survive.**
 
-**The collapse.** [scrapex/extract/service.py:895](../scrapex/extract/service.py#L895)
+**The collapse.** [scrapex/extract/service.py:915](../scrapex/extract/service.py#L915)
 resolves the identity field as `identity[0] if len(identity) == 1 else None`. With **two**
 `key_part` fields, or **zero**, that is `None` — so every row's external id is `None`, every
 `dataset_sighting` lookup misses, and `row_state` runs with `sighted_at=None,
@@ -136,7 +136,7 @@ of the three available answers: explicit refusal, a composite key, or silent omi
 
 ### OP-71 · The `MAX(observed_at)` subquery cannot be served by its index, twelve lines under a comment condemning that exact pattern
 
-**Found 2026-08-26.** [scrapex/extract/service.py:920](../scrapex/extract/service.py#L920)
+**Found 2026-08-26.** [scrapex/extract/service.py:940](../scrapex/extract/service.py#L940)
 runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
 v.generic_record_id = r.generic_record_id)` — once per row.
 
@@ -147,7 +147,7 @@ SQLite can seek a record's revisions from the index and must then read the table
 one to get the timestamp. No covering index, no index-only `MAX`.
 
 **And the trap is named on the same screen.**
-[service.py:934](../scrapex/extract/service.py#L934), twelve lines below, explains that the
+[service.py:954](../scrapex/extract/service.py#L954), twelve lines below, explains that the
 sighting side is read in ONE query because joining per row *"would be the
 correlated-subquery defect `OP-27` measured at 49s all over again."* The rule is known,
 written down, and applied to the neighbouring table.
@@ -247,7 +247,7 @@ to `POST` later, alongside `OP-73`.**
 **Found 2026-08-26.** `grep display_name scrapex/reports.py` returns **zero hits**: the
 products payload labels from a module constant only —
 [reports.py:2191](../scrapex/reports.py#L2191), `labels = dict(BROWSE_COLUMNS)`. The dataset
-payload does the opposite at [service.py:1023](../scrapex/extract/service.py#L1023),
+payload does the opposite at [service.py:1043](../scrapex/extract/service.py#L1043),
 preferring his stored `display_name`.
 
 **So renaming a column reaches a contractor table's heading and never a products table's.**
@@ -274,7 +274,7 @@ shapes. Recorded so that a later reader does not "fix" it.
 ### OP-78 · `tree` is produced by both producers, asserted by a test, and read by no consumer anywhere
 
 **Found 2026-08-26.** [reports.py:2255](../scrapex/reports.py#L2255) computes it with
-`_tree_shape`; [service.py:1026](../scrapex/extract/service.py#L1026) hard-codes `{}`. No
+`_tree_shape`; [service.py:1046](../scrapex/extract/service.py#L1046) hard-codes `{}`. No
 consumer reads `payload.tree` — `grid.js`'s `features.tree` is a name collision — and the
 13-key list asserts it regardless.
 
@@ -2318,7 +2318,7 @@ entirely** — `contractors` was not touched by that work, and the skew is older
 
 **`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
 `newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
-identifier ([scrapex/extract/service.py:923](../scrapex/extract/service.py#L923)):
+identifier ([scrapex/extract/service.py:943](../scrapex/extract/service.py#L943)):
 
 ```python
 if last_seen_at is None or last_seen_at < newest:

@@ -982,6 +982,72 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
     return written, repeated
 
 
+class _Named:
+    """So the body below keeps naming the dataset it is talking about, one line each."""
+
+    __slots__ = ("dataset_key",)
+
+    def __init__(self, dataset_key: str) -> None:
+        self.dataset_key = dataset_key
+
+
+
+def _say_reapprove(conn, directory: Directory, *, dry_run: bool = True) -> list[dict]:
+    """`R-53`, printed, over EVERY dataset this source publishes.
+
+    A PRINTER AND NOTHING ELSE, deliberately: `report_coverage` is the same shape over
+    `sightings`, and the muqawil audit's standing complaint is code that reimplements what it
+    could have called. The route added in #274 reads the same function.
+
+    BOTH DATASETS, AND THE FIRST DRAFT ONLY DID ONE. muqawil publishes `contractors` AND
+    `contractor_profiles`, and the poisoned contract is on the second — so a pass over
+    `directory.dataset_key` alone printed *"nothing to re-approve"* and exited 0 for a
+    dataset it had never looked at. That is worse than failing.
+    """
+    keys = [directory.dataset_key]
+    if directory.profiles is not None:
+        keys.append(directory.profiles.dataset_key)
+    return [_say_reapprove_one(conn, key, dry_run=dry_run) for key in keys]
+
+
+def _say_reapprove_one(conn, dataset_key: str, *, dry_run: bool = True) -> dict:
+    from .extract.service import reapprove_onto_clean_version
+
+    result = reapprove_onto_clean_version(conn, dataset_key, dry_run=dry_run)
+    if not dry_run and not result.get("already_correct"):
+        # THE SERVICE DOES NOT COMMIT AND MUST NOT. `approve_candidate` beside it does not
+        # either -- the caller owns the transaction, which is what lets `GET /api/dry/{key}`
+        # read the same function without one. So the commit is HERE, exactly as
+        # `disown_impostors` commits its own repair.
+        #
+        # THIS LINE IS THE ONE THE UNIT TESTS COULD NOT MISS AND DID. They committed
+        # explicitly, so all twelve passed while `--repair` printed "APPLIED" three runs
+        # running and left v3 approved with the 17,371 still on v2.
+        conn.commit()
+    directory = _Named(dataset_key)
+    if result.get("already_correct"):
+        say(f"{directory.dataset_key}: the live rows are already on the approved version; "
+            "nothing to re-approve")
+        return result
+    dropped = result["dropped_fields"]
+    say(f"{directory.dataset_key}: the approved version declares "
+        f"{result['field_count'] + len(dropped)} fields and the live rows carry "
+        f"{result['field_count']}")
+    say(f"  {len(dropped)} field(s) would be dropped, empty on every active row: "
+        + ", ".join(dropped))
+    say(f"  {result['records_to_move']:,} record(s) move to a new approved version")
+    # SAID OUT LOUD BECAUSE THE RULING SAYS OTHERWISE. `R-53` reads "17,371 rows and 17,371
+    # revisions"; a revision records a CHANGED value and nothing here changes one, so
+    # `generic_record_revision`'s UNIQUE (record, snapshot, hash) would refuse every one.
+    say("  0 revisions: this changes which version a row is bound to, not a value")
+    if dry_run:
+        say("  DRY RUN — nothing was written. Add --repair to apply it")
+    else:
+        say(f"  APPLIED: v{result['approved_version_number']} approved, "
+            f"{result['records_moved']:,} record(s) moved")
+    return result
+
+
 def disown_impostors(conn, directory: Directory, *, dry_run: bool = True) -> int:
     """LAYER 3 of `OP-64`: find the rows written from somebody else's page, and drop them.
 
@@ -1353,6 +1419,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repair", action="store_true",
                        help="with --impostors, retire the rows it finds. "
                             "Without it, --impostors is a dry run")
+    parser.add_argument("--reapprove-schema", action="store_true",
+                       help="R-53: re-approve the live rows onto the field set they "
+                            "actually carry, when the approved version was taught by "
+                            "pages that have since been retired. Reads only unless "
+                            "--repair is given")
     parser.add_argument("--run-ref", default="",
                        help="required for --crawl and --approve. Reused, it "
                             "RESUMES: pages this ref already stored are not "
@@ -1428,7 +1499,7 @@ def validate(args: argparse.Namespace) -> None:
     if args.ids is not None and not args.details:
         _refuse("--ids only means something with --details, which is what fetches "
                 "profile pages")
-    if args.repair and not args.impostors:
+    if args.repair and not (args.impostors or args.reapprove_schema):
         _refuse("--repair has no meaning without --impostors, which is what finds "
                 "the rows it would retire")
 
@@ -1499,6 +1570,8 @@ def run(args: argparse.Namespace) -> int:
             approve(conn, directory, args.run_ref)
         if args.impostors:
             disown_impostors(conn, directory, dry_run=not args.repair)
+        if args.reapprove_schema:
+            _say_reapprove(conn, directory, dry_run=not args.repair)
         if args.coverage:
             since = args.not_seen_since or default_window(conn, directory.dataset_key)
             if not since:

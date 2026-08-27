@@ -2348,7 +2348,7 @@ do not leave the user to infer the state.*
 and **built** the same day — migration `0006_a_row_says_when_it_was_last_proved_absent.sql`,
 merged as #235 (`ec53b17`) — and it never reached this board. It survived in the code that
 implements it: quoted in that migration's header, in `scrapex/sightings.py:102` and `:361`,
-in `scrapex/extract/service.py:63` and `:984`, and in
+in `scrapex/extract/service.py:63` and `:1004`, and in
 `tests/test_a_dataset_is_a_table_like_any_other.py:849`. **Six citations in code and
 migrations, zero on the register that tracks what he asked for.**
 
