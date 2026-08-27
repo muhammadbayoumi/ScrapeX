@@ -325,7 +325,7 @@ PINNED = (
     # written down — the guard catching its author, in the exact shape LESSONS §7
     # describes. The third move was the 0.3.0 packaging fix, which explained the
     # new `ScrapeX UI` demand in twenty-seven lines of comment directly above.
-    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 488, '"version": VERSION'),
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 540, '"version": VERSION'),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
      'got["version"] == manifest["version"]'),
     # And the line whose VALUE went stale under a citation that stayed correct --

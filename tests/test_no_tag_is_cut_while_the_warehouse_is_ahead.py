@@ -26,6 +26,11 @@ import subprocess
 
 import pytest
 
+#: This file reads `README.md` and a workflow, so a documentation-only change must
+#: still run it — `tests/test_the_docs_gate_is_complete.py` refuses a document-reading
+#: test that carries no mark, and it caught this one.
+pytestmark = [pytest.mark.docs]
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".githooks" / "pre-push"
 WORKFLOW = ROOT / ".github" / "workflows" / "release-engine.yml"
