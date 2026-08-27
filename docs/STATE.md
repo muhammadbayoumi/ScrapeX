@@ -310,6 +310,32 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### A dry route for every source type — 2026-08-27 · [#274](https://github.com/muhammadbayoumi/ScrapeX/pull/274)
+
+> «اعمل مسار dry لكل المصادر مهما اختلفت نوعها» · «ابنى المسار الجاف للثلاثة وخلى hover
+> الى يبان يكون واضح بدقة للمستخدم»
+
+`GET /api/dry/{source_key}` resolves a key in **both** registries. Measured against the
+same three keys `POST /api/jobs` was measured on:
+
+| key | registry | `POST /api/jobs` | `GET /api/dry/{key}` |
+|---|---|---|---|
+| `ADVANCEDCASTLE` | `sources.yaml` | 200 | 200 |
+| `contractors` | `dataset_definition` | **404** | **200** |
+| `muqawil_org` | `site_profile` | **404** | **200** |
+
+Zero requests and zero writes are guarded: a SQLite authorizer (`dryrun.refuse_writes`)
+denies every statement able to change the warehouse, which matters on the one call —
+`disown_impostors` deletes when `dry_run=False`. 16 mutations, 16 reds.
+
+The passes, their cost, what they write and the hover are declared once in
+`scrapex/passes.py`; `contractors.validate` gates on the same tuple, and `--plan`'s 114
+requests are derived as `2 x (cells + 1)`. **`extension/app.js` is untouched** — the
+engine declares and serves the hover, the panel does not yet render it.
+
+**Awaiting the primary:** a `REQ` number (`REQ-46` was free across all 419 refs on
+2026-08-27), and whether `VERSION` moves.
+
 ### The source-page plan was reviewed, and the review found the step-3 blocker is one line — 2026-08-26
 
 **Branch `fix/a-dataset-row-gets-a-handle-and-the-payload-a-guard`, based on `35962cc`.**

@@ -3336,6 +3336,49 @@ def create_app(
             conn.close()
         return {"source_key": source_key, "summary": summary, "changes": feed}
 
+    # ---- the dry route: what a source WOULD do, for every source type ---------
+
+    @app.get("/api/dry/{source_key}")
+    def api_dry(source_key: str):
+        """«اعمل مسار dry لكل المصادر مهما اختلفت نوعها» — one route, both registries.
+
+        `POST /api/jobs` below validates against `app.state.manifest` alone, so
+        muqawil answered `404 unknown source_key 'contractors'` while
+        `/api/table/contractors` served 11,059 rows. This route asks both, and a key
+        either register knows answers 200.
+
+        BOTH CONNECTIONS ARE SEALED BEFORE ANY PAYLOAD WORK. `refuse_writes` denies
+        every statement able to change the warehouse, which matters on exactly one
+        call: `disown_impostors` deletes when `dry_run=False`.
+
+        IMPORTED HERE AND NOT AT MODULE SCOPE, and the reason is measured rather than
+        stylistic: one import line at the top of this 3,800-line module renumbers
+        every line below it, and 26 citations across six of the nine documents
+        `tests/test_the_documents_cite_what_they_claim.py` guards point into this
+        file. Adding it there moved 36 documented lines, six of them RECORDS of past
+        drift that must not be renumbered. This route sits below every cited line, so
+        the import belongs where the route is.
+        """
+        # DO NOT MOVE THIS TO MODULE SCOPE. It is deliberate, it is measured, and the
+        # primary session ruled on 2026-08-27 that the trade is not worth a style
+        # point: see the paragraph above for the 36 documented lines it would shift.
+        from ..dryrun import dry_payload, refuse_writes, unknown_key_detail
+
+        general = general_read_conn()
+        price = read_conn()
+        try:
+            refuse_writes(general)
+            refuse_writes(price)
+            payload = dry_payload(source_key, general=general, price=price,
+                                  manifest=app.state.manifest)
+        finally:
+            general.close()
+            price.close()
+        if payload is None:
+            raise HTTPException(status_code=404, detail=unknown_key_detail(
+                source_key, manifest=app.state.manifest))
+        return payload
+
     # ---- jobs (spec 4/23/24: the panel enqueues and polls, never executes) ---
 
     @app.post("/api/jobs")

@@ -62,6 +62,7 @@ from .partitioncrawl import (
     crawl_partition,
     size_cell,
 )
+from .passes import DIRECTORY_PASSES
 from .sightings import (
     coverage,
     departures,
@@ -652,6 +653,27 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
 
 # ---- --coverage: what the warehouse knows about its own gaps ------------------
 
+#: How many sighted-and-never-stored ids the answer carries. One number, two readers:
+#: this printer and `GET /api/dry/{key}`.
+COVERAGE_SAMPLE = 20
+
+
+def default_window(conn, dataset_key: str) -> str:
+    """The window `--coverage` measures departures against, when nobody names one.
+
+    THE LEDGER'S OWN NEWEST SIGHTING, so running coverage straight after a crawl asks
+    "who did THAT crawl not show us" without anyone typing a timestamp — and a
+    mistyped one silently reports every contractor as departed. Empty when nothing has
+    ever been sighted, which is a real answer and not a zero.
+
+    A FUNCTION SO THE ROUTE CANNOT PICK A DIFFERENT WINDOW. It was inline in `run`,
+    which put it out of reach of every other caller.
+    """
+    return conn.execute(
+        "SELECT MAX(last_seen_at) FROM dataset_sighting WHERE dataset_key = ?",
+        (dataset_key,)).fetchone()[0] or ""
+
+
 def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
     """Every coverage question this warehouse can answer, in one place.
 
@@ -683,7 +705,7 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
             "module does not pick a school.)")
         say("")
 
-    gap = missing_ids(conn, directory.dataset_key, limit=20)
+    gap = missing_ids(conn, directory.dataset_key, limit=COVERAGE_SAMPLE)
     say(f"sighted and never stored: {len(gap)} shown (ordered by how often the site "
         "showed it — one seen six times and still unstored is a stronger signal "
         "than one glimpsed once)")
@@ -1365,9 +1387,12 @@ def validate(args: argparse.Namespace) -> None:
     that would have to raise it, and a usage error printed by the wrong parser
     prints the wrong usage line.
     """
-    if not (args.plan or args.crawl or args.details or args.approve
-            or args.coverage or args.impostors):
-        _refuse("choose one of --plan, --crawl, --details, --approve, --coverage or --impostors")
+    # THE SIX ARE DECLARED IN `scrapex/passes.py`, which is also what
+    # `GET /api/dry/{key}` builds the panel's menu from — so the command line and the
+    # panel cannot come to offer different sets.
+    if not any(getattr(args, name) for name in DIRECTORY_PASSES):
+        _refuse("choose one of "
+                + ", ".join(f"--{name}" for name in DIRECTORY_PASSES))
     if (args.crawl or args.details or args.approve) and not args.run_ref:
         _refuse("--crawl, --details and --approve need --run-ref: it is what makes an "
                 "interrupted crawl resumable and what --approve reads")
@@ -1475,13 +1500,7 @@ def run(args: argparse.Namespace) -> int:
         if args.impostors:
             disown_impostors(conn, directory, dry_run=not args.repair)
         if args.coverage:
-            # THE DEFAULT WINDOW IS THE LEDGER'S OWN NEWEST SIGHTING, so running this
-            # straight after a crawl asks "who did THAT crawl not show us" without
-            # anyone having to type a timestamp — and a mistyped one silently reports
-            # every contractor as departed.
-            since = args.not_seen_since or (conn.execute(
-                "SELECT MAX(last_seen_at) FROM dataset_sighting WHERE dataset_key = ?",
-                (directory.dataset_key,)).fetchone()[0] or "")
+            since = args.not_seen_since or default_window(conn, directory.dataset_key)
             if not since:
                 say("no sightings recorded for this dataset, so there is no window "
                     "to measure departures against. Crawl first.")

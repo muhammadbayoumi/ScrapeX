@@ -1,5 +1,5 @@
 {
-  "version": "0.3.1",
+  "version": "0.4.0",
   "schema": [
     "0002_the_price_source_key_is_named_for_what_it_is.sql",
     "0003_a_source_says_how_deep_its_crawl_goes.sql",
@@ -20,6 +20,7 @@
     "GET /api/bundle/archive",
     "GET /api/bundle/panel-pack",
     "GET /api/changes",
+    "GET /api/dry/{source_key}",
     "GET /api/export/{source_key}",
     "GET /api/features",
     "GET /api/fields/{source_key}",
