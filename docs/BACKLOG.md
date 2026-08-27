@@ -3657,7 +3657,7 @@ decided and what exists.
 
 The owner chose Topology **A** over the study's recommendation of B — *"A, but leave the
 current engine running until the new engine is finished"* — with the Python engine kept as
-the golden reference oracle (`docs/MASTER-PLAN.md:9-44`). The plan records Spike 1
+the golden reference oracle (its `OWNER DECISION` section, at `d6f4967`). The plan records Spike 1
 (fingerprint parity) as **PASSED** and names `spikes/fingerprint-parity/` as the artefact.
 
 What I can verify: `git log --all -- spikes` returns nothing — that directory has never
@@ -3669,10 +3669,16 @@ last 130 commits is Python, and the extension has remained a thin panel over the
 engine's JSON API.
 
 That may well be the right outcome — the Python product got very good in the meantime — but
-nobody ever said so out loud, and `docs/MASTER-PLAN.md` still reads as the live plan. Its
-own §8 asks the owner to "Confirm Topology B", a question its own header already answers
-with A. It is the most-wrong document in `docs/`.
-**Next action:** **Q-6**. Whatever he answers, correct MASTER-PLAN.md in the same session.
+nobody ever said so out loud.
+
+**Half of this closed on 2026-08-27, and it is the half that was never the point.** The
+document was cut to its §8.3 under [R-60](RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive),
+so it no longer reads as the live plan and its §8 no longer asks him to confirm a topology
+its own header answered. **The decision is still open.** `R-48` and `R-50` describe the
+architecture that actually shipped — extension as control room, engine as helper — and
+neither of them says Topology A was abandoned, which is what `Q-6` asks.
+
+**Next action:** **Q-6**, unchanged. Editing the document was never the answer to it.
 
 ### DEC-2 · shopify cannot resume per page as it stands
 `fd2b6d9` states it plainly: the English-title pass runs *after* paging and back-fills
@@ -5206,9 +5212,7 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 | `BACKLOG.md` (this file) | **live** — the tracking document |
 | `CANDIDATE-SOURCES.md` (07-31) | **live** — the queue of sites the owner has sent and nobody has probed yet. Deliberately outside `sources.yaml` (SR-13). A row leaves it when the site becomes a manifest entry |
 | `SOURCES-REGISTER.md` (07-31) | **live, derived** — the developer's per-source scoreboard, split price capture / generic extraction. Reads out of the manifest, the connector directory and this file; when it disagrees with `sources.yaml`, the manifest wins. Delete a reference in it when the matching `OP-`/`DEC-`/`BV-` closes |
-| `plan-closing-the-gaps.md` (07-25) | **superseded by this file.** Phases 0–2 delivered; its still-live items are DEC-4, DEC-5, DEC-6, DEBT-2, Q-10. Keep for its measured 07-25 snapshot |
 | `MASTER-PLAN.md` (07-18/23) | **stale and misleading** — see DEC-1. Its §8 asks the owner to confirm a topology its own header says he already rejected, and it cites a `spikes/` directory that has never existed in this repo. Keep as a design study; correct the header once Q-6 is answered |
-| `REVIEW-2026-07-28.md` | **live as evidence, superseded as a queue.** Its open items are OP-4, OP-5, OP-6, OP-7, OP-12, OP-13, OP-14 |
 | `column-vocabulary.md` | **live** — the map is the contract; §Status feeds DEC-4 and Q-7 |
 | `robots-policy.md` | **live** — SR-8 |
 | `data-page-schema.md` | **live** — the Data page ruling |
@@ -5216,6 +5220,9 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 | `recon/heidelberg-materials-eg.md` | **live** — Q-1…Q-5 |
 | `COMPATIBILITY.md`, `GENERIC_CATALOG.md`, `archive/db1-domain-database-isolation.SUPERSEDED.md` | **live** — the generic/price split (G0/G1/DB1). Not touched since 07-20; nothing in the last 130 commits builds on them, so their roadmap half is dormant **(inferred)** |
 | the two `CLAUDE-after-*` product-brief copies | **deleted 2026-08-27** — 4,811 lines whose own row said *"do not read them"*. `git show d6f4967:docs/CLAUDE-after-price-history-20260720.md` |
+| `PLAN.md`, `plan-closing-the-gaps.md`, `REVIEW-2026-07-28.md` | **deleted 2026-08-27** on his answer, after proving all twelve of their live items survive here by number — `DEC-4/5/6`, `DEBT-2`, `Q-10`, `OP-4/5/6/7/12/13/14`. **Every `REVIEW-2026-07-28 §n` and `plan-closing-the-gaps §n` citation still in this file reads against `d6f4967`** |
+| `archive/2026-08-05-architecture-and-implementation-plan.SUPERSEDED.md` | **deleted 2026-08-27.** Kept by an earlier instruction of his, lifted on 2026-08-27 ([R-60](RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive)). What replaced it is `PLATFORM-PLAN.md` §2 and §7 |
+| `MASTER-PLAN.md` | **cut 2026-08-27 to §8.3**, the only section shipping code cites. 523 → 39 lines |
 
 ## Appendix C — memory files that are NOT about ScrapeX
 

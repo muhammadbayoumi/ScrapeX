@@ -2594,3 +2594,31 @@ exist. Registered as `OP-82`.
 **Not carried:** that file's §11 listed ten questions pending the *other* products' audits.
 They are mbiXaddin's and mbiXsite's to answer, not this repository's. `git show
 d6f4967:docs/design-system/SCRAPEX_GLOBAL_MAPPING.md` has them.
+
+---
+
+### R-60 · A finished document leaves the tree, and git is the archive
+
+**2026-08-27 · documentation · four answers in one sitting, and one earlier instruction lifted**
+
+> «اريد منك مراجعة ملفات md ملف تلو الاخر بحيث نقلص عدد السطور ونحذف ما تم او نشيل الملفات المتعارضة»
+
+**The rule.** A document stays in the working tree only if a session will open it. What is
+finished is retrievable with `git show <commit>:<path>`, and the register entry that cited it
+names the commit. **An `archive/` folder is not an archive** — it still ships, still greps,
+still appears in every inventory, and still asks the reader to decide whether it matters.
+
+| his answer | what it settles |
+|---|---|
+| **cut `MASTER-PLAN.md` to §8.3** | it cannot be deleted — §8.3 is cited from `extension/app.html`, `app.js`, `releases.js` and `tests/test_panel_dom.py`. 523 → 39 lines, that section verbatim |
+| **delete the archived 2026-08-05 plan** | **this lifts his own earlier instruction** to archive rather than delete it. `PLATFORM-PLAN.md` §2 and §7 record what replaced it; 965 lines left the tree |
+| **read the eight `LIVE` plans and fold the older muqawil ones** | `plans/README.md` said *"one plan is live at a time"* three lines above a table marking **eight** |
+| **delete `PLAN.md`, `plan-closing-the-gaps.md`, `REVIEW-2026-07-28.md`** | conditional on proving their live items survive: all twelve do, by number |
+
+**Two limits this ruling does not cross.** `C4` still keeps a superseded ruling in place, and
+`C7` still keeps a Done request on the board — **brevity applies to the prose inside an entry,
+never to whether the entry exists** ([R-57](#r-57--a-document-carries-what-is-consequential-and-nothing-else)).
+And a document that shipping code or a test reads is not prose: `docs/reviews/mbiXaddin-config-contract-20260812.md`
+is 1,709 lines and stays, because `contract/addin-contract.json`, four `extension/*-rules.js`
+files and `tests/test_the_addin_contract_cannot_drift.py` read it. **The test is whether
+something reads it, not how long it is.**
