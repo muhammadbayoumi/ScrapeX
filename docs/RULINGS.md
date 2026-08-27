@@ -2891,3 +2891,33 @@ tables have **no reader on `main` at all**, so no capability became reachable. *
 `0.5.0` exactly where he put it** — on `feat/organization-enrichment` — rather than renumbering
 his own ruling as a side effect of a fix. He was offered `0.5.0` here with `0.6.0` for the
 branch and kept `0.4.1`.
+
+### R-70 · `0013` reaches his warehouse through the engine's own upgrade path, and step 1 is applied after he reads the dry run
+
+**2026-08-27 · two decisions recorded together because the second waited on the first**
+
+**How the migration arrives: move the main checkout to `main`, then restart the engine.** He
+was shown that his warehouse sat at `user_version 12` while `main` was at `13`, and was
+offered three routes. He took the one that uses **his own designed path** — `scrapex ui` finds
+a warehouse that is only *behind*, copies it first, then migrates
+([cli.py:779](../scrapex/cli.py:779), his decision of 2026-08-05). It ran exactly as written:
+
+```
+backed up the engine database to scrapex-engine.pre-upgrade-20260827T125628Z.backup.db
+  before upgrading
+upgraded the engine database: applied [13]
+```
+
+He was offered, and refused, applying `0013` from a worktree by hand — because that leaves the
+warehouse ahead of the checkout the engine reads, which is the same fault one version wider.
+
+**What the offer got wrong, recorded per `C5`.** It said the main checkout was why the engine
+could not restart. The engine was not reading the main checkout at all — it was serving from
+an unmerged worktree (`OP-88`). Moving the checkout was still required for the next launch to
+be correct, but the reason given for it was not the reason.
+
+**Step 1: dry first, then `--repair`.** He read the dry run against his own warehouse — 12
+`x_*` fields dropped, 17,371 records moving, 0 revisions — and then said run it. Applied and
+verified on a second read-only connection: `v4` approved with 27 fields and 17,371 `active`
+rows, **zero active rows on a retired version**, `OP-64`'s 14 impostors still on `v3` and still
+`status='retired'`, 74,574 revisions unchanged, `foreign_key_check` clean.

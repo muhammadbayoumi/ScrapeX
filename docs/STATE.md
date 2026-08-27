@@ -97,6 +97,26 @@ and `OP-61` (continuation citations are invisible to the citation guard).
 He works from two machines and asked to continue from the other one, which has neither
 this session's context nor this warehouse. Everything below is the whole handover.
 
+> ### 2026-08-27, end of day — the newest three facts, because everything under this
+> ### heading was written five days earlier
+>
+> **Step 1 of the muqawil plan is applied to his live warehouse.** `#279` merged at
+> `11773ab`; `0013` reached the warehouse through the engine's own backup-then-migrate path
+> and `--reapprove-schema --repair` moved the rows. Verified on a second read-only
+> connection: `v4` approved with **27 fields and 17,371 `active` rows**, **zero active rows
+> on a retired version**, `OP-64`'s 14 impostors still `status='retired'` on `v3`, 74,574
+> revisions unchanged, `foreign_key_check` clean. Through the engine,
+> `/api/table/contractor_profiles` serves **33 columns and zero `x_*` keys**.
+>
+> **His engine had been serving from an unmerged branch's worktree** —
+> `C:\tmp\ScrapeX-organization-enrichment`, `0.3.4`, migration ceiling `0012`. That is how
+> the warehouse reached `user_version 12` before `0011`/`0012` were on any merged branch, and
+> **`POST /api/engine/restart` cannot repair it** because it relaunches from the running
+> process's own `__file__`. Measured in [OP-88](BACKLOG.md). It now runs `0.4.2` from the main
+> checkout, started through `ScrapeX Engine.vbs`.
+>
+> **Next is step 2**, the State column — `R-54`, and `R-69` sets the order 1 → 2 → 5 → 3.
+
 ### The code and the decisions are in the repository. The DATA is not.
 
 **Merged and done:** the six muqawil engineering items (#245), four rulings of his
@@ -112,7 +132,7 @@ executed (`R-38`…`R-41`), and the engine release gate (#244).
 | `classification_node` | **243** nodes, levels `{1: 12, 2: 39, 3: 192}` |
 | `generic_record_node` | **391,761** memberships — `R-38` proved on real data |
 | datasets | `contractors` and `contractor_profiles` |
-| schema | **v9** (`0009` = the link table) |
+| schema | **v13**, 2026-08-27 — `0013` lifted `UNIQUE (dataset_definition_id, schema_hash)` so two versions may share a shape across time ([R-70](RULINGS.md#r-70--0013-reaches-his-warehouse-through-the-engines-own-upgrade-path-and-step-1-is-applied-after-he-reads-the-dry-run)). It read **v9** when this table was written |
 
 ### And the crawl is finished — asked and answered 2026-08-24
 
@@ -309,6 +329,19 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 ---
 
 ## Open pull requests
+
+> **Measured 2026-08-27: exactly one is open, and it should not be merged.**
+> [#278](https://github.com/muhammadbayoumi/ScrapeX/pull/278) is green and `CLEAN`, and its
+> whole substance — `R-68`, `R-69`, the plan's status table, `REQUESTS.md` — **is already on
+> `main`** through later pull requests. The only difference left between the two is eight
+> citation line numbers into `scrapex/extract/service.py`, and the branch holds the
+> **stale** ones — line 895 where `main` says 915, and seven more twenty lines apart.
+> Merging it would regress them. (Written without the `file:line` form on purpose: the
+> citation guard reads that shape as a real citation, and it caught this paragraph.)
+>
+> **Every entry below this banner has merged.** They are kept for the measurements in them,
+> not because anything is in flight; the section is 535 lines of history under a
+> present-tense heading, which is `OP-89`.
 
 ### A dry route for every source type — 2026-08-27 · [#274](https://github.com/muhammadbayoumi/ScrapeX/pull/274)
 

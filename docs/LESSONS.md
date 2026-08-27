@@ -2736,3 +2736,46 @@ production code** — a test edited into passing would have survived those.
 hardcoded 2026 timestamp pass every value to `row_state()` explicitly, so no `now` is
 involved, and **no future-dated literal exists anywhere in `tests/`** that would arm the
 same bomb for a later date. Every such literal is a date on which the suite changes its mind.
+
+## 18 · Three checks of my own that reported the wrong thing, on live data
+
+All three passed. All three were measuring something other than what their label said, and
+two of them were about the warehouse the owner actually uses.
+
+### 1 · Two migration streams share numbers, so `LIKE '0013%'` is a false positive
+
+Checking whether `0013_two_versions_may_share_a_shape_across_time.sql` had reached his
+warehouse, `SELECT 1 FROM database_migration WHERE migration_name LIKE '0013%'` returned a
+row. It was **`0013_marketlens_database_identity.sql`** — a different stream, with
+`0010_view_region.sql`, `0011_retention.sql` and `0012_pins_must_match_an_observation.sql`
+sitting beside their engine namesakes in the same ledger.
+
+The contradiction is what saved it: `user_version` said 12 while the prefix check said
+applied. **Compare a migration by its full filename, never by its number** — and when two
+readings disagree, neither is the answer until one is explained.
+
+### 2 · A count that ignores `generic_record.status` measures a population nobody asked about
+
+Verifying step 1, a query counted rows joined to a retired `dataset_schema_version` and
+printed *"live rows bound to a RETIRED version: 14 — must be 0"*. All fourteen were
+`status='retired'` — `OP-64`'s impostor pages, which the design deliberately leaves on `v3`.
+The number that matters adds `AND g.status = 'active'`, and it was 0.
+
+**A retired row and a live row are not distinguished by which version they point at.** Any
+count over `generic_record` that omits `status` is counting history as if it were current.
+
+### 3 · A pipe swallowed a real exit code again, in the same session that wrote the rule down
+
+`scrapex contractors … | tail -30; echo "DRY_EXIT=$?"` printed `DRY_EXIT=0` for a command that
+had not run at all — `scrapex` was not on that shell's `PATH`. `$?` was `tail`'s.
+
+This is `§8`'s false-green wearing a third face, and it appeared **after** the guards for the
+first two were merged. `status=$?` on the line immediately after the command, before anything
+else runs, is the only form that survives.
+
+### And the one that was not mine: the restart button cannot move the engine to newer code
+
+`POST /api/engine/restart` relaunches from `Path(__file__).parent.parent` **of the running
+process**, so it perpetuates whichever checkout the engine was born in. His engine had been
+serving from an unmerged worktree for hours. Full measurement in `OP-88`; the reason it
+belongs here too is that the route answers `ok: true` with a new pid, which reads as success.
