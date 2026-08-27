@@ -2990,6 +2990,51 @@ Being built on `fix/the-release-gate-fetches-a-page` by the session that found i
 
 ---
 
+### OP-84 · The warehouse is ahead of `main` again, and `OP-33`'s remedy was a merge rather than a guard
+
+**Found 2026-08-27 · proved by running · [R-64](RULINGS.md#r-64--a-migration-reaches-his-warehouse-only-after-it-is-on-main-and-no-tag-is-cut-while-his-warehouse-is-ahead) rules it**
+
+| | |
+|---|---|
+| his live warehouse | `PRAGMA user_version` = **12** |
+| `main` | migrations stop at **`0010`**, so a build from it reads **v10** |
+| `database-status` from `main`'s level | `"ok": false` · *"Needs a newer ScrapeX (schema v12; this build reads v10)"* |
+| where `0011`/`0012` live | `feat/organization-enrichment` — pushed, **no PR ever opened**, 3 ahead and **8 behind** |
+
+**So a `0.4.0` release built from `main` would refuse to start on his machine** — which is
+`OP-33` exactly, five days later, with a different pair of migrations. `R-24` forbids the
+shortcut, and the gate's own message says *"do not downgrade the database."*
+
+**Nothing guards the class.** `migration-authority` in CI reads the branch's own diff; it
+cannot see another branch and cannot see his machine. `OP-33` was closed by merging #243, so
+the remedy did not survive the incident.
+
+**And the branch is not a small thing to merge for the sake of the gap:** 7,832 lines across
+44 files, 415 lines of SQL, absent from `REQUESTS.md` entirely, and it edits
+`tests/test_the_documents_cite_what_they_claim.py` and
+`tests/test_the_registers_cannot_collide.py` — **the two guards that keep this documentation
+system honest.** He ruled it is read and reported before anything of it merges.
+
+---
+
+### OP-85 · `Coverage.fraction` returns 1.0 when nothing has ever been sighted
+
+**Found 2026-08-27 while building `#274`'s dry route**
+
+`Coverage.fraction` answers **1.0** for a dataset with an empty sighting ledger, while its own
+sentence says coverage *"cannot be stated"* in that case. So a dataset nobody has ever crawled
+reports **100% covered**, and `contractor_profiles` held zero `dataset_sighting` rows until
+recently — the exact case.
+
+`#274`'s route emits **NULL** rather than 1.0, so the surface is honest today. **The dataclass
+is unchanged**, which means the next caller gets 1.0 again.
+
+**Not urgent, and the reason is specific:** the only two readers are the route (correct now)
+and `report_coverage`'s printer, which prints the count beside the fraction so a reader sees
+`0 of 0`. It becomes urgent the moment a third caller compares the fraction to a threshold.
+
+---
+
 ### OP-83 · 1,728 snapshots were never compressed — 69% of the stored bytes, 623 MB recoverable
 
 **Found 2026-08-27 by counting the warehouse instead of quoting the study.**
@@ -3763,7 +3808,9 @@ unedited, because the answer is only legible beside what was asked (**C4**).
 
 ### Q-26 · For a dataset, does the overview keep four tiles or show two?
 
-**Asked 2026-08-23 · his to answer · evidence in `OP-63`, whose panel half is closed**
+**Asked 2026-08-23 · ANSWERED 2026-08-27 · evidence in `OP-63`, whose panel half is closed**
+
+> **HIS ANSWER: (c) — the tile set follows the kind.** A dataset shows its row count and how much has been fetched; a price source keeps all four. Ruled as [R-63](RULINGS.md#r-63--a-datasets-overview-shows-the-tiles-its-kind-has).
 
 `/source/contractors` prints a **`Products 17,304`** tile over a contractor directory, and
 three of its four tiles say nothing about a directory at all. The panel half of that noun is
@@ -3790,7 +3837,9 @@ would leave two of the three wrong tiles standing while reading as done.
 
 ### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
 
-**Asked 2026-08-26 · his to answer · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
+**Asked 2026-08-26 · ANSWERED 2026-08-27 · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
+
+> **HIS ANSWER: id 2 (`muqawil_org`) is canonical; id 1 closes with `valid_to`.** And it is not a tidy-up on its own — it happens inside [R-62](RULINGS.md#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration)'s migration, which merges `site_profile` into `source_site` altogether. **One fact the merge must decide rather than copy:** both rows read `lifecycle = 'draft'`, so neither is `active` today.
 
 Measured read-only on the live warehouse:
 
@@ -3900,7 +3949,9 @@ reason this is a question and not a commit.
 *No recommendation on (a) versus (c), because it depends on how often he intends to
 release. But (b) is now argued against rather than merely listed.*
 
-**Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
+**Q-15 · ~~May a session run an unmerged migration against his LIVE warehouse?~~ — ANSWERED 2026-08-27: NO.**
+
+> **It happened twice while this question sat unanswered** — `0007`/`0008` on 2026-08-21 (`OP-33`) and `0011`/`0012` today (`OP-84`), and both times his warehouse ended up ahead of any engine `main` could build. A migration reaches it only after it is on `main`; a session testing one uses a copy. **A backup is not the protection** — both incidents left backups on disk and neither prevented this. He also approved both guards. [R-64](RULINGS.md#r-64--a-migration-reaches-his-warehouse-only-after-it-is-on-main-and-no-tag-is-cut-while-his-warehouse-is-ahead).
 Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6
 in the morning (`OP-33`, closed by #243), and **v9 against v8** in the afternoon
 (`OP-40`). Each instance closes by merging; the class does not.

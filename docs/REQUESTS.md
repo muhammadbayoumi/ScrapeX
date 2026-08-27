@@ -80,7 +80,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
 | [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
 | [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
-| [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
+| [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — ruled 2026-08-27 as [R-62](RULINGS.md#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration): he chose the migration, `site_profile` into `source_site`. Measured: **2 rows to move, 2 tables to repoint, `price_observation` untouched**. Answers `Q-24` inside it and unblocks the crawl button | 2026-08-21 |
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven, gate closed, and `engine-v0.3.0` published 2026-08-22 after he raised it a second time; his confirmation that it installs is what remains | 2026-08-21 |
@@ -1128,7 +1128,9 @@ own interface. That is the next item, and it is separate.
 ---
 
 ## REQ-25 · One source registry, with a category, visible to every user
-**Captured 2026-08-21 · Planned**
+**Captured 2026-08-21 · Ruled 2026-08-27 · Planned**
+
+> **Ruled 2026-08-27 as [R-62](RULINGS.md#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration): one registry.** He chose to merge `site_profile` into `source_site` rather than teach `POST /api/jobs` the other two registries, which is what I recommended. **Measuring it for the ruling showed my cost estimate was too high**: 2 rows to move, 2 tables to repoint (`dataset_definition`, `dataset_relationship`), and `price_observation`'s 94,664 rows are untouched because they do not reference `source_site`. It answers `Q-24` inside the same migration — id 1 (`muqawil`) closes, id 2 (`muqawil_org`) survives — and it is what unblocks [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil), the crawl button.
 
 > «اى مصدر اعطيه لك ونشتغل عليه لازم يظهر ضمن المصادر المسجلة لاى مستخدم ويستطيع
 > عمل زحف عليه · اى مصدر ادتهولك ولم ناسس له زحف يحفظ فقط فى قائمة مصادر حتى ياتى

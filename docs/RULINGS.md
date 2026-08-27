@@ -2622,3 +2622,142 @@ And a document that shipping code or a test reads is not prose: `docs/reviews/mb
 is 1,709 lines and stays, because `contract/addin-contract.json`, four `extension/*-rules.js`
 files and `tests/test_the_addin_contract_cannot_drift.py` read it. **The test is whether
 something reads it, not how long it is.**
+
+---
+
+### R-61 · A new engine endpoint is a MINOR version, not a patch
+
+**2026-08-27 · release · he chose 0.4.0 over the 0.3.2 I recommended**
+
+`#274` adds `GET /api/dry/{source_key}` — 95 routes to 96 — and `R-35` makes that a contract
+change, so CI forced the version. It was built as **0.3.1 → 0.3.2**, reasoning that the
+addition is additive, `MINIMUM_EXTENSION_VERSION` stays `0.2.2`, and the panel does not render
+the route yet, so nothing a user can reach moved.
+
+**HIS CHOICE: 0.4.0.** A new endpoint is a new capability and the number says so.
+
+**What the argument I lost was, kept because it is the one to answer next time:** a MINOR
+announces a capability nobody can reach, and `OP-32` is what an announcement without a
+reachable feature costs. His answer settles that the version describes **what the engine can
+do**, not what the panel currently shows — which is consistent with `R-48`: the engine
+executes and reports, and the panel is a separate release.
+
+---
+
+### R-62 · One source registry: `site_profile` merges into `source_site` — and `Q-24` is answered by that migration
+
+**2026-08-27 · data model · he chose the merge over teaching `POST /api/jobs` two registries, which is what I recommended · answers [REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user) and `Q-24`**
+
+**The defect it closes:** `POST /api/jobs` validates a key against `sources.yaml` — 12 price
+sources — and muqawil lives in `site_profile`, so the crawl button answers 404 and the panel
+hides it. **Every read route already resolves both**: `/api/table`, `/api/fields`, and now
+`/api/dry/{source_key}`.
+
+**HIS CHOICE: one registry.** I recommended teaching `POST /api/jobs` the other two, riding
+on `R-52`'s `dataset_crawl`; he took the migration instead.
+
+**And measuring it for this entry showed my cost estimate was too high, which is worth
+recording because it changes the schedule:**
+
+| | |
+|---|---|
+| rows to move | **2** — `site_profile` holds two, `source_site` twelve |
+| tables pointing at `site_profile` | **2** — `dataset_definition.site_profile_id`, `dataset_relationship.site_profile_id` |
+| rows to repoint | **3** in `dataset_definition`, plus `dataset_relationship` |
+| columns to carry across | `crawl_scope`, `crawl_slice` (migration `0003`), `price_source_key`, `lifecycle` |
+| **`price_observation`** | **untouched — 94,664 rows and it does not reference `source_site`** |
+
+I had said it *"touches the working price path"*. It does not: `crawl_run`,
+`feed_assignment` and `source_product` reference `source_site` and none of them gains or
+loses a row by adding two.
+
+**`Q-24` is answered inside it: id 1 (`muqawil`) closes, id 2 (`muqawil_org`) survives.** The
+data is on id 2 — 34,675 active rows against zero — `scrapex contractors` names it, and
+`#274`'s dry route resolves it. Closed with `valid_to`, never deleted.
+
+**One fact the merge must carry, found while measuring:** both rows read
+`lifecycle = 'draft'`. **Neither registry row is `active`**, so whatever the merge writes must
+decide that too rather than copying `draft` into the new table and calling it done.
+
+---
+
+### R-63 · A dataset's overview shows the tiles its kind has
+
+**2026-08-27 · surface · answers `Q-26`, and he took the recommendation**
+
+`/source/contractors` prints `Products 4 · Variants 0 · Data rows 4 · Matched 0` — measured on
+a real render. **Three of the four are price-path concepts a company has none of, and the
+fourth repeats the first.**
+
+**HIS CHOICE: the tile SET follows the kind.** A dataset shows its row count and how much has
+been fetched; a price source keeps all four. Half a day.
+
+**Why not the one-line rename, which was offered:** `Products` → `Rows` reads as finished and
+leaves two wrong tiles standing. **And `0` is the specific harm** — it reads as a measured
+zero rather than *"not a thing this source has"*, which is the distinction
+`last_successful_run` already documents for a crawl that never ran.
+
+`CLAUDE.md` names two more categories coming (`jobs`, `tenders`), so a set that follows the
+kind is not a premature abstraction.
+
+---
+
+### R-64 · A migration reaches his warehouse only after it is on `main`, and no tag is cut while his warehouse is ahead
+
+**2026-08-27 · process · answers `Q-15`, open since it was asked · both guards approved**
+
+**It happened twice before he ruled.** `0007`/`0008` on 2026-08-21 (`OP-33`) and `0011`/`0012`
+today, both applied to his live warehouse from an unmerged branch. **Proved by running, not
+by reading:**
+
+```
+$ python -m scrapex.cli database-status
+"ok": false,
+"status": "Needs a newer ScrapeX",
+"action": "This database was written by a later version (schema v12; this build reads v10)."
+```
+
+**HIS RULING: no.** A migration reaches his warehouse only after it is on `main`. A session
+testing one uses a copy.
+
+**And a backup is not the protection**, which is why the weaker option was refused: the
+`pre-ledger-repair` and `pre-reapprove` backups exist on disk from both incidents. **A backup
+protects the data; it does nothing about the warehouse getting ahead of the engine.**
+
+**HE APPROVED BOTH GUARDS**, because `OP-33` was closed by a merge and not by a guard, and
+that is exactly why the class returned:
+
+1. **In CI** — `release-engine.yml` asks GitHub for branches whose migration ceiling exceeds
+   `main`'s and **refuses, naming them**. It is the only place that can see across branches,
+   and the workflow already makes network calls. Mutation: a fake higher branch must turn it red.
+2. **At runtime** — refuse to cut a tag while the local warehouse is ahead of the code. It
+   catches the same fault late, on his machine, where CI cannot see.
+
+**And the immediate consequence he ruled on:** `#274` merges, **no tag is cut** until
+`0011`/`0012` are on `main`, and `feat/organization-enrichment` — 7,832 lines in 44 files,
+no pull request ever opened, and it edits both the citation guard and the register-collision
+guard — **is read and reported before anything of it merges.** Registered as `OP-84`.
+
+---
+
+### R-65 · Every open question is put to him with what he needs to decide, and the recommendation goes first
+
+**2026-08-27 · process · his instruction**
+
+> «انا اريد الرد على كل الاسئلة ولا اريد تعليق اسئلة مرة اخرى دائما اعرض عليا السؤال موضح
+> بالتفاصيل اللازمة لاتخاذ القرار وضع الاختيار الموصى من وجهة نظرك اول اختيار»
+
+**Three obligations, and the third is the one that was being failed:**
+
+1. **No question is left hanging.** A question filed and not put to him is not asked. `REQ-04`
+   sat ruled and unbuilt for sixteen days; `Q-15` was asked and unanswered while the thing it
+   asks about happened **twice**.
+2. **The question carries what the decision needs** — the measured numbers, the cost of each
+   option, and what each one forecloses. Not a summary that makes him ask for the numbers.
+3. **The recommendation is first, and it is mine, stated as mine.** He overruled two of four
+   on the day he gave this instruction, which is the point: a recommendation he can reject is
+   worth more than a neutral list, and it must be labelled so rejecting it is one word.
+
+**This does not soften `R-02`:** an un-computable mapping is still his call, and he may refuse
+to rule until studies are measured. What changes is that the asking is not optional and not
+deferred.
