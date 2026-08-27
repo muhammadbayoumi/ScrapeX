@@ -118,7 +118,13 @@ def log_elsewhere(tmp_path, monkeypatch):
     monkeypatch.setattr(contractors, "LOG", tmp_path / "contractors.log")
 
 
-pytestmark = pytest.mark.usefixtures("log_elsewhere")
+#: `extension` IS LOAD-BEARING, and CI caught its absence rather than this session.
+#: `test_the_panel_does_not_retype_a_single_hover_string` reads every `extension/*.js`,
+#: and an extension-only change runs `pytest -m extension` — so without the mark the one
+#: guard that stops the panel retyping a hover would stop running on exactly the pull
+#: requests most likely to break it. `tests/test_the_extension_gate_is_complete.py`.
+pytestmark = [pytest.mark.extension,
+              pytest.mark.usefixtures("log_elsewhere")]
 
 
 # ---- the premise: without this every assertion below is vacuous --------------
