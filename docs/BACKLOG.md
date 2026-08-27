@@ -3033,6 +3033,56 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-89 · `STATE.md`'s "Open pull requests" is 535 lines in which nothing is open
+
+**Measured 2026-08-27.** The section runs from the heading to `## Track 1`, and **every pull
+request in it has merged** — #274, #244 and the rest. The heading is present tense and the
+document is the one every session is sent to second, after `CLAUDE.md`.
+
+It is not deletable as it stands: the entries carry measurements other documents rely on, and
+`tests/test_the_documents_cite_what_they_claim.py` pins citations inside them. Folding it means
+moving each measurement to the track it belongs to and leaving a one-line merged row behind —
+the same operation that took the `.md` corpus from 42,592 lines to 32,702 earlier the same day.
+
+**A dated banner was added instead**, which makes the section honest without moving anything.
+That is a stopgap and this entry says so.
+
+### OP-88 · His engine was serving from an unmerged branch's worktree, and the restart button cannot move it
+
+**Measured 2026-08-27, immediately after `#279` merged**, while checking whether `0013` had
+reached his warehouse.
+
+His engine on port 8000 was `pythonw -m scrapex.cli ui` with its **cwd in
+`C:\tmp\ScrapeX-organization-enrichment`** — the `feat/organization-enrichment` worktree,
+`VERSION 0.3.4`, migration ceiling `0012`. `-m` puts cwd ahead of site-packages, so the
+branch's package won even though the editable install resolves to the main checkout.
+
+**The proof was a route, not a path:** `/api/dry/contractors` from the live engine returned
+**zero** matches for `reapprove_schema`, the pass `scrapex/passes.py` declares.
+
+**This is how the warehouse reached `user_version 12` while `0011`/`0012` were on no merged
+branch** — the sequence [R-64](RULINGS.md#r-64--a-migration-reaches-his-warehouse-only-after-it-is-on-main)
+now forbids, done before `R-64` existed.
+
+**`POST /api/engine/restart` cannot repair it, and this was tried.** `relaunch.repo_root()` is
+`Path(__file__).resolve().parent.parent` **of the running process**, so the helper relaunches
+whichever checkout the old engine was born in. It answered `ok: true` with a fresh pid and
+came back on `0.3.4` — the route's own docstring names this fault («a database written by a
+NEWER build than the process reading it») and cannot cure the case where the *process* is the
+old build from another directory.
+
+**The Startup entry is correct** — `ScrapeX Engine.vbs` runs from
+`C:\Users\User01\source\repos\ScrapeX`. So a logon fixes this and the button does not.
+
+**Fixed by hand here**, with `0 running` and `0 queued` jobs confirmed first: stop the
+process, then `wscript "ScrapeX Engine.vbs"`. The engine came up on `0.4.2`, found the
+warehouse behind, backed it up to
+`scrapex-engine.pre-upgrade-20260827T125628Z.backup.db` and applied `[13]`.
+
+**Open:** should the restart route refuse when its own package is not the installed one, or
+relaunch from the console script instead of from `__file__`? That is a design question, and it
+is the only reason this entry is open rather than done.
+
 ### OP-87 · `feat/organization-enrichment` reviewed before merge — four blockers, and the architecture is sound
 
 **Reviewed 2026-08-27 on his ruling** («أقرأُه وأُبلِغُك قبلَ أىّ دمج»). 7,832 lines, 44 files,
@@ -3892,6 +3942,28 @@ And the readiness level is **neither a column nor discarded**: fixed columns in 
 table, everything else in the **row's own card**, because contractors will have several
 sources and a column is a promise every source must keep. The question is kept below,
 unedited, because the answer is only legible beside what was asked (**C4**).
+
+### Q-27 · `/api/health` says the databases are `ok` while it also lists two migrations pending
+
+**Asked 2026-08-27 · measured on his live engine, both before and after the `0.4.2` restart**
+
+The same response carries both:
+
+```
+"databases": {"ok": true, ...}
+"schema_lag": {"pending": ["0002_contract_meta.sql", ...],
+               "message": "2 migration(s) on disk are not applied to this database"}
+```
+
+`ok` comes from `EngineDatabase.health`, which compares `PRAGMA user_version` against the
+`db/engine/migrations` ceiling — and that agrees now (both 13). `schema_lag` is reading a
+**second stream**, the one whose names are `0002_contract_meta.sql`, `0010_view_region.sql`,
+`0013_marketlens_database_identity.sql`. The two streams share numbers, which is also what
+made a `LIKE '0013%'` check report a migration as applied when it was not (`LESSONS` §18).
+
+> *Is `schema_lag` still meaningful, or is it reading a stream this warehouse retired? The
+> panel shows one of these two and they disagree — and a warning that is always on is a
+> warning nobody reads.*
 
 ### Q-26 · For a dataset, does the overview keep four tiles or show two?
 

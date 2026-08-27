@@ -17,7 +17,7 @@ order is argued rather than preferred.
 | # | step | state | gate |
 |---|---|---|---|
 | 0 | The crawl, the workers, the storage | **DONE** | 34,834 of 34,834; 9.75 h at 1.007 s/page = 100.7% of the politeness floor; 4.40 GB in 80,676,567 bytes |
-| 1 | **The poisoned profile schema** | ✅ **RULED 2026-08-26 — [R-53](../RULINGS.md#r-53--the-profile-schema-is-re-approved-onto-a-clean-version-not-reopened)**: re-approve all 17,371 rows onto a clean 27-field v4, not reopen v2. **Buildable now** | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
+| 1 | **The poisoned profile schema** | ✅ **RULED 2026-08-26 — [R-53](../RULINGS.md#r-53--the-profile-schema-is-re-approved-onto-a-clean-version-not-reopened)**: re-approve all 17,371 rows onto a clean 27-field v4, not reopen v2. **DONE 2026-08-27** — [#279](https://github.com/muhammadbayoumi/ScrapeX/pull/279), and applied to his warehouse the same day | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
 | 2 | **`R-52` re-ruled, then the State column fixed** | ✅ **RULED 2026-08-26 — [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at)**: the root first — a confirming pass moves `last_seen_at`, then state is computed against the RUN. `R-52` amended, not erased. **Buildable now** | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
 | 3 | The 263 stranded listing rows | ✅ **RULED 2026-08-26 — [R-56](../RULINGS.md#r-56--the-263-stranded-listing-rows-are-fixed-by-a-fresh-listing-crawl)**: a fresh listing crawl, 58 min at concurrency 4. **NOT** a re-approve — `ExtractionConflict` refuses that and writes nothing | all 263 on schema v2 with `profile_url` and the City/Region split |
 | 4 | The two-directional gap: 148 + 81 | ✅ **RULED 2026-08-27 — [R-68](../RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions)**: automatic at the end of every crawl, **both directions**. **Buildable now** | bounded, and reported inside the crawl's own report; 148 need zero network |
@@ -32,7 +32,23 @@ order is argued rather than preferred.
 
 ## Tier 1 — the only step with a deadline we do not set
 
-### Step 1 · The poisoned profile schema
+### Step 1 · The poisoned profile schema — DONE 2026-08-27
+
+> **DONE, and applied to his live warehouse on his ruling.** `#279` merged at `11773ab`;
+> migration `0013` reached the warehouse through the engine's own backup-then-migrate path,
+> and `--reapprove-schema --repair` moved the rows. **Measured afterwards on a second,
+> read-only connection** — the only thing that tells a commit from a convincing return value:
+>
+> ```
+> v2 retired  27 fields       0 rows      v4 APPROVED  27 fields  17,371 active rows
+> v3 retired  39 fields      14 rows, every one status='retired' -- OP-64's impostors
+> ACTIVE rows bound to a retired version: 0
+> revisions 74,574 unchanged      foreign_key_check clean      quick_check ok
+> ```
+>
+> And through the engine: `/api/table/contractor_profiles` serves **33 columns and zero
+> `x_*` keys**, `total 17,385`, `truncated false`.
+
 
 **Why it is first and nothing else is.** Every other defect is wrong today and stays
 equally wrong. This one **refuses the next page that carries a field the site has not
