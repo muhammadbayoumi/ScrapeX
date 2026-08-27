@@ -12,7 +12,7 @@ quick wins and the muqawil plan come first**, and nothing in this file starts be
 they are done unless it is blocking them.
 
 **The muqawil checklist is
-[here](2026-08-20-finish-muqawil-then-the-source-queue.md#the-checklist--everything-open-on-muqawil-and-whose-turn-it-is).**
+[on the registers](README.md#historical), that plan having been folded 2026-08-27.**
 
 Tick a box only when it is MERGED. `⚡` marks a quick win. `🚫` marks a release blocker.
 

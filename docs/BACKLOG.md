@@ -3525,6 +3525,28 @@ for a crawl that never ran.
 
 ## 3. Decided, not yet built
 
+### Q-25 · Is a stored page evidence, or only a parse cache?
+
+**Asked 2026-08-27 · his to answer · lifted off `STORAGE.md` §5, where it had no register entry**
+
+`SR-1` says the source of truth is what the site publishes. A stored page is therefore
+**evidence of what it published on a date** — which matters for a disputed row, a contractor
+whose classification changed, or a claim about what the directory held before an edit. Or it
+is only a cache that saves a re-fetch when a parser is corrected.
+
+**What his answer changes, and it is one row of `STORAGE.md` §4 and no others:** if evidence
+over time matters, *"keep a hash and re-fetch"* is out for profiles as well as listings. It
+is already out for listings for a different reason — the directory reorders every thirty
+seconds, so a listing page is not reproducible at all.
+
+**Why it is registered now rather than left in `STORAGE.md`.** It was asked there, deferred
+in the 2026-08-20 muqawil plan's §E, and appeared on no register — the same shape as `REQ-04`,
+which sat ruled and unbuilt for sixteen days after dropping out of view and is the reason
+`C7` exists. The question has not aged: at **921.5 MB across 57,041 snapshots** the cost of
+keeping them is now measured rather than projected (`OP-83`).
+
+---
+
 ### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
 
 **Asked 2026-08-26 · his to answer · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
@@ -3552,6 +3574,33 @@ Measured read-only on the live warehouse:
 both were inserted at runtime by `scrapex/catalog.py:147` and `:171`. And `site_key` is
 `NOT NULL UNIQUE`, **which stops two rows sharing a key and does nothing about two keys for
 one site** — so this recurs when `jobs` or `tenders` is registered.
+
+---
+
+### OP-83 · 1,728 snapshots were never compressed — 69% of the stored bytes, 623 MB recoverable
+
+**Found 2026-08-27 by counting the warehouse instead of quoting the study.**
+
+| | |
+|---|---|
+| snapshots in `generic_page_snapshot` | **57,041**, 921.5 MB of `html_content` |
+| of them `html_codec = 'plain'` | **1,728 rows — 636.8 MB** |
+| share of the bytes / of the rows | **69.1% / 3.0%** |
+| captured | `2026-08-17T06:44:32Z` … `2026-08-20T05:56:40Z` — before the codec shipped |
+| distinct URLs | 1,728 — no duplicates to dedupe first |
+| at the measured 46.3× | **13.8 MB. 623 MB recoverable, zero network** |
+
+**These are the first listing crawl's 864 pages in both locales.** Compression landed after
+them and nothing went back. `scrapex/snapshotbody.py:193` reads either codec, so they are
+correct today — just large. The measurement that replaced the projection is in
+[STORAGE.md](STORAGE.md#measured-on-the-finished-warehouse--2026-08-27-and-the-headline-was-4x-optimistic).
+
+**Why this is an `OP` and not a plan.** Re-encoding a stored row rewrites evidence, and
+`generic_page_snapshot` is the table this repository treats as immutable. The `content_hash`
+stays valid — it is taken over the decoded body — but a session must confirm that before
+touching a row, and `scrapex/warehousemerge.py:198` already refuses a non-`plain` row whose
+`html_dict_id` is null. **Not urgent:** 623 MB on a 1.2 GB database is worth doing, and
+nothing breaks while it waits.
 
 ---
 

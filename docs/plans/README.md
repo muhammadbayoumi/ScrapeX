@@ -30,7 +30,6 @@ what the plan is for goes in the plan.
 |---|---|---|
 | **1 · LIVE** | [2026-08-26-what-remains-of-muqawil.md](2026-08-26-what-remains-of-muqawil.md) | Ten steps in the order he asked for. **Five are blocked on him, and they are every defect that publishes a false value** — so the route to a correct dataset runs through five decisions, not through more crawling. Evidence: [MUQAWIL-AUDIT-2026-08-26.md](../MUQAWIL-AUDIT-2026-08-26.md) |
 | **1a** | [2026-08-24-a-generic-crawl-is-a-run.md](2026-08-24-a-generic-crawl-is-a-run.md) | Step 2 of the above in detail — `R-52` / `OP-68`, and the `C5` disagreement that became [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at). Step 1 of it needs no ruling |
-| **1b** | [2026-08-20-finish-muqawil-then-the-source-queue.md](2026-08-20-finish-muqawil-then-the-source-queue.md) | **FOLD PENDING.** Superseded by row 1 as a queue; its §D (built-and-not-wired, measured) and §E (held by him) have not yet been checked against `LESSONS` and `BACKLOG`, and it is 671 lines. Not deleted until they are |
 | **2** | Drive | Branch `claude/drive-without-a-server` at `e00711d` — pushed, **no PR since 2026-08-22**. Second by his ruling |
 | 3 | [2026-08-22-the-source-page-moves-into-the-extension.md](2026-08-22-the-source-page-moves-into-the-extension.md) | `REQ-07` — the engine's `/source/{key}` becomes the panel's. Step 0 is done; the gate on steps 3 and 5 was lifted 2026-08-26 |
 | 4 | [2026-08-21-the-tool-itself.md](2026-08-21-the-tool-itself.md) | Everything tool-wide, opened so general work stops competing with muqawil. Holds `REQ-20`, `R-21`, `REQ-04`, `REQ-11` |
@@ -45,6 +44,13 @@ holds. Do not follow them as instructions without checking
 **Folded 2026-08-27, not archived** ([R-60](../RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive)) —
 `git show d6f4967:docs/plans/<name>` returns either in full:
 
+- **`2026-08-20-finish-muqawil-then-the-source-queue.md`** (671 lines) — its checklist was
+  the tracking surface, and every open item on it is now on a register: `REQ-45` (no path
+  from the panel), `O-2`, [Q-25](../BACKLOG.md#q-25--is-a-stored-page-evidence-or-only-a-parse-cache)
+  (lifted off its §E, where it had no entry), and its three unrecorded engineering findings
+  are [LESSONS §17](../LESSONS.md#17--three-findings-that-only-a-caller-a-mutation-or-a-count-could-have-produced).
+  Its §D measurement of `STORAGE.md`'s ratio is what produced
+  [OP-83](../BACKLOG.md#op-83--1728-snapshots-were-never-compressed--69-of-the-stored-bytes-623-mb-recoverable).
 - **`2026-08-16-muqawil-contractor-source.md`** (170 lines) — all six build steps shipped in
   #202-#209 and #211. Its measured site facts are in
   [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) — `data-cfemail`, the `143` segment, 20

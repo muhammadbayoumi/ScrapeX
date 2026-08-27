@@ -201,6 +201,43 @@ that.
 
 ---
 
+### MEASURED ON THE FINISHED WAREHOUSE — 2026-08-27, and the headline was 4x optimistic
+
+**Every ratio above is a projection from 40 sampled pages. The crawl has since finished,
+so it is countable.** 500 rows a class, spread by `page_snapshot_id % 97` so it is not one
+city's first pages, decompressed through `scrapex/snapshotbody.py:193` — the production
+decoder, not a re-implementation.
+
+| | projected above | **measured** | rows |
+|---|---|---|---|
+| listing ratio | **187×** | **46.3×** | 20,683 |
+| profile ratio | 46× | **51.7×** | 36,358 |
+| mean raw listing page | 363 KB | **476.2 KB** | — |
+| mean raw profile page | 119 KB | **118.8 KB** | — |
+
+**The profile projection held. The listing projection was 4× optimistic**, and `§6`'s
+recommendation quotes it as the reason to choose this codec. The choice is still right —
+46× beats every alternative in the table — but the number that argued for it was not.
+
+**The likely mechanism, stated as unproven:** the 187× was measured with *one real page as
+the dictionary* against 40 pages that share a near-identical skeleton, and the dictionary
+was one of them. Production spans 56 city×size cells whose filter markup differs, so one
+page fits the rest less well. **A ratio measured on a sample that contains the dictionary's
+own source is not a ratio; it is a self-comparison** — recorded in `LESSONS.md §17`.
+
+**And `363 KB` was not wrong — it was right about a different population.** The 1,728 pages
+captured 2026-08-17…20 mean **359.9 KB**. The partitioned crawl's 20,683 listing pages mean
+**476.2 KB**. Two populations, two numbers, and the document had only one.
+
+**The finding that matters more than any ratio:** **1,728 snapshots are still stored
+`plain`** — 636.8 MB, **69.1% of all stored bytes for 3.0% of the rows**, every one captured
+before the codec shipped. At the measured 46.3× they would be 13.8 MB. **623 MB, recoverable
+with zero network.** Registered as `OP-83`.
+
+Warehouse total: **57,041 snapshots, 921.5 MB** of `html_content`.
+
+---
+
 ## 5 · What the snapshots are FOR, beyond re-parsing — and this one is his call
 
 `SR-1` says the source of truth is what the site publishes. A stored page is **evidence
