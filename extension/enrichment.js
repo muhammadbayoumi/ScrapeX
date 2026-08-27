@@ -24,6 +24,11 @@ let model = null;
 let definition = null;
 let currentJob = null;
 let pollTimer = null;
+let pollFailures = 0;
+let editMode = false;
+let reviewAfter = 0;
+let identityAfter = 0;
+let mergeAfter = 0;
 
 function message(text = "", kind = "") {
   const node = $("message");
@@ -53,14 +58,11 @@ function dataset(key) {
 function fieldChoices() {
   const source = dataset($("source-dataset").value);
   const detail = dataset($("detail-dataset").value);
-  const seen = new Set();
   const choices = [];
   for (const [group, selected] of [["Source", source], ["Detail", detail]]) {
     for (const field of selected?.fields || []) {
-      if (seen.has(field.field_key)) continue;
-      seen.add(field.field_key);
       choices.push({
-        value: field.field_key,
+        value: `${group.toLowerCase()}:${field.field_key}`,
         label: `${field.label || field.field_key} · ${field.field_key} · ${group}`,
       });
     }
@@ -102,7 +104,9 @@ function renderMappings(proposal) {
     const select = document.createElement("select");
     title.textContent = ROLE_LABELS[role] || role;
     select.dataset.role = role;
-    fillSelect(select, choices, proposal.field_mapping?.[role], "Not mapped");
+    const stored = proposal.field_mapping?.[role] || "";
+    const selected = stored && !stored.includes(":") ? `source:${stored}` : stored;
+    fillSelect(select, choices, selected, "Not mapped");
     label.append(title, select);
     root.append(label);
   }
@@ -146,24 +150,44 @@ function metric(label, value) {
 
 function renderCounts() {
   const counts = definition?.counts || {};
+  const preflight = model?.preflight || {};
   $("dataset-counts").replaceChildren(
-    metric("Organizations", counts.organizations),
+    metric("Organizations", counts.organizations ?? preflight.source_records),
     metric("Verified", counts.verified),
     metric("Needs review", counts.needs_review),
+    metric("Estimated requests", model?.estimated_requests),
   );
 }
 
 function lockDefinition() {
-  const locked = Boolean(definition);
+  const locked = Boolean(definition) && !editMode;
   const latestStatus = definition?.latest_job?.status;
   const jobActive = Boolean(latestStatus && !TERMINAL.has(latestStatus));
   for (const node of document.querySelectorAll(
     ".config-card input, .config-card select",
   )) node.disabled = locked || node.dataset.available === "false";
-  $("create-definition").disabled = locked;
-  $("run-enrichment").disabled = !locked || jobActive;
+  $("source-dataset").disabled = Boolean(definition);
+  $("output-key").disabled = Boolean(definition);
+  $("create-definition").disabled = locked || jobActive;
+  $("create-definition").classList.toggle(
+    "hidden", Boolean(definition) && !editMode,
+  );
+  $("create-definition").textContent = editMode
+    ? "Save definition version" : "Create enrichment dataset";
+  $("edit-definition").classList.toggle("hidden", !definition || editMode);
+  $("edit-definition").disabled = jobActive;
+  const definitionActive = definition?.status === "active";
+  $("definition-status").classList.toggle("hidden", !definition || editMode);
+  $("definition-status").disabled = jobActive;
+  $("definition-status").textContent = definition && !definitionActive
+    ? "Activate definition" : "Pause definition";
+  $("run-enrichment").disabled = !locked || jobActive || !definitionActive;
   $("open-data").disabled = !locked;
-  $("definition-state").textContent = locked ? "Active" : "Draft";
+  $("definition-state").textContent = editMode
+    ? `Editing v${definition?.configuration_version || 1}`
+    : definition
+      ? `${definition.status || "active"} · v${definition.configuration_version || 1}`
+      : "Draft";
   renderCounts();
 }
 
@@ -200,6 +224,8 @@ function render(payload) {
   lockDefinition();
   if (definition) {
     refreshReview();
+    refreshIdentityCandidates();
+    refreshMergeHistory();
     restoreLatestJob();
   }
 }
@@ -251,9 +277,18 @@ async function createDefinition() {
       .map((node) => node.value),
   };
   try {
-    definition = await post("/api/enrichment/definitions", payload);
+    const wasEditing = editMode;
+    definition = wasEditing
+      ? await api(`/api/enrichment/definitions/${definition.enrichment_definition_id}`, {
+        method: "PUT", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      })
+      : await post("/api/enrichment/definitions", payload);
+    editMode = false;
     message(
-      `Created ${definition.output_dataset_key}. The source datasets were not changed.`,
+      wasEditing
+        ? `Saved definition v${definition.configuration_version}. Run enrichment to apply it.`
+        : `Created ${definition.output_dataset_key}. The source datasets were not changed.`,
       "success",
     );
     lockDefinition();
@@ -306,6 +341,7 @@ async function pollJob() {
   if (!currentJob) return;
   try {
     const job = await api(`/api/jobs/${encodeURIComponent(currentJob.job_ref)}`);
+    pollFailures = 0;
     renderJob(job);
     if (TERMINAL.has(job.status)) {
       clearTimeout(pollTimer);
@@ -314,7 +350,9 @@ async function pollJob() {
       return;
     }
   } catch (error) {
+    pollFailures += 1;
     message(error.message, "error");
+    pollTimer = setTimeout(pollJob, Math.min(30000, 2000 * (2 ** pollFailures)));
     return;
   }
   pollTimer = setTimeout(pollJob, 2000);
@@ -341,6 +379,24 @@ async function runEnrichment() {
   }
 }
 
+async function toggleDefinitionStatus() {
+  if (!definition) return;
+  const status = definition.status === "active" ? "paused" : "active";
+  try {
+    definition = await api(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}/status`,
+      {
+        method: "PATCH", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({status}),
+      },
+    );
+    message(`Definition is now ${status}.`, "success");
+    lockDefinition();
+  } catch (error) {
+    message(error.message, "error");
+  }
+}
+
 async function controlJob(control) {
   if (!currentJob) return;
   try {
@@ -353,14 +409,48 @@ async function controlJob(control) {
   }
 }
 
-async function refreshReview() {
+async function decideReview(row, action) {
+  let value = null;
+  if (action === "override") {
+    const entered = window.prompt("Verified replacement value", String(row.value ?? ""));
+    if (entered === null) return;
+    if (typeof row.value === "object") {
+      try {
+        value = JSON.parse(entered);
+      } catch {
+        message("The replacement must be valid JSON.", "error");
+        return;
+      }
+    } else if (typeof row.value === "number") {
+      value = Number(entered);
+      if (!Number.isFinite(value)) {
+        message("The replacement must be a valid number.", "error");
+        return;
+      }
+    } else {
+      value = entered;
+    }
+  }
+  await post(
+    `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+      + `/review/${row.organization_fact_id}/decision`,
+    {action, value, reviewer: "owner", reason: "Reviewed in ScrapeX"},
+  );
+  await refreshReview(true);
+  await load(sourceKey);
+}
+
+async function refreshReview(reset = true) {
   if (!definition) return;
   try {
-    const rows = await api(
-      `/api/enrichment/definitions/${definition.enrichment_definition_id}/review?limit=200`,
+    if (reset) reviewAfter = 0;
+    const payload = await api(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+        + `/review?limit=100&after_id=${reviewAfter}`,
     );
+    const rows = payload.items || [];
     const body = $("review-rows");
-    body.replaceChildren();
+    if (reset) body.replaceChildren();
     for (const row of rows) {
       const tr = document.createElement("tr");
       const values = [
@@ -382,11 +472,154 @@ async function refreshReview() {
         }
         tr.append(td);
       });
+      const actions = document.createElement("td");
+      for (const [action, label] of [
+        ["approve", "Approve"], ["reject", "Reject"], ["override", "Override"],
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button ghost";
+        button.textContent = label;
+        button.addEventListener("click", () => decideReview(row, action));
+        actions.append(button);
+      }
+      tr.append(actions);
       body.append(tr);
     }
-    $("review-count").textContent = String(rows.length);
-    $("review-empty").classList.toggle("hidden", rows.length > 0);
+    reviewAfter = payload.next_after_id || reviewAfter;
+    $("review-count").textContent = String(body.children.length);
+    $("review-empty").classList.toggle("hidden", body.children.length > 0);
+    $("review-more").classList.toggle("hidden", !payload.next_after_id);
     $("review-card").classList.remove("hidden");
+  } catch (error) {
+    message(error.message, "error");
+  }
+}
+
+async function mergeIdentity(row) {
+  const confirmed = window.confirm(
+    `Merge ${row.organization_id} into ${row.candidate_id}? This changes the canonical `
+      + "identity but preserves facts and the merge audit trail.",
+  );
+  if (!confirmed) return;
+  const reason = window.prompt("Reason for the identity merge");
+  if (!reason?.trim()) return;
+  try {
+    await post(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+        + `/organizations/${encodeURIComponent(row.organization_id)}/merge`,
+      {
+        target_organization_id: row.candidate_id,
+        reviewer: "owner",
+        reason: reason.trim(),
+      },
+    );
+    message("Organization identities merged with an audit record.", "success");
+    await load(sourceKey);
+  } catch (error) {
+    message(error.message, "error");
+  }
+}
+
+async function refreshIdentityCandidates(reset = true) {
+  if (!definition) return;
+  try {
+    if (reset) identityAfter = 0;
+    const payload = await api(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+        + `/identity-candidates?limit=100&after_id=${identityAfter}`,
+    );
+    const body = $("identity-rows");
+    if (reset) body.replaceChildren();
+    for (const row of payload.items || []) {
+      const tr = document.createElement("tr");
+      for (const value of [
+        row.organization_id,
+        row.alias_type,
+        row.normalized_value,
+        row.candidate_id,
+        Math.min(Number(row.confidence || 0), Number(row.candidate_confidence || 0))
+          .toFixed(2),
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(td);
+      }
+      const actions = document.createElement("td");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button ghost";
+      button.textContent = "Merge";
+      button.addEventListener("click", () => mergeIdentity(row));
+      actions.append(button);
+      tr.append(actions);
+      body.append(tr);
+    }
+    identityAfter = payload.next_after_id || identityAfter;
+    $("identity-count").textContent = String(body.children.length);
+    $("identity-empty").classList.toggle("hidden", body.children.length > 0);
+    $("identity-more").classList.toggle("hidden", !payload.next_after_id);
+    $("identity-card").classList.remove("hidden");
+  } catch (error) {
+    message(error.message, "error");
+  }
+}
+
+async function reverseMerge(row) {
+  const reason = window.prompt(
+    "Reason for reversing this canonical merge",
+  );
+  if (!reason?.trim()) return;
+  try {
+    await post(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+        + `/merges/${row.organization_merge_id}/reverse`,
+      {reviewer: "owner", reason: reason.trim()},
+    );
+    message("Canonical merge reversed and outputs rebuilt.", "success");
+    await load(sourceKey);
+  } catch (error) {
+    message(error.message, "error");
+  }
+}
+
+async function refreshMergeHistory(reset = true) {
+  if (!definition) return;
+  try {
+    if (reset) mergeAfter = 0;
+    const payload = await api(
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}`
+        + `/merges?limit=100&after_id=${mergeAfter}`,
+    );
+    const body = $("merge-rows");
+    if (reset) body.replaceChildren();
+    for (const row of payload.items || []) {
+      const tr = document.createElement("tr");
+      for (const value of [
+        row.source_organization_id,
+        row.target_organization_id,
+        row.merged_at,
+        row.reversed_at ? "reversed" : "active",
+      ]) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(td);
+      }
+      const actions = document.createElement("td");
+      if (!row.reversed_at) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button ghost";
+        button.textContent = "Reverse";
+        button.addEventListener("click", () => reverseMerge(row));
+        actions.append(button);
+      }
+      tr.append(actions);
+      body.append(tr);
+    }
+    mergeAfter = payload.next_after_id || mergeAfter;
+    $("merge-empty").classList.toggle("hidden", body.children.length > 0);
+    $("merge-more").classList.toggle("hidden", !payload.next_after_id);
   } catch (error) {
     message(error.message, "error");
   }
@@ -400,6 +633,14 @@ $("detail-dataset").addEventListener("change", () => {
   renderMappings(proposal);
 });
 $("create-definition").addEventListener("click", createDefinition);
+$("edit-definition").addEventListener("click", () => {
+  editMode = true;
+  lockDefinition();
+});
+$("definition-status").addEventListener("click", toggleDefinitionStatus);
+$("review-more").addEventListener("click", () => refreshReview(false));
+$("identity-more").addEventListener("click", () => refreshIdentityCandidates(false));
+$("merge-more").addEventListener("click", () => refreshMergeHistory(false));
 $("run-enrichment").addEventListener("click", runEnrichment);
 $("open-data").addEventListener("click", () => {
   if (!definition) return;

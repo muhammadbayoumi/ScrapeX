@@ -90,6 +90,12 @@
       <button id="create-definition" class="button" type="button">
         Create enrichment dataset
       </button>
+      <button id="edit-definition" class="button ghost hidden" type="button">
+        Edit definition
+      </button>
+      <button id="definition-status" class="button ghost hidden" type="button">
+        Pause definition
+      </button>
       <button id="run-enrichment" class="button" type="button" disabled>
         Run enrichment
       </button>
@@ -151,12 +157,73 @@
             <th>Provider</th>
             <th>Confidence</th>
             <th>Evidence</th>
+            <th>Decision</th>
           </tr>
         </thead>
         <tbody id="review-rows"></tbody>
       </table>
     </div>
     <p id="review-empty" class="hint">No uncertain facts need review.</p>
+    <button id="review-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
+  </section>
+
+  <section id="identity-card" class="card identity-card hidden"
+           aria-labelledby="identity-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">Cross-source identity</p>
+        <h2 id="identity-title">Possible organization matches</h2>
+      </div>
+      <span id="identity-count" class="status-pill">0</span>
+    </div>
+    <p class="hint">
+      Matching domains or phones are candidates only. Merge requires an owner decision.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th>Matched by</th>
+            <th>Normalized value</th>
+            <th>Candidate</th>
+            <th>Confidence</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="identity-rows"></tbody>
+      </table>
+    </div>
+    <p id="identity-empty" class="hint">No cross-source identity candidates.</p>
+    <button id="identity-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
+    <div class="section-head compact-head">
+      <div>
+        <p class="eyebrow">Audit and recovery</p>
+        <h2>Canonical merge history</h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Source group</th>
+            <th>Target group</th>
+            <th>Merged at</th>
+            <th>Status</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="merge-rows"></tbody>
+      </table>
+    </div>
+    <p id="merge-empty" class="hint">No canonical merges recorded.</p>
+    <button id="merge-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
   </section>
 </main>
 

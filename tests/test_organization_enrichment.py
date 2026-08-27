@@ -23,12 +23,16 @@ from scrapex.catalog_relations import propose_relationship, review_relationship
 from scrapex.config import MANIFEST_FILE
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.enrichment import service as enrichment
-from scrapex.enrichment.matching import email_domain
+from scrapex.enrichment.matching import email_domain, name_similarity
 from scrapex.enrichment.models import (
     DefinitionCreate,
     FieldFact,
     OrganizationIdentity,
+    OrganizationMergeCreate,
+    OrganizationMergeReverseCreate,
+    OutputField,
     ProviderResult,
+    ReviewDecisionCreate,
 )
 from scrapex.enrichment.providers import website as website_provider
 from scrapex.enrichment.providers.google_places import GooglePlacesProvider
@@ -36,7 +40,7 @@ from scrapex.enrichment.providers.website import FetchedPage, WebsiteProvider
 from scrapex.extract import service as extraction
 from scrapex.extract.models import ApprovalField, CandidateApproval, SnapshotCreate
 from scrapex.extract.muqawil import bilingual_profile_candidate, listing_candidate
-from scrapex.jobs import JobRunner, get_job
+from scrapex.jobs import JobRunner, create_job, get_job
 from scrapex.webui.app import create_app
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -186,9 +190,9 @@ def test_muqawil_is_proposed_as_listing_plus_profile(conn, monkeypatch):
     assert proposal["entity_key_field"] == "contractor_id"
     assert proposal["detail_key_field"] == "contractor_id"
     assert proposal["output_dataset_key"] == "contractor_enrichment"
-    assert proposal["field_mapping"]["company_name"] == "company_name"
-    assert proposal["field_mapping"]["email"] == "organization_email"
-    assert proposal["field_mapping"]["latitude"] == "latitude"
+    assert proposal["field_mapping"]["company_name"] == "source:company_name"
+    assert proposal["field_mapping"]["email"] == "detail:organization_email"
+    assert proposal["field_mapping"]["latitude"] == "detail:latitude"
     assert payload["provider_availability"][0]["key"] == "website"
     assert next(item for item in payload["provider_availability"]
                 if item["key"] == "google_places")["available"] is True
@@ -244,7 +248,8 @@ def test_creation_adds_a_wide_dataset_and_a_confirmed_link(conn):
     )}
     assert {
         "website_url", "company_domain", "iso_certifications", "core_specialties",
-        "careers_contact", "linkedin_company_url", "key_decision_makers",
+        "careers_contact", "contact_page_url", "contact_emails", "contact_phones",
+        "whatsapp_url", "linkedin_company_url", "key_decision_makers",
         "google_maps_url", "google_maps_cid_url", "gmaps_rating", "reviews_count",
         "verified_phone_secondary", "verification_score",
     } <= fields
@@ -452,7 +457,7 @@ class _FakeWebsite:
 
 
 class _SystemFailureProvider:
-    name = "google_places"
+    name = "website"
 
     def __init__(self):
         self.calls = 0
@@ -491,6 +496,17 @@ def test_runs_are_resumable_idempotent_and_keep_changed_fact_history(conn, monke
         "WHERE record.dataset_definition_id = ?", (output_id,)
     ).fetchone()[0]
     assert row_count == revisions == 4
+    sightings = conn.execute(
+        "SELECT external_id, first_run_ref FROM dataset_sighting "
+        "WHERE dataset_key = 'contractor_enrichment' ORDER BY external_id"
+    ).fetchall()
+    assert len(sightings) == 4
+    assert all(row["first_run_ref"] == first["job_ref"] for row in sightings)
+    table = extraction.dataset_table_payload(
+        conn, "contractor_enrichment", site_key="muqawil_org"
+    )
+    assert table is not None
+    assert {row["observed_state"] for row in table["rows"]} == {"new"}
 
     _run(conn, definition_id, monkeypatch, _FakeWebsite())
     unchanged_revisions = conn.execute(
@@ -586,29 +602,29 @@ def test_duplicate_detail_join_keys_are_refused_instead_of_last_row_winning(conn
         "FROM generic_record WHERE dataset_definition_id = ? LIMIT 1",
         (detail_id,),
     )
-    definition = enrichment.create_definition(conn, _request(conn))
-    row = enrichment._definition_row(
-        conn, definition["enrichment_definition_id"]
-    )
-
     with pytest.raises(
-        enrichment.EnrichmentError, match="duplicate active join key"
+        enrichment.EnrichmentError, match="detail join key is not unique"
     ):
-        enrichment._detail_lookup(conn, row)
+        enrichment.create_definition(conn, _request(conn))
 
 
-def test_source_rows_are_streamed_in_bounded_pages(conn, monkeypatch):
-    source_id = conn.execute(
-        "SELECT dataset_definition_id FROM dataset_definition "
-        "WHERE dataset_key = 'contractors'"
-    ).fetchone()[0]
+def test_snapshot_items_are_processed_in_bounded_pages(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
     monkeypatch.setattr(enrichment, "_SOURCE_BATCH_SIZE", 2)
+    statements = []
+    conn.set_trace_callback(statements.append)
+    try:
+        completed = _run(
+            conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite()
+        )
+    finally:
+        conn.set_trace_callback(None)
 
-    rows = list(enrichment._active_source_rows(conn, source_id, 0))
-
-    assert len(rows) == 4
-    assert [row["generic_record_id"] for row in rows] == sorted(
-        row["generic_record_id"] for row in rows
+    assert completed["progress_done"] == 4
+    assert any(
+        "FROM organization_enrichment_run_item" in statement
+        and "LIMIT 2" in statement
+        for statement in statements
     )
 
 
@@ -637,6 +653,17 @@ def test_the_extension_api_creates_and_queues_the_same_definition(registry, tmp_
         f"/api/enrichment/definitions/{definition_id}/runs", json={}
     )
     assert duplicate.status_code == 400
+    diagnostics = client.get(
+        f"/api/enrichment/definitions/{definition_id}/diagnostics"
+    )
+    assert diagnostics.status_code == 200
+    assert diagnostics.json()["compliance"] == {
+        "google_storage_mode": "place_id_only",
+        "legacy_durable_google_fact_count": 0,
+        "legacy_google_output_row_count": 0,
+        "legacy_google_output_revision_count": 0,
+        "requires_owner_cleanup": False,
+    }
 
 
 def test_the_background_runner_dispatches_the_enrichment_job(registry, monkeypatch):
@@ -705,11 +732,16 @@ def test_website_provider_extracts_only_after_the_published_name_matches():
     assert facts["verified_phone_secondary"] == "+966112223333"
 
     mismatch = WebsiteProvider(lambda url: FetchedPage(
-        url, "<html><head><title>Unrelated Bakery</title></head><body>ISO 9001</body></html>"
+        url, "<html><head><title>Unrelated Bakery</title></head><body>ISO 9001"
+             "<a href='mailto:info@example.com'>Email</a>"
+             "<a href='https://linkedin.com/company/example-builders'>LinkedIn</a>"
+             "</body></html>"
     )).run(_identity())
     mismatch_facts = {fact.field_key: fact.value for fact in mismatch.facts}
     assert mismatch_facts["website_match_status"] == "manual_review"
     assert "iso_certifications" not in mismatch_facts
+    assert "contact_emails" not in mismatch_facts
+    assert "linkedin_company_url" not in mismatch_facts
 
     mention_only = WebsiteProvider(lambda url: FetchedPage(
         url, "<html><head><title>Example Builders</title></head>"
@@ -724,6 +756,124 @@ def test_website_provider_extracts_only_after_the_published_name_matches():
     )).run(_identity())
     negated_facts = {fact.field_key: fact.value for fact in negated.facts}
     assert "iso_certifications" not in negated_facts
+
+
+def test_website_provider_uses_official_contact_and_linkedin_links_as_evidence():
+    root = """<html><head><title>Example Builders</title></head><body>
+      <a href='/about-company'>About the company</a>
+      <a href='/contact-us'>Contact us</a>
+      <a href='https://www.linkedin.com/company/example-builders/about/?trk=site'>LinkedIn</a>
+      <a href='https://linkedin.com/in/not-the-company'>Founder</a>
+      <a href='https://linkedin.com.evil.example/company/example-builders'>Fake</a>
+      </body></html>"""
+    contact = """<html><head><title>Contact Example Builders</title></head><body>
+      <a href='mailto:INFO@EXAMPLE.COM?subject=Hello'>Email</a>
+      <a href='mailto:hr@example.com'>Careers</a>
+      <a href='mailto:media@outside-agency.com'>External media agency</a>
+      <a href='tel:+966 11 222 3333'>Main phone</a>
+      <a href='tel:+966112224444'>Second phone</a>
+      <a href='https://wa.me/966501112233?text=Hello'>WhatsApp</a>
+      </body></html>"""
+
+    def fetch(url):
+        return FetchedPage(url, contact if url.endswith("/contact-us") else root)
+
+    result = WebsiteProvider(fetch).run(
+        _identity(phone="+966 11 222 3333")
+    )
+    facts = {fact.field_key: fact for fact in result.facts}
+
+    assert facts["contact_page_url"].value == "https://example.com/contact-us"
+    assert facts["contact_emails"].value == ["info@example.com", "hr@example.com"]
+    assert facts["contact_phones"].value == ["+966 11 222 3333", "+966112224444"]
+    assert facts["verified_phone_secondary"].value == "+966112224444"
+    assert facts["whatsapp_url"].value == "https://wa.me/966501112233"
+    assert facts["linkedin_company_url"].value \
+        == "https://www.linkedin.com/company/example-builders/"
+    assert facts["linkedin_match_status"].value == "verified"
+    assert facts["linkedin_match_score"].value == facts["website_match_score"].value
+    assert facts["linkedin_company_url"].provider == "website"
+    assert facts["linkedin_company_url"].evidence == {
+        "relationship": "official_website_outbound_link",
+        "linkedin_page_fetched": False,
+    }
+
+
+def test_multiple_official_linkedin_company_links_require_manual_review():
+    root = """<html><head><title>Example Builders</title></head><body>
+      <a href='https://linkedin.com/company/example-builders'>LinkedIn</a>
+      <a href='https://linkedin.com/company/example-holdings'>Holding company</a>
+      </body></html>"""
+
+    result = WebsiteProvider(lambda url: FetchedPage(url, root)).run(_identity())
+    facts = {fact.field_key: fact for fact in result.facts}
+
+    assert "linkedin_company_url" not in facts
+    assert facts["linkedin_match_status"].value == "manual_review"
+    assert facts["linkedin_match_status"].evidence["candidates"] == [
+        "https://www.linkedin.com/company/example-builders/",
+        "https://www.linkedin.com/company/example-holdings/",
+    ]
+
+
+def test_website_accepts_an_exact_source_email_even_when_its_domain_is_generic():
+    root = """<html><head><title>Example Builders</title></head><body>
+      <a href='mailto:owner@gmail.com'>Source-confirmed email</a>
+      <a href='mailto:media@outside-agency.com'>External media agency</a>
+      </body></html>"""
+
+    result = WebsiteProvider(lambda url: FetchedPage(url, root)).run(
+        _identity(website="https://example.com", email="owner@gmail.com")
+    )
+    facts = {fact.field_key: fact for fact in result.facts}
+
+    assert facts["contact_emails"].value == ["owner@gmail.com"]
+
+
+def test_contact_page_is_not_starved_by_many_careers_links():
+    html = "<html><body>" + "".join(
+        f"<a href='/careers/{index}'>Careers {index}</a>" for index in range(6)
+    ) + "<a href='/contact'>Contact</a></body></html>"
+
+    links = website_provider._useful_links(
+        website_provider.BeautifulSoup(html, "lxml"), "https://example.com"
+    )
+
+    assert links[0] == "https://example.com/contact"
+    assert "https://example.com/contact" in links[:4]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://linkedin.com/company/acme", "https://www.linkedin.com/company/acme/"),
+        ("http://sa.linkedin.com/company/123/about", "https://www.linkedin.com/company/123/"),
+        ("https://linkedin.com/in/person", ""),
+        ("https://linkedin.com/shareArticle?url=x", ""),
+        ("https://linkedin.com.evil.example/company/acme", ""),
+        ("javascript:alert(1)", ""),
+    ],
+)
+def test_linkedin_company_links_are_canonical_and_fail_closed(value, expected):
+    assert website_provider._linkedin_company_url(value) == expected
+
+
+def test_website_provider_deduplicates_specialties_across_discovery_pages():
+    root = """<html><head><title>Example Builders</title>
+      <script type='application/ld+json'>{"@type":"Organization",
+        "name":"Example Builders","serviceType":["Bridges","Roads"]}</script>
+      </head><body><a href='/about'>About</a></body></html>"""
+    about = """<html><head><title>About Example Builders</title>
+      <script type='application/ld+json'>{"@type":"Organization",
+        "name":"Example Builders","serviceType":["Bridges","Roads"]}</script>
+      </head></html>"""
+
+    result = WebsiteProvider(
+        lambda url: FetchedPage(url, about if url.endswith("/about") else root)
+    ).run(_identity())
+    facts = {fact.field_key: fact.value for fact in result.facts}
+
+    assert facts["core_specialties"] == ["Bridges", "Roads"]
 
 
 def test_website_peer_verification_fails_closed_for_rebinding_or_missing_peer():
@@ -746,6 +896,113 @@ def test_website_peer_verification_fails_closed_for_rebinding_or_missing_peer():
     assert website_provider._public_peer(httpx.Response(200)) is False
 
 
+def test_website_request_connects_to_the_address_that_was_validated(monkeypatch):
+    class Stream:
+        def get_extra_info(self, name):
+            return ("8.8.8.8", 443) if name == "server_addr" else None
+
+    seen = {}
+
+    def answer(request):
+        seen["host"] = request.url.host
+        seen["header"] = request.headers["host"]
+        seen["sni"] = request.extensions["sni_hostname"]
+        return httpx.Response(
+            200, headers={"content-type": "text/html"}, text="<h1>Example</h1>",
+            extensions={"network_stream": Stream()}, request=request,
+        )
+
+    monkeypatch.setattr(
+        website_provider, "_public_addresses", lambda host, port=443: ("8.8.8.8",)
+    )
+    with httpx.Client(transport=httpx.MockTransport(answer)) as client:
+        page = website_provider._fetch_with_client(client, "https://example.com/about")
+
+    assert page.url == "https://example.com/about"
+    assert seen == {"host": "8.8.8.8", "header": "example.com", "sni": "example.com"}
+
+
+def test_website_request_refuses_nonstandard_ports_before_connect(monkeypatch):
+    called = False
+
+    def answer(request):
+        nonlocal called
+        called = True
+        return httpx.Response(200, request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(answer)) as client, pytest.raises(
+        ValueError, match="non-standard network port"
+    ):
+        website_provider._fetch_with_client(client, "https://example.com:8443/")
+    assert called is False
+
+
+def test_website_dns_resolution_has_a_bounded_wait(monkeypatch):
+    monkeypatch.setenv("SCRAPEX_DNS_TIMEOUT_SECONDS", "0.01")
+
+    def slow_resolution(*args, **kwargs):
+        time.sleep(0.2)
+        return []
+
+    monkeypatch.setattr(website_provider.socket, "getaddrinfo", slow_resolution)
+
+    started = time.monotonic()
+    assert website_provider._public_addresses("slow.example") == ()
+    assert time.monotonic() - started < 0.15
+
+
+def test_website_rejects_redirects_outside_the_candidate_domain(monkeypatch):
+    class Stream:
+        def get_extra_info(self, name):
+            return ("8.8.8.8", 443) if name == "server_addr" else None
+
+    calls = 0
+
+    def answer(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            302, headers={"location": "https://unrelated.invalid/landing"},
+            extensions={"network_stream": Stream()}, request=request,
+        )
+
+    monkeypatch.setattr(
+        website_provider, "_public_addresses", lambda host, port=443: ("8.8.8.8",)
+    )
+    with httpx.Client(transport=httpx.MockTransport(answer)) as client, pytest.raises(
+        ValueError, match="outside its organization domain"
+    ):
+        website_provider._fetch_with_client(client, "https://example.com/")
+    assert calls == 1
+
+
+def test_website_obeys_robots_for_discovered_pages():
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        if url.endswith("/private"):
+            return FetchedPage(
+                url,
+                "<html><title>Example Builders</title>"
+                "<p>We are certified to ISO 9001.</p></html>",
+            )
+        return FetchedPage(
+            "https://example.com/",
+            "<html><title>Example Builders</title>"
+            "<a href='/private'>About our company</a></html>",
+        )
+
+    provider = WebsiteProvider(fetch)
+    provider._robots_fetch = lambda url: FetchedPage(
+        url, "User-agent: *\nDisallow: /private\n", 200
+    )
+    result = provider.run(_identity())
+
+    assert fetched == ["https://example.com"]
+    assert "iso_certifications" not in {fact.field_key for fact in result.facts}
+
+
 def test_google_places_requires_identity_evidence_before_verification():
     place = {
         "id": "place-1",
@@ -765,19 +1022,457 @@ def test_google_places_requires_identity_evidence_before_verification():
         city="Riyadh", country="Saudi Arabia",
     ))
     facts = {fact.field_key: fact.value for fact in result.facts}
-    assert facts["google_match_status"] == "verified"
-    assert facts["reviews_count"] == 91
-    assert facts["google_maps_url"].endswith("cid=123")
-    assert facts["google_maps_cid_url"].endswith("cid=123")
-    assert facts["verified_phone_secondary"] == "+966 11 222 3333"
+    assert facts["google_place_id"] == "place-1"
+    assert facts["google_attribution"] == "Google Maps"
+    assert "google_match_status" not in facts
+    assert "google_match_score" not in facts
+    assert "reviews_count" not in facts
+    assert "google_maps_url" not in facts
+    assert "google_maps_cid_url" not in facts
+    assert "verified_phone_secondary" not in facts
 
     malformed_phone = provider.run(_identity(phone="N/A", email=""))
     malformed_facts = {fact.field_key: fact.value for fact in malformed_phone.facts}
-    assert malformed_facts["google_match_score"] == 0.62
+    assert malformed_facts == {}
 
     mismatch = provider.run(_identity(
         company_name="Another Company", email="info@another.example",
         phone="+966500000000", latitude=24.7136, longitude=46.6753,
     ))
     mismatch_facts = {fact.field_key: fact.value for fact in mismatch.facts}
-    assert mismatch_facts["google_match_status"] == "manual_review"
+    assert mismatch_facts == {}
+
+
+def test_business_activity_words_remain_identity_evidence():
+    assert name_similarity("Advanced Contracting", "Advanced Trading") < 0.88
+    assert name_similarity("المتقدمة للمقاولات", "المتقدمة للتجارة") < 0.88
+
+
+class _ChangingFactsProvider:
+    name = "website"
+
+    def __init__(self, *, fail: bool = False, include_phone: bool = True):
+        self.fail = fail
+        self.include_phone = include_phone
+
+    def run(self, identity):
+        if self.fail:
+            return ProviderResult(
+                self.name, checked=False, error="temporary outage", system_error=True
+            )
+        facts = [FieldFact(
+            "website_url", f"https://{identity.external_id}.example", self.name,
+            confidence=0.95, verification_status="verified",
+        )]
+        if self.include_phone:
+            facts.append(FieldFact(
+                "verified_phone_secondary", "+966112223333", self.name,
+                confidence=0.9, verification_status="verified",
+            ))
+        return ProviderResult(self.name, tuple(facts))
+
+
+def test_successful_observation_expires_missing_facts_but_failure_keeps_them(
+    conn, monkeypatch
+):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _ChangingFactsProvider())
+
+    _run(conn, definition_id, monkeypatch, _ChangingFactsProvider(fail=True))
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact WHERE provider='website' "
+        "AND field_key='verified_phone_secondary' AND valid_to IS NULL"
+    ).fetchone()[0] == 4
+
+    _run(conn, definition_id, monkeypatch, _ChangingFactsProvider(include_phone=False))
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact WHERE provider='website' "
+        "AND field_key='verified_phone_secondary' AND valid_to IS NULL"
+    ).fetchone()[0] == 0
+
+
+def test_removed_provider_facts_remain_consistent_until_the_next_run(
+    conn, monkeypatch
+):
+    request = _request(conn)
+    definition = enrichment.create_definition(conn, request)
+    definition_id = definition["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _FakeWebsite())
+    monkeypatch.setattr(enrichment, "provider_availability", lambda: [
+        {"key": "website", "available": True},
+        {"key": "replacement", "available": True},
+    ])
+    enrichment.update_definition(
+        conn, definition_id, request.model_copy(update={"providers": ["replacement"]})
+    )
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact WHERE provider='website' "
+        "AND valid_to IS NULL"
+    ).fetchone()[0] > 0
+
+    class ReplacementProvider:
+        name = "replacement"
+
+        def run(self, identity):
+            return ProviderResult(self.name)
+
+    _run(conn, definition_id, monkeypatch, ReplacementProvider())
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact WHERE provider='website' "
+        "AND valid_to IS NULL"
+    ).fetchone()[0] == 0
+    output_id = enrichment._definition_row(conn, definition_id)["output_dataset_id"]
+    assert conn.execute(
+        "SELECT count(*) FROM generic_record WHERE dataset_definition_id=? "
+        "AND status='active' AND json_extract(data_json,'$.website_url') IS NOT NULL",
+        (output_id,),
+    ).fetchone()[0] == 0
+
+
+def test_provider_cache_is_invalidated_by_a_provider_version_change(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+
+    class CachedProvider:
+        name = "website"
+        ttl_seconds = 3600
+
+        def __init__(self):
+            self.calls = 0
+
+        def run(self, identity):
+            self.calls += 1
+            return ProviderResult(self.name, (
+                FieldFact(
+                    "website_url", f"https://{identity.external_id}.example",
+                    self.name, confidence=0.9, verification_status="verified",
+                ),
+            ))
+
+    first = CachedProvider()
+    _run(conn, definition_id, monkeypatch, first)
+    same = CachedProvider()
+    _run(conn, definition_id, monkeypatch, same)
+    conn.execute(
+        "UPDATE organization_provider_observation SET provider_version='obsolete' "
+        "WHERE provider='website'"
+    )
+    changed = CachedProvider()
+    _run(conn, definition_id, monkeypatch, changed)
+
+    assert first.calls == 4
+    assert same.calls == 0
+    assert changed.calls == 4
+
+
+def test_job_creation_can_join_a_larger_atomic_transaction(conn):
+    job_ref = create_job(
+        conn, ["contractors"], job_kind="organization_enrichment", commit=False
+    )
+    assert get_job(conn, job_ref) is not None
+    conn.rollback()
+    assert get_job(conn, job_ref) is None
+
+
+def test_job_reads_the_source_snapshot_captured_when_it_was_queued(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    queued = enrichment.create_enrichment_job(
+        conn, definition["enrichment_definition_id"]
+    )
+    first = conn.execute(
+        "SELECT generic_record_id, data_json FROM generic_record "
+        "WHERE dataset_definition_id=(SELECT source_dataset_id FROM "
+        "organization_enrichment_definition WHERE enrichment_definition_id=?) "
+        "ORDER BY generic_record_id LIMIT 1",
+        (definition["enrichment_definition_id"],),
+    ).fetchone()
+    original = json.loads(first["data_json"])["company_name"]
+    conn.execute(
+        "UPDATE generic_record SET data_json=json_set(data_json, '$.company_name', ?) "
+        "WHERE generic_record_id=?",
+        ("Mutated after queue", first["generic_record_id"]),
+    )
+    conn.commit()
+
+    captured = []
+
+    class CaptureProvider:
+        name = "website"
+
+        def run(self, identity):
+            captured.append(identity.company_name)
+            return ProviderResult(self.name)
+
+    monkeypatch.setattr(enrichment, "build_providers", lambda names: [CaptureProvider()])
+    enrichment.run_enrichment_job_once(conn, queued["job_ref"])
+
+    assert original in captured
+    assert "Mutated after queue" not in captured
+    compacted = conn.execute(
+        "SELECT count(*) AS total, "
+        "sum(source_data_json IS NULL AND length(source_content_hash) > 0) AS compacted "
+        "FROM organization_enrichment_run_item WHERE job_id=("
+        "SELECT job_id FROM crawl_job WHERE job_ref=?)",
+        (queued["job_ref"],),
+    ).fetchone()
+    assert compacted["compacted"] == compacted["total"] == 4
+
+
+def test_job_uses_the_mapping_version_captured_when_it_was_queued(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    queued = enrichment.create_enrichment_job(
+        conn, definition["enrichment_definition_id"]
+    )
+    conn.execute(
+        "UPDATE organization_enrichment_definition SET field_mapping_json=? "
+        "WHERE enrichment_definition_id=?",
+        (
+            json.dumps({"company_name": "source:profile_url"}),
+            definition["enrichment_definition_id"],
+        ),
+    )
+    conn.commit()
+    captured = []
+
+    class CaptureProvider:
+        name = "website"
+
+        def run(self, identity):
+            captured.append(identity.company_name)
+            return ProviderResult(self.name)
+
+    monkeypatch.setattr(enrichment, "build_providers", lambda names: [CaptureProvider()])
+    enrichment.run_enrichment_job_once(conn, queued["job_ref"])
+
+    assert captured
+    assert all(name and not name.startswith("http") for name in captured)
+
+
+def test_definition_status_controls_runs_and_retirement_is_recoverable(conn):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+
+    assert enrichment.set_definition_status(conn, definition_id, "paused")["status"] \
+        == "paused"
+    with pytest.raises(enrichment.EnrichmentError, match="is paused"):
+        enrichment.create_enrichment_job(conn, definition_id)
+    assert enrichment.set_definition_status(conn, definition_id, "active")["status"] \
+        == "active"
+    assert enrichment.set_definition_status(conn, definition_id, "retired")["status"] \
+        == "retired"
+    assert enrichment.set_definition_status(conn, definition_id, "active")["status"] \
+        == "active"
+
+
+def test_reviewed_cross_source_merge_shares_evidence_but_keeps_dataset_lineage(
+    conn, monkeypatch
+):
+    first = enrichment.create_definition(conn, _request(conn))
+    first_id = first["enrichment_definition_id"]
+    _run(conn, first_id, monkeypatch, _FakeWebsite())
+
+    _approve(
+        conn,
+        url="https://muqawil.org/en/other-contractors?page=1",
+        html=LISTING,
+        candidate=listing_candidate(LISTING),
+        key="other_contractors",
+        name="Other Contractors",
+    )
+    second_request = DefinitionCreate(**enrichment.propose_definition(
+        conn, "other_contractors"
+    )["proposal"])
+    second = enrichment.create_definition(conn, second_request)
+    second_id = second["enrichment_definition_id"]
+    _run(conn, second_id, monkeypatch, _FakeWebsite())
+
+    external_id = conn.execute(
+        "SELECT source_external_id FROM organization_source_record "
+        "WHERE enrichment_definition_id=? ORDER BY generic_record_id LIMIT 1",
+        (first_id,),
+    ).fetchone()[0]
+    source_org = conn.execute(
+        "SELECT organization_id FROM organization_source_record "
+        "WHERE enrichment_definition_id=? AND source_external_id=?",
+        (first_id, external_id),
+    ).fetchone()[0]
+    target_org = conn.execute(
+        "SELECT organization_id FROM organization_source_record "
+        "WHERE enrichment_definition_id=? AND source_external_id=?",
+        (second_id, external_id),
+    ).fetchone()[0]
+    alias = "shared.example"
+    conn.executemany(
+        "INSERT INTO organization_identity_alias "
+        "(organization_id,alias_type,normalized_value,value_hash,source_provider,"
+        "confidence,review_status) VALUES (?,?,?,?,?,?,?)",
+        [
+            (source_org, "domain", alias, enrichment._digest(alias), "test", 0.8,
+             "candidate"),
+            (target_org, "domain", alias, enrichment._digest(alias), "test", 0.8,
+             "candidate"),
+        ],
+    )
+    enrichment._upsert_fact(
+        conn,
+        target_org,
+        FieldFact(
+            "website_url", "https://different.example", "website",
+            confidence=0.96, verification_status="verified",
+        ),
+    )
+
+    candidates = enrichment.identity_candidates(conn, first_id)["items"]
+    assert any(item["candidate_id"] == target_org for item in candidates)
+    merged = enrichment.merge_organization(
+        conn,
+        first_id,
+        source_org,
+        OrganizationMergeCreate(
+            target_organization_id=target_org,
+            reason="Owner confirmed both directory records describe one company",
+        ),
+    )
+    assert merged["canonical_organization_id"] == target_org
+
+    output_id = conn.execute(
+        "SELECT output_dataset_id FROM organization_enrichment_definition "
+        "WHERE enrichment_definition_id=?",
+        (first_id,),
+    ).fetchone()[0]
+    output = json.loads(conn.execute(
+        "SELECT data_json FROM generic_record WHERE dataset_definition_id=? "
+        "AND source_locator=? AND status='active'",
+        (output_id, f"organization:{target_org}"),
+    ).fetchone()[0])
+    assert output["organization_id"] == target_org
+    assert output["source_external_id"] == external_id
+    assert output["verification_status"] == "needs_manual_review"
+    assert any(
+        item["field_key"] == "website_url"
+        for item in enrichment.review_queue(conn, first_id)["items"]
+    )
+    history = enrichment.merge_history(conn, first_id)["items"]
+    assert history[0]["organization_merge_id"] == merged["organization_merge_id"]
+    reversed_merge = enrichment.reverse_organization_merge(
+        conn,
+        first_id,
+        merged["organization_merge_id"],
+        OrganizationMergeReverseCreate(
+            reason="Owner determined that the shared domain was not exclusive",
+        ),
+    )
+    assert reversed_merge["status"] == "reversed"
+    restored = json.loads(conn.execute(
+        "SELECT data_json FROM generic_record WHERE dataset_definition_id=? "
+        "AND source_locator=? AND status='active'",
+        (output_id, f"organization:{source_org}"),
+    ).fetchone()[0])
+    assert restored["organization_id"] == source_org
+    assert restored["source_external_id"] == external_id
+    assert not any(
+        item["field_key"] == "website_url"
+        for item in enrichment.review_queue(conn, first_id)["items"]
+    )
+
+
+def test_record_exceptions_retry_the_same_snapshot_item(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    attempts = {}
+    target = {"id": None}
+
+    class FlakyProvider:
+        name = "website"
+
+        def run(self, identity):
+            if target["id"] is None:
+                target["id"] = identity.external_id
+            attempts[identity.external_id] = attempts.get(identity.external_id, 0) + 1
+            if identity.external_id == target["id"] and attempts[identity.external_id] < 3:
+                raise RuntimeError("transient parser failure")
+            return ProviderResult(self.name)
+
+    completed = _run(
+        conn, definition["enrichment_definition_id"], monkeypatch, FlakyProvider()
+    )
+
+    assert attempts[target["id"]] == 3
+    assert completed["progress_done"] == 4
+    assert conn.execute(
+        "SELECT attempts FROM organization_enrichment_run_item AS item "
+        "JOIN organization_enrichment_job AS job ON job.job_id=item.job_id "
+        "WHERE job.enrichment_definition_id=? AND item.source_external_id=? "
+        "ORDER BY item.job_id DESC LIMIT 1",
+        (definition["enrichment_definition_id"], target["id"]),
+    ).fetchone()[0] == 3
+
+
+def test_output_schema_upgrades_additively(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    row = enrichment._definition_row(conn, definition["enrichment_definition_id"])
+    monkeypatch.setattr(
+        enrichment, "OUTPUT_FIELDS",
+        (*enrichment.OUTPUT_FIELDS, OutputField("future_verified_signal")),
+    )
+
+    enrichment._create_output_schema(conn, int(row["output_dataset_id"]))
+
+    versions = conn.execute(
+        "SELECT version_number, valid_to FROM dataset_schema_version "
+        "WHERE dataset_definition_id=? ORDER BY version_number",
+        (row["output_dataset_id"],),
+    ).fetchall()
+    assert [item["version_number"] for item in versions] == [1, 2]
+    assert versions[0]["valid_to"] is not None and versions[1]["valid_to"] is None
+
+
+def test_definition_update_versions_configuration_and_review_can_resolve_a_fact(
+    conn, monkeypatch
+):
+    request = _request(conn)
+    definition = enrichment.create_definition(conn, request)
+    updated = enrichment.update_definition(
+        conn,
+        definition["enrichment_definition_id"],
+        request.model_copy(update={"output_dataset_name": "Verified Organizations"}),
+    )
+    assert updated["configuration_version"] == 2
+    assert conn.execute(
+        "SELECT count(*) FROM organization_enrichment_definition_history"
+    ).fetchone()[0] == 1
+
+    _run(conn, updated["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    organization_id = conn.execute(
+        "SELECT organization_id FROM organization_source_record LIMIT 1"
+    ).fetchone()[0]
+    fact_id = conn.execute(
+        "INSERT INTO organization_fact "
+        "(organization_id,field_key,value_json,value_hash,provider,confidence,"
+        "verification_status,evidence_json) VALUES (?,?,?,?,?,?,?,?) "
+        "RETURNING organization_fact_id",
+        (
+            organization_id, "careers_url", json.dumps("https://candidate.example/jobs"),
+            enrichment._digest(json.dumps("https://candidate.example/jobs")),
+            "website", 0.5, "manual_review", "{}",
+        ),
+    ).fetchone()[0]
+    queue = enrichment.review_queue(conn, updated["enrichment_definition_id"])
+    assert any(item["organization_fact_id"] == fact_id for item in queue["items"])
+
+    with pytest.raises(enrichment.EnrichmentError, match="must be url"):
+        enrichment.decide_review(
+            conn, updated["enrichment_definition_id"], fact_id,
+            ReviewDecisionCreate(action="override", value="javascript:alert(1)"),
+        )
+
+    decision = enrichment.decide_review(
+        conn, updated["enrichment_definition_id"], fact_id,
+        ReviewDecisionCreate(action="approve", reason="Official careers page"),
+    )
+    assert decision["materialized_value"] == "https://candidate.example/jobs"
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact WHERE organization_id=? "
+        "AND field_key='careers_url' AND provider='owner_review' AND valid_to IS NULL",
+        (organization_id,),
+    ).fetchone()[0] == 1

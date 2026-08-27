@@ -35,6 +35,7 @@ def test_the_workspace_exposes_the_complete_owner_flow():
     assert "/api/jobs/" in JS
     assert "restoreLatestJob" in JS
     assert "Providers disabled" in JS
+    assert '"hidden", Boolean(definition) && !editMode' in JS
 
 
 def test_interface_copy_is_english_and_arabic_is_only_named_as_source_data():
