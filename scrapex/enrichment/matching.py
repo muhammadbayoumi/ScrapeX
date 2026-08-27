@@ -18,13 +18,23 @@ _NON_WORD = re.compile(r"[^\w\u0600-\u06ff]+", re.UNICODE)
 _PHONE = re.compile(r"\D+")
 _LEGAL_WORDS = {
     "company", "co", "corp", "corporation", "limited", "ltd", "llc",
-    "establishment", "contracting", "contractors", "trading",
-    "شركة", "مؤسسة", "للمقاولات", "مقاولات", "المحدودة",
+    "establishment", "شركة", "مؤسسة", "المحدودة",
 }
+_MULTI_LABEL_PUBLIC_SUFFIXES = frozenset({
+    "co.uk", "org.uk", "com.sa", "net.sa", "org.sa", "com.eg", "com.ae",
+    "co.za", "com.au", "com.kw", "com.qa", "com.bh", "com.om", "com.jo",
+})
 
 
 def normalized_name(value: str) -> str:
-    folded = unicodedata.normalize("NFKC", value or "").casefold()
+    decomposed = unicodedata.normalize("NFKD", value or "")
+    folded = "".join(
+        character for character in decomposed
+        if unicodedata.category(character) != "Mn"
+    ).casefold()
+    folded = folded.translate(str.maketrans({
+        "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا", "ى": "ي", "ـ": "",
+    }))
     words = [word for word in _NON_WORD.sub(" ", folded).split()
              if word not in _LEGAL_WORDS]
     return " ".join(words)
@@ -56,6 +66,23 @@ def host_of(value: str) -> str:
     parsed = urlsplit(raw if "://" in raw else f"//{raw}")
     host = (parsed.hostname or "").casefold().strip(".")
     return host.removeprefix("www.")
+
+
+def registrable_domain(value: str) -> str:
+    """Return a conservative eTLD+1 for common contractor-market domains.
+
+    This deliberately avoids pretending to be a complete Public Suffix List.
+    Unknown suffixes use the ordinary final two labels; known country-code
+    second-level suffixes retain three.  URL safety still uses `host_of`, never
+    this coarser identity helper.
+    """
+    host = host_of(value)
+    labels = host.split(".")
+    if len(labels) < 2:
+        return host
+    suffix = ".".join(labels[-2:])
+    return ".".join(labels[-3:]) if suffix in _MULTI_LABEL_PUBLIC_SUFFIXES \
+        and len(labels) >= 3 else suffix
 
 
 def email_domain(value: str) -> str:
@@ -93,7 +120,10 @@ def email_domain(value: str) -> str:
         return ""
     except ValueError:
         pass
-    return "" if ascii_domain in GENERIC_EMAIL_DOMAINS else ascii_domain
+    core = registrable_domain(ascii_domain)
+    if ascii_domain in GENERIC_EMAIL_DOMAINS or core in GENERIC_EMAIL_DOMAINS:
+        return ""
+    return core
 
 
 def haversine_metres(

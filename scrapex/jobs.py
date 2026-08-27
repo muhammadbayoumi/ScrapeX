@@ -55,7 +55,9 @@ def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
                run_mode: RunMode | str = RunMode.UPDATE,
                status: JobStatus | str = JobStatus.QUEUED,
                checkpoint: dict | None = None,
-               job_kind: str = "crawl") -> str:
+               job_kind: str = "crawl",
+               *,
+               commit: bool = True) -> str:
     """Persist a new job and return its public job_ref.
 
     `checkpoint` seeds the job with a resume point it did not earn by being
@@ -65,6 +67,10 @@ def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
     left to carry them. Without this, resume was reachable only for as long as
     the original job stayed alive, which is exactly how 871 elburoj pages ended
     up stranded.
+
+    `commit=False` lets a caller attach job-specific rows and an immutable work
+    snapshot in the same transaction. Ordinary crawl callers retain the
+    historical immediate-commit behavior.
     """
     keys = [str(k) for k in source_keys]
     if not keys:
@@ -91,7 +97,8 @@ def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
             (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys),
              json.dumps(checkpoint) if checkpoint else None),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     return job_ref
 
 

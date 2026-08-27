@@ -10,11 +10,18 @@ work predates this file, the commit that built it — evidence read out of
 record of what was done; this file answers a narrower question: which version
 has it.
 
+## 0.3.4
+
+Minimum supported extension: `0.3.2`.
+
+No new capabilities. Fixes and internal change only — an extension and an engine that spoke to each other before this version still do.
+
+
 ## 0.3.2
 
 Minimum supported extension: `0.3.2`.
 
-- **organization_enrichment** — Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches. _Runs in: panel, engine._
+- **organization_enrichment** (c0cd695) — Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches. _Runs in: panel, engine._
 
 ## 0.2.2
 

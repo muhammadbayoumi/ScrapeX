@@ -96,6 +96,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-39](#req-39--the-extension-must-report-what-drive-holds-because-nothing-else-can-ask) | The extension must report what Drive holds, because nothing else can ask | **Captured** — the panel is the only holder of the token and it stores no answer | 2026-08-22 |
 | [REQ-40](#req-40--the-extension-is-the-phone-and-the-engines-are-apps-installed-on-it) | The extension is the phone and the engines are apps installed on it — study which of the engine's duties shrink into it | **Captured** — measured: the premise is HALF BUILT since 2026-08-12 and undocumented; three counted holes, chief of them 0 of 18,008 contractors in the offline pack | 2026-08-23 |
 | [REQ-43](#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source) | Enrich any company dataset inside ScrapeX, with Muqawil as the first source | **In flight** — built and verified on `feat/organization-enrichment`; merging is the owner's | 2026-08-24 |
+| [REQ-44](#req-44--use-the-company-website-for-linkedin-and-contact-evidence-then-run-100) | Use the company website for LinkedIn and contact evidence, then run a selected sample of 100 | **In flight** ([R-51](RULINGS.md#r-51--the-official-website-can-attest-a-linkedin-url-and-contact-methods-but-is-not-a-second-provider)) — the 100-record measured gate is complete; the owner's workbook review decides the next batch | 2026-08-24 |
 
 ---
 
@@ -2255,4 +2256,35 @@ the extension workspace, the wide output dataset and focused end-to-end tests. I
 In flight until the owner chooses to merge it. The branch is published as
 `origin/feat/organization-enrichment`; the adversarial follow-up hardens cross-site dataset
 identity, paid-provider opt-in, bounded reads, provider circuits, website SSRF protection,
-coordinate and email validation, and persistent job state.
+coordinate and email validation, immutable run inputs, bounded retries, versioned
+definitions and schemas, observe-before-expire fact lifecycle, three-axis confidence,
+conflict decisions, owner-reviewed canonical identities, provider request budgets and
+policy-safe Place ID-only Google storage.
+
+---
+
+## REQ-44 · Use the company website for LinkedIn and contact evidence, then run 100
+**Captured 2026-08-24 · Ruled ([R-51](RULINGS.md#r-51--the-official-website-can-attest-a-linkedin-url-and-contact-methods-but-is-not-a-second-provider)) · In flight**
+
+> «صفحة linkedin ووسائل الاتصال يمكننا استخراجها من موقع الشركة لحين تفعيل linkedin
+> وعن طريقها نقدر نتاكد ونزود المصداقية»
+>
+> «اول خطوة اريدها هو تشغيل المحرك على عينة من 100 مختارة وتطوير الكود فى نفس الوقت»
+
+The Website provider will collect a direct LinkedIn company link, contact page, published
+email addresses, telephone links and WhatsApp contact from the matched official company
+site. The LinkedIn URL is website evidence until a licensed LinkedIn provider is enabled:
+ScrapeX does not fetch or infer LinkedIn content and does not count one website as two
+independent providers.
+
+The first acceptance gate is a deterministic, geographically spread sample of 100
+Muqawil contractors. It includes positive corporate-domain candidates and negative email
+classes, runs through the real enrichment job service in an isolated engine database, and
+records provider requests, latency, failures, field evidence and review status.
+
+The final rerun used the developed extractor and processed 100/100 records with no manual
+enrichment values. It produced 4 website-attested LinkedIn company URLs, 7 contact pages,
+5 contact-email sets and 3 contact-phone sets. The adversarial pass found and fixed one
+false-positive class: a third-party agency email published on an official site is no
+longer promoted as the contractor's contact. The review workbook and all raw facts retain
+the engine's provider errors rather than replacing missing values with assumptions.

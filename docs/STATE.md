@@ -1,6 +1,6 @@
 # State — where the work stands
 
-**Last updated: 2026-08-23.** `main` is at `759a9df` (#264). #246 through #264 are
+**Last updated: 2026-08-24.** `main` is at `759a9df` (#264). #246 through #264 are
 all merged — **eighteen merges** landed after this line last said `afb8648` (#244),
 across two days, and the count here was measured with
 `git log --oneline afb8648..origin/main` rather than carried. **And this conflict is
@@ -77,12 +77,29 @@ The engine now has field-level evidence and history, cautious Website and option
 Places providers, a resumable `organization_enrichment` job kind, and namespaced API
 routes. The extension has **Enrich organizations** on dataset cards and a full-page
 workspace for mapping, provider selection, creation, progress, pause/resume/cancel, data
-browsing and the manual-review queue. LinkedIn remains unavailable until a verified
-provider exists. Google Places is explicit paid opt-in, source identity includes its site,
-and repeated provider-system failures open a circuit rather than stalling the rest of a
-large directory. See [ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md) for the
-contract and [REQ-43](REQUESTS.md#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source)
+browsing, paged fact decisions and owner-reviewed cross-source identity candidates.
+Definitions and output schemas are versioned, queued runs read immutable Listing/Profile
+snapshots, and provider failures preserve prior facts. LinkedIn remains unavailable until
+a verified provider exists. Google Places is explicit paid opt-in and persists only Place
+ID plus attribution; source identity includes its site, and repeated provider-system
+failures open a circuit rather than stalling the rest of a large directory. See
+[ORGANIZATION-ENRICHMENT.md](ORGANIZATION-ENRICHMENT.md) for the contract and
+[REQ-43](REQUESTS.md#req-43--enrich-any-company-dataset-inside-scrapex-with-muqawil-as-the-first-source)
 for the owner's request.
+
+**`REQ-44` / `R-51` is now measured on the same branch.** Once the official company
+website reaches a probable identity match, it can publish direct contact links and a
+LinkedIn company URL. These remain `website` facts, so one site is not double-counted as
+two providers. The code now captures contact page, `mailto:`, `tel:`, WhatsApp and direct
+`linkedin.com/company/` evidence, rejects lookalike and personal-profile links, and
+deduplicates specialties across discovery pages. Contact email promotion is constrained
+to the accepted site's registrable domain or the exact source email after the first live
+run exposed an agency mailbox. The clean rerun materialized 100/100 records with 231
+provider requests: 9 accepted websites, 4 website-attested LinkedIn company URLs, 7
+contact pages, 5 contact-email sets, 3 contact-phone sets and 26 explicit provider
+failures. Its adversarial audit reported zero violations; the owner's workbook review is
+now the gate before fields or batch size change. See the
+[selected 100-record engine run](plans/2026-08-24-website-contact-linkedin-and-run-100.md).
 
 **AND THE OPENING LINE ABOVE IS NOW ITSELF A CASE STUDY, filed as instance 3 in
 [LESSONS §14](LESSONS.md).** It read `31c369e` while `main` was `d10e974`, and

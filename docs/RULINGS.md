@@ -1658,6 +1658,42 @@ twenty, he answered it, and the answer turned out to be the general rule.** That
 argument for `R-49` and for `C3` together — the pile was unanswerable until the one
 genuinely open item in it was isolated and put in front of him alone.
 
+---
+
+### R-51 · The official website can attest a LinkedIn URL and contact methods, but is not a second provider
+
+**2026-08-24 · organization enrichment · extends REQ-43**
+
+> «صفحة linkedin ووسائل الاتصال يمكننا استخراجها من موقع الشركة لحين تفعيل linkedin
+> وعن طريقها نقدر نتاكد ونزود المصداقية»
+
+After ScrapeX has matched an official company website, that site may publish a direct
+LinkedIn company link and contact methods. Store those links as field-level evidence from
+the **website** provider. Do not fetch LinkedIn, infer employee data, or relabel the
+official-site link as evidence independently collected from LinkedIn.
+
+This distinction is load-bearing. The official site raises confidence in the ownership of
+the LinkedIn URL, but one source cannot become two corroborating providers merely because
+it links to a second domain. The provider remains `website`, so the combined verification
+score does not double-count it. When a licensed LinkedIn provider is enabled later, its
+observation can independently confirm or conflict with the stored URL.
+
+Contact and social-link extraction occurs only after the website identity match is at
+least probable. Direct `mailto:` and `tel:` links retain their page URL as evidence;
+WhatsApp links are canonicalized without pre-filled message text. Only direct
+`linkedin.com/company/<id>` links are accepted. Personal profiles, share links, lookalike
+hosts and multiple distinct company links fail closed or enter manual review.
+
+A `mailto:` link is promoted to the organization's contact set only when its registrable
+domain matches the accepted official website or the full address exactly matches the
+source email. This prevents an official page's agency, platform or other third-party
+mailbox from being mislabeled as the contractor's own contact while preserving an exact
+source-confirmed generic address.
+
+The first gate is the owner's selected sample of 100, run through the real enrichment job
+service while the extractor is developed. Counts from that run, not fixture coverage,
+decide the next change and the next batch size.
+
 ### R-43 · Drive is the single source of truth for DATA; the repository stays it for CODE
 
 **2026-08-22 · two machines · extends `CLAUDE.md`'s founding rule to the warehouse**

@@ -42,9 +42,11 @@ h2 { margin-bottom: 0; font-size: var(--fs-lg); }
   align-items: start;
 }
 
-.config-card, .guardrail-card, .run-card, .review-card { padding: var(--sp-5); }
+.config-card, .guardrail-card, .run-card, .review-card, .identity-card {
+  padding: var(--sp-5);
+}
 .config-card { grid-row: span 2; }
-.run-card, .review-card { grid-column: 1 / -1; }
+.run-card, .review-card, .identity-card { grid-column: 1 / -1; }
 
 .compact-head {
   gap: var(--sp-3);
@@ -164,5 +166,5 @@ td code { white-space: pre-wrap; overflow-wrap: anywhere; }
   body { padding: var(--sp-3); }
   .workspace-grid, .form-grid, .mapping-grid, .provider-grid { grid-template-columns: 1fr; }
   .config-card { grid-row: auto; }
-  .run-card, .review-card { grid-column: auto; }
+  .run-card, .review-card, .identity-card { grid-column: auto; }
 }
