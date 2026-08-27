@@ -53,6 +53,7 @@ from ..databases import (
     DatabaseUnavailableError,
     EngineDatabase,
 )
+from ..dryrun import dry_payload, refuse_writes, unknown_key_detail
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
 from ..features import FeatureKey, is_enabled
@@ -3335,6 +3336,36 @@ def create_app(
         finally:
             conn.close()
         return {"source_key": source_key, "summary": summary, "changes": feed}
+
+    # ---- the dry route: what a source WOULD do, for every source type ---------
+
+    @app.get("/api/dry/{source_key}")
+    def api_dry(source_key: str):
+        """«اعمل مسار dry لكل المصادر مهما اختلفت نوعها» — one route, both registries.
+
+        `POST /api/jobs` below validates against `app.state.manifest` alone, so
+        muqawil answered `404 unknown source_key 'contractors'` while
+        `/api/table/contractors` served 11,059 rows. This route asks both, and a key
+        either register knows answers 200.
+
+        BOTH CONNECTIONS ARE SEALED BEFORE ANY PAYLOAD WORK. `refuse_writes` denies
+        every statement able to change the warehouse, which matters on exactly one
+        call: `disown_impostors` deletes when `dry_run=False`.
+        """
+        general = general_read_conn()
+        price = read_conn()
+        try:
+            refuse_writes(general)
+            refuse_writes(price)
+            payload = dry_payload(source_key, general=general, price=price,
+                                  manifest=app.state.manifest)
+        finally:
+            general.close()
+            price.close()
+        if payload is None:
+            raise HTTPException(status_code=404, detail=unknown_key_detail(
+                source_key, manifest=app.state.manifest))
+        return payload
 
     # ---- jobs (spec 4/23/24: the panel enqueues and polls, never executes) ---
 
