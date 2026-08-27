@@ -373,14 +373,24 @@ def test_every_hover_says_what_it_does_what_it_writes_and_what_it_costs():
 
 
 def test_the_route_serves_the_declared_hover_verbatim(client):
-    """ONE PLACE. If the route composed its own sentence there would be two."""
-    body = client.get(f"/api/dry/{DATASET}").json()
-    declared = {one.key: one for one in passes.directory_passes(
-        contractors.get_directory(SITE), scope=CrawlScope.LISTING_ONLY)}
+    """ONE PLACE. If the route composed its own sentence there would be two.
 
-    for served in body["passes"]:
-        assert served["hover"] == declared[served["key"]].hover
-        assert served["writes"] == list(declared[served["key"]].writes)
+    BOTH KINDS, and that is not symmetry for its own sake: the first version of this
+    test checked the dataset payload only, and a mutation that replaced the PRICE
+    hover with the label passed it — the guard held for one of the two halves it
+    was written for.
+    """
+    entry = load_manifest(MANIFEST_FILE).get(PRICE)
+    expected = {
+        DATASET: {one.key: one for one in passes.directory_passes(
+            contractors.get_directory(SITE), scope=CrawlScope.LISTING_ONLY)},
+        PRICE: {one.key: one for one in passes.price_passes(entry,
+                                                           last_requests=812)},
+    }
+    for key, declared in expected.items():
+        for served in client.get(f"/api/dry/{key}").json()["passes"]:
+            assert served["hover"] == declared[served["key"]].hover, key
+            assert served["writes"] == list(declared[served["key"]].writes), key
 
 
 def test_the_panel_does_not_retype_a_single_hover_string():
