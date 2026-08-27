@@ -335,6 +335,7 @@ engine declares and serves the hover, the panel does not yet render it.
 
 **Awaiting the primary:** a `REQ` number (`REQ-46` was free across all 419 refs on
 2026-08-27), and whether `VERSION` moves.
+
 ### The source-page plan was reviewed, and the review found the step-3 blocker is one line — 2026-08-26
 
 **Branch `fix/a-dataset-row-gets-a-handle-and-the-payload-a-guard`, based on `35962cc`.**
