@@ -1441,114 +1441,19 @@ both sides shrink together. `subcommands()` **raises** rather than returning an 
 argparse ever changes shape — an empty set would make every argument look like Chrome, which
 is this defect total instead of partial.
 
-### OP-36 · FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it
+### OP-36 · ~~FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it~~ — FIXED 2026-08-21
 
-**Status: ~~OPEN~~ FIXED 2026-08-21, on his instruction — *«ابدأ بـ OP-36 و OP-35
-وضمهم لنفس tree»*.**
+**FIXED 2026-08-21 on his instruction — «ابدأ بـ OP-36 و OP-35 وضمهم لنفس tree».**
+Re-measured after the #243 merge it was **four sites, not two**.
 
-> **ONE MODULE, FOUR CALL SITES.** `scrapex/enginelaunch.py:74`
-> (`engine_argv`) is the one that answers the `-m` question, and the module is
-> `nativehost.py:57`'s three lines generalised: `frozen()`, `runner()`,
-> `engine_argv()`, `engine_command()` and `working_directory()`. `relaunch`,
-> `native`, `autostart` and `osschedule` all call it and none of them decides the
-> `-m` question any more. It imports nothing from `scrapex`, so the two callers
-> reached while the engine is still coming up cannot meet an import cycle.
->
-> **All three bugs closed, and the mirrors asserted too** — a fix that made the
-> frozen path right by breaking the source path would pass a one-sided test:
->
-> | | frozen | source |
-> |---|---|---|
-> | `-m scrapex.cli` | **absent** | **present** |
-> | `pythonw.exe` preference | ignored, with a real decoy beside a real exe | honoured |
-> | `cd /d <repo>` in the Startup entry | **absent** | present |
->
-> **Ten mutations, ten killed** — and the tenth is why the count is worth quoting.
-> The `pythonw` test first passed for the wrong reason: it pointed `sys.executable`
-> at a path that did not exist, so re-adding the probe changed nothing and the
-> assertion held anyway. Only a **real** `pythonw.exe` beside a **real** `.exe`
-> can tell "frozen returns itself" from "the probe happened to miss".
+**One module, four call sites.** `scrapex/enginelaunch.py:74` answers the `-m` question once
+and is `nativehost.py:57`'s three lines generalised — `frozen()`, `runner()`, `engine_argv()`.
+**The fix was already written once in this repository** and four callers had each re-derived
+it, three of them wrongly. All three bugs closed, the mirrors asserted, **ten mutations and
+ten killed**.
 
-**The diagnosis, kept as written. It was bigger than OP-35 and probably worse.**
-
-> **RE-MEASURED 2026-08-21 AFTER THE #243 MERGE, AND IT IS FOUR SITES, NOT TWO.**
-> The first pass named `relaunch.py` alone. A sweep of every `sys.executable` in
-> `scrapex/` found the same two bugs repeated at four of the five places that start
-> a child process:
->
-> **The five sites as they were before the fix.** The line numbers are the
-> pre-fix ones and are kept as the record of what was measured; four of them no
-> longer name what they named, which is why their pins were retired rather than
-> re-aimed.
->
-> | site (pre-fix) | what it starts | then | now |
-> |---|---|---|---|
-> | `relaunch.py:52` | the engine a relaunch brings back | broken | `enginelaunch.engine_argv` |
-> | `relaunch.py:146` | the detached helper that does the relaunch | broken | `enginelaunch.engine_argv` |
-> | `native.py:286` | the engine Chrome's native host starts | broken | `enginelaunch.engine_argv` |
-> | `autostart.py:48` | the Startup entry | broken ×3 | `engine_command` + conditional `cd` |
-> | `osschedule.py:65` | the Scheduled Task's interpreter | broken | `enginelaunch.runner` |
-> | `nativehost.py:57` | Chrome's launcher | **CORRECT — the precedent** | unchanged |
->
-> **THE FIX IS ALREADY WRITTEN, ONCE, IN THIS REPOSITORY.** `nativehost.py:57` is
-> three lines and says exactly the right thing:
->
-> ```python
-> if getattr(sys, "frozen", False):        # the PyInstaller build: run ourselves
->     return sys.executable
-> ```
->
-> So this is not a design problem. It is one helper the other four never got, and
-> the repair is to give them it rather than to write a fifth variation.
->
-> **AND THE SECOND BUG AT EVERY SITE, which is quieter:**
-> `interpreter.with_name("pythonw.exe")`. Beside `scrapex-engine.exe` there is no
-> `pythonw.exe`, so `windowless.exists()` is always false and the console-hiding
-> falls back to the visible executable. That one degrades rather than breaks — but
-> it means a frozen autostart or Scheduled Task flashes a window on every tick,
-> which is the exact thing both of those comments say they exist to prevent.
->
-> **`autostart.py:48` IS BROKEN A THIRD WAY, and it is the worst of them:**
->
-> ```
-> cmd /c cd /d "{repo}" && "{runner}" -m scrapex.cli ui --port N >> engine.log
-> ```
->
-> `repo` is `Path(__file__).resolve().parent.parent`. Inside a one-file build that
-> is the PyInstaller unpack directory under `%TEMP%`, **which is deleted when the
-> process exits.** So a frozen install that turns on autostart writes a Startup
-> entry pointing at a directory that will not exist at the next boot. `OP-34` is
-> why nobody would ever see why.
- Not
-reproduced against a running frozen engine — read from the code and stated as such,
-because saying so is cheaper than a release to find out.
-
-`scrapex/relaunch.py:52` and `:146` both build the child process the same way:
-
-    [str(runner),      "-m", "scrapex.cli", "ui", ...]         # :52  _engine_command
-    [str(interpreter), "-m", "scrapex.cli", "relaunch", ...]   # :146 spawn_helper
-
-`interpreter` is `sys.executable`. Under PyInstaller **that is
-`scrapex-engine.exe`**, and its bootloader does not honour `-m`: those become plain
-arguments. So `engine_entry.main` receives
-
-    ["-m", "scrapex.cli", "ui", "--port", "8000", "--no-open"]
-
-strips the dash-arguments, finds `argv[0] == "scrapex.cli"`, does not recognise it,
-and **returns `serve()`**. The engine asks to be replaced and a mute native host
-arrives instead. `pythonw.exe` beside a frozen executable does not exist either, so
-`_engine_command`'s windowless branch silently picks the exe.
-
-Everything `tests/test_relaunch_log.py` and
-`tests/test_the_engine_survives_being_killed.py` assert is true of the SOURCE tree,
-where `sys.executable` really is a Python. The frozen case has never been exercised —
-same shape as `OP-32`, where the guarded thing and the shipped thing were different
-things.
-
-**Next action:** make the two command builders frozen-aware (`sys.frozen` →
-`[exe, "ui", ...]` with no `-m`), and have `OP-35`'s derived dispatch accept it. Then
-one test per builder asserting the frozen shape, which needs no real binary — only a
-patched `sys.frozen` and `sys.executable`.
+`autostart.py:48` was broken a third way, and it was the worst of them — recorded in the
+diagnosis at `git show 0afcf3d:docs/BACKLOG.md` rather than repeated here.
 
 ### OP-37 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
 
@@ -2066,7 +1971,7 @@ equality `.modal-veil` depends on is expressed instead of commented, and lowerin
 instruction. The change is three lines and behaviour-neutral; it should land as its own
 change once that file is quiet, together with the static guard above so the fix arrives
 with the thing that keeps it. It does **not** need to wait for `OP-47`.
-### OP-53 · Eleven price-path columns are registered against the contractor directory
+### OP-53 · Eleven price-path columns are registered against the contractor directory — CODE FIXED 2026-08-22, the rows are still on disk (`OP-58`)
 
 **Status: FIXED 2026-08-22 in code; the eleven rows are still on disk — see `OP-58`.**
 
@@ -2093,25 +1998,12 @@ and by listing a dataset's fields by intersection with its own schema so rows
 already written go inert. `dataset_schema_fields` now has one reader instead of
 two copies of the same join — the second copy is what caused this.
 
-### OP-54 · Choose-Columns was a silent no-op on every dataset table
+### OP-54 · ~~Choose-Columns was a silent no-op on every dataset table~~ — FIXED 2026-08-22
 
-**Status: FIXED 2026-08-22.**
-
-`dataset_table_payload` built `columns` from `field_definition` via
-`schema_version_field` and **never read `dataset_field`**. So hiding a column on a
-contractor table wrote `is_hidden = 1` and changed nothing on screen; a rename was
-stored and the heading kept the old text; a reorder was saved and ignored.
-
-**This is the defect `extension/datatable.js` already warns about in its own
-comment** — *"dragging a column saved, reloaded the page, and changed nothing on
-screen because the grid was reading its own copy"* — arriving from the other
-direction, in the file that comment was written to protect.
-
-**Worse than absent, and that is why it was fixed before anything was measured on
-top of it.** A control that offers the wrong options and then discards the answer
-teaches the owner that the feature is broken, and `R-45` rests on this exact
-mechanism working: a hidden column is not lost but MOVED, into the row's card.
-`moved_to_details` is now populated for a dataset for the first time.
+**FIXED 2026-08-22.** `dataset_table_payload` built `columns` from `field_definition` via
+`schema_version_field` and **never read `dataset_field`**. So hiding a column on a contractor
+table wrote `is_hidden = 1` and changed nothing on screen; a rename was stored and the heading
+kept the old text; a reorder was saved and ignored.
 
 ### OP-55 · Server capabilities on the engine's page that nothing can reach
 
@@ -2307,35 +2199,13 @@ two change what two more screens offer, and the `test_panel_dom.py` line that co
 "4 of 4" carries a comment saying so, so that nobody closes this by shrinking the
 stub back.
 
-### OP-62 · The published engine could not serve one page, because PyInstaller was told to carry two files and the runtime opens five
+### OP-62 · ~~The published engine could not serve one page, because PyInstaller was told to carry two files and the runtime opens five~~ — FIXED #265, AND IT REACHED HIM in `engine-v0.3.1`
 
-**Status: FIXED in this pull request. Reported by the owner 2026-08-23 against the
-published `engine-v0.3.0`, the newest thing the panel's Download button offers.**
+**CLOSED 2026-08-23.** Reported by him against the published `engine-v0.3.0` — the newest
+thing the panel's Download button offered. **The path in his console message was the whole
+diagnosis:** every step the engine announced succeeded, and then it could not render.
 
-His console, in full — every step it announced succeeded:
-
-```
-  ScrapeX-Engine 0.3.0
-  [1/3] Unpacking...        done.
-  [2/3] Preparing your database...
-        already there: C:\Users\User01\.scrapex\engine\scrapex-engine.db
-  [3/3] Starting the engine...
-
-error: Directory 'C:\Users\User01\AppData\Local\Temp\_MEI000036d42\scrapex\webui\static' does not exist
-```
-
-**THE PATH IN THAT MESSAGE IS THE DIAGNOSIS.**
-[scrapex/webui/app.py:364](../scrapex/webui/app.py#L364) computes
-`Path(__file__).parent / "static"`, which in a one-file build is
-`_MEIPASS/scrapex/webui/static` — the string he was shown, `_MEI000036d42` and all.
-[scrapex/webui/app.py:539](../scrapex/webui/app.py#L539) hands it to `StaticFiles`,
-whose `check_dir=True` refuses a directory that is not there — the
-`RuntimeError` is Starlette's own, raised in its `StaticFiles.__init__` — and
-[scrapex/cli.py:1318](../scrapex/cli.py#L1318) prints the `RuntimeError` verbatim.
-
-**And the directory was never in the archive.** `packaging/build_engine.py` named two
-data entries; there is no `.spec` file and no PyInstaller hook in this repository, so
-that list was the whole of it:
+**`packaging/build_engine.py` named two data paths and the runtime opens five.**
 
 | the runtime opens | at | bundled before |
 |---|---|---|
@@ -2345,110 +2215,26 @@ that list was the whole of it:
 | `scrapex/webui/static` | [scrapex/webui/app.py:364](../scrapex/webui/app.py#L364) | **no** |
 | `apps_script/StagingAppScript.txt` | [scrapex/outputs.py:214](../scrapex/outputs.py#L214) | **no** |
 
-**Only one of the three crashes, and that is the luck in this.** `Jinja2Templates` does
-not check its directory when it is constructed, so a bundle with `static` and no
-`templates` starts, reports itself healthy, and answers every page with a
-`TemplateNotFound`. And `apps_script` has been missing from **every engine ever
-published**: [scrapex/outputs.py:215](../scrapex/outputs.py#L215) returns `""` and the
-route answers 404 saying the script *"is not bundled"* — a sentence that was true, that
-nobody had read, and that no log anywhere records.
+**Only one of the three missing ones crashes, and that is the luck in it.**
+`Jinja2Templates` does not check its directory at construction, so a missing templates tree
+is not a startup error — it is a `TemplateNotFound` on whichever page he opens first.
 
-**WHY THE RELEASE GATE PASSED IT, which is worth more than the fix.** The double-click
-step demands three lines — `ScrapeX-Engine`, `Preparing your database`, `Starting the
-engine`. **All three are printed before `create_app` is called**, by
-`packaging/engine_entry.py:_set_up_then_serve`, which then hands over to `scrapex ui`.
-The gate had stopped one line short of the only call that can fail — the same shape of
-miss as `OP-32`, where it stopped at `--version`. Its own guard could not catch that,
-because `tests/test_the_release_proves_the_double_click.py` read `engine_entry.py`
-alone and so believed the double-click path ended three lines before the work did.
+**Why the release gate passed it, which is worth more than the fix:** the gate proved the
+binary STARTED. That half is `OP-69`.
 
-**Fixed, and measured on a real artifact rather than argued.** `RUNTIME_DATA` in
-`packaging/build_engine.py` is now the one list, the build refuses to run when an entry
-is missing, and the rebuilt `dist/scrapex-engine.exe` — bare invocation, its own
-`SCRAPEX_DATA_ROOT` — printed the line no published engine has ever printed:
+**Fixed and measured on a real artifact rather than argued** — the rebuilt engine answered
+`GET /` with **200 and 26,022 bytes of rendered template**, and
+`GET /api/outputs/apps-script/script` with **200 and 35,702 bytes, a route that had never
+worked in a shipped engine**. `tests/test_the_frozen_engine_carries_its_own_files.py` stages
+the build and keeps it fixed.
 
-```
-ScrapeX UI → http://127.0.0.1:8000   (Ctrl+C to stop)
-```
-
-Served from that same binary, sizes matching the repository byte for byte:
-
-| request | answer |
-|---|---|
-| `GET /` | **200**, 26,022 bytes — a rendered template |
-| `GET /static/webui.css` | **200**, 13,306 bytes = the repo file exactly |
-| `GET /static/grid.js` | **200**, 152,947 bytes = the repo file exactly |
-| `GET /static/vendor/tabulator.min.js` | **200**, 445,987 bytes |
-| `GET /api/outputs/apps-script/script` | **200**, 35,702 bytes — **this route has never worked in a shipped engine** |
-
-**What keeps it fixed.** `tests/test_the_frozen_engine_carries_its_own_files.py` stages
-a directory the way PyInstaller lays out `_MEIPASS` — modules from the package, then
-`RUNTIME_DATA`, and nothing else — and starts the engine inside it, so the path
-arithmetic under test is the real one and no binary has to be built. It carries its own
-mutation: drop the `static` entry and the probe must die with Starlette's own words.
-The release gate now also demands `ScrapeX UI`, and
-`test_it_proves_a_SERVER_came_up_and_not_only_that_three_lines_printed` locates
-`create_app(` by index in `_cmd_ui` and requires one demanded line to come from below
-it — the rule rather than the string, because this gate has now missed twice.
-
-**One fact, two hand-maintained lists, and the newer one was wrong.**
-`pyproject.toml` `[tool.setuptools.package-data]` already carried the same trees for
-wheels. Nothing compared them. It is also incomplete in its own right —
-`static/*.svg` is absent while `scrapex/webui/static/x-mark.svg` is tracked — so a
-`pip install` of this package drops that file today. Not fixed here: it is a wheel
-path nobody installs from, and it wants its own change.
-
-**It needs a tag to reach him.** The fix is in the source; nothing installable carries
-it. `scrapex/version.py` reads `0.3.1` against a published `0.3.0`, so `engine-v0.3.1`
-would ship it, and cutting it is his call (PLATFORM-PLAN Decision 4). **Until then the
-only installable engine cannot serve a page** — the same standing condition as
-`OP-32`, which lasted twelve days.
-
-**Not a contract change** ([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one)):
-no migration, no route and no protocol move, so `VERSION` does not move for this.
-
-**The register number, and the two round trips it took.** `OP-60` was claimed before the
-primary session was asked, which is a breach of [R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)
-and was surfaced rather than left. It came back confirmed — and the *reservations*
-that came with it were wrong. Eleven `RESERVED` rows were written for 49–59, and by
-the time the rebase ran, `#258` had declared 51 and 52 and `#261` had declared 53–59,
-so nine of the eleven would have made `test_a_reserved_number_is_not_also_declared`
-red on the tree that merges. The reasoning was right and the base was two hours old,
-which is the same lesson the pointer at the top of [STATE.md](STATE.md) keeps teaching.
-
-**Then `OP-60` turned out to be taken too, and the number is `OP-62`.** It was handed
-over as free **twice**, by a session that had checked `main` — where the register does
-run unbroken to 59 — and not the branches in flight.
-`feat/the-engine-knows-which-code-it-is-running` had already pushed 60 **and** 61. That
-is §3 of [ORCHESTRATION.md](ORCHESTRATION.md)'s *"a claim can be real and invisible"*
-landing on the session that owns §3, and the method that caught it is the one worth
-keeping: **sweep the highest declared number on EVERY ref**, not on the branches you
-happen to know about —
-
-    for r in $(git for-each-ref --format='%(refname)' refs/heads refs/remotes); do
-      git grep -oh -E "^#{2,4} +OP-[0-9]+" "$r" -- docs/BACKLOG.md ...
-
-**That same sweep found a duplicate nobody was tracking:** two pushed branches both
-declared `OP-61`. It was ruled to
-`feat/the-engine-knows-which-code-it-is-running` and the card branch moved to 63 — on
-lower churn rather than on the open-PR rule, and the primary session said so rather
-than letting the rule appear to decide it. So the branch ends with **two** `RESERVED`
-rows, 60 and 61, both to that one branch, and the row for 61 records that the card
-branch's renumber had not yet been pushed when it was written. That last clause is
-deliberate: this file's own scar is a row that named a holder who had moved and passed
-every guard while doing it.
-
-**What an adversarial review of this fix found, because the fix's own comments were
-not exempt.** Sixteen findings raised, twelve refuted, and the survivor worth naming
-is a citation *inside this change*: `packaging/build_engine.py` cited
-`scrapex/cli.py:1301` for the line that prints the error, while the same change wrote
-the correct line in this file and in `LESSONS.md`. `R-15`'s guard scans eight
-markdown documents and cannot reach a build script, so it was green with the wrong
-number in the tree. Eleven citations in the three unguarded files this change touches
-now name **symbols** instead of lines. The refutations are worth as much: one reviewer
-checked `RUNTIME_DATA` against the real `.exe` table of contents and found no gap,
-and the worry that `contractstamp` reads a `.py` at runtime was refuted — it is a
-developer-only path.
+**And it reached him, which the entry could not claim when it was written.** Verified end to
+end rather than assumed: #265 is `467a3ac`; the tag `engine-v0.3.1` on origin points at
+`467a3ac`; `release-engine.yml` succeeded at `2026-08-23T12:37`; and the manifest the panel
+actually reads — `ScrapeX/json/version.json` on the hub — says `"version": "0.3.1"`,
+`"tag": "engine-v0.3.1"`, published `2026-08-23T13:03:28Z`, with a 33,847,073-byte installer
+and its sha256. **Releases live on `muhammadbayoumi/mbiX-hub`, not on this repository**, which
+is why `gh release list` here is empty and says nothing about whether a release happened.
 
 ### OP-60 · A frozen engine cannot name the commit it was built from, and says so
 
@@ -3017,7 +2803,7 @@ survivors. The number was an artefact of a broken instrument, not a finding. It 
 because 99.5% unclassified is not a result. **A discriminator has to be measured against a
 known-good example before it is trusted to count anything.**
 
-### OP-63 · The word "products" over a contractor directory, on two surfaces
+### OP-63 · The word "products" over a contractor directory — PANEL HALF CLOSED, the engine page is `Q-26`
 
 **Status: the PANEL half is CLOSED by this branch. The ENGINE PAGE half is OPEN and
 is a design question, not a noun.** Found 2026-08-23 while diagnosing why his Data
@@ -3120,27 +2906,7 @@ are price-path concepts a company has none of, and `Data rows` is the honest num
 already. So this is not the panel's one-line fix wearing a different template — it is a
 question about what a dataset's overview should show at all.
 
-#### The options, per `W3`, because this one is his
-
-| | what it does | effort | risk | what it costs later |
-|---|---|---|---|---|
-| **(a) do nothing** | the tile keeps reading `Products 17,304` over a directory | none | the engine page goes on saying what the panel stopped saying — **two surfaces disagreeing about the same rows**, which is the shape `#255` already had to fix once | the disagreement is the maintenance |
-| **(b) rename the one tile** | `Products` → `Rows` when `kind == dataset` | one line + a guard | **low, and it looks finished when it is not**: `Variants 0` and `Matched 0` still state price-path facts about a company | invites a third fix later for the same panel |
-| **(c) the tile SET follows the kind** | a dataset shows `Rows` and its coverage; a price source keeps all four | ~half a day, template + a shape the template can read | the tile list becomes data rather than a literal — the same move `countLine` just made on the panel | lowest: `jobs` and `tenders` need no new template work |
-
-**Recommendation: (c)**, mapped to **P1** (one source of truth for what a card shows —
-the panel now decides its noun from the engine's marker, and the page deciding its
-tiles from a hardcoded four is the same defect one surface over) and **P3** (not a
-premature abstraction: there are already two kinds and `CLAUDE.md` names two more
-coming). **(b) is the trap** — it is what "fix the noun" sounds like, and it would
-leave two of the three wrong tiles standing while reading as done.
-
-**The question for him:** *for a dataset like the contractor directory, should the
-overview show only the row count and how much of it has been fetched — or do you want
-the four tiles kept, with the ones that do not apply shown as blank rather than `0`?*
-`0` is the specific problem: it reads as a measured zero rather than as "not a thing
-this source has", which is the same distinction `last_successful_run` already documents
-for a crawl that never ran.
+**The question for him is [Q-26](#q-26--for-a-dataset-does-the-overview-keep-four-tiles-or-show-two)**, filed in §6 with the three priced options, because a question buried in an open problem is not on the register that tracks what he owes an answer to.
 
 ### OP-69 · The release gate proves the engine STARTED, never that it can serve a page
 
@@ -3994,6 +3760,33 @@ And the readiness level is **neither a column nor discarded**: fixed columns in 
 table, everything else in the **row's own card**, because contractors will have several
 sources and a column is a promise every source must keep. The question is kept below,
 unedited, because the answer is only legible beside what was asked (**C4**).
+
+### Q-26 · For a dataset, does the overview keep four tiles or show two?
+
+**Asked 2026-08-23 · his to answer · evidence in `OP-63`, whose panel half is closed**
+
+`/source/contractors` prints a **`Products 17,304`** tile over a contractor directory, and
+three of its four tiles say nothing about a directory at all. The panel half of that noun is
+fixed; the engine page is a design question rather than a word.
+
+> *For a dataset like the contractor directory, should the overview show only the row count
+> and how much of it has been fetched — or do you want the four tiles kept, with the ones
+> that do not apply shown as blank rather than `0`?*
+
+**`0` is the specific problem.** It reads as a measured zero rather than as *"not a thing
+this source has"* — the same distinction `last_successful_run` already documents for a crawl
+that never ran.
+
+| | what it does | effort | what it costs later |
+|---|---|---|---|
+| **(a)** do nothing | the tile keeps reading `Products 17,304` over a directory | none | the engine page goes on contradicting the panel |
+| **(b)** rename the one tile | `Products` → `Rows` when `kind == dataset` | one line and a guard | **it looks finished while three wrong tiles still stand** |
+| **(c)** the tile SET follows the kind | a dataset shows rows and coverage; a price source keeps all four | ~half a day | nothing — and `CLAUDE.md` names two more categories coming |
+
+**Recommendation: (c).** **(b) is the trap:** it is what *"fix the noun"* sounds like, and it
+would leave two of the three wrong tiles standing while reading as done.
+
+---
 
 ### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
 
