@@ -2824,3 +2824,41 @@ Measured on SQLite 3.50.4: `UPDATE t SET d = 'new' WHERE k IN ()` is **accepted*
 nothing, and reports `rowcount` 0 — exactly what the guard returned by hand. The guard is
 gone rather than kept behind a corrected comment, and the test now pins the behaviour,
 which holds either way.
+
+## 20 · `generic_page_snapshot.crawl_run_ref` is an operator's label, not a run identity
+
+Worth its own section because the column *looks* exactly like the thing three row states need,
+and because a ruling had already established it was not — which is the part that cost time.
+
+**Measured 2026-08-27** on the finished warehouse:
+
+    distinct values                          141   across 55,313 snapshots
+    listing-2026-08-20                        64   distinct refs -- ONE per cell
+    residual-2026-08-21                       40
+    deficit-2026-08-21b                       33
+    profiles-2026-08-22                        1   -- one ref for 34,834 pages
+    one stored value is literally  'R'         2   snapshots
+    matches against crawl_run.* or crawl_job.job_ref:  0
+
+It is the free-text `--run-ref` a crawl is invoked with. Nothing validates it, nothing joins
+to it, and its granularity is **per partition cell** for a listing crawl and **per crawl** for
+a profile crawl — so "the latest run" means two different sizes of thing depending on which
+dataset is asked.
+
+**What that does if you build the state comparison on it**, simulated before any code was
+written: taking "the run of the most recently captured snapshot this dataset's rows point at"
+gives `deficit-2026-08-21b-region_id_1-company_size_verysmall-a8` with **11 rows** for the
+listing and `gap-2026-08-23` with **1 row** for the profiles — so **17,030 of 17,304** and
+**17,384 of 17,385** rows would read `absent`. That is worse than the defect it replaces.
+
+**And `R-52` had already said so, in the paragraph titled "Why nothing stored could answer
+it".** `crawl_run` is the price path alone; its `source_id` points at `source_site`, where
+muqawil does not exist at all; `dataset_sighting` has `first_run_ref` and
+`last_absent_run_ref` and no `last_run_ref`. He chose **option B — a generic crawl-run
+table** — on 2026-08-24.
+
+**The lesson is `C1` with a price on it.** The plan's step 2 is titled *"Re-rule `R-52`
+before anything is built on it"*, and the ruling's own measurement section contained the
+answer to the question I spent an afternoon measuring from scratch — then published a wrong
+conclusion from, in `STATE.md`, the document every session reads second. Read the ruling
+that names the mechanism before designing the mechanism.
