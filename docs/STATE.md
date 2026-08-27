@@ -877,7 +877,7 @@ broken under load (**T2**).
 [STORAGE.md](STORAGE.md) — **the mechanism is built** (`scrapex/snapshotbody.py`,
 engine migration 0005), so nothing gates the crawl any more · **Seam:**
 [GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) · **Plan:**
-[plans/2026-08-16-muqawil-contractor-source.md](plans/2026-08-16-muqawil-contractor-source.md)
+[plans/2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`)
 · **Rulings:** [R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings),
 [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other),
 [R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)

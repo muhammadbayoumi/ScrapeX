@@ -210,7 +210,7 @@ fresh session there had no pointer to the good documents that *were* committed.
 3. **The missing bilingual toggle belongs to the paused B1 work**, not to this
    source: «اشياء كثيرة مفقودة لذلك توقفت عند b1 … ومنها ايضا هذه المشكلة».
 
-Recorded in [plans/2026-08-16-muqawil-contractor-source.md](plans/2026-08-16-muqawil-contractor-source.md).
+Recorded in [plans/2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`).
 
 ---
 
