@@ -2622,3 +2622,220 @@ And a document that shipping code or a test reads is not prose: `docs/reviews/mb
 is 1,709 lines and stays, because `contract/addin-contract.json`, four `extension/*-rules.js`
 files and `tests/test_the_addin_contract_cannot_drift.py` read it. **The test is whether
 something reads it, not how long it is.**
+
+---
+
+### R-61 · A new engine endpoint is a MINOR version, not a patch
+
+**2026-08-27 · release · he chose 0.4.0 over the 0.3.2 I recommended**
+
+`#274` adds `GET /api/dry/{source_key}` — 95 routes to 96 — and `R-35` makes that a contract
+change, so CI forced the version. It was built as **0.3.1 → 0.3.2**, reasoning that the
+addition is additive, `MINIMUM_EXTENSION_VERSION` stays `0.2.2`, and the panel does not render
+the route yet, so nothing a user can reach moved.
+
+**HIS CHOICE: 0.4.0.** A new endpoint is a new capability and the number says so.
+
+**What the argument I lost was, kept because it is the one to answer next time:** a MINOR
+announces a capability nobody can reach, and `OP-32` is what an announcement without a
+reachable feature costs. His answer settles that the version describes **what the engine can
+do**, not what the panel currently shows — which is consistent with `R-48`: the engine
+executes and reports, and the panel is a separate release.
+
+---
+
+### R-62 · One source registry: `site_profile` merges into `source_site` — and `Q-24` is answered by that migration
+
+**2026-08-27 · data model · he chose the merge over teaching `POST /api/jobs` two registries, which is what I recommended · answers [REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user) and `Q-24`**
+
+**The defect it closes:** `POST /api/jobs` validates a key against `sources.yaml` — 12 price
+sources — and muqawil lives in `site_profile`, so the crawl button answers 404 and the panel
+hides it. **Every read route already resolves both**: `/api/table`, `/api/fields`, and now
+`/api/dry/{source_key}`.
+
+**HIS CHOICE: one registry.** I recommended teaching `POST /api/jobs` the other two, riding
+on `R-52`'s `dataset_crawl`; he took the migration instead.
+
+**And measuring it for this entry showed my cost estimate was too high, which is worth
+recording because it changes the schedule:**
+
+| | |
+|---|---|
+| rows to move | **2** — `site_profile` holds two, `source_site` twelve |
+| tables pointing at `site_profile` | **2** — `dataset_definition.site_profile_id`, `dataset_relationship.site_profile_id` |
+| rows to repoint | **3** in `dataset_definition`, plus `dataset_relationship` |
+| columns to carry across | `crawl_scope`, `crawl_slice` (migration `0003`), `price_source_key`, `lifecycle` |
+| **`price_observation`** | **untouched — 94,664 rows and it does not reference `source_site`** |
+
+I had said it *"touches the working price path"*. It does not: `crawl_run`,
+`feed_assignment` and `source_product` reference `source_site` and none of them gains or
+loses a row by adding two.
+
+**`Q-24` is answered inside it: id 1 (`muqawil`) closes, id 2 (`muqawil_org`) survives.** The
+data is on id 2 — 34,675 active rows against zero — `scrapex contractors` names it, and
+`#274`'s dry route resolves it. Closed with `valid_to`, never deleted.
+
+**One fact the merge must carry, found while measuring:** both rows read
+`lifecycle = 'draft'`. **Neither registry row is `active`**, so whatever the merge writes must
+decide that too rather than copying `draft` into the new table and calling it done.
+
+---
+
+### R-63 · A dataset's overview shows the tiles its kind has
+
+**2026-08-27 · surface · answers `Q-26`, and he took the recommendation**
+
+`/source/contractors` prints `Products 4 · Variants 0 · Data rows 4 · Matched 0` — measured on
+a real render. **Three of the four are price-path concepts a company has none of, and the
+fourth repeats the first.**
+
+**HIS CHOICE: the tile SET follows the kind.** A dataset shows its row count and how much has
+been fetched; a price source keeps all four. Half a day.
+
+**Why not the one-line rename, which was offered:** `Products` → `Rows` reads as finished and
+leaves two wrong tiles standing. **And `0` is the specific harm** — it reads as a measured
+zero rather than *"not a thing this source has"*, which is the distinction
+`last_successful_run` already documents for a crawl that never ran.
+
+`CLAUDE.md` names two more categories coming (`jobs`, `tenders`), so a set that follows the
+kind is not a premature abstraction.
+
+---
+
+### R-64 · A migration reaches his warehouse only after it is on `main`, and no tag is cut while his warehouse is ahead
+
+**2026-08-27 · process · answers `Q-15`, open since it was asked · both guards approved**
+
+**It happened twice before he ruled.** `0007`/`0008` on 2026-08-21 (`OP-33`) and `0011`/`0012`
+today, both applied to his live warehouse from an unmerged branch. **Proved by running, not
+by reading:**
+
+```
+$ python -m scrapex.cli database-status
+"ok": false,
+"status": "Needs a newer ScrapeX",
+"action": "This database was written by a later version (schema v12; this build reads v10)."
+```
+
+**HIS RULING: no.** A migration reaches his warehouse only after it is on `main`. A session
+testing one uses a copy.
+
+**And a backup is not the protection**, which is why the weaker option was refused: the
+`pre-ledger-repair` and `pre-reapprove` backups exist on disk from both incidents. **A backup
+protects the data; it does nothing about the warehouse getting ahead of the engine.**
+
+**HE APPROVED BOTH GUARDS**, because `OP-33` was closed by a merge and not by a guard, and
+that is exactly why the class returned:
+
+1. **In CI** — `release-engine.yml` asks GitHub for branches whose migration ceiling exceeds
+   `main`'s and **refuses, naming them**. It is the only place that can see across branches,
+   and the workflow already makes network calls. Mutation: a fake higher branch must turn it red.
+2. **At runtime** — refuse to cut a tag while the local warehouse is ahead of the code. It
+   catches the same fault late, on his machine, where CI cannot see.
+
+**And the immediate consequence he ruled on:** `#274` merges, **no tag is cut** until
+`0011`/`0012` are on `main`, and `feat/organization-enrichment` — 7,832 lines in 44 files,
+no pull request ever opened, and it edits both the citation guard and the register-collision
+guard — **is read and reported before anything of it merges.** Registered as `OP-84`.
+
+---
+
+### R-65 · Every open question is put to him with what he needs to decide, and the recommendation goes first
+
+**2026-08-27 · process · his instruction**
+
+> «انا اريد الرد على كل الاسئلة ولا اريد تعليق اسئلة مرة اخرى دائما اعرض عليا السؤال موضح
+> بالتفاصيل اللازمة لاتخاذ القرار وضع الاختيار الموصى من وجهة نظرك اول اختيار»
+
+**Three obligations, and the third is the one that was being failed:**
+
+1. **No question is left hanging.** A question filed and not put to him is not asked. `REQ-04`
+   sat ruled and unbuilt for sixteen days; `Q-15` was asked and unanswered while the thing it
+   asks about happened **twice**.
+2. **The question carries what the decision needs** — the measured numbers, the cost of each
+   option, and what each one forecloses. Not a summary that makes him ask for the numbers.
+3. **The recommendation is first, and it is mine, stated as mine.** He overruled two of four
+   on the day he gave this instruction, which is the point: a recommendation he can reject is
+   worth more than a neutral list, and it must be labelled so rejecting it is one word.
+
+**This does not soften `R-02`:** an un-computable mapping is still his call, and he may refuse
+to rule until studies are measured. What changes is that the asking is not optional and not
+deferred.
+
+---
+
+### R-66 · Every outbound-request knob is a setting the user controls, and robots is one of them
+
+**2026-08-27 · architecture · he refused all three options I offered and gave a wider rule**
+
+> «اريد ربطهم باعدادات بحيث يكون المستخدم متحكم تحكما كاملا فى هذا النقطة بالاضافة الى
+> robot.txt معهم · اريد توفير كل المفاتيح للمستخدم وولمستخدم القرار»
+
+I asked *which component should own outbound requests* — accept the second owner, route it
+through `pacegovernor`, or route both. **He answered a different question: it does not matter
+who owns the request, it matters that the user owns the knob.** Which is `R-21` arriving from
+the other side, and it is consistent with his standing rule that every setting moves to the
+extension.
+
+**The current state, measured — two owners, and they do not obey the same things:**
+
+| | `HttpFetcher` (`connectors/base.py:216`) — prices **and** muqawil | the enrichment website provider |
+|---|---|---|
+| pace per host | `crawl_min_interval_s`, default **1.0 s** | `SCRAPEX_WEBSITE_MIN_INTERVAL_MS`, default **250 ms** — four times faster |
+| reads his settings | **yes** | **no — environment variables only** |
+| robots | `crawl_honour_delay`, `crawl_obey_disallow` | its own `RobotFileParser`, no setting |
+| user agent | `crawl_user_agent` | not configurable |
+| SSRF / private peers | **none** | refuses private peers, off-domain redirects, HTTPS downgrades |
+
+**The ten keys his ruling names.** One exists and is hidden, three are environment variables,
+and the rest are literals with no key at all:
+
+| key | today | after |
+|---|---|---|
+| `crawl_obey_disallow` | **exists in code, no surface on either side** — `OP-86` | a setting |
+| `SCRAPEX_WEBSITE_MIN_INTERVAL_MS` (250) | env var | a setting |
+| `SCRAPEX_DNS_TIMEOUT_SECONDS` (3) | env var | a setting |
+| `SCRAPEX_GOOGLE_PLACES_QPS` (5) | env var | a setting |
+| `httpx.Timeout(12.0, connect=6.0)` | literal | a setting, or `crawl_timeout_s` |
+| `max_bytes` 2,000,000 / 512,000 | literals | a setting |
+| `max_keepalive_connections=0` | literal | a setting, or documented as fixed with its reason |
+| `crawl_honour_delay` · `crawl_obey_disallow` · `crawl_user_agent` | the provider ignores all three | the provider reads them |
+
+**Four are already surfaced on both sides** — `crawl_min_interval_s`, `crawl_honour_delay`,
+`crawl_timeout_s`, `crawl_user_agent` — and `crawl_parallel_sources` in the extension only.
+So the work is smaller than the rule sounds: **the shape exists, and the second owner is
+outside it.**
+
+**What this does NOT settle:** whether `pacegovernor.py` is ever wired. It is written in full
+— `Strain`, `HostPace`, `pace_for`, `concurrency`, `owed_wait_s`, `record` — with **zero
+callers in production**, so `R-21`'s adaptive half is still dead code and still owed. Binding
+the knobs does not build the adaptive governor; it makes the fixed values honest first.
+
+**And one thing a setting must not become:** a knob that lets a user turn politeness off
+silently. `capture.py:88` already records the shape — *"absent reads as HONOUR — silence must
+mean the polite thing"* — and every new key follows it. `SR-8` and `R-21` are not weakened by
+being configurable; they are weakened by a default that is not the polite one.
+
+---
+
+### R-67 · `HttpFetcher` gains the SSRF protections the newer provider already has
+
+**2026-08-27 · security · he took the recommendation**
+
+**Measured, and it is the surprise that reframed the ownership question:** `HttpFetcher` —
+the old owner, driving the price connectors and muqawil — has **zero** references to
+`ipaddress`, `is_private` or a peer check. The enrichment provider has all of them, and its
+live run refused **64** off-domain redirects and **10** HTTPS downgrades in 98 minutes.
+
+**So unifying downward would have LOST protection**, which is why this is a separate ruling
+rather than a consequence of the ownership one: the old owner is upgraded to the new one's
+level whatever is decided about who owns the request.
+
+**What ports across:** refuse a private or loopback peer, refuse a redirect that leaves the
+target's own domain, refuse an HTTPS→HTTP downgrade, cap the response body.
+
+**Why it is worth doing even though the price sources are known.** They are listed in
+`sources.yaml` and low risk. **The risk is not the listed host — it is a link on a page the
+crawl already fetched**, which is exactly how the enrichment provider found 64 of them.
+`HttpFetcher` follows redirects for hosts it was pointed at by stored HTML, and nothing
+checks where they land.
