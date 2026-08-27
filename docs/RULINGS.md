@@ -2761,3 +2761,81 @@ guard — **is read and reported before anything of it merges.** Registered as `
 **This does not soften `R-02`:** an un-computable mapping is still his call, and he may refuse
 to rule until studies are measured. What changes is that the asking is not optional and not
 deferred.
+
+---
+
+### R-66 · Every outbound-request knob is a setting the user controls, and robots is one of them
+
+**2026-08-27 · architecture · he refused all three options I offered and gave a wider rule**
+
+> «اريد ربطهم باعدادات بحيث يكون المستخدم متحكم تحكما كاملا فى هذا النقطة بالاضافة الى
+> robot.txt معهم · اريد توفير كل المفاتيح للمستخدم وولمستخدم القرار»
+
+I asked *which component should own outbound requests* — accept the second owner, route it
+through `pacegovernor`, or route both. **He answered a different question: it does not matter
+who owns the request, it matters that the user owns the knob.** Which is `R-21` arriving from
+the other side, and it is consistent with his standing rule that every setting moves to the
+extension.
+
+**The current state, measured — two owners, and they do not obey the same things:**
+
+| | `HttpFetcher` (`connectors/base.py:216`) — prices **and** muqawil | the enrichment website provider |
+|---|---|---|
+| pace per host | `crawl_min_interval_s`, default **1.0 s** | `SCRAPEX_WEBSITE_MIN_INTERVAL_MS`, default **250 ms** — four times faster |
+| reads his settings | **yes** | **no — environment variables only** |
+| robots | `crawl_honour_delay`, `crawl_obey_disallow` | its own `RobotFileParser`, no setting |
+| user agent | `crawl_user_agent` | not configurable |
+| SSRF / private peers | **none** | refuses private peers, off-domain redirects, HTTPS downgrades |
+
+**The ten keys his ruling names.** One exists and is hidden, three are environment variables,
+and the rest are literals with no key at all:
+
+| key | today | after |
+|---|---|---|
+| `crawl_obey_disallow` | **exists in code, no surface on either side** — `OP-86` | a setting |
+| `SCRAPEX_WEBSITE_MIN_INTERVAL_MS` (250) | env var | a setting |
+| `SCRAPEX_DNS_TIMEOUT_SECONDS` (3) | env var | a setting |
+| `SCRAPEX_GOOGLE_PLACES_QPS` (5) | env var | a setting |
+| `httpx.Timeout(12.0, connect=6.0)` | literal | a setting, or `crawl_timeout_s` |
+| `max_bytes` 2,000,000 / 512,000 | literals | a setting |
+| `max_keepalive_connections=0` | literal | a setting, or documented as fixed with its reason |
+| `crawl_honour_delay` · `crawl_obey_disallow` · `crawl_user_agent` | the provider ignores all three | the provider reads them |
+
+**Four are already surfaced on both sides** — `crawl_min_interval_s`, `crawl_honour_delay`,
+`crawl_timeout_s`, `crawl_user_agent` — and `crawl_parallel_sources` in the extension only.
+So the work is smaller than the rule sounds: **the shape exists, and the second owner is
+outside it.**
+
+**What this does NOT settle:** whether `pacegovernor.py` is ever wired. It is written in full
+— `Strain`, `HostPace`, `pace_for`, `concurrency`, `owed_wait_s`, `record` — with **zero
+callers in production**, so `R-21`'s adaptive half is still dead code and still owed. Binding
+the knobs does not build the adaptive governor; it makes the fixed values honest first.
+
+**And one thing a setting must not become:** a knob that lets a user turn politeness off
+silently. `capture.py:88` already records the shape — *"absent reads as HONOUR — silence must
+mean the polite thing"* — and every new key follows it. `SR-8` and `R-21` are not weakened by
+being configurable; they are weakened by a default that is not the polite one.
+
+---
+
+### R-67 · `HttpFetcher` gains the SSRF protections the newer provider already has
+
+**2026-08-27 · security · he took the recommendation**
+
+**Measured, and it is the surprise that reframed the ownership question:** `HttpFetcher` —
+the old owner, driving the price connectors and muqawil — has **zero** references to
+`ipaddress`, `is_private` or a peer check. The enrichment provider has all of them, and its
+live run refused **64** off-domain redirects and **10** HTTPS downgrades in 98 minutes.
+
+**So unifying downward would have LOST protection**, which is why this is a separate ruling
+rather than a consequence of the ownership one: the old owner is upgraded to the new one's
+level whatever is decided about who owns the request.
+
+**What ports across:** refuse a private or loopback peer, refuse a redirect that leaves the
+target's own domain, refuse an HTTPS→HTTP downgrade, cap the response body.
+
+**Why it is worth doing even though the price sources are known.** They are listed in
+`sources.yaml` and low risk. **The risk is not the listed host — it is a link on a page the
+crawl already fetched**, which is exactly how the enrichment provider found 64 of them.
+`HttpFetcher` follows redirects for hosts it was pointed at by stored HTML, and nothing
+checks where they land.

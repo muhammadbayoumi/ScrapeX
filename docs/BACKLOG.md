@@ -3017,6 +3017,25 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-86 · `crawl_obey_disallow` is a robots setting with no surface on either side
+
+**Found 2026-08-27 while enumerating the keys [R-66](RULINGS.md#r-66--every-outbound-request-knob-is-a-setting-the-user-controls-and-robots-is-one-of-them) names**
+
+`crawl_obey_disallow` is read in code and appears in **neither** `extension/app.html` nor
+`scrapex/webui/templates/settings.html` — measured by grep on both. Its four siblings are on
+both surfaces (`crawl_min_interval_s`, `crawl_honour_delay`, `crawl_timeout_s`,
+`crawl_user_agent`) and `crawl_parallel_sources` is in the extension only.
+
+**So the one robots knob that decides whether a `Disallow` is obeyed is settable only by
+editing the database by hand** — the same shape as `crawl_scope`, which `REQ-45` recorded
+and which `--details` refuses under while telling the owner to change a setting that has no
+place to be changed.
+
+**It is `R-66`'s first item**, and it is registered separately because it is true today and
+independent of the enrichment branch landing.
+
+---
+
 ### OP-85 · `Coverage.fraction` returns 1.0 when nothing has ever been sighted
 
 **Found 2026-08-27 while building `#274`'s dry route**
