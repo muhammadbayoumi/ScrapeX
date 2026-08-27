@@ -1205,6 +1205,10 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     recovered = 0
     reparsed = 0
     lonely = 0
+    # `R-54`: rows whose date a confirmation moved. Counted separately from `recovered`
+    # because one confirmed PAGE carries many rows, and the number that answers "did the
+    # confirmation reach the records" is the row count, not the page count.
+    confirmed_rows = 0
     mismatched = 0
     #: Profile pages the cross-check could not judge because no listing row
     #: carried a number for them. Reported, never inferred from silence.
@@ -1319,18 +1323,23 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         conn.commit()
         made += 1
         if result.get("recovered"):
-            # ALREADY APPROVED AND IDENTICAL, so it wrote nothing — and since `R-40`
-            # that is a claim about the ROWS and not just the request. The digest of
-            # what the parser produced is compared against the digest the previous
-            # ingestion stored, so this count now means "nothing had changed" rather
-            # than the old "we did not look".
+            # ALREADY APPROVED AND IDENTICAL — and since `R-40` that is a claim about the
+            # ROWS and not just the request. The digest of what the parser produced is
+            # compared against the digest the previous ingestion stored, so this count
+            # means "nothing had changed" rather than the old "we did not look".
+            #
+            # IT NO LONGER MEANS "WROTE NOTHING". `R-54`: confirming a row moves its
+            # `last_seen_at`, because a pass that refreshed a row's memberships and left
+            # its own date behind is what put 17,259 records behind their memberships.
             recovered += 1
+            confirmed_rows += int(result.get("confirmed") or 0)
         elif result.get("reparsed"):
             # THE CASE DEC-10 EXISTED FOR. Same page, same schema, DIFFERENT values —
             # a parser that was corrected. It used to be indistinguishable from the
             # line above and wrote nothing at all.
             reparsed += 1
-    say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
+    say(f"approved {made} page(s): {recovered} unchanged and confirmed "
+        f"({confirmed_rows:,} row date(s) moved, no revision written), "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
     if unwitnessed:

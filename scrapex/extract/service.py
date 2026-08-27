@@ -300,6 +300,51 @@ def _rows_unchanged(conn: sqlite3.Connection, dataset_id: int,
                for row, key in zip(rows, record_keys, strict=True))
 
 
+def _confirm_seen(conn: sqlite3.Connection, dataset_id: int,
+                  record_keys: list[str]) -> int:
+    """`R-54`: a confirming pass moves the record's own `last_seen_at`, and NOTHING else.
+
+    THE ROOT, AND HE RULED IT FIRST. `approve_candidate` returns seventy lines above its
+    upsert when every row on the page is unchanged, so the one write that moved
+    `last_seen_at` was never reached — while `taxonomy.py:181` refreshed the row's
+    MEMBERSHIPS on the same pass. Measured on his warehouse: **17,259 records older than
+    their own memberships**, 17,264 profile rows still reading 2026-08-23.
+
+    THREE COLUMNS THIS DELIBERATELY DOES NOT TOUCH, each for its own reason:
+
+      - NO REVISION. `R-20` / `SR-6`: an unchanged value is confirmed, not appended, and
+        `generic_record_revision` is UNIQUE on `(record, snapshot, content_hash)` anyway.
+        A confirmation is a fact about our observation, not about the site's data.
+      - NO `status`. A confirmation must not resurrect a row somebody withdrew.
+        `OP-64` retired 14 impostor rows, and the upsert below sets `status='active'`
+        UNCONDITIONALLY -- which would un-retire them on the next re-approval of those
+        pages. That is recorded as a finding rather than fixed here; what matters is that
+        this path does not become a second place doing it.
+      - NO `source_snapshot_id`. That is the RUN link the other half of `R-54` needs, and
+        moving it here would change which snapshot is cited as a row's source without the
+        state computation that justifies it.
+
+    The `IN (...)` list is the one `_rows_unchanged` just built from the same page, so no
+    parameter-count limit appears here that was not already being respected.
+
+    AN EMPTY PAGE NEEDS NO GUARD, and a mutation is what settled that. `if not
+    record_keys: return 0` stood here first and deleting it left every test green --
+    the same shape `_rows_unchanged` records above, a line that reads like protection
+    and cannot fail. Measured on SQLite 3.50.4: `WHERE k IN ()` is ACCEPTED, matches
+    nothing and reports `rowcount` 0, which is the answer the guard was returning by
+    hand. So the guard is gone rather than kept with a comment defending it.
+
+    Returns the number of rows moved, so the caller can say it out loud instead of
+    printing "wrote nothing" -- which is what it used to print, truthfully.
+    """
+    holes = ",".join("?" * len(record_keys))
+    return int(conn.execute(
+        "UPDATE generic_record "
+        "   SET last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        f" WHERE dataset_definition_id = ? AND record_key IN ({holes})",
+        (dataset_id, *record_keys)).rowcount)
+
+
 def _retire_or_refuse(conn: sqlite3.Connection, active_version_id: int,
                       approval: CandidateApproval) -> None:
     """A GROWN schema opens a new version; a SHRUNK one is still refused.
@@ -534,11 +579,19 @@ def approve_candidate(
         # holds exactly this fact per row, and the write path below already reads it.
         if _rows_unchanged(conn, int(recovered["dataset_definition_id"]),
                            rows, record_keys):
+            # `R-54`, AND THIS RETURN IS THE DEFECT. Confirming a page is an OBSERVATION
+            # and it has to be recorded as one: the upsert seventy lines below moves
+            # `last_seen_at` unconditionally and this branch never reaches it, so a
+            # confirmed row kept an older date than the memberships written beside it on
+            # the same pass. `_confirm_seen` says why it moves that column and no other.
+            confirmed = _confirm_seen(
+                conn, int(recovered["dataset_definition_id"]), record_keys)
             result = _dataset_public(conn, int(recovered["dataset_definition_id"]))
             result.update({
                 "schema_version_id": int(recovered["schema_version_id"]),
                 "generic_ingestion_id": int(recovered["generic_ingestion_id"]),
                 "recovered": True,
+                "confirmed": confirmed,
             })
             return result
 
