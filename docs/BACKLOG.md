@@ -3286,6 +3286,36 @@ for a crawl that never ran.
 
 ## 3. Decided, not yet built
 
+### Q-24 · Which of the two `site_profile` rows for muqawil is canonical?
+
+**Asked 2026-08-26 · his to answer · found while diagnosing [REQ-45](REQUESTS.md#req-45--the-crawl-button-does-not-work-for-muqawil)**
+
+Measured read-only on the live warehouse:
+
+| id | `site_key` | `base_url` | `crawl_scope` | active rows |
+|---|---|---|---|---|
+| **2** | `muqawil_org` | `https://muqawil.org/` | `full_then_listing` | **34,675** |
+| **1** | `muqawil` | `https://muqawil.org/ar/contractors` | `listing_only` | **0** |
+
+**Three reasons this is a question and not a cleanup:**
+
+1. **It decides what the crawl button sends.** `REQ-45` waits on which registry starts a
+   generic crawl; whichever key that names, **one of these rows is the wrong one.** Closing
+   the empty one first would settle the question by tidying.
+2. **`site_profile` sits behind his review** in `COMPATIBILITY.md`, and the table carries
+   `valid_to` — so the pattern is to CLOSE a row, never delete. Even a close asserts which
+   key is retired.
+3. **The empty row is not obviously the wrong one.** Its `base_url` is the *more precise* of
+   the two — `/ar/contractors` is the actual directory, while id 2 holds the site root. *"The
+   row with the data wins"* is defensible and not the only answer.
+
+**Neither row is seeded by code:** `'muqawil'` appears in no file under `scrapex/` or `db/`;
+both were inserted at runtime by `scrapex/catalog.py:147` and `:171`. And `site_key` is
+`NOT NULL UNIQUE`, **which stops two rows sharing a key and does nothing about two keys for
+one site** — so this recurs when `jobs` or `tenders` is registered.
+
+---
+
 ### OP-69 · The release gate proves the engine STARTED, never that it can serve a page
 
 **Found 2026-08-23 by the session that wrote `OP-62`'s fix. Filed 2026-08-26, and the
