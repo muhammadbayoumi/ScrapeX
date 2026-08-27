@@ -53,7 +53,6 @@ from ..databases import (
     DatabaseUnavailableError,
     EngineDatabase,
 )
-from ..dryrun import dry_payload, refuse_writes, unknown_key_detail
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
 from ..features import FeatureKey, is_enabled
@@ -3351,7 +3350,17 @@ def create_app(
         BOTH CONNECTIONS ARE SEALED BEFORE ANY PAYLOAD WORK. `refuse_writes` denies
         every statement able to change the warehouse, which matters on exactly one
         call: `disown_impostors` deletes when `dry_run=False`.
+
+        IMPORTED HERE AND NOT AT MODULE SCOPE, and the reason is measured rather than
+        stylistic: one import line at the top of this 3,800-line module renumbers
+        every line below it, and 26 citations across six of the nine documents
+        `tests/test_the_documents_cite_what_they_claim.py` guards point into this
+        file. Adding it there moved 36 documented lines, six of them RECORDS of past
+        drift that must not be renumbered. This route sits below every cited line, so
+        the import belongs where the route is.
         """
+        from ..dryrun import dry_payload, refuse_writes, unknown_key_detail
+
         general = general_read_conn()
         price = read_conn()
         try:
