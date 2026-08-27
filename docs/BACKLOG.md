@@ -85,6 +85,245 @@ to `RULINGS.md`; a thing we discovered goes here.
 
 Ordered by consequence.
 
+### The twelve below came from ONE review, 2026-08-26 — the source-page plan, read against the code
+
+He asked for `docs/plans/2026-08-22-the-source-page-moves-into-the-extension.md` to be
+reviewed before a line was written, section by section, and ruled a direction on each
+finding. **Sixteen were found; four were built the same day** — the row handle, the payload
+memory, the derived contract guard, and the DOM and CI floors. **These twelve are the ones
+not built**, filed the day they were found, because a finding that lives in a chat channel
+did not happen. That is the mechanism `OP-69` was three days late by.
+
+`OP-70`, `OP-71` and `OP-72` lead because they are the three the primary session separated
+out, and the ordering rule is worth stating: the first has a **scheduled arrival date**, the
+second is a **comment naming a trap sitting above code that walks into it**, and the third
+is the only one that lets a caller **manufacture state**. The remaining nine follow by
+consequence.
+
+**Every citation here was re-derived at `35962cc` and none was carried from the plan.** The
+plan was written at `4522158`, six merges earlier, and every `app.py` and `app.js` line
+number in it had moved. That `docs/plans/` sits outside the citation guard's `DOCUMENTS` is
+`OP-59`'s shape one file over.
+
+### OP-70 · A dataset with a composite identity reports every row as `unsighted`, and the test covering that column cannot see it
+
+**Found 2026-08-26. Two halves, and the second is what lets the first survive.**
+
+**The collapse.** [scrapex/extract/service.py:895](../scrapex/extract/service.py#L895)
+resolves the identity field as `identity[0] if len(identity) == 1 else None`. With **two**
+`key_part` fields, or **zero**, that is `None` — so every row's external id is `None`, every
+`dataset_sighting` lookup misses, and `row_state` runs with `sighted_at=None,
+last_absent_at=None` for the entire table. `observed_state`, the column that exists on his
+instruction in `REQ-44` — «عمود يوضح الحالة الجديدة لا تدع المستخدم يستنتج الحالة» — is then uniformly
+wrong with nothing on screen or in a log to say so.
+
+**It is not hypothetical, because the code names its own trigger two lines above:**
+*"`contractor_id` is muqawil's answer; **Balady's and the UAE's will not be**, and this
+function is the one the panel calls for every generic source."* Both sources are already
+written up — `docs/BALADY-ENG-OFFICES.md` and `docs/UAE-SOURCES.md`. A defect with a
+scheduled arrival date.
+
+**The guard that cannot fire.** `grep -rn "key_part" tests/` returns **zero**: the identity
+resolution has no test at any arity. And the assertion covering the column
+([tests/test_a_dataset_is_a_table_like_any_other.py:869](../tests/test_a_dataset_is_a_table_like_any_other.py#L869))
+tests membership in an eight-value set that **contains `unsighted`**, so a table where every
+row collapsed stays green. General form in `LESSONS` §15.
+
+**His direction, 2026-08-26: build the edge case AND strengthen the assertion.** The `else
+None` swallows an unanswered question — what a two-key dataset *means* — and took the worst
+of the three available answers: explicit refusal, a composite key, or silent omission.
+**Which of the three is his call, not a developer's.**
+
+### OP-71 · The `MAX(observed_at)` subquery cannot be served by its index, twelve lines under a comment condemning that exact pattern
+
+**Found 2026-08-26.** [scrapex/extract/service.py:920](../scrapex/extract/service.py#L920)
+runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
+v.generic_record_id = r.generic_record_id)` — once per row.
+
+The only index available is [db/engine/schema.sql:849](../db/engine/schema.sql#L849),
+`ix_generic_record_revision_record ON generic_record_revision(generic_record_id,
+record_revision_id)`. **Its second column is `record_revision_id`, not `observed_at`**, so
+SQLite can seek a record's revisions from the index and must then read the table for each
+one to get the timestamp. No covering index, no index-only `MAX`.
+
+**And the trap is named on the same screen.**
+[service.py:934](../scrapex/extract/service.py#L934), twelve lines below, explains that the
+sighting side is read in ONE query because joining per row *"would be the
+correlated-subquery defect `OP-27` measured at 49s all over again."* The rule is known,
+written down, and applied to the neighbouring table.
+
+**His direction: a covering index on `(generic_record_id, observed_at)`, and explicitly NOT
+a cache.** A crawl writes continuously, and a stale cache produces *"why is the new
+contractor not showing?"* — a silent failure worse than a slow query. **The migration number
+is `0012`**, swept across every ref on 2026-08-26: `main` holds `0010`,
+`origin/feat/organization-enrichment` holds `0011`. Ask for it rather than counting it.
+
+### OP-72 · Three write tables key on a bare `TEXT source_key` with no foreign key and no existence check
+
+**Found 2026-08-26, and it is the only one of the twelve that lets a caller manufacture
+state.** `dataset_field` ([db/engine/schema.sql:176](../db/engine/schema.sql#L176)),
+`saved_view` ([:511](../db/engine/schema.sql#L511)) and `source_attribute_promotion`
+([:575](../db/engine/schema.sql#L575)) each declare `source_key TEXT NOT NULL` with **no
+`REFERENCES`**, and `fields.ensure_fields` and `fields.set_promotion` check nothing before
+inserting. A `POST` naming a source that does not exist **creates rows for it**.
+
+Related and separate: `fields.delete_view` is `DELETE FROM saved_view WHERE saved_view_id =
+?` with **no `source_key` scoping**, so the id alone is the whole authority.
+
+### OP-73 · `POST /api/fields` has no catalogue branch, so hiding a contractor column returns 404
+
+**Found 2026-08-26.** Step 0 of the plan gave `GET /api/fields` a dataset branch
+([scrapex/webui/app.py:2269](../scrapex/webui/app.py#L2269)) and **the POST at
+[:2335](../scrapex/webui/app.py#L2335) never got one.** It runs the price machinery
+unconditionally, and its seeding is keyed on `BROWSE_COLUMNS`: `wanted = [key for key, _ in
+BROWSE_COLUMNS if key in present or key == body.get("field_key")]`.
+
+**Measured: `BROWSE_COLUMNS` holds 54 keys and not one is a dataset field** —
+`company_name`, `contractor_id`, `membership_level` and `company_name_ar` are all absent.
+The comprehension iterates `BROWSE_COLUMNS`, so a contractor key never enters `wanted`,
+`ensure_fields` seeds nothing, `set_visibility` updates zero rows and raises `KeyError`, and
+[:2371](../scrapex/webui/app.py#L2371) turns that into **404**.
+
+**Reachable today.** Hiding a column from the grid's three-dot menu is the POST at
+[grid.js:1246](../scrapex/webui/static/grid.js#L1246); the GET that seeds runs only inside
+the Choose-Columns panel builder at
+[grid.js:1205](../scrapex/webui/static/grid.js#L1205). Open the contractors table, hide a
+column from the column menu without opening Choose-Columns → 404. **And the comment at
+[app.py:2340](../scrapex/webui/app.py#L2340) describes this exact failure and says it was
+fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
+
+**Nothing tests it:** every `POST /api/fields` test uses a products key, and all four
+`contractors` HTTP calls in the step-0 suite are `GET`.
+
+**His direction: repair the seam BEFORE the port starts**, so steps 1–4 really are the
+"pure client ports" the plan calls them rather than discovering a server defect mid-way.
+
+### OP-74 · `list(body["order"])` is unguarded: a 500 one way, a forged «this is your arrangement» the other
+
+**Found 2026-08-26.** [scrapex/webui/app.py:2367](../scrapex/webui/app.py#L2367) is
+`reorder(conn, source_key, list(body["order"]))` with no type check. Two failure modes,
+traced through [scrapex/fields.py:153](../scrapex/fields.py#L153):
+
+- `{"order": 5}` → `list(5)` raises `TypeError`. `_write` catches only `DbLockedError`, the
+  outer `try` only `KeyError`, and the app-level handlers only three database errors →
+  **unhandled 500**.
+- `{"order": "abc"}` → `list("abc")` is `['a','b','c']`, which **passes** the `if not
+  ordered_keys: return` guard at [fields.py:160](../scrapex/fields.py#L160), matches no real
+  key, changes no order — and then [fields.py:173](../scrapex/fields.py#L173) stamps
+  `arranged_at` for the whole source **unconditionally**. `order_source` flips from
+  `"agreed"` to `"yours"` with nobody having arranged anything.
+
+The second is worse, and the comment above the stamp says why: *"This is the only path a
+PERSON can reach."* The stamp's whole meaning is *a person arranged this*, and an
+unvalidated cast lets a stray string forge it. `0059` rests on that distinction.
+
+**His direction: reject a non-list `order` with 422, plus tests for `5`, `"abc"`, `[]`, `{}`
+and an unknown key.**
+
+### OP-75 · `GET /api/fields` writes and commits on both branches, outside the write lock every `POST` pays for
+
+**Found 2026-08-26.** The GET commits at
+[app.py:2240](../scrapex/webui/app.py#L2240) — the dataset branch, seeding from the schema —
+and at [app.py:2291](../scrapex/webui/app.py#L2291) on the price branch. A grep over the
+whole `api_fields` region finds **two `conn.commit()` and zero `write_lock`**, while every
+`POST` goes through `_write` ([app.py:2178](../scrapex/webui/app.py#L2178)), which takes the
+lock for the reason it states: *"A crawl in progress holds that lock."*
+
+**The write-on-GET is deliberate, documented and tested** — that is not the finding. The
+finding is that it is **unlocked**, so the protection depends on the HTTP verb rather than
+on what the code does, and a GET can write while a crawl holds the lock.
+
+**This is also what makes read-only connections more than a one-line change.** Neither
+`read_conn` nor `general_read_conn` opens read-only: both reach plain
+`sqlite3.connect(str(path))`
+([databases/domain.py:144](../scrapex/databases/domain.py#L144)), and the only `?mode=ro` in
+the package is in `bundle.py` and `carry_over.py`. Making the read paths read-only breaks
+this GET **immediately**, so every endpoint must first be classified "reads" against "reads
+and seeds". **His direction: put the lock where the write already is, and move the seeding
+to `POST` later, alongside `OP-73`.**
+
+### OP-76 · The two payload producers label columns by different rules, and the difference is visible to him
+
+**Found 2026-08-26.** `grep display_name scrapex/reports.py` returns **zero hits**: the
+products payload labels from a module constant only —
+[reports.py:2191](../scrapex/reports.py#L2191), `labels = dict(BROWSE_COLUMNS)`. The dataset
+payload does the opposite at [service.py:1023](../scrapex/extract/service.py#L1023),
+preferring his stored `display_name`.
+
+**So renaming a column reaches a contractor table's heading and never a products table's.**
+The plan lists *"a rename reaches the heading"* as a met step-0 gate; it holds for datasets
+only, and the plan does not say so.
+
+**His direction, 2026-08-26: unify it — his renames should reach products headings too.**
+Recorded as a decision rather than a cleanup, because it changes what existing product
+tables display.
+
+### OP-77 · `dataset_table_payload` reimplements two `fields.py` helpers inline while the products path calls them
+
+**Found 2026-08-26.** It imports and uses two of the five helpers
+([service.py:16](../scrapex/extract/service.py#L16)) and reimplements `hidden_columns` and
+`column_order` in the function body, where
+[reports.py:2183](../scrapex/reports.py#L2183) calls the helper. Two surfaces answering one
+question two ways — which is what step 2's own gate forbids: *"a grep finds no second copy of
+any of the three bodies."*
+
+**Not inflated beyond what it is:** `fields.list_fields` and `catalog.list_fields` are a
+**name collision, not duplication** — different tables, different keys, different return
+shapes. Recorded so that a later reader does not "fix" it.
+
+### OP-78 · `tree` is produced by both producers, asserted by a test, and read by no consumer anywhere
+
+**Found 2026-08-26.** [reports.py:2255](../scrapex/reports.py#L2255) computes it with
+`_tree_shape`; [service.py:1026](../scrapex/extract/service.py#L1026) hard-codes `{}`. No
+consumer reads `payload.tree` — `grid.js`'s `features.tree` is a name collision — and the
+13-key list asserts it regardless.
+
+**Recorded rather than deleted, on his direction:** removing a key from the contract while a
+third producer is being written against it is two changes at once. It is now **named** in
+`UNREAD_BY_EVERY_READER` in
+[tests/test_the_table_payload_answers_every_key_its_readers_read.py](../tests/test_the_table_payload_answers_every_key_its_readers_read.py),
+so it is a listed decision instead of an accident, and anything that joins it fails that
+test.
+
+### OP-79 · `reorder` reads `dataset_field` unfiltered, so `OP-53`'s eleven inert rows still consume ordering positions
+
+**Found 2026-08-26.** [fields.py:162](../scrapex/fields.py#L162) builds `current` from a bare
+`list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
+intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
+price-path rows inert lives **only on the read path**, at
+[app.py:2243](../scrapex/webui/app.py#L2243). So the eleven are invisible in the chooser and
+still occupy `display_order` slots whenever anything is reordered.
+
+Depends on `OP-58`: whether those rows are deleted at all is his gate, since
+`COMPATIBILITY.md` puts a destructive migration behind his review.
+
+### OP-80 · One uncached `/api/offer` request per selected row, with no cap — and step 3 would port it verbatim
+
+**Found 2026-08-26.** [grid.js:3085](../scrapex/webui/static/grid.js#L3085) is
+`rowsData.forEach((row) => { ... fetch("/api/offer/" + ... + row.offer_id)` — one request per
+selected row, all in parallel, no batching, no cache, and `rowsData` carries no length limit.
+
+These are the multi-row selection cards: 109 lines of the 967-line step-3 cluster, so the
+shape crosses into the panel unchanged, where it also crosses the extension's 5,000 ms
+deadline.
+
+**His direction: a cap that SAYS what it excluded, plus a batch endpoint.** Step 3 builds a
+new endpoint anyway, so making it batch costs about the same and stops the N+1 reaching a
+second surface.
+
+### OP-81 · Nothing on the data path is cached, anywhere
+
+**Found 2026-08-26.** Zero hits for `cache-control|etag|last-modified|max-age` across
+`webui/app.py`, `reports.py`, `extract/service.py` and `fields.py`, and zero for
+`lru_cache|functools.cache|@cache` across **all** of `scrapex/`. None of the three registered
+middlewares ([app.py:565](../scrapex/webui/app.py#L565)) adds a header. Every open of a data
+tab recomputes the whole payload, measured at 24.26 MB over 17,304 rows for `contractors`.
+
+**Recorded as a characteristic rather than a defect to fix, and he ruled against caching
+directly** — see `OP-71`. A crawl writes continuously, and stale data he cannot explain is
+worse than a slow query he can. **The remedy for the cost is the covering index, not a
+cache.**
+
 ### OP-43 · Four written premises about the muqawil profile page were wrong, and one of them hid a price
 **Found 2026-08-22** under `REQ-31`, measured over **2,419 real profile pairs** read
 read-only out of the running crawl, after he warned that the pages are not consistent —

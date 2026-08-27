@@ -502,3 +502,166 @@ def test_the_record_panels_timestamps_follow_the_display_zone(page_factory):
     finally:
         browser.close()
         ctx.stop()
+
+
+# ---- the two capabilities the extension port is measured by, 2026-08-26 ------
+#
+# The plan that moves the source page into the extension proves its step 1 (the
+# AR|EN toggle) and its step 3 (the record card's "Moved out of the table"
+# section) through a DOM harness. Neither had a behavioural test on THIS surface,
+# so there was no baseline for a port to be measured against:
+#
+#   * `grep -rn "grid-lang-toggle" tests/ tools/` returned nothing. The toggle
+#     renders in this very harness -- `_payload()` has carried a non-empty
+#     `bilingual` since the file was written -- and nobody had ever pressed it.
+#   * `moved_to_details` is `[]` in EVERY rendered fixture in the repo: here at
+#     :69 and twice in tests/test_tab_page_dom.py. The only non-empty assertions
+#     are on the payload in Python, so the card below had never been drawn.
+#
+# A port whose gate is "the panel does what the engine does" needs the engine's
+# half asserted first, or "correct" silently becomes "whatever the port did".
+
+MOVED_OUT_OF_THE_TABLE = [{"key": "sku", "label": "SKU"}]
+
+
+def test_a_column_moved_out_of_the_table_is_drawn_in_the_record_card(page_factory):
+    """`R-45`: hiding a column MOVES it to the card. This draws the move.
+
+    `sku` is the honest fixture for it -- it rides in every row of `_payload()`
+    and is absent from `columns`, which is exactly the shape a hidden column has.
+    """
+    payload = _payload()
+    payload["moved_to_details"] = MOVED_OUT_OF_THE_TABLE
+    page, browser, ctx = page_factory(payload, offer=OFFER_WITH_HISTORY)
+    try:
+        # The card is built only when a row is open: grid.js gates it on
+        # `moved.length && openOfferRow`, so a non-empty list on its own draws
+        # nothing and asserting on the payload could never have caught that.
+        opened = page.evaluate("""() => {
+            const table = Tabulator.findTable('#grid')[0];
+            table.selectRow(table.getRows()[0]);
+            return table.getSelectedRows().length;
+        }""")
+        assert opened == 1, "the row could not be selected, so no record opened"
+
+        # Under DETAILS, and this is the first thing the harness taught that
+        # reading the source did not: grid.js pushes the card into
+        # `detailSections.get("specifications")`, but "specifications" is a
+        # SECTION inside the Details view rather than a view of its own. The
+        # panel renders exactly two buttons -- details and history -- so a test
+        # written from the source alone waits forever for a third.
+        page.click('#offer-panel [data-inspector-view="details"]')
+        page.wait_for_selector("#offer-panel", state="visible", timeout=5000)
+        panel = page.inner_text("#offer-panel")
+
+        # Case-insensitively: the heading is upper-cased by CSS, and `innerText`
+        # reports the transformed text. A behavioural test must not go red
+        # because a stylesheet changed its mind about capitals.
+        assert "moved out of the table" in panel.lower(), (
+            "a column was moved out of the table and the card did not say so; "
+            f"the panel read: {panel[:400]!r}")
+        # The VALUE, not just the heading: the card reads the key off the open
+        # row (`openOfferRow[column.key]`), so a heading with an empty body is
+        # the failure that looks like success. Row 0 carries offer_id 1.
+        assert "SKU1" in panel, (
+            "the moved column's heading drew but its value did not, so the card "
+            f"is empty of the thing it exists to show; panel: {panel[:400]!r}")
+    finally:
+        browser.close()
+        ctx.stop()
+
+
+def test_an_empty_moved_list_draws_no_card_at_all(page_factory):
+    """The control for the test above, and the state every other fixture is in.
+
+    Without this the assertion above would pass just as well against a card that
+    is always drawn, which is a different page from the one `R-45` asked for.
+    """
+    page, browser, ctx = page_factory(offer=OFFER_WITH_HISTORY)
+    try:
+        page.evaluate("""() => {
+            const table = Tabulator.findTable('#grid')[0];
+            table.selectRow(table.getRows()[0]);
+        }""")
+        page.wait_for_selector("#offer-panel", state="visible", timeout=5000)
+        # The SAME view the positive test reads, or this passes for the wrong
+        # reason -- an absent card and an unopened section are indistinguishable
+        # from outside, and asserting on the closed panel would be exactly the
+        # weak assertion this pair of tests exists to replace.
+        page.click('#offer-panel [data-inspector-view="details"]')
+        page.wait_for_timeout(300)
+        assert "moved out of the table" not in page.inner_text("#offer-panel").lower(), (
+            "nothing was moved out of the table and the card drew anyway")
+    finally:
+        browser.close()
+        ctx.stop()
+
+
+def test_the_language_toggle_swaps_which_name_column_is_visible(page):
+    """Step 1's subject: it changes VISIBILITY, and leaves the rows alone.
+
+    The engine's toggle swaps which of the two name columns is shown rather than
+    rewriting one column's contents, and that is the property the port has to
+    keep: sort, filter and export each go on working against the column they
+    name. So this asserts the swap AND that the row order did not move.
+    """
+    def visible():
+        return page.evaluate("""() => {
+            const t = Tabulator.findTable('#grid')[0];
+            return t.getColumns().filter(c => c.isVisible()).map(c => c.getField());
+        }""")
+
+    def order():
+        return page.evaluate(
+            "() => Tabulator.findTable('#grid')[0].getData('active')"
+            "  .map(r => r.offer_id)")
+
+    page.wait_for_selector("#grid-lang-toggle", timeout=5000)
+    before = order()
+    assert "product_name" in visible(), "the table did not open on English names"
+
+    page.click('#grid-lang-toggle .grid-lang-option[aria-label="Show Arabic fields"]')
+    page.wait_for_function(
+        """() => {
+            const t = Tabulator.findTable('#grid')[0];
+            const c = t.getColumn('product_name_ar');
+            return c && c.isVisible();
+        }""", timeout=5000)
+    after = visible()
+    assert "product_name_ar" in after, "AR was pressed and the Arabic column stayed hidden"
+    assert "product_name" not in after, (
+        "AR was pressed and BOTH name columns are visible; the toggle is meant to "
+        "swap them, not add one")
+    assert order() == before, (
+        "the language toggle reordered the table; it swaps a column's visibility "
+        "and must not touch the rows")
+
+    page.click('#grid-lang-toggle .grid-lang-option[aria-label="Show English fields"]')
+    page.wait_for_function(
+        """() => {
+            const t = Tabulator.findTable('#grid')[0];
+            const c = t.getColumn('product_name');
+            return c && c.isVisible();
+        }""", timeout=5000)
+    assert "product_name_ar" not in visible(), "EN was pressed and AR stayed visible"
+    assert order() == before, "returning to English reordered the table"
+
+
+def test_the_toggle_is_absent_rather_than_present_and_lying(page_factory):
+    """No pairs means no control. `grid.js` returns early on an empty `bilingual`.
+
+    Worth asserting because the panel's own `summarise` gets this wrong in the
+    other direction -- it prints the word "bilingual" for `{}`, since an empty
+    object is truthy in JS -- so the two surfaces do not agree today about what
+    an empty pair set means.
+    """
+    payload = _payload()
+    payload["bilingual"] = {}
+    page, browser, ctx = page_factory(payload)
+    try:
+        assert page.locator("#grid-lang-toggle").count() == 0, (
+            "there are no bilingual pairs and the toggle rendered anyway, which "
+            "offers the reader a control that cannot do anything")
+    finally:
+        browser.close()
+        ctx.stop()

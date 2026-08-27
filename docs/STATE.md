@@ -310,6 +310,45 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The source-page plan was reviewed, and the review found the step-3 blocker is one line — 2026-08-26
+
+**Branch `fix/a-dataset-row-gets-a-handle-and-the-payload-a-guard`, based on `35962cc`.**
+The owner asked for a full review of
+[the plan that moves the source page into the extension](plans/2026-08-22-the-source-page-moves-into-the-extension.md)
+before any code was written, ruled on sixteen findings, and approved a first wave of
+six that change no behaviour. Four commits, and the register entries for the twelve
+findings NOT in this wave are held pending numbers from the primary session (`R-42`).
+
+**THE FINDING THAT MOVES THE PLAN.** Step 3 — the record card, `REQ-32`, the step he
+actually asked for — is priced in the plan at **967 lines** and gated on a new
+endpoint. Measured: `dataset_table_payload` SELECTed `generic_record_id`
+([service.py:918](../scrapex/extract/service.py#L918)) and the emitting loop dropped
+it, so the payload carried **no handle for the row at all**, while `grid.js` opens its
+card from `rows.filter((row) => row.offer_id)` and closes the panel when that is
+empty. **Selecting a contractor could never open anything**, and the fix is one
+assignment. Emitted now as `observed_record_id`, following `offer_id`'s precedent
+exactly: it rides in `rows` and is absent from the column list, so it never draws.
+
+**What else landed, each with the measurement behind it:**
+
+| | |
+|---|---|
+| the payload held itself twice | `.fetchall()` kept every raw `data_json` live through the loop that parses them. `tracemalloc` on a 28-field, 17,304-row fixture: `stored` 60 MB, `stored`+`rows` 160 MB, 307 MB peak against a 43 MB wire payload — **7.2x**, excluding `sighted` as a third. Streaming: **160.0 → 103.8 MB, −35%**. The bound is untouched — `cap=None` still means every row |
+| the payload contract was retyped, not derived | two producers, three readers, no TypedDict/schema/`response_model` anywhere. The one guard asserted 13 hand-typed keys; `grid.js` reads 10, three of the 13 it never reads, and a NEW read would have failed no test. Now derived from both sides, two tiers, mutation-tested three ways |
+| two capabilities had no test on the surface being ported | `grep grid-lang-toggle tests/ tools/` was empty though the toggle renders in the harness; `moved_to_details` was `[]` in every rendered fixture in the repo. Four tests with their controls, mutation-tested |
+| CI's browser floor was `-ge 1` for nine of ten suites | its own comment says *"a per-file 'at least one' would not have noticed 48 becoming 1"*. `test_grid_dom.py` and `test_tab_page_dom.py` — the two that draw this page — now carry numbers |
+
+**AND THE PLAN'S OWN GATE IS STALE, which is not this branch's to fix.** It carries
+steps 3 and 5 as ⛔ blocked on a boundary study it says is *still running*. That study
+landed as [R-50](RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+in #260 on 2026-08-23. Its structural claim that *"only `/api/table` uses
+`general_read_conn()`"* was falsified by its own step 0 — `GET /api/fields` resolves
+the catalogue first too. And its migration note is doubly stale: `main` holds `0010`
+and `origin/feat/organization-enrichment` holds `0011`, so the next free number is
+**`0012`**, asked for rather than counted. `docs/plans/` sits outside the citation
+guard's `DOCUMENTS`, which is the same unguarded position the plan criticises in
+`OP-59`.
+
 ### muqawil is ONE card, and 17,304 contractors stop being products — 2026-08-23
 
 **`REQ-37` was ruled on 2026-08-22 as `R-47` and was still not built on 2026-08-23**,
