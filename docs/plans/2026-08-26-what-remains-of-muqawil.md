@@ -20,7 +20,7 @@ order is argued rather than preferred.
 | 1 | **The poisoned profile schema** | ✅ **RULED 2026-08-26 — [R-53](../RULINGS.md#r-53--the-profile-schema-is-re-approved-onto-a-clean-version-not-reopened)**: re-approve all 17,371 rows onto a clean 27-field v4, not reopen v2. **Buildable now** | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
 | 2 | **`R-52` re-ruled, then the State column fixed** | ✅ **RULED 2026-08-26 — [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at)**: the root first — a confirming pass moves `last_seen_at`, then state is computed against the RUN. `R-52` amended, not erased. **Buildable now** | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
 | 3 | The 263 stranded listing rows | ✅ **RULED 2026-08-26 — [R-56](../RULINGS.md#r-56--the-263-stranded-listing-rows-are-fixed-by-a-fresh-listing-crawl)**: a fresh listing crawl, 58 min at concurrency 4. **NOT** a re-approve — `ExtractionConflict` refuses that and writes nothing | all 263 on schema v2 with `profile_url` and the City/Region split |
-| 4 | The two-directional gap: 148 + 81 | ⛔ **his ruling** (`REQ-41`) — **the only step still waiting on him** | one command, or automatic at end of crawl; 148 need zero network |
+| 4 | The two-directional gap: 148 + 81 | ✅ **RULED 2026-08-27 — [R-68](../RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions)**: automatic at the end of every crawl, **both directions**. **Buildable now** | bounded, and reported inside the crawl's own report; 148 need zero network |
 | 5 | The placeholder pair: map pin + `logo_url` | ✅ **RULED 2026-08-26 — [R-55](../RULINGS.md#r-55--absence-is-more-honest-than-a-placeholder-and-one-ruling-covers-both-fields)**: one ruling for both — store absence. Coverage becomes an honest 24% and 16%. **Buildable now** | one ruling covering both, or two explicit refusals |
 | 6 | Balady Services — 886 pages, 0 rows | **not started** | `balady_services` holds a row per service per contractor, and 406 flattened records are recoverable |
 | 7 | The 18,179 unreferenced Arabic snapshots | **not measured** | a decision that rests on knowing whether they carry a field the English page does not |
@@ -206,9 +206,11 @@ imports `scrapex.extract.muqawil` instead.
   They are open and they change nothing in tiers 1–4 — except step 8's *where*, which
   `R-50` already answers.
 
-## ~~Five of the ten steps are blocked on him~~ — ONE is, as of 2026-08-26
+## ~~Five of the ten steps are blocked on him~~ — **NONE is, as of 2026-08-27**
 
-> **Four of the five were ruled the day after this plan was written, and this section went stale for a day.** `R-53`, `R-54`, `R-55` and `R-56` answer steps 1, 2, 5 and 3 — every mapping checked against the step's own GATE text rather than inferred from the numbers. **Only step 4 (`REQ-41`) still waits on him**, and steps 1, 2, 3 and 5 are buildable now. The paragraph below is kept because its reasoning about WHY those five were the blocking ones is what made them get ruled.
+> **All five are ruled, and the build order is his too.** Four went on 2026-08-26 (`R-53`, `R-54`, `R-55`, `R-56`) and this section went stale for a day; the fifth, step 4, went on 2026-08-27 as `R-68`. **The order he set is step 1 → 2 → 5 → 3** ([R-69](../RULINGS.md#r-69--the-build-order-for-the-four-unblocked-muqawil-steps-and-041-stands)) — step 1 first because it is the only one whose cost grows while attention is elsewhere, and step 3 last because it is the only one that waits on a 58-minute crawl.
+>
+> **Tiers 1 and 2 are entirely buildable.** `R-53`, `R-54`, `R-55` and `R-56` answer steps 1, 2, 5 and 3 — every mapping checked against the step's own GATE text rather than inferred from the numbers. **Only step 4 (`REQ-41`) still waits on him**, and steps 1, 2, 3 and 5 are buildable now. The paragraph below is kept because its reasoning about WHY those five were the blocking ones is what made them get ruled.
 
 Steps 1 through 5 are **⛔ his ruling**, and they are the whole of tiers 1 and 2 — every
 defect that publishes something false. Steps 6 through 10 can start today without him.
