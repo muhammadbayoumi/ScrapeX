@@ -115,7 +115,19 @@ this session's context nor this warehouse. Everything below is the whole handove
 > process's own `__file__`. Measured in [OP-88](BACKLOG.md). It now runs `0.4.2` from the main
 > checkout, started through `ScrapeX Engine.vbs`.
 >
-> **Next is step 2**, the State column — `R-54`, and `R-69` sets the order 1 → 2 → 5 → 3.
+> **Step 2's ROOT HALF is built** — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
+> confirming pass now moves the record's own `last_seen_at`, which is the field the state
+> comparison rests on; `approve_candidate` returned seventy lines above the only write that
+> moved it. Nine mutations, nine killed, 993 tests green across 45 suites.
+>
+> **And the State column is already wrong on screen, not merely predicted.** Computed with
+> the panel's own `sightings.row_state` on 2026-08-27: `contractors` reads **`absent` on
+> 17,221 of 17,304 rows — 99.5%**, because its sighting ledger is already full (17,417) so
+> the `MAX(last_seen_at)` comparison runs, and only the 48 rows written in the crawl's final
+> second survive it. `contractor_profiles` escapes with `unsighted` only because its ledger
+> is empty. **The second pull request replaces that comparison with the RUN**, and needs no
+> migration: `generic_page_snapshot.crawl_run_ref` carries a value on 55,313 of 57,041
+> snapshots, and he ruled the remaining 1,728 read `unsighted`.
 
 ### The code and the decisions are in the repository. The DATA is not.
 

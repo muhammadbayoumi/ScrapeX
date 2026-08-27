@@ -2779,3 +2779,48 @@ else runs, is the only form that survives.
 process**, so it perpetuates whichever checkout the engine was born in. His engine had been
 serving from an unmerged worktree for hours. Full measurement in `OP-88`; the reason it
 belongs here too is that the route answers `ok: true` with a new pid, which reads as success.
+
+## 19 · Three ways a mutation run lied about itself, all in one afternoon
+
+A guard is untrusted until the defect it names makes it red. That rule is only as good as
+the harness, and this harness reported three different falsehoods before it reported a
+number worth quoting.
+
+### 1 · CRLF: every single-line anchor matched and every multi-line one silently did not
+
+The harness read the file, searched for an anchor, replaced it, ran the suite. Nine
+mutations; three reported killed and six reported *"anchor appears 0 times"*. The three
+that worked were the three whose `old` text was a **single line**.
+
+`.gitattributes` sets `* text=auto`, so the repository stores LF and Windows checks out
+CRLF — trap 2 of `CLAUDE.md`, which is written there about **hashing** and bit a mutation
+harness instead. Normalise `\r\n` → `\n` after `read_bytes()` and restore from the
+captured bytes, never from the normalised text.
+
+**What made this recoverable rather than a false 3/3:** the harness distinguishes *"the
+suite stayed green"* from *"the anchor never matched"* and calls only the first a survivor.
+A harness that just ran the suite and checked for red would have reported three kills out
+of three attempted and been believed.
+
+### 2 · A syntactically invalid mutation goes red for the wrong reason
+
+One mutation deleted `return int(` from the head of a multi-line expression and left the
+closing `).rowcount)` behind. The module stopped importing, **every** test in the file
+errored, and the run was red — so a harness checking only the exit code would have counted
+it as a kill. The named test was not among the failures, which is the only reason it was
+caught.
+
+**So a mutation needs two assertions, not one:** the suite must go red, *and* the specific
+test that names the defect must be among the failures.
+
+### 3 · `IN ()` is legal SQLite, so a guard against it cannot fail
+
+`_confirm_seen` was written with `if not record_keys: return 0` and a comment saying an
+empty `IN ()` would be a syntax error. Deleting that guard left every test green, which is
+the signature `_rows_unchanged` already records one screen above — *"a line that read like
+protection and could not fail."*
+
+Measured on SQLite 3.50.4: `UPDATE t SET d = 'new' WHERE k IN ()` is **accepted**, matches
+nothing, and reports `rowcount` 0 — exactly what the guard returned by hand. The guard is
+gone rather than kept behind a corrected comment, and the test now pins the behaviour,
+which holds either way.

@@ -18,7 +18,7 @@ order is argued rather than preferred.
 |---|---|---|---|
 | 0 | The crawl, the workers, the storage | **DONE** | 34,834 of 34,834; 9.75 h at 1.007 s/page = 100.7% of the politeness floor; 4.40 GB in 80,676,567 bytes |
 | 1 | **The poisoned profile schema** | ✅ **RULED 2026-08-26 — [R-53](../RULINGS.md#r-53--the-profile-schema-is-re-approved-onto-a-clean-version-not-reopened)**: re-approve all 17,371 rows onto a clean 27-field v4, not reopen v2. **DONE 2026-08-27** — [#279](https://github.com/muhammadbayoumi/ScrapeX/pull/279), and applied to his warehouse the same day | no live row is bound to a `retired` version, and a new site field is RECORDED rather than refusing the page |
-| 2 | **`R-52` re-ruled, then the State column fixed** | ✅ **RULED 2026-08-26 — [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at)**: the root first — a confirming pass moves `last_seen_at`, then state is computed against the RUN. `R-52` amended, not erased. **Buildable now** | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
+| 2 | **`R-52` re-ruled, then the State column fixed** | ✅ **RULED 2026-08-26 — [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at)**: the root first — a confirming pass moves `last_seen_at`, then state is computed against the RUN. `R-52` amended, not erased. **ROOT HALF DONE 2026-08-27** — a confirming pass now moves `last_seen_at`; the comparison against the RUN is its own pull request on his ruling | `absent`/`new`/`updated` computed per RUN, and a confirming pass moves `last_seen_at` on the record |
 | 3 | The 263 stranded listing rows | ✅ **RULED 2026-08-26 — [R-56](../RULINGS.md#r-56--the-263-stranded-listing-rows-are-fixed-by-a-fresh-listing-crawl)**: a fresh listing crawl, 58 min at concurrency 4. **NOT** a re-approve — `ExtractionConflict` refuses that and writes nothing | all 263 on schema v2 with `profile_url` and the City/Region split |
 | 4 | The two-directional gap: 148 + 81 | ✅ **RULED 2026-08-27 — [R-68](../RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions)**: automatic at the end of every crawl, **both directions**. **Buildable now** | bounded, and reported inside the crawl's own report; 148 need zero network |
 | 5 | The placeholder pair: map pin + `logo_url` | ✅ **RULED 2026-08-26 — [R-55](../RULINGS.md#r-55--absence-is-more-honest-than-a-placeholder-and-one-ruling-covers-both-fields)**: one ruling for both — store absence. Coverage becomes an honest 24% and 16%. **Buildable now** | one ruling covering both, or two explicit refusals |
@@ -75,7 +75,33 @@ a clean 27-field v4** is the one that also leaves a correct version history, and
 
 ## Tier 2 — values we publish that are false
 
-### Step 2 · Re-rule `R-52` before anything is built on it
+### Step 2 · Re-rule `R-52` before anything is built on it — ROOT HALF DONE 2026-08-27
+
+> **The root is built and the comparison is not, which is the order he set.** A confirming
+> pass now moves the record's own `last_seen_at`
+> (`extract.service._confirm_seen`), so the field the state comparison rests on finally
+> moves. Nine mutations, nine killed; 993 tests green across the 45 suites that touch it.
+>
+> **AND THE DEFECT IS ALREADY VISIBLE, not merely predicted.** Computed on his warehouse
+> on 2026-08-27 with the panel's own `sightings.row_state`:
+>
+> | dataset | rows | what the State column says today |
+> |---|---|---|
+> | `contractors` | 17,304 | **`absent` on 17,221 — 99.5%** · `confirmed` 48 · `unsighted` 35 |
+> | `contractor_profiles` | 17,385 | `unsighted` 17,371 · `retired` 14 |
+>
+> The ruling predicted this for the profiles **if** their ledger were filled. The listing's
+> ledger is ALREADY filled — 17,417 rows — so the comparison runs on it, and only the 48
+> rows written in the crawl's final second survive it. `absent` claims the site stopped
+> publishing a contractor, and `publish.py` carries payload columns into his Sheet.
+>
+> **What is left for the second pull request:** `newest` stops being
+> `MAX(last_seen_at)` and becomes the RUN. That needs no migration —
+> `generic_page_snapshot.crawl_run_ref` already exists and carries a value on **55,313 of
+> 57,041** snapshots, reachable from `generic_record.source_snapshot_id`. He ruled that the
+> **1,728** snapshots without one read `unsighted`, the state that claims nothing about the
+> site.
+
 
 **`R-52` is on `main` as of `19ea359`, and the evidence says its plan will not fix the
 defect it was written for.** That disagreement is recorded under `C5` rather than acted on,

@@ -3033,6 +3033,32 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-90 · A re-approval silently un-retires the rows `OP-64` disowned
+
+**Found 2026-08-27 while building `R-54`'s root half**, and deliberately NOT fixed there —
+it is outside that ruling and it is his call whether a confirmation may reactivate a row.
+
+`approve_candidate`'s upsert ends
+`last_seen_at=strftime(...), status='active'` — **unconditionally**. So the next
+re-approval of the fourteen profile pages `OP-64` retired writes `status='active'` back over
+them, and the disowning disappears with nothing raised. Those rows are the ones whose
+membership number disagrees with their own listing card: the site answered a dead id with the
+contractors listing at HTTP 200, so their address, city and coordinates came from nowhere.
+
+**What makes it live rather than theoretical:** `OP-64`'s own open half is that *"no command
+targets specific ids today"*, so the honest repair is a re-fetch of those pages — which is
+exactly the operation that would resurrect them.
+
+**The confirming path added for `R-54` does not do this**, and its docstring says why: a
+withdrawal somebody decided outranks an observation, which is `sightings.row_state`'s first
+precedence rule. A mutation that adds `status='active'` to it is killed by
+`test_a_confirmation_does_not_resurrect_a_retired_row`. So this entry is about the ONE place
+that still does it.
+
+**The question underneath is his:** should the upsert leave `status` alone when the stored
+row is `retired`, or should a re-fetch that produces the same wrong number be refused
+earlier — at `OP-64`'s layer 2, where the mismatch is already detected?
+
 ### OP-89 · `STATE.md`'s "Open pull requests" is 535 lines in which nothing is open
 
 **Measured 2026-08-27.** The section runs from the heading to `## Track 1`, and **every pull
