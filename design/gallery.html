@@ -929,6 +929,52 @@
     </div>
     <pre>&lt;span class="appearance-popover-eyebrow"&gt;Appearance&lt;/span&gt;</pre>
   </div>
+
+  <div class="g-item">
+    <h3>An appearance carries more than colour</h3>
+    <p class="g-why">Added by <code class="code">R-71</code>. Until then every one
+      of the 36 properties an appearance could set was a colour — shape 0,
+      typography 0, elevation 0, motion 0 — so a palette could repaint the UI and
+      not restyle it. <code class="code">DESIGN_PROPERTIES</code> in
+      <code class="code">design/appearance.js</code> is the second axis, and this
+      is what it reaches. <strong>Everything below is drawn from the tokens in
+      force right now</strong>, so switching appearance in the panel changes this
+      block — which is the whole claim being made.</p>
+    <div class="g-demo stack">
+      <div class="cluster">
+        <span class="chip" style="border-radius:var(--radius-xs)">radius-xs</span>
+        <span class="chip" style="border-radius:var(--radius-sm)">radius-sm</span>
+        <span class="chip" style="border-radius:var(--radius)">radius</span>
+        <span class="chip" style="border-radius:var(--radius-lg)">radius-lg</span>
+        <span class="chip" style="border-radius:var(--radius-xl)">radius-xl</span>
+        <span class="chip" style="border-radius:var(--radius-pill)">radius-pill</span>
+      </div>
+      <div class="stack">
+        <span style="font-weight:var(--fw-regular)">fw-regular — body text at the weight the appearance asks for</span>
+        <span style="font-weight:var(--fw-medium)">fw-medium — labels and active states</span>
+        <span style="font-weight:var(--fw-bold)">fw-bold — headings</span>
+        <span style="font-weight:var(--fw-heavy)">fw-heavy — the top of the ramp, which an appearance may flatten</span>
+        <span style="font-family:var(--font-heading)">font-heading — a second face, if the appearance pairs two</span>
+        <code class="code" style="font-family:var(--font-mono)">font-mono</code>
+      </div>
+      <div class="cluster">
+        <span class="card" style="box-shadow:var(--shadow-xs)">shadow-xs</span>
+        <span class="card" style="box-shadow:var(--shadow-sm)">shadow-sm</span>
+        <span class="card" style="box-shadow:var(--shadow-lg)">shadow-lg</span>
+      </div>
+    </div>
+    <pre>// design/appearance.js
+["supabase", {
+  design: {                       // scheme-independent: shape, type, motion
+    radius: "0.375rem", fwRegular: "450",
+    ease: "cubic-bezier(0.16, 1, 0.3, 1)",
+  },
+  themes: {
+    light: { /* colours */ design: {shadowSm: "0 1px 3px var(--shadow-color)"} },
+    dark:  { /* colours */ design: {shadowSm: "0 1px 2px var(--shadow-color)"} },
+  },
+}]</pre>
+  </div>
 </section>
 
 <script>

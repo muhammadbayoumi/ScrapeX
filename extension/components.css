@@ -286,6 +286,15 @@ svg {
   background: var(--google-btn-bg);
   color: var(--google-btn-text);
   font-family: "Google Sans", var(--font);
+  /* NOT var(--fs), and this is the one place in the sweep where a token was the
+     wrong answer. Pointing the 48 hard-coded duplicates of a token AT that
+     token caught this rule too -- 14px is exactly --fs today, so it looked like
+     a free win. It is not: Google's branding guidelines fix this button's type
+     size, `tests/test_the_google_button_follows_googles_rules.py` asserts the
+     literal, and an appearance that moved --fs would silently take the button
+     out of spec. Supabase moves --fs to 15px, so the guard would have fired on
+     the very first palette to use the axis. Same reasoning as the three
+     --google-btn-* colours: no appearance choice may reach this button. */
   font-size: 14px;
   font-weight: var(--fw-medium);
   line-height: 20px;

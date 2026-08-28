@@ -2560,6 +2560,15 @@ the operating system's `AccentColor` where the browser exposes one.
   `appearance.count('description: "') == 2`. That is a **review decision encoded as a
   guard**: a third palette is meant to cost a written justification, not an edited number.
 
+> **The four items above describe the tree AS IT WAS ON 2026-08-28 at capture, and three of
+> them are now closed.** They are kept rather than rewritten, for the same reason a
+> superseded ruling is kept under **C4** — what a request walked into is part of the
+> request. `OP-82` is closed, the registry is built, and the guard is now
+> `test_only_the_three_reviewed_application_palettes_are_available` with the justification
+> for the third palette written inside it. **Only the first item is still open**, and only
+> in its second half: `R-71` supersedes `R-59` decision 1, and whether a fresh user
+> actually *sees* the default is the question he asked for numbers on.
+
 ### The name
 
 He wrote **`supbase`** and linked **supabase.com**. The id is not cosmetic — it is written to

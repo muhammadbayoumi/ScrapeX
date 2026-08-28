@@ -3289,7 +3289,7 @@
    keeps the keyboard focus ring the rest of the panel uses. */
 .install-steps > summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--fw-bold);
   font-size: var(--fs-sm);
   padding: var(--sp-2) 0;
 }

@@ -63,7 +63,7 @@
     .sect-body{padding:.6rem 1.1rem 1.1rem}
     .sect-body>table{table-layout:fixed}
     .sect-body>table td,.sect-body code,.sect-body .tech{overflow-wrap:anywhere;word-break:break-word}
-    .sect-body h3{font-size:.95rem;font-weight:600;margin:1.2rem 0 .5rem}
+    .sect-body h3{font-size:.95rem;font-weight:var(--fw-bold);margin:1.2rem 0 .5rem}
     @media(max-width:900px){
       .settings-shell{grid-template-columns:1fr;gap:1rem}
       .settings-sidebar{position:static}

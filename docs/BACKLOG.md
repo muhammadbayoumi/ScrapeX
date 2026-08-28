@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1682` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2749` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1710` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2777` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2749`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2777`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -3227,19 +3227,124 @@ nothing breaks while it waits.
 
 ---
 
-### OP-82 · The palette registry is two hard-coded aliases, not a registry
+### OP-82 · ~~The palette registry is two hard-coded aliases, not a registry~~ — CLOSED 2026-08-28
 
-**Found 2026-08-27 by sweeping the documents, not by a failure.**
+**Found 2026-08-27 by sweeping the documents, not by a failure. Closed by
+[R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
 
-[scrapex/webui/app.py:195](../scrapex/webui/app.py#L195) rejects anything outside
-`{"whatsapp", "github"}`. Under [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
-those two names are **legacy aliases** and the real names are `brand` and `blue`, with
-`alternatives` extensible. So the route enforces the compatibility layer and knows nothing
-of the thing it is compatible with.
+The route rejected anything outside the two legacy names. Under
+[R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+those two are **aliases** and the real names are `brand` and `blue`, with `alternatives`
+extensible — so the route enforced the compatibility layer and knew nothing of the thing it
+was compatible with.
 
-**Not urgent** — no third palette exists to add. It is registered because the ruling that
-contradicts the code was itself invisible until today, and the next session to add a palette
-would find the refusal before it found the rule.
+**Its own closing note was wrong within a day.** It read *"Not urgent — no third palette
+exists to add"*, and the owner asked for one on 2026-08-28. What that day also found is
+that the refusal was **not** the visible failure this entry assumed. Traced end to end:
+
+| step | what happens |
+|---|---|
+| 1 | the user picks the palette; `set()` stores it locally, so the panel looks correct |
+| 2 | `pushRemote` POSTs it, and `_appearance_value` raises 400 |
+| 3 | `pushRemote` returns `response.ok` from inside a `try`, and **both call sites discard it** — nothing is logged, thrown or shown |
+| 4 | `pullRemote` keeps polling every 2 s. Its GET answers **200** with `{"appearance": null}`, so `consecutiveFailures = 0` runs every tick and the `QUIET_AFTER_FAILURES` backoff **never engages** |
+| 5 | `!remote && current.updatedAt` is true, so every tick POSTs again — a permanent 2-second write loop that persists nothing and says nothing |
+
+**And the suite could not have caught it.** The only POST in the whole test suite sent
+`whatsapp` and expected 200; one other sent `popular-blush` and expected 400. That pair
+returns the same verdict whether a third palette is allowed or not.
+
+**Built:** `APPEARANCE_PALETTES` and `APPEARANCE_PALETTE_ALIASES` in
+`scrapex/webui/app.py`, the registry in `design/appearance.js` keyed on `brand`/`blue`/
+`supabase` with the two legacy names resolved in `normalize()` and canonicalised
+server-side, and
+`tests/test_the_appearance_registry_agrees_across_both_surfaces.py` — seven assertions
+including *the server accepts the engine's own default*, which is the one that fires if a
+future rename happens in the wrong order.
+
+---
+
+### OP-91 · ~~`--control-bg` was a literal, so no palette ever reached a dark control~~ — CLOSED 2026-08-28
+
+**Found 2026-08-28 by inventorying which tokens a palette can actually reach, while
+building [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
+
+`--control-bg` is `var(--surface)` in the light `:root` and was re-declared as the literal
+`#171b21` in **both** dark blocks — `[data-theme="dark"]` and the
+`prefers-color-scheme: dark` copy. It is not a `THEME_PROPERTY`, so nothing could override
+either literal.
+
+**Measured:** WhatsApp's dark surface is `#182229` and GitHub's is `#151B23`. Neither ever
+reached a control background in dark mode; both palettes silently drew controls on the
+default surface. **8 consumers.**
+
+**Fixed** by pointing both at `var(--surface)`. The dark `--surface` *is* `#171b21`, so the
+default is byte-identical and the token follows the palette from now on.
+
+---
+
+### OP-92 · ~~`--shadow-lg` could not be re-toned by any palette~~ — CLOSED 2026-08-28
+
+**Found the same way, the same day.**
+
+`--shadow-xs` and `--shadow-sm` both derive their colour from `var(--shadow-color)`, which
+IS in `THEME_PROPERTIES`. `--shadow-lg` spelled its colour as a literal `rgb()` in all
+three places it is declared — so a palette could re-tone two of the three shadows and its
+**10 consumers** (5 in `extension/app.css`, 2 in `pages/data-workspace.css`, 2 in
+`webui.css`, 1 in `design/components.css`) kept the default tone under every appearance.
+
+**Fixed by reach, not by rewrite.** `--shadow-lg` is a `DESIGN_PROPERTY` now, so a palette
+sets the whole shadow — offsets, blur and colour — in one value, which is what Supabase
+needs since it flattens elevation rather than re-tinting it. **The default literal stays:**
+deriving it from `--shadow-color` would halve its alpha (0.16 → 0.08) and quietly flatten
+the two existing palettes, and CSS cannot double an alpha.
+
+---
+
+### OP-93 · ~~Six references to two tokens that are defined nowhere~~ — CLOSED 2026-08-28
+
+**Found the same way, the same day. These resolved to nothing and always had.**
+
+| reference | sites | the token that exists |
+|---|---|---|
+| `var(--font-sans)` | `extension/app.css` ×3, `extension/console.css`, `extension/data.css` | `--font` |
+| `var(--shadow-md)` | `scrapex/webui/static/webui.css` | `--shadow-sm` |
+
+Neither `--font-sans` nor `--shadow-md` is declared in any stylesheet in the repository.
+An undefined custom property makes the whole declaration invalid at computed-value time, so
+those five elements were falling back to the inherited font and that button was drawing no
+shadow at all — for as long as the references have existed.
+
+**Why it belongs to `R-71` rather than waiting:** a design system whose typography token
+does not reach five of its consumers is not a design system. Repointed at the real tokens;
+zero remain.
+
+---
+
+### OP-94 · 138 hard-coded values still bypass the design tokens, and the scale would have to grow
+
+**Measured 2026-08-28 while building `R-71`, after fixing the free half.**
+
+A design system a rule does not consume is decoration: `--radius` moving from 9px to 6px
+changes nothing at a rule that spells `border-radius: 9px` by hand. Every such site was
+counted across the 9 non-generated stylesheets and split by what it would take to fix:
+
+| bucket | count | verdict |
+|---|---|---|
+| **A** — duplicates a token exactly | **48** | **fixed** in `R-71`. Same pixels at the default, so zero visual change, and 48 rules now follow the appearance |
+| **B** — within 1px of a token | **75** | **left.** 57 font-size, 18 border-radius. Pointing them at the near token moves the default look, which no ruling asked for |
+| **C** — no token equivalent | **63** | **left.** 26 of them are `border-radius: 0`, which is a real "no radius" and not a bypass. The rest need the scale to grow: `font-weight` 750 (×5) and 650 (×2), font sizes from `.56rem` to `.62rem` below `--fs-2xs`, four marketing `clamp()` sizes, and radii at 2px/2.5px/14px |
+
+**One value in bucket A was a trap and the guard caught it.** `design/components.css`'s
+Sign-in-with-Google rule spelled `font-size: 14px`, which is exactly `--fs` — so it looked
+like a free win. Google's branding guidelines fix that button's type size and
+`tests/test_the_google_button_follows_googles_rules.py` asserts the literal; Supabase moves
+`--fs` to 15px, so the swap would have taken the button out of spec. Reverted with the
+reason written at the value.
+
+**Not urgent.** Buckets B and C are cosmetic drift, not breakage, and closing either is a
+decision about the scale rather than a fix. Registered so the next session does not
+re-measure it.
 
 ---
 

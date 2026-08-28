@@ -66,7 +66,7 @@ tr:hover td { background: var(--table-hover-bg); }
 /* Table-value semantics shared by history, changes, settings and data views. */
 .price {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: var(--fw-bold);
   direction: ltr;
   display: inline-block;
 }
@@ -92,7 +92,7 @@ th.nowrap { white-space: nowrap; }
 .strike {
   color: var(--muted);
   text-decoration: line-through;
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   margin-inline-start: var(--sp-2);
   font-size: var(--fs-sm);
 }

@@ -242,10 +242,24 @@ in direct conflict** and that is his decision.
 writes, and `PINNED` pins the ones that matter to a symbol.
 
 **Re-derive every cited line from the file, at the base you are about to push onto.**
-Computed, never typed. On 2026-08-22 this bit five times: `app.py:2710 → 2725 → 2787` in
-one day, `domain.py:201/:297 → :206/:329`, `webui/app.py:2589 → :2604`, `cli.py:164 →
-:185`, and one session's *own* edit moving its *own* pinned line inside the very PR that
-added the lesson about it.
+Computed, never typed. On 2026-08-22 this bit five times: `app.py` :2710 → :2725 → :2787
+in one day, `domain.py` :201/:297 → :206/:329, `webui/app.py` :2589 → :2604, `cli.py`
+:164 → :185, and one session's *own* edit moving its *own* pinned line inside the very
+PR that added the lesson about it.
+
+> **Why the four line numbers above are written with a space before the colon.** They are
+> HISTORY — a record of where lines moved on 2026-08-22 — not citations anybody should
+> follow. Written in the ordinary `<path>:<line>` shape, with no space, the guard reads
+> them as live citations and checks them against today's file — which is exactly what
+> happened on 2026-08-28: `app.py` grew by 28 lines, the old 2589 became blank, and
+> `test_no_citation_lands_on_a_blank_line` failed on a sentence that was never wrong. The
+> other three were latent instances of the same false positive, passing only because
+> those lines still happened to hold text. (And writing the offending form out here, as
+> an illustration, failed the guard a second time — so the shape is described rather than
+> shown.)
+> **Correcting the numbers would have falsified the record**; a space breaks the
+> `path.py:digits` shape without touching the meaning. Recording history and making a
+> citation are different acts, and this file needed to stop spelling them the same way.
 
 **Do not pin a line in a file another session is editing.** Cite the symbol in prose and
 say why it is unpinned, with the commit the measurement was taken at. A session that

@@ -342,6 +342,71 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The supabase appearance — 2026-08-28 · branch `feat/the-supabase-appearance-is-a-design-system`, no PR yet
+
+**`REQ-48`, ruled the same day as
+[R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+Based on `main` at `b836de3`.**
+
+> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
+> system كامل»
+
+**ONE THING IS WAITING ON HIM AND IT IS ONE LINE.** `DEFAULTS.deviceColors` is still `true`,
+and `apply()` returns early on that branch after `clearTheme()` — so a user with no stored
+preference never has *any* palette applied. `github` was never the default anybody saw and
+neither is `supabase` yet. He asked for the numbers before deciding
+(«قوله لى بالأرقام الأول»), and they are:
+
+| | |
+|---|---|
+| stored states that change | **1 of 8** — only "no stored preference at all". Every user who ever chose keeps their choice, including a legacy `v1` record with neither key |
+| migration needed | **none** — `normalize()` already resolves every stored shape |
+| server changes | **none** — `_appearance_value` has no default and `GET` returns `null` when unset |
+| tests asserting the current default | **one line**, `tests/test_vendor.py`'s `assert "deviceColors: true" in script`. The other nine references set the value explicitly |
+| what a fresh user sees instead today | the OS `AccentColor` on Chrome and Edge; otherwise the `tokens.css` teal that `R-59` decision 2 calls *"deprecated — legacy colour residue and migration debt"* |
+
+**What is built.** The appearance engine gained a second axis: all 36 `THEME_PROPERTIES`
+were colours, so «design system كامل» was impossible in principle, not merely absent.
+`DESIGN_PROPERTIES` carries radius, typography, elevation, motion and focus geometry, split
+into `palette.design` (scheme-independent) and `palette.themes[scheme].design` (elevation,
+which Supabase drops in dark and replaces with a border). `R-59` decision 3 is built rather
+than only enforced — keys are `brand`/`blue`/`supabase`, the two legacy names are aliases —
+which closes **`OP-82`**.
+
+**Three defects were fixed because a design system could not work without them:** `OP-91`
+`--control-bg` was a literal in both dark blocks so no palette ever reached a dark control;
+`OP-92` `--shadow-lg`'s colour was a literal while both siblings derived from
+`--shadow-color`; `OP-93` six references to `--font-sans` and `--shadow-md`, tokens defined
+nowhere in the repository. `OP-94` records the 138 hard-coded values still bypassing a token
+and what the scale would have to grow to absorb them; the 48 that duplicated a token exactly
+are fixed.
+
+**The values are sourced, not chosen.** Supabase publishes token names with no values; the
+stepped ramps are HSL literals and every semantic colour is computed at runtime in OKLCH
+from ten scalar inputs, so each one is marked `PUBLISHED` or `derived` at the value. **All 34
+contrast assertions were computed against the guard's own formula before the palette was
+written** — playwright is not installed on this machine, so CI would otherwise have been the
+first to know. That found two light-mode failures, and three Supabase values that fail
+thresholds this repository already enforces:
+
+| their value | measured | the guard needs |
+|---|---|---|
+| their focus ring, flat | **1.47:1** on their own background | 3:1 |
+| their `--border-stronger` | **1.57:1** light, **1.53:1** dark, on their own card | 3:1 |
+| their `--warning` | **2.68:1** on their own `warning-300` tint | 4.5:1 |
+| their brand green on white | **1.99:1** | — the reason `accentContrast` is near-black in both schemes |
+
+**Two guards were holes rather than numbers needing an edit.** The contrast parametrize was
+the literal `["whatsapp", "github"]`, so a new palette was never contrast-tested at all —
+under `R-71` the **default** would have been the untested one. Derived from the registry it
+goes from 68 assertions to 102. Same fix for the hover sweep's four hard-coded pairs.
+
+**Not verifiable on this machine:** everything in `tests/test_panel_dom.py` and
+`tests/test_panel_startup.py` needs playwright, which `importorskip` skips here. The rest of
+the suite is green.
+
+---
+
 > **Measured 2026-08-27: exactly one is open, and it should not be merged.**
 > [#278](https://github.com/muhammadbayoumi/ScrapeX/pull/278) is green and `CLEAN`, and its
 > whole substance — `R-68`, `R-69`, the plan's status table, `REQUESTS.md` — **is already on
@@ -1473,7 +1538,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1671](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1699](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

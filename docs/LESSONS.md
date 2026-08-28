@@ -2213,7 +2213,7 @@ when — especially when — it is only the connective tissue of a sentence.
 ### `settle_view` is the case that proves the class, not an example of it
 
 The worst of the three was in the docstring of `settle_view`
-([tests/test_panel_dom.py:160](../tests/test_panel_dom.py#L160)) — a helper used at
+([tests/test_panel_dom.py:161](../tests/test_panel_dom.py#L161)) — a helper used at
 four call sites, one of them the guard `#252` added. Its docstring **is** the entire
 evidentiary basis for the wait: 20/20 runs reading the box mid-animation, 7/20
 failing outright, height `47.99999237060547` = 48 − 2⁻¹⁷ at one float32 ulp. Every
@@ -2231,7 +2231,7 @@ and it is the least verifiable.
 
 Neither comment was **wrong**. The clamp it named is real and still in the sheet —
 `button, .button { min-height: var(--control-height) }`
-([design/components.css:369-371](../design/components.css#L369)), applying to every
+([design/components.css:380-371](../design/components.css#L380)), applying to every
 bare `<button>`, which is why a rendered box alone cannot catch a height
 regression. The 47.5 incident happened. What had gone was the ability to **check**
 either.
@@ -2284,7 +2284,7 @@ rots like any other.**
 **Apply, for this class:** when you delete or rename a test, grep `tests/` for its name before you
 commit — `test_the_tests_name_tests_that_exist.py` now does it for you and fails
 with the file and line. When you cite a test as your reason, prefer citing the
-live rule or file it rests on: `design/components.css:369-371` outlives any test
+live rule or file it rests on: `design/components.css:380-371` outlives any test
 that measured it.
 
 ### The general form: a claim survives being wrong wherever nothing checks it
@@ -2824,3 +2824,141 @@ Measured on SQLite 3.50.4: `UPDATE t SET d = 'new' WHERE k IN ()` is **accepted*
 nothing, and reports `rowcount` 0 — exactly what the guard returned by hand. The guard is
 gone rather than kept behind a corrected comment, and the test now pins the behaviour,
 which holds either way.
+
+---
+
+## 20 · Copying a design system copies its accessibility failures too, and four ways a default can be a fiction
+
+*Written 2026-08-28, building `REQ-48` / [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).*
+
+The task was to add a `supabase` appearance and make it the default. Five of the things that
+made it hard were not in the request, not visible from the code, and each is the kind of
+failure this file exists for: **the tree keeps working and something stops being true.**
+
+### 20.1 · The reference system's own values failed guards this repository already enforces
+
+The instinct with a published design system is fidelity: copy the values. Measured against
+`tests/test_panel_dom.py`'s existing contrast gate, three of Supabase's own values do not
+clear it — **against their own backgrounds**, not against ours:
+
+| their value | measured | the guard needs |
+|---|---|---|
+| focus ring (`--primary` at 55%, flattened) | **1.47:1** on their `--background` | 3:1 |
+| `--border-stronger` | **1.57:1** light, **1.53:1** dark, on their own `--card` | 3:1 |
+| `--warning` | **2.68:1** on their own published `warning-300` tint | 4.5:1 |
+| brand green on white | **1.99:1** | — |
+
+A faithful copy would have shipped three accessibility regressions **and** been the palette
+the owner sees first. The last row is the load-bearing one: because the brand green is
+1.99:1 on white, `accentContrast` has to be **near-black in both schemes** — which then
+forces the switch thumb dark too, since white on their `brand-500` is 2.63:1 against a 2.9
+floor.
+
+**The rule:** where a reference value fails, hold the reference's own *hue and chroma* and
+move only the lightness. Their `--warning` is `oklch(0.68 0.14 75)`; hue 75 and chroma 0.14
+were kept and 0.68 became 0.52, which is 5.14:1. The divergence is then one number with a
+reason, not a new colour.
+
+**And say WHICH values are quotations.** Supabase's docs publish token *names* with no
+values. The stepped ramps are real HSL literals in their packages; every semantic colour is
+computed at runtime in OKLCH from about ten scalar inputs, so **no hex exists to copy** and
+each one has to be derived by evaluating their expressions. Every value in the palette entry
+is marked `PUBLISHED` or `derived`. Before the derivations were trusted, the OKLCH→sRGB
+conversion was checked against five known values and reproduced all five.
+
+**One more thing a reference can be wrong about: itself.** Third-party token extractors, and
+Supabase's own `packages/config`, still name `Circular` as the brand face. It is a dead
+self-referential `var()` fallback — the live stack across every one of their apps is Inter,
+Manrope and Source Code Pro, all OSS. The licensing problem that would have blocked the
+typography half **did not exist**, and only reading their app-level CSS showed that.
+
+### 20.2 · A registry that carries only colour cannot carry a design system, and the count is the proof
+
+`THEME_PROPERTIES` was 36 entries: **shape 0, typography 0, spacing 0, elevation 0, motion
+0.** So *«لن يكون الوان فقط»* — not colours only — was not a bigger palette entry, it was an
+axis that did not exist. A session that read the request as "add a row to `PALETTES`" would
+have produced a recoloured UI and reported a design system.
+
+**Count the properties before agreeing to the adjective.** «كامل» is checkable: 107
+properties in `tokens.css`, 71 beyond the registry's reach, 53 that a design system must
+override, of which 3 must stay unreachable by a recorded decision.
+
+### 20.3 · Four ways a "default" was already a fiction
+
+**`DEFAULTS.palette` was unreachable.** `deviceColors` defaults to `true` and `apply()`
+returns early on that branch after `clearTheme()` — no `data-palette`, no properties. So
+`github` had never been the default anybody saw, for as long as the setting has existed. A
+rename would have satisfied the request in the register and changed nothing on screen.
+
+**A hard-coded parametrize list is a hole, not a list.** The contrast guard read
+`["whatsapp", "github"]`, so a palette added to the registry was simply never
+contrast-tested — and under `R-71` the **default** would have been the untested one, with
+nothing anywhere saying so. Derived from the registry it went from 68 assertions to 102.
+Same shape in the hover sweep's four hard-coded pairs.
+
+**Two literals made two tokens unreachable.** `--control-bg` was `#171b21` in both dark
+blocks and is not a `THEME_PROPERTY`, so no palette ever reached a dark control background —
+WhatsApp's dark surface is `#182229` and GitHub's `#151B23`, and neither ever arrived.
+`--shadow-lg` spelled its colour as a literal while both siblings derived from
+`--shadow-color`. **A token that exists is not a token that reaches anything**, and the
+cheapest check is to grep the token's own name in the dark blocks as well as the light one.
+
+**And 48 rules spelled a token's value by hand.** `--radius` moving 9px → 6px changes
+nothing at `border-radius: 9px`. A design system a rule does not consume is decoration.
+
+### 20.4 · The cross-surface divergence that reports nothing and retries forever
+
+Adding a palette the server did not know produced **no error anywhere** and a permanent
+2-second write loop. The chain, worth reading once because every link is ordinary:
+
+1. `set()` stores locally, so the panel looks correct.
+2. `pushRemote` POSTs; the server raises 400.
+3. `pushRemote` returns `response.ok` from inside a `try` — and **both call sites discard the
+   return value.**
+4. `pullRemote` keeps polling. Its GET answers **200** with `{"appearance": null}`, so
+   `consecutiveFailures = 0` runs every tick and the `QUIET_AFTER_FAILURES` backoff **never
+   engages** — the backoff counts *transport* failures, and there weren't any.
+5. `!remote && current.updatedAt` stays true, so every tick POSTs again. Forever.
+
+**A success on the read path can hide a permanent failure on the write path.** And the suite
+could not have caught it: the only POST in it sent an accepted palette and expected 200, and
+one other sent nonsense and expected 400 — a pair whose verdict is identical either way.
+`tests/test_the_appearance_registry_agrees_across_both_surfaces.py` is the answer, and it
+reads the JavaScript rather than holding a third hand-written list, because a third list is
+the defect.
+
+### 20.5 · Three self-inflicted ones, kept because they are the cheapest to repeat
+
+**A sweep whose pattern matches less than it claims reports a clean run.** The script that
+re-derived shifted citations parsed the `PINNED` table with a regex accepting only
+double-quoted expected strings. Four rows are single-quoted *because their text contains a
+`"`*. Those four stayed stale and the run printed success. **Assert the parse count against
+something independent** — it now compares against the number of tuples the table opens, and
+that check is what turned 42 parsed rows into 57.
+
+**Recording history and making a citation are different acts, and this repository spelled
+them the same way.** `ORCHESTRATION.md` documents past citation drift as
+`webui/app.py` :2589 → :2604. Growing `app.py` by 28 lines made old line 2589 blank and the
+blank-line guard failed **on a sentence that was never wrong** — correcting the number would
+have falsified the record. A space before the colon breaks the `path:line` shape and keeps
+the meaning. Three sibling numbers in the same sentence were latent instances of the same
+false positive. *(And writing the offending form out as an illustration failed the guard a
+second time.)*
+
+**Pointing a hard-coded value at "the token it already equals" can be wrong.** The
+Sign-in-with-Google rule spelled `font-size: 14px`, which is exactly `--fs` — a free win by
+every mechanical test. Google's branding guidelines fix that button's type size, its own
+guard asserts the literal, and Supabase moves `--fs` to 15px. **The same reasoning that
+keeps the three `--google-btn-*` colours out of the palette applies to its type size**, and
+only the guard connected them.
+
+### 20.6 · When the guard cannot run locally, run its formula by hand first
+
+`tests/test_panel_dom.py` needs playwright, which `importorskip` skips on this machine. So
+**CI would have been the first thing to discover that Supabase's focus ring is 1.47:1.**
+Transcribing `_contrast` and its 17 pairs into a scratch script and running the proposed
+palette through it *before* writing it into the source found two failures and cost minutes.
+
+The scratch script asserts on `REQ-48` in `docs/REQUESTS.md` — a string added in this
+session — rather than on `__file__`, per the trap in `CLAUDE.md`: `__file__` catches a
+misdirected import and never a misdirected read.

@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1671`, drawn by
+(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1699`, drawn by
 `extension/app.js:607` and `:641`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
@@ -2594,9 +2594,13 @@ zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. T
    endpoints are an internal layer; only what is reusable beyond ScrapeX is a candidate.
 6. **The FastAPI/Jinja surfaces are an explicit LOCAL-WEB profile.**
 
-**Decisions 1 and 3 are half-built:** `scrapex/webui/app.py:195` refuses any palette outside
-`{"whatsapp", "github"}` — the aliases are enforced and the registry they alias does not
-exist. Registered as `OP-82`.
+**Decisions 1 and 3 were half-built for nineteen days:** `scrapex/webui/app.py` refused any
+palette outside `{"whatsapp", "github"}` — the aliases were enforced and the registry they
+alias did not exist. Registered as `OP-82`, **and built on 2026-08-28 by
+[R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**,
+which closed `OP-82`. The keys are `brand`, `blue` and `supabase`; the two legacy names are
+resolved in `normalize()` and canonicalised server-side, and a test compares the two
+surfaces' registries because a divergence between them is silent.
 
 **Not carried:** that file's §11 listed ten questions pending the *other* products' audits.
 They are mbiXaddin's and mbiXsite's to answer, not this repository's. `git show
