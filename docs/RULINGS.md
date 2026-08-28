@@ -2978,9 +2978,25 @@ teal — the residue `R-59` decision 2 calls debt — or the OS `AccentColor` wh
 exposes one.
 
 Asked whether to flip `deviceColors` to `false` so the default is real, **he asked for the
-numbers first: «قوله لى بالأرقام الأول».** That half is therefore **open**, and per `CLAUDE.md`
-everything that does not depend on it is built while the undecided fact stays visible rather
-than absorbed by a default.
+numbers first: «قوله لى بالأرقام الأول».** They were measured over `normalize()`'s own
+precedence rather than estimated:
+
+| | |
+|---|---|
+| stored states that change | **1 of 8** — only "no stored preference at all" |
+| preserved | every state that ever expressed a choice, including a legacy `v1` record with neither key, which still derives from `mode` |
+| migration | **none** — `normalize()` already resolves every stored shape |
+| server | **none** — `_appearance_value` has no defaults, `GET` returns `null` when unset |
+| tests pinning the old default | **one line.** The other nine `deviceColors` references in `tests/` all set the value explicitly |
+
+**He then chose the flip**, so `DEFAULTS.deviceColors` is `false` and `supabase` is what a
+fresh install paints. *"Device colours"* remains available and is one click away in the
+panel — this changed which way the switch starts, not whether it exists.
+
+**And it closes a second thing nobody asked about.** What a fresh user actually got was
+`tokens.css`'s `:root` teal — the residue decision 2 above calls *"deprecated ... migration
+debt"* — or the operating system's `AccentColor` where the browser exposes one. **The
+deprecated colour was the shipped default, not a leftover.**
 
 #### 4 · The conflict with `R-59` is removed rather than left standing
 

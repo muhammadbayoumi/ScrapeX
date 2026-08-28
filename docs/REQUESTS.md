@@ -2592,7 +2592,7 @@ He answered all four questions:
 |---|---|
 | the id | **`supabase`** — the correct spelling, not the `supbase` he first typed |
 | how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: a new token axis on the engine **and** the component rules restyled |
-| does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول». The `deviceColors` flip stays **open** |
+| does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول», then **«اقلبها»**. `deviceColors` defaults to `false`, so a fresh install paints `supabase`; 1 stored state of 8 is affected and it is the one that never chose |
 | the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-71` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
 
 A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on `main` at

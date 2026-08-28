@@ -148,7 +148,18 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
     assert 'mode: "device"' in script
-    assert "deviceColors: true" in script
+    # `deviceColors` DEFAULTS TO FALSE since R-71, and the assertion is kept
+    # rather than deleted because it is the only one in the suite that pins this
+    # default at all -- measured: nine other references to `deviceColors` in
+    # tests/ all SET the value explicitly, so none of them would notice a flip.
+    #
+    # Why it has to be false: apply() returns early on the true branch after
+    # clearTheme(), so with `true` the named default palette is never applied for
+    # a user with no stored preference. `github` was the default for as long as
+    # the setting existed and nobody ever saw it. `mode: "device"` above still
+    # holds -- the SCHEME follows the device, only the COLOURS no longer do.
+    assert "deviceColors: false" in script
+    assert 'palette: "supabase"' in script
     assert "data-appearance-scheme-mode" in script
     assert "data-appearance-palettes" in script
 

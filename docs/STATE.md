@@ -351,11 +351,13 @@ Based on `main` at `b836de3`.**
 > «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
 > system كامل»
 
-**ONE THING IS WAITING ON HIM AND IT IS ONE LINE.** `DEFAULTS.deviceColors` is still `true`,
-and `apply()` returns early on that branch after `clearTheme()` — so a user with no stored
-preference never has *any* palette applied. `github` was never the default anybody saw and
-neither is `supabase` yet. He asked for the numbers before deciding
-(«قوله لى بالأرقام الأول»), and they are:
+**THE DEFAULT IS REAL NOW.** `DEFAULTS.deviceColors` was `true`, and `apply()` returns early
+on that branch after `clearTheme()` — so a user with no stored preference never had *any*
+palette applied, and `github` was the default for as long as the setting existed **without
+anybody ever seeing it.** He asked for the numbers before deciding
+(«قوله لى بالأرقام الأول») and then chose the flip, so it is `false` and a fresh install
+paints `supabase`. *"Device colours"* is still there, one click away in the panel. The
+numbers he decided on:
 
 | | |
 |---|---|

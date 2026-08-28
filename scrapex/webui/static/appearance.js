@@ -307,14 +307,35 @@
     mode: "device",
     scheme: "light",
     // R-71: `supabase` is the default appearance, superseding R-59 decision 1's
-    // `brand`. NOTE WHAT THIS DOES AND DOES NOT DO, because it reads like more
-    // than it is: `deviceColors` below is still `true`, and apply() returns
-    // early on that branch after clearTheme(), so a user with no stored
-    // preference never has this palette applied at all. R-71 section 3 records
-    // that half as HIS, open, pending the numbers he asked for -- one line here
-    // and one assertion in tests/test_vendor.py.
+    // `brand`.
     palette: "supabase",
-    deviceColors: true,
+    // AND THIS IS THE LINE THAT MAKES THE ONE ABOVE MEAN ANYTHING. It was `true`,
+    // and apply() returns early on that branch after clearTheme() -- so the named
+    // default palette was never applied for a user with no stored preference.
+    // `github` was the default for as long as the setting existed and NOBODY
+    // EVER SAW IT; a rename alone would have satisfied the request in the
+    // register and changed nothing on screen.
+    //
+    // He asked for the numbers before deciding and then chose the flip. What it
+    // costs, enumerated over normalize()'s own precedence rather than estimated:
+    //
+    //   no stored record at all          -> CHANGES. Sees supabase.
+    //   v2 record, deviceColors either way -> unchanged, the stored boolean wins
+    //   v1 record, followColors either way -> unchanged, the legacy key wins
+    //   v1 record, neither key            -> unchanged, derived from `mode`
+    //
+    // ONE state of eight, and it is the only one that never expressed a choice.
+    // No migration: normalize() already resolves every stored shape. No server
+    // change: _appearance_value has no defaults and GET returns null when unset.
+    //
+    // What it also fixes, unasked: the fallback a fresh user actually got was
+    // `tokens.css`'s :root teal -- the residue R-59 decision 2 calls "deprecated
+    // ... migration debt" -- or the OS AccentColor where the browser exposes one.
+    // The deprecated colour was the shipped default, not a leftover.
+    //
+    // "Device colours" REMAINS AVAILABLE and is one click away in the panel; this
+    // changes which way the switch starts, not whether it exists.
+    deviceColors: false,
     updatedAt: 0,
   });
   const THEME_PROPERTIES = Object.freeze([
