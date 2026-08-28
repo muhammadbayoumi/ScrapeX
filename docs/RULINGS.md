@@ -2569,7 +2569,14 @@ finishes when the problems the audit found are solved. Then Drive.
 
 ### R-59 · The palette registry: `brand` is default, `alternatives` is extensible, teal is debt
 
-**2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked**
+**2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked ·
+decision 1 ~~active~~ SUPERSEDED 2026-08-28 by [R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**
+
+**Decision 1 only.** `brand` is no longer the default palette — `supabase` is. Decisions
+2–6 are untouched and still govern: teal is still debt, the aliases still stand, components
+still consume roles, and `R-71` builds the extensible `alternatives` collection that
+decision 1 asked for rather than abandoning it. Per **C4** the original text below stays
+exactly as it was recorded.
 
 Six decisions of his lived **only** in `docs/design-system/SCRAPEX_GLOBAL_MAPPING.md` —
 zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. That breaks
@@ -2921,3 +2928,70 @@ be correct, but the reason given for it was not the reason.
 verified on a second read-only connection: `v4` approved with 27 fields and 17,371 `active`
 rows, **zero active rows on a retired version**, `OP-64`'s 14 impostors still on `v3` and still
 `status='retired'`, 74,574 revisions unchanged, `foreign_key_check` clean.
+
+---
+
+### R-71 · An appearance is a whole design system, and `supabase` is the default one
+**2026-08-28 · design system · supersedes [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt) decision 1 only**
+
+> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
+> system كامل · https://supabase.com/design-system · على tree جديدة»
+> — [REQ-48](REQUESTS.md#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default)
+
+Four questions were put to him with the measurement behind each, because three of them
+walked into something already decided. He answered all four.
+
+#### 1 · The id is `supabase`, spelled correctly
+
+He wrote `supbase` in the request and linked `supabase.com`; asked which spelling was
+canonical, he chose **`supabase`**. It is not cosmetic — the id is written to
+`localStorage`, sent over `POST /api/appearance`, validated server-side, set as
+`data-palette` on the root element, and used in screenshot filenames, so a later correction
+would break stored preferences. Recorded before it was typed anywhere.
+
+#### 2 · «كامل» means the tokens AND the component rules
+
+Measured and put to him: `THEME_PROPERTIES` in `design/appearance.js` is **36 entries and
+all 36 are colours.** Radius, font, type scale, spacing, elevation, duration and easing live
+in `design/tokens.css` as `:root` values that **no appearance choice can reach.** So *"not
+colours only"* could not be satisfied by a third row in `PALETTES`.
+
+Offered three depths — colour only, colour plus a new token axis, or both plus rewriting the
+component rules — **he chose the deepest: «الكامل: التوكنز + قواعد المكونات».**
+
+So the work is: a second axis on the appearance engine so an appearance carries shape,
+typography, elevation, spacing and motion; **and** the component anatomy in
+`design/components.css` restyled to match. Decision 4 of `R-59` is unaffected and binding
+throughout — components consume semantic roles, never a palette identifier.
+
+#### 3 · Whether a new user actually SEES it is still his call
+
+`DEFAULTS` is `{mode: "device", scheme: "light", palette: "github", deviceColors: true}`,
+and `apply()` returns early on the `deviceColors` branch after `clearTheme(root)` — no
+`data-palette`, no custom properties. **So `github` has never been the default anybody saw**,
+and neither would `supabase` be from a rename alone. A fresh user gets `tokens.css`'s `:root`
+teal — the residue `R-59` decision 2 calls debt — or the OS `AccentColor` where the browser
+exposes one.
+
+Asked whether to flip `deviceColors` to `false` so the default is real, **he asked for the
+numbers first: «قوله لى بالأرقام الأول».** That half is therefore **open**, and per `CLAUDE.md`
+everything that does not depend on it is built while the undecided fact stays visible rather
+than absorbed by a default.
+
+#### 4 · The conflict with `R-59` is removed rather than left standing
+
+His instruction: **«امسح التعارض الغرض الحصول على تعديلات»** — clear the conflict; the point
+is to get the change made.
+
+So the code stops contradicting the register. `R-59` decision 3 made `whatsapp` and `github`
+legacy aliases for `brand` and `blue`, and decision 1 made `alternatives` extensible; neither
+was ever built, which is [OP-82](BACKLOG.md) — `scrapex/webui/app.py` refuses any palette
+outside `{"whatsapp", "github"}`, enforcing a compatibility layer over a registry that does
+not exist. **R-71 builds that registry and closes `OP-82`**, so adding an appearance after
+this one costs nothing.
+
+**One thing is deliberately NOT erased.** «امسح» is read as *clear the conflict*, not *delete
+the ruling*: **C4** is his own rule and it says a superseded ruling stays, marked, pointing at
+its replacement. `R-59` is therefore intact above with decision 1 struck and this entry named,
+and decisions 2–6 still active. Erasing it would have hidden why `brand` was ever the default
+from the next session to ask.

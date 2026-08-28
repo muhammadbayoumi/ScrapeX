@@ -99,7 +99,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
-| [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **Captured** — measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so "becomes the default" is two changes and not one. Meets [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt) decision 1 head-on, and would close [OP-82](BACKLOG.md) | 2026-08-28 |
+| [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **Ruled** 2026-08-28 as [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) — measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 
 ---
 
@@ -2576,6 +2576,15 @@ change is therefore a decision, not a transcription.
 
 ### State
 
-**Captured.** A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on
-`main` at `b836de3` — and nothing is built. Awaiting his answers on the name, on how far
-*«كامل»* reaches, and on the `R-59` supersession.
+**Ruled the same day** as [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+He answered all four questions:
+
+| question | his answer |
+|---|---|
+| the id | **`supabase`** — the correct spelling, not the `supbase` he first typed |
+| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: a new token axis on the engine **and** the component rules restyled |
+| does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول». The `deviceColors` flip stays **open** |
+| the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-71` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
+
+A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on `main` at
+`b836de3`.
