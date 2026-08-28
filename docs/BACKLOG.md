@@ -3348,6 +3348,39 @@ re-measure it.
 
 ---
 
+### OP-95 · A killed engine leaves its job saying `running` — on Windows, and CI cannot see it
+
+**Found 2026-08-28 by running the full suite on the owner's machine. NOT this branch's
+defect — proven.**
+
+`tests/test_the_engine_survives_being_killed.py::test_a_killed_engine_does_not_leave_a_job_claiming_to_run`
+starts a real engine, kills it, restarts over the same database with `swept=True`, and
+asserts the sweep has reset the job. It reads `running`.
+
+**Isolated to the platform, not to the change.** Re-run on a clean checkout of `main` at
+`b836de3` in a second worktree, with none of this branch's commits present: **identical
+failure, same assertion, same value.** `main`'s CI is green, and
+[the CI workflow](../.github/workflows/ci.yml) runs on ubuntu only — so this is a
+**Windows-only red that CI is structurally unable to report.**
+
+**Why it matters more than a flaky test.** The test's own failure message states the
+consequence: `_source_is_busy` reads that status, so the source is *"blocked from every
+future crawl and nothing anywhere says why"*. If the sweep really does not run on Windows,
+then a crashed engine on either of the owner's two machines wedges that source silently —
+and he works from Windows exclusively.
+
+**Not diagnosed here.** It was found while verifying an unrelated change and is registered
+rather than absorbed, per `R-01`: the cause has to be proven before anything is edited, and
+this branch is not the place. **The first question is whether the sweep runs at all on
+Windows or runs and fails to match** — `Engine.start(swept=True)` and `OP-19` are the thread
+to pull.
+
+**This is the "a green lies" case in [ORCHESTRATION.md](ORCHESTRATION.md) §7 pointing the
+other way:** an ubuntu-only matrix makes a platform-specific defect invisible to every gate
+the repository has, on the only platform the owner uses.
+
+---
+
 ---
 
 ## 3. Decided, not yet built

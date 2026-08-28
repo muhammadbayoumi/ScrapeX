@@ -174,7 +174,6 @@ from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
 from .update_api import create_update_router
 
-
 #: The appearance registry, server side, and it MUST agree with the Map in
 #: `design/appearance.js`. Two surfaces cannot import from each other at
 #: runtime, so agreement is asserted by a test rather than achieved by sharing:
