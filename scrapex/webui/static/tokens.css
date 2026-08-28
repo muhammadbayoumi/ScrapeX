@@ -145,9 +145,14 @@
 
   /* Focus ring geometry. Extracted as tokens because a design system sets the
      ring's width and offset, not only its colour -- and --focus already
-     travelled with the appearance while these two could not. The defaults are
-     what the stylesheets were already drawing by hand. */
-  --focus-ring-width: 2px;
+     travelled with the appearance while these two could not.
+     THE DEFAULTS ARE WHAT THE SHARED RULE WAS ALREADY DRAWING: 3px at a 2px
+     offset, read off design/components.css rather than chosen, so extracting
+     them moves nothing. Supabase narrows the ring to 2px, which is its `ring-2`.
+     Two INSET rings are deliberately left at their own 2px -- the split-button
+     trigger and the source row -- because an inset ring is sized against the
+     control it sits inside, not against the page. */
+  --focus-ring-width: 3px;
   --focus-ring-offset: 2px;
   --z-sticky: 10;
   --z-overlay: 20;

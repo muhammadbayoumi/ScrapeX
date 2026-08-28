@@ -613,8 +613,9 @@ select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
 [tabindex]:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid
+    color-mix(in srgb, var(--focus) 70%, transparent);
+  outline-offset: var(--focus-ring-offset);
 }
 
 input[aria-invalid="true"],
@@ -851,8 +852,11 @@ button.chip {
 }
 
 .source-selection-row:has(input:focus-visible) {
-  outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-  outline-offset: -3px;
+  /* An INSET ring: the offset is the negative of the width so the whole stroke
+     stays inside the row, which is why it is derived rather than repeated. */
+  outline: var(--focus-ring-width) solid
+    color-mix(in srgb, var(--focus) 70%, transparent);
+  outline-offset: calc(-1 * var(--focus-ring-width));
 }
 
 .source-selection-row input[type="checkbox"] {
@@ -898,6 +902,11 @@ code {
 
 .page-heading {
   min-width: 0;
+  /* The heading face. Defaults to var(--font), so a design system that sets one
+     face changes nothing here and one that PAIRS two -- Supabase pairs Manrope
+     with Inter -- gets the pairing without every heading rule learning a second
+     token name. */
+  font-family: var(--font-heading);
 }
 
 .page-eyebrow {
@@ -1432,7 +1441,10 @@ code {
 .split-button-trigger .sx-icon { width: 1.05rem; height: 1.05rem; }
 .split-button-chevron {
   margin-inline-start: auto;
-  transition: transform var(--dur-fast) var(--ease);
+  /* --ease-travel, not --ease: this chevron ROTATES rather than appears, and the
+     two are a different curve in Supabase's system. --ease-travel defaults to
+     var(--ease), so nothing moves until an appearance distinguishes them. */
+  transition: transform var(--dur-fast) var(--ease-travel);
 }
 .split-button-menu[open] .split-button-chevron { transform: rotate(180deg); }
 .split-button-menu[open] .split-button-trigger {

@@ -1743,12 +1743,12 @@ menu's own `z-index: 120` inside it. The fix adds
 `var(--z-overlay)` while open — correct, measured, and guarded by a hit test.
 
 **Why the rule belongs one level up.** The `120` is the shared component's
-([design/components.css:1429](../design/components.css#L1429)), so the knowledge *"this
+([design/components.css:1456](../design/components.css#L1456)), so the knowledge *"this
 menu must not be painted over"* is the component's too. The component's own comment,
 ten lines under that declaration, states the repository's rule for exactly this
 situation: *"When two independent consumers break the same way, the shared rule is the
 defect rather than the consumers"*
-([design/components.css:1439](../design/components.css#L1439)).
+([design/components.css:1466](../design/components.css#L1466)).
 
 **And the prose now tells the next consumer to write the selector again.**
 `docs/UI-KIT.md` records the trap as placement guidance — *"where a layer really is
@@ -1839,7 +1839,7 @@ declaration whose knowledge it is:
 ```
 
 then `python tools/sync_design_assets.py`. It applies — `.split-button` is already
-`position: relative` ([design/components.css:1352](../design/components.css#L1352)) —
+`position: relative` ([design/components.css:1377](../design/components.css#L1377)) —
 and it is inert unless a menu is open. The card keeps its own `z-index: 1`, which is
 local placement, not this rule.
 
@@ -1950,7 +1950,7 @@ that is the question a person is asking.**
 
 **The same file breaks the three-token rule in four more places, and those are NOT this
 entry.** `.workspace-menu` invents `z-index: 25` between overlay and modal;
-`.split-button-options` uses `120` ([design/components.css:1429](../design/components.css#L1429));
+`.split-button-options` uses `120` ([design/components.css:1456](../design/components.css#L1456));
 `.grid-feature-popover` uses `100` and `.column-chooser-backdrop` `10020`
 ([scrapex/webui/static/grid-theme.css:663](../scrapex/webui/static/grid-theme.css#L663),
 [scrapex/webui/static/grid-theme.css:311](../scrapex/webui/static/grid-theme.css#L311)).

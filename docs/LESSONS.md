@@ -2231,7 +2231,7 @@ and it is the least verifiable.
 
 Neither comment was **wrong**. The clamp it named is real and still in the sheet —
 `button, .button { min-height: var(--control-height) }`
-([design/components.css:380-371](../design/components.css#L380)), applying to every
+([design/components.css:378-380](../design/components.css#L378)), applying to every
 bare `<button>`, which is why a rendered box alone cannot catch a height
 regression. The 47.5 incident happened. What had gone was the ability to **check**
 either.
@@ -2284,7 +2284,7 @@ rots like any other.**
 **Apply, for this class:** when you delete or rename a test, grep `tests/` for its name before you
 commit — `test_the_tests_name_tests_that_exist.py` now does it for you and fails
 with the file and line. When you cite a test as your reason, prefer citing the
-live rule or file it rests on: `design/components.css:380-371` outlives any test
+live rule or file it rests on: `design/components.css:378-380` outlives any test
 that measured it.
 
 ### The general form: a claim survives being wrong wherever nothing checks it
@@ -2935,6 +2935,13 @@ double-quoted expected strings. Four rows are single-quoted *because their text 
 `"`*. Those four stayed stale and the run printed success. **Assert the parse count against
 something independent** — it now compares against the number of tuples the table opens, and
 that check is what turned 42 parsed rows into 57.
+
+**And the same sweep silently CORRUPTED a citation, which is worse than missing one.** A
+`path:369-371` range is two numbers, and rewriting `path:369` inside it produced
+`path:380-371` — a backwards range that no guard checks, because both the blank-line test
+and the `PINNED` test read only the first number. It survived two green runs and was found
+by reading the file. **A line-number rewrite has to recognise ranges**, or it turns a
+correct citation into a nonsensical one while reporting success. Two documents carried it.
 
 **Recording history and making a citation are different acts, and this repository spelled
 them the same way.** `ORCHESTRATION.md` documents past citation drift as
