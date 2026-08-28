@@ -181,17 +181,52 @@ def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
     assert 'bg: "#0D1117"' in appearance  # GitHub dark
 
 
-def test_only_the_two_reviewed_application_palettes_are_available():
+def test_only_the_three_reviewed_application_palettes_are_available():
+    """THE COUNT IS A REVIEW GATE, NOT A FACT ABOUT THE FILE.
+
+    This was `== 2` and named "the two reviewed application palettes" from the
+    day seven speculative palettes and a `custom` entry were deleted. The number
+    is deliberately brittle so that ADDING a palette costs a written
+    justification instead of an edited digit -- which is exactly the trap a
+    session told to "add a palette" walks into, because making this green is a
+    one-character change.
+
+    So the justification, recorded here rather than in a commit message: the
+    third palette is `supabase`, requested by the owner on 2026-08-28 and ruled
+    as R-71. Its values are not invented -- every colour is either a published
+    HSL literal from Supabase's own packages or derived by evaluating their
+    OKLCH expressions, marked value by value in the palette entry, and all 34
+    contrast assertions in
+    `tests/test_panel_dom.py::test_every_manual_theme_keeps_text_controls_and_focus_legible`
+    were computed against the guard's own formula before it was written.
+
+    Three of its values deliberately diverge from Supabase, each because their
+    own value fails a threshold this repository already enforces; the palette
+    entry states each divergence with the measured ratio.
+    """
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
 
-    assert appearance.count('description: "') == 2
-    assert '["whatsapp", {' in appearance
-    assert '["github", {' in appearance
+    assert appearance.count('description: "') == 3
+    # R-59 decision 3: the real keys, with the legacy names as aliases rather
+    # than as entries. Asserting both halves is what stops a session from
+    # "simplifying" the alias map away and silently resetting every stored
+    # preference to the default.
+    assert '["brand", {' in appearance
+    assert '["blue", {' in appearance
+    assert '["supabase", {' in appearance
+    assert '["whatsapp", "brand"]' in appearance
+    assert '["github", "blue"]' in appearance
     assert 'accent: "#35AA65"' in appearance
     assert 'red: "#B3002F"' in appearance
     assert 'switchTrack: "#35AA65"' in appearance
     assert 'buttonBg: "#43D36D"' in appearance
     assert 'buttonHover: "#1C1E21"' in appearance
+    # Supabase's brand green, in both schemes. The light and dark values differ
+    # by one digit in their own source and both are published, so both are
+    # pinned -- a single assertion would not notice one being copied over the
+    # other.
+    assert 'accent: "#3FCF8E"' in appearance
+    assert 'accent: "#3ECF8E"' in appearance
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
         "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',
@@ -200,6 +235,49 @@ def test_only_the_two_reviewed_application_palettes_are_available():
     assert 'data-accent="' not in (
         ROOT / "design" / "tokens.css"
     ).read_text(encoding="utf-8")
+
+
+def test_an_appearance_can_carry_more_than_colour():
+    """The axis R-71 added, and the count that proves it is still there.
+
+    Before R-71 all 36 THEME_PROPERTIES were colours -- shape 0, typography 0,
+    elevation 0, motion 0 -- so an appearance could not carry a design system
+    even in principle. This asserts the second list exists, that it reaches the
+    families a design system actually sets, and that the three properties a
+    recorded decision keeps OUT of an appearance's reach are still out of it.
+    """
+    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+
+    assert "const DESIGN_PROPERTIES = Object.freeze([" in appearance
+    block = appearance.split("const DESIGN_PROPERTIES = Object.freeze([", 1)[1]
+    block = block.split("]);", 1)[0]
+    names = re.findall(r'"([a-z0-9-]+)"', block)
+
+    # One representative of every family, so the list cannot quietly shrink back
+    # to a single axis.
+    for family in ("radius", "font", "fs", "fw-regular", "lh",
+                   "shadow-lg", "dur", "ease", "focus-ring-width"):
+        assert family in names, f"DESIGN_PROPERTIES no longer reaches {family}"
+
+    # The Sign-in-with-Google values are fixed by Google's branding rules and
+    # `design/tokens.css` says so at the point of definition: "NOT in the
+    # palette: no appearance choice may re-tone them." An appearance that could
+    # reach them would break that, and its own guard.
+    for forbidden in ("google-btn-bg", "google-btn-stroke", "google-btn-text"):
+        assert forbidden not in names, (
+            f"{forbidden} is a third-party brand value and must stay outside "
+            "every appearance's reach")
+    # --radius-pill is circle geometry rather than a design choice, and --sp-*
+    # and the control heights stay in tokens.css so an appearance cannot lower
+    # the panel's 48px touch floor.
+    for withheld in ("radius-pill", "sp-4", "control-height", "touch-target"):
+        assert withheld not in names, (
+            f"{withheld} was moved into DESIGN_PROPERTIES without a ruling")
+
+    # Both halves of the split must be live: scheme-independent shape and type
+    # on the palette, scheme-dependent elevation inside each theme.
+    assert "function designFor(" in appearance
+    assert "palette.themes[scheme].design" in appearance
 
 
 def test_appearance_has_one_cross_surface_sync_contract():

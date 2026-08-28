@@ -96,6 +96,14 @@
   --shadow-color: rgb(16 24 40 / 0.08);
   --shadow-xs: 0 1px 2px var(--shadow-color);
   --shadow-sm: 0 2px 8px var(--shadow-color);
+  /* OP-92, and the literal below STAYS. Its two siblings above derive from
+     --shadow-color; this one does not, so before R-71 no appearance could
+     re-tone --shadow-lg and its ten consumers kept the default tone under every
+     palette. The fix is reach, not a rewrite: --shadow-lg is now a
+     DESIGN_PROPERTY, so a palette sets the whole shadow -- offsets, blur and
+     colour -- in one value. Deriving this default from --shadow-color instead
+     would halve its alpha (0.16 -> 0.08) and quietly flatten the two existing
+     palettes, which no ruling asked for. CSS cannot double an alpha. */
   --shadow-lg: 0 18px 40px rgb(16 24 40 / 0.16);
   --shadow: var(--shadow-xs);
   --overlay: rgb(15 18 22 / 0.42);
@@ -103,6 +111,11 @@
   /* Typography */
   --font: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
     "Noto Sans Arabic", sans-serif;
+  /* Headings default to the body face: this repository has always set one
+     stack. It exists as a token so an appearance CAN pair two faces the way
+     Supabase pairs Manrope with Inter, without every heading rule having to
+     learn a second name. */
+  --font-heading: var(--font);
   --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   --fs-2xs: 0.6875rem;
   --fs-xs: 0.75rem;
@@ -125,6 +138,17 @@
   --dur: 0.18s;
   --dur-slow: 0.26s;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A second curve, for things that TRAVEL rather than appear. It defaults to
+     --ease so nothing changes until an appearance distinguishes them, which is
+     the distinction Supabase draws: one curve for entering, one for moving. */
+  --ease-travel: var(--ease);
+
+  /* Focus ring geometry. Extracted as tokens because a design system sets the
+     ring's width and offset, not only its colour -- and --focus already
+     travelled with the appearance while these two could not. The defaults are
+     what the stylesheets were already drawing by hand. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
   --z-sticky: 10;
   --z-overlay: 20;
   --z-modal: 30;
@@ -204,7 +228,13 @@
   --red-weak: #351715;
   --danger-contrast: #24100f;
 
-  --control-bg: #171b21;
+  /* OP-91. This was the literal `#171b21`, and --control-bg is not a
+     THEME_PROPERTY, so nothing could override it: every palette's dark control
+     backgrounds stayed on the default surface no matter what the palette said.
+     WhatsApp's dark surface is #182229 and GitHub's is #151B23, and neither
+     ever reached a control. The dark --surface above is #171b21, so this is
+     byte-identical at the default and follows the palette from now on. */
+  --control-bg: var(--surface);
   --control-hover: #20262e;
   --shadow-color: rgb(0 0 0 / 0.32);
   --shadow-xs: 0 1px 2px var(--shadow-color);
@@ -240,7 +270,8 @@
     --red-hover: #f49a92;
     --red-weak: #351715;
     --danger-contrast: #24100f;
-    --control-bg: #171b21;
+    /* OP-91, the prefers-color-scheme copy of the same defect. */
+    --control-bg: var(--surface);
     --control-hover: #20262e;
     --shadow-color: rgb(0 0 0 / 0.32);
     --shadow-xs: 0 1px 2px var(--shadow-color);

@@ -475,17 +475,27 @@ def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
 
 
 @pytest.mark.parametrize(
-    "palette",
+    ("palette", "painted"),
     [
-        pytest.param("whatsapp", id="default-brand"),
-        pytest.param("github", id="alternative-blue"),
+        # STORED NAME -> THE NAME THAT REACHES THE FIRST FRAME. The two are not
+        # the same thing any more and the difference is the point of this table.
+        #
+        # R-59 decision 3 made `whatsapp` and `github` compatibility aliases for
+        # `brand` and `blue`, and R-71 built the registry that honours them. So a
+        # preference SAVED before 2026-08-28 carries the old name, and what has
+        # to survive is not the string -- it is the user's actual choice. These
+        # first two rows are the only place that is proven end to end, from a
+        # localStorage value written by the previous build through to the
+        # attribute on the painted frame.
+        pytest.param("whatsapp", "brand", id="legacy-whatsapp-resolves-to-brand"),
+        pytest.param("github", "blue", id="legacy-github-resolves-to-blue"),
+        pytest.param("brand", "brand", id="canonical-brand"),
+        pytest.param("supabase", "supabase", id="default-supabase"),
     ],
 )
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_cached_theme_is_applied_before_the_first_frame(
-        open_starting_panel, palette, scheme):
-    # Production still accepts these two legacy compatibility identifiers; the
-    # conceptual palettes under test are the default brand and alternative blue.
+        open_starting_panel, palette, painted, scheme):
     saved = json.dumps({
         "mode": "manual", "scheme": scheme, "palette": palette,
         "deviceColors": False, "updatedAt": 100,
@@ -533,7 +543,7 @@ def test_cached_theme_is_applied_before_the_first_frame(
           },
           ...window.__appearanceProof,
         })""")
-        expected = {"theme": scheme, "palette": palette}
+        expected = {"theme": scheme, "palette": painted}
         fcp = proof["paints"][0]
         first_values = {
             name: next(change for change in proof["mutations"]
@@ -544,7 +554,7 @@ def test_cached_theme_is_applied_before_the_first_frame(
         assert proof["current"] == expected
         assert {"theme": fcp["theme"], "palette": fcp["palette"]} == expected
         assert first_values["data-theme"]["value"] == scheme
-        assert first_values["data-palette"]["value"] == palette
+        assert first_values["data-palette"]["value"] == painted
         assert first_values["data-theme"]["at"] <= fcp["startTime"]
         assert first_values["data-palette"]["at"] <= fcp["startTime"]
         assert not page.js_errors

@@ -21,8 +21,8 @@
   const SYNC_PATH = "/api/appearance";
   const SCHEMES = new Set(["light", "dark"]);
   const PALETTES = new Map([
-    ["whatsapp", {
-      id: "whatsapp",
+    ["brand", {
+      id: "brand",
       label: "WhatsApp",
       description: "WhatsApp application green",
       colors: ["#121B21", "#35AA65", "#43D36D", "#F7F5F3"],
@@ -69,8 +69,8 @@
         },
       },
     }],
-    ["github", {
-      id: "github",
+    ["blue", {
+      id: "blue",
       label: "GitHub",
       description: "Focused developer neutral",
       colors: ["#0D1117", "#0969DA", "#4493F8", "#F0F6FC"],
@@ -111,11 +111,209 @@
         },
       },
     }],
+    // THE FIRST APPEARANCE THAT IS A DESIGN SYSTEM RATHER THAN A PALETTE, under
+    // R-71. Everything above this entry sets colour and nothing else; the
+    // `design` block below is the axis that entry added, and Supabase is the
+    // reason it had to exist -- their system's identity is carried at least as
+    // much by a 6px radius, a 450 text weight and the absence of shadow as by
+    // the green.
+    //
+    // PUBLISHED vs DERIVED, because Supabase publishes far less than it looks.
+    // Their docs site lists token NAMES with no values. The stepped ramps
+    // (brand-200..600, warning-*, destructive-*) and the `scale` neutral ramp
+    // are real HSL literals in packages/{ui,config}. Every SEMANTIC colour --
+    // background, card, popover, muted, border, foreground, primary, warning,
+    // destructive -- is computed at runtime in OKLCH from about ten scalar
+    // inputs, so no hex exists to copy and each was derived by evaluating their
+    // own expressions. A comment marks which is which, value by value, so a
+    // later session can tell a quotation from a calculation.
+    //
+    // THREE VALUES DELIBERATELY DIVERGE, each because their own value fails a
+    // guard this repository already enforces (measured, not assumed):
+    //   * focus -- their ring is --primary at 55% alpha, which flattens to
+    //     #98E3C0 and is 1.47:1 on their own background. The guard needs 3:1.
+    //   * lineStrong -- their --border-stronger is 1.57:1 (light) and 1.53:1
+    //     (dark) against their own card. The guard needs 3:1.
+    //   * amber -- their --warning is oklch(0.68 0.14 75) and 2.68:1 on their
+    //     own published warning-300 tint. The guard needs 4.5:1, so the hue and
+    //     chroma are held and only the lightness moves, to 0.52.
+    // Their brand green is 1.99:1 on white, which is why accentContrast is
+    // near-black in BOTH schemes rather than white in one of them.
+    ["supabase", {
+      id: "supabase",
+      label: "Supabase",
+      description: "Supabase console green, flat and bordered",
+      colors: ["#131413", "#3ECF8E", "#85E0BA", "#FDFDFD"],
+      // Scheme-independent: shape, type and motion do not change with the
+      // scheme. Elevation does, and lives in the themes below.
+      design: {
+        // Their effective ramp is 2/4/6/8/12/16. `rounded-md` = 6px is the
+        // universal control radius (431 files) and 8px the container ceiling;
+        // 16px appears in 19. NOT the 10px from apps/ui-library -- that is a
+        // separate shadcn registry product with a grey focus ring.
+        radiusXs: "0.125rem", radiusSm: "0.25rem", radius: "0.375rem",
+        radiusLg: "0.5rem", radiusXl: "0.75rem", radiusSheet: "1rem",
+        // Supabase migrated OFF the proprietary Circular: the live stack across
+        // studio, www and design-system is Inter + Manrope + Source Code Pro,
+        // all OSS. The `Circular, custom-font` stack still in packages/config is
+        // a dead self-referential var() fallback, which is where third-party
+        // token extractors still get the Circular claim from.
+        //
+        // NOTHING IS FETCHED. The faces are named first and the existing system
+        // stack is kept behind them, so a machine that has Inter uses it and one
+        // that does not is unchanged. "Noto Sans Arabic" STAYS in every stack --
+        // this product is read and written in Arabic and neither Inter nor
+        // Manrope covers it.
+        font: "Inter, \"Segoe UI\", system-ui, -apple-system, "
+          + "BlinkMacSystemFont, \"Noto Sans Arabic\", sans-serif",
+        fontHeading: "Manrope, Inter, \"Segoe UI\", system-ui, "
+          + "\"Noto Sans Arabic\", sans-serif",
+        fontMono: "\"Source Code Pro\", ui-monospace, \"Cascadia Code\", "
+          + "Consolas, monospace",
+        // Their scale is shifted about 2px down from stock Tailwind, under their
+        // own comment "font sizing and weights optimized for Inter". Measured
+        // against this repository's ramp, SEVEN of the eight steps already
+        // agree -- 12/13/16/18/22/28 are identical. The one real move is the
+        // body size: their text-base is 15px where --fs is 14px. Saying so
+        // beats restating six unchanged numbers as if they were a change.
+        fs: "0.9375rem",
+        // --font-weight-normal is 450, not 400, and there is no bold anywhere in
+        // their system: `strong` is downgraded to 500 and the ceiling is Manrope
+        // 600 on headings. So --fw-heavy drops from 700 to 600 -- deliberately
+        // removing a weight rather than adding one.
+        fwRegular: "450", fwHeavy: "600",
+        // Exactly two curves, and they are used by meaning rather than by size:
+        // one for things that appear, one for things that travel.
+        durFast: "0.1s", dur: "0.15s", durSlow: "0.25s",
+        ease: "cubic-bezier(0.16, 1, 0.3, 1)",
+        easeTravel: "cubic-bezier(0.87, 0, 0.13, 1)",
+        focusRingWidth: "2px", focusRingOffset: "2px",
+        // NOT overridden, and each for a stated reason rather than by omission:
+        //   * spacing -- their scale is Tailwind's 4px base, which is already
+        //     this repository's --sp-* ramp value for value. Nothing to change.
+        //   * control heights and --touch-target -- their medium control is
+        //     ~38px against this repository's 40px, and the panel holds a 48px
+        //     floor that a design-system swap must not quietly lower.
+        //   * --radius-pill -- 999px is pill geometry, not a design choice.
+      },
+      themes: {
+        light: {
+          bg: "#FDFDFD",                  // --background          derived
+          surface: "#FFFFFF",             // --card                derived
+          surfaceSubtle: "#F6F6F6",       // --muted               derived
+          surfaceRaised: "#FFFFFF",       // --popover             derived
+          line: "#E9E9E9",                // --border              derived
+          lineStrong: "#8F8F8F",          // diverges; see header
+          text: "#030303",                // --foreground          derived
+          muted: "#464646",               // --muted-foreground    derived
+          textSubtle: "#696969",          // --tertiary-foreground derived
+          chip: "#F3F3F3",                // --accent              derived
+          accent: "#3FCF8E",              // brand-default light   PUBLISHED
+          accentHover: "#65D8A4",         // brand/80 flat         derived
+          accentActive: "#8EE8BD",        // brand-400/80 flat     derived
+          accentInk: "#097C4F",           // brand-600 light       PUBLISHED
+          accentContrast: "#030303",      // --primary-foreground  derived
+          accentWeak: "#D3F8E4",          // brand-200 light       PUBLISHED
+          focus: "#097C4F",               // diverges; see header
+          controlHover: "#F3F3F3",
+          amber: "#965900",               // diverges; see header
+          amberWeak: "#FFF4D5",           // warning-300 light     PUBLISHED
+          red: "#AB413E",                 // --destructive light   derived
+          redHover: "#8E332F",            // the same hue, pressed derived
+          redWeak: "#FFF0EE",             // destructive-300 light PUBLISHED
+          dangerContrast: "#FFF9F8",      // --destructive-fg      derived
+          switchTrack: "#16B674",         // brand-500 light       PUBLISHED
+          switchTrackHover: "#097C4F",    // brand-600 light       PUBLISHED
+          switchTrackOff: "#FFFFFF",
+          // A WHITE thumb cannot sit on this green -- #FFFFFF on brand-500 is
+          // 2.63:1 and the guard needs 2.9. Near-black is the same call
+          // accentContrast already makes, for the same reason.
+          switchThumb: "#030303",
+          switchThumbOff: "#8F8F8F",
+          // Their scrim is published exactly: dialog.tsx is `bg-black/40`, the
+          // same in both schemes. Shadow is NOT published -- they define zero
+          // shadow tokens and lean on an opaque plate plus a 1px border.
+          shadowColor: "rgb(3 3 3 / 0.06)",
+          overlay: "rgb(0 0 0 / 0.40)",
+          design: {
+            // Their Dialog is `border shadow-md dark:shadow-xs` -- the border is
+            // unconditional and the shadow is the part that gets dropped. Even
+            // their box-shadow utilities draw a 1px line at zero blur. So these
+            // are flatter than this repository's defaults by design, not by
+            // accident, and --shadow-lg finally derives from --shadow-color
+            // instead of the literal it carried.
+            shadowXs: "0 1px 2px var(--shadow-color)",
+            shadowSm: "0 1px 3px var(--shadow-color)",
+            shadowLg: "0 8px 24px var(--shadow-color)",
+          },
+        },
+        dark: {
+          bg: "#131413",                  // --background          derived
+          surface: "#181A19",             // --card                derived
+          surfaceSubtle: "#1A1B1A",       // --muted               derived
+          surfaceRaised: "#1B1D1C",       // --popover             derived
+          line: "#232423",                // --border              derived
+          lineStrong: "#707070",          // scale-900 dark        PUBLISHED
+          text: "#EDEFEE",                // --foreground          derived
+          muted: "#BCBDBC",               // --muted-foreground    derived
+          textSubtle: "#989A99",          // --tertiary-foreground derived
+          chip: "#1E1F1E",                // --accent              derived
+          accent: "#3ECF8E",              // brand-default dark    PUBLISHED
+          accentHover: "#85E0BA",         // brand-600 dark        PUBLISHED
+          accentActive: "#16B674",        // brand-500 light reused derived
+          accentInk: "#3ECF8E",           // brand-default dark    PUBLISHED
+          accentContrast: "#131413",      // --primary-foreground  derived
+          accentWeak: "#002918",          // brand-300 dark        PUBLISHED
+          focus: "#3ECF8E",               // brand-default dark    PUBLISHED
+          controlHover: "#1E1F1E",
+          amber: "#F2AF48",               // --warning dark        derived
+          amberWeak: "#341C00",           // warning-300 dark      PUBLISHED
+          red: "#FA8880",                 // --destructive dark    derived
+          redHover: "#FDA49D",            // the same hue, lighter derived
+          redWeak: "#3B1813",             // destructive-300 dark  PUBLISHED
+          dangerContrast: "#090504",      // --destructive-fg      derived
+          switchTrack: "#3ECF8E",         // brand-default dark    PUBLISHED
+          switchTrackHover: "#85E0BA",    // brand-600 dark        PUBLISHED
+          switchTrackOff: "#181A19",
+          switchThumb: "#131413",
+          switchThumbOff: "#707070",
+          shadowColor: "rgb(0 0 0 / 0.40)",
+          overlay: "rgb(0 0 0 / 0.40)",
+          design: {
+            // Dropped three steps from light, which is what their Dialog does.
+            shadowXs: "0 1px 1px var(--shadow-color)",
+            shadowSm: "0 1px 2px var(--shadow-color)",
+            shadowLg: "0 4px 16px var(--shadow-color)",
+          },
+        },
+      },
+    }],
+  ]);
+  // R-59 DECISION 3, BUILT. `whatsapp` and `github` are legacy compatibility
+  // aliases for `brand` and `blue`. The ruling said so on 2026-08-09 and only
+  // the aliases were ever enforced -- `scrapex/webui/app.py` refused any palette
+  // outside those two names while the registry they alias did not exist, which
+  // is what OP-82 recorded.
+  //
+  // THEY ARE NOT DECORATION: every appearance stored before today carries one of
+  // these two ids, in localStorage and in the engine's `ui_appearance` setting.
+  // Resolving them in normalize() is what stops an existing user's choice from
+  // silently reverting to the default.
+  const PALETTE_ALIASES = new Map([
+    ["whatsapp", "brand"],
+    ["github", "blue"],
   ]);
   const DEFAULTS = Object.freeze({
     mode: "device",
     scheme: "light",
-    palette: "github",
+    // R-71: `supabase` is the default appearance, superseding R-59 decision 1's
+    // `brand`. NOTE WHAT THIS DOES AND DOES NOT DO, because it reads like more
+    // than it is: `deviceColors` below is still `true`, and apply() returns
+    // early on that branch after clearTheme(), so a user with no stored
+    // preference never has this palette applied at all. R-71 section 3 records
+    // that half as HIS, open, pending the numbers he asked for -- one line here
+    // and one assertion in tests/test_vendor.py.
+    palette: "supabase",
     deviceColors: true,
     updatedAt: 0,
   });
@@ -130,6 +328,35 @@
     "switch-track-off", "switch-thumb", "switch-thumb-off", "shadow-color",
     "overlay",
   ]);
+  // THE SECOND AXIS, added by R-71, and the reason it exists is a count: every
+  // one of the 36 THEME_PROPERTIES above is a colour. Shape 0, typography 0,
+  // spacing 0, elevation 0, motion 0. So an appearance could not carry a design
+  // system, only a palette -- and "not colours only" was the request.
+  //
+  // These are the non-colour custom properties an appearance may override. They
+  // are a SUBSET of design/tokens.css on purpose: of the 71 properties the
+  // registry could not previously reach, three must stay unreachable by a
+  // recorded decision (the Sign-in-with-Google values, fixed by Google's
+  // branding rules and guarded by their own test), --radius-pill is geometry
+  // rather than style, and --sp-* and the control heights are left to
+  // tokens.css so an appearance cannot quietly lower the panel's 48px touch
+  // floor.
+  //
+  // A palette declares these in one of two places, and the split is meaningful:
+  // `palette.design` for what does not change with the scheme (shape, type,
+  // motion) and `palette.themes[scheme].design` for what does (elevation --
+  // Supabase drops its shadow in dark and keeps its border).
+  const DESIGN_PROPERTIES = Object.freeze([
+    "radius-xs", "radius-sm", "radius", "radius-lg", "radius-xl",
+    "radius-sheet",
+    "font", "font-heading", "font-mono",
+    "fs-2xs", "fs-xs", "fs-sm", "fs", "fs-md", "fs-lg", "fs-xl", "fs-2xl",
+    "fw-regular", "fw-medium", "fw-bold", "fw-heavy",
+    "lh-tight", "lh", "lh-relaxed",
+    "shadow-xs", "shadow-sm", "shadow-lg",
+    "dur-fast", "dur", "dur-slow", "ease", "ease-travel",
+    "focus-ring-width", "focus-ring-offset",
+  ]);
   const schemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listeners = new Set();
   let remoteBase = "";
@@ -137,12 +364,24 @@
   let pushTimer = null;
   let current = read();
 
+  // A stored or posted id resolved to a registry key. An alias resolves to what
+  // it aliases; anything unknown falls back rather than throwing, which is what
+  // keeps a modified extension from persisting a name this build cannot paint.
+  function resolvePalette(id) {
+    const aliased = PALETTE_ALIASES.get(id) || id;
+    return PALETTES.has(aliased) ? aliased : DEFAULTS.palette;
+  }
+
   function normalize(value) {
     const candidate = value && typeof value === "object" ? value : {};
     return {
       mode: candidate.mode === "manual" ? "manual" : "device",
       scheme: SCHEMES.has(candidate.scheme) ? candidate.scheme : DEFAULTS.scheme,
-      palette: PALETTES.has(candidate.palette) ? candidate.palette : DEFAULTS.palette,
+      // Resolving rather than testing membership is what carries R-59 decision
+      // 3: a preference stored as `whatsapp` or `github` -- which is every
+      // preference stored before today -- arrives here and comes out as `brand`
+      // or `blue` instead of being dropped on the floor for the default.
+      palette: resolvePalette(candidate.palette),
       deviceColors: typeof candidate.deviceColors === "boolean"
         ? candidate.deviceColors
         : (typeof candidate.followColors === "boolean"
@@ -188,16 +427,44 @@
       : (schemeQuery.matches ? "dark" : "light");
   }
 
-  function themeFor(palette, scheme) {
-    const explicit = palette.themes[scheme];
-    return Object.fromEntries(Object.entries(explicit).map(([key, value]) => [
+  function dashed(entries) {
+    return Object.fromEntries(entries.map(([key, value]) => [
       key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
       value,
     ]));
   }
 
+  function themeFor(palette, scheme) {
+    // `design` is the scheme's non-colour block and is read by designFor, not
+    // here. Without this filter it would be dashed into a `--design` property
+    // whose value is "[object Object]".
+    return dashed(Object.entries(palette.themes[scheme])
+      .filter(([key]) => key !== "design"));
+  }
+
+  // Scheme-independent first, then the scheme's own overrides on top. A palette
+  // that declares neither returns {} and every DESIGN_PROPERTY is removed rather
+  // than set, which is how the two colour-only palettes keep tokens.css's shape
+  // and type untouched.
+  function designFor(palette, scheme) {
+    return dashed([
+      ...Object.entries(palette.design || {}),
+      ...Object.entries(palette.themes[scheme].design || {}),
+    ]);
+  }
+
   function clearTheme(root) {
     THEME_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
+    DESIGN_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
+  }
+
+  function paletteFor(id) {
+    // resolvePalette already guarantees a registry key, and normalize() runs on
+    // every path into `current`. The `||` is kept because this is the line that
+    // decides whether a mistake is a wrong colour or a dead module: apply() runs
+    // at module scope, BEFORE window.ScrapeXAppearance is assigned, so a miss
+    // here takes the whole IIFE down and every appearance control with it.
+    return PALETTES.get(id) || PALETTES.get(DEFAULTS.palette);
   }
 
   function apply(value) {
@@ -214,10 +481,16 @@
     }
 
     root.dataset.palette = value.palette;
-    const palette = PALETTES.get(value.palette) || PALETTES.get(DEFAULTS.palette);
-    const theme = themeFor(palette, effectiveScheme(value));
+    const palette = paletteFor(value.palette);
+    const scheme = effectiveScheme(value);
+    const theme = themeFor(palette, scheme);
+    const design = designFor(palette, scheme);
     THEME_PROPERTIES.forEach((property) => {
       if (theme[property]) root.style.setProperty(`--${property}`, theme[property]);
+      else root.style.removeProperty(`--${property}`);
+    });
+    DESIGN_PROPERTIES.forEach((property) => {
+      if (design[property]) root.style.setProperty(`--${property}`, design[property]);
       else root.style.removeProperty(`--${property}`);
     });
   }
@@ -228,7 +501,7 @@
       : value.scheme;
     const color = value.deviceColors
       ? "Device colours"
-      : PALETTES.get(value.palette).label;
+      : paletteFor(value.palette).label;
     return `${scheme} \u00B7 ${color}`;
   }
 
@@ -454,6 +727,11 @@
     palettes: [...PALETTES.values()].map(({id, label, description, colors}) => ({
       id, label, description, colors: [...colors],
     })),
+    // Exposed so a caller can resolve a legacy id without duplicating the map,
+    // and so the cross-surface allowlist test can read the registry rather than
+    // a hand-copied list of names.
+    aliases: Object.fromEntries(PALETTE_ALIASES),
+    resolvePalette,
   });
 
   schemeQuery.addEventListener("change", () => {

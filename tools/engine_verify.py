@@ -1,8 +1,14 @@
 """Generate representative Engine-page screenshots for PR #151.
 
 Captures the restructured Engine card in realistic Chrome Side Panel sizes and
-in both schemes and conceptual palette labels. Production palette IDs
-(whatsapp/github) are mapped to the conceptual names used in filenames.
+in both schemes and conceptual palette labels. Production palette IDs are mapped
+to the conceptual names used in filenames.
+
+The IDs became the conceptual names under R-71, which built the registry R-59
+asked for: `brand` and `blue` are the real keys and `whatsapp`/`github` are the
+legacy aliases. `capture()` reads this dict with `PALETTES[palette_id]`, so a
+palette missing a row here is a KeyError mid-run rather than a skipped file --
+which is why the row is added in the same change as the palette.
 """
 from __future__ import annotations
 
@@ -18,8 +24,9 @@ OUT = ROOT / "docs" / "screenshots" / "engine-verify"
 
 # Production palette ID -> conceptual filename label.
 PALETTES = {
-    "whatsapp": "default-brand",
-    "github": "alternative-blue",
+    "supabase": "default-supabase",
+    "brand": "alternative-brand",
+    "blue": "alternative-blue",
 }
 
 INSTALLER = {
@@ -96,10 +103,10 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Running")
-        capture(page, "running", 320, 800, "light", "whatsapp")
-        capture(page, "running", 360, 800, "light", "whatsapp")
-        capture(page, "running", 400, 800, "light", "whatsapp")
-        capture(page, "running", 600, 800, "light", "whatsapp")
+        capture(page, "running", 320, 800, "light", "brand")
+        capture(page, "running", 360, 800, "light", "brand")
+        capture(page, "running", 400, 800, "light", "brand")
+        capture(page, "running", 600, 800, "light", "brand")
         page.close()
 
         # Running — dark, default brand.
@@ -108,7 +115,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Running")
-        capture(page, "running", 320, 800, "dark", "whatsapp")
+        capture(page, "running", 320, 800, "dark", "brand")
         page.close()
 
         # Running — light, alternative blue.
@@ -117,7 +124,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Running")
-        capture(page, "running", 320, 800, "light", "github")
+        capture(page, "running", 320, 800, "light", "blue")
         page.close()
 
         # Running — dark, alternative blue.
@@ -126,7 +133,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Running")
-        capture(page, "running", 320, 800, "dark", "github")
+        capture(page, "running", 320, 800, "dark", "blue")
         page.close()
 
         # Not detected, light/default.
@@ -136,7 +143,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Not detected")
-        capture(page, "not-detected", 320, 800, "light", "whatsapp")
+        capture(page, "not-detected", 320, 800, "light", "brand")
         page.close()
 
         # Not detected with installer available, light/default.
@@ -147,7 +154,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page, "Not detected")
-        capture(page, "not-detected-with-installer", 320, 800, "light", "whatsapp")
+        capture(page, "not-detected-with-installer", 320, 800, "light", "brand")
         page.close()
 
         # Installer unavailable, light/default.
@@ -158,7 +165,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page)
-        capture(page, "installer-unavailable", 320, 800, "light", "whatsapp")
+        capture(page, "installer-unavailable", 320, 800, "light", "brand")
         page.close()
 
         # Expanded installation instructions, light/default.
@@ -172,7 +179,7 @@ def main() -> int:
         open_engine(page)
         page.click('#engine-install-steps summary')
         page.wait_for_function("() => document.getElementById('engine-install-steps').open")
-        capture(page, "expanded-instructions", 320, 1200, "light", "whatsapp")
+        capture(page, "expanded-instructions", 320, 1200, "light", "brand")
         page.close()
 
         # One engine's own screen, light/default — the state banner, the spec
@@ -183,7 +190,7 @@ def main() -> int:
         page.click('#tab-engines')
         settle(page)
         open_engine(page)
-        capture(page, "one-engine", 400, 800, "light", "whatsapp")
+        capture(page, "one-engine", 400, 800, "light", "brand")
         page.close()
 
         # A candidate backend: what §8.3 records about it, and nothing to press.
@@ -193,7 +200,7 @@ def main() -> int:
         page.click('#tab-engines')
         settle(page)
         open_engine(page, "scrapy")
-        capture(page, "one-candidate", 400, 800, "light", "whatsapp")
+        capture(page, "one-candidate", 400, 800, "light", "brand")
         page.close()
 
         # Narrow 320x480 layout, light/default.
@@ -202,7 +209,7 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page)
-        capture(page, "narrow", 320, 480, "light", "whatsapp")
+        capture(page, "narrow", 320, 480, "light", "brand")
         page.close()
 
         browser.close()
