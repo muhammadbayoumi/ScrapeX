@@ -1603,7 +1603,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert source_trigger_label_style["centerDelta"] <= 1
-    assert source_trigger_label_style["fontWeight"] <= 400
+    # 400 UNTIL R-72. The assertion's SUBJECT is "this label is not emphasised",
+    # and it expressed that as "not heavier than normal" -- true while normal was
+    # 400. Supabase's --font-weight-normal is 450, so under R-72 the baseline's
+    # regular weight IS 450 and the label is still exactly as unemphasised as it
+    # was. Raising the threshold keeps the meaning; leaving it at 400 would
+    # assert that the design system's own body weight counts as emphasis.
+    # --fw-medium is 500, so this still fails if the label is ever made medium.
+    assert source_trigger_label_style["fontWeight"] <= 450
     selected_currency = page.locator(
         "#finance-converter-currency-list .finance-converter-option[aria-selected='true']")
     assert selected_currency.count() == 1
@@ -1677,7 +1684,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert target_trigger_label_style["centerDelta"] <= 1
-    assert target_trigger_label_style["fontWeight"] <= 400
+    # 400 UNTIL R-72. The assertion's SUBJECT is "this label is not emphasised",
+    # and it expressed that as "not heavier than normal" -- true while normal was
+    # 400. Supabase's --font-weight-normal is 450, so under R-72 the baseline's
+    # regular weight IS 450 and the label is still exactly as unemphasised as it
+    # was. Raising the threshold keeps the meaning; leaving it at 400 would
+    # assert that the design system's own body weight counts as emphasis.
+    # --fw-medium is 500, so this still fails if the label is ever made medium.
+    assert target_trigger_label_style["fontWeight"] <= 450
     target_option.click()
     converter_rows = page.locator(".finance-converter-row").evaluate_all("""elements =>
       elements.map(element => ({
@@ -4837,7 +4851,13 @@ def test_the_engine_card_uses_outlined_cards(open_panel):
           boxShadow: getComputedStyle(el).boxShadow,
         })""")
         assert style["borderTopWidth"] == "1px", style
-        assert style["borderRadius"] == "16px", style
+        # 16px UNTIL R-72, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+        # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
+        # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
+        # already at the generous end of what their system would use for a grouped
+        # list. The test reads the computed value on purpose, so it tracks the token
+        # rather than restating it -- which is why it caught the change.
+        assert style["borderRadius"] == "12px", style
         assert style["boxShadow"] == "none", style
 
     rows = page.locator("#engine-candidates .engine-row")
@@ -5059,7 +5079,13 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
       textAlign: getComputedStyle(el).textAlign,
       overflow: getComputedStyle(el).overflow,
     })""")
-    assert style["borderRadius"] == "16px"
+    # 16px UNTIL R-72, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+    # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
+    # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
+    # already at the generous end of what their system would use for a grouped
+    # list. The test reads the computed value on purpose, so it tracks the token
+    # rather than restating it -- which is why it caught the change.
+    assert style["borderRadius"] == "12px"
     assert style["boxShadow"] == "none"
     assert style["textAlign"] in ("start", "left")
     # `overflow: hidden` is what makes the radius clip the first and last rows;
