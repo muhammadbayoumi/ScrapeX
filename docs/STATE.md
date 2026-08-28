@@ -367,13 +367,39 @@ numbers he decided on:
 | tests asserting the current default | **one line**, `tests/test_vendor.py`'s `assert "deviceColors: true" in script`. The other nine references set the value explicitly |
 | what a fresh user sees instead today | the OS `AccentColor` on Chrome and Edge; otherwise the `tokens.css` teal that `R-59` decision 2 calls *"deprecated — legacy colour residue and migration debt"* |
 
-**What is built.** The appearance engine gained a second axis: all 36 `THEME_PROPERTIES`
-were colours, so «design system كامل» was impossible in principle, not merely absent.
-`DESIGN_PROPERTIES` carries radius, typography, elevation, motion and focus geometry, split
-into `palette.design` (scheme-independent) and `palette.themes[scheme].design` (elevation,
-which Supabase drops in dark and replaces with a border). `R-59` decision 3 is built rather
-than only enforced — keys are `brand`/`blue`/`supabase`, the two legacy names are aliases —
-which closes **`OP-82`**.
+**What is built, AND IT WAS BUILT TWICE.** All 36 `THEME_PROPERTIES` were colours, so «design
+system كامل» was impossible in principle rather than merely absent. `R-71` answered that with
+a per-palette design axis — and `R-72`, later the same day, cancelled it:
+
+> «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»
+
+**Why the first answer was wrong, measured on the built engine before the ruling was
+written:** only `supabase` declared a `design` block, so
+
+| colour choice | design properties applied |
+|---|---|
+| `supabase` | **9 of 9** |
+| `whatsapp` (`brand`) | **none** — fell back to the old 9px radius, 14px body, Segoe UI |
+| `github` (`blue`) | **none** |
+| **device colours** | **none** — and device is what a fresh install used |
+
+**Three of four colour choices lost the design system.** So `design/tokens.css` IS the
+Supabase design system now — shape, typography, elevation, motion, focus geometry — and every
+colour choice sits on it, including device, which applies no palette at all. `DESIGN_PROPERTIES`
+and `designFor()` are removed, and
+`tests/test_a_palette_may_change_nothing_but_colour.py` inverts the guard: a palette entry may
+contain **nothing but colour**. Re-measured after the rework: all four choices write **zero**
+design overrides.
+
+`R-59` decision 3 is built rather than only enforced — keys are `brand`/`blue`/`supabase`, the
+two legacy names are aliases — which closes **`OP-82`**. And `R-59` decision 2 is
+**discharged**: the teal it called migration debt was the `:root` fallback, so making the
+baseline Supabase deletes it rather than deprecating it again.
+
+**`supabase` declares no colours at all.** It is the baseline, so its entry exists to be
+selectable, to label its tile and to name itself in `data-palette`; `apply()` removes all 36
+properties for it and the baseline shows through. `brand` and `blue` have entries precisely
+because they differ from it.
 
 **Three defects were fixed because a design system could not work without them:** `OP-91`
 `--control-bg` was a literal in both dark blocks so no palette ever reached a dark control;

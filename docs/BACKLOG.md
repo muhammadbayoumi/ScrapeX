@@ -1878,7 +1878,7 @@ concurrent edit on 2026-08-22 and every rule below it shifts when the card block
 it changes. See `OP-47` for the same reason at more length.
 
 **The scale is three tokens** — `--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`
-([design/tokens.css:128](../design/tokens.css#L128)) — and **three rules across two
+([design/tokens.css:222](../design/tokens.css#L222)) — and **three rules across two
 sheets** write a token's value as a raw number instead of reading it. This is the
 complete set, measured at `451468d` by matching a bare integer equal to any of the three:
 
@@ -3293,11 +3293,14 @@ three places it is declared — so a palette could re-tone two of the three shad
 **10 consumers** (5 in `extension/app.css`, 2 in `pages/data-workspace.css`, 2 in
 `webui.css`, 1 in `design/components.css`) kept the default tone under every appearance.
 
-**Fixed by reach, not by rewrite.** `--shadow-lg` is a `DESIGN_PROPERTY` now, so a palette
-sets the whole shadow — offsets, blur and colour — in one value, which is what Supabase
-needs since it flattens elevation rather than re-tinting it. **The default literal stays:**
-deriving it from `--shadow-color` would halve its alpha (0.16 → 0.08) and quietly flatten
-the two existing palettes, and CSS cannot double an alpha.
+**Fixed, and the fix got simpler when [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+landed.** `R-71` first made `--shadow-lg` reachable by a palette, so a palette could set the
+whole shadow — offsets, blur and colour — in one value. `R-72` cancelled that axis: elevation
+belongs to the design system, not to a palette. So all three shadow tokens now derive their
+colour from `var(--shadow-color)` **in the baseline**, and the literal is gone rather than
+kept. Nothing was lost by it — the reason the literal had to stay under `R-71` was that
+deriving it would have flattened the two existing palettes, and under `R-72` those palettes
+do not carry elevation at all.
 
 ---
 

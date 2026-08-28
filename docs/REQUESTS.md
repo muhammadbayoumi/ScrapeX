@@ -2517,9 +2517,17 @@ There is **no** radius, no font, no type scale, no spacing step, no shadow ramp,
 and no easing curve in it. Those live in [design/tokens.css](../design/tokens.css) as
 `:root` values that no appearance choice can reach.
 
-So *«design system كامل»* is not a bigger palette entry. It is **a second axis on the
-appearance engine that does not exist yet**, and the request cannot be satisfied by adding a
-third row to `PALETTES`.
+So *«design system كامل»* is not a bigger palette entry, and the request cannot be satisfied
+by adding a third row to `PALETTES`.
+
+> **This paragraph read *"it is a second axis on the appearance engine"*, and that was the
+> wrong conclusion from the right measurement.** `R-71` built the axis; the same day
+> [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+> cancelled it, because an axis puts the design system in **one palette** and measured on the
+> built engine that is exactly what happened — `whatsapp`, `github` and device colours all
+> fell back to the pre-Supabase shape. The design system belongs in the BASELINE, where all
+> four colour choices reach it. Kept rather than rewritten, per **C4**: the count above is
+> still the finding, and only the answer to it moved.
 
 ### Collision 2 — `DEFAULTS.palette` is not what a new user sees
 
@@ -2591,7 +2599,8 @@ He answered all four questions:
 | question | his answer |
 |---|---|
 | the id | **`supabase`** — the correct spelling, not the `supbase` he first typed |
-| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: a new token axis on the engine **and** the component rules restyled |
+| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: the tokens **and** the component rules. Then corrected by [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour): «كاملة بكل جوانبه وفروعه» means the design system is the **baseline**, not a per-palette axis — the axis gave it to `supabase` and left `whatsapp`, `github` and device on the old shape |
+| what a palette may change | **colour, and nothing else** — «فتعدل على الالوان فقط لا تعدل على design system». `whatsapp` and `github` are colour themes that do not represent the brand |
 | does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول», then **«اقلبها»**. `deviceColors` defaults to `false`, so a fresh install paints `supabase`; 1 stored state of 8 is affected and it is the one that never chose |
 | the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-71` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
 

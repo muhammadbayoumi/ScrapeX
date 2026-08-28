@@ -111,182 +111,35 @@
         },
       },
     }],
-    // THE FIRST APPEARANCE THAT IS A DESIGN SYSTEM RATHER THAN A PALETTE, under
-    // R-71. Everything above this entry sets colour and nothing else; the
-    // `design` block below is the axis that entry added, and Supabase is the
-    // reason it had to exist -- their system's identity is carried at least as
-    // much by a 6px radius, a 450 text weight and the absence of shadow as by
-    // the green.
+    // R-72 · SUPABASE IS THE BASELINE, SO THIS ENTRY DECLARES NO COLOURS.
     //
-    // PUBLISHED vs DERIVED, because Supabase publishes far less than it looks.
-    // Their docs site lists token NAMES with no values. The stepped ramps
-    // (brand-200..600, warning-*, destructive-*) and the `scale` neutral ramp
-    // are real HSL literals in packages/{ui,config}. Every SEMANTIC colour --
-    // background, card, popover, muted, border, foreground, primary, warning,
-    // destructive -- is computed at runtime in OKLCH from about ten scalar
-    // inputs, so no hex exists to copy and each was derived by evaluating their
-    // own expressions. A comment marks which is which, value by value, so a
-    // later session can tell a quotation from a calculation.
+    // «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب
+    // وجت هب و device» -- the design system IS Supabase, and WhatsApp, GitHub and
+    // device are three COLOUR exceptions on top of it. So Supabase is not one
+    // option among three: it is what design/tokens.css declares, and every other
+    // choice is an override of its colours only.
     //
-    // THREE VALUES DELIBERATELY DIVERGE, each because their own value fails a
-    // guard this repository already enforces (measured, not assumed):
-    //   * focus -- their ring is --primary at 55% alpha, which flattens to
-    //     #98E3C0 and is 1.47:1 on their own background. The guard needs 3:1.
-    //   * lineStrong -- their --border-stronger is 1.57:1 (light) and 1.53:1
-    //     (dark) against their own card. The guard needs 3:1.
-    //   * amber -- their --warning is oklch(0.68 0.14 75) and 2.68:1 on their
-    //     own published warning-300 tint. The guard needs 4.5:1, so the hue and
-    //     chroma are held and only the lightness moves, to 0.52.
-    // Their brand green is 1.99:1 on white, which is why accentContrast is
-    // near-black in BOTH schemes rather than white in one of them.
+    // WHICH MEANS THERE IS NOTHING TO PUT HERE. Its colours are the `:root` and
+    // dark-block colours in tokens.css. Repeating them would be the same values
+    // in two files with nothing keeping them equal -- and the entry above exists
+    // precisely because `brand` DOES differ from the baseline.
+    //
+    // The entry is not empty of purpose. It makes Supabase SELECTABLE, so a user
+    // who tried WhatsApp can come back; it gives the tile its label and swatches;
+    // and it puts `supabase` in `data-palette`, so the DOM says which of the four
+    // colour choices is in force. apply() removes all 36 colour properties for
+    // it, and removal is exactly what "fall through to the baseline" means.
+    //
+    // R-71 built the opposite and it was wrong: a `design` block here gave the
+    // design system to this palette and to NOBODY ELSE. Measured on the built
+    // engine -- `brand`, `blue` and device colours all fell back to the
+    // pre-Supabase 9px radius, 14px body and Segoe UI. Three of four.
     ["supabase", {
       id: "supabase",
       label: "Supabase",
       description: "Supabase console green, flat and bordered",
       colors: ["#131413", "#3ECF8E", "#85E0BA", "#FDFDFD"],
-      // Scheme-independent: shape, type and motion do not change with the
-      // scheme. Elevation does, and lives in the themes below.
-      design: {
-        // Their effective ramp is 2/4/6/8/12/16. `rounded-md` = 6px is the
-        // universal control radius (431 files) and 8px the container ceiling;
-        // 16px appears in 19. NOT the 10px from apps/ui-library -- that is a
-        // separate shadcn registry product with a grey focus ring.
-        radiusXs: "0.125rem", radiusSm: "0.25rem", radius: "0.375rem",
-        radiusLg: "0.5rem", radiusXl: "0.75rem", radiusSheet: "1rem",
-        // Supabase migrated OFF the proprietary Circular: the live stack across
-        // studio, www and design-system is Inter + Manrope + Source Code Pro,
-        // all OSS. The `Circular, custom-font` stack still in packages/config is
-        // a dead self-referential var() fallback, which is where third-party
-        // token extractors still get the Circular claim from.
-        //
-        // NOTHING IS FETCHED. The faces are named first and the existing system
-        // stack is kept behind them, so a machine that has Inter uses it and one
-        // that does not is unchanged. "Noto Sans Arabic" STAYS in every stack --
-        // this product is read and written in Arabic and neither Inter nor
-        // Manrope covers it.
-        font: "Inter, \"Segoe UI\", system-ui, -apple-system, "
-          + "BlinkMacSystemFont, \"Noto Sans Arabic\", sans-serif",
-        fontHeading: "Manrope, Inter, \"Segoe UI\", system-ui, "
-          + "\"Noto Sans Arabic\", sans-serif",
-        fontMono: "\"Source Code Pro\", ui-monospace, \"Cascadia Code\", "
-          + "Consolas, monospace",
-        // Their scale is shifted about 2px down from stock Tailwind, under their
-        // own comment "font sizing and weights optimized for Inter". Measured
-        // against this repository's ramp, SEVEN of the eight steps already
-        // agree -- 12/13/16/18/22/28 are identical. The one real move is the
-        // body size: their text-base is 15px where --fs is 14px. Saying so
-        // beats restating six unchanged numbers as if they were a change.
-        fs: "0.9375rem",
-        // --font-weight-normal is 450, not 400, and there is no bold anywhere in
-        // their system: `strong` is downgraded to 500 and the ceiling is Manrope
-        // 600 on headings. So --fw-heavy drops from 700 to 600 -- deliberately
-        // removing a weight rather than adding one.
-        fwRegular: "450", fwHeavy: "600",
-        // Exactly two curves, and they are used by meaning rather than by size:
-        // one for things that appear, one for things that travel.
-        durFast: "0.1s", dur: "0.15s", durSlow: "0.25s",
-        ease: "cubic-bezier(0.16, 1, 0.3, 1)",
-        easeTravel: "cubic-bezier(0.87, 0, 0.13, 1)",
-        focusRingWidth: "2px", focusRingOffset: "2px",
-        // NOT overridden, and each for a stated reason rather than by omission:
-        //   * spacing -- their scale is Tailwind's 4px base, which is already
-        //     this repository's --sp-* ramp value for value. Nothing to change.
-        //   * control heights and --touch-target -- their medium control is
-        //     ~38px against this repository's 40px, and the panel holds a 48px
-        //     floor that a design-system swap must not quietly lower.
-        //   * --radius-pill -- 999px is pill geometry, not a design choice.
-      },
-      themes: {
-        light: {
-          bg: "#FDFDFD",                  // --background          derived
-          surface: "#FFFFFF",             // --card                derived
-          surfaceSubtle: "#F6F6F6",       // --muted               derived
-          surfaceRaised: "#FFFFFF",       // --popover             derived
-          line: "#E9E9E9",                // --border              derived
-          lineStrong: "#8F8F8F",          // diverges; see header
-          text: "#030303",                // --foreground          derived
-          muted: "#464646",               // --muted-foreground    derived
-          textSubtle: "#696969",          // --tertiary-foreground derived
-          chip: "#F3F3F3",                // --accent              derived
-          accent: "#3FCF8E",              // brand-default light   PUBLISHED
-          accentHover: "#65D8A4",         // brand/80 flat         derived
-          accentActive: "#8EE8BD",        // brand-400/80 flat     derived
-          accentInk: "#097C4F",           // brand-600 light       PUBLISHED
-          accentContrast: "#030303",      // --primary-foreground  derived
-          accentWeak: "#D3F8E4",          // brand-200 light       PUBLISHED
-          focus: "#097C4F",               // diverges; see header
-          controlHover: "#F3F3F3",
-          amber: "#965900",               // diverges; see header
-          amberWeak: "#FFF4D5",           // warning-300 light     PUBLISHED
-          red: "#AB413E",                 // --destructive light   derived
-          redHover: "#8E332F",            // the same hue, pressed derived
-          redWeak: "#FFF0EE",             // destructive-300 light PUBLISHED
-          dangerContrast: "#FFF9F8",      // --destructive-fg      derived
-          switchTrack: "#16B674",         // brand-500 light       PUBLISHED
-          switchTrackHover: "#097C4F",    // brand-600 light       PUBLISHED
-          switchTrackOff: "#FFFFFF",
-          // A WHITE thumb cannot sit on this green -- #FFFFFF on brand-500 is
-          // 2.63:1 and the guard needs 2.9. Near-black is the same call
-          // accentContrast already makes, for the same reason.
-          switchThumb: "#030303",
-          switchThumbOff: "#8F8F8F",
-          // Their scrim is published exactly: dialog.tsx is `bg-black/40`, the
-          // same in both schemes. Shadow is NOT published -- they define zero
-          // shadow tokens and lean on an opaque plate plus a 1px border.
-          shadowColor: "rgb(3 3 3 / 0.06)",
-          overlay: "rgb(0 0 0 / 0.40)",
-          design: {
-            // Their Dialog is `border shadow-md dark:shadow-xs` -- the border is
-            // unconditional and the shadow is the part that gets dropped. Even
-            // their box-shadow utilities draw a 1px line at zero blur. So these
-            // are flatter than this repository's defaults by design, not by
-            // accident, and --shadow-lg finally derives from --shadow-color
-            // instead of the literal it carried.
-            shadowXs: "0 1px 2px var(--shadow-color)",
-            shadowSm: "0 1px 3px var(--shadow-color)",
-            shadowLg: "0 8px 24px var(--shadow-color)",
-          },
-        },
-        dark: {
-          bg: "#131413",                  // --background          derived
-          surface: "#181A19",             // --card                derived
-          surfaceSubtle: "#1A1B1A",       // --muted               derived
-          surfaceRaised: "#1B1D1C",       // --popover             derived
-          line: "#232423",                // --border              derived
-          lineStrong: "#707070",          // scale-900 dark        PUBLISHED
-          text: "#EDEFEE",                // --foreground          derived
-          muted: "#BCBDBC",               // --muted-foreground    derived
-          textSubtle: "#989A99",          // --tertiary-foreground derived
-          chip: "#1E1F1E",                // --accent              derived
-          accent: "#3ECF8E",              // brand-default dark    PUBLISHED
-          accentHover: "#85E0BA",         // brand-600 dark        PUBLISHED
-          accentActive: "#16B674",        // brand-500 light reused derived
-          accentInk: "#3ECF8E",           // brand-default dark    PUBLISHED
-          accentContrast: "#131413",      // --primary-foreground  derived
-          accentWeak: "#002918",          // brand-300 dark        PUBLISHED
-          focus: "#3ECF8E",               // brand-default dark    PUBLISHED
-          controlHover: "#1E1F1E",
-          amber: "#F2AF48",               // --warning dark        derived
-          amberWeak: "#341C00",           // warning-300 dark      PUBLISHED
-          red: "#FA8880",                 // --destructive dark    derived
-          redHover: "#FDA49D",            // the same hue, lighter derived
-          redWeak: "#3B1813",             // destructive-300 dark  PUBLISHED
-          dangerContrast: "#090504",      // --destructive-fg      derived
-          switchTrack: "#3ECF8E",         // brand-default dark    PUBLISHED
-          switchTrackHover: "#85E0BA",    // brand-600 dark        PUBLISHED
-          switchTrackOff: "#181A19",
-          switchThumb: "#131413",
-          switchThumbOff: "#707070",
-          shadowColor: "rgb(0 0 0 / 0.40)",
-          overlay: "rgb(0 0 0 / 0.40)",
-          design: {
-            // Dropped three steps from light, which is what their Dialog does.
-            shadowXs: "0 1px 1px var(--shadow-color)",
-            shadowSm: "0 1px 2px var(--shadow-color)",
-            shadowLg: "0 4px 16px var(--shadow-color)",
-          },
-        },
-      },
+      themes: {light: {}, dark: {}},
     }],
   ]);
   // R-59 DECISION 3, BUILT. `whatsapp` and `github` are legacy compatibility
@@ -349,35 +202,29 @@
     "switch-track-off", "switch-thumb", "switch-thumb-off", "shadow-color",
     "overlay",
   ]);
-  // THE SECOND AXIS, added by R-71, and the reason it exists is a count: every
-  // one of the 36 THEME_PROPERTIES above is a colour. Shape 0, typography 0,
-  // spacing 0, elevation 0, motion 0. So an appearance could not carry a design
-  // system, only a palette -- and "not colours only" was the request.
+  // R-72 · THERE IS NO SECOND AXIS, AND THAT IS THE RULING.
   //
-  // These are the non-colour custom properties an appearance may override. They
-  // are a SUBSET of design/tokens.css on purpose: of the 71 properties the
-  // registry could not previously reach, three must stay unreachable by a
-  // recorded decision (the Sign-in-with-Google values, fixed by Google's
-  // branding rules and guarded by their own test), --radius-pill is geometry
-  // rather than style, and --sp-* and the control heights are left to
-  // tokens.css so an appearance cannot quietly lower the panel's 48px touch
-  // floor.
+  // The 36 properties above are colours, and under R-72 a palette may set
+  // NOTHING ELSE: «whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم
+  // فتعدل على الالوان فقط لا تعدل على design system».
   //
-  // A palette declares these in one of two places, and the split is meaningful:
-  // `palette.design` for what does not change with the scheme (shape, type,
-  // motion) and `palette.themes[scheme].design` for what does (elevation --
-  // Supabase drops its shadow in dark and keeps its border).
-  const DESIGN_PROPERTIES = Object.freeze([
-    "radius-xs", "radius-sm", "radius", "radius-lg", "radius-xl",
-    "radius-sheet",
-    "font", "font-heading", "font-mono",
-    "fs-2xs", "fs-xs", "fs-sm", "fs", "fs-md", "fs-lg", "fs-xl", "fs-2xl",
-    "fw-regular", "fw-medium", "fw-bold", "fw-heavy",
-    "lh-tight", "lh", "lh-relaxed",
-    "shadow-xs", "shadow-sm", "shadow-lg",
-    "dur-fast", "dur", "dur-slow", "ease", "ease-travel",
-    "focus-ring-width", "focus-ring-offset",
-  ]);
+  // R-71 added a DESIGN_PROPERTIES list here so a palette could carry radius,
+  // typography, elevation and motion. It is removed rather than left unused,
+  // because «واى تعارض معاها يلغى» and a mechanism whose whole purpose is "a
+  // palette may change the design system" is the conflict itself.
+  //
+  // The design system did not go anywhere -- it moved to where it belongs.
+  // design/tokens.css IS the Supabase design system now, so all four colour
+  // choices sit on it, including device, which applies no palette at all. That
+  // is what R-71's axis could not do: measured on the built engine, it gave the
+  // system to `supabase` and left `brand`, `blue` and device on the old 9px
+  // radius, 14px body and Segoe UI. Three of four.
+  //
+  // tests/test_a_palette_may_change_nothing_but_colour.py enforces this, and it
+  // is worth saying why a TEST rather than a comment: the failure it catches is
+  // silent. A `design` key added to a palette entry would simply be dashed into
+  // a `--design` property whose value reads "[object Object]", and nothing about
+  // the page would look broken enough to notice.
   const schemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listeners = new Set();
   let remoteBase = "";
@@ -456,27 +303,11 @@
   }
 
   function themeFor(palette, scheme) {
-    // `design` is the scheme's non-colour block and is read by designFor, not
-    // here. Without this filter it would be dashed into a `--design` property
-    // whose value is "[object Object]".
-    return dashed(Object.entries(palette.themes[scheme])
-      .filter(([key]) => key !== "design"));
-  }
-
-  // Scheme-independent first, then the scheme's own overrides on top. A palette
-  // that declares neither returns {} and every DESIGN_PROPERTY is removed rather
-  // than set, which is how the two colour-only palettes keep tokens.css's shape
-  // and type untouched.
-  function designFor(palette, scheme) {
-    return dashed([
-      ...Object.entries(palette.design || {}),
-      ...Object.entries(palette.themes[scheme].design || {}),
-    ]);
+    return dashed(Object.entries(palette.themes[scheme]));
   }
 
   function clearTheme(root) {
     THEME_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
-    DESIGN_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
   }
 
   function paletteFor(id) {
@@ -495,6 +326,11 @@
     if (value.mode === "manual") root.dataset.theme = value.scheme;
     else root.removeAttribute("data-theme");
 
+    // Device colours: no palette, so every colour override is removed and the
+    // page falls through to design/tokens.css. Under R-72 that is not a
+    // degraded state -- tokens.css IS the Supabase design system, so shape,
+    // typography, elevation and motion are exactly what they are under every
+    // other choice, and only the colours come from the operating system.
     if (value.deviceColors) {
       root.removeAttribute("data-palette");
       clearTheme(root);
@@ -503,15 +339,13 @@
 
     root.dataset.palette = value.palette;
     const palette = paletteFor(value.palette);
-    const scheme = effectiveScheme(value);
-    const theme = themeFor(palette, scheme);
-    const design = designFor(palette, scheme);
+    const theme = themeFor(palette, effectiveScheme(value));
+    // Removal is meaningful, not a no-op: `supabase` declares no colours at all
+    // because its colours ARE tokens.css's, so this loop removes all 36 and the
+    // baseline shows through. `brand` and `blue` set the ones they override and
+    // leave the rest to fall through the same way.
     THEME_PROPERTIES.forEach((property) => {
       if (theme[property]) root.style.setProperty(`--${property}`, theme[property]);
-      else root.style.removeProperty(`--${property}`);
-    });
-    DESIGN_PROPERTIES.forEach((property) => {
-      if (design[property]) root.style.setProperty(`--${property}`, design[property]);
       else root.style.removeProperty(`--${property}`);
     });
   }

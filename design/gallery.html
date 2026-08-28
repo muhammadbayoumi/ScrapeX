@@ -931,15 +931,17 @@
   </div>
 
   <div class="g-item">
-    <h3>An appearance carries more than colour</h3>
-    <p class="g-why">Added by <code class="code">R-71</code>. Until then every one
-      of the 36 properties an appearance could set was a colour — shape 0,
-      typography 0, elevation 0, motion 0 — so a palette could repaint the UI and
-      not restyle it. <code class="code">DESIGN_PROPERTIES</code> in
-      <code class="code">design/appearance.js</code> is the second axis, and this
-      is what it reaches. <strong>Everything below is drawn from the tokens in
-      force right now</strong>, so switching appearance in the panel changes this
-      block — which is the whole claim being made.</p>
+    <h3>The design system, which a palette cannot change</h3>
+    <p class="g-why"><code class="code">R-72</code>: the design system is
+      Supabase's and it is the <strong>baseline</strong> —
+      <code class="code">design/tokens.css</code> — not one appearance among
+      several. A palette changes colour and nothing else, so
+      <strong>everything below is identical under all four colour choices</strong>
+      (Supabase, WhatsApp, GitHub, device). That is the claim being made, and it
+      is the opposite of what <code class="code">R-71</code> first built: a
+      per-palette design axis handed the system to Supabase and left the other
+      three on the old 9px radius and 14px body. Switch appearance in the panel
+      and the colours below move while the shape, type and motion do not.</p>
     <div class="g-demo stack">
       <div class="cluster">
         <span class="chip" style="border-radius:var(--radius-xs)">radius-xs</span>
@@ -963,17 +965,20 @@
         <span class="card" style="box-shadow:var(--shadow-lg)">shadow-lg</span>
       </div>
     </div>
-    <pre>// design/appearance.js
-["supabase", {
-  design: {                       // scheme-independent: shape, type, motion
-    radius: "0.375rem", fwRegular: "450",
-    ease: "cubic-bezier(0.16, 1, 0.3, 1)",
-  },
-  themes: {
-    light: { /* colours */ design: {shadowSm: "0 1px 3px var(--shadow-color)"} },
-    dark:  { /* colours */ design: {shadowSm: "0 1px 2px var(--shadow-color)"} },
-  },
-}]</pre>
+    <pre>/* design/tokens.css — the design system, for every colour choice */
+:root {
+  --radius: 0.375rem;                          /* their universal 6px control */
+  --fs: 0.9375rem;                             /* their text-base is 15px */
+  --fw-regular: 450;  --fw-heavy: 600;         /* 450, and no bold at all */
+  --font: Inter, ...;  --font-heading: Manrope, ...;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);       /* things that appear */
+  --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);  /* things that travel */
+  --shadow-sm: 0 1px 3px var(--shadow-color);  /* they define no shadows */
+}
+
+/* design/appearance.js — a palette carries COLOUR and nothing else */
+["brand", {themes: {light: {accent: "#35AA65", ...}, dark: {...}}}]
+["supabase", {themes: {light: {}, dark: {}}}]   /* it IS the baseline */</pre>
   </div>
 </section>
 

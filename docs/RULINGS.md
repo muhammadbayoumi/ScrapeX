@@ -2968,6 +2968,16 @@ typography, elevation, spacing and motion; **and** the component anatomy in
 `design/components.css` restyled to match. Decision 4 of `R-59` is unaffected and binding
 throughout — components consume semantic roles, never a palette identifier.
 
+> **~~The axis~~ SUPERSEDED THE SAME DAY by
+> [R-72](#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).**
+> A per-palette axis puts the design system in **one palette**, and measured on the engine
+> this section produced, that is what it did: `supabase` got all nine design properties and
+> `whatsapp`, `github` and device colours got none, falling back to the pre-Supabase 9px
+> radius, 14px body and Segoe UI. Three of four colour choices. The design system belongs in
+> `design/tokens.css`, where every choice reaches it. **The half of this section that stands
+> is the component rules** — that work is untouched, and it is what lets the baseline reach
+> anything at all.
+
 #### 3 · Whether a new user actually SEES it is still his call
 
 `DEFAULTS` is `{mode: "device", scheme: "light", palette: "github", deviceColors: true}`,
@@ -3015,3 +3025,87 @@ the ruling*: **C4** is his own rule and it says a superseded ruling stays, marke
 its replacement. `R-59` is therefore intact above with decision 1 struck and this entry named,
 and decisions 2–6 still active. Erasing it would have hidden why `brand` was ever the default
 from the next session to ask.
+
+---
+
+### R-72 · The design system is Supabase's, always, and a palette may change nothing but colour
+**2026-08-28 · design system · GENERAL — «واى تعارض معاها يلغى» · amends
+[R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) §2 and
+discharges [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+decision 2**
+
+> «نقطة مهمة ضعها قرار واى تعارض معاها يلغى فهذا تحديث عام
+> · اولا supabase design system هو default للبراندى اما واتساب وجيت هب فهى الوان يمكن
+> اختيارها ولكنها لا تعبر عن brand
+> · design system اعنيها كاملة بكل جوانبه وفروعه
+> · whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم فتعدل على الالوان فقط لا تعدل
+> على design system
+> · يعنى design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و
+> device»
+
+**He labelled this himself: a general update, and anything that conflicts with it is
+cancelled.** It is recorded before the code changes, because the code it corrects is code
+this repository shipped hours earlier.
+
+#### The rule, in four parts
+
+1. **The Supabase design system is THE design system.** Not an option, not a palette, not one
+   entry among three. It is the baseline every surface is drawn on — *«كاملة بكل جوانبه
+   وفروعه»*: complete, in every aspect and every branch. Shape, typography, spacing,
+   elevation, motion, focus geometry.
+2. **The only thing a user chooses is COLOUR.** Four options, and `supabase` is the default:
+   `supabase`, `whatsapp`, `github`, `device`.
+3. **`whatsapp` and `github` are colour themes and do not represent the brand.** *«لا تعبر عن
+   brand»*. They change colours. They **must not** change the design system.
+4. **`device` is on the same footing** — it swaps colours for the operating system's, and the
+   design system underneath it does not move.
+
+#### What was wrong, measured before this was written
+
+`R-71` built the opposite architecture: a **per-palette** design axis, where an appearance
+*could* carry shape and typography. Because only `supabase` declared a `design` block, the
+other three fell back to `design/tokens.css` — which still held the pre-Supabase shape and
+type. Run against the built engine on 2026-08-28:
+
+| colour choice | design properties applied |
+|---|---|
+| `supabase` | radius, fs, fw-regular, fw-heavy, font, shadow, dur, ease, focus-ring — **9 of 9** |
+| `whatsapp` (`brand`) | **none** — fell back to the old 9px radius, 14px body, 400/700 weights, Segoe UI |
+| `github` (`blue`) | **none** — same |
+| **device colours** | **none** — same |
+
+**Three of the four colour choices lost the design system entirely**, and device colours is
+the one a fresh install would have used had the flip not landed. That is precisely what part
+3 forbids, and it is why this ruling exists.
+
+#### What it changes in the code
+
+- **`design/tokens.css` becomes the Supabase design system.** Its `:root` carries Supabase's
+  shape, typography, motion, focus geometry and elevation, and its dark blocks carry
+  Supabase's dark elevation. Every colour choice — including `device`, which applies no
+  palette at all — therefore sits on it.
+- **`DESIGN_PROPERTIES` and `designFor()` are removed.** A mechanism whose entire purpose was
+  *"a palette may carry a design system"* conflicts with part 3, and *«واى تعارض معاها يلغى»*
+  cancels it. `R-71` §2's axis is amended, not the request behind it: *«لن يكون الوان فقط»*
+  is satisfied **better** by putting the design system in the baseline than by letting each
+  palette carry its own.
+- **A guard replaces it, inverted.** Instead of a list of non-colour properties a palette
+  *may* set, a test asserts a palette entry may contain **nothing but colour**. The ruling
+  becomes unbreakable rather than merely documented.
+- **The `supabase` palette entry stops duplicating the baseline.** Its colours *are* the
+  `:root` colours, so it declares none and exists to be selectable and to name itself in
+  `data-palette`. `brand` and `blue` stay exactly what they are: colour overrides.
+
+#### And it discharges `R-59` decision 2
+
+Decision 2 called the teal *"deprecated — legacy colour residue and migration debt, not brand
+and not a future palette."* It survived because it was the `:root` fallback and therefore
+what a fresh user actually saw. Under this ruling `:root` becomes Supabase, so **the teal is
+deleted rather than deprecated.** The debt is paid, not re-registered.
+
+#### What this ruling does NOT touch
+
+The three Sign-in-with-Google values and that button's fixed type size stay outside every
+appearance's reach — Google's branding rules, and their own guard. `--sp-*`,
+`--control-height*` and `--touch-target` keep the panel's 48px floor. `R-59` decision 4 still
+governs: components consume semantic roles, never a palette identifier.

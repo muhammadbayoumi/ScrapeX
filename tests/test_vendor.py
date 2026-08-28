@@ -232,12 +232,14 @@ def test_only_the_three_reviewed_application_palettes_are_available():
     assert 'switchTrack: "#35AA65"' in appearance
     assert 'buttonBg: "#43D36D"' in appearance
     assert 'buttonHover: "#1C1E21"' in appearance
-    # Supabase's brand green, in both schemes. The light and dark values differ
-    # by one digit in their own source and both are published, so both are
-    # pinned -- a single assertion would not notice one being copied over the
-    # other.
-    assert 'accent: "#3FCF8E"' in appearance
-    assert 'accent: "#3ECF8E"' in appearance
+    # SUPABASE'S OWN COLOURS ARE NOT PINNED HERE, and that is R-72 rather than an
+    # omission. It is the BASELINE, not one option among three, so its colours
+    # live in design/tokens.css and its palette entry declares none -- pinning
+    # them here would be asserting a duplicate that no longer exists.
+    # tests/test_a_palette_may_change_nothing_but_colour.py owns that half.
+    assert '"#3FCF8E"' not in appearance, (
+        "the supabase entry has grown colours again; under R-72 its colours are "
+        "design/tokens.css's and the entry exists only to be selectable")
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
         "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',
@@ -248,47 +250,44 @@ def test_only_the_three_reviewed_application_palettes_are_available():
     ).read_text(encoding="utf-8")
 
 
-def test_an_appearance_can_carry_more_than_colour():
-    """The axis R-71 added, and the count that proves it is still there.
+def test_the_design_system_is_the_baseline_and_not_a_palette():
+    """R-72 REPLACED THIS TEST'S SUBJECT, so the test is rewritten rather than
+    deleted -- the question it asks is still the right one and only the answer
+    moved.
 
-    Before R-71 all 36 THEME_PROPERTIES were colours -- shape 0, typography 0,
-    elevation 0, motion 0 -- so an appearance could not carry a design system
-    even in principle. This asserts the second list exists, that it reaches the
-    families a design system actually sets, and that the three properties a
-    recorded decision keeps OUT of an appearance's reach are still out of it.
+    It used to assert a DESIGN_PROPERTIES list existed, so a palette COULD carry
+    radius, typography, elevation and motion. Measured on the built engine, that
+    architecture handed the design system to `supabase` and to nobody else:
+    `brand`, `blue` and device colours all fell back to the pre-Supabase 9px
+    radius, 14px body and Segoe UI. Three of four colour choices lost it, and
+    device is what a fresh install uses.
+
+    So the axis is gone and the design system moved to design/tokens.css, which
+    every colour choice sits on -- including device, which applies no palette at
+    all. This asserts the new shape: no axis in the engine, the system in the
+    baseline.
     """
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
 
-    assert "const DESIGN_PROPERTIES = Object.freeze([" in appearance
-    block = appearance.split("const DESIGN_PROPERTIES = Object.freeze([", 1)[1]
-    block = block.split("]);", 1)[0]
-    names = re.findall(r'"([a-z0-9-]+)"', block)
+    # The axis, and the two functions that read it, are gone from the engine.
+    for removed in ("const DESIGN_PROPERTIES", "function designFor(",
+                    "palette.themes[scheme].design", "palette.design"):
+        assert removed not in appearance, (
+            f"`{removed}` is back in design/appearance.js. R-72: a palette "
+            "changes colour only -- the design system belongs to tokens.css so "
+            "that all four colour choices sit on it.")
 
-    # One representative of every family, so the list cannot quietly shrink back
-    # to a single axis.
-    for family in ("radius", "font", "fs", "fw-regular", "lh",
-                   "shadow-lg", "dur", "ease", "focus-ring-width"):
-        assert family in names, f"DESIGN_PROPERTIES no longer reaches {family}"
+    # And the baseline says so at the top, so a reader who opens tokens.css
+    # learns it before they start typing.
+    assert "R-72" in tokens
+    assert "THIS FILE IS THE SUPABASE DESIGN SYSTEM" in tokens
 
-    # The Sign-in-with-Google values are fixed by Google's branding rules and
-    # `design/tokens.css` says so at the point of definition: "NOT in the
-    # palette: no appearance choice may re-tone them." An appearance that could
-    # reach them would break that, and its own guard.
-    for forbidden in ("google-btn-bg", "google-btn-stroke", "google-btn-text"):
-        assert forbidden not in names, (
-            f"{forbidden} is a third-party brand value and must stay outside "
-            "every appearance's reach")
-    # --radius-pill is circle geometry rather than a design choice, and --sp-*
-    # and the control heights stay in tokens.css so an appearance cannot lower
-    # the panel's 48px touch floor.
-    for withheld in ("radius-pill", "sp-4", "control-height", "touch-target"):
-        assert withheld not in names, (
-            f"{withheld} was moved into DESIGN_PROPERTIES without a ruling")
-
-    # Both halves of the split must be live: scheme-independent shape and type
-    # on the palette, scheme-dependent elevation inside each theme.
-    assert "function designFor(" in appearance
-    assert "palette.themes[scheme].design" in appearance
+    # apply() still writes the 36 colours, and clearTheme still removes exactly
+    # those -- symmetry that matters because `supabase` declares no colours, so
+    # REMOVAL is what makes the baseline show through for it.
+    assert "THEME_PROPERTIES.forEach" in appearance
+    assert "DESIGN_PROPERTIES.forEach" not in appearance
 
 
 def test_appearance_has_one_cross_surface_sync_contract():
@@ -856,7 +855,25 @@ def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     assert header == pytest.approx(row * 1.25)
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     assert "--grid-header-weight: var(--fw-heavy)" in css
-    assert "--fw-heavy: 700" in tokens
+    # 700 UNTIL R-72, AND THE CHANGE IS DELIBERATE RATHER THAN A CASUALTY.
+    #
+    # This line pinned the top of the weight ramp because the grid header has to
+    # read as a header. Supabase has NO BOLD: their --font-weight-normal is 450,
+    # `strong` is downgraded to 500, and the ceiling is Manrope 600 on headings --
+    # so under R-72, which makes their system the baseline, --fw-heavy is 600 and
+    # equal to --fw-bold.
+    #
+    # What that costs, stated rather than waved past: the header is no longer
+    # heavier than other emphasised text. It is still separated from an ordinary
+    # row by the three things this same test pins around it -- the 1.25x height
+    # above, --grid-header-surface (a mixed, distinct plate) and
+    # --grid-header-text -- which is exactly how Supabase separates a table
+    # header, since it has no heavier weight to reach for either.
+    #
+    # The token is still --fw-heavy and not --fw-bold on purpose: the grid asks
+    # for "the top of the ramp", and where the top sits is the design system's
+    # decision, not the grid's.
+    assert "--fw-heavy: 600" in tokens
     assert "--grid-header-surface: color-mix(" in css
     assert "var(--surface-container-low) 76%" in css
     assert "var(--outline-variant)" in css
