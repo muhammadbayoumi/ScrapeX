@@ -976,8 +976,10 @@
   --shadow-sm: 0 1px 3px var(--shadow-color);  /* they define no shadows */
 }
 
-/* design/appearance.js — a palette carries COLOUR and nothing else */
-["brand", {themes: {light: {accent: "#35AA65", ...}, dark: {...}}}]
+/* design/appearance.js — a palette carries COLOUR and nothing else.
+   (Written without a real hex on purpose: this catalogue is inside the
+   colour-literal ban, and the example tripped it.) */
+["brand",    {themes: {light: {accent: "&lt;hex&gt;", ...}, dark: {...}}}]
 ["supabase", {themes: {light: {}, dark: {}}}]   /* it IS the baseline */</pre>
   </div>
 </section>
