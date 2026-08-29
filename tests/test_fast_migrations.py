@@ -25,7 +25,18 @@ from scrapex import db as dbmod
 # (db/migrations/0011_retention.sql), so two HONEST migrations a second apart
 # differ there. Comparing it would make this test fail at random, which is worse
 # than not having it — a gate people learn to ignore is not a gate.
-_CLOCK_COLUMNS = {("retention_policy", "updated_at")}
+#: Columns whose value is the WALL CLOCK, which two runs can never agree on. Comparing
+#: them would make this gate fail on the passage of time rather than on a difference in
+#: the schema, which is the one thing it exists to see.
+_CLOCK_COLUMNS = {
+    ("retention_policy", "updated_at"),
+    # `database_migration.applied_at` JOINED THIS LIST ON 2026-08-29, and it could not have
+    # been needed before: `db.migrate` did not write the ledger at all, so the table was
+    # empty in both databases and matched trivially. Retiring the second stream made
+    # `db.migrate` delegate to the engine runner, which DOES record every migration -- so
+    # the two runs began to differ by the second they happened to run in.
+    ("database_migration", "applied_at"),
+}
 
 
 def _shape(conn: sqlite3.Connection) -> dict:
@@ -111,8 +122,15 @@ def test_a_reloaded_db_module_does_not_disable_the_template(schema_template):
 
 
 def test_a_truncated_stream_is_never_served_the_template(schema_template, monkeypatch, tmp_path):
-    """tests/test_db.py:204 replays history by cutting the stream short. Handing
-    it v57 would not fail — it would quietly assert against the wrong schema."""
+    """A test that replays history by cutting the stream short must not be handed the
+    template: it would not fail, it would quietly assert against the wrong schema.
+
+    THE CUT IS RELATIVE, and it used to be the literal 46. That number belonged to
+    `db/migrations/`, retired on 2026-08-29 — and once the chain ended at 15, `<= 46` kept
+    every file, truncated nothing, and the assertion below flipped. A guard whose premise
+    is a magic number from another stream stops being a guard the moment the stream goes;
+    one short of whatever the chain is today can never stop truncating.
+    """
     if schema_template.disabled:
         pytest.skip("SCRAPEX_FULL_MIGRATIONS: nothing is armed")
 
@@ -120,8 +138,8 @@ def test_a_truncated_stream_is_never_served_the_template(schema_template, monkey
     try:
         assert schema_template.may_restore(conn) is True     # pristine: eligible
         every = dbmod._migration_files()
-        monkeypatch.setattr(dbmod, "_migration_files",
-                            lambda: [f for f in every if f[0] <= 46])
+        assert len(every) > 1, "a one-file stream cannot be truncated, so nothing is proved"
+        monkeypatch.setattr(dbmod, "_migration_files", lambda: every[:-1])
         assert schema_template.may_restore(conn) is False    # ...but not this stream
     finally:
         conn.close()

@@ -125,7 +125,7 @@ def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: P
     legacy = dbmod.connect(tmp_path / "legacy.db")
     try:
         dbmod.migrate(legacy)
-        assert dbmod.schema_version(legacy) == 61   # +0061 the weight the price is quoted against
+        assert dbmod.schema_version(legacy) == dbmod.latest_schema_version()
         for table in ("price_observation", "generic_record"):
             assert legacy.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
@@ -178,7 +178,7 @@ def test_discovery_returns_candidates_without_polluting_permanent_datasets(conn)
 
     assert result["candidates"][0]["name"] == "City report"
     for table in (
-        "site_profile", "dataset_definition", "field_definition",
+        "source_site", "dataset_definition", "field_definition",
         "dataset_schema_version", "generic_record", "generic_ingestion",
     ):
         assert conn.execute(f"SELECT COUNT(*) FROM {table} LIMIT 1").fetchone()[0] == 0

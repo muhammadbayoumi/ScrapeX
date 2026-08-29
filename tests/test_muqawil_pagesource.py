@@ -64,7 +64,7 @@ def test_it_is_a_page_source_and_not_a_connector(source):
 def test_the_site_key_is_the_catalogue_s_and_not_the_hostname(source):
     """IT READ `muqawil.org` UNTIL THE TWO HALVES WERE FIRST JOINED, and could
     never have worked. `snapshotcrawl.read_scope` looks this up in
-    `site_profile`, and rows get there through `catalog.register_site`, whose
+    `source_site`, and rows get there through `catalog.register_site`, whose
     `CatalogKey` is `^[a-z][a-z0-9_]{1,63}$` — no dots, no hyphens.
 
     So a hostname here means every crawl raises SiteNotRegistered while the row
@@ -72,7 +72,7 @@ def test_the_site_key_is_the_catalogue_s_and_not_the_hostname(source):
     pattern itself rather than the literal, so the rule is what is pinned.
     """
     assert re.fullmatch(r"[a-z][a-z0-9_]{1,63}", source.site_key), (
-        f"{source.site_key!r} cannot be registered as a site_profile row, so "
+        f"{source.site_key!r} cannot be registered as a source_site row, so "
         "no crawl of it will ever find its scope")
     assert source.site_key == "muqawil_org"
 

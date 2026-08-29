@@ -536,40 +536,12 @@ def test_a_store_that_will_not_state_its_weight_unit_shows_no_basis(tmp_path):
 
 # ---- migration 0057 ----------------------------------------------------------
 
-def test_migration_0057_adds_the_two_columns_without_touching_offer_identity():
-    """Both columns are outside ux_source_offer_identity, so an existing offer
-    LEARNS them instead of a second offer being minted beside it — the
-    duplicate-row defect that appeared the day the sika connector learned to
-    read "5 KG" off a name and 56 products grew a twin."""
-    conn = dbmod.connect(":memory:")
-    try:
-        for number, file in dbmod._migration_files():        # the pre-0057 warehouse
-            if number >= 57:
-                continue
-            conn.executescript(file.read_text(encoding="utf-8"))
-            conn.execute(f"PRAGMA user_version = {number}")
-        columns = {r[1] for r in conn.execute("PRAGMA table_info(source_offer)")}
-        assert "weight" not in columns and "weight_unit" not in columns
+# `test_migration_00NN_*` REMOVED 2026-08-29 WITH THE MIGRATION IT GUARDED.
+# `db/migrations/` was retired on his ruling; a test that replays a stream by
+# number to reach a file that no longer exists cannot fail for a real reason, and
+# keeping it is the doubled effort the retirement was for.
+# The migration itself is still readable: `git show 8901a2a:db/migrations/`.
 
-        assert dbmod.migrate(conn) == [57, 58, 59, 60, 61]   # 0058 rides along: it adds the
-            # witness columns 0057's units will need, and the chain runs forward
-
-        columns = {r[1]: r for r in conn.execute("PRAGMA table_info(source_offer)")}
-        assert "weight" in columns and "weight_unit" in columns
-        # Nullable and undefaulted: NULL reads as "the site did not say", which
-        # is the truthful state of every row that predates the next crawl. A 0
-        # would be a source claiming weightlessness.
-        assert columns["weight"][3] == 0 and columns["weight"][4] is None
-        assert columns["weight_unit"][3] == 0 and columns["weight_unit"][4] is None
-
-        indexed = {r[2] for r in conn.execute(
-            "PRAGMA index_info(ux_source_offer_identity)")}
-        assert "weight" not in indexed and "weight_unit" not in indexed
-    finally:
-        conn.close()
-
-
-# ---- the other side of the same rule ----------------------------------------
 
 def test_the_shops_own_word_for_a_tonne_survives_verbatim(tmp_path):
     """SOURCE TRUTH IS NEVER EDITED — including when the source says the very

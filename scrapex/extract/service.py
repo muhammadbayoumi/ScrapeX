@@ -258,10 +258,10 @@ def _approved_ingestion(
 ) -> sqlite3.Row | None:
     return conn.execute(
         "SELECT i.generic_ingestion_id, i.dataset_definition_id, "
-        "i.schema_version_id, s.site_key, d.dataset_key, v.schema_hash "
+        "i.schema_version_id, s.source_key AS site_key, d.dataset_key, v.schema_hash "
         "FROM generic_ingestion AS i "
         "JOIN dataset_definition AS d ON d.dataset_definition_id = i.dataset_definition_id "
-        "JOIN site_profile AS s ON s.site_profile_id = d.site_profile_id "
+        "JOIN source_site AS s ON s.source_id = d.source_id "
         "JOIN dataset_schema_version AS v ON v.schema_version_id = i.schema_version_id "
         "WHERE i.source_snapshot_id = ? AND i.source_locator = ? LIMIT 1",
         (snapshot_id, locator),
@@ -484,9 +484,9 @@ def _dataset_row(conn: sqlite3.Connection, dataset_id: int) -> sqlite3.Row:
     row = conn.execute(
         "SELECT d.dataset_definition_id, d.dataset_key, d.original_name, "
         "d.display_name, d.discovery_method, d.first_seen_at, d.last_seen_at, "
-        "s.site_key, s.display_name AS site_display_name "
+        "s.source_key AS site_key, s.source_name AS site_display_name "
         "FROM dataset_definition AS d "
-        "JOIN site_profile AS s ON s.site_profile_id = d.site_profile_id "
+        "JOIN source_site AS s ON s.source_id = d.source_id "
         "WHERE d.dataset_definition_id = ? AND d.valid_to IS NULL LIMIT 1",
         (dataset_id,),
     ).fetchone()
@@ -709,7 +709,7 @@ def approve_candidate(
         ingestion_id = int(recovered["generic_ingestion_id"])
     result = _dataset_public(conn, dataset_id)
     result.update({
-        "site_profile_id": int(site["site_profile_id"]),
+        "source_id": int(site["source_id"]),
         "schema_version_id": schema_version_id,
         "generic_ingestion_id": ingestion_id,
         "recovered": False,
@@ -741,12 +741,15 @@ def last_evidence_captured_at(conn: sqlite3.Connection,
     THE DEFECT THIS ANSWERS. The panel's source card said *"no successful crawl
     yet"* under `17,304 products` — and 17,304 rows plainly came from a crawl.
     The price pipeline records one `crawl_run` row per ingest and the card reads
-    it; the generic pipeline records none, because `crawl_run.source_id` is
-    `NOT NULL REFERENCES source_site(source_id)` (db/engine/schema.sql:122) and
-    muqawil has no `source_site` row at all — it lives in `site_profile`, and
-    which registry a source lands in is the open question `REQ-25` holds. So the
-    card was reading a table that cannot describe a dataset, and answering
-    honestly about the wrong thing.
+    it; the generic pipeline records none.
+
+    UNTIL `0014` THE REASON WAS THE REGISTRY SPLIT: `crawl_run.source_id` is
+    `NOT NULL REFERENCES source_site(source_id)` and muqawil had no `source_site`
+    row at all, because it lived in `site_profile`. `R-62` merged the two and it
+    has one now, so that obstacle is gone — what still writes no `crawl_run` row
+    is the generic crawl itself, which is `R-52`'s open half. So the card was
+    reading a table that cannot describe a dataset, and answering honestly about
+    the wrong thing.
 
     Nothing new is recorded to fix it. `generic_page_snapshot.captured_at` is
     when a page was fetched and `generic_ingestion` is which pages this dataset

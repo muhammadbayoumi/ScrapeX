@@ -141,10 +141,10 @@ def test_the_other_operations_are_not_gated_on_extraction(off):
 def _a_dataset_in(db_path: Path) -> None:
     """One approved dataset, so the listing has something it COULD advertise."""
     conn = sqlite3.connect(db_path)
-    conn.execute("INSERT INTO site_profile (site_key, display_name, base_url) "
+    conn.execute("INSERT INTO source_site (source_key, source_name, base_url) "
                  "VALUES ('muq','Contractors','https://muqawil.org')")
     conn.execute(
-        "INSERT INTO dataset_definition (site_profile_id, dataset_key, original_name, "
+        "INSERT INTO dataset_definition (source_id, dataset_key, original_name, "
         " dataset_kind, discovery_method, locator_json) "
         "VALUES (1,'contractors','contractors','table','html_table','{}')")
     conn.commit()

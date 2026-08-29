@@ -27,12 +27,18 @@ def test_migrate_is_idempotent(tmp_path: Path):
         second = dbmod.migrate(conn)
     finally:
         conn.close()
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
+    # THE WHOLE CHAIN, ASKED RATHER THAN TYPED. It used to be a literal list ending
+    # at 61; that number belonged to a stream retired on 2026-08-29, and a literal
+    # here would have to be edited by hand every time a migration is added.
+    assert first == list(range(1, dbmod.latest_schema_version() + 1))
     assert second == []  # T4: running again applies nothing
 
 
 def test_latest_schema_version_matches_the_migration_chain():
-    assert dbmod.latest_schema_version() == 61   # +0057 the weight the price is quoted against
+    # NOT a tautology: the left side reads the last NUMBER and the right counts the
+    # FILES, so a gap or a duplicate in the chain shows up here rather than in a
+    # migration that silently never runs.
+    assert dbmod.latest_schema_version() == len(dbmod._migration_files())
 
 
 def test_foreign_keys_actually_enforced(tmp_path: Path):
@@ -200,140 +206,6 @@ def test_the_live_holders_own_lock_is_still_never_stolen(tmp_path: Path):
 
 
 # ---- 0047: the guard that stops a brand being dropped unseen -----------------
-
-def _at_version_46(monkeypatch) -> sqlite3.Connection:
-    """A warehouse one migration short of the brand split, on the REAL stream."""
-    every = dbmod._migration_files()
-    monkeypatch.setattr(dbmod, "_migration_files",
-                        lambda: [f for f in every if f[0] <= 46])
-    conn = dbmod.connect(":memory:")
-    dbmod.migrate(conn)
-    monkeypatch.setattr(dbmod, "_migration_files", lambda: every)
-    return conn
-
-
-def _seed_branded_product(conn, *, source_key: str, brand_raw: str,
-                          manufacturer: str | None = None) -> None:
-    conn.execute(
-        # The column's name AT v46, which is where this fixture stands: 0055
-        # renames it to default_tax_mode, and these tests replay the stream to a
-        # point before that. Using today's name here would test a database that
-        # never existed.
-        "INSERT INTO source_site (source_key, source_name, source_name_ar, "
-        "default_vat_mode, authority, active) VALUES (?,?,?,?,?,1)",
-        (source_key, source_key.title(), source_key, "excl", "official"))
-    source_id = conn.execute("SELECT source_id FROM source_site WHERE source_key = ?",
-                             (source_key,)).fetchone()[0]
-    conn.execute(
-        "INSERT INTO source_product (source_id, external_product_id, brand_raw, "
-        "has_variants, curation_status, first_seen_at, last_seen_at, status, "
-        "category_path_ar, category_external_id, product_name, product_name_lang, "
-        "category_path, parent_sku) "
-        "VALUES (?,?,?,0,'inventoried','2026-07-28','2026-07-28','active','','','p','en','','')",
-        (source_id, "P-1", brand_raw))
-    if manufacturer is not None:
-        product_id = conn.execute(
-            "SELECT source_product_id FROM source_product WHERE external_product_id = 'P-1'"
-        ).fetchone()[0]
-        conn.execute(
-            "INSERT INTO source_product_attribute (source_product_id, attribute_code, "
-            "attribute_label, raw_value, numeric_value, unit_raw, value_url, "
-            "attribute_group, lang, first_seen_at, last_seen_at, is_site_filter) "
-            "VALUES (?,'manufacturer','Manufacturer',?,0,'','','detail','en',"
-            "'2026-07-28','2026-07-28',0)",
-            (product_id, manufacturer))
-    conn.commit()
-
-
-def test_a_brand_no_split_statement_covers_stops_the_migration(monkeypatch):
-    """0047's split statements are generated from a SNAPSHOT, so a brand first
-    crawled after the file was written matches none of them — and brand_raw is
-    dropped at the end. The guard turns that silent loss into a failed
-    migration, which is the owner's rule: nothing published is ever discarded
-    without saying so."""
-    conn = _at_version_46(monkeypatch)
-    try:
-        _seed_branded_product(conn, source_key="ALSWEED", brand_raw="علامة جديدة BRANDNEW")
-        with pytest.raises(sqlite3.IntegrityError):
-            dbmod.migrate(conn)
-    finally:
-        conn.close()
-
-
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN AND DELIBERATELY UNFIXED. 0047 is an applied migration: its sha256 is "
-    "recorded in database_migration and verified on EVERY connection, so editing "
-    "one byte of it stops the owner's engine starting, and the codebase has no "
-    "re-stamp path (no UPDATE or DELETE against that ledger exists anywhere). "
-    "The blind spot is also unreachable: it needs a row with a non-empty "
-    "brand_raw that the MADAR promotion blanked, the promotion is scoped to "
-    "MADAR alone, and MADAR published no brand_raw at all (0047 header, and 0 "
-    "such rows in the real pre-0047 warehouse). Replaying 0047 over that "
-    "warehouse with and without the fix gives an identical result — 2503 brands "
-    "either way. So this is recorded, not repaired: if a future migration ever "
-    "makes the shape reachable, fix it THERE. If this test starts passing, the "
-    "predicate changed underneath us and strict= will say so."))
-def test_the_guard_is_blind_to_a_brand_the_madar_promotion_emptied(monkeypatch):
-    """The blind spot, pinned rather than fixed.
-
-    The MADAR promotion wraps both its writes in COALESCE(..., ''), so a row it
-    touched holds '' and never NULL — and the guard tests `IS NULL`. It cannot
-    see the one row it exists to catch. The corrected predicate is
-    empty-or-null; see the reason above for why it does not live in the file.
-    """
-    conn = _at_version_46(monkeypatch)
-    try:
-        _seed_branded_product(conn, source_key="MADAR",
-                              brand_raw="علامة جديدة BRANDNEW", manufacturer="")
-        with pytest.raises(sqlite3.IntegrityError):
-            dbmod.migrate(conn)
-    finally:
-        conn.close()
-
-
-def test_the_madar_promotion_cannot_blank_another_sources_brand(monkeypatch):
-    """Why the blind spot above stays unreachable, asserted on the SQL itself.
-
-    The promotion is the only statement in 0047 that can leave a row with an
-    EMPTY brand rather than a NULL one. It is scoped to MADAR by source_key, so
-    no other source can ever be pushed into the guard's blind spot — which is
-    what makes recording the defect the right response instead of editing an
-    applied migration.
-    """
-    text = (dbmod.MIGRATIONS_DIR /
-            "0047_the_brand_says_which_language_it_is_in.sql").read_text(encoding="utf-8")
-    promotion = text.split("-- MADAR's brand", 1)[1].split(";", 1)[0]
-    assert "source_key = 'MADAR'" in promotion, \
-        "the promotion is no longer scoped to MADAR — the guard's blind spot may now be reachable"
-
-    # ...and a non-MADAR row with an uncovered brand still stops the migration,
-    # because nothing blanked it: it is NULL, which the shipped guard does see.
-    conn = _at_version_46(monkeypatch)
-    try:
-        _seed_branded_product(conn, source_key="ALSWEED",
-                              brand_raw="علامة أخرى OTHERBRAND", manufacturer="x")
-        with pytest.raises(sqlite3.IntegrityError):
-            dbmod.migrate(conn)
-    finally:
-        conn.close()
-
-
-def test_a_brand_the_promotion_fills_is_not_reported_as_lost(monkeypatch):
-    """The other half: a MADAR row whose manufacturer attribute HAS a value is
-    covered, not uncovered. A guard that fired here would block every upgrade."""
-    conn = _at_version_46(monkeypatch)
-    try:
-        _seed_branded_product(conn, source_key="MADAR",
-                              brand_raw="اسمنت الرياض", manufacturer="Riyadh Cement")
-        dbmod.migrate(conn)
-        assert conn.execute(
-            "SELECT brand FROM source_product WHERE external_product_id = 'P-1'"
-        ).fetchone()[0] == "Riyadh Cement"
-    finally:
-        conn.close()
-
-
-# ---- the default path stopped guessing, 2026-07-30 ------------------------
 
 def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypatch):
     """The old default was ~/.scrapex/harvest.db — NOT the warehouse, which is

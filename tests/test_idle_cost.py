@@ -49,8 +49,8 @@ def _idle_warehouse(path) -> None:
     conn = dbmod.connect(path)
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
-                 " source_name, base_url, platform, currency, timezone, authority, active) "
-                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
     conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
                  "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
     conn.execute("INSERT INTO source_product (source_product_id, source_id, "

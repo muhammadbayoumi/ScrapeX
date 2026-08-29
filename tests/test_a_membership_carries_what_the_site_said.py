@@ -72,7 +72,7 @@ def conn(tmp_path: Path):
 
 
 def _a_profile_row(conn, contractor_id: str) -> None:
-    conn.execute("INSERT OR IGNORE INTO site_profile (site_key, display_name, base_url) "
+    conn.execute("INSERT OR IGNORE INTO source_site (source_key, source_name, base_url) "
                  "VALUES ('muqawil_org','Contractors','https://muqawil.org')")
     conn.execute(
         "INSERT OR IGNORE INTO generic_page_snapshot "
@@ -80,7 +80,7 @@ def _a_profile_row(conn, contractor_id: str) -> None:
         "VALUES (1,'https://muqawil.org/en/contractors/775/143','<html></html>','h')")
     conn.execute(
         "INSERT OR IGNORE INTO dataset_definition (dataset_definition_id, "
-        " site_profile_id, dataset_key, original_name, dataset_kind, "
+        " source_id, dataset_key, original_name, dataset_kind, "
         " discovery_method, locator_json) "
         "VALUES (1,1,'contractor_profiles','contractor_profiles','table',"
         " 'html_table','{}')")

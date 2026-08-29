@@ -34,7 +34,7 @@ def _page_limit(limit: int) -> int:
 
 def _site_row(conn: sqlite3.Connection, site_key: str) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT * FROM site_profile WHERE site_key = ? AND valid_to IS NULL",
+        "SELECT * FROM source_site WHERE source_key = ? AND valid_to IS NULL",
         (site_key,),
     ).fetchone()
     if row is None:
@@ -56,9 +56,14 @@ def _dataset_row(conn: sqlite3.Connection, dataset_id: int) -> sqlite3.Row:
 def _site_public(row: sqlite3.Row) -> dict[str, Any]:
     keys = set(row.keys())
     return {
-        "site_profile_id": row["site_profile_id"],
-        "site_key": row["site_key"],
-        "display_name": row["display_name"],
+        "source_id": row["source_id"],
+        # THE PAYLOAD KEYS DO NOT MOVE, and the columns under them did. `0014` merged
+        # the registries, so `site_key`/`display_name` are `source_key`/`source_name` in
+        # the table -- but `extension/app.js` posts `site_key` and reads `r.site_key`
+        # back, and the extension is the interface (`R-48`). Aligning the two is its own
+        # change, touching both sides at once; it is `OP-93`.
+        "site_key": row["source_key"],
+        "display_name": row["source_name"],
         "base_url": row["base_url"],
         "price_source_key": (
             row["price_source_key"] if "price_source_key" in keys else None
@@ -73,7 +78,7 @@ def _site_public(row: sqlite3.Row) -> dict[str, Any]:
 def _dataset_public(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "dataset_definition_id": row["dataset_definition_id"],
-        "site_profile_id": row["site_profile_id"],
+        "source_id": row["source_id"],
         "dataset_key": row["dataset_key"],
         "original_name": row["original_name"],
         "display_name": row["display_name"],
@@ -107,7 +112,7 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
     """Register a site idempotently without overwriting its stable identity."""
     base_url = str(request.base_url)
     try:
-        conn.execute("SELECT price_source_key FROM site_profile LIMIT 0")
+        conn.execute("SELECT price_source_key FROM source_site LIMIT 0")
         general_schema = True
     except sqlite3.OperationalError as exc:
         if "price_source_key" not in str(exc):
@@ -119,7 +124,7 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
             "price_source_key instead"
         )
     existing = conn.execute(
-        "SELECT * FROM site_profile WHERE site_key = ?", (request.site_key,)
+        "SELECT * FROM source_site WHERE source_key = ?", (request.site_key,)
     ).fetchone()
     if existing is not None:
         if existing["valid_to"] is not None:
@@ -144,8 +149,8 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
         return _site_public(existing)
     if general_schema:
         cursor = conn.execute(
-            "INSERT INTO site_profile "
-            "(site_key, display_name, base_url, price_source_key, lifecycle) "
+            "INSERT INTO source_site "
+            "(source_key, source_name, base_url, price_source_key, lifecycle) "
             "VALUES (?,?,?,?,?)",
             (
                 request.site_key,
@@ -168,8 +173,13 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
                 )
             legacy_source_id = int(linked[0])
         cursor = conn.execute(
-            "INSERT INTO site_profile "
-            "(site_key, display_name, base_url, price_source_id, lifecycle) "
+            # DEAD AFTER `0014` AND KEPT DELIBERATELY. `general_schema` is a probe for
+            # `price_source_key`, which the merged `source_site` always has -- so this
+            # branch can no longer be reached. It stays until a split installation is
+            # proved gone, because deleting the fallback is how the one machine still
+            # running the old shape discovers it silently.
+            "INSERT INTO source_site "
+            "(source_key, source_name, base_url, price_source_id, lifecycle) "
             "VALUES (?,?,?,?,?)",
             (
                 request.site_key,
@@ -180,7 +190,7 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
             ),
         )
     return _site_public(conn.execute(
-        "SELECT * FROM site_profile WHERE site_profile_id = ?", (cursor.lastrowid,)
+        "SELECT * FROM source_site WHERE source_id = ?", (cursor.lastrowid,)
     ).fetchone())
 
 
@@ -189,15 +199,15 @@ def list_sites(
 ) -> dict[str, Any]:
     limit = _page_limit(limit)
     rows = conn.execute(
-        "SELECT * FROM site_profile WHERE valid_to IS NULL AND site_profile_id > ? "
-        "ORDER BY site_profile_id LIMIT ?",
+        "SELECT * FROM source_site WHERE valid_to IS NULL AND source_id > ? "
+        "ORDER BY source_id LIMIT ?",
         (max(0, after_id), limit + 1),
     ).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
     return {
         "sites": [_site_public(row) for row in page],
-        "next_after_id": page[-1]["site_profile_id"] if has_more else None,
+        "next_after_id": page[-1]["source_id"] if has_more else None,
     }
 
 
@@ -208,8 +218,8 @@ def register_dataset(
     locator_json = _json(request.locator)
     existing = conn.execute(
         "SELECT * FROM dataset_definition "
-        "WHERE site_profile_id = ? AND dataset_key = ?",
-        (site["site_profile_id"], request.dataset_key),
+        "WHERE source_id = ? AND dataset_key = ?",
+        (site["source_id"], request.dataset_key),
     ).fetchone()
     if existing is not None:
         if existing["valid_to"] is not None:
@@ -238,10 +248,10 @@ def register_dataset(
         return _dataset_public(_dataset_row(conn, existing["dataset_definition_id"]))
     cursor = conn.execute(
         "INSERT INTO dataset_definition "
-        "(site_profile_id, dataset_key, original_name, dataset_kind, "
+        "(source_id, dataset_key, original_name, dataset_kind, "
         "discovery_method, locator_json) VALUES (?,?,?,?,?,?)",
         (
-            site["site_profile_id"], request.dataset_key, request.original_name,
+            site["source_id"], request.dataset_key, request.original_name,
             request.dataset_kind.value, request.discovery_method.value, locator_json,
         ),
     )
@@ -255,10 +265,10 @@ def list_datasets(
     limit = _page_limit(limit)
     site = _site_row(conn, site_key)
     rows = conn.execute(
-        "SELECT * FROM dataset_definition WHERE site_profile_id = ? "
+        "SELECT * FROM dataset_definition WHERE source_id = ? "
         "AND valid_to IS NULL AND dataset_definition_id > ? "
         "ORDER BY dataset_definition_id LIMIT ?",
-        (site["site_profile_id"], max(0, after_id), limit + 1),
+        (site["source_id"], max(0, after_id), limit + 1),
     ).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]

@@ -161,7 +161,7 @@ def conn(tmp_path: Path):
 
 def register(conn, scope: str = "listing_only") -> None:
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope) "
+        "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope) "
         "VALUES ('site_test','A site',?,?)", (BASE, scope))
     conn.commit()
 
@@ -1230,7 +1230,7 @@ def test_every_cell_is_crawled_when_the_work_is_shared(registry):
     conn = registry.engine.connect()
     try:
         conn.execute(
-            "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope) "
+            "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope) "
             "VALUES ('site_test','A site',?, 'listing_only')", (BASE,))
         conn.commit()
         ids = {n: [str(n * 100 + k) for k in range(8)] for n in range(1, 5)}
@@ -1255,7 +1255,7 @@ def test_the_sightings_of_every_worker_reach_the_ledger(registry):
     conn = registry.engine.connect()
     try:
         conn.execute(
-            "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope) "
+            "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope) "
             "VALUES ('site_test','A site',?, 'listing_only')", (BASE,))
         conn.commit()
         ids = {n: [str(n * 100 + k) for k in range(8)] for n in range(1, 5)}

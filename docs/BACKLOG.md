@@ -810,7 +810,7 @@ columns at all**:
 
 **And the fix needs no decision about evidence, which is why this is a defect and not
 a question.** 0058 already faced the same rows in the in-place upgrade path and answered
-it — [db/migrations/0058_a_unit_that_can_name_who_said_it.sql:89-90](../db/migrations/0058_a_unit_that_can_name_who_said_it.sql)
+it — lines 89-90 of `0058_a_unit_that_can_name_who_said_it.sql`, in the `db/migrations/` stream retired on 2026-08-29 (`git show 8901a2a:db⁠/migrations/0058_a_unit_that_can_name_who_said_it.sql`)
 sets `unit_basis_provenance = 'legacy_unwitnessed'` with a witness that says in words
 that nobody can say where the value came from. So the honest value exists, is named,
 and counts as unresolved under the resolution metric. `carry_over` simply never applies
@@ -3033,6 +3033,38 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-93 · The catalogue payload still says `site_key` while the column is `source_key`
+
+**Left deliberately on 2026-08-29 and recorded so it is not mistaken for an oversight.**
+`0014` renamed `site_profile.site_key` / `display_name` to `source_site.source_key` /
+`source_name`. The columns moved; the JSON did not.
+
+`catalog._site_public` reads the new columns and publishes the old KEYS, and
+`extract/service.py` aliases `s.source_key AS site_key` for the same reason: **the extension
+posts `site_key` and reads `r.site_key` back** (`extension/app.js`), and the extension is the
+interface (`R-48`). Renaming the payload here alone would break the panel's Add-to-General
+flow.
+
+**So aligning them is one change touching both sides**, and it belongs with whatever else
+takes the panel's catalogue view — not smuggled into a migration.
+
+### OP-92 · `crawl_job.job_kind` is written and never read
+
+**Measured 2026-08-29 while pricing `REQ-45`.** `crawl_job` carries a `job_kind` column —
+his live warehouse holds `organization_enrichment` in it — and **`scrapex/jobs.py` contains
+zero occurrences of the name**. The worker dispatches on nothing: it takes `source_keys` and
+runs each through `capture_source` with the manifest.
+
+**Why it matters now.** The crawl button (`REQ-45`) needs a second kind of job — a site crawl
+doing what `scrapex contractors` does — and the column that would carry that distinction
+already exists, already has a value in it, and is inert. The next session either wires it up
+or adds a second mechanism beside it, and the second is how a codebase ends up with two.
+
+**A key the manifest does not know does not crash**, which is why this is quiet: `_host_lanes`
+gives it "a lane of its own — the failure belongs in that source's own error". So the failure
+arrives as one source's error inside a job that was accepted, rather than as a refusal at the
+door.
+
 ### OP-91 · The citation guard watches 9 documents of 82, and pins the code rather than the citation
 
 **Found 2026-08-29 by shipping the defect it exists to prevent.** `#281` inserted
@@ -3979,7 +4011,7 @@ with HTTP 429.
 
 | ID | Debt | Why it was acceptable |
 |---|---|---|
-| **DEBT-1** | **Migration `0047`'s coverage guard runs *after* the MADAR upgrade that fills its NULLs**, so it checks a narrower condition than its comment claims. | `0047`'s sha256 is verified on every connection and there is no re-stamp path; replaying it over the real pre-0047 warehouse gives an identical result with or without the fix. Recorded as a **strict xfail** at `tests/test_db.py:194` — this is the "1 xfailed" in every suite line, and it should stay visible. (`c7fa4ea`) |
+| **DEBT-1** | ~~**Migration `0047`'s coverage guard runs *after* the MADAR upgrade that fills its NULLs**, so it checks a narrower condition than its comment claims.~~ *(DISCHARGED BY DELETION 2026-08-29 — `0047` went with the `db/migrations/` stream when it was retired, and with it the four tests that replayed the stream to v46 to reach it. The debt was never repairable in place: an applied migration's sha256 is verified on every connection and no re-stamp path exists, which is what the original entry said.)* | — |
 | **DEBT-2** | **ETag / Last-Modified persistence across runs.** In-memory validators exist in `HttpFetcher`; they are not persisted. | Naive 304-skipping breaks price *confirmations* (`last_confirmed_at`) and the volume canary. It needs a content-cache design, not a flag. Owner approved the deferral 2026-07-22. |
 | **DEBT-3** | **`_derive_seen` rebuilds the whole derived timeline of every offer a run touched, unconditionally** (`scrapex/ingest.py:1349-1363` — cited as `:1029-1043` until 2026-08-12). | Gating it on success *was* the incident: one contained error left every offer with an appended observation but no `offer_state` and no `price_period`, and the same-day dedupe then blocked the re-append that would have repaired it. The cost is accepted; ت3's claim that it is ~396,000 operations was never refuted (**OP-6** — and OP-6's row for ت3 pointed at DEBT-4 by mistake; it means this entry). |
 | **DEBT-4** | **advancedcastle's Egyptian price is deliberately not crawled.** *(Discharged as intended — re-measured 2026-08-12: the 14 ADVANCEDCASTLE rate rows are there and no converted price is.)* | It is a *conversion*, not a price the merchant set — the EGP/SAR ratio is constant at 11.768 across five probed products. `price_basis` / `original_price` live on `COMMODITY_PRICE`, not `PRODUCT_PRICES`, so recording it honestly is a schema migration and therefore the owner's call. He took it: capture the published **rate**, never the converted price. Note the warehouse *would* keep the two countries apart correctly (`source_offer` is keyed on `country_code_alpha2`) — the reason is the derivation, not a modelling limit. (`e639310`, `b43405c`) |
@@ -4002,7 +4034,13 @@ table, everything else in the **row's own card**, because contractors will have 
 sources and a column is a promise every source must keep. The question is kept below,
 unedited, because the answer is only legible beside what was asked (**C4**).
 
-### Q-27 · `/api/health` says the databases are `ok` while it also lists two migrations pending
+### Q-27 · ~~`/api/health` says the databases are `ok` while it also lists two migrations pending~~ — ANSWERED 2026-08-29
+
+> **It was reading the other stream.** `schema_lag` compared his engine warehouse against
+> `db/migrations/` — the pre-collapse stream, 61 files — so it reported his current
+> database as permanently two migrations behind a chain that never governed it. `R-72`
+> retired that folder, `scrapex/db.py` now points at `db/engine/migrations/`, and there is
+> one thing left to compare against. No question for him remains.
 
 **Asked 2026-08-27 · measured on his live engine, both before and after the `0.4.2` restart**
 

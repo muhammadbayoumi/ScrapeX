@@ -214,12 +214,10 @@ PINNED = (
     # The partition crawl's shared vocabulary. STATE.md sends a reader here to
     # learn what a cell IS before reading how one is witnessed.
     ("docs/STATE.md", "scrapex/pagesource.py", 67, "class Cell:"),
-    # OP-23 · the value `carry_over` must reuse rather than invent. The entry's
-    # whole argument is that this literal already exists, so a reader landing on
-    # the wrong line would conclude the fix needs a ruling about evidence when it
-    # does not.
-    ("docs/BACKLOG.md", "db/migrations/0058_a_unit_that_can_name_who_said_it.sql",
-     90, "'legacy_unwitnessed'"),
+    # The `0058` row was removed on 2026-08-29 with the stream that held the file. It is
+    # not a pin that stopped mattering -- the file it pinned no longer exists, and a pin
+    # on a deleted file can only ever fail. `PINNED_FLOOR` is what stops this becoming a
+    # way to make a red build green.
     # OP-29. The `r` IS the fix, and a docstring quoting a Windows path is the
     # case that recurs -- so the prefix is pinned rather than remembered. Drop
     # it and 3.12 warns on an invalid escape while a later Python refuses the
@@ -298,7 +296,7 @@ PINNED = (
     # this line at all.
     ("docs/BACKLOG.md", "extension/app.js", 4649, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
-    # source_site, and muqawil is in site_profile.
+    # source_site, and muqawil is in source_site.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
      "REFERENCES source_site(source_id)"),
     # The index that is worth 390x and had no reader. The entry's claim is about
@@ -351,7 +349,7 @@ PINNED = (
     ("docs/LESSONS.md", "tests/test_panel_dom.py", 160, "def settle_view("),
     ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
      "HISTORICAL = {"),
-    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 144,
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 151,
      "def test_a_historical_test_is_still_readable_where_the_row_says("),
     # OP-46 · THE CONDITION BELOW FIRED, AND THESE TWO ROWS ARE ITS DISCHARGE.
     #

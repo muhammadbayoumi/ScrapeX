@@ -1311,8 +1311,8 @@ def test_every_dataset_freshness_state_can_be_read_in_full(tmp_path):
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar,"
                  " source_name, base_url, platform, currency, timezone, authority,"
-                 " active) VALUES (1,'MADAR','مدار','Madar',"
-                 "'https://madar.test','custom_json','SAR','UTC','shop',1)")
+                 " lifecycle) VALUES (1,'MADAR','مدار','Madar',"
+                 "'https://madar.test','custom_json','SAR','UTC','shop','active')")
     conn.commit()
 
     page = TestClient(create_app(p)).get("/data").text

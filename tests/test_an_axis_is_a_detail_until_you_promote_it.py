@@ -31,8 +31,8 @@ def conn(tmp_path):
     c = dbmod.connect(tmp_path / "w.db")
     dbmod.migrate(c)
     c.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, source_name,"
-              " base_url, platform, currency, timezone, authority, active) "
-              "VALUES (1,'SHOP','م','Shop','http://s','magento-graphql','SAR','UTC','shop',1)")
+              " base_url, platform, currency, timezone, authority, lifecycle) "
+              "VALUES (1,'SHOP','م','Shop','http://s','magento-graphql','SAR','UTC','shop','active')")
     for pid, axes in enumerate([{"Thickness (mm)": "3"}, {"Density (Kg/M3)": "40"}], start=1):
         c.execute("INSERT INTO source_product (source_product_id, source_id, "
                   " external_product_id, product_name, product_name_ar, status) "

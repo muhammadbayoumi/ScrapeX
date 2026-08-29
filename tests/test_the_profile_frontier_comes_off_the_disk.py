@@ -56,7 +56,7 @@ def conn(tmp_path: Path):
 
 
 def _registered(conn, scope: str, slice_of: str | None = None) -> None:
-    """muqawil in `site_profile`, at the scope this test is about.
+    """muqawil in `source_site`, at the scope this test is about.
 
     THE SCOPE IS WRITTEN TO THE DATABASE AND NEVER PASSED IN, because that is the rule
     the code under test enforces: `PLATFORM-PLAN` Decision 23 makes it the owner's
@@ -64,7 +64,7 @@ def _registered(conn, scope: str, slice_of: str | None = None) -> None:
     neither place.
     """
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope, "
+        "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope, "
         " crawl_slice) VALUES ('muqawil_org','Contractors','https://muqawil.org',?,?)",
         (scope, slice_of))
     conn.commit()
@@ -105,7 +105,7 @@ def test_a_listing_only_source_fetches_no_profile_and_says_why(conn, capsys):
     assert asked == []
     said = capsys.readouterr().out
     assert "listing_only" in said
-    assert "site_profile.crawl_scope" in said, "it must say how to change the answer"
+    assert "source_site.crawl_scope" in said, "it must say how to change the answer"
 
 
 def test_a_slice_scope_with_no_slice_named_is_refused(conn):
@@ -153,7 +153,7 @@ def test_the_ledger_reaches_contractors_that_have_no_row_yet(conn):
     _registered(conn, "full_then_listing")
     record_sightings(conn, "contractors", ["1004", "20044482"])
     # One of them has a row; the other has only ever been seen.
-    conn.execute("INSERT INTO dataset_definition (site_profile_id, dataset_key, "
+    conn.execute("INSERT INTO dataset_definition (source_id, dataset_key, "
                  " original_name, dataset_kind, discovery_method, locator_json) "
                  "VALUES (1,'contractors','c','table','html_table','{}')")
     conn.execute("INSERT INTO dataset_schema_version (dataset_definition_id, "

@@ -171,8 +171,8 @@ def _warehouse(tmp_path, *source_keys):
     for i, key in enumerate(source_keys, start=1):
         conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
                      " source_name, base_url, platform, currency, timezone, authority, "
-                     " active) VALUES (?,?,'ش','G','http://g','shopify-json',"
-                     "'EGP','UTC','shop',1)", (i, key))
+                     " lifecycle) VALUES (?,?,'ش','G','http://g','shopify-json',"
+                     "'EGP','UTC','shop','active')", (i, key))
     conn.commit()
     return conn
 

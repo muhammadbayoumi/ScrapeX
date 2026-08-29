@@ -58,12 +58,12 @@ def _two_datasets(conn) -> tuple[int, int, int, int]:
     REVIEW, and the fixture should not depend on discovery succeeding.
     """
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url) "
+        "INSERT INTO source_site (source_key, source_name, base_url) "
         "VALUES (?,?,?)", (SITE, "Contractors", "https://muqawil.org"))
     ids = []
     for key in ("contractors", "contractor_profiles"):
         cur = conn.execute(
-            "INSERT INTO dataset_definition (site_profile_id, dataset_key, "
+            "INSERT INTO dataset_definition (source_id, dataset_key, "
             " original_name, dataset_kind, discovery_method, locator_json) "
             "VALUES (1,?,?, 'table','html_table','{}')", (key, key))
         ids.append(int(cur.lastrowid))

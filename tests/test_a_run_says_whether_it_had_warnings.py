@@ -46,8 +46,8 @@ def test_a_clean_run_is_visibly_clean_rather_than_merely_quiet(conn):
     would read as "not measured", which is the state this replaces."""
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar,"
                  " source_name, base_url, platform, currency, timezone, authority,"
-                 " active) VALUES (1,'S','S','S','http://s','shopify-json','EGP',"
-                 "'UTC','shop',1)")
+                 " lifecycle) VALUES (1,'S','S','S','http://s','shopify-json','EGP',"
+                 "'UTC','shop','active')")
     conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status)"
                  " VALUES (1,1,'2026-08-03T00:00:00Z','success')")
 
@@ -64,8 +64,8 @@ def test_the_backfill_reads_the_log_the_warnings_were_always_written_to(conn):
     that exists, not a second copy of it."""
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar,"
                  " source_name, base_url, platform, currency, timezone, authority,"
-                 " active) VALUES (12,'SPARK','S','S','http://s','shopify-json',"
-                 "'EGP','UTC','shop',1)")
+                 " lifecycle) VALUES (12,'SPARK','S','S','http://s','shopify-json',"
+                 "'EGP','UTC','shop','active')")
     conn.execute("INSERT INTO crawl_job (job_id, job_ref, run_mode, status,"
                  " source_keys, created_at) VALUES (7,'job_x','update',"
                  "'completed','[\"SPARK\"]','2026-08-03T00:00:00Z')")

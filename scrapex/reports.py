@@ -2505,7 +2505,10 @@ def schema_report(conn: sqlite3.Connection) -> dict:
 TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ("What the source said", "The source-local layer: exactly what each site "
      "published, before any interpretation. Nothing here is merged or renamed.", [
-         ("source_site", "One row per source: its key, both names, base URL and platform."),
+         ("source_site", "One row per source of any kind — a price shop or a website "
+                          "whose datasets are crawled: its key, both names, base URL, "
+                          "platform, lifecycle and crawl scope. `site_profile` merged "
+                          "into it in `0014` (`R-62`)."),
          ("source_product", "One row per product a source publishes, with its name, "
                             "classification, URL and your curation state."),
          ("source_variant", "One row per buyable variation — a colour, a thickness — "
@@ -2519,10 +2522,55 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ("General extraction", "The flexible branch for non-price data. It discovers a "
      "dataset and its fields first, then stores versioned records without forcing "
      "them into the price model.", [
-         ("site_profile", "One profile per general website, including its lifecycle "
-                          "and optional link to a MarketLens source."),
          ("dataset_definition", "A table, list, detail, tree or stream discovered on "
                                 "that website."),
+         # SEVENTEEN TABLES THAT HAD NEVER BEEN DESCRIBED, and the reason nobody noticed
+         # is that this guard used to build its warehouse from `db/schema.sql` -- the
+         # legacy stream's 51-table base. Retiring that stream on 2026-08-29 pointed it at
+         # the real 68-table engine schema and it found them at once, filed by
+         # `/data-model` under "Other" with no purpose given.
+         ("dataset_sighting", "One row per external id a crawl saw in a dataset: when it "
+                              "was first and last seen, how often, and when it was last "
+                              "proved ABSENT. This is the ledger the State column reads."),
+         ("generic_record_node", "Which taxonomy nodes a record belongs to — an interest, "
+                                 "a licensed activity — with the label the site published "
+                                 "in both languages."),
+         ("generic_record_field_change", "One row per field whose value actually changed, "
+                                         "with the value before and after and the page "
+                                         "that showed it."),
+         ("snapshot_dictionary", "The shared zlib dictionaries stored pages are "
+                                 "compressed against; a page names the one it used."),
+         ("fetch_validator", "The `ETag` and `Last-Modified` a URL last answered with, so "
+                             "the next fetch can ask whether anything changed."),
+         ("organization_entity", "One row per organization the enrichment pass has "
+                                 "identified across sources."),
+         ("organization_source_record", "Which crawled record an organization was "
+                                        "recognised from."),
+         ("organization_identity_alias", "The names, domains and numbers an organization "
+                                         "is known by, normalised for matching."),
+         ("organization_fact", "One row per enriched field: its value, which provider "
+                               "said it, and how confident that provider was."),
+         ("organization_provider_observation", "What one provider returned in one run, "
+                                               "kept whether or not it was believed."),
+         ("organization_review_decision", "A person's ruling on an enriched fact — "
+                                          "accepted, rejected, or overridden with a value."),
+         ("organization_merge_event", "Two organizations judged to be one, with who "
+                                      "decided and why."),
+         ("organization_merge_member", "Which organizations a merge absorbed, and what "
+                                       "each was canonical to before it."),
+         ("organization_enrichment_definition", "The standing configuration for one "
+                                                "source's enrichment: which datasets feed "
+                                                "it, which fields map where, which "
+                                                "providers to ask."),
+         ("organization_enrichment_definition_history", "Every earlier version of that "
+                                                        "configuration, so a run can be "
+                                                        "read against the rules it ran "
+                                                        "under."),
+         ("organization_enrichment_job", "One enrichment run: which definition, which "
+                                         "providers, and how it ended."),
+         ("organization_enrichment_run_item", "One organization inside one run, with the "
+                                              "source data it was given and what became "
+                                              "of it."),
          ("field_definition", "The fields that belong to a discovered dataset, with "
                               "their types, order and identity role."),
          ("dataset_relationship", "A reviewed relationship between two discovered "

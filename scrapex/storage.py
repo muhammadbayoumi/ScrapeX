@@ -567,15 +567,24 @@ def reconcile_active(conn) -> dict[str, bool]:
 
     changed: dict[str, bool] = {}
     try:
-        stored = dict(conn.execute("SELECT source_key, active FROM source_site"))
-        for key, is_active in stored.items():
+        # `lifecycle` REPLACED `active` IN `0014`, on his ruling: `active = 0` could not
+        # tell "never configured" from "you switched it off". The manifest still speaks in
+        # booleans, so the mapping happens here and NOTHING ELSE CHANGES -- the first draft
+        # of this also refused to move a `draft` row, which is a new policy nobody asked
+        # for and which this function is not the place to invent.
+        stored = dict(conn.execute("SELECT source_key, lifecycle FROM source_site"))
+        for key, lifecycle in stored.items():
+            is_active = lifecycle == "active"
             # A source the manifest no longer names is left ALONE, deliberately.
             # Its rows are `undeclared_sources`' business, and silently marking
             # them inactive would hide the very thing that function exists to
             # surface.
             if key in wanted and bool(is_active) != wanted[key]:
-                conn.execute("UPDATE source_site SET active = ? WHERE source_key = ?",
-                             (1 if wanted[key] else 0, key))
+                conn.execute(
+                    "UPDATE source_site SET lifecycle = ?, "
+                    "       updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                    " WHERE source_key = ?",
+                    ("active" if wanted[key] else "paused", key))
                 changed[key] = wanted[key]
         if changed:
             conn.commit()

@@ -71,11 +71,11 @@ def _stored(conn, *contractor_ids: str) -> None:
     `record_key`. Every NOT NULL column is supplied; none is guessed.
     """
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url) "
+        "INSERT INTO source_site (source_key, source_name, base_url) "
         "VALUES ('s','S','https://example.test')")
     conn.execute(
         "INSERT INTO dataset_definition "
-        "(site_profile_id, dataset_key, original_name, dataset_kind, "
+        "(source_id, dataset_key, original_name, dataset_kind, "
         " discovery_method, locator_json) "
         "VALUES (1,'contractors','contractors','table','html_table','{}')")
     conn.execute(

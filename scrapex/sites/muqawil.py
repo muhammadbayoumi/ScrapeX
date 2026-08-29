@@ -210,7 +210,7 @@ class MuqawilPageSource:
 
     #: THE CATALOGUE'S KEY, NOT THE HOSTNAME, and the difference is not
     #: cosmetic. `PageSource.site_key` is what `snapshotcrawl.read_scope` looks
-    #: up in `site_profile`, and rows get there through `catalog.register_site`,
+    #: up in `source_site`, and rows get there through `catalog.register_site`,
     #: whose `CatalogKey` is `^[a-z][a-z0-9_]{1,63}$` — no dots, no hyphens. A
     #: `site_key` of "muqawil.org" can therefore never match a row that was
     #: registered properly, and every crawl of it would raise SiteNotRegistered

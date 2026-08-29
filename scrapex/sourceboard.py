@@ -2,16 +2,23 @@
 
 WHY THIS EXISTS. He asked «اى الجديد واى الى خلص» — which is new and which is
 finished — and measured 2026-08-21, **no command could answer it**: eighteen
-subcommands and not one lists the sources. Worse, there is nowhere for the answer to
-come from, because there are two registries and a source lands in one or the other by
-accident of which pipeline collected it:
+subcommands and not one lists the sources. Worse, there was nowhere for the answer to
+come from, because there were TWO DATABASE REGISTRIES and a source landed in one or the
+other by accident of which pipeline collected it — `source_site` for the price path,
+`site_profile` for everything else.
 
-    source_site + sources.yaml    ARAMCO_FUEL_SA, HEIDELBERG_EG, MADAR, SIKAEGSHOP
-    site_profile                  muqawil_org        <- not in sources.yaml at all
+`R-62` merged them on 2026-08-29 (migration `0014`), so the database now holds ONE:
+
+    source_site, declared in sources.yaml    ARAMCO_FUEL_SA, HEIDELBERG_EG, MADAR, ...
+    source_site, declared nowhere else       muqawil_org   <- not in sources.yaml at all
+
+What remains is not two registries but a registry and a MANIFEST: `sources.yaml` is where
+price sources are declared, and the twelve rows mirror it. A source with no manifest entry
+is now an ordinary row rather than a second kind of thing.
 
 `R-32` settles that price is one **category** among several and not the whole tool;
 `REQ-25` is the single registry. **This module is not that merge.** Merging
-`site_profile` into `source_site` is a migration over live rows and the owner's
+`source_site` into `source_site` is a migration over live rows and the owner's
 decision, and it is recorded as open. What this does is give him the ANSWER now, from
 a read-only view over both — so the query exists before the schema changes, and the
 merge can be judged on its own merits rather than being forced by a missing report.
@@ -43,7 +50,8 @@ from pathlib import Path
 from .config import MANIFEST_FILE, load_manifest
 from .vocab import ConnectorFamily, SourceCategory
 
-#: One vocabulary for both registries. Ordered by how far along a source is, so
+#: One vocabulary for every source, declared in the manifest or not. Ordered by how
+#: far along a source is, so
 #: sorting a board sorts by progress.
 STATES = ("registered", "built", "active", "paused")
 
@@ -98,28 +106,29 @@ def from_manifest(manifest_file: Path | str = MANIFEST_FILE) -> tuple[Source, ..
     return tuple(found)
 
 
-#: `site_profile.lifecycle` -> the shared vocabulary. There is deliberately no
+#: `source_site.lifecycle` -> the shared vocabulary. There is deliberately no
 #: mapping onto "registered": the generic side has no way to say a site is listed
-#: with no collector, because a `site_profile` row is only written once something is
+#: with no collector, because a `source_site` row is only written once something is
 #: crawling it. That asymmetry is a finding, not a rounding error, and `REQ-25` is
 #: where it gets fixed.
 _LIFECYCLE = {"draft": "built", "active": "active", "paused": "paused"}
 
 
 def from_warehouse(conn: sqlite3.Connection) -> tuple[Source, ...]:
-    """The generic side. Every `site_profile` row, with its datasets counted."""
+    """The generic side. Every `source_site` row, with its datasets counted."""
     rows = conn.execute(
-        "SELECT p.site_key, p.display_name, p.base_url, p.lifecycle, p.crawl_scope, "
+        "SELECT p.source_key AS site_key, p.source_name AS display_name, p.base_url, "
+        "       p.lifecycle, p.crawl_scope, "
         "       (SELECT COUNT(*) FROM dataset_definition AS d "
-        "         WHERE d.site_profile_id = p.site_profile_id) AS datasets "
-        "  FROM site_profile AS p WHERE p.valid_to IS NULL "
-        " ORDER BY p.site_key").fetchall()
+        "         WHERE d.source_id = p.source_id) AS datasets "
+        "  FROM source_site AS p WHERE p.valid_to IS NULL "
+        " ORDER BY p.source_key").fetchall()
     found = []
     for row in rows:
         datasets = int(row["datasets"] or 0)
         found.append(Source(
             key=str(row["site_key"]),
-            # EVERY site_profile ROW IS A CONTRACTOR SOURCE TODAY, and saying so is
+            # EVERY source_site ROW IS A CONTRACTOR SOURCE TODAY, and saying so is
             # honest rather than convenient: the column does not exist yet, muqawil
             # is the only row, and inventing a guess per row would be worse than
             # naming the one fact that is true. `REQ-25` puts the category on the
