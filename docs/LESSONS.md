@@ -3129,3 +3129,40 @@ palette through it *before* writing it into the source found two failures and co
 The scratch script asserts on `REQ-48` in `docs/REQUESTS.md` — a string added in this
 session — rather than on `__file__`, per the trap in `CLAUDE.md`: `__file__` catches a
 misdirected import and never a misdirected read.
+
+## 26 · A function that always answers plausibly cannot fail loudly, and three ways that bit in one afternoon
+
+`R-54`'s second half replaced `MAX(last_seen_at)` with the run that wrote a row. The defect
+being replaced had lived for weeks in plain sight, and the reason is worth keeping.
+
+**1 · The wrong answer and the right answer are the same SHAPE.** `row_state` returns one of
+eight strings. The old comparison returned one of them for every row, always -- never NULL,
+never an exception, never a log line. On his warehouse it read **`absent` on 17,221 of 17,304
+contractors**, which is a catastrophic answer that no test, no type checker and no eye
+scanning the panel could distinguish from a correct one. Nothing here fails loudly on its
+own: **the only thing that can is an assertion naming a specific row, a specific pair of
+runs, and the state it must get.** That is the whole design of
+`tests/test_a_run_is_the_clock_that_states_are_read_against.py`, and it is why fifteen small
+assertions beat one integration test.
+
+**2 · The obvious column that looked like the answer.** `crawl_run_ref` sits on 55,313 of
+57,041 snapshots and is *named* like a run identity. It is a free-text label an operator
+types; §20 has the measurement. Two design notes in this repository had already assumed it
+would do, and both were written by someone who had read the column name and not the data.
+
+**3 · `MAX(run_id)` FOR THE SOURCE is the version of the fix that passes almost every test.**
+It is one word different from `latest_run_for` and it is wrong in exactly one situation: a
+listing sweep stores no profile page, so the moment a listing crawl finishes, every profile
+row reads `absent` -- while the site still lists all of them. The question has to be asked
+THROUGH the rows: the newest run among the snapshots this dataset's records point at. A
+guard for this has to build two runs of the same source where only one wrote rows the
+dataset can see; anything simpler passes under both implementations.
+
+**And a smaller one, from the same change.** A crawl that opens a run needs its source
+registered -- so the first crawl of a new site must register it. The first draft called
+`catalog.register_site` unconditionally, and `register_site` **refuses a key that already
+exists under a different `base_url`**: ten tests went red with `CatalogConflict` because
+their fixture had registered the site from a slightly different URL. A crawl declares a
+source it does not know; it does not re-assert the identity of one somebody already
+registered. The corrected shape asks first (`runs.open_run`, catching `UnknownSource`) and
+registers only on the way through.

@@ -3456,6 +3456,18 @@ the repository has, on the only platform the owner uses.
 
 ## 3. Decided, not yet built
 
+### OP-99 · The price path still keeps its own copy of the run lifecycle
+
+`R-75` put every crawl on one run table, and the generic path now goes through
+`scrapex/runs.py`. The price path does not: `scrapex/ingest.py` still opens and closes a
+`crawl_run` inline, around its own `_insert(conn, "crawl_run", ...)` call. Two copies of
+one lifecycle is what `R-72` is about, and the second copy is the one that decides whether
+`finished_at` and `status` can ever disagree.
+
+**Not done on the way past, deliberately.** It is a change to working code with no defect
+behind it and no test that currently fails, so it is recorded rather than slipped into a
+pull request about something else.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

@@ -43,16 +43,15 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import taxonomy
+from . import catalog, runs, taxonomy
 from . import validators as validator_store
+from .catalog_models import SiteCreate
 from .connectors.base import HttpFetcher, declare_frontier
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
-from . import catalog
-from .catalog_models import SiteCreate
 from .extract.models import ApprovalField, CandidateApproval
 from .extract.service import SnapshotCreate, _canonical, _digest
 from .features import FeatureKey, is_enabled
@@ -65,8 +64,6 @@ from .partitioncrawl import (
     size_cell,
 )
 from .passes import DIRECTORY_PASSES
-from . import runs
-from .vocab import RunStatus
 from .sightings import (
     coverage,
     departures,
@@ -79,6 +76,7 @@ from .sightings import (
 from .sites.muqawil import MuqawilPageSource
 from .snapshotbody import decode, label_for
 from .snapshotcrawl import already_stored, read_scope
+from .vocab import RunStatus
 
 # THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
 # a `MuqawilPartition()`, and they are why a second contractor directory would have

@@ -10,8 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
-from .. import catalog
-from .. import runs
+from .. import catalog, runs
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
 from ..fields import arranged, list_fields
 from ..sightings import STATE_MEANING, row_state
