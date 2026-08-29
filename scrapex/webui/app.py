@@ -2888,6 +2888,35 @@ def create_app(
     #: backup share a stamp and sort together.
     PANEL_SUFFIX = "-panel.jsonl.gz"
 
+    #: How many built bundles stay on disk. NOTHING pruned these before
+    #: 2026-08-29 and each one is now 372.6 MB, so they accumulated for as long
+    #: as the feature has existed. Two, not one: `/api/bundle/archive` serves the
+    #: newest, and the predecessor survives so that rebuilding while the previous
+    #: upload is still running does not delete the file that upload was named for.
+    BUNDLE_KEEP = 2
+
+    #: A staging directory younger than this may belong to a build still running,
+    #: so the sweep leaves it alone. `start_engine` (scrapex/native.py) refuses to
+    #: spawn a second engine on a held port, so within one port there is never a
+    #: second builder -- but an engine started by hand elsewhere would share this
+    #: folder, and deleting a live foreign build is worse than the leak it fixes.
+    STAGING_ORPHAN_AGE_S = 6 * 3600
+
+    #: Serialises the build. The panel re-enables its button the moment a request
+    #: fails, so the 10-second deadline that used to fire mid-build invited a
+    #: second click while the first was still packing -- two copies of the
+    #: warehouse, two staging trees, and `_newest` free to hand the panel an
+    #: archive from one build while it holds the manifest of the other.
+    #:
+    #: IN-PROCESS ON PURPOSE, and per app rather than per module so tests do not
+    #: share one. A build is a thread inside this process; it cannot outlive a
+    #: crash, so there is never a survivor to lock against. An on-disk lock would
+    #: only add a stale one to clear.
+    _bundle_build_lock = threading.Lock()
+
+    #: `%Y%m%d-%H%M%S`, the stamp both files of a backup share.
+    _BUNDLE_STAMP = re.compile(rf"^{re.escape(BUNDLE_PREFIX)}(\d{{8}}-\d{{6}})")
+
     def _bundle_folder(conn) -> Path:
         return backup_folder(conn, app.state.db_path)
 
@@ -2895,6 +2924,49 @@ def create_app(
         made = sorted(folder.glob(f"{BUNDLE_PREFIX}*{suffix}"),
                       key=lambda p: p.stat().st_mtime, reverse=True)
         return made[0] if made else None
+
+    def _prune_old_bundles(folder: Path, keep: int = BUNDLE_KEEP) -> None:
+        """Keep the newest `keep` backups; delete every file of the older ones.
+
+        BY STAMP RATHER THAN BY MTIME, because the two files of one backup do not
+        share an mtime: `shutil.copy2` gives the panel pack the timestamp of the
+        staged file it was copied from, minutes before the archive beside it is
+        closed. Pruning each suffix on its own could therefore keep an archive
+        from one build and a panel pack from another, and the panel uploads the
+        pair as though they described the same warehouse.
+        """
+        stamps: dict[str, list[Path]] = {}
+        for path in folder.glob(f"{BUNDLE_PREFIX}*"):
+            found = _BUNDLE_STAMP.match(path.name)
+            if path.is_file() and found:
+                stamps.setdefault(found.group(1), []).append(path)
+        for stamp in sorted(stamps, reverse=True)[keep:]:
+            for path in stamps[stamp]:
+                try:
+                    path.unlink()
+                except OSError:
+                    # Windows refuses to unlink a file another process holds
+                    # open. Housekeeping must never fail a backup that worked.
+                    pass
+
+    def _sweep_orphan_staging(folder: Path) -> None:
+        """Remove staging trees left by a build that never reached its `finally`.
+
+        The rmtree below runs in a `finally`, so an engine killed mid-build skips
+        it and leaves the bundle expanded on disk -- a second full copy of the
+        warehouse, 1.5 GB on the owner's machine. That is what actually survives
+        a crash here; the build itself cannot.
+        """
+        cutoff = time.time() - STAGING_ORPHAN_AGE_S
+        for path in folder.glob(f"{BUNDLE_PREFIX}*"):
+            if not path.is_dir() or not _BUNDLE_STAMP.match(path.name):
+                continue
+            try:
+                if path.stat().st_mtime > cutoff:
+                    continue
+            except OSError:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
 
     @app.post("/api/bundle")
     def api_bundle_build():
@@ -2904,12 +2976,30 @@ def create_app(
         promise that what the panel is about to upload reads back correctly.
         The alternative — pack now, check later — is how `latest.json` ends up
         naming an archive nobody can open.
+
+        ONE AT A TIME. This route answers only when the whole job is done -- it
+        does not stream, so on the owner's warehouse the panel waits 104 seconds
+        for a first byte. Anything that makes him press the button twice used to
+        start a second build over the top of the first.
         """
+        if not _bundle_build_lock.acquire(blocking=False):
+            raise HTTPException(status_code=409, detail=(
+                "a backup is already being built — try again shortly"))
+        try:
+            return _build_one_bundle()
+        finally:
+            _bundle_build_lock.release()
+
+    def _build_one_bundle() -> dict:
         conn = read_conn()
         try:
             folder = _bundle_folder(conn)
         finally:
             conn.close()
+
+        # Under the lock, so the only staging trees old enough to match are the
+        # ones no build in this process is using.
+        _sweep_orphan_staging(folder)
 
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         staging = folder / f"{BUNDLE_PREFIX}{stamp}"
@@ -2946,6 +3036,10 @@ def create_app(
             # The staging directory is the bundle expanded; once packed it is a
             # second full copy of the warehouse sitting on the owner's disk.
             shutil.rmtree(staging, ignore_errors=True)
+
+        # AFTER the build succeeded, never before: a build that fails must not
+        # take the last archive that worked with it.
+        _prune_old_bundles(folder)
 
         return {
             "name": archive.name,

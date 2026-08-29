@@ -2421,7 +2421,7 @@ reason is four links long, every one measured on the live engine rather than arg
 | link | evidence |
 |---|---|
 | 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4064` |
-| 2 | that route validates the key against `app.state.manifest` — `scrapex/webui/app.py:3392-3396`, whose own comment reads *"fail before queueing, not mid-crawl"* (re-derived at `72ca371`: `GET /api/dry/{source_key}` was inserted above it in #274 and moved it 43 lines. The quoted comment, not the number, is what made it findable) |
+| 2 | that route validates the key against `app.state.manifest` — `scrapex/webui/app.py:3513-3517`, whose own comment reads *"fail before queueing, not mid-crawl"* (re-derived twice by the quoted comment rather than the number: `GET /api/dry/{source_key}` moved it 43 lines in #274, and the bundle-build lock moved it again here. It was 27 lines stale before that second move — Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists) |
 | 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** muqawil lives in `site_profile`, not `source_site` |
 | 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` |
 
