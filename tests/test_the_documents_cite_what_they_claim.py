@@ -397,6 +397,42 @@ PINNED = (
     # for pinning it rather than trusting a number in prose.
     ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1715,
      "arabic_value = arabic.values[lined_up.arabic_of[index]]"),
+    # EVERY `extract/service.py` CITATION IN THE GUARDED DOCUMENTS, pinned together on
+    # 2026-08-29 after nine of them drifted at once and NOTHING here noticed.
+    #
+    # `#281` inserted `_confirm_seen` at line 303 -- 53 lines above all of them. Tier 1
+    # passed because the file is long enough; `test_no_citation_lands_on_a_blank_line`
+    # passed because a 53-line shift in a file this dense lands on CODE, not on a gap;
+    # and tier 2 never looked, because none of the nine was here. So `BACKLOG.md` sent a
+    # reader to `return dataset_id, fields` for a sentence about pagination, and the
+    # build stayed green through two pull requests.
+    #
+    # The lesson the file already states -- "writing a citation that matters means adding
+    # a row here" -- is now applied to the whole family rather than to whichever one
+    # happened to break last.
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 560,
+     'and recovered["schema_hash"] == schema_hash'),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 666,
+     "last_seen_at=strftime"),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 968,
+     "Pagination is what saves the render"),
+    ("docs/LESSONS.md", "scrapex/extract/service.py", 968,
+     "Pagination is what saves the render"),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 993,
+     "WHEN THE MOST RECENT CRAWL SAW ANYTHING"),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 996, "newest = conn.execute("),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1007,
+     "for key, seen, absent in conn.execute("),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1096,
+     'presentation.get(row["field_key"])'),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1099,
+     "His ORDER only once he has actually arranged"),
+    # NOT REMAPPED, AND THAT IS THE POINT OF READING EACH ONE. Before `#281` this pointed
+    # at the closing `\"\"\"` of the docstring; the +53 shift landed it on the `def` that
+    # `STATE.md`'s sentence actually names. Applying difflib blindly would have put it
+    # back on the quote -- a repair that made the citation worse.
+    ("docs/STATE.md", "scrapex/extract/service.py", 918,
+     "def dataset_table_payload"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
