@@ -109,7 +109,7 @@ number in it had moved. That `docs/plans/` sits outside the citation guard's `DO
 
 **Found 2026-08-26. Two halves, and the second is what lets the first survive.**
 
-**The collapse.** [scrapex/extract/service.py:915](../scrapex/extract/service.py#L915)
+**The collapse.** [scrapex/extract/service.py:968](../scrapex/extract/service.py#L968)
 resolves the identity field as `identity[0] if len(identity) == 1 else None`. With **two**
 `key_part` fields, or **zero**, that is `None` — so every row's external id is `None`, every
 `dataset_sighting` lookup misses, and `row_state` runs with `sighted_at=None,
@@ -136,7 +136,7 @@ of the three available answers: explicit refusal, a composite key, or silent omi
 
 ### OP-71 · The `MAX(observed_at)` subquery cannot be served by its index, twelve lines under a comment condemning that exact pattern
 
-**Found 2026-08-26.** [scrapex/extract/service.py:940](../scrapex/extract/service.py#L940)
+**Found 2026-08-26.** [scrapex/extract/service.py:993](../scrapex/extract/service.py#L993)
 runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
 v.generic_record_id = r.generic_record_id)` — once per row.
 
@@ -147,7 +147,7 @@ SQLite can seek a record's revisions from the index and must then read the table
 one to get the timestamp. No covering index, no index-only `MAX`.
 
 **And the trap is named on the same screen.**
-[service.py:954](../scrapex/extract/service.py#L954), twelve lines below, explains that the
+[service.py:1007](../scrapex/extract/service.py#L1007), twelve lines below, explains that the
 sighting side is read in ONE query because joining per row *"would be the
 correlated-subquery defect `OP-27` measured at 49s all over again."* The rule is known,
 written down, and applied to the neighbouring table.
@@ -247,7 +247,7 @@ to `POST` later, alongside `OP-73`.**
 **Found 2026-08-26.** `grep display_name scrapex/reports.py` returns **zero hits**: the
 products payload labels from a module constant only —
 [reports.py:2191](../scrapex/reports.py#L2191), `labels = dict(BROWSE_COLUMNS)`. The dataset
-payload does the opposite at [service.py:1043](../scrapex/extract/service.py#L1043),
+payload does the opposite at [service.py:1096](../scrapex/extract/service.py#L1096),
 preferring his stored `display_name`.
 
 **So renaming a column reaches a contractor table's heading and never a products table's.**
@@ -274,7 +274,7 @@ shapes. Recorded so that a later reader does not "fix" it.
 ### OP-78 · `tree` is produced by both producers, asserted by a test, and read by no consumer anywhere
 
 **Found 2026-08-26.** [reports.py:2255](../scrapex/reports.py#L2255) computes it with
-`_tree_shape`; [service.py:1046](../scrapex/extract/service.py#L1046) hard-codes `{}`. No
+`_tree_shape`; [service.py:1099](../scrapex/extract/service.py#L1099) hard-codes `{}`. No
 consumer reads `payload.tree` — `grid.js`'s `features.tree` is a name collision — and the
 13-key list asserts it regardless.
 
@@ -2318,7 +2318,7 @@ entirely** — `contractors` was not touched by that work, and the skew is older
 
 **`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
 `newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
-identifier ([scrapex/extract/service.py:943](../scrapex/extract/service.py#L943)):
+identifier ([scrapex/extract/service.py:996](../scrapex/extract/service.py#L996)):
 
 ```python
 if last_seen_at is None or last_seen_at < newest:
@@ -2353,10 +2353,10 @@ column written row by row cannot.
 
 **Two statements nearby are also false, and both predate `#267`:**
 
-* [scrapex/extract/service.py:613](../scrapex/extract/service.py#L613) says *"`last_seen_at`
+* [scrapex/extract/service.py:666](../scrapex/extract/service.py#L666) says *"`last_seen_at`
   still moved: the upsert above sets it unconditionally, so a confirmation is recorded on
   the RECORD."* The `DEC-10` early `return` at
-  [scrapex/extract/service.py:515](../scrapex/extract/service.py#L515) fires **before** that
+  [scrapex/extract/service.py:560](../scrapex/extract/service.py#L560) fires **before** that
   upsert. Measured: **0** profile rows have a `last_seen_at` on 2026-08-24 with an earlier
   `first_seen_at`; all 17,264 pre-`R-51` rows still read 2026-08-23, after a full
   re-approval that touched every one of them.
@@ -3032,6 +3032,39 @@ the remedy did not survive the incident.
 system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
+
+### OP-91 · The citation guard watches 9 documents of 82, and pins the code rather than the citation
+
+**Found 2026-08-29 by shipping the defect it exists to prevent.** `#281` inserted
+`_confirm_seen` at `scrapex/extract/service.py:303` — **53 lines above nine citations** — and
+every tier stayed green through two pull requests:
+
+| tier | why it passed |
+|---|---|
+| the file exists | it does |
+| the line exists | the file is 1,339 lines long |
+| the line is not blank | a 53-line shift in a file this dense lands on CODE, not on a gap |
+| `PINNED` | none of the nine was in it |
+
+So `BACKLOG.md` sent a reader to `return dataset_id, fields` for a sentence about pagination,
+and `LESSONS.md` did the same. Repaired, and all ten now sit in `PINNED` — a mutation that
+inserts thirteen lines above them turns the suite red and names each subject.
+
+**Two holes remain, and they are why this is open rather than closed:**
+
+1. **`DOCUMENTS` is a nine-item tuple** — `CLAUDE.md`, `ENGINEERING.md` and seven under
+   `docs/`. The repository holds **82** `.md` files. Everything in `docs/plans/`,
+   `MUQAWIL-AUDIT-2026-08-26.md`, `ENGINE-ROLE-MEASURED.md`, `STORAGE.md` and the rest is
+   unchecked, and one of them cites a line of `service.py` that **is** blank today.
+2. **`PINNED` pins the CODE, not the citation.** Measured: changing a document's number
+   from `:996` back to the stale `:943` leaves the suite green, because the row asserts what
+   `service.py:996` says — not that any document cites 996. It catches the code moving
+   under a pin, which is the common case and the one that bit here, but it does not catch a
+   document written with a wrong number in the first place.
+
+**The two are one fix or two.** Widening `DOCUMENTS` needs a way to exclude the documents
+that declare a base commit on purpose — `MUQAWIL-AUDIT` says *"measured against `5722b6f`,
+NOT `main`"* in its second line, so the marker already exists in prose and could be read.
 
 ### OP-90 · A re-approval silently un-retires the rows `OP-64` disowned
 

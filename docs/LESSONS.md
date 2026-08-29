@@ -2590,7 +2590,7 @@ assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
 
 `unsighted` is in that set. So a table where **every single row** collapsed to
 `unsighted` is green. And there is a live path that does exactly that:
-[scrapex/extract/service.py:915](../scrapex/extract/service.py#L915) resolves the
+[scrapex/extract/service.py:968](../scrapex/extract/service.py#L968) resolves the
 identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
 two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
 every sighting lookup misses, and the whole column is wrong with nothing to say so.
@@ -2862,3 +2862,36 @@ before anything is built on it"*, and the ruling's own measurement section conta
 answer to the question I spent an afternoon measuring from scratch — then published a wrong
 conclusion from, in `STATE.md`, the document every session reads second. Read the ruling
 that names the mechanism before designing the mechanism.
+
+## 21 · Nine citations drifted at once and four tiers of guard said nothing
+
+`#281` added a 53-line function at `scrapex/extract/service.py:303`. Every citation below it
+moved. **Nine of them, across `BACKLOG.md` and `LESSONS.md`, were left pointing 53 lines above
+their subject, and the build was green through two pull requests.**
+
+The failure is not that a guard was missing. Four ran and each was satisfied honestly:
+
+- the file exists — it does;
+- the line exists — the file is 1,339 lines;
+- **the line is not blank** — and this is the one worth staring at. That tier was written
+  after `#255` pushed a cited sentence 38 lines down onto an empty line. A 53-line shift in a
+  file of dense code lands on *another statement*, so the tier that catches drift catches
+  only the drift that happens to land in a gap;
+- `PINNED` — none of the nine was in it.
+
+**The repair, and the measurement that made it trustworthy.** All ten are pinned now, and a
+mutation that inserts thirteen lines above them turns the suite red and names each subject.
+Had those rows existed a day earlier, `#281` could not have shipped.
+
+**And a survivor taught what `PINNED` actually pins.** The first mutation changed a
+DOCUMENT's number from `:996` back to the stale `:943` and the suite stayed green: a pinned
+row asserts what `service.py:996` says, not that anything cites 996. It guards the code
+moving under a citation — the common case — and not a citation written wrong to begin with.
+Knowing which of the two a guard covers is the difference between trusting it and assuming it.
+
+**The cheap rule that follows:** after inserting anything above line ~300 of a long, heavily
+cited module, re-derive every citation into it. `difflib` between the old blob and the new one
+gives the map in one pass — **and read each answer**, because one of the nine was better after
+the drift than before it: `STATE.md:918` had pointed at a docstring's closing quote and the
+shift landed it on the `def` the sentence names. Applying the map blindly would have repaired
+it into being wrong.
