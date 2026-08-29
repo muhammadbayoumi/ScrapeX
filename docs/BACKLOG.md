@@ -2552,7 +2552,7 @@ dict whose insertion order is not the page's, because `read_profile` adds
 `organization_email` and `commercial_registration` after the info-box loop.
 `merge_locales` reads `english.labels[index]` and — since `R-51` — the Arabic value at
 the position `align_locales` works out
-([scrapex/extract/muqawil.py:1715](../scrapex/extract/muqawil.py#L1715)). Re-measured
+([scrapex/extract/muqawil.py:1749](../scrapex/extract/muqawil.py#L1749)). Re-measured
 against **those**:
 
 | pages | shape | the last label on each side | is the odd box at the END? |

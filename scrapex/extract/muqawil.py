@@ -1201,6 +1201,44 @@ def read_profile(html: str, *, contractor_id: str | None = None) -> Reading:
                    latitude=latitude, longitude=longitude)
 
 
+
+#: THE SITE'S DEFAULT PIN, WHICH IS NOT A PLACE. Measured on his warehouse 2026-08-29:
+#: **14,621 of 17,352 profiles that carry a coordinate at all -- 84.3% -- publish this
+#: exact pair.** It is the centre of Riyadh, and it puts every contractor in Jizan and
+#: Tabuk on one point 1,000 km from where they are. `R-55`: a site-wide constant dressed
+#: as a per-record value is an ABSENCE.
+#:
+#: HARD-CODED, AND NOT "the most common pair". The next pair down has 30 rows
+#: (24.7135517, 46.6753) and is perfectly plausible as real data -- several contractors
+#: in one district. `R-55` draws that boundary itself: a value that DIFFERS between
+#: records is data, however strange it looks. A frequency heuristic would eventually eat
+#: a real address; a named constant can only ever be wrong about one pair, in public.
+#:
+#: Exact float equality is safe here and nowhere near a general rule: both sides are
+#: `float()` of the SAME decimal literal the page prints, so they are the same double.
+DEFAULT_MAP_PIN = (24.4493518, 46.6220053)
+
+
+def _is_placeholder_logo(source: str) -> bool:
+    """A URL that names no file is not a logo.
+
+    THE DOCUMENTED STRING IS NOT IN THE DATA, and this is the second time that shape has
+    cost something (`LESSONS` §7). `CONTRACTOR-SOURCE.md` asks for `default.jpg` to be
+    stored as NULL, and the site's own `onerror` really does name it -- but measured
+    across all 17,304 stored listing rows on 2026-08-29, `default.jpg` appears **zero**
+    times. The real placeholder is the bare directory
+    `https://muqawil.org/public/contractor/companyLogo/` on **13,042 of 17,304 rows
+    (75.4%)**, against 4,262 distinct real filenames.
+
+    So the rule is written against the shape rather than the string: a `src` that ends at
+    a directory separator has no filename, therefore no image. The `default.jpg` test
+    stays beside it because the page's `onerror` can still produce it and it costs one
+    comparison -- but it is second, and it is no longer the whole rule.
+    """
+    src = source.strip()
+    return not src or src.endswith(("/", "companies/default.jpg"))
+
+
 def read_listing(html: str) -> list[dict[str, str]]:
     """Every contractor a listing page names, with what the card publishes.
 
@@ -1223,11 +1261,7 @@ def read_listing(html: str) -> list[dict[str, str]]:
 
         logo = card.select_one("img.card-img")
         source = (logo.get("src") or "") if logo else ""
-        # THE PLACEHOLDER IS NOT A LOGO. The site's own `onerror` names
-        # `default.jpg`; a card already showing it has no logo, and storing the
-        # placeholder URL would make every logo-less contractor look like one
-        # that has a picture nobody can tell apart from the others.
-        row["logo_url"] = "" if source.endswith("companies/default.jpg") else source
+        row["logo_url"] = "" if _is_placeholder_logo(source) else source
 
         rater = card.select_one(".rater")
         row["customer_rating_score"] = (rater.get("data-rate-value") or "") if rater else ""
@@ -1762,7 +1796,16 @@ def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
     # coordinate says "this contractor never placed a pin"; a zero says "this contractor
     # is in the Gulf of Guinea", and a table whose purpose is to be believed cannot say
     # the second.
-    if english.latitude is not None and english.latitude and english.longitude:
+    #
+    # AND THE DEFAULT PIN IS THE SAME THING ONE SCALE LARGER. The zero above was two
+    # pages; `DEFAULT_MAP_PIN` is 14,621 of them, all claiming the centre of Riyadh. The
+    # reasoning is not "this looks wrong" -- it is that a value the site emits IDENTICALLY
+    # for 84.3% of contractors carries no information about any of them, so recording it
+    # is claiming knowledge we never had. `R-45` is untouched: we still never edit what
+    # the site published about a contractor, and `read_coordinates` still reports the pair
+    # faithfully. Refusing to promote it to a coordinate column is not a correction.
+    if (english.latitude is not None and english.latitude and english.longitude
+            and (english.latitude, english.longitude) != DEFAULT_MAP_PIN):
         merged["latitude"] = str(english.latitude)
         merged["longitude"] = str(english.longitude)
     return merged

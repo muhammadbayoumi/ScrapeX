@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.4"
+VERSION = "0.4.5"
 
 
 class Surface(StrEnum):

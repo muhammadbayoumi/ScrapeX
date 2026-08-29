@@ -150,7 +150,26 @@ this session's context nor this warehouse. Everything below is the whole handove
 > **`OP-99` is the honest remainder:** the price path still opens and closes its own
 > `crawl_run` inline in `ingest.py`, not through `runs.py`. Recorded, not slipped in.
 >
-> **Next in his order is step 5, then step 3** (`R-69`), then `R-68`'s reconciliation.
+> **STEP 5 IS BUILT IN THE PARSER** — `R-55`, absence rather than a placeholder. Two rules,
+> both re-measured on his warehouse on 2026-08-29 before a line was written:
+>
+> | field | the placeholder | measured now |
+> |---|---|---|
+> | `logo_url` (`contractors`) | the bare directory `.../companyLogo/`, no filename | **13,042 of 17,304 — 75.4%**, against 4,262 distinct real filenames. `default.jpg`, the string the document asks for, appears **zero** times |
+> | `latitude`/`longitude` (`contractor_profiles`) | the site's default pin `24.4493518, 46.6220053` | **14,621 of the 17,352 rows that carry a coordinate — 84.3%** |
+>
+> Nineteen guards, **four mutations, four killed** — including the OVER-correction, a
+> radius instead of the exact pair, which would eat the 30 rows on `(24.7135517, 46.6753)`
+> that are ordinary real data.
+>
+> **`R-45` IS UNTOUCHED and a guard proves it**: `read_coordinates` still reports the
+> default pin faithfully. What changed is only whether it is promoted to a column.
+>
+> **HIS EXISTING 27,663 ROWS STILL CARRY THE PLACEHOLDER**, and that is a separate
+> decision because it writes to his warehouse. The parser is honest from the next parse
+> onward; the stored rows are not. Measured cost of each route is in the pull request.
+>
+> **Next after this is step 3** (`R-69`), then `R-68`'s reconciliation.
 >
 > The root half, for the record — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
 > confirming pass now moves the record's own `last_seen_at`, which is the field the state
@@ -1366,12 +1385,17 @@ measurement forced, and what it still cannot see.
 110 MB, does not carry the generic tables at all, and will mislead anyone who
 opens it looking for this data.
 
-**Not in, and named so it is not mistaken for done:** the detail files
-(coordinates, email, licences, interests) — a second crawl of ~22,000 requests ·
-the ~6,344 contractors the sweep counted and nothing has fetched · the
-compression migration DEC-9 asks for · the row-aware idempotency key DEC-10 asks
-for, without which a corrected parser cannot be re-run over stored snapshots at
-all.
+**Not in, and named so it is not mistaken for done:** the compression migration `DEC-9`
+asks for.
+
+> **THIS PARAGRAPH LISTED THREE MORE AND ALL THREE ARE DONE** — re-measured 2026-08-29
+> rather than re-read. The detail files were crawled (`profiles-2026-08-22`, 34,834
+> pages); the contractors the sweep counted were fetched, and the union is complete at
+> 17,452 with nothing left; and **`DEC-10`'s row-aware key IS built** — `_rows_unchanged`
+> asks `generic_record.content_hash` per row in `extract/service.py`, so a corrected
+> parser re-run over stored snapshots now writes, with revisions. That last one is not a
+> detail: it is what makes `R-55`'s repair a re-parse rather than an 11-hour re-crawl,
+> which is the whole reason `R-40` ordered it built BEFORE the profile crawl.
 
 **He ruled, and both flags are lit.** `FeatureKey.GENERIC_DATASET_CATALOG` and
 `FeatureKey.GENERIC_EXTRACTION` are `True` at
