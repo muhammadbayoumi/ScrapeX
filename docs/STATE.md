@@ -382,6 +382,99 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The supabase appearance — 2026-08-28 · branch `feat/the-supabase-appearance-is-a-design-system`, no PR yet
+
+**`REQ-48`, ruled the same day as
+[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+Based on `main` at `b836de3`.**
+
+> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
+> system كامل»
+
+**THE DEFAULT IS REAL NOW.** `DEFAULTS.deviceColors` was `true`, and `apply()` returns early
+on that branch after `clearTheme()` — so a user with no stored preference never had *any*
+palette applied, and `github` was the default for as long as the setting existed **without
+anybody ever seeing it.** He asked for the numbers before deciding
+(«قوله لى بالأرقام الأول») and then chose the flip, so it is `false` and a fresh install
+paints `supabase`. *"Device colours"* is still there, one click away in the panel. The
+numbers he decided on:
+
+| | |
+|---|---|
+| stored states that change | **1 of 8** — only "no stored preference at all". Every user who ever chose keeps their choice, including a legacy `v1` record with neither key |
+| migration needed | **none** — `normalize()` already resolves every stored shape |
+| server changes | **none** — `_appearance_value` has no default and `GET` returns `null` when unset |
+| tests asserting the current default | **one line**, `tests/test_vendor.py`'s `assert "deviceColors: true" in script`. The other nine references set the value explicitly |
+| what a fresh user sees instead today | the OS `AccentColor` on Chrome and Edge; otherwise the `tokens.css` teal that `R-59` decision 2 calls *"deprecated — legacy colour residue and migration debt"* |
+
+**What is built, AND IT WAS BUILT TWICE.** All 36 `THEME_PROPERTIES` were colours, so «design
+system كامل» was impossible in principle rather than merely absent. `R-73` answered that with
+a per-palette design axis — and `R-74`, later the same day, cancelled it:
+
+> «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»
+
+**Why the first answer was wrong, measured on the built engine before the ruling was
+written:** only `supabase` declared a `design` block, so
+
+| colour choice | design properties applied |
+|---|---|
+| `supabase` | **9 of 9** |
+| `whatsapp` (`brand`) | **none** — fell back to the old 9px radius, 14px body, Segoe UI |
+| `github` (`blue`) | **none** |
+| **device colours** | **none** — and device is what a fresh install used |
+
+**Three of four colour choices lost the design system.** So `design/tokens.css` IS the
+Supabase design system now — shape, typography, elevation, motion, focus geometry — and every
+colour choice sits on it, including device, which applies no palette at all. `DESIGN_PROPERTIES`
+and `designFor()` are removed, and
+`tests/test_a_palette_may_change_nothing_but_colour.py` inverts the guard: a palette entry may
+contain **nothing but colour**. Re-measured after the rework: all four choices write **zero**
+design overrides.
+
+`R-59` decision 3 is built rather than only enforced — keys are `brand`/`blue`/`supabase`, the
+two legacy names are aliases — which closes **`OP-82`**. And `R-59` decision 2 is
+**discharged**: the teal it called migration debt was the `:root` fallback, so making the
+baseline Supabase deletes it rather than deprecating it again.
+
+**`supabase` declares no colours at all.** It is the baseline, so its entry exists to be
+selectable, to label its tile and to name itself in `data-palette`; `apply()` removes all 36
+properties for it and the baseline shows through. `brand` and `blue` have entries precisely
+because they differ from it.
+
+**Three defects were fixed because a design system could not work without them:** `OP-94`
+`--control-bg` was a literal in both dark blocks so no palette ever reached a dark control;
+`OP-95` `--shadow-lg`'s colour was a literal while both siblings derived from
+`--shadow-color`; `OP-96` six references to `--font-sans` and `--shadow-md`, tokens defined
+nowhere in the repository. `OP-97` records the 138 hard-coded values still bypassing a token
+and what the scale would have to grow to absorb them; the 48 that duplicated a token exactly
+are fixed.
+
+**The values are sourced, not chosen.** Supabase publishes token names with no values; the
+stepped ramps are HSL literals and every semantic colour is computed at runtime in OKLCH
+from ten scalar inputs, so each one is marked `PUBLISHED` or `derived` at the value. **All 34
+contrast assertions were computed against the guard's own formula before the palette was
+written** — playwright is not installed on this machine, so CI would otherwise have been the
+first to know. That found two light-mode failures, and three Supabase values that fail
+thresholds this repository already enforces:
+
+| their value | measured | the guard needs |
+|---|---|---|
+| their focus ring, flat | **1.47:1** on their own background | 3:1 |
+| their `--border-stronger` | **1.57:1** light, **1.53:1** dark, on their own card | 3:1 |
+| their `--warning` | **2.68:1** on their own `warning-300` tint | 4.5:1 |
+| their brand green on white | **1.99:1** | — the reason `accentContrast` is near-black in both schemes |
+
+**Two guards were holes rather than numbers needing an edit.** The contrast parametrize was
+the literal `["whatsapp", "github"]`, so a new palette was never contrast-tested at all —
+under `R-73` the **default** would have been the untested one. Derived from the registry it
+goes from 68 assertions to 102. Same fix for the hover sweep's four hard-coded pairs.
+
+**Not verifiable on this machine:** everything in `tests/test_panel_dom.py` and
+`tests/test_panel_startup.py` needs playwright, which `importorskip` skips here. The rest of
+the suite is green.
+
+---
+
 > **Measured 2026-08-27: exactly one is open, and it should not be merged.**
 > [#278](https://github.com/muhammadbayoumi/ScrapeX/pull/278) is green and `CLEAN`, and its
 > whole substance — `R-68`, `R-69`, the plan's status table, `REQUESTS.md` — **is already on
@@ -1513,7 +1606,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1671](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1699](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

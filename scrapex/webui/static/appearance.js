@@ -21,8 +21,8 @@
   const SYNC_PATH = "/api/appearance";
   const SCHEMES = new Set(["light", "dark"]);
   const PALETTES = new Map([
-    ["whatsapp", {
-      id: "whatsapp",
+    ["brand", {
+      id: "brand",
       label: "WhatsApp",
       description: "WhatsApp application green",
       colors: ["#121B21", "#35AA65", "#43D36D", "#F7F5F3"],
@@ -69,8 +69,8 @@
         },
       },
     }],
-    ["github", {
-      id: "github",
+    ["blue", {
+      id: "blue",
       label: "GitHub",
       description: "Focused developer neutral",
       colors: ["#0D1117", "#0969DA", "#4493F8", "#F0F6FC"],
@@ -111,12 +111,84 @@
         },
       },
     }],
+    // R-74 · SUPABASE IS THE BASELINE, SO THIS ENTRY DECLARES NO COLOURS.
+    //
+    // «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب
+    // وجت هب و device» -- the design system IS Supabase, and WhatsApp, GitHub and
+    // device are three COLOUR exceptions on top of it. So Supabase is not one
+    // option among three: it is what design/tokens.css declares, and every other
+    // choice is an override of its colours only.
+    //
+    // WHICH MEANS THERE IS NOTHING TO PUT HERE. Its colours are the `:root` and
+    // dark-block colours in tokens.css. Repeating them would be the same values
+    // in two files with nothing keeping them equal -- and the entry above exists
+    // precisely because `brand` DOES differ from the baseline.
+    //
+    // The entry is not empty of purpose. It makes Supabase SELECTABLE, so a user
+    // who tried WhatsApp can come back; it gives the tile its label and swatches;
+    // and it puts `supabase` in `data-palette`, so the DOM says which of the four
+    // colour choices is in force. apply() removes all 36 colour properties for
+    // it, and removal is exactly what "fall through to the baseline" means.
+    //
+    // R-73 built the opposite and it was wrong: a `design` block here gave the
+    // design system to this palette and to NOBODY ELSE. Measured on the built
+    // engine -- `brand`, `blue` and device colours all fell back to the
+    // pre-Supabase 9px radius, 14px body and Segoe UI. Three of four.
+    ["supabase", {
+      id: "supabase",
+      label: "Supabase",
+      description: "Supabase console green, flat and bordered",
+      colors: ["#131413", "#3ECF8E", "#85E0BA", "#FDFDFD"],
+      themes: {light: {}, dark: {}},
+    }],
+  ]);
+  // R-59 DECISION 3, BUILT. `whatsapp` and `github` are legacy compatibility
+  // aliases for `brand` and `blue`. The ruling said so on 2026-08-09 and only
+  // the aliases were ever enforced -- `scrapex/webui/app.py` refused any palette
+  // outside those two names while the registry they alias did not exist, which
+  // is what OP-82 recorded.
+  //
+  // THEY ARE NOT DECORATION: every appearance stored before today carries one of
+  // these two ids, in localStorage and in the engine's `ui_appearance` setting.
+  // Resolving them in normalize() is what stops an existing user's choice from
+  // silently reverting to the default.
+  const PALETTE_ALIASES = new Map([
+    ["whatsapp", "brand"],
+    ["github", "blue"],
   ]);
   const DEFAULTS = Object.freeze({
     mode: "device",
     scheme: "light",
-    palette: "github",
-    deviceColors: true,
+    // R-73: `supabase` is the default appearance, superseding R-59 decision 1's
+    // `brand`.
+    palette: "supabase",
+    // AND THIS IS THE LINE THAT MAKES THE ONE ABOVE MEAN ANYTHING. It was `true`,
+    // and apply() returns early on that branch after clearTheme() -- so the named
+    // default palette was never applied for a user with no stored preference.
+    // `github` was the default for as long as the setting existed and NOBODY
+    // EVER SAW IT; a rename alone would have satisfied the request in the
+    // register and changed nothing on screen.
+    //
+    // He asked for the numbers before deciding and then chose the flip. What it
+    // costs, enumerated over normalize()'s own precedence rather than estimated:
+    //
+    //   no stored record at all          -> CHANGES. Sees supabase.
+    //   v2 record, deviceColors either way -> unchanged, the stored boolean wins
+    //   v1 record, followColors either way -> unchanged, the legacy key wins
+    //   v1 record, neither key            -> unchanged, derived from `mode`
+    //
+    // ONE state of eight, and it is the only one that never expressed a choice.
+    // No migration: normalize() already resolves every stored shape. No server
+    // change: _appearance_value has no defaults and GET returns null when unset.
+    //
+    // What it also fixes, unasked: the fallback a fresh user actually got was
+    // `tokens.css`'s :root teal -- the residue R-59 decision 2 calls "deprecated
+    // ... migration debt" -- or the OS AccentColor where the browser exposes one.
+    // The deprecated colour was the shipped default, not a leftover.
+    //
+    // "Device colours" REMAINS AVAILABLE and is one click away in the panel; this
+    // changes which way the switch starts, not whether it exists.
+    deviceColors: false,
     updatedAt: 0,
   });
   const THEME_PROPERTIES = Object.freeze([
@@ -130,6 +202,29 @@
     "switch-track-off", "switch-thumb", "switch-thumb-off", "shadow-color",
     "overlay",
   ]);
+  // R-74 · THERE IS NO SECOND AXIS, AND THAT IS THE RULING.
+  //
+  // The 36 properties above are colours, and under R-74 a palette may set
+  // NOTHING ELSE: «whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم
+  // فتعدل على الالوان فقط لا تعدل على design system».
+  //
+  // R-73 added a DESIGN_PROPERTIES list here so a palette could carry radius,
+  // typography, elevation and motion. It is removed rather than left unused,
+  // because «واى تعارض معاها يلغى» and a mechanism whose whole purpose is "a
+  // palette may change the design system" is the conflict itself.
+  //
+  // The design system did not go anywhere -- it moved to where it belongs.
+  // design/tokens.css IS the Supabase design system now, so all four colour
+  // choices sit on it, including device, which applies no palette at all. That
+  // is what R-73's axis could not do: measured on the built engine, it gave the
+  // system to `supabase` and left `brand`, `blue` and device on the old 9px
+  // radius, 14px body and Segoe UI. Three of four.
+  //
+  // tests/test_a_palette_may_change_nothing_but_colour.py enforces this, and it
+  // is worth saying why a TEST rather than a comment: the failure it catches is
+  // silent. A `design` key added to a palette entry would simply be dashed into
+  // a `--design` property whose value reads "[object Object]", and nothing about
+  // the page would look broken enough to notice.
   const schemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listeners = new Set();
   let remoteBase = "";
@@ -137,12 +232,24 @@
   let pushTimer = null;
   let current = read();
 
+  // A stored or posted id resolved to a registry key. An alias resolves to what
+  // it aliases; anything unknown falls back rather than throwing, which is what
+  // keeps a modified extension from persisting a name this build cannot paint.
+  function resolvePalette(id) {
+    const aliased = PALETTE_ALIASES.get(id) || id;
+    return PALETTES.has(aliased) ? aliased : DEFAULTS.palette;
+  }
+
   function normalize(value) {
     const candidate = value && typeof value === "object" ? value : {};
     return {
       mode: candidate.mode === "manual" ? "manual" : "device",
       scheme: SCHEMES.has(candidate.scheme) ? candidate.scheme : DEFAULTS.scheme,
-      palette: PALETTES.has(candidate.palette) ? candidate.palette : DEFAULTS.palette,
+      // Resolving rather than testing membership is what carries R-59 decision
+      // 3: a preference stored as `whatsapp` or `github` -- which is every
+      // preference stored before today -- arrives here and comes out as `brand`
+      // or `blue` instead of being dropped on the floor for the default.
+      palette: resolvePalette(candidate.palette),
       deviceColors: typeof candidate.deviceColors === "boolean"
         ? candidate.deviceColors
         : (typeof candidate.followColors === "boolean"
@@ -188,16 +295,28 @@
       : (schemeQuery.matches ? "dark" : "light");
   }
 
-  function themeFor(palette, scheme) {
-    const explicit = palette.themes[scheme];
-    return Object.fromEntries(Object.entries(explicit).map(([key, value]) => [
+  function dashed(entries) {
+    return Object.fromEntries(entries.map(([key, value]) => [
       key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`),
       value,
     ]));
   }
 
+  function themeFor(palette, scheme) {
+    return dashed(Object.entries(palette.themes[scheme]));
+  }
+
   function clearTheme(root) {
     THEME_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
+  }
+
+  function paletteFor(id) {
+    // resolvePalette already guarantees a registry key, and normalize() runs on
+    // every path into `current`. The `||` is kept because this is the line that
+    // decides whether a mistake is a wrong colour or a dead module: apply() runs
+    // at module scope, BEFORE window.ScrapeXAppearance is assigned, so a miss
+    // here takes the whole IIFE down and every appearance control with it.
+    return PALETTES.get(id) || PALETTES.get(DEFAULTS.palette);
   }
 
   function apply(value) {
@@ -207,6 +326,11 @@
     if (value.mode === "manual") root.dataset.theme = value.scheme;
     else root.removeAttribute("data-theme");
 
+    // Device colours: no palette, so every colour override is removed and the
+    // page falls through to design/tokens.css. Under R-74 that is not a
+    // degraded state -- tokens.css IS the Supabase design system, so shape,
+    // typography, elevation and motion are exactly what they are under every
+    // other choice, and only the colours come from the operating system.
     if (value.deviceColors) {
       root.removeAttribute("data-palette");
       clearTheme(root);
@@ -214,8 +338,12 @@
     }
 
     root.dataset.palette = value.palette;
-    const palette = PALETTES.get(value.palette) || PALETTES.get(DEFAULTS.palette);
+    const palette = paletteFor(value.palette);
     const theme = themeFor(palette, effectiveScheme(value));
+    // Removal is meaningful, not a no-op: `supabase` declares no colours at all
+    // because its colours ARE tokens.css's, so this loop removes all 36 and the
+    // baseline shows through. `brand` and `blue` set the ones they override and
+    // leave the rest to fall through the same way.
     THEME_PROPERTIES.forEach((property) => {
       if (theme[property]) root.style.setProperty(`--${property}`, theme[property]);
       else root.style.removeProperty(`--${property}`);
@@ -228,7 +356,7 @@
       : value.scheme;
     const color = value.deviceColors
       ? "Device colours"
-      : PALETTES.get(value.palette).label;
+      : paletteFor(value.palette).label;
     return `${scheme} \u00B7 ${color}`;
   }
 
@@ -454,6 +582,11 @@
     palettes: [...PALETTES.values()].map(({id, label, description, colors}) => ({
       id, label, description, colors: [...colors],
     })),
+    // Exposed so a caller can resolve a legacy id without duplicating the map,
+    // and so the cross-surface allowlist test can read the registry rather than
+    // a hand-copied list of names.
+    aliases: Object.fromEntries(PALETTE_ALIASES),
+    resolvePalette,
   });
 
   schemeQuery.addEventListener("change", () => {

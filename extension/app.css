@@ -2873,7 +2873,7 @@
     background-color: transparent;
     box-shadow: none;
     color: var(--text);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-sm);
   }
   .finance-converter-row input,
@@ -3011,7 +3011,7 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-sm);
     font-weight: var(--fw-regular);
     text-align: start;
@@ -3051,7 +3051,7 @@
     border-radius: 0;
     background: transparent;
     color: var(--accent-ink);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-xs);
     font-weight: var(--fw-medium);
     line-height: 1.2;
@@ -3289,7 +3289,7 @@
    keeps the keyboard focus ring the rest of the panel uses. */
 .install-steps > summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--fw-bold);
   font-size: var(--fs-sm);
   padding: var(--sp-2) 0;
 }

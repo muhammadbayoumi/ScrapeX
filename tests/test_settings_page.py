@@ -96,7 +96,7 @@ def test_appearance_is_synchronized_through_one_validated_local_contract(client)
     choice = {
         "mode": "manual",
         "scheme": "dark",
-        "palette": "whatsapp",
+        "palette": "supabase",
         "deviceColors": False,
         "updatedAt": 123456,
     }
@@ -107,6 +107,44 @@ def test_appearance_is_synchronized_through_one_validated_local_contract(client)
 
     invalid = {**choice, "palette": "popular-blush"}
     assert client.post("/api/appearance", json=invalid).status_code == 400
+
+
+def test_a_legacy_palette_id_is_accepted_and_stored_under_its_real_name(client):
+    """THE 400 THIS PREVENTS WAS SILENT AND PERMANENT.
+
+    Before R-73 this route's allowlist was the literal `{"whatsapp", "github"}`
+    while `design/appearance.js` had already been given a third palette -- so the
+    panel POSTed a name the engine refused. That refusal reached nobody:
+    `pushRemote` returns `response.ok` from inside a try block and both call
+    sites discard it, while `pullRemote` keeps succeeding because GET answers 200
+    with `{"appearance": null}`, which resets the failure counter every tick so
+    the backoff never engages. The result was a 2-second write loop for as long
+    as the panel stayed open, and a choice that never persisted.
+
+    Nothing caught it because the only POST in the whole suite sent `whatsapp`
+    and expected 200, and one other sent `popular-blush` and expected 400 -- a
+    pair whose verdict is identical whether or not a third palette is allowed.
+
+    So both halves are asserted here: the legacy name still WORKS, and it is
+    canonicalised on the way in, so the warehouse ends up holding one name per
+    palette instead of two spellings of the same one.
+    """
+    posted = {
+        "mode": "manual",
+        "scheme": "light",
+        "palette": "whatsapp",
+        "deviceColors": False,
+        "updatedAt": 200,
+    }
+    response = client.post("/api/appearance", json=posted)
+    assert response.status_code == 200
+    assert response.json()["appearance"]["palette"] == "brand"
+    # And what is READ BACK is the canonical name, not the one that was sent.
+    assert client.get("/api/appearance").json()["appearance"]["palette"] == "brand"
+
+    assert client.post(
+        "/api/appearance", json={**posted, "palette": "github", "updatedAt": 201},
+    ).json()["appearance"]["palette"] == "blue"
 
 
 def test_settings_is_reachable_from_the_workspace_tabs(client):

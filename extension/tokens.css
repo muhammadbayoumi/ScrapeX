@@ -14,35 +14,77 @@
  * they start typing, which is why it is repeated in every one of these files
  * rather than written once somewhere nobody is looking.
  * ======================================================================== */
+/* ==========================================================================
+ * R-74 · THIS FILE IS THE SUPABASE DESIGN SYSTEM, and that is a ruling rather
+ * than a description.
+ *
+ * «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت
+ * هب و device» — the design system is Supabase's; WhatsApp, GitHub and device are
+ * three COLOUR exceptions added on top of it. «واى تعارض معاها يلغى.»
+ *
+ * SO EVERY VALUE BELOW THAT IS NOT A COLOUR IS THE BASELINE FOR ALL FOUR COLOUR
+ * CHOICES, and no appearance may move it. Shape, typography, spacing, elevation,
+ * motion and focus geometry are Supabase's, always. A palette entry in
+ * design/appearance.js carries colour and nothing else, and
+ * tests/test_a_palette_may_change_nothing_but_colour.py refuses one that does.
+ *
+ * WHY THIS FILE HOLDS THEM RATHER THAN THE PALETTE. R-73 first built the
+ * opposite — a per-palette design axis — and measured on the built engine it
+ * gave the design system to `supabase` and to NOBODY ELSE: `whatsapp`, `github`
+ * and device colours all fell back to the pre-Supabase 9px radius, 14px body and
+ * Segoe UI. Three of four choices lost it, and device colours is what a fresh
+ * install uses. Putting the system in the baseline is what makes «كاملة بكل
+ * جوانبه» true instead of true-for-one-palette.
+ *
+ * The colours in `:root` are Supabase's too, because `supabase` is the default
+ * colour choice. That is also what finally DISCHARGES R-59 decision 2: the teal
+ * it called "deprecated ... migration debt" was the fallback a fresh user
+ * actually saw, and it is deleted here rather than deprecated again.
+ * ======================================================================== */
 :root {
   color-scheme: light;
 
-  /* Surfaces and text */
-  --bg: #f5f7f9;
-  --surface: #ffffff;
-  --surface-subtle: #f9fafb;
-  --surface-raised: #ffffff;
-  --line: #dfe3e8;
-  --line-strong: #c5cbd3;
-  --text: #171a1f;
-  --muted: #626c7a;
-  --text-subtle: #7c8795;
-  --chip: #edf1f4;
+  /* Surfaces and text — Supabase light. Every value here is `derived`: their
+     docs publish token NAMES only, and every semantic colour is computed at
+     runtime in OKLCH from ~10 scalar inputs, so each was obtained by evaluating
+     their own expressions. See design/appearance.js's header for the method. */
+  --bg: #fdfdfd;              /* --background */
+  --surface: #ffffff;         /* --card */
+  --surface-subtle: #f6f6f6;  /* --muted */
+  --surface-raised: #ffffff;  /* --popover */
+  --line: #e9e9e9;            /* --border */
+  /* Their --border-stronger is #cecece, which is 1.57:1 on their own --card
+     where the panel guard needs 3:1. Derived to clear it: 3.23:1. */
+  --line-strong: #8f8f8f;
+  --text: #030303;            /* --foreground */
+  --muted: #464646;           /* --muted-foreground */
+  --text-subtle: #696969;     /* --tertiary-foreground */
+  --chip: #f3f3f3;            /* --accent */
 
-  /* Brand and semantic colour */
-  --accent: light-dark(#00adb5, #35c8ce);
-  --accent-hover: light-dark(#009ba3, #51d3d8);
-  --accent-active: light-dark(#008990, #21b9c0);
-  --accent-ink: light-dark(#006b70, #69e1e5);
-  --accent-contrast: light-dark(#062b2d, #071f20);
-  --accent-weak: light-dark(#d8f4f5, #073a3d);
-  --amber: #9a5c0a;
-  --amber-weak: #fff4d6;
-  --red: #b8322a;
-  --red-hover: #9f2923;
-  --red-weak: #fde9e7;
-  --danger-contrast: #ffffff;
-  --focus: light-dark(#007b83, #69e1e5);
+  /* Brand and semantic colour — Supabase light.
+     `light-dark()` is gone on purpose: the dark values live in the two dark
+     blocks below, beside the dark surfaces, rather than being spelled twice in
+     two different notations. */
+  --accent: #3fcf8e;          /* brand-default light   PUBLISHED */
+  --accent-hover: #65d8a4;    /* brand/80 flat         derived */
+  --accent-active: #8ee8bd;   /* brand-400/80 flat     derived */
+  --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
+  /* Near-black, not white, and not a stylistic choice: their brand green is
+     1.99:1 on white. Anything light on this fill fails AA outright. */
+  --accent-contrast: #030303;
+  --accent-weak: #d3f8e4;     /* brand-200 light       PUBLISHED */
+  /* Their --warning is oklch(0.68 0.14 75) = #ca8a10, which is 2.68:1 on their
+     own published warning-300 tint below where the guard needs 4.5:1. Their hue
+     and chroma held, lightness moved to 0.52: 5.14:1. */
+  --amber: #965900;
+  --amber-weak: #fff4d5;      /* warning-300 light     PUBLISHED */
+  --red: #ab413e;             /* --destructive light   derived */
+  --red-hover: #8e332f;
+  --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
+  --danger-contrast: #fff9f8; /* --destructive-fg      derived */
+  /* Their focus ring is --primary at 55% alpha, which flattens to #98e3c0 and is
+     1.47:1 on their own background against a 3:1 floor. brand-600 instead. */
+  --focus: #097c4f;
   --selection: color-mix(in srgb, var(--accent) 20%, transparent);
   --diagram-source: var(--accent);
   --diagram-general: color-mix(in srgb, var(--accent) 64%, var(--muted));
@@ -84,47 +126,99 @@
   --sp-7: 2.5rem;
   --sp-8: 3rem;
 
-  /* Shape and elevation */
-  --radius-xs: 0.25rem;
-  --radius-sm: 0.375rem;
-  --radius: 0.5625rem;
+  /* Shape — Supabase, under R-74. Their effective ramp is 2/4/6/8/12/16px:
+     `rounded-md` = 6px is the universal control radius (431 files in their
+     repository) and `rounded-lg` = 8px the container ceiling; 16px appears in
+     19. NOT the 10px that circulates as "Supabase's radius" — that belongs to
+     apps/ui-library, a separate shadcn registry product which also uses a grey
+     focus ring rather than the brand one.
+     --radius-pill stays 999px: pill geometry, not a design choice. */
+  --radius-xs: 0.125rem;
+  --radius-sm: 0.25rem;
+  --radius: 0.375rem;
   --radius-md: var(--radius);
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
-  --radius-sheet: 1.75rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-sheet: 1rem;
   --radius-pill: 999px;
-  --shadow-color: rgb(16 24 40 / 0.08);
+  /* Elevation — and Supabase's position on it is "almost none". They define ZERO
+     shadow tokens: depth is a surface-colour ladder plus a 1px border, their
+     Dialog is `border shadow-md dark:shadow-xs` so the border is unconditional
+     and the shadow is what gets dropped, `shadow-none` appears in more of their
+     files than `shadow-md`, and even their box-shadow utilities draw a 1px line
+     at zero blur. So these are deliberately flat, and flatter again in the dark
+     blocks below. OP-95: --shadow-lg's colour was a literal while its two
+     siblings derived from --shadow-color, so no appearance could re-tone it;
+     all three derive now. */
+  --shadow-color: rgb(3 3 3 / 0.06);
   --shadow-xs: 0 1px 2px var(--shadow-color);
-  --shadow-sm: 0 2px 8px var(--shadow-color);
-  --shadow-lg: 0 18px 40px rgb(16 24 40 / 0.16);
+  --shadow-sm: 0 1px 3px var(--shadow-color);
+  --shadow-lg: 0 8px 24px var(--shadow-color);
   --shadow: var(--shadow-xs);
-  --overlay: rgb(15 18 22 / 0.42);
+  /* Published exactly: their dialog overlay is `bg-black/40`, identical in both
+     schemes, so this one value is not re-declared in the dark blocks. */
+  --overlay: rgb(0 0 0 / 0.40);
 
-  /* Typography */
-  --font: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+  /* Typography — Supabase, under R-74.
+     THEY MIGRATED OFF THE PROPRIETARY CIRCULAR. The live stack across studio,
+     www and design-system is Inter (body) + Manrope (headings, 600) + Source
+     Code Pro (mono), all OSS. The `Circular, custom-font` stack still sitting in
+     their packages/config is a dead self-referential var() fallback, which is
+     where third-party token extractors still get the Circular claim from.
+
+     NOTHING IS FETCHED. The faces are named first and the system stack is kept
+     behind them, so a machine that has Inter uses it and one that does not is
+     unchanged -- no web font, no CSP problem in the extension, no offline
+     failure. "Noto Sans Arabic" STAYS in every stack: this product is read and
+     written in Arabic and neither Inter nor Manrope covers it. */
+  --font: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
     "Noto Sans Arabic", sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-heading: Manrope, Inter, "Segoe UI", system-ui,
+    "Noto Sans Arabic", sans-serif;
+  --font-mono: "Source Code Pro", ui-monospace, "Cascadia Code", Consolas,
+    monospace;
+  /* Their scale is shifted about 2px down from stock Tailwind, under their own
+     comment "font sizing and weights optimized for Inter". Measured against the
+     ramp this file already had, SEVEN of the eight steps agreed already --
+     12/13/16/18/22/28 are identical. The one real move is the body size:
+     their text-base is 15px where --fs was 14px. */
   --fs-2xs: 0.6875rem;
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
-  --fs: 0.875rem;
+  --fs: 0.9375rem;
   --fs-md: 1rem;
   --fs-lg: 1.125rem;
   --fs-xl: 1.375rem;
   --fs-2xl: 1.75rem;
-  --fw-regular: 400;
+  /* --font-weight-normal is 450, not 400, and there is NO BOLD anywhere in their
+     system: `strong` is downgraded to 500 and the ceiling is Manrope 600 on
+     headings. So --fw-heavy drops 700 -> 600 -- deliberately removing a weight
+     rather than adding one, which is why --fw-bold and --fw-heavy now agree. */
+  --fw-regular: 450;
   --fw-medium: 500;
   --fw-bold: 600;
-  --fw-heavy: 700;
+  --fw-heavy: 600;
   --lh-tight: 1.25;
   --lh: 1.5;
   --lh-relaxed: 1.65;
 
-  /* Motion and layering */
-  --dur-fast: 0.12s;
-  --dur: 0.18s;
-  --dur-slow: 0.26s;
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Motion and layering — Supabase's vocabulary is 100/150/200/250/300ms and
+     exactly TWO curves, chosen by meaning rather than by size: one for things
+     that APPEAR and one for things that TRAVEL. */
+  --dur-fast: 0.1s;
+  --dur: 0.15s;
+  --dur-slow: 0.25s;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);
+
+  /* Focus ring geometry — theirs is 2px at a 2px offset (`ring-2
+     ring-offset-2`). Tokens rather than literals because a design system sets
+     the ring's width and offset and not only its colour.
+     Two INSET rings keep their own 2px -- the split-button trigger and the
+     source row -- because an inset ring is sized against the control it sits
+     inside, not against the page. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
   --z-sticky: 10;
   --z-overlay: 20;
   --z-modal: 30;
@@ -186,31 +280,59 @@
   --google-btn-stroke: #8E918F;
   --google-btn-text: #E3E3E3;
 
-  --bg: #0f1216;
-  --surface: #171b21;
-  --surface-subtle: #1c2128;
-  --surface-raised: #20262e;
-  --line: #2c333d;
-  --line-strong: #434d5a;
-  --text: #e9edf2;
-  --muted: #a9b2bf;
-  --text-subtle: #8994a3;
-  --chip: #242b34;
+  /* Supabase dark. The accent family is declared HERE rather than in :root:
+     `light-dark()` used to carry both schemes in one declaration, which meant
+     the dark brand colour sat forty lines away from the dark surfaces it has to
+     work against. Every one of these was checked against the panel's contrast
+     guard before it was written. */
+  --bg: #131413;              /* --background */
+  --surface: #181a19;         /* --card */
+  --surface-subtle: #1a1b1a;  /* --muted */
+  --surface-raised: #1b1d1c;  /* --popover */
+  --line: #232423;            /* --border */
+  /* Their --border-stronger is #393a39 = 1.53:1 on their own --card. This is
+     scale-900 dark, PUBLISHED, and 3.53:1. */
+  --line-strong: #707070;
+  --text: #edefee;            /* --foreground */
+  --muted: #bcbdbc;           /* --muted-foreground */
+  --text-subtle: #989a99;     /* --tertiary-foreground */
+  --chip: #1e1f1e;            /* --accent */
 
-  --amber: #f0bc63;
-  --amber-weak: #302610;
-  --red: #ef8278;
-  --red-hover: #f49a92;
-  --red-weak: #351715;
-  --danger-contrast: #24100f;
+  --accent: #3ecf8e;          /* brand-default dark    PUBLISHED */
+  --accent-hover: #85e0ba;    /* brand-600 dark        PUBLISHED */
+  /* Their dark brand-500 is #006239, which reads as a hole rather than a press
+     next to #3ecf8e. brand-500 LIGHT reused as the pressed tone. */
+  --accent-active: #16b674;
+  --accent-ink: #3ecf8e;      /* brand-default dark    PUBLISHED */
+  --accent-contrast: #131413; /* --primary-foreground  derived */
+  --accent-weak: #002918;     /* brand-300 dark        PUBLISHED */
+  --focus: #3ecf8e;           /* brand-default dark    PUBLISHED */
 
-  --control-bg: #171b21;
-  --control-hover: #20262e;
-  --shadow-color: rgb(0 0 0 / 0.32);
-  --shadow-xs: 0 1px 2px var(--shadow-color);
-  --shadow-sm: 0 4px 14px var(--shadow-color);
-  --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.48);
-  --overlay: rgb(0 0 0 / 0.62);
+  --amber: #f2af48;           /* --warning dark        derived */
+  --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
+  --red: #fa8880;             /* --destructive dark    derived */
+  --red-hover: #fda49d;
+  --red-weak: #3b1813;        /* destructive-300 dark  PUBLISHED */
+  --danger-contrast: #090504; /* --destructive-fg      derived */
+
+  /* OP-94. This was the literal `#171b21` while --control-bg was not reachable
+     by any appearance, so every palette's dark control backgrounds stayed on the
+     default surface no matter what the palette said -- WhatsApp's dark surface
+     is #182229 and GitHub's #151B23, and neither ever arrived. It follows
+     --surface now, which is the only value that can be right for all four
+     colour choices. */
+  --control-bg: var(--surface);
+  --control-hover: #1e1f1e;
+  /* Dropped a further three steps from light, which is what their Dialog does:
+     `border shadow-md dark:shadow-xs`. The border is unconditional and the
+     shadow is the part that goes, because dark plates sit ~0.025 L apart and a
+     blur cannot separate them -- the 1px line can. */
+  --shadow-color: rgb(0 0 0 / 0.40);
+  --shadow-xs: 0 1px 1px var(--shadow-color);
+  --shadow-sm: 0 1px 2px var(--shadow-color);
+  --shadow-lg: 0 4px 16px var(--shadow-color);
+  /* --overlay is NOT re-declared: their scrim is `bg-black/40` in both schemes,
+     so repeating it here would be two declarations of one published value. */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -223,30 +345,44 @@
     --google-btn-stroke: #8E918F;
     --google-btn-text: #E3E3E3;
 
-    --bg: #0f1216;
-    --surface: #171b21;
-    --surface-subtle: #1c2128;
-    --surface-raised: #20262e;
-    --line: #2c333d;
-    --line-strong: #434d5a;
-    --text: #e9edf2;
-    --muted: #a9b2bf;
-    --text-subtle: #8994a3;
-    --chip: #242b34;
+    /* THE SAME VALUES AS `:root[data-theme="dark"]` ABOVE, and they must stay
+       identical -- one block is the explicit choice and this one is the device
+       following the operating system. `tests/test_vendor.py` asserts the two
+       agree, because a dark scheme that differs depending on HOW it was reached
+       is a defect nobody looking at one block can see. */
+    --bg: #131413;
+    --surface: #181a19;
+    --surface-subtle: #1a1b1a;
+    --surface-raised: #1b1d1c;
+    --line: #232423;
+    --line-strong: #707070;
+    --text: #edefee;
+    --muted: #bcbdbc;
+    --text-subtle: #989a99;
+    --chip: #1e1f1e;
 
-    --amber: #f0bc63;
-    --amber-weak: #302610;
-    --red: #ef8278;
-    --red-hover: #f49a92;
-    --red-weak: #351715;
-    --danger-contrast: #24100f;
-    --control-bg: #171b21;
-    --control-hover: #20262e;
-    --shadow-color: rgb(0 0 0 / 0.32);
-    --shadow-xs: 0 1px 2px var(--shadow-color);
-    --shadow-sm: 0 4px 14px var(--shadow-color);
-    --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.48);
-    --overlay: rgb(0 0 0 / 0.62);
+    --accent: #3ecf8e;
+    --accent-hover: #85e0ba;
+    --accent-active: #16b674;
+    --accent-ink: #3ecf8e;
+    --accent-contrast: #131413;
+    --accent-weak: #002918;
+    --focus: #3ecf8e;
+
+    --amber: #f2af48;
+    --amber-weak: #341c00;
+    --red: #fa8880;
+    --red-hover: #fda49d;
+    --red-weak: #3b1813;
+    --danger-contrast: #090504;
+
+    /* OP-94, the prefers-color-scheme copy of the same defect. */
+    --control-bg: var(--surface);
+    --control-hover: #1e1f1e;
+    --shadow-color: rgb(0 0 0 / 0.40);
+    --shadow-xs: 0 1px 1px var(--shadow-color);
+    --shadow-sm: 0 1px 2px var(--shadow-color);
+    --shadow-lg: 0 4px 16px var(--shadow-color);
   }
 }
 
@@ -257,39 +393,51 @@
  * white; dark mode mixes more of the hue into the neutral dark foundation.
  * Text remains neutral so records and long descriptions stay readable.
  */
+/* R-74: device is a COLOUR exception, so it mixes the system accent into
+ * SUPABASE's neutral ladder -- not into the pre-Supabase one it used to name.
+ * Getting this wrong is how three of four colour choices lost the design system
+ * in the first place, and device is the choice a fresh install used to get.
+ *
+ * WHY THE NEUTRALS ARE SPELLED AGAIN HERE. A custom property cannot be mixed
+ * against its own cascaded value -- `--bg: color-mix(..., var(--bg)))` is a
+ * cycle and computes to nothing -- so the base has to be named literally at the
+ * point of the mix. `tests/test_vendor.py` asserts these bases match the `:root`
+ * and dark-block values they are copies of, which is what stops them drifting
+ * apart the way the old ones silently had.
+ */
 :root[data-color-mode="device"] {
   --bg: light-dark(
-    color-mix(in srgb, var(--accent) 2%, #ffffff),
-    color-mix(in srgb, var(--accent) 12%, #0f1216)
+    color-mix(in srgb, var(--accent) 2%, #fdfdfd),
+    color-mix(in srgb, var(--accent) 12%, #131413)
   );
   --surface: light-dark(
     color-mix(in srgb, var(--accent) 4%, #ffffff),
-    color-mix(in srgb, var(--accent) 15%, #171b21)
+    color-mix(in srgb, var(--accent) 15%, #181a19)
   );
   --surface-subtle: light-dark(
-    color-mix(in srgb, var(--accent) 7%, #ffffff),
-    color-mix(in srgb, var(--accent) 18%, #1c2128)
+    color-mix(in srgb, var(--accent) 7%, #f6f6f6),
+    color-mix(in srgb, var(--accent) 18%, #1a1b1a)
   );
   --surface-raised: light-dark(
     color-mix(in srgb, var(--accent) 5%, #ffffff),
-    color-mix(in srgb, var(--accent) 17%, #20262e)
+    color-mix(in srgb, var(--accent) 17%, #1b1d1c)
   );
   --line: light-dark(
-    color-mix(in srgb, var(--accent) 16%, #dfe3e8),
-    color-mix(in srgb, var(--accent) 18%, #2c333d)
+    color-mix(in srgb, var(--accent) 16%, #e9e9e9),
+    color-mix(in srgb, var(--accent) 18%, #232423)
   );
   --line-strong: light-dark(
-    color-mix(in srgb, var(--accent) 28%, #c5cbd3),
-    color-mix(in srgb, var(--accent) 26%, #434d5a)
+    color-mix(in srgb, var(--accent) 28%, #8f8f8f),
+    color-mix(in srgb, var(--accent) 26%, #707070)
   );
   --chip: light-dark(
-    color-mix(in srgb, var(--accent) 10%, #edf1f4),
-    color-mix(in srgb, var(--accent) 18%, #242b34)
+    color-mix(in srgb, var(--accent) 10%, #f3f3f3),
+    color-mix(in srgb, var(--accent) 18%, #1e1f1e)
   );
   --control-bg: var(--surface);
   --control-hover: light-dark(
-    color-mix(in srgb, var(--accent) 9%, #f9fafb),
-    color-mix(in srgb, var(--accent) 22%, #20262e)
+    color-mix(in srgb, var(--accent) 9%, #f3f3f3),
+    color-mix(in srgb, var(--accent) 22%, #1e1f1e)
   );
 }
 

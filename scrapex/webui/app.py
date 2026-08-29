@@ -174,13 +174,37 @@ from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
 from .update_api import create_update_router
 
+#: The appearance registry, server side, and it MUST agree with the Map in
+#: `design/appearance.js`. Two surfaces cannot import from each other at
+#: runtime, so agreement is asserted by a test rather than achieved by sharing:
+#: `tests/test_the_appearance_registry_agrees_across_both_surfaces.py` parses the
+#: JavaScript and compares it with these two names, because the failure mode of a
+#: divergence is silent in a way that is worth spelling out.
+#:
+#: WHAT USED TO HAPPEN WHEN THESE DISAGREED, measured on this code: the panel
+#: POSTs the new palette, this function raises 400, and `pushRemote` in
+#: appearance.js returns `response.ok` from inside a try block whose value both
+#: call sites discard -- so nothing is reported. Meanwhile `pullRemote` keeps
+#: succeeding, because GET answers 200 with `{"appearance": null}`, which resets
+#: `consecutiveFailures` on every tick and means the QUIET_AFTER_FAILURES backoff
+#: never engages. The result is a 2-second write loop that runs for as long as the
+#: panel is open, tells the user nothing, and never persists their choice.
+#:
+#: R-59 decision 3: `whatsapp` and `github` are legacy compatibility ALIASES for
+#: `brand` and `blue`. Before R-73 this function enforced only the aliases while
+#: the registry they alias did not exist -- OP-82, now closed. Both spellings are
+#: accepted here because every appearance stored before 2026-08-28 uses the old
+#: one, and the value is canonicalised on the way in so the warehouse ends up
+#: holding one name per palette rather than two.
+APPEARANCE_PALETTES = ("brand", "blue", "supabase")
+APPEARANCE_PALETTE_ALIASES = {"whatsapp": "brand", "github": "blue"}
+
 
 def _appearance_value(body: dict | None) -> dict:
     """Validate the small cross-surface appearance contract.
 
-    Only two complete themes are supported. Keeping this allowlist at the
-    boundary prevents an old or modified extension from persisting arbitrary
-    CSS values for the Workspace to consume.
+    Keeping this allowlist at the boundary prevents an old or modified extension
+    from persisting arbitrary CSS values for the Workspace to consume.
     """
     candidate = body if isinstance(body, dict) else {}
     mode = candidate.get("mode")
@@ -192,8 +216,11 @@ def _appearance_value(body: dict | None) -> dict:
         raise HTTPException(status_code=400, detail="mode must be manual or device")
     if scheme not in {"light", "dark"}:
         raise HTTPException(status_code=400, detail="scheme must be light or dark")
-    if palette not in {"whatsapp", "github"}:
-        raise HTTPException(status_code=400, detail="palette must be whatsapp or github")
+    palette = APPEARANCE_PALETTE_ALIASES.get(palette, palette)
+    if palette not in APPEARANCE_PALETTES:
+        raise HTTPException(
+            status_code=400,
+            detail="palette must be one of " + ", ".join(APPEARANCE_PALETTES))
     if not isinstance(device_colors, bool):
         raise HTTPException(status_code=400, detail="deviceColors must be true or false")
     if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)) or updated_at < 0:
