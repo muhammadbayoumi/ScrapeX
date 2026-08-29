@@ -22,10 +22,13 @@ from pathlib import Path
 import pytest
 
 from scrapex.extract.muqawil import (
+    DEFAULT_MAP_PIN,
     PROFILE_FIELDS,
+    _is_placeholder_logo,
     _slug,
     merge_locales,
     read_coordinates,
+    read_listing,
     read_profile,
 )
 
@@ -180,3 +183,99 @@ def test_the_declared_english_labels_still_map_where_they_did():
     assert PROFILE_FIELDS["Organization Email"] == "organization_email"
     assert PROFILE_FIELDS["Member Since"] == "member_since"
     assert PROFILE_FIELDS["Address"] == "address"
+
+
+# ---- R-55 · the two placeholders that are not values --------------------------
+
+LAT, LNG = DEFAULT_MAP_PIN
+BARE_DIRECTORY = "https://muqawil.org/public/contractor/companyLogo/"
+
+
+def _pinned(lat: float, lng: float) -> str:
+    return f"<html><script>var latlang = {{ lat: {lat!r}, lng: {lng!r} }};</script></html>"
+
+
+def test_the_site_wide_default_pin_is_not_promoted_to_a_coordinate_column():
+    """MEASURED ON HIS WAREHOUSE 2026-08-29: **14,621 of the 17,352 profiles that carry a
+    coordinate at all -- 84.3% -- publish this one pair.** It is the centre of Riyadh, so
+    the column places every contractor in Jizan and Tabuk on a point about 1,000 km from
+    where they are. A value the site emits identically for six contractors in seven says
+    nothing about any of them."""
+    english = read_profile(_pinned(LAT, LNG))
+
+    merged = merge_locales(english, english)
+
+    assert "latitude" not in merged
+    assert "longitude" not in merged
+
+
+def test_the_reader_still_reports_the_default_pin_faithfully():
+    """`R-45` IS NOT OVERRIDDEN, and this is where that is proved rather than asserted.
+    The page says this pair and `read_coordinates` still says it back. What changes is
+    only whether we promote it to a column -- refusing to claim knowledge is not editing
+    what the site published."""
+    assert read_coordinates(_pinned(LAT, LNG)) == (LAT, LNG)
+
+
+def test_a_pair_that_merely_resembles_the_default_pin_is_still_stored():
+    """THE CONSTANT IS EXACT, NOT FUZZY, and the next pair down in the data is why: 30
+    rows share `(24.7135517, 46.6753)`, which is a perfectly ordinary thing for several
+    contractors in one district to do. `R-55` draws the boundary itself -- a value that
+    DIFFERS between records is data, however strange it looks -- so a radius or a
+    frequency threshold would eventually eat a real address."""
+    english = read_profile(_pinned(LAT + 0.0000001, LNG))
+
+    merged = merge_locales(english, english)
+
+    assert merged["latitude"].startswith("24.449351")
+    assert merged["longitude"] == str(LNG)
+
+
+def test_half_the_default_pin_is_not_the_default_pin():
+    """A contractor genuinely on the default LATITUDE with their own longitude keeps
+    both. Only the pair is the placeholder."""
+    english = read_profile(_pinned(LAT, 39.1434676))
+
+    merged = merge_locales(english, english)
+
+    assert merged["longitude"] == "39.1434676"
+
+
+def test_a_logo_url_that_names_no_file_is_not_a_logo():
+    """THE DOCUMENTED STRING IS NOT IN THE DATA. `CONTRACTOR-SOURCE.md` asks for
+    `default.jpg` to be stored as NULL; measured across all 17,304 stored listing rows on
+    2026-08-29, `default.jpg` appears **zero** times, while the bare directory appears on
+    **13,042 (75.4%)**. A guard written against the documented string would never once
+    fire -- `LESSONS` \u00a77."""
+    assert _is_placeholder_logo(BARE_DIRECTORY) is True
+    assert _is_placeholder_logo("") is True
+    assert _is_placeholder_logo("   ") is True
+    # kept because the page's own `onerror` still names it, not because it was measured
+    assert _is_placeholder_logo(
+        "https://muqawil.org/public_assets/img/companies/default.jpg") is True
+    assert _is_placeholder_logo(BARE_DIRECTORY + "CompanyLogo-1710325829_x.jpg") is False
+
+
+def test_the_bare_directory_is_emptied_through_the_real_card_shape():
+    """BUILT FROM A REAL CARD, with only the `src` substituted. The fixture's four cards
+    all carry genuine filenames, so the placeholder has to be introduced -- and doing it
+    by editing one attribute of real HTML is the difference between testing the parser
+    and testing a hand-written string that no longer resembles the page."""
+    html = (FIXTURES / "listing-en.html").read_text(encoding="utf-8")
+    real = read_listing(html)[0]["logo_url"]
+    assert real.startswith(BARE_DIRECTORY) and real != BARE_DIRECTORY
+
+    swapped = html.replace(f'src="{real}"', f'src="{BARE_DIRECTORY}"', 1)
+
+    assert read_listing(swapped)[0]["logo_url"] == ""
+
+
+def test_the_fix_does_not_delete_the_logos_that_exist():
+    """Or it would be a feature that empties a column. All four fixture cards publish a
+    real filename and all four must survive -- the 4,262 distinct real values on his
+    warehouse are what this is protecting."""
+    rows = read_listing((FIXTURES / "listing-en.html").read_text(encoding="utf-8"))
+
+    assert len(rows) == 4
+    assert all(r["logo_url"].startswith(BARE_DIRECTORY) for r in rows)
+    assert all(r["logo_url"] != BARE_DIRECTORY for r in rows)
