@@ -119,6 +119,11 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
                        max_requests: int | None = None,
                        fetcher: object | None = None,
                        run_ref: str | None = None,
+                       # `R-54`: the typed run this crawl belongs to. `run_ref` is
+                       # the operator's label and is derived per cell; this is one
+                       # id for the whole crawl and it is what the State column
+                       # compares against.
+                       run_id: int | None = None,
                        listing_phase_only: bool = False) -> CrawlOutcome:
     """Walk this site at its registered scope, storing every page as evidence.
 
@@ -181,7 +186,7 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
             # it is the path that had to learn it: 4.55 GB becomes about 90 MB.
             saved = save_snapshot(conn, SnapshotCreate(
                 source_url=page.url, html_content=page.html,
-                crawl_run_ref=run_ref,
+                crawl_run_ref=run_ref, run_id=run_id,
                 body_class=label_for(page.url, page.kind)))
             conn.commit()
         except Exception as exc:

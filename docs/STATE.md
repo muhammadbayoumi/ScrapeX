@@ -433,7 +433,7 @@ findings NOT in this wave are held pending numbers from the primary session (`R-
 **THE FINDING THAT MOVES THE PLAN.** Step 3 — the record card, `REQ-32`, the step he
 actually asked for — is priced in the plan at **967 lines** and gated on a new
 endpoint. Measured: `dataset_table_payload` SELECTed `generic_record_id`
-([service.py:918](../scrapex/extract/service.py#L918)) and the emitting loop dropped
+([service.py:922](../scrapex/extract/service.py#L922)) and the emitting loop dropped
 it, so the payload carried **no handle for the row at all**, while `grid.js` opens its
 card from `rows.filter((row) => row.offer_id)` and closes the panel when that is
 empty. **Selecting a contractor could never open anything**, and the fix is one

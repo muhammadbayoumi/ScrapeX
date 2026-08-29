@@ -35,6 +35,15 @@ class SnapshotCreate(BaseModel):
     #: moment of capture. None for a crawl that does not name itself, and for
     #: the 1,728 snapshots stored before runs had names.
     crawl_run_ref: str | None = None
+    #: WHICH RUN, PROVABLY -- the typed companion to the label above, added by `0016`
+    #: for `R-54`'s second half. `crawl_run_ref` is what an operator typed and it is
+    #: what `--run-ref` resumes on; this is a foreign key into `crawl_run`, and it is
+    #: what the State column compares against. Measured before the two were separated:
+    #: the label has 141 distinct values across 55,313 snapshots, one per PARTITION
+    #: CELL for a listing crawl and one per CRAWL for a profile crawl, and one stored
+    #: value is literally `R`. None for every snapshot taken before `0016`, and his
+    #: ruling for those rows is `unsighted`.
+    run_id: int | None = None
     #: Which compression dictionary this page belongs with -- `host/kind`, from
     #: `snapshotbody.label_for`. None means STORE IT AS IT ARRIVED, and that is
     #: the default on purpose: the engine's save-a-page endpoint saves one page

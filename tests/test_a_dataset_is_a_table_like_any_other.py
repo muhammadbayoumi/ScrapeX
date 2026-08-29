@@ -900,11 +900,37 @@ def test_gone_and_new_are_measured_against_the_most_recent_crawl(conn):
     record_sightings(conn, "contractors", held)
     ids = [row[0] for row in conn.execute(
         "SELECT generic_record_id FROM generic_record ORDER BY generic_record_id")]
-    # One row last seen long ago; the rest seen in the newest crawl.
-    conn.execute("UPDATE generic_record SET last_seen_at = '2026-01-01T00:00:00Z' "
-                 " WHERE generic_record_id = ?", (ids[0],))
-    conn.execute("UPDATE generic_record SET last_seen_at = '2026-08-21T12:00:00Z' "
-                 " WHERE generic_record_id != ?", (ids[0],))
+    # WHICH RUN, NOT WHICH SECOND — `R-54`, and this fixture had to change with it.
+    # It used to move `last_seen_at` on one row and leave the rest, because `absent`
+    # was `last_seen_at < MAX(last_seen_at)`. The state is decided by the RUN now, so
+    # the rows have to come from different runs to be in different states.
+    #
+    # A SNAPSHOT'S RUN CANNOT BE PATCHED AFTERWARDS: `generic_page_snapshot` is
+    # immutable by trigger in BOTH directions, which is why the second snapshot is
+    # created rather than the first one edited.
+    # ALREADY REGISTERED by the approval inside `stored()`: since `0014` a site and a
+    # price source share one table, and approving a candidate is what puts it there.
+    old_run = conn.execute(
+        "INSERT INTO crawl_run (source_id, status, started_at) "
+        "SELECT source_id, 'success', '2026-01-01T00:00:00Z' FROM source_site "
+        " WHERE source_key = 'muqawil_org'").lastrowid
+    new_run = conn.execute(
+        "INSERT INTO crawl_run (source_id, status, started_at) "
+        "SELECT source_id, 'success', '2026-08-21T12:00:00Z' FROM source_site "
+        " WHERE source_key = 'muqawil_org'").lastrowid
+    stale = service.save_snapshot(conn, SnapshotCreate(
+        source_url="https://muqawil.org/en/contractors?page=99",
+        html_content=LISTING, run_id=old_run))["page_snapshot_id"]
+    fresh = service.save_snapshot(conn, SnapshotCreate(
+        source_url="https://muqawil.org/en/contractors?page=98",
+        html_content=LISTING, run_id=new_run))["page_snapshot_id"]
+    # One row still points at the run that has been superseded; the rest at the newest.
+    conn.execute("UPDATE generic_record SET source_snapshot_id = ?, "
+                 "       last_seen_at = '2026-01-01T00:00:00Z' "
+                 " WHERE generic_record_id = ?", (stale, ids[0]))
+    conn.execute("UPDATE generic_record SET source_snapshot_id = ?, "
+                 "       last_seen_at = '2026-08-21T12:00:00Z' "
+                 " WHERE generic_record_id != ?", (fresh, ids[0]))
     # EVERY ROW'S `first_seen_at` IS PINNED, and only one used to be.
     #
     # `stored()` writes `first_seen_at` as NOW and `row_state` calls a row `new`

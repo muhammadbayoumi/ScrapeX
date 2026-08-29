@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .. import catalog
+from .. import runs
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
 from ..fields import arranged, list_fields
 from ..sightings import STATE_MEANING, row_state
@@ -133,9 +134,9 @@ def save_snapshot(conn: sqlite3.Connection, request: SnapshotCreate) -> dict[str
     cursor = conn.execute(
         "INSERT INTO generic_page_snapshot "
         "(source_url, html_content, content_hash, crawl_run_ref, html_codec, "
-        " html_dict_id) VALUES (?,?,?,?,?,?)",
+        " html_dict_id, run_id) VALUES (?,?,?,?,?,?,?)",
         (source_url, body, _digest(request.html_content),
-         request.crawl_run_ref, codec, dict_id),
+         request.crawl_run_ref, codec, dict_id, request.run_id),
     )
     return _snapshot_public(_snapshot_row(conn, int(cursor.lastrowid)))
 
@@ -993,12 +994,17 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     total = conn.execute(
         "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ?",
         (dataset_id,)).fetchone()[0]
-    # WHEN THE MOST RECENT CRAWL SAW ANYTHING — one aggregate, not a per-row
-    # question. Derived, never stored: written into the row it would be stale the
-    # moment the next crawl ran (`R-27`).
-    newest = conn.execute(
-        "SELECT MAX(last_seen_at) FROM generic_record WHERE dataset_definition_id = ?",
-        (dataset_id,)).fetchone()[0]
+    # WHICH RUN LAST WROTE INTO THIS DATASET — one question, not a per-row one.
+    # Derived, never stored: written into the row it would be stale the moment the next
+    # crawl ran (`R-27`).
+    #
+    # IT USED TO BE `MAX(last_seen_at)`, and that is the defect `R-54` names. A crawl
+    # writes for half an hour and that column is `strftime(...,'now')` at SECOND
+    # resolution, so only the rows written in the final second ever compared equal --
+    # 17,221 of 17,304 listing rows read `absent` on his warehouse after a crawl that
+    # had read every one of them.
+    latest_run = runs.latest_run_for(conn, dataset_key) if dataset_key else None
+    run_started_at = runs.started_at_of(conn, latest_run)
 
     # THE SIGHTING SIDE, READ ONCE. `unsighted` and `returned` are the two states that
     # cannot be answered from `generic_record` alone, and joining per row would be the
@@ -1036,10 +1042,16 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     # reader should not have to know that to trust the function.
     stored = conn.execute(
         "SELECT r.generic_record_id, r.record_key, r.data_json, r.status, "
-        "       r.first_seen_at, r.last_seen_at, "
+        "       r.first_seen_at, r.last_seen_at, s.run_id AS row_run, "
         "       (SELECT MAX(v.observed_at) FROM generic_record_revision AS v "
         "         WHERE v.generic_record_id = r.generic_record_id) AS changed_at "
-        "  FROM generic_record AS r WHERE r.dataset_definition_id = ? "
+        "  FROM generic_record AS r "
+        # LEFT, not INNER: a record whose snapshot predates `0016` has no run, and it
+        # must still reach the loop below -- `R-27` says a row stays on screen whatever
+        # the crawl saw, and dropping it here would be the vanishing that ruling forbids.
+        "  LEFT JOIN generic_page_snapshot AS s "
+        "    ON s.page_snapshot_id = r.source_snapshot_id "
+        " WHERE r.dataset_definition_id = ? "
         " ORDER BY r.generic_record_id LIMIT ?",
         (dataset_id, -1 if cap is None else int(cap)))
 
@@ -1061,7 +1073,9 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         # dates will infer differently, with one of them wrong.
         state = row_state(
             status=row["status"], first_seen_at=row["first_seen_at"],
-            last_seen_at=row["last_seen_at"], newest=newest,
+            last_seen_at=row["last_seen_at"],
+            row_run=row["row_run"], latest_run=latest_run,
+            run_started_at=run_started_at,
             changed_at=row["changed_at"], sighted_at=seen_at,
             last_absent_at=absent_at)
         record[OBSERVED_STATE] = state

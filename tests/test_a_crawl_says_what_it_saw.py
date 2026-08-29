@@ -336,7 +336,13 @@ def test_a_row_absent_then_seen_again_reads_returned(conn):
 
     assert row["last_absent_at"] is not None, "the absence was recorded"
     assert row_state(status="active", first_seen_at="2026-08-20T00:00:00Z",
-                     last_seen_at=row["last_seen_at"], newest=row["last_seen_at"],
+                     last_seen_at=row["last_seen_at"],
+                     row_run=7, latest_run=7,
+                     # AFTER `first_seen_at`, deliberately: `new` is checked before
+                     # `returned` and a run that began the moment the row first
+                     # appeared would make it new rather than returned. The precedence
+                     # is right; the fixture had to say which crawl this is.
+                     run_started_at="2026-08-21T00:00:00Z",
                      sighted_at=row["last_seen_at"],
                      last_absent_at=row["last_absent_at"]) == STATE_RETURNED
 
@@ -370,7 +376,8 @@ def test_a_marked_row_outranks_an_observation(conn):
 
     assert row_state(status="retired", first_seen_at="2026-01-01T00:00:00Z",
                      last_seen_at="2026-01-01T00:00:00Z",
-                     newest="2026-08-21T00:00:00Z",
+                     row_run=1, latest_run=9,
+                     run_started_at="2026-08-21T00:00:00Z",
                      sighted_at="2026-01-01T00:00:00Z") == STATE_RETIRED
 
 
@@ -381,21 +388,37 @@ def test_a_new_row_is_not_called_updated_or_returned(conn):
 
     assert row_state(status="active", first_seen_at="2026-08-21T12:00:00Z",
                      last_seen_at="2026-08-21T12:00:00Z",
-                     newest="2026-08-21T12:00:00Z",
+                     row_run=4, latest_run=4,
+                     run_started_at="2026-08-21T12:00:00Z",
                      changed_at="2026-08-21T12:00:00Z",
                      sighted_at="2026-08-21T12:00:00Z",
                      last_absent_at="2026-01-01T00:00:00Z") == STATE_NEW
 
 
-def test_nothing_crawled_yet_is_not_reported_as_absent(conn):
-    """`newest` is None when nothing has been crawled, so there is no "last crawl" to
-    be missing from. Calling every row absent would be an artefact of an empty
-    ledger."""
-    from scrapex.sightings import STATE_CONFIRMED, row_state
+def test_a_row_whose_run_is_unknown_is_not_reported_as_absent(conn):
+    """There is no "last run" to be missing from when nothing names one, and calling
+    every row absent would be an artefact of our own history rather than a fact about
+    the site.
 
+    IT READS `unsighted` AND NOT `confirmed`, WHICH IS HIS RULING OF 2026-08-29 and a
+    change from what this test asserted before. `confirmed` claims the last crawl saw
+    the row; nobody can show that it did. `unsighted` says "stored before the ledger
+    existed" and claims nothing about the site — which is the honest answer for the
+    57,041 snapshots taken before `0016` gave a run an id.
+    """
+    from scrapex.sightings import STATE_UNSIGHTED, row_state
+
+    # nothing anywhere names a run
     assert row_state(status="active", first_seen_at="2026-08-20T00:00:00Z",
-                     last_seen_at="2026-08-20T00:00:00Z", newest=None,
-                     sighted_at="2026-08-20T00:00:00Z") == STATE_CONFIRMED
+                     last_seen_at="2026-08-20T00:00:00Z",
+                     row_run=None, latest_run=None,
+                     sighted_at="2026-08-20T00:00:00Z") == STATE_UNSIGHTED
+    # the dataset has a latest run, but THIS row predates run identity
+    assert row_state(status="active", first_seen_at="2026-08-20T00:00:00Z",
+                     last_seen_at="2026-08-20T00:00:00Z",
+                     row_run=None, latest_run=5,
+                     run_started_at="2026-08-29T00:00:00Z",
+                     sighted_at="2026-08-20T00:00:00Z") == STATE_UNSIGHTED
 
 
 def test_a_changed_row_reads_updated_and_not_confirmed():
@@ -413,7 +436,8 @@ def test_a_changed_row_reads_updated_and_not_confirmed():
 
     crawl = "2026-08-21T12:00:00Z"
     common = {"status": "active", "first_seen_at": "2026-01-01T00:00:00Z",
-              "last_seen_at": crawl, "newest": crawl, "sighted_at": crawl}
+              "last_seen_at": crawl, "row_run": 3, "latest_run": 3,
+              "run_started_at": crawl, "sighted_at": crawl}
 
     # A revision written by THAT crawl: the row changed.
     assert row_state(**common, changed_at=crawl) == STATE_UPDATED
@@ -435,13 +459,20 @@ def test_updated_outranks_confirmed_but_not_new_or_absent():
     )
 
     crawl = "2026-08-21T12:00:00Z"
+    # new: written by the latest run, and first seen once it had started
     assert row_state(status="active", first_seen_at=crawl, last_seen_at=crawl,
-                     newest=crawl, changed_at=crawl,
-                     sighted_at=crawl) == STATE_NEW
+                     row_run=2, latest_run=2, run_started_at=crawl,
+                     changed_at=crawl, sighted_at=crawl) == STATE_NEW
+    # absent: a DIFFERENT run wrote this row, so the latest one did not see it. It is
+    # the run that decides now, not a timestamp comparison the crawl's own duration
+    # could break.
     assert row_state(status="active", first_seen_at="2026-01-01T00:00:00Z",
-                     last_seen_at="2026-08-01T00:00:00Z", newest=crawl,
+                     last_seen_at="2026-08-01T00:00:00Z",
+                     row_run=1, latest_run=2, run_started_at=crawl,
                      changed_at="2026-08-01T00:00:00Z",
                      sighted_at="2026-08-01T00:00:00Z") == STATE_ABSENT
+    # updated: the latest run wrote it and a revision landed while it ran
     assert row_state(status="active", first_seen_at="2026-01-01T00:00:00Z",
-                     last_seen_at=crawl, newest=crawl, changed_at=crawl,
+                     last_seen_at=crawl, row_run=2, latest_run=2,
+                     run_started_at=crawl, changed_at=crawl,
                      sighted_at=crawl) == STATE_UPDATED

@@ -351,7 +351,9 @@ def departures(conn: sqlite3.Connection, dataset_key: str, *,
 
 
 def row_state(*, status: str, first_seen_at: str | None,
-              last_seen_at: str | None, newest: str | None,
+              last_seen_at: str | None,
+              row_run: int | None = None, latest_run: int | None = None,
+              run_started_at: str | None = None,
               changed_at: str | None = None,
               sighted_at: str | None = None,
               last_absent_at: str | None = None) -> str:
@@ -391,13 +393,22 @@ def row_state(*, status: str, first_seen_at: str | None,
         return STATE_UNAVAILABLE
     if sighted_at is None:
         return STATE_UNSIGHTED
-    if newest is None:
-        # Nothing has been crawled, so "the last crawl" does not exist and no
-        # comparison against it is honest.
-        return STATE_CONFIRMED
-    if last_seen_at is None or last_seen_at < newest:
+    # WHICH RUN, NOT WHICH SECOND. `R-54`, and the defect it replaces is measured:
+    # `newest` used to be `MAX(last_seen_at)` for the dataset, a timestamp at SECOND
+    # resolution, while a crawl writes its rows over half an hour. Only the rows written
+    # in the crawl's final second could ever compare equal to it, so on his warehouse
+    # 17,221 of 17,304 listing rows read `absent` after a crawl that had read every one
+    # of them -- and `absent` says the site stopped publishing a real company.
+    if latest_run is None or row_run is None:
+        # A row whose run cannot be established, which is every row stored before `0016`.
+        # HIS RULING: `unsighted`, because it claims nothing about the site. `absent`
+        # would invent a departure out of our own history, and `confirmed` -- what this
+        # returned before -- would claim the last crawl saw a row nobody can show it saw.
+        return STATE_UNSIGHTED
+    if row_run != latest_run:
         return STATE_ABSENT
-    if first_seen_at is not None and first_seen_at >= newest:
+    if (first_seen_at is not None and run_started_at is not None
+            and first_seen_at >= run_started_at):
         return STATE_NEW
     if last_absent_at is not None and last_seen_at >= last_absent_at:
         # `>=` AND NOT `>`, because both timestamps are `strftime(...,'now')` at
@@ -410,7 +421,11 @@ def row_state(*, status: str, first_seen_at: str | None,
         # latest crawl was already caught as `absent` two checks above, so reaching
         # this line means it IS present now and has a recorded absence behind it.
         return STATE_RETURNED
-    if changed_at is not None and changed_at >= newest:
+    if (changed_at is not None and run_started_at is not None
+            and changed_at >= run_started_at):
+        # AGAINST THE RUN'S START, not against a row's own date. A revision written
+        # while this run was in flight belongs to it however long the run took, which
+        # is exactly what comparing against one timestamp could not express.
         return STATE_UPDATED
     return STATE_CONFIRMED
 
