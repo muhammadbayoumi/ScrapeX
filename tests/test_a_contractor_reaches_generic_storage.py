@@ -169,8 +169,8 @@ def test_a_second_reading_of_the_same_page_is_recovered_and_not_duplicated(conn)
 def test_the_site_and_the_dataset_are_registered_by_the_same_act(conn):
     approve(conn, store(conn))
 
-    site = conn.execute("SELECT site_key, base_url FROM site_profile").fetchone()
-    assert site["site_key"] == "muqawil_org"
+    site = conn.execute("SELECT source_key, base_url FROM source_site").fetchone()
+    assert site["source_key"] == "muqawil_org"
     assert "muqawil.org" in site["base_url"]
 
     dataset = conn.execute(

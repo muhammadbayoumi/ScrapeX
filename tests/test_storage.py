@@ -250,7 +250,7 @@ def test_copy_verification_includes_generic_catalogue_tables(db_path, tmp_path):
     source_conn = dbmod.connect(source)
     try:
         source_conn.execute(
-            "INSERT INTO site_profile (site_key, display_name, base_url) VALUES (?,?,?)",
+            "INSERT INTO source_site (source_key, source_name, base_url) VALUES (?,?,?)",
             ("example_site", "Example", "https://example.com/"),
         )
         source_conn.commit()
@@ -265,7 +265,7 @@ def test_copy_verification_includes_generic_catalogue_tables(db_path, tmp_path):
     assert storage._same_contents(source, copied) is True
     copied_conn = sqlite3.connect(str(copied))
     try:
-        copied_conn.execute("DELETE FROM site_profile")
+        copied_conn.execute("DELETE FROM source_site")
         copied_conn.commit()
     finally:
         copied_conn.close()

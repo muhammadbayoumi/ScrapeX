@@ -50,7 +50,7 @@ def _relationship_public(
 ) -> dict[str, Any]:
     return {
         "dataset_relationship_id": row["dataset_relationship_id"],
-        "site_profile_id": row["site_profile_id"],
+        "source_id": row["source_id"],
         "relationship_key": row["relationship_key"],
         "parent_dataset_id": row["parent_dataset_id"],
         "child_dataset_id": row["child_dataset_id"],
@@ -73,8 +73,8 @@ def propose_relationship(
     child = _dataset_row(conn, request.child_dataset_id)
     if request.parent_dataset_id == request.child_dataset_id:
         raise CatalogConflict("a relationship must connect two different datasets")
-    if parent["site_profile_id"] != site["site_profile_id"] or \
-            child["site_profile_id"] != site["site_profile_id"]:
+    if parent["source_id"] != site["source_id"] or \
+            child["source_id"] != site["source_id"]:
         raise CatalogConflict("relationship datasets must belong to the requested site")
 
     pair_keys = [
@@ -98,8 +98,8 @@ def propose_relationship(
     evidence_json = _json(request.evidence)
     existing = conn.execute(
         "SELECT * FROM dataset_relationship "
-        "WHERE site_profile_id = ? AND relationship_key = ?",
-        (site["site_profile_id"], request.relationship_key),
+        "WHERE source_id = ? AND relationship_key = ?",
+        (site["source_id"], request.relationship_key),
     ).fetchone()
     if existing is not None:
         if existing["valid_to"] is not None:
@@ -132,11 +132,11 @@ def propose_relationship(
 
     cursor = conn.execute(
         "INSERT INTO dataset_relationship "
-        "(site_profile_id, relationship_key, parent_dataset_id, child_dataset_id, "
+        "(source_id, relationship_key, parent_dataset_id, child_dataset_id, "
         "cardinality, review_status, confidence, evidence_json) "
         "VALUES (?,?,?,?,?,?,?,?)",
         (
-            site["site_profile_id"], request.relationship_key,
+            site["source_id"], request.relationship_key,
             request.parent_dataset_id, request.child_dataset_id,
             request.cardinality.value, RelationshipReviewStatus.SUGGESTED.value,
             request.confidence, evidence_json,
@@ -168,10 +168,10 @@ def list_relationships(
     limit = _page_limit(limit)
     site = _site_row(conn, site_key)
     rows = conn.execute(
-        "SELECT * FROM dataset_relationship WHERE site_profile_id = ? "
+        "SELECT * FROM dataset_relationship WHERE source_id = ? "
         "AND valid_to IS NULL AND dataset_relationship_id > ? "
         "ORDER BY dataset_relationship_id LIMIT ?",
-        (site["site_profile_id"], max(0, after_id), limit + 1),
+        (site["source_id"], max(0, after_id), limit + 1),
     ).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
@@ -214,8 +214,8 @@ def review_relationship(
     site = _site_row(conn, site_key)
     row = conn.execute(
         "SELECT * FROM dataset_relationship "
-        " WHERE site_profile_id = ? AND relationship_key = ?",
-        (site["site_profile_id"], relationship_key),
+        " WHERE source_id = ? AND relationship_key = ?",
+        (site["source_id"], relationship_key),
     ).fetchone()
     if row is None:
         raise CatalogConflict(

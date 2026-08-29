@@ -1199,7 +1199,7 @@ def build_parser() -> argparse.ArgumentParser:
     # «اى الجديد واى الى خلص» and, measured 2026-08-21, no command could answer it:
     # eighteen subcommands and not one listed the sources. `R-32` / `REQ-25`.
     p = sub.add_parser(
-        "sources", help="every source and its state, across both registries",
+        "sources", help="every source and its state, registry and manifest",
         description="Every source this installation has, whichever registry it "
                     "lives in, with its category and how far along it is. Works "
                     "without a warehouse: the products half is the contract file.")

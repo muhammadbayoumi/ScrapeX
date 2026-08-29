@@ -43,7 +43,7 @@ def _warehouse(path: Path) -> sqlite3.Connection:
     registry.initialize()
     conn = registry.engine.connect()
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url) "
+        "INSERT INTO source_site (source_key, source_name, base_url) "
         "VALUES ('muqawil_org','C','https://muqawil.org')")
     conn.commit()
     return conn
@@ -222,7 +222,7 @@ def test_derived_rows_are_named_for_rebuilding_and_never_written(two):
     here, there, path = two
     _page(there, "B1")
     here.execute(
-        "INSERT INTO dataset_definition (site_profile_id, dataset_key, original_name, "
+        "INSERT INTO dataset_definition (source_id, dataset_key, original_name, "
         " dataset_kind, discovery_method, locator_json) "
         "VALUES (1,'contractors','c','table','html_table','{}')")
     here.commit()

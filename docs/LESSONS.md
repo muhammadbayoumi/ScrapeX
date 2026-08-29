@@ -2255,7 +2255,7 @@ deliberate exception is DECLARED, not inferred.** A historical name goes in
 `HISTORICAL` ([tests/test_the_tests_name_tests_that_exist.py:86](../tests/test_the_tests_name_tests_that_exist.py#L86))
 with the ref to read it at, and every row is **verified** rather than trusted —
 `git show <ref>:<path>` must still produce the test
-([tests/test_the_tests_name_tests_that_exist.py:144](../tests/test_the_tests_name_tests_that_exist.py#L144)).
+([tests/test_the_tests_name_tests_that_exist.py:151](../tests/test_the_tests_name_tests_that_exist.py#L151)).
 
 That verification caught its own author on its first run: the row for the
 native-host test named `6ccdd3c`, which does not contain it. The commit that does
@@ -2895,3 +2895,65 @@ gives the map in one pass — **and read each answer**, because one of the nine 
 the drift than before it: `STATE.md:918` had pointed at a docstring's closing quote and the
 shift landed it on the `def` the sentence names. Applying the map blindly would have repaired
 it into being wrong.
+
+## 22 · Rebuilding a table drops every trigger on it, and only a count says so
+
+Migration `0014` rebuilds five tables. Its first draft dropped the four triggers that name the
+column being renamed, recreated those four, and carried a comment stating that `0012`'s two
+`datasets_differ` triggers were *"untouched: they never named the registry, so the rebuild
+above kept them."*
+
+**Measured on a copy of his warehouse: 31 triggers before, 29 after.**
+
+`ALTER TABLE … RENAME TO` moves a table's triggers with it, but `DROP TABLE` on the old name
+takes every trigger still attached — and a rebuild ends in exactly that. Whether the trigger
+mentions the changed column is irrelevant; it belongs to the table, and the table is gone.
+
+**What was nearly lost:** `RAISE(ABORT, 'the enrichment output must be a new dataset')` — the
+trigger that stops an enrichment run writing back over the dataset it read, which is `R-45`
+enforced in the schema rather than in a review. It would have vanished silently: the FK check
+passes, `quick_check` passes, every row is intact, and nothing in a green suite asks how many
+triggers there are.
+
+**So a migration that rebuilds a table asserts the trigger set BY NAME, before and after.**
+Not the count alone — the count caught it here, but a rebuild that lost one and added one
+would balance. The check that holds is the set difference in both directions. A comment
+asserting that a trigger survived is not evidence that it did.
+
+## 23 · A duplicated migration stream hid three real defects, and the tests could not see them
+
+`db/migrations/` was retired on 2026-08-29 (`R-72`). Deleting it broke 255 tests, which was
+expected. What was not expected is that **three of the failures were real defects in the
+product**, invisible for as long as the duplication lasted — because every affected test
+built its database from the RETIRED stream while the product built his from the other one.
+
+### 1 · A new installation has had no default retention policy
+
+`db/migrations/0011_retention.sql` created `retention_policy` **and seeded its global `'*'`
+row in the same file**. `db/engine/schema.sql` was derived from the two streams' DDL, and a
+derivation carries `CREATE`, not `INSERT`. The table came across; the row did not.
+
+`derived-from.json` freezes 134 objects and their columns and **says nothing about rows**, so
+the guard that proves the collapse lost nothing was structurally blind to it. And every
+retention test built through `dbmod.migrate` — the legacy stream, which seeded the row — so
+the suite was green on a database no installation would ever have. His own warehouse is
+unaffected and was checked before the fix was written: it predates the split and carries the
+row. `0015_the_shipped_retention_default.sql` is the repair.
+
+### 2 · Seventeen tables have never had a description
+
+`test_the_table_catalogue_covers_every_table_the_schema_creates` asks whether `/data-model`
+can say what each table is for. It built its warehouse from the legacy `db/schema.sql` — 51
+tables. Pointed at the real engine schema it found **17 undescribed**, including
+`dataset_sighting`, which is the ledger the State column reads, and eleven enrichment tables.
+All were being filed on screen under "Other" with no purpose given.
+
+### 3 · A duplicate dict key silently deleted a whole group
+
+A blind rename of `site_profile` → `source_site` turned `TABLE_GROUPS`'s two entries into two
+entries with the SAME key. Python keeps the last. No error, no warning — a group of tables
+simply stopped being described. Found by the guard above, which is the only reason it is not
+still true.
+
+**The shape of all three:** a test that builds its own database is only as honest as the
+builder it calls. When two builders exist, half the suite is testing a product nobody runs.

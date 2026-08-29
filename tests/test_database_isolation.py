@@ -93,7 +93,7 @@ def test_backup_then_restore_returns_the_database_to_the_backed_up_moment(tmp_pa
     restored = engine.connect()
     try:
         keys = [row[0] for row in restored.execute(
-            "SELECT site_key FROM site_profile ORDER BY site_profile_id LIMIT 10")]
+            "SELECT source_key FROM source_site ORDER BY source_id LIMIT 10")]
     finally:
         restored.close()
 

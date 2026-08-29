@@ -388,7 +388,7 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
     """The profile URLs this scope earns. Returns `(urls, rows_outside_the_slice)`.
 
     THE SCOPE COMES FROM THE DATABASE AND A CALLER MAY NOT PASS ONE.
-    `site_profile.crawl_scope` is the owner's answer for this source
+    `source_site.crawl_scope` is the owner's answer for this source
     (`PLATFORM-PLAN` Decision 23), and a scope enforced in two places is a scope
     enforced in neither.
 
@@ -562,11 +562,11 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             # profiles anyway would be answering for him — which is what Decision 23 made
             # the column for.
             say("listing_only, so there are no profile pages to fetch. Change "
-                "site_profile.crawl_scope to ask for them.")
+                "source_site.crawl_scope to ask for them.")
             return
         if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
             _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
-                    "named, so there is nothing to select. Set site_profile.crawl_slice")
+                    "named, so there is nothing to select. Set source_site.crawl_slice")
         frontier, outside = detail_frontier(conn, directory, scope, slice_of)
         held = already_stored(conn, run_ref)
     todo = [url for url in frontier if url not in held]
@@ -937,7 +937,7 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
     reader = directory.profiles
     if reader is None:
         return 0, 0
-    site = conn.execute("SELECT site_profile_id FROM site_profile WHERE site_key = ?",
+    site = conn.execute("SELECT source_id FROM source_site WHERE source_key = ?",
                         (directory.key,)).fetchone()
     if site is None:
         return 0, 0
@@ -963,7 +963,7 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
             raise KeyError(
                 f"{group_key!r} is wired but declares no scheme name; "
                 f"see MULTI_VALUED_GROUPS")
-        scheme = taxonomy.ensure_scheme(conn, int(site["site_profile_id"]),
+        scheme = taxonomy.ensure_scheme(conn, int(site["source_id"]),
                                         name=group.scheme_name,
                                         name_ar=group.scheme_name_ar)
         try:
@@ -1391,7 +1391,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="fetch the PROFILE page of every contractor the "
                             "registered scope asks for. The frontier is built from "
                             "stored listing pages with no network; the scope comes "
-                            "from site_profile.crawl_scope and never from a flag")
+                            "from source_site.crawl_scope and never from a flag")
     parser.add_argument("--ceiling", type=int, default=0,
                        help="for --details: stop after this many profile pages. "
                             "34,806 pages is about seventeen hours, and a first run "

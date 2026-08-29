@@ -62,7 +62,7 @@ class Membership:
     attribute_value_ar: str = ""
 
 
-def ensure_scheme(conn: sqlite3.Connection, site_profile_id: int, *,
+def ensure_scheme(conn: sqlite3.Connection, source_id: int, *,
                   name: str, name_ar: str) -> int:
     """The site's own vocabulary, created once.
 
@@ -81,8 +81,8 @@ def ensure_scheme(conn: sqlite3.Connection, site_profile_id: int, *,
         return int(found[0])
     cursor = conn.execute(
         "INSERT INTO classification_scheme "
-        "(scheme_name_ar, scheme_name, scheme_type, site_profile_id) "
-        "VALUES (?,?,'source',?)", (name_ar, name, site_profile_id))
+        "(scheme_name_ar, scheme_name, scheme_type, source_id) "
+        "VALUES (?,?,'source',?)", (name_ar, name, source_id))
     return int(cursor.lastrowid)
 
 

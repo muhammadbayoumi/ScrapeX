@@ -85,9 +85,9 @@ def _record_key(contractor_id: str) -> str:
 
 def _stored(conn, *contractors: tuple[str, str], dataset: str = "contractors") -> None:
     """Records for contractors we hold. Each is `(contractor_id, status)`."""
-    if not conn.execute("SELECT COUNT(*) FROM site_profile").fetchone()[0]:
+    if not conn.execute("SELECT COUNT(*) FROM source_site").fetchone()[0]:
         conn.execute(
-            "INSERT INTO site_profile (site_key, display_name, base_url) "
+            "INSERT INTO source_site (source_key, source_name, base_url) "
             "VALUES ('s','S','https://example.test')")
         conn.execute(
             "INSERT INTO generic_page_snapshot "
@@ -95,7 +95,7 @@ def _stored(conn, *contractors: tuple[str, str], dataset: str = "contractors") -
             "VALUES ('https://example.test/1','<html></html>','h')")
     row = conn.execute(
         "INSERT INTO dataset_definition "
-        "(site_profile_id, dataset_key, original_name, dataset_kind, "
+        "(source_id, dataset_key, original_name, dataset_kind, "
         " discovery_method, locator_json) "
         "VALUES (1,?,?, 'table','html_table','{}') RETURNING dataset_definition_id",
         (dataset, dataset)).fetchone()

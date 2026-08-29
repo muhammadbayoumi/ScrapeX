@@ -115,6 +115,25 @@ this session's context nor this warehouse. Everything below is the whole handove
 > process's own `__file__`. Measured in [OP-88](BACKLOG.md). It now runs `0.4.2` from the main
 > checkout, started through `ScrapeX Engine.vbs`.
 >
+> **AND THE SOURCE REGISTRY IS ONE, with a second stream retired behind it.** `R-62`
+> executed as migration `0014`: `site_profile` merged into `source_site`, eight rows
+> repointed across four tables, 31 triggers before and 31 after, `foreign_key_check` clean,
+> 6.5 s on a copy of his 1,421 MB warehouse. `R-71` records the three decisions the merge
+> forced and corrects two of `R-62`'s own measurements.
+>
+> **Then he ruled `R-72`**: nothing is kept because deleting it is work. `db/migrations/`
+> — 61 files, frozen since 2026-08-04 — is gone, with `db/schema.sql`, a duplicate migration
+> runner and five tests that guarded deleted migrations. **No test fixture moved**:
+> `db.migrate` delegates to the engine runner instead of owning a stream.
+>
+> **The deletion found three defects the duplication had been hiding** (`LESSONS` §23), the
+> worst of them that **a new installation has never had a default retention policy** — the
+> seed row lived in the retired stream and the schema derivation carried `CREATE` and not
+> `INSERT`. His own warehouse has the row and was checked first; `0015` is the repair.
+>
+> `VERSION` → **0.4.3**, which understates it: `R-69` reserves `0.5.0` for
+> `feat/organization-enrichment` and that ruling was not overridden here.
+>
 > **Step 2's ROOT HALF is built** — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
 > confirming pass now moves the record's own `last_seen_at`, which is the field the state
 > comparison rests on; `approve_candidate` returned seventy lines above the only write that

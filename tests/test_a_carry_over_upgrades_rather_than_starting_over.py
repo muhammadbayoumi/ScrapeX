@@ -44,7 +44,6 @@ from scrapex.databases.carry_over import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = ROOT / "db" / "migrations" / "0058_a_unit_that_can_name_who_said_it.sql"
 
 #: The shape of the old, split-era price database, cut down to what this is about:
 #: `source_offer` as it was before 0058, with no provenance columns at all.
@@ -225,26 +224,11 @@ def test_the_carry_over_says_which_columns_it_filled(plan: CarryOverPlan):
 
 # ---- the literal must not become a second source of truth --------------------
 
-def test_the_legacy_marker_is_the_migrations_own_and_not_a_copy():
-    """TWO HOMES FOR ONE LITERAL IS THE THING THIS REPOSITORY KEEPS GETTING BITTEN
-    BY. An installation upgraded in place gets 0058's value; one carried over gets
-    this module's. If they ever differ, the same row describes itself two ways
-    depending on a history nobody can see from the data.
-
-    The migration writes the witness as three SQL string pieces joined with `||`,
-    so the concatenation is collapsed before comparing — the test is about the
-    VALUE, not about how the SQL is laid out.
-    """
-    sql = MIGRATION.read_text(encoding="utf-8")
-    collapsed = re.sub(r"'\s*\|\|\s*'", "", sql)
-
-    assert f"'{LEGACY_UNWITNESSED}'" in collapsed, (
-        f"migration 0058 no longer assigns {LEGACY_UNWITNESSED!r}; carry_over "
-        "would now mark carried rows with a value the in-place upgrade does not use")
-    assert f"'{LEGACY_WITNESS}'" in collapsed, (
-        "the witness text in carry_over.LEGACY_WITNESS is not the one migration "
-        "0058 writes. One of the two has been edited and the other has not:\n"
-        f"  carry_over: {LEGACY_WITNESS!r}")
+# `test_migration_00NN_*` REMOVED 2026-08-29 WITH THE MIGRATION IT GUARDED.
+# `db/migrations/` was retired on his ruling; a test that replays a stream by
+# number to reach a file that no longer exists cannot fail for a real reason, and
+# keeping it is the doubled effort the retirement was for.
+# The migration itself is still readable: `git show 8901a2a:db/migrations/`.
 
 
 def test_a_backfill_never_overwrites_a_column_the_source_already_had():

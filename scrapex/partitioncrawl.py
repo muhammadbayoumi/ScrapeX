@@ -164,7 +164,7 @@ class NotASubdivision(ValueError):
 class ScopeNotPartitionable(ValueError):
     """This site is registered for a scope a listing partition cannot honour.
 
-    REFUSED RATHER THAN NARROWED. The scope comes from `site_profile` and from
+    REFUSED RATHER THAN NARROWED. The scope comes from `source_site` and from
     nowhere else — that is `snapshotcrawl`'s rule and the reason it has no scope
     parameter. A partition crawl under `full_then_listing` would fetch twenty
     profile pages for every listing page it read, so a run priced at ~2,000
@@ -185,7 +185,7 @@ class PartitionedListing(Protocol):
     METHOD, and they live here.
     """
 
-    #: Matches `site_profile.site_key`, which is how the crawl finds its scope.
+    #: Matches `source_site.site_key`, which is how the crawl finds its scope.
     site_key: str
 
     #: The locales every page is fetched in, and the one the arithmetic reads.

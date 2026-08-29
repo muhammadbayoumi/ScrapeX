@@ -42,9 +42,9 @@ def _variant(conn, variant_id: int) -> int:
     """The chain an offer needs: a site, a product, a variant."""
     conn.execute("INSERT OR IGNORE INTO source_site (source_id, source_key, "
                  " source_name_ar, source_name, base_url, platform, currency, "
-                 " timezone, authority, active) "
+                 " timezone, authority, lifecycle) "
                  "VALUES (1,'S','س','S','http://s','magento-graphql','SAR',"
-                 "'UTC','shop',1)")
+                 "'UTC','shop','active')")
     conn.execute("INSERT OR IGNORE INTO source_product (source_product_id, source_id, "
                  " external_product_id, product_name, product_name_ar) "
                  "VALUES (?,1,?,'P','ب')", (variant_id, str(variant_id)))

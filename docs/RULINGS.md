@@ -614,7 +614,7 @@ dataset payload has to carry them, which today it cannot. That last part is the 
 work and it is not yet designed — and it would have been needed for JSON too.
 
 **What is already true and helps.** `dataset_relationship` and
-`relationship_field_pair` exist (`db/migrations/0013_generic_dataset_catalog.sql`),
+`relationship_field_pair` exist (`0013_generic_dataset_catalog.sql`, in the stream retired on 2026-08-29 — `git show 8901a2a:db⁠/migrations/0013_generic_dataset_catalog.sql`),
 with a propose/list API and tests. They hold **0 rows**. So the machinery for the
 relations half exists and has never had a tenant.
 
@@ -2921,3 +2921,74 @@ be correct, but the reason given for it was not the reason.
 verified on a second read-only connection: `v4` approved with 27 fields and 17,371 `active`
 rows, **zero active rows on a retired version**, `OP-64`'s 14 impostors still on `v3` and still
 `status='retired'`, 74,574 revisions unchanged, `foreign_key_check` clean.
+
+### R-71 · The merged registry's shape — and the crawl button is not what the merge unblocks
+
+**2026-08-29 · data model · three decisions taken while executing
+[R-62](#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration),
+plus the `C5` correction that measuring it produced**
+
+`R-62` said merge; it did not say what the merged row looks like. Three questions had no
+computable answer:
+
+| question | his answer |
+|---|---|
+| `source_name_ar` is `NOT NULL` and neither muqawil row has an Arabic name anywhere | **«الهيئة السعودية للمقاولين»** |
+| two ideas of state — `active` (0/1) and `lifecycle` (draft/active/paused) | **`lifecycle` alone.** `active = 0` cannot tell "never configured" from "you switched it off", and both muqawil rows were `draft` |
+| the migration alone does not open the crawl button — what ships together? | **the migration and the rename now; the button in its own pull request** |
+
+**AND `R-62` IS WRONG ABOUT TWO THINGS. The ruling stands; its measurements do not** (`C4` —
+the old text stays):
+
+1. **It priced the repointing at two tables. It is four.** `classification_scheme` was
+   missed, and `organization_enrichment_definition` did not exist when the ruling was
+   written. Eight rows, all pointing at `site_profile_id = 2`.
+2. **"It is what unblocks `REQ-45`" is measured false.** `POST /api/jobs` validates against
+   `load_manifest(sources.yaml)` — a FILE. And opening the route would be worse than leaving
+   it shut: the worker is manifest-driven end to end, and `crawl_job.job_kind` is stored but
+   **never read in `scrapex/jobs.py`**. A muqawil key would be accepted, queued, and fail
+   inside the run. **A clear `404` replaced by a delayed failure is a regression**, so the
+   button is `REQ-45`'s own work — `OP-92`.
+
+### R-72 · Nothing is kept because deleting it is work
+
+**2026-08-29 · process · his ruling, given while `0062` was being written**
+
+> «انا اريد كود نظيف لا معكرونة اسبجتى تعيق التطوير بسبب المجهود المضاعف فى تطوير اشياء لا
+> نحتاج اليها» — and the question that opened it: *why keep files this long if the decision
+> already points at deleting them?*
+
+**He was right about the specific thing in front of him.** `db/migrations/` had not moved
+since **2026-08-04**, four days before `db/engine/` was created. Frozen, but alive enough
+that the registry merge had to be written TWICE — `0014` for the engine and `0062` for it.
+`0062` was an hour old when he ruled, and it was deleted with the stream it was written for.
+
+**What went, and what the deletion cost:**
+
+| | |
+|---|---|
+| `db/migrations/` | 61 files |
+| `db/schema.sql` | 480 lines |
+| a duplicate migration runner in `scrapex/db.py` | 47 lines |
+| tests guarding deleted migrations | 5 tests, 134 lines |
+| **test fixtures moved** | **none** — `db.migrate` DELEGATES to the engine runner rather than owning a stream |
+
+**Why delegating rather than repointing.** The two runners were the same recipe with one
+difference: the engine's writes the `database_migration` ledger and this one never did. A
+database advanced by the old runner would carry `user_version = 15` and an empty ledger, and
+`_verify_checksums` would refuse to open it — a database the product created and could not
+read.
+
+**What made the deletion safe was already in the repository.** `db/engine/schema.sql` was
+DERIVED from both streams at the collapse, and `test_one_schema_carries_both_streams.py`
+holds it against a frozen record of all 134 objects they produced. The proof that nothing
+structural is lost was written the day the streams merged.
+
+**Measured before deleting, because two real databases still use the old shape:**
+`~/.scrapex/marketlens/marketlens.db` at `user_version 59` and `general.db` at 3. They can
+no longer be UPGRADED — and they can still be read and imported: `carry_over.py` contains
+zero references to the stream. His price data has been in the engine since the collapse
+(94,664 observations, 9,270 products).
+
+**AND THE DELETION FOUND THREE DEFECTS THAT THE DUPLICATION HAD BEEN HIDING**, all in
+`LESSONS` §23. Every one was invisible because the tests were building the wrong database.

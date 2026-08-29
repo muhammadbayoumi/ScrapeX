@@ -64,7 +64,7 @@ def test_it_holds_both_halves_of_what_it_replaced(engine):
         con.close()
 
     assert {"price_observation", "source_offer", "crawl_run"} <= names
-    assert {"generic_record", "site_profile", "dataset_definition"} <= names
+    assert {"generic_record", "source_site", "dataset_definition"} <= names
 
 
 def test_the_payload_contract_is_stamped_and_then_required(engine, tmp_path):

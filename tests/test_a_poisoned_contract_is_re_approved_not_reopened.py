@@ -55,12 +55,12 @@ def _rig(conn: sqlite3.Connection, *, live_rows: int = 5,
     Built through SQL rather than through the approval path on purpose — the approval path
     REFUSES this shape, which is why the fault needed a repair and not a re-run.
     """
-    conn.execute("INSERT INTO site_profile (site_key, display_name, base_url) "
+    conn.execute("INSERT INTO source_site (source_key, source_name, base_url) "
                  "VALUES ('rig_site', 'Rig', 'https://rig.example/')")
-    site_id = int(conn.execute("SELECT site_profile_id FROM site_profile "
-                               "WHERE site_key='rig_site'").fetchone()[0])
+    site_id = int(conn.execute("SELECT source_id FROM source_site "
+                               "WHERE source_key='rig_site'").fetchone()[0])
     conn.execute(
-        "INSERT INTO dataset_definition (site_profile_id, dataset_key, display_name, "
+        "INSERT INTO dataset_definition (source_id, dataset_key, display_name, "
         "original_name, discovery_method, locator_json) VALUES (?,?,?,?,'html_table','{}')",
         (site_id, "rig", "Rig", "Rig"))
     dataset_id = int(conn.execute("SELECT dataset_definition_id FROM dataset_definition "

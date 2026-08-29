@@ -279,8 +279,8 @@ def test_rates_refresh_only_when_the_stored_ones_have_gone_stale(tmp_path):
     conn = dbmod.connect(tmp_path / "r.db")
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
-                 " source_name, base_url, platform, currency, timezone, authority, active) "
-                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
 
     class _Fetcher:
         calls = 0
@@ -376,8 +376,8 @@ def test_a_failing_quote_page_costs_one_attempt_per_interval_not_one_per_poll():
     conn = dbmod.connect(":memory:")
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
-                 " source_name, base_url, platform, currency, timezone, authority, active) "
-                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
     conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
                  "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
     conn.execute("INSERT INTO source_product (source_product_id, source_id, "
@@ -428,8 +428,8 @@ def test_the_attempt_survives_an_exception_that_escapes_the_fetch(tmp_path):
     conn = dbmod.connect(db)
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
-                 " source_name, base_url, platform, currency, timezone, authority, active) "
-                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
     conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
                  "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
     conn.execute("INSERT INTO source_product (source_product_id, source_id, "
@@ -486,8 +486,8 @@ def test_a_clock_that_went_backwards_counts_as_due_not_as_fresh(tmp_path):
     conn = dbmod.connect(tmp_path / "back.db")
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
-                 " source_name, base_url, platform, currency, timezone, authority, active) "
-                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
     conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
                  "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
     conn.execute("INSERT INTO source_product (source_product_id, source_id, "
