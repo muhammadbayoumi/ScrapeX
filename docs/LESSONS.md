@@ -2957,3 +2957,31 @@ still true.
 
 **The shape of all three:** a test that builds its own database is only as honest as the
 builder it calls. When two builders exist, half the suite is testing a product nobody runs.
+
+## 24 · There are two run modes, and the flag that looks like "everything" turns one guard off
+
+Every suite in this session was run with `SCRAPEX_FULL_MIGRATIONS=1`, on the belief that it
+is the stricter of the two ways to run the tests. It is stricter about migrations and
+**weaker about exactly one thing**: it disables the schema template, and
+`tests/test_fast_migrations.py` — the file that exists to check the template — skips itself
+when it is set.
+
+So that file had not run locally all day. CI runs without the flag, and it failed there.
+
+**Two defects were hiding in the gap, and both are the same shape as everything else this
+session found — a guard whose premise had quietly stopped being true:**
+
+1. **A truncation that no longer truncated.** `test_a_truncated_stream_is_never_served_the_template`
+   cut the stream at `<= 46` to prove a short chain is refused the template. Once
+   `R-72` left the chain ending at 15, `<= 46` kept every file, nothing was truncated, and
+   the assertion inverted. The cut is `every[:-1]` now — one short of whatever the chain is,
+   which cannot stop truncating.
+2. **A clock column that had never needed excluding.** The template is compared against an
+   honest run row by row, with wall-clock columns excluded by name. `database_migration.applied_at`
+   was not among them and did not need to be: the old `db.migrate` never wrote the ledger, so
+   the table was empty in both databases and matched trivially. Delegating to the engine
+   runner made both write it — and two runs differ by the second they ran in.
+
+**The rule that follows:** before pushing, run the suite BOTH ways. `SCRAPEX_FULL_MIGRATIONS=1`
+and without it are not "thorough" and "quick"; they are two different products, and each
+turns off a guard the other needs.
