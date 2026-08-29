@@ -95,12 +95,28 @@ a clean 27-field v4** is the one that also leaves a correct version history, and
 > rows written in the crawl's final second survive it. `absent` claims the site stopped
 > publishing a contractor, and `publish.py` carries payload columns into his Sheet.
 >
-> **What is left for the second pull request:** `newest` stops being
-> `MAX(last_seen_at)` and becomes the RUN. That needs no migration —
-> `generic_page_snapshot.crawl_run_ref` already exists and carries a value on **55,313 of
-> 57,041** snapshots, reachable from `generic_record.source_snapshot_id`. He ruled that the
-> **1,728** snapshots without one read `unsighted`, the state that claims nothing about the
-> site.
+> **The second pull request needs the table `R-52` already ruled, and my earlier note here
+> > was wrong.** It said the comparison needs no migration because
+> > `generic_page_snapshot.crawl_run_ref` carries a value on 55,313 of 57,041 snapshots. The
+> > column exists; **it is not a run identity.** Measured 2026-08-27:
+> >
+> > - **141 distinct values** across 55,313 snapshots — per CELL for listing crawls
+> >   (`listing-2026-08-20` alone has 64, `residual-2026-08-21` 40, `deficit-2026-08-21b` 33)
+> >   and per crawl for the profile run (`profiles-2026-08-22`, one ref for 34,834 pages).
+> > - It **joins to nothing**: zero matches against any column of `crawl_run` or against
+> >   `crawl_job.job_ref`. It is the free-text `--run-ref` the operator types, and one stored
+> >   value is literally **`R`**, on two snapshots.
+> > - Simulated: comparing against "the run of the most recently captured snapshot" would read
+> >   **`absent` on 17,030 of 17,304** listing rows and **17,384 of 17,385** profile rows —
+> >   worse than today, not better.
+> >
+> > `R-52` had already measured this and he had already chosen the answer: **option B, a generic
+> > crawl-run table**, because `crawl_run` is the price path alone and its `source_id` points at
+> > `source_site`, where muqawil does not exist. So the second half is a migration plus a writer
+> > plus the comparison — and its `source_id` problem is `R-62`'s registry merge, the same thing
+> > that blocks the crawl button.
+>
+> He ruled that rows whose run cannot be established read `unsighted`.
 
 
 **`R-52` is on `main` as of `19ea359`, and the evidence says its plan will not fix the
