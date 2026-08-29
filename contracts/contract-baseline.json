@@ -1,5 +1,5 @@
 {
-  "version": "0.4.3",
+  "version": "0.4.4",
   "schema": [
     "0002_the_price_source_key_is_named_for_what_it_is.sql",
     "0003_a_source_says_how_deep_its_crawl_goes.sql",
@@ -14,7 +14,8 @@
     "0012_enrichment_runs_observe_before_they_replace.sql",
     "0013_two_versions_may_share_a_shape_across_time.sql",
     "0014_one_source_registry.sql",
-    "0015_the_shipped_retention_default.sql"
+    "0015_the_shipped_retention_default.sql",
+    "0016_a_snapshot_names_the_run_that_fetched_it.sql"
   ],
   "protocol": "1",
   "endpoints": [

@@ -131,10 +131,28 @@ this session's context nor this warehouse. Everything below is the whole handove
 > seed row lived in the retired stream and the schema derivation carried `CREATE` and not
 > `INSERT`. His own warehouse has the row and was checked first; `0015` is the repair.
 >
-> `VERSION` → **0.4.3**, which understates it: `R-69` reserves `0.5.0` for
-> `feat/organization-enrichment` and that ruling was not overridden here.
+> `VERSION` → **0.4.4**. `R-69` reserves `0.5.0` for `feat/organization-enrichment`
+> and that ruling was not overridden here.
 >
-> **Step 2's ROOT HALF is built** — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
+> **STEP 2 IS BUILT, BOTH HALVES.** The root half shipped in `#281`; the second half is
+> `0016` plus `scrapex/runs.py`, and he ruled `R-75` for it: **one run table for
+> everything.** A snapshot now names the run that fetched it with a typed `run_id`, and
+> `row_state` reads a row against THAT run instead of against `MAX(last_seen_at)`. The
+> latest run is asked THROUGH THE ROWS -- `MAX(run_id)` for the source would call every
+> profile row `absent` the moment a listing sweep finished, while the site still lists
+> every one of them. Fifteen new guards, three mutations, three killed.
+>
+> **`R-52` IS SUPERSEDED BY `R-75`, and its text stays** (`C4`). Its measurement --
+> *"`crawl_run` is the price path alone"* -- was true on 2026-08-24 and expired when
+> `R-62`'s merge (`0014`) put `muqawil_org` into `source_site`. A second run table would
+> then be exactly what `R-72` forbids.
+>
+> **`OP-99` is the honest remainder:** the price path still opens and closes its own
+> `crawl_run` inline in `ingest.py`, not through `runs.py`. Recorded, not slipped in.
+>
+> **Next in his order is step 5, then step 3** (`R-69`), then `R-68`'s reconciliation.
+>
+> The root half, for the record — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
 > confirming pass now moves the record's own `last_seen_at`, which is the field the state
 > comparison rests on; `approve_candidate` returned seventy lines above the only write that
 > moved it. Nine mutations, nine killed, 993 tests green across 45 suites.
@@ -146,7 +164,7 @@ this session's context nor this warehouse. Everything below is the whole handove
 > second survive it. `contractor_profiles` escapes with `unsighted` only because its ledger
 > is empty.
 >
-> **The second pull request needs the table `R-52` already ruled, and my earlier note here
+> **The second pull request needed a table, and my earlier note here
 > > was wrong.** It said the comparison needs no migration because
 > > `generic_page_snapshot.crawl_run_ref` carries a value on 55,313 of 57,041 snapshots. The
 > > column exists; **it is not a run identity.** Measured 2026-08-27:
@@ -167,7 +185,13 @@ this session's context nor this warehouse. Everything below is the whole handove
 > > plus the comparison — and its `source_id` problem is `R-62`'s registry merge, the same thing
 > > that blocks the crawl button.
 >
-> He ruled that rows whose run cannot be established read `unsighted`.
+> He ruled that rows whose run cannot be established read `unsighted` -- a standing state
+> meaning "stored before the ledger existed", not `absent`, which would claim the site
+> stopped publishing a contractor it still lists. 1,728 snapshots on his warehouse are in
+> exactly that position.
+>
+> **AND `crawl_run_ref` STAYS.** It is what `--run-ref` resumes an interrupted crawl on.
+> `0016` adds a typed `run_id` beside it rather than overloading a free-text label.
 
 ### The code and the decisions are in the repository. The DATA is not.
 
@@ -526,7 +550,7 @@ findings NOT in this wave are held pending numbers from the primary session (`R-
 **THE FINDING THAT MOVES THE PLAN.** Step 3 — the record card, `REQ-32`, the step he
 actually asked for — is priced in the plan at **967 lines** and gated on a new
 endpoint. Measured: `dataset_table_payload` SELECTed `generic_record_id`
-([service.py:918](../scrapex/extract/service.py#L918)) and the emitting loop dropped
+([service.py:922](../scrapex/extract/service.py#L922)) and the emitting loop dropped
 it, so the payload carried **no handle for the row at all**, while `grid.js` opens its
 card from `rows.filter((row) => row.offer_id)` and closes the panel when that is
 empty. **Selecting a contractor could never open anything**, and the fix is one

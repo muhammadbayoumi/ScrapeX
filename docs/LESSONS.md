@@ -959,7 +959,7 @@ resume is explained in its module docstring in terms of **requests**:
 > anyway is not a resume.
 
 Every word of that is the right intent. The check sits in `store`
-([scrapex/snapshotcrawl.py:164](../scrapex/snapshotcrawl.py)), which is the
+([scrapex/snapshotcrawl.py:169](../scrapex/snapshotcrawl.py)), which is the
 walker's `on_page` — called **after** the fetch. So the resume saves the INSERT and
 saves no request at all, and the docstring's own justification is the one thing it
 does not deliver. Recorded as [OP-21](BACKLOG.md).
@@ -2590,7 +2590,7 @@ assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
 
 `unsighted` is in that set. So a table where **every single row** collapsed to
 `unsighted` is green. And there is a live path that does exactly that:
-[scrapex/extract/service.py:968](../scrapex/extract/service.py#L968) resolves the
+[scrapex/extract/service.py:972](../scrapex/extract/service.py#L972) resolves the
 identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
 two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
 every sighting lookup misses, and the whole column is wrong with nothing to say so.
@@ -2865,7 +2865,7 @@ that names the mechanism before designing the mechanism.
 
 ## 21 · Nine citations drifted at once and four tiers of guard said nothing
 
-`#281` added a 53-line function at `scrapex/extract/service.py:303`. Every citation below it
+`#281` added a 53-line function at `scrapex/extract/service.py:304`. Every citation below it
 moved. **Nine of them, across `BACKLOG.md` and `LESSONS.md`, were left pointing 53 lines above
 their subject, and the build was green through two pull requests.**
 
@@ -2885,7 +2885,7 @@ Had those rows existed a day earlier, `#281` could not have shipped.
 
 **And a survivor taught what `PINNED` actually pins.** The first mutation changed a
 DOCUMENT's number from `:996` back to the stale `:943` and the suite stayed green: a pinned
-row asserts what `service.py:996` says, not that anything cites 996. It guards the code
+row asserts what that line of `service.py` says, not that anything cites it. It guards the code
 moving under a citation — the common case — and not a citation written wrong to begin with.
 Knowing which of the two a guard covers is the difference between trusting it and assuming it.
 
@@ -3129,3 +3129,40 @@ palette through it *before* writing it into the source found two failures and co
 The scratch script asserts on `REQ-48` in `docs/REQUESTS.md` — a string added in this
 session — rather than on `__file__`, per the trap in `CLAUDE.md`: `__file__` catches a
 misdirected import and never a misdirected read.
+
+## 26 · A function that always answers plausibly cannot fail loudly, and three ways that bit in one afternoon
+
+`R-54`'s second half replaced `MAX(last_seen_at)` with the run that wrote a row. The defect
+being replaced had lived for weeks in plain sight, and the reason is worth keeping.
+
+**1 · The wrong answer and the right answer are the same SHAPE.** `row_state` returns one of
+eight strings. The old comparison returned one of them for every row, always -- never NULL,
+never an exception, never a log line. On his warehouse it read **`absent` on 17,221 of 17,304
+contractors**, which is a catastrophic answer that no test, no type checker and no eye
+scanning the panel could distinguish from a correct one. Nothing here fails loudly on its
+own: **the only thing that can is an assertion naming a specific row, a specific pair of
+runs, and the state it must get.** That is the whole design of
+`tests/test_a_run_is_the_clock_that_states_are_read_against.py`, and it is why fifteen small
+assertions beat one integration test.
+
+**2 · The obvious column that looked like the answer.** `crawl_run_ref` sits on 55,313 of
+57,041 snapshots and is *named* like a run identity. It is a free-text label an operator
+types; §20 has the measurement. Two design notes in this repository had already assumed it
+would do, and both were written by someone who had read the column name and not the data.
+
+**3 · `MAX(run_id)` FOR THE SOURCE is the version of the fix that passes almost every test.**
+It is one word different from `latest_run_for` and it is wrong in exactly one situation: a
+listing sweep stores no profile page, so the moment a listing crawl finishes, every profile
+row reads `absent` -- while the site still lists all of them. The question has to be asked
+THROUGH the rows: the newest run among the snapshots this dataset's records point at. A
+guard for this has to build two runs of the same source where only one wrote rows the
+dataset can see; anything simpler passes under both implementations.
+
+**And a smaller one, from the same change.** A crawl that opens a run needs its source
+registered -- so the first crawl of a new site must register it. The first draft called
+`catalog.register_site` unconditionally, and `register_site` **refuses a key that already
+exists under a different `base_url`**: ten tests went red with `CatalogConflict` because
+their fixture had registered the site from a slightly different URL. A crawl declares a
+source it does not know; it does not re-assert the identity of one somebody already
+registered. The corrected shape asks first (`runs.open_run`, catching `UnknownSource`) and
+registers only on the way through.

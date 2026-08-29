@@ -2320,6 +2320,14 @@ that class of error and this is an instance of it.
 
 ### R-52 · A generic crawl is a RUN with an identity, not the maximum of a timestamp column
 
+> **SUPERSEDED IN PART on 2026-08-29 by [R-75](#r-75--one-run-table-for-everything-and-a-row-is-read-against-the-run-that-wrote-it),
+> and the part that stands is the larger part.** Its principle -- a run has an IDENTITY and a
+> maximum timestamp is not one -- is what `R-75` executes. What expired is its *table*
+> choice, and it expired on a measurement rather than a change of mind: `crawl_run.source_id`
+> pointed at `source_site`, where muqawil did not exist, so a second table was the only way
+> to have run identity at all. `R-62`'s merge (`0014`) put `muqawil_org` into `source_site`
+> on 2026-08-29, and a second run table became two concepts for one thing -- `R-72`.
+
 **Ruled 2026-08-24.** Shown that three of the eight row states rest on `newest` — the
 maximum of `generic_record.last_seen_at` — and offered three ways out, he chose the
 second: **«نفذ ب»**, a generic crawl-run table.
@@ -3099,6 +3107,12 @@ from the next session to ask.
 ---
 
 ### R-74 · The design system is Supabase's, always, and a palette may change nothing but colour
+
+> **THE COMMIT THAT SHIPPED THIS SAYS `R-72`.** `#283`'s merged title carries the wrong
+> ruling number -- the branch was opened while `R-72` was the newest ruling and the title
+> was never corrected before merge. The content is `R-73` and `R-74`. Recorded rather than
+> rewritten: history stays as it happened, and a reader searching git for `R-74` who finds
+> nothing needs to be told why.
 **2026-08-28 · design system · GENERAL — «واى تعارض معاها يلغى» · amends
 [R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) §2 and
 discharges [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
@@ -3179,3 +3193,42 @@ The three Sign-in-with-Google values and that button's fixed type size stay outs
 appearance's reach — Google's branding rules, and their own guard. `--sp-*`,
 `--control-height*` and `--touch-target` keep the panel's 48px floor. `R-59` decision 4 still
 governs: components consume semantic roles, never a palette identifier.
+
+### R-75 · One run table for everything, and a row is read against the run that wrote it
+
+**2026-08-29 · data model · `R-54`'s second half, and the decision `R-52` made on a
+measurement that has since expired**
+
+`R-54` said state must be computed against the crawl that wrote a row, not against
+`MAX(last_seen_at)` over the whole dataset. Its root half shipped in `#281`. This is the
+other half, and it needed a field that did not exist. Three questions had no computable
+answer and he ruled on each:
+
+| question | his answer |
+|---|---|
+| a new run table for generic crawls, as `R-52` chose, or `crawl_run` | **«استعمِل crawl_run نفسَه — شوطٌ واحدٌ للكلّ»** — one run table for everything |
+| what state does a row stored before run identity existed get | **`unsighted`** — a standing state meaning "stored before the ledger", not `absent` |
+| the migration and the state column together, or separately | **one request** |
+
+**`R-52` IS NOT WRONG; ITS MEASUREMENT EXPIRED** (`C4` — its text stays). Its own words
+were *"`crawl_run` is the price path alone — its `source_id` points at a price source,
+nothing for a dataset."* That was true on 2026-08-24. `R-62`'s registry merge (`0014`) put
+`muqawil_org` into `source_site`, so `crawl_run.source_id` resolves for a dataset source
+like any other — and a second run table would then be exactly what `R-72` forbids: two
+concepts for one thing, which is what the duplicated migration stream cost all day.
+
+**AND THE OBVIOUS SHORTCUT WAS MEASURED AND REFUSED.** `crawl_run_ref` already sits on
+every snapshot and looks like a run identity. Measured on his warehouse before a line was
+written: 141 distinct values across 55,313 snapshots, granularity **per partition cell**
+for a listing crawl and **per crawl** for a profile crawl, one stored value literally
+`'R'`, and **zero** of them join to `crawl_run` or `crawl_job`. Simulated against it, the
+State column would have read `absent` on 17,030 of 17,304 listing rows and 17,384 of
+17,385 profile rows — worse than the defect. `#282` recorded that; `0016` adds a typed
+`run_id` beside the label rather than overloading it, and the label stays because
+`--run-ref` is how an interrupted crawl resumes.
+
+**THE LATEST RUN IS ASKED THROUGH THE ROWS, NOT OFF THE SOURCE**, and the difference is
+load-bearing rather than stylistic. A listing sweep stores no profile page, so
+`MAX(run_id)` for the source would call every profile row `absent` the moment a listing
+crawl finished — while the site still lists every one of them. `runs.latest_run_for` asks
+for the newest run among the snapshots this dataset's records actually point at.

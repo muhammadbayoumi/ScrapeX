@@ -768,6 +768,7 @@ def witness(fetch: Fetch, partition: PartitionedListing, base_url: str,
 
 def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
                base_url: str, size: CellSize, *, fetch: Fetch, run_ref: str,
+               run_id: int | None = None,
                ) -> Attempt:
     """One attempt at one cell: read every page, then witness it."""
     cell = size.cell
@@ -805,7 +806,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         # PACED BY THE FETCHER AND NOWHERE ELSE — see the module docstring. And
         # `fetcher=None` so the frontier is declared ONCE for the whole
         # partition rather than reset fifty-six times.
-        pace_s=0, fetcher=None, run_ref=run_ref,
+        pace_s=0, fetcher=None, run_ref=run_ref, run_id=run_id,
         # THE LISTING PHASE, DECLARED. This crawl's whole product is a proof about the
         # LISTING — the witness compares id sequences and the count compares distinct
         # against declared — and a detail page takes part in neither. Without saying so,
@@ -845,7 +846,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
 def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
                     partition: PartitionedListing, base_url: str, fetch: Fetch,
                     run_ref: str, dataset_key: str, max_attempts: int,
-                    heavy_attempts: int, dry_attempts: int,
+                    heavy_attempts: int, dry_attempts: int, run_id: int | None = None,
                     retry_page_ceiling: int, resize_cells: bool
                     ) -> tuple[CellOutcome, int]:
     """One cell, read until it is proven, counted out, or dry.
@@ -875,7 +876,7 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
     for number in range(1, allowed + 1):
         attempt = _read_cell(
             conn, partition, base_url, size, fetch=fetch,
-            run_ref=f"{run_ref}-{size.cell.label}-a{number}")
+            run_ref=f"{run_ref}-{size.cell.label}-a{number}", run_id=run_id)
         attempts.append(attempt)
         # WRITTEN PER ATTEMPT, not once at the end — the same reasoning
         # `snapshotcrawl` applies to a page and `sweep_muqawil` to a pass. A
@@ -937,7 +938,8 @@ def _run_and_close(body, index, size, connect) -> None:
 
 def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
                     base_url: str, *, fetch: Fetch, run_ref: str,
-                    dataset_key: str, cells: Sequence[Cell] | None = None,
+                    dataset_key: str, run_id: int | None = None,
+                    cells: Sequence[Cell] | None = None,
                     parent: Cell = WHOLE,
                     max_attempts: int = 2,
                     heavy_attempts: int = HEAVY_ATTEMPTS,
@@ -1041,7 +1043,7 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
 
     per_cell = {
         "partition": partition, "base_url": base_url, "fetch": fetch,
-        "run_ref": run_ref, "dataset_key": dataset_key,
+        "run_ref": run_ref, "dataset_key": dataset_key, "run_id": run_id,
         "max_attempts": max_attempts, "heavy_attempts": heavy_attempts,
         "dry_attempts": dry_attempts, "retry_page_ceiling": retry_page_ceiling,
         "resize_cells": resize_cells}

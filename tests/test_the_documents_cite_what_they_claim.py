@@ -205,8 +205,8 @@ PINNED = (
     # a reader sent one line off reads `store`'s docstring, agrees with it, and
     # concludes the entry is wrong. If someone moves this check into the walk, the
     # entry is answered and this row should go with it.
-    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 164, "if page.url in seen:"),
-    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 164, "if page.url in seen:"),
+    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 169, "if page.url in seen:"),
+    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 169, "if page.url in seen:"),
     # OP-22 / LESSONS §2 · one database, and where it is. That section described
     # the pre-collapse split layout in the present tense until 2026-08-20, so the
     # line naming the single file is worth holding still.
@@ -408,28 +408,35 @@ PINNED = (
     # The lesson the file already states -- "writing a citation that matters means adding
     # a row here" -- is now applied to the whole family rather than to whichever one
     # happened to break last.
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 560,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 561,
      'and recovered["schema_hash"] == schema_hash'),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 666,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 667,
      "last_seen_at=strftime"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 968,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 972,
      "Pagination is what saves the render"),
-    ("docs/LESSONS.md", "scrapex/extract/service.py", 968,
+    ("docs/LESSONS.md", "scrapex/extract/service.py", 972,
      "Pagination is what saves the render"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 993,
-     "WHEN THE MOST RECENT CRAWL SAW ANYTHING"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 996, "newest = conn.execute("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1007,
+    # THESE TWO WERE REPLACED, NOT DELETED, on 2026-08-29. They pinned
+    # `WHEN THE MOST RECENT CRAWL SAW ANYTHING` and `newest = conn.execute(` -- the
+    # `MAX(last_seen_at)` comparison `R-54` was written against. Its second half removed
+    # both from the codebase, so the pins move to what took their place rather than
+    # leaving the new mechanism unpinned; deleting a row to make a red build green is
+    # what `PINNED_FLOOR` exists to refuse.
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 997,
+     "WHICH RUN LAST WROTE INTO THIS DATASET"),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1006,
+     "latest_run = runs.latest_run_for("),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1016,
      "for key, seen, absent in conn.execute("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1096,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1113,
      'presentation.get(row["field_key"])'),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1099,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1116,
      "His ORDER only once he has actually arranged"),
     # NOT REMAPPED, AND THAT IS THE POINT OF READING EACH ONE. Before `#281` this pointed
     # at the closing `\"\"\"` of the docstring; the +53 shift landed it on the `def` that
     # `STATE.md`'s sentence actually names. Applying difflib blindly would have put it
     # back on the quote -- a repair that made the citation worse.
-    ("docs/STATE.md", "scrapex/extract/service.py", 918,
+    ("docs/STATE.md", "scrapex/extract/service.py", 922,
      "def dataset_table_payload"),
 )
 

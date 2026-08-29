@@ -43,8 +43,9 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import taxonomy
+from . import catalog, runs, taxonomy
 from . import validators as validator_store
+from .catalog_models import SiteCreate
 from .connectors.base import HttpFetcher, declare_frontier
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
@@ -75,6 +76,7 @@ from .sightings import (
 from .sites.muqawil import MuqawilPageSource
 from .snapshotbody import decode, label_for
 from .snapshotcrawl import already_stored, read_scope
+from .vocab import RunStatus
 
 # THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
 # a `MuqawilPartition()`, and they are why a second contractor directory would have
@@ -200,6 +202,36 @@ def plan(directory: Directory, fetch, started: float) -> None:
 
 # ---- --crawl: the partition, witnessed --------------------------------------
 
+def _run_for(conn, directory: Directory, kind: str) -> int:
+    """Open a run for this directory, registering the site first if it is not there.
+
+    THE ORDER IS THE POINT, and it was found by the crawl driver's own tests refusing to
+    start. A site reaches `source_site` through `catalog.register_site`, which runs during
+    APPROVAL -- and approval happens after pages are stored. So the first crawl of a new
+    source runs before that source exists, and a run that demanded registration would
+    refuse the one crawl that most needs to be recorded.
+
+    Registering here rather than relaxing `open_run` is deliberate. `register_site` is
+    idempotent by contract, so for muqawil this is a no-op every time; and a crawl that
+    declares the site it is about to read is a truthful thing to do, where a run quietly
+    set to None would leave a completed crawl looking, for ever, like one that never
+    named itself.
+    """
+    try:
+        return runs.open_run(conn, directory.key, kind=kind)
+    except runs.UnknownSource:
+        pass
+    # ONLY WHEN IT IS ABSENT, and the first draft got this wrong. It registered
+    # unconditionally, and `register_site` REFUSES a key that already exists under a
+    # different `base_url` -- so a crawl of a site registered from a slightly different
+    # URL raised `CatalogConflict` and never started. A crawl declares a site it does not
+    # know; it does not re-assert the identity of one somebody already registered.
+    catalog.register_site(conn, SiteCreate(
+        site_key=directory.key, display_name=directory.display_name,
+        base_url=directory.base_url))
+    return runs.open_run(conn, directory.key, kind=kind)
+
+
 def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
           max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS,
           workers: int = 1, connect=None) -> None:
@@ -253,8 +285,15 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
             "answers 304 with no body")
 
     say(f"crawl {run_ref} starting")
+    # `R-54`: A RUN WITH AN IDENTITY, opened before the first fetch so every page this
+    # crawl stores names it. `run_ref` above is the operator's label and is derived per
+    # cell and attempt; this is one id for the whole sweep, and it is what the State
+    # column compares against instead of `MAX(last_seen_at)` — a timestamp to the second
+    # that only the crawl's final second could ever equal.
+    run_id = _run_for(conn, directory, "listing")
+    conn.commit()          # the workers open their own connections and must see it
     outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
-                              run_ref=run_ref,
+                              run_ref=run_ref, run_id=run_id,
                               dataset_key=directory.dataset_key,
                               max_attempts=max_attempts,
                               heavy_attempts=heavy_attempts, cells=chosen,
@@ -272,7 +311,14 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say(f"kept {written:,} validator(s) for the next crawl; this one was "
             f"answered 304 for {saved:,} page(s)")
     say("")
+    # CLOSED AFTER THE DEPARTURES ARE MARKED, not before: the run is not finished
+    # while something is still writing under it, and `finished_at` is what a reader
+    # takes as "this sweep is over".
     mark_departures(conn, directory, outcome, run_ref)
+    runs.close_run(conn, run_id, status=RunStatus.SUCCESS,
+                   rows_seen=len(getattr(outcome, "ids", ()) or ()),
+                   requests=int(getattr(fetcher, "requests_count", 0) or 0))
+    conn.commit()
     say(str(coverage(conn, directory.dataset_key)))
 
 
@@ -582,6 +628,13 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     if ceiling and len(todo) > ceiling:
         todo = todo[:ceiling]
         say(f"  stopping at the {ceiling:,}-page ceiling, so this run is PARTIAL")
+    # `R-54`: ONE RUN FOR THE WHOLE SWEEP, opened before the first fetch and named by
+    # every page it stores. It is opened AFTER the frontier is settled so a run that
+    # turns out to have nothing to do is never opened at all — an empty `running` row
+    # left behind by a no-op crawl is the kind of debris a State column then has to
+    # explain.
+    run_id = _run_for(conn, directory, "profiles")
+    conn.commit()          # the workers open their own connections and must see it
     declare_frontier(fetcher, len(todo))
 
     # ONE PAGE, WHOLE, AND THE SAME CODE WHATEVER THE WORKER COUNT. The single-worker
@@ -599,6 +652,7 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         try:
             service.save_snapshot(writer, SnapshotCreate(
                 source_url=url, html_content=html, crawl_run_ref=run_ref,
+                run_id=run_id,
                 body_class=label_for(url, PageKind.DETAIL)))
             writer.commit()
             return True, ""
@@ -647,6 +701,16 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     for note in notes:
         say(note)
     say("")
+    # CLOSED WITH WHAT ACTUALLY HAPPENED, and `partial` is a real status rather than a
+    # kindness: a ceiling stopped this sweep short, so a later reader must not take it
+    # as "the site was fully read on this run". The State column's whole worth is that
+    # distinction.
+    runs.close_run(
+        conn, run_id,
+        status=RunStatus.PARTIAL if len(todo) < len(frontier) else RunStatus.SUCCESS,
+        rows_seen=stored, errors=failed,
+        requests=int(getattr(fetcher, "requests_count", 0) or 0))
+    conn.commit()
     say(f"profiles stored {stored:,}, failed {failed}, resumed {resumed:,}")
     if len(todo) + resumed < len(frontier):
         say("PARTIAL: the ceiling stopped this run. The same --run-ref continues it.")

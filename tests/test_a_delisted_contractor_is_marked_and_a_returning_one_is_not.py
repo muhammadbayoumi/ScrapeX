@@ -259,7 +259,11 @@ def test_the_mark_is_taken_back_or_returned_is_unreachable(conn):
     marked_and_back = {
         "first_seen_at": "2026-08-01T00:00:00Z",
         "last_seen_at": "2026-08-21T13:00:00Z",
-        "newest": "2026-08-21T13:00:00Z",
+        # WHICH RUN, NOT WHICH SECOND (`R-54`). The row was written by the latest run
+        # and that run began after it first appeared, so `new` does not outrank the
+        # `returned` this test is about.
+        "row_run": 5, "latest_run": 5,
+        "run_started_at": "2026-08-21T13:00:00Z",
         "sighted_at": "2026-08-01T00:00:00Z",
         "last_absent_at": "2026-08-21T11:00:00Z",
     }
@@ -288,7 +292,11 @@ def test_the_boundary_is_the_one_row_state_uses(conn):
     assert mark_unavailable(conn, "contractors").marked == ()
 
     assert row_state(status="active", first_seen_at="2026-08-01T00:00:00Z",
-                     last_seen_at=same, newest=same, sighted_at="2026-08-01T00:00:00Z",
+                     last_seen_at=same, row_run=2, latest_run=2,
+                     # AFTER `first_seen_at`, so `new` does not outrank `returned`:
+                     # the precedence is the subject of the sibling test, not this one.
+                     run_started_at="2026-08-02T00:00:00Z",
+                     sighted_at="2026-08-01T00:00:00Z",
                      last_absent_at=same) == STATE_RETURNED
 
 
