@@ -378,13 +378,23 @@ def _marketlens_warehouse(tmp_path: Path) -> Path:
 def _prepare_the_way_53_shipped(source: Path, target: Path) -> None:
     """`build_successor`'s preparation exactly as the defect shipped it.
 
-    The untyped legacy stream, whatever kind the source is. Used to re-create the
-    bad successor from the OUTSIDE, so the gate below is tested on its own rather
-    than through the builder that is now correct.
+    THE ORIGINAL SPELLING NO LONGER REPRODUCES IT, and that is a result rather than a
+    problem. #53 built the successor through the UNTYPED legacy stream, which left a file
+    with no `application_id` — healthy SQLite that `sqlite3.connect` opens happily and
+    `EngineDatabase.connect` refuses. Retiring `db/migrations/` on 2026-08-29 made
+    `dbmod.migrate` delegate to the typed runner, so that call now produces a CORRECT
+    successor and the gate below had nothing to refuse.
+
+    So the untyping is done explicitly. The gate is what this test is about, and it must
+    keep being exercised: a successor can still arrive unopenable by other routes — a
+    half-written file, a build interrupted before the marker is stamped — and the refusal
+    has to fire before anything is renamed, whichever route it came by.
     """
     conn = dbmod.connect(target)
     try:
         dbmod.migrate(conn)
+        # What the legacy stream left behind by omission, now written on purpose.
+        conn.execute("PRAGMA application_id = 0")
         conn.commit()
     finally:
         conn.close()

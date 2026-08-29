@@ -2,7 +2,7 @@
 
 `REQ-45`, measured live: `POST /api/jobs` validates its key against
 `app.state.manifest` — the twelve price sources of `sources.yaml` — and muqawil lives
-in `site_profile`, so the crawl button answered
+in `source_site`, so the crawl button answered
 `404 {"detail": "unknown source_key 'contractors'"}`. `GET /api/table` and
 `GET /api/fields` both learned to ask the dataset catalogue first; `POST /api/jobs`
 never did.
@@ -80,14 +80,14 @@ class Target:
 
 
 def resolve(source_key: str, *, general: sqlite3.Connection, manifest) -> Target | None:
-    """The key in both registries, or None when neither knows it.
+    """The key in the manifest or the registry, or None when neither knows it.
 
     THE MANIFEST FIRST because it needs no query, and the two sets cannot collide:
     a price key is `^[A-Z][A-Z0-9_]{2,63}$` and a dataset key is lower-case with
     underscores — the same reasoning `/api/table` gives for asking the other way
     round.
 
-    `site_profile` IS ASKED TOO, and not only `dataset_definition`. `scrapex
+    `source_site` IS ASKED TOO, and not only `dataset_definition`. `scrapex
     contractors --source` names a SITE key (`muqawil_org`) while the panel's card
     carries a DATASET key (`contractors`); refusing one of the two would leave the
     same 404 the route exists to end.
@@ -101,10 +101,10 @@ def resolve(source_key: str, *, general: sqlite3.Connection, manifest) -> Target
                       display_name=entry.source_name, entry=entry)
 
     dataset = general.execute(
-        "SELECT d.dataset_key, d.display_name, d.original_name, s.site_key, "
+        "SELECT d.dataset_key, d.display_name, d.original_name, s.source_key, "
         "       s.crawl_scope, s.crawl_slice "
         "  FROM dataset_definition AS d "
-        "  JOIN site_profile AS s ON s.site_profile_id = d.site_profile_id "
+        "  JOIN source_site AS s ON s.source_id = d.source_id "
         " WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
         (source_key,)).fetchone()
     if dataset is not None:
@@ -115,16 +115,16 @@ def resolve(source_key: str, *, general: sqlite3.Connection, manifest) -> Target
             crawl_slice=dataset[5] or "")
 
     site = general.execute(
-        "SELECT site_profile_id, site_key, display_name, crawl_scope, crawl_slice "
-        "  FROM site_profile WHERE site_key = ? AND valid_to IS NULL LIMIT 1",
+        "SELECT source_id, source_key, source_name, crawl_scope, crawl_slice "
+        "  FROM source_site WHERE source_key = ? AND valid_to IS NULL LIMIT 1",
         (source_key,)).fetchone()
     if site is None:
         return None
     owned = tuple(row[0] for row in general.execute(
         "SELECT dataset_key FROM dataset_definition "
-        " WHERE site_profile_id = ? AND valid_to IS NULL ORDER BY dataset_key",
+        " WHERE source_id = ? AND valid_to IS NULL ORDER BY dataset_key",
         (site[0],)))
-    return Target(source_key=source_key, kind="dataset", registry="site_profile",
+    return Target(source_key=source_key, kind="dataset", registry="source_site",
                   display_name=site[2], site_key=site[1], dataset_keys=owned,
                   scope=CrawlScope(site[3]), crawl_slice=site[4] or "")
 
@@ -135,7 +135,7 @@ def unknown_key_detail(source_key: str, *, manifest) -> str:
     the warehouse held 17,304 rows for."""
     return (f"unknown source_key {source_key!r} — not in sources.yaml "
             f"({len(manifest.sources)} price sources), and not a dataset_key in "
-            "dataset_definition or a site_key in site_profile")
+            "dataset_definition or a site_key in source_site")
 
 
 def _directory_for(target: Target) -> Directory | None:
@@ -201,7 +201,7 @@ def _impostors(general: sqlite3.Connection, directory: Directory | None) -> dict
     """
     if directory is None:
         # NOT THE SAME REASON as "no profile reader", and saying so cost a measurement:
-        # site_key `muqawil` has a `site_profile` row and no `Directory`, and the first
+        # site_key `muqawil` has a `source_site` row and no `Directory`, and the first
         # draft told the owner it declares no profile reader — about a site nothing can
         # crawl at all.
         return {"count": None, "dataset_key": None, "dry_run": True,
@@ -290,7 +290,7 @@ def _scope(target: Target) -> dict:
         "values": [one.value for one in CrawlScope],
         "slice": target.crawl_slice,
         "settable_here": False,
-        "note": "site_profile.crawl_scope is settable only in the database today. "
+        "note": "source_site.crawl_scope is settable only in the database today. "
                 "Under listing_only the profile-page pass refuses.",
     }
 

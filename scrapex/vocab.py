@@ -398,7 +398,7 @@ class ConnectorFamily(StrEnum):
     in a vocabulary: a contractor directory, a tender board or a job board cannot be
     named in it. Whether this enum grows those families or each category gets its own
     is open and is his -- see the platform plan. Until then a non-products source
-    lives in `site_profile`, which is the split `REQ-25` exists to close.
+    lives in `source_site`, which is the split `REQ-25` exists to close.
     """
 
     MAGENTO_GRAPHQL = "magento-graphql"

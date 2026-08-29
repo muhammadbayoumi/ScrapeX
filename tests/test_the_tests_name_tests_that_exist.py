@@ -88,6 +88,13 @@ HISTORICAL = {
         "8796fb5", "tests/test_panel_dom.py",
         "added by 8796fb5 (#151), removed by ce80886 (#217) with the Engine "
         "page's overflow menu; settle_view's measurements were taken against it"),
+    "test_the_legacy_marker_is_the_migrations_own_and_not_a_copy": (
+        "8901a2a", "tests/test_a_carry_over_upgrades_rather_than_starting_over.py",
+        "removed 2026-08-29 with `db/migrations/0058_a_unit_that_can_name_who_said_it.sql`, "
+        "the file it read: it compared the carry-over's legacy marker against the "
+        "migration's own text, and the migration went with the stream his ruling retired. "
+        "The six carry-over tests around it are untouched -- the function they guard is "
+        "still shipped"),
     "test_frozen_entry_defaults_to_the_native_host": (
         "ff21042", "tests/test_native.py",
         "renamed to test_an_unknown_argument_is_chrome_rather_than_cli_usage by "

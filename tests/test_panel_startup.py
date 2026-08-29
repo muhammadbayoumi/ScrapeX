@@ -481,7 +481,7 @@ def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
         # the same thing any more and the difference is the point of this table.
         #
         # R-59 decision 3 made `whatsapp` and `github` compatibility aliases for
-        # `brand` and `blue`, and R-71 built the registry that honours them. So a
+        # `brand` and `blue`, and R-73 built the registry that honours them. So a
         # preference SAVED before 2026-08-28 carries the old name, and what has
         # to survive is not the string -- it is the user's actual choice. These
         # first two rows are the only place that is proven end to end, from a

@@ -99,7 +99,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
-| [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
+| [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 
 ---
 
@@ -2496,7 +2496,7 @@ the open question itself, and guessing it is how a default absorbs a ruling.
 ---
 
 ## REQ-48 · A `supabase` appearance that is a whole design system, and the default
-**Captured 2026-08-28 · Ruled the same day ([R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)) · In flight — branch `feat/the-supabase-appearance-is-a-design-system`, one line still his**
+**Captured 2026-08-28 · Ruled the same day ([R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)) · In flight — branch `feat/the-supabase-appearance-is-a-design-system`, one line still his**
 
 > «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
 > system كامل · https://supabase.com/design-system · على tree جديدة»
@@ -2521,8 +2521,8 @@ So *«design system كامل»* is not a bigger palette entry, and the request c
 by adding a third row to `PALETTES`.
 
 > **This paragraph read *"it is a second axis on the appearance engine"*, and that was the
-> wrong conclusion from the right measurement.** `R-71` built the axis; the same day
-> [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+> wrong conclusion from the right measurement.** `R-73` built the axis; the same day
+> [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
 > cancelled it, because an axis puts the design system in **one palette** and measured on the
 > built engine that is exactly what happened — `whatsapp`, `github` and device colours all
 > fell back to the pre-Supabase shape. The design system belongs in the BASELINE, where all
@@ -2574,7 +2574,7 @@ the operating system's `AccentColor` where the browser exposes one.
 > request. `OP-82` is closed, the registry is built, and the guard is now
 > `test_only_the_three_reviewed_application_palettes_are_available` with the justification
 > for the third palette written inside it. **Only the first item is still open**, and only
-> in its second half: `R-71` supersedes `R-59` decision 1, and whether a fresh user
+> in its second half: `R-73` supersedes `R-59` decision 1, and whether a fresh user
 > actually *sees* the default is the question he asked for numbers on.
 
 ### The name
@@ -2593,16 +2593,16 @@ change is therefore a decision, not a transcription.
 
 ### State
 
-**Ruled the same day** as [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+**Ruled the same day** as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
 He answered all four questions:
 
 | question | his answer |
 |---|---|
 | the id | **`supabase`** — the correct spelling, not the `supbase` he first typed |
-| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: the tokens **and** the component rules. Then corrected by [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour): «كاملة بكل جوانبه وفروعه» means the design system is the **baseline**, not a per-palette axis — the axis gave it to `supabase` and left `whatsapp`, `github` and device on the old shape |
+| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: the tokens **and** the component rules. Then corrected by [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour): «كاملة بكل جوانبه وفروعه» means the design system is the **baseline**, not a per-palette axis — the axis gave it to `supabase` and left `whatsapp`, `github` and device on the old shape |
 | what a palette may change | **colour, and nothing else** — «فتعدل على الالوان فقط لا تعدل على design system». `whatsapp` and `github` are colour themes that do not represent the brand |
 | does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول», then **«اقلبها»**. `deviceColors` defaults to `false`, so a fresh install paints `supabase`; 1 stored state of 8 is affected and it is the one that never chose |
-| the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-71` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
+| the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-73` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
 
 A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on `main` at
 `b836de3`.

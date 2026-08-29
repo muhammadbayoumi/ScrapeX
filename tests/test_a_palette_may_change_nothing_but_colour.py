@@ -1,4 +1,4 @@
-"""R-72, enforced: the design system is Supabase's and a palette may change only colour.
+"""R-74, enforced: the design system is Supabase's and a palette may change only colour.
 
 > «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»
 > «whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم فتعدل على الالوان فقط لا تعدل
@@ -12,7 +12,7 @@ finds into a custom property, so a `design` object becomes `--design: [object Ob
 `radius` key becomes a real `--radius` override. Nothing throws, nothing looks broken enough
 to notice in a screenshot, and the palette has quietly taken over the design system.
 
-And the reverse: R-71 shipped the opposite architecture — a per-palette design axis — and it
+And the reverse: R-73 shipped the opposite architecture — a per-palette design axis — and it
 was measured on the built engine as giving the design system to `supabase` and to nobody
 else. `brand`, `blue` and device colours all fell back to the pre-Supabase 9px radius, 14px
 body and Segoe UI. **Three of four colour choices lost it, and device is what a fresh install
@@ -108,12 +108,12 @@ def test_the_parser_finds_the_registry_and_the_properties():
 
 
 def test_no_palette_declares_a_design_block():
-    """R-71's axis, removed by R-72. A `design` key would be dashed straight into
+    """R-73's axis, removed by R-74. A `design` key would be dashed straight into
     a `--design` property whose value is the string "[object Object]"."""
     offenders = [name for name, body in _palette_entries().items()
                  if re.search(r"^\s*design:\s*\{", body, re.M)]
     assert not offenders, (
-        f"{offenders} declare a `design` block. R-72: a palette changes colour "
+        f"{offenders} declare a `design` block. R-74: a palette changes colour "
         "only -- «فتعدل على الالوان فقط لا تعدل على design system». The design "
         "system belongs to design/tokens.css so that all four colour choices sit "
         "on it, including device, which applies no palette at all.")
@@ -140,7 +140,7 @@ def test_no_palette_sets_a_non_colour_token():
             offenders.append(f"{name}.{key} ({reason})")
 
     assert not offenders, (
-        "these palette keys are not colours, and R-72 says a palette may change "
+        "these palette keys are not colours, and R-74 says a palette may change "
         f"nothing but colour: {offenders}")
 
 
@@ -153,7 +153,7 @@ def test_supabase_declares_no_colours_because_it_is_the_baseline():
     """
     body = _palette_entries()["supabase"]
     assert re.search(r"themes:\s*\{light:\s*\{\},\s*dark:\s*\{\}\}", body), (
-        "the supabase entry declares colours. Under R-72 its colours are "
+        "the supabase entry declares colours. Under R-74 its colours are "
         "design/tokens.css's -- it exists to be selectable, to label its tile, "
         "and to name itself in `data-palette`.")
 
@@ -184,15 +184,15 @@ def test_the_baseline_carries_the_design_system_rather_than_a_palette():
     ):
         assert declaration in root, (
             f"design/tokens.css's :root no longer carries `{declaration}` -- {why}. "
-            "Under R-72 this file IS the Supabase design system, and a palette "
+            "Under R-74 this file IS the Supabase design system, and a palette "
             "cannot put it back.")
 
     # The teal R-59 decision 2 called migration debt. It was the :root fallback,
-    # so it was what a fresh user actually saw; R-72 deletes it rather than
+    # so it was what a fresh user actually saw; R-74 deletes it rather than
     # deprecating it a second time.
     assert "#00adb5" not in tokens and "#35c8ce" not in tokens, (
         "the deprecated teal is back in design/tokens.css. R-59 decision 2 called "
-        "it 'legacy colour residue and migration debt' and R-72 discharged it by "
+        "it 'legacy colour residue and migration debt' and R-74 discharged it by "
         "making the baseline Supabase.")
 
 

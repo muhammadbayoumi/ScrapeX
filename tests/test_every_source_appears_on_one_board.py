@@ -47,7 +47,7 @@ def conn(tmp_path: Path):
 def site(conn, key: str, *, lifecycle: str = "active",
          scope: str = "listing_only") -> None:
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope, "
+        "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope, "
         "  lifecycle) VALUES (?,?,?,?,?)",
         (key, key.title(), f"https://{key}.test/", scope, lifecycle))
     conn.commit()
@@ -161,12 +161,12 @@ def test_the_summary_counts_by_category_and_state(conn):
 
 # ---- the split stays visible ------------------------------------------------
 
-def test_a_retired_site_profile_is_not_listed(conn):
+def test_a_retired_source_site_is_not_listed(conn):
     """`valid_to` is how the generic side retires a row, and a retired source is
     not a source this installation has."""
     site(conn, "gone_org")
-    conn.execute("UPDATE site_profile SET valid_to = '2026-01-01T00:00:00Z' "
-                 " WHERE site_key = 'gone_org'")
+    conn.execute("UPDATE source_site SET valid_to = '2026-01-01T00:00:00Z' "
+                 " WHERE source_key = 'gone_org'")
     conn.commit()
 
     assert "gone_org" not in {

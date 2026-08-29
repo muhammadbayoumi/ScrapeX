@@ -18,8 +18,19 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-# db/ lives next to the package; schema.sql is the single DDL truth (Q1).
-DB_DIR = Path(__file__).resolve().parent.parent / "db"
+# ONE MIGRATION STREAM, AND THIS POINTS AT IT.
+#
+# `db/migrations/` and `db/schema.sql` were deleted on 2026-08-29 on his ruling: «انا اريد
+# كود نظيف لا معكرونة اسبجتى تعيق التطوير بسبب المجهود المضاعف فى تطوير اشياء لا نحتاج
+# اليها». They were the pre-`M5` stream and had not moved since **2026-08-04**, four days
+# before `db/engine/` was created — frozen, but still live enough that a schema change had
+# to be written TWICE. It was written twice exactly once, on the day it was deleted.
+#
+# What made the deletion safe rather than brave: `db/engine/schema.sql` was DERIVED from
+# both streams at the collapse, and `tests/test_one_schema_carries_both_streams.py` holds
+# it against a frozen record of all 134 objects they produced. The proof that nothing is
+# lost was already in the repository, written the day the streams were merged.
+DB_DIR = Path(__file__).resolve().parent.parent / "db" / "engine"
 SCHEMA_FILE = DB_DIR / "schema.sql"
 MIGRATIONS_DIR = DB_DIR / "migrations"
 
@@ -189,51 +200,23 @@ def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
 
 
 def migrate(conn: sqlite3.Connection) -> list[int]:
-    """Apply every migration above the current user_version. Returns applied numbers."""
-    applied: list[int] = []
-    current = schema_version(conn)
-    for number, file in _migration_files():
-        if number <= current:
-            continue
-        sql = file.read_text(encoding="utf-8")
-        # The transaction is OWNED here, explicitly — the domain runner's
-        # proven recipe, ported. The old `with conn:` wrapper guaranteed
-        # nothing: in legacy isolation executescript performs no transaction
-        # control, each statement autocommitted, and a mid-script crash in a
-        # multi-statement rebuild (0030's DROP + RENAME) left a half-schema
-        # every later run tripped over. Three traps the recipe defuses:
-        # isolation None (legacy mode implicitly COMMITS before any PRAGMA —
-        # splitting the atomicity this exists to provide); connection-level
-        # FK OFF before the txn (an in-script PRAGMA foreign_keys is a no-op
-        # inside one, and 0020-style parent-table rebuilds need it); and the
-        # fk check INSIDE the txn, where a failure still rolls everything back.
-        previous_isolation = conn.isolation_level
-        conn.isolation_level = None
-        conn.execute("PRAGMA foreign_keys = OFF")
-        try:
-            conn.executescript(f"BEGIN IMMEDIATE;\n{sql}")
-            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
-            if broken:
-                raise sqlite3.IntegrityError(
-                    f"migration {file.name} left {len(broken)} row(s) "
-                    f"pointing at nothing (first: {tuple(broken[0])})")
-            # schema.sql sets its own user_version; later migrations must too.
-            if schema_version(conn) != number:
-                conn.execute(f"PRAGMA user_version = {number}")
-            conn.execute("COMMIT")
-        except Exception:
-            if conn.in_transaction:
-                conn.execute("ROLLBACK")
-            raise
-        finally:
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.isolation_level = previous_isolation
-        applied.append(number)
-    # Stamp the contract version (two-engine guardrail) once the meta table exists.
-    from .contract import stamp_contract
-    with conn:
-        stamp_contract(conn)
-    return applied
+    """Apply every migration above the current user_version. Returns applied numbers.
+
+    IT DELEGATES, AND THE REASON IS NOT TIDINESS. This runner and
+    `EngineDatabase._migrate` were the same recipe with one difference that matters: the
+    engine's writes the `database_migration` ledger and this one never did. A database
+    advanced here would carry `user_version = 14` and an empty ledger, and
+    `_verify_checksums` would then refuse to open it with "migration ledger is
+    incomplete" — a database the product had itself created and could not read.
+
+    So there is one runner as well as one stream. What stays in this module is what is
+    genuinely its own: `connect`, `write_lock` and the stale-lock reclamation that eight
+    modules use and nothing else provides.
+    """
+    from .databases.domain import EngineDatabase
+
+    row = next(r for r in conn.execute("PRAGMA database_list") if r[1] == "main")
+    return EngineDatabase(Path(row[2]))._migrate(conn)
 
 
 def _pid_is_alive(pid: int) -> bool:

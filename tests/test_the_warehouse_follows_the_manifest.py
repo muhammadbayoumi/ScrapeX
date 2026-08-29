@@ -89,7 +89,7 @@ def warehouse(tmp_path, monkeypatch):
                       ("DELETEDFROMMANIFEST", "Gone")):
         conn.execute(
             "INSERT INTO source_site (source_key, source_name, source_name_ar, "
-            "base_url, active) VALUES (?, ?, ?, ?, 1)",
+            "base_url, lifecycle) VALUES (?, ?, ?, ?,'active')",
             (key, name, name, f"https://{key.lower()}.invalid"))
     conn.commit()
     try:
@@ -98,17 +98,23 @@ def warehouse(tmp_path, monkeypatch):
         conn.close()
 
 
-def _stored(conn) -> dict[str, int]:
-    return dict(conn.execute("SELECT source_key, active FROM source_site"))
+def _stored(conn) -> dict[str, str]:
+    """The state column, which `0014` turned from `active` (0/1) into `lifecycle`.
+
+    The vocabulary is the point of the change and so it is spelled out here rather
+    than mapped back to booleans: `paused` is a source somebody switched off and
+    `draft` is one nobody has configured, and `active = 0` could say only one thing.
+    """
+    return dict(conn.execute("SELECT source_key, lifecycle FROM source_site"))
 
 
 def test_a_source_switched_off_in_the_manifest_stops_claiming_to_be_active(warehouse):
     conn, _ = warehouse
-    assert _stored(conn)["SWITCHEDOFF"] == 1, "fixture is wrong: it starts as the bug"
+    assert _stored(conn)["SWITCHEDOFF"] == "active", "fixture is wrong: it starts as the bug"
 
     changed = reconcile_active(conn)
 
-    assert _stored(conn)["SWITCHEDOFF"] == 0, (
+    assert _stored(conn)["SWITCHEDOFF"] == "paused", (
         "the warehouse still says this source is active while sources.yaml has "
         "it switched off — anyone reading the database gets the wrong answer")
     assert changed == {"SWITCHEDOFF": False}, (
@@ -119,7 +125,7 @@ def test_an_active_source_is_left_alone_and_reported_as_unchanged(warehouse):
     conn, _ = warehouse
     reconcile_active(conn)
 
-    assert _stored(conn)["LIVEONE"] == 1
+    assert _stored(conn)["LIVEONE"] == "active"
     assert reconcile_active(conn) == {}, (
         "a second run reports changes it did not make, so a caller cannot tell "
         "a real reconciliation from a no-op")
@@ -132,7 +138,7 @@ def test_a_source_the_manifest_no_longer_names_is_not_quietly_switched_off(wareh
     conn, _ = warehouse
     reconcile_active(conn)
 
-    assert _stored(conn)["DELETEDFROMMANIFEST"] == 1, (
+    assert _stored(conn)["DELETEDFROMMANIFEST"] == "active", (
         "reconciliation switched off a source the manifest does not name, which "
         "buries the orphan instead of surfacing it")
     assert "DELETEDFROMMANIFEST" in undeclared_sources(conn)
@@ -161,12 +167,15 @@ def test_reconciling_against_no_manifest_changes_nothing(tmp_path, monkeypatch):
     monkeypatch.delenv("SCRAPEX_SOURCES", raising=False)
 
     conn = sqlite3.connect(":memory:")
-    conn.execute("CREATE TABLE source_site (source_key TEXT, active INTEGER)")
-    conn.execute("INSERT INTO source_site VALUES ('ANY', 1)")
+    # `lifecycle` SINCE `0014`, and this table is hand-built precisely because the test
+    # is about a MISSING manifest -- it must not depend on the real schema to prove that
+    # nothing is touched when there is nothing to obey.
+    conn.execute("CREATE TABLE source_site (source_key TEXT, lifecycle TEXT)")
+    conn.execute("INSERT INTO source_site VALUES ('ANY', 'active')")
     conn.commit()
     try:
         assert reconcile_active(conn) == {}
-        assert _stored(conn)["ANY"] == 1
+        assert _stored(conn)["ANY"] == "active"
     finally:
         conn.close()
 

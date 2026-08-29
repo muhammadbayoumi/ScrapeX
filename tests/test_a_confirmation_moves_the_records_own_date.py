@@ -247,9 +247,9 @@ def test_confirm_seen_touches_only_the_dataset_it_was_given(conn):
         (dataset_id,))]
     # A second dataset carrying the SAME record_key, built by copying the stored rows.
     other = int(conn.execute(
-        "INSERT INTO dataset_definition (site_profile_id, dataset_key, original_name, "
+        "INSERT INTO dataset_definition (source_id, dataset_key, original_name, "
         "dataset_kind, discovery_method) "
-        "SELECT site_profile_id, 'other_dataset', original_name, dataset_kind, "
+        "SELECT source_id, 'other_dataset', original_name, dataset_kind, "
         "       discovery_method "
         "  FROM dataset_definition WHERE dataset_definition_id = ?",
         (dataset_id,)).lastrowid)

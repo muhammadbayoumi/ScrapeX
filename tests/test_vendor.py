@@ -148,7 +148,7 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
     assert 'mode: "device"' in script
-    # `deviceColors` DEFAULTS TO FALSE since R-71, and the assertion is kept
+    # `deviceColors` DEFAULTS TO FALSE since R-73, and the assertion is kept
     # rather than deleted because it is the only one in the suite that pins this
     # default at all -- measured: nine other references to `deviceColors` in
     # tests/ all SET the value explicitly, so none of them would notice a flip.
@@ -204,7 +204,7 @@ def test_only_the_three_reviewed_application_palettes_are_available():
 
     So the justification, recorded here rather than in a commit message: the
     third palette is `supabase`, requested by the owner on 2026-08-28 and ruled
-    as R-71. Its values are not invented -- every colour is either a published
+    as R-73. Its values are not invented -- every colour is either a published
     HSL literal from Supabase's own packages or derived by evaluating their
     OKLCH expressions, marked value by value in the palette entry, and all 34
     contrast assertions in
@@ -232,13 +232,13 @@ def test_only_the_three_reviewed_application_palettes_are_available():
     assert 'switchTrack: "#35AA65"' in appearance
     assert 'buttonBg: "#43D36D"' in appearance
     assert 'buttonHover: "#1C1E21"' in appearance
-    # SUPABASE'S OWN COLOURS ARE NOT PINNED HERE, and that is R-72 rather than an
+    # SUPABASE'S OWN COLOURS ARE NOT PINNED HERE, and that is R-74 rather than an
     # omission. It is the BASELINE, not one option among three, so its colours
     # live in design/tokens.css and its palette entry declares none -- pinning
     # them here would be asserting a duplicate that no longer exists.
     # tests/test_a_palette_may_change_nothing_but_colour.py owns that half.
     assert '"#3FCF8E"' not in appearance, (
-        "the supabase entry has grown colours again; under R-72 its colours are "
+        "the supabase entry has grown colours again; under R-74 its colours are "
         "design/tokens.css's and the entry exists only to be selectable")
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
@@ -251,7 +251,7 @@ def test_only_the_three_reviewed_application_palettes_are_available():
 
 
 def test_the_design_system_is_the_baseline_and_not_a_palette():
-    """R-72 REPLACED THIS TEST'S SUBJECT, so the test is rewritten rather than
+    """R-74 REPLACED THIS TEST'S SUBJECT, so the test is rewritten rather than
     deleted -- the question it asks is still the right one and only the answer
     moved.
 
@@ -274,13 +274,13 @@ def test_the_design_system_is_the_baseline_and_not_a_palette():
     for removed in ("const DESIGN_PROPERTIES", "function designFor(",
                     "palette.themes[scheme].design", "palette.design"):
         assert removed not in appearance, (
-            f"`{removed}` is back in design/appearance.js. R-72: a palette "
+            f"`{removed}` is back in design/appearance.js. R-74: a palette "
             "changes colour only -- the design system belongs to tokens.css so "
             "that all four colour choices sit on it.")
 
     # And the baseline says so at the top, so a reader who opens tokens.css
     # learns it before they start typing.
-    assert "R-72" in tokens
+    assert "R-74" in tokens
     assert "THIS FILE IS THE SUPABASE DESIGN SYSTEM" in tokens
 
     # apply() still writes the 36 colours, and clearTheme still removes exactly
@@ -855,12 +855,12 @@ def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     assert header == pytest.approx(row * 1.25)
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     assert "--grid-header-weight: var(--fw-heavy)" in css
-    # 700 UNTIL R-72, AND THE CHANGE IS DELIBERATE RATHER THAN A CASUALTY.
+    # 700 UNTIL R-74, AND THE CHANGE IS DELIBERATE RATHER THAN A CASUALTY.
     #
     # This line pinned the top of the weight ramp because the grid header has to
     # read as a header. Supabase has NO BOLD: their --font-weight-normal is 450,
     # `strong` is downgraded to 500, and the ceiling is Manrope 600 on headings --
-    # so under R-72, which makes their system the baseline, --fw-heavy is 600 and
+    # so under R-74, which makes their system the baseline, --fw-heavy is 600 and
     # equal to --fw-bold.
     #
     # What that costs, stated rather than waved past: the header is no longer
@@ -1417,8 +1417,8 @@ def test_every_dataset_freshness_state_can_be_read_in_full(tmp_path):
     dbmod.migrate(conn)
     conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar,"
                  " source_name, base_url, platform, currency, timezone, authority,"
-                 " active) VALUES (1,'MADAR','مدار','Madar',"
-                 "'https://madar.test','custom_json','SAR','UTC','shop',1)")
+                 " lifecycle) VALUES (1,'MADAR','مدار','Madar',"
+                 "'https://madar.test','custom_json','SAR','UTC','shop','active')")
     conn.commit()
 
     page = TestClient(create_app(p)).get("/data").text

@@ -350,13 +350,13 @@ def _warehouse(tmp_path: Path):
 
 def _a_profile_row(conn, contractor_id: str = "775") -> None:
     """The one row `write_groups` requires, in the PROFILE dataset it looks in."""
-    conn.execute("INSERT INTO site_profile (site_key, display_name, base_url) "
+    conn.execute("INSERT INTO source_site (source_key, source_name, base_url) "
                  "VALUES ('muqawil_org','Contractors','https://muqawil.org')")
     conn.execute(
         "INSERT INTO generic_page_snapshot (source_url, html_content, content_hash) "
         "VALUES ('https://muqawil.org/en/contractors/775/143','<html></html>','h')")
     conn.execute(
-        "INSERT INTO dataset_definition (site_profile_id, dataset_key, original_name, "
+        "INSERT INTO dataset_definition (source_id, dataset_key, original_name, "
         " dataset_kind, discovery_method, locator_json) "
         "VALUES (1,'contractor_profiles','contractor_profiles','table','html_table','{}')")
     conn.execute("INSERT INTO dataset_schema_version (dataset_definition_id, "

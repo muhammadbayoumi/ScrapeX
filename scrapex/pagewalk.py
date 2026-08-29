@@ -119,7 +119,7 @@ class PageWalker:
 
             if scope is CrawlScope.LISTING_ONLY or listing_phase_only:
                 # `listing_phase_only` STOPPED A REAL CRAWL FROM BEING BROKEN BY A
-                # CONFIGURATION CHANGE. On 2026-08-21 `site_profile.crawl_scope` was set
+                # CONFIGURATION CHANGE. On 2026-08-21 `source_site.crawl_scope` was set
                 # to `listing_plus_slice` while a partitioned listing crawl was running —
                 # the scope is read per cell, not once per run — so cell five began
                 # asking `belongs_to_slice` about listing rows it had no interest in, and

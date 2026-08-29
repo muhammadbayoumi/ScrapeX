@@ -134,7 +134,7 @@ class RelationshipCreate(BaseModel):
 
 
 class SiteView(BaseModel):
-    site_profile_id: int
+    source_id: int
     site_key: str
     display_name: str
     base_url: AnyHttpUrl
@@ -147,7 +147,7 @@ class SiteView(BaseModel):
 
 class DatasetView(BaseModel):
     dataset_definition_id: int
-    site_profile_id: int
+    source_id: int
     dataset_key: str
     original_name: str
     display_name: str | None
@@ -184,7 +184,7 @@ class RelationshipFieldPairView(BaseModel):
 
 class RelationshipView(BaseModel):
     dataset_relationship_id: int
-    site_profile_id: int
+    source_id: int
     relationship_key: str
     parent_dataset_id: int
     child_dataset_id: int

@@ -7,7 +7,7 @@ site automatically — which is the sentence that document opens with.
 
 WHAT THESE TESTS ARE FOR. Three things that only this join can get wrong:
 
-  * the scope must come from `site_profile` and from nowhere else, or it is
+  * the scope must come from `source_site` and from nowhere else, or it is
     enforced in two places and therefore in neither;
   * every page must reach `generic_page_snapshot` UNPARSED, because a parse
     re-run against stored evidence re-fetches nothing and that is the whole
@@ -79,7 +79,7 @@ def conn(tmp_path: Path):
 
 def register(conn, scope: str = "listing_only", slice_of: str | None = None):
     conn.execute(
-        "INSERT INTO site_profile (site_key, display_name, base_url, "
+        "INSERT INTO source_site (source_key, source_name, base_url, "
         "crawl_scope, crawl_slice) VALUES (?,?,?,?,?)",
         ("site.test", "A site", BASE, scope, slice_of))
     conn.commit()

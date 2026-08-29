@@ -168,7 +168,7 @@ class SliceNotSupported(NotImplementedError):
 class PageSource(Protocol):
     """One site's knowledge of its own layout."""
 
-    #: Matches `site_profile.site_key`, which is how a crawl finds its scope.
+    #: Matches `source_site.site_key`, which is how a crawl finds its scope.
     site_key: str
 
     def listing_urls(self, base_url: str) -> Iterable[str]:

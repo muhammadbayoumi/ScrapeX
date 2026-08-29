@@ -458,7 +458,7 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     blue_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
     assert blue_light != brand_light
 
-    # The third tile, and the one that proves the axis R-71 added actually
+    # The third tile, and the one that proves the axis R-73 added actually
     # reaches the page: a palette that changed only colour would leave the
     # radius alone. `--radius` is 9px for the other two and 6px here.
     view.locator('[data-appearance-palette="supabase"]').click()
@@ -504,7 +504,7 @@ def _registered_palette_ids() -> list[str]:
     THIS LIST WAS `["whatsapp", "github"]` AND THAT WAS THE HOLE. A palette
     added to `design/appearance.js` was simply not contrast-tested -- the guard
     kept passing on the two it already knew, and nothing anywhere said the new
-    one had never been measured. Under R-71 the default itself would have been
+    one had never been measured. Under R-73 the default itself would have been
     the untested one.
 
     Deriving the list means adding a palette AUTOMATICALLY adds 17 assertions in
@@ -582,7 +582,7 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
 
 
 def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
-    """And, since R-71, that the LEGACY ID still reaches it.
+    """And, since R-73, that the LEGACY ID still reaches it.
 
     The palette is keyed `brand` in the registry now; `whatsapp` is the
     compatibility alias R-59 decision 3 declared. This test asks for it by the
@@ -1603,9 +1603,9 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert source_trigger_label_style["centerDelta"] <= 1
-    # 400 UNTIL R-72. The assertion's SUBJECT is "this label is not emphasised",
+    # 400 UNTIL R-74. The assertion's SUBJECT is "this label is not emphasised",
     # and it expressed that as "not heavier than normal" -- true while normal was
-    # 400. Supabase's --font-weight-normal is 450, so under R-72 the baseline's
+    # 400. Supabase's --font-weight-normal is 450, so under R-74 the baseline's
     # regular weight IS 450 and the label is still exactly as unemphasised as it
     # was. Raising the threshold keeps the meaning; leaving it at 400 would
     # assert that the design system's own body weight counts as emphasis.
@@ -1684,9 +1684,9 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert target_trigger_label_style["centerDelta"] <= 1
-    # 400 UNTIL R-72. The assertion's SUBJECT is "this label is not emphasised",
+    # 400 UNTIL R-74. The assertion's SUBJECT is "this label is not emphasised",
     # and it expressed that as "not heavier than normal" -- true while normal was
-    # 400. Supabase's --font-weight-normal is 450, so under R-72 the baseline's
+    # 400. Supabase's --font-weight-normal is 450, so under R-74 the baseline's
     # regular weight IS 450 and the label is still exactly as unemphasised as it
     # was. Raising the threshold keeps the meaning; leaving it at 400 would
     # assert that the design system's own body weight counts as emphasis.
@@ -4851,7 +4851,7 @@ def test_the_engine_card_uses_outlined_cards(open_panel):
           boxShadow: getComputedStyle(el).boxShadow,
         })""")
         assert style["borderTopWidth"] == "1px", style
-        # 16px UNTIL R-72, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+        # 16px UNTIL R-74, and no ruling pinned it -- it was `--radius-xl` at 1rem in
         # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
         # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
         # already at the generous end of what their system would use for a grouped
@@ -5079,7 +5079,7 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
       textAlign: getComputedStyle(el).textAlign,
       overflow: getComputedStyle(el).overflow,
     })""")
-    # 16px UNTIL R-72, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+    # 16px UNTIL R-74, and no ruling pinned it -- it was `--radius-xl` at 1rem in
     # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
     # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
     # already at the generous end of what their system would use for a grouped

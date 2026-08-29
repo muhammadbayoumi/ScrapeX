@@ -7,7 +7,7 @@ ONE-LINE CHANGE.
 `scrapex/webui/app.py` holds the palettes the engine will persist. The two
 surfaces cannot import from each other at runtime -- that is the whole reason the
 design assets are copied rather than shared -- so the lists are written twice, and
-before R-71 nothing anywhere asserted they matched.
+before R-73 nothing anywhere asserted they matched.
 
 What happened when they diverged, traced end to end on this code:
 
@@ -140,7 +140,7 @@ def test_every_alias_points_at_a_palette_that_exists():
 
 
 def test_the_server_accepts_the_engines_own_default():
-    """The one that would have fired on the R-71 rename in the wrong order.
+    """The one that would have fired on the R-73 rename in the wrong order.
 
     If DEFAULTS.palette moves to a name the server does not accept, then EVERY
     fresh install that turns device colours off starts the silent write loop --

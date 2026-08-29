@@ -614,7 +614,7 @@ dataset payload has to carry them, which today it cannot. That last part is the 
 work and it is not yet designed — and it would have been needed for JSON too.
 
 **What is already true and helps.** `dataset_relationship` and
-`relationship_field_pair` exist (`db/migrations/0013_generic_dataset_catalog.sql`),
+`relationship_field_pair` exist (`0013_generic_dataset_catalog.sql`, in the stream retired on 2026-08-29 — `git show 8901a2a:db⁠/migrations/0013_generic_dataset_catalog.sql`),
 with a propose/list API and tests. They hold **0 rows**. So the machinery for the
 relations half exists and has never had a tenant.
 
@@ -2570,11 +2570,11 @@ finishes when the problems the audit found are solved. Then Drive.
 ### R-59 · The palette registry: `brand` is default, `alternatives` is extensible, teal is debt
 
 **2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked ·
-decision 1 ~~active~~ SUPERSEDED 2026-08-28 by [R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**
+decision 1 ~~active~~ SUPERSEDED 2026-08-28 by [R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**
 
 **Decision 1 only.** `brand` is no longer the default palette — `supabase` is. Decisions
 2–6 are untouched and still govern: teal is still debt, the aliases still stand, components
-still consume roles, and `R-71` builds the extensible `alternatives` collection that
+still consume roles, and `R-73` builds the extensible `alternatives` collection that
 decision 1 asked for rather than abandoning it. Per **C4** the original text below stays
 exactly as it was recorded.
 
@@ -2597,7 +2597,7 @@ zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. T
 **Decisions 1 and 3 were half-built for nineteen days:** `scrapex/webui/app.py` refused any
 palette outside `{"whatsapp", "github"}` — the aliases were enforced and the registry they
 alias did not exist. Registered as `OP-82`, **and built on 2026-08-28 by
-[R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**,
+[R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**,
 which closed `OP-82`. The keys are `brand`, `blue` and `supabase`; the two legacy names are
 resolved in `normalize()` and canonicalised server-side, and a test compares the two
 surfaces' registries because a divergence between them is silent.
@@ -2933,9 +2933,79 @@ verified on a second read-only connection: `v4` approved with 27 fields and 17,3
 rows, **zero active rows on a retired version**, `OP-64`'s 14 impostors still on `v3` and still
 `status='retired'`, 74,574 revisions unchanged, `foreign_key_check` clean.
 
+### R-71 · The merged registry's shape — and the crawl button is not what the merge unblocks
+
+**2026-08-29 · data model · three decisions taken while executing
+[R-62](#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration),
+plus the `C5` correction that measuring it produced**
+
+`R-62` said merge; it did not say what the merged row looks like. Three questions had no
+computable answer:
+
+| question | his answer |
+|---|---|
+| `source_name_ar` is `NOT NULL` and neither muqawil row has an Arabic name anywhere | **«الهيئة السعودية للمقاولين»** |
+| two ideas of state — `active` (0/1) and `lifecycle` (draft/active/paused) | **`lifecycle` alone.** `active = 0` cannot tell "never configured" from "you switched it off", and both muqawil rows were `draft` |
+| the migration alone does not open the crawl button — what ships together? | **the migration and the rename now; the button in its own pull request** |
+
+**AND `R-62` IS WRONG ABOUT TWO THINGS. The ruling stands; its measurements do not** (`C4` —
+the old text stays):
+
+1. **It priced the repointing at two tables. It is four.** `classification_scheme` was
+   missed, and `organization_enrichment_definition` did not exist when the ruling was
+   written. Eight rows, all pointing at `site_profile_id = 2`.
+2. **"It is what unblocks `REQ-45`" is measured false.** `POST /api/jobs` validates against
+   `load_manifest(sources.yaml)` — a FILE. And opening the route would be worse than leaving
+   it shut: the worker is manifest-driven end to end, and `crawl_job.job_kind` is stored but
+   **never read in `scrapex/jobs.py`**. A muqawil key would be accepted, queued, and fail
+   inside the run. **A clear `404` replaced by a delayed failure is a regression**, so the
+   button is `REQ-45`'s own work — `OP-92`.
+
+### R-72 · Nothing is kept because deleting it is work
+
+**2026-08-29 · process · his ruling, given while `0062` was being written**
+
+> «انا اريد كود نظيف لا معكرونة اسبجتى تعيق التطوير بسبب المجهود المضاعف فى تطوير اشياء لا
+> نحتاج اليها» — and the question that opened it: *why keep files this long if the decision
+> already points at deleting them?*
+
+**He was right about the specific thing in front of him.** `db/migrations/` had not moved
+since **2026-08-04**, four days before `db/engine/` was created. Frozen, but alive enough
+that the registry merge had to be written TWICE — `0014` for the engine and `0062` for it.
+`0062` was an hour old when he ruled, and it was deleted with the stream it was written for.
+
+**What went, and what the deletion cost:**
+
+| | |
+|---|---|
+| `db/migrations/` | 61 files |
+| `db/schema.sql` | 480 lines |
+| a duplicate migration runner in `scrapex/db.py` | 47 lines |
+| tests guarding deleted migrations | 5 tests, 134 lines |
+| **test fixtures moved** | **none** — `db.migrate` DELEGATES to the engine runner rather than owning a stream |
+
+**Why delegating rather than repointing.** The two runners were the same recipe with one
+difference: the engine's writes the `database_migration` ledger and this one never did. A
+database advanced by the old runner would carry `user_version = 15` and an empty ledger, and
+`_verify_checksums` would refuse to open it — a database the product created and could not
+read.
+
+**What made the deletion safe was already in the repository.** `db/engine/schema.sql` was
+DERIVED from both streams at the collapse, and `test_one_schema_carries_both_streams.py`
+holds it against a frozen record of all 134 objects they produced. The proof that nothing
+structural is lost was written the day the streams merged.
+
+**Measured before deleting, because two real databases still use the old shape:**
+`~/.scrapex/marketlens/marketlens.db` at `user_version 59` and `general.db` at 3. They can
+no longer be UPGRADED — and they can still be read and imported: `carry_over.py` contains
+zero references to the stream. His price data has been in the engine since the collapse
+(94,664 observations, 9,270 products).
+
+**AND THE DELETION FOUND THREE DEFECTS THAT THE DUPLICATION HAD BEEN HIDING**, all in
+`LESSONS` §23. Every one was invisible because the tests were building the wrong database.
 ---
 
-### R-71 · An appearance is a whole design system, and `supabase` is the default one
+### R-73 · An appearance is a whole design system, and `supabase` is the default one
 **2026-08-28 · design system · supersedes [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt) decision 1 only**
 
 > «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
@@ -2969,7 +3039,7 @@ typography, elevation, spacing and motion; **and** the component anatomy in
 throughout — components consume semantic roles, never a palette identifier.
 
 > **~~The axis~~ SUPERSEDED THE SAME DAY by
-> [R-72](#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).**
+> [R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).**
 > A per-palette axis puts the design system in **one palette**, and measured on the engine
 > this section produced, that is what it did: `supabase` got all nine design properties and
 > `whatsapp`, `github` and device colours got none, falling back to the pre-Supabase 9px
@@ -3017,7 +3087,7 @@ So the code stops contradicting the register. `R-59` decision 3 made `whatsapp` 
 legacy aliases for `brand` and `blue`, and decision 1 made `alternatives` extensible; neither
 was ever built, which is [OP-82](BACKLOG.md) — `scrapex/webui/app.py` refuses any palette
 outside `{"whatsapp", "github"}`, enforcing a compatibility layer over a registry that does
-not exist. **R-71 builds that registry and closes `OP-82`**, so adding an appearance after
+not exist. **R-73 builds that registry and closes `OP-82`**, so adding an appearance after
 this one costs nothing.
 
 **One thing is deliberately NOT erased.** «امسح» is read as *clear the conflict*, not *delete
@@ -3028,9 +3098,9 @@ from the next session to ask.
 
 ---
 
-### R-72 · The design system is Supabase's, always, and a palette may change nothing but colour
+### R-74 · The design system is Supabase's, always, and a palette may change nothing but colour
 **2026-08-28 · design system · GENERAL — «واى تعارض معاها يلغى» · amends
-[R-71](#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) §2 and
+[R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) §2 and
 discharges [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
 decision 2**
 
@@ -3062,7 +3132,7 @@ this repository shipped hours earlier.
 
 #### What was wrong, measured before this was written
 
-`R-71` built the opposite architecture: a **per-palette** design axis, where an appearance
+`R-73` built the opposite architecture: a **per-palette** design axis, where an appearance
 *could* carry shape and typography. Because only `supabase` declared a `design` block, the
 other three fell back to `design/tokens.css` — which still held the pre-Supabase shape and
 type. Run against the built engine on 2026-08-28:
@@ -3086,7 +3156,7 @@ the one a fresh install would have used had the flip not landed. That is precise
   palette at all — therefore sits on it.
 - **`DESIGN_PROPERTIES` and `designFor()` are removed.** A mechanism whose entire purpose was
   *"a palette may carry a design system"* conflicts with part 3, and *«واى تعارض معاها يلغى»*
-  cancels it. `R-71` §2's axis is amended, not the request behind it: *«لن يكون الوان فقط»*
+  cancels it. `R-73` §2's axis is amended, not the request behind it: *«لن يكون الوان فقط»*
   is satisfied **better** by putting the design system in the baseline than by letting each
   palette carry its own.
 - **A guard replaces it, inverted.** Instead of a list of non-colour properties a palette

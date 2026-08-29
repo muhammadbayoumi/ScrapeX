@@ -109,7 +109,7 @@ number in it had moved. That `docs/plans/` sits outside the citation guard's `DO
 
 **Found 2026-08-26. Two halves, and the second is what lets the first survive.**
 
-**The collapse.** [scrapex/extract/service.py:915](../scrapex/extract/service.py#L915)
+**The collapse.** [scrapex/extract/service.py:968](../scrapex/extract/service.py#L968)
 resolves the identity field as `identity[0] if len(identity) == 1 else None`. With **two**
 `key_part` fields, or **zero**, that is `None` — so every row's external id is `None`, every
 `dataset_sighting` lookup misses, and `row_state` runs with `sighted_at=None,
@@ -136,7 +136,7 @@ of the three available answers: explicit refusal, a composite key, or silent omi
 
 ### OP-71 · The `MAX(observed_at)` subquery cannot be served by its index, twelve lines under a comment condemning that exact pattern
 
-**Found 2026-08-26.** [scrapex/extract/service.py:940](../scrapex/extract/service.py#L940)
+**Found 2026-08-26.** [scrapex/extract/service.py:993](../scrapex/extract/service.py#L993)
 runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
 v.generic_record_id = r.generic_record_id)` — once per row.
 
@@ -147,7 +147,7 @@ SQLite can seek a record's revisions from the index and must then read the table
 one to get the timestamp. No covering index, no index-only `MAX`.
 
 **And the trap is named on the same screen.**
-[service.py:954](../scrapex/extract/service.py#L954), twelve lines below, explains that the
+[service.py:1007](../scrapex/extract/service.py#L1007), twelve lines below, explains that the
 sighting side is read in ONE query because joining per row *"would be the
 correlated-subquery defect `OP-27` measured at 49s all over again."* The rule is known,
 written down, and applied to the neighbouring table.
@@ -247,7 +247,7 @@ to `POST` later, alongside `OP-73`.**
 **Found 2026-08-26.** `grep display_name scrapex/reports.py` returns **zero hits**: the
 products payload labels from a module constant only —
 [reports.py:2191](../scrapex/reports.py#L2191), `labels = dict(BROWSE_COLUMNS)`. The dataset
-payload does the opposite at [service.py:1043](../scrapex/extract/service.py#L1043),
+payload does the opposite at [service.py:1096](../scrapex/extract/service.py#L1096),
 preferring his stored `display_name`.
 
 **So renaming a column reaches a contractor table's heading and never a products table's.**
@@ -274,7 +274,7 @@ shapes. Recorded so that a later reader does not "fix" it.
 ### OP-78 · `tree` is produced by both producers, asserted by a test, and read by no consumer anywhere
 
 **Found 2026-08-26.** [reports.py:2255](../scrapex/reports.py#L2255) computes it with
-`_tree_shape`; [service.py:1046](../scrapex/extract/service.py#L1046) hard-codes `{}`. No
+`_tree_shape`; [service.py:1099](../scrapex/extract/service.py#L1099) hard-codes `{}`. No
 consumer reads `payload.tree` — `grid.js`'s `features.tree` is a name collision — and the
 13-key list asserts it regardless.
 
@@ -810,7 +810,7 @@ columns at all**:
 
 **And the fix needs no decision about evidence, which is why this is a defect and not
 a question.** 0058 already faced the same rows in the in-place upgrade path and answered
-it — [db/migrations/0058_a_unit_that_can_name_who_said_it.sql:89-90](../db/migrations/0058_a_unit_that_can_name_who_said_it.sql)
+it — lines 89-90 of `0058_a_unit_that_can_name_who_said_it.sql`, in the `db/migrations/` stream retired on 2026-08-29 (`git show 8901a2a:db⁠/migrations/0058_a_unit_that_can_name_who_said_it.sql`)
 sets `unit_basis_provenance = 'legacy_unwitnessed'` with a witness that says in words
 that nobody can say where the value came from. So the honest value exists, is named,
 and counts as unresolved under the resolution metric. `carry_over` simply never applies
@@ -2318,7 +2318,7 @@ entirely** — `contractors` was not touched by that work, and the skew is older
 
 **`scrapex/sightings.py:398` decides a row is gone by comparing its `last_seen_at` against
 `newest`, and `newest` is `MAX(last_seen_at)` to the SECOND** — a timestamp, not a run
-identifier ([scrapex/extract/service.py:943](../scrapex/extract/service.py#L943)):
+identifier ([scrapex/extract/service.py:996](../scrapex/extract/service.py#L996)):
 
 ```python
 if last_seen_at is None or last_seen_at < newest:
@@ -2353,10 +2353,10 @@ column written row by row cannot.
 
 **Two statements nearby are also false, and both predate `#267`:**
 
-* [scrapex/extract/service.py:613](../scrapex/extract/service.py#L613) says *"`last_seen_at`
+* [scrapex/extract/service.py:666](../scrapex/extract/service.py#L666) says *"`last_seen_at`
   still moved: the upsert above sets it unconditionally, so a confirmation is recorded on
   the RECORD."* The `DEC-10` early `return` at
-  [scrapex/extract/service.py:515](../scrapex/extract/service.py#L515) fires **before** that
+  [scrapex/extract/service.py:560](../scrapex/extract/service.py#L560) fires **before** that
   upsert. Measured: **0** profile rows have a `last_seen_at` on 2026-08-24 with an earlier
   `first_seen_at`; all 17,264 pre-`R-51` rows still read 2026-08-23, after a full
   re-approval that touched every one of them.
@@ -3033,6 +3033,71 @@ system honest.** He ruled it is read and reported before anything of it merges.
 
 ---
 
+### OP-93 · The catalogue payload still says `site_key` while the column is `source_key`
+
+**Left deliberately on 2026-08-29 and recorded so it is not mistaken for an oversight.**
+`0014` renamed `site_profile.site_key` / `display_name` to `source_site.source_key` /
+`source_name`. The columns moved; the JSON did not.
+
+`catalog._site_public` reads the new columns and publishes the old KEYS, and
+`extract/service.py` aliases `s.source_key AS site_key` for the same reason: **the extension
+posts `site_key` and reads `r.site_key` back** (`extension/app.js`), and the extension is the
+interface (`R-48`). Renaming the payload here alone would break the panel's Add-to-General
+flow.
+
+**So aligning them is one change touching both sides**, and it belongs with whatever else
+takes the panel's catalogue view — not smuggled into a migration.
+
+### OP-92 · `crawl_job.job_kind` is written and never read
+
+**Measured 2026-08-29 while pricing `REQ-45`.** `crawl_job` carries a `job_kind` column —
+his live warehouse holds `organization_enrichment` in it — and **`scrapex/jobs.py` contains
+zero occurrences of the name**. The worker dispatches on nothing: it takes `source_keys` and
+runs each through `capture_source` with the manifest.
+
+**Why it matters now.** The crawl button (`REQ-45`) needs a second kind of job — a site crawl
+doing what `scrapex contractors` does — and the column that would carry that distinction
+already exists, already has a value in it, and is inert. The next session either wires it up
+or adds a second mechanism beside it, and the second is how a codebase ends up with two.
+
+**A key the manifest does not know does not crash**, which is why this is quiet: `_host_lanes`
+gives it "a lane of its own — the failure belongs in that source's own error". So the failure
+arrives as one source's error inside a job that was accepted, rather than as a refusal at the
+door.
+
+### OP-91 · The citation guard watches 9 documents of 82, and pins the code rather than the citation
+
+**Found 2026-08-29 by shipping the defect it exists to prevent.** `#281` inserted
+`_confirm_seen` at `scrapex/extract/service.py:303` — **53 lines above nine citations** — and
+every tier stayed green through two pull requests:
+
+| tier | why it passed |
+|---|---|
+| the file exists | it does |
+| the line exists | the file is 1,339 lines long |
+| the line is not blank | a 53-line shift in a file this dense lands on CODE, not on a gap |
+| `PINNED` | none of the nine was in it |
+
+So `BACKLOG.md` sent a reader to `return dataset_id, fields` for a sentence about pagination,
+and `LESSONS.md` did the same. Repaired, and all ten now sit in `PINNED` — a mutation that
+inserts thirteen lines above them turns the suite red and names each subject.
+
+**Two holes remain, and they are why this is open rather than closed:**
+
+1. **`DOCUMENTS` is a nine-item tuple** — `CLAUDE.md`, `ENGINEERING.md` and seven under
+   `docs/`. The repository holds **82** `.md` files. Everything in `docs/plans/`,
+   `MUQAWIL-AUDIT-2026-08-26.md`, `ENGINE-ROLE-MEASURED.md`, `STORAGE.md` and the rest is
+   unchecked, and one of them cites a line of `service.py` that **is** blank today.
+2. **`PINNED` pins the CODE, not the citation.** Measured: changing a document's number
+   from `:996` back to the stale `:943` leaves the suite green, because the row asserts what
+   `service.py:996` says — not that any document cites 996. It catches the code moving
+   under a pin, which is the common case and the one that bit here, but it does not catch a
+   document written with a wrong number in the first place.
+
+**The two are one fix or two.** Widening `DOCUMENTS` needs a way to exclude the documents
+that declare a base commit on purpose — `MUQAWIL-AUDIT` says *"measured against `5722b6f`,
+NOT `main`"* in its second line, so the marker already exists in prose and could be read.
+
 ### OP-90 · A re-approval silently un-retires the rows `OP-64` disowned
 
 **Found 2026-08-27 while building `R-54`'s root half**, and deliberately NOT fixed there —
@@ -3230,7 +3295,7 @@ nothing breaks while it waits.
 ### OP-82 · ~~The palette registry is two hard-coded aliases, not a registry~~ — CLOSED 2026-08-28
 
 **Found 2026-08-27 by sweeping the documents, not by a failure. Closed by
-[R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
+[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
 
 The route rejected anything outside the two legacy names. Under
 [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
@@ -3264,10 +3329,10 @@ future rename happens in the wrong order.
 
 ---
 
-### OP-91 · ~~`--control-bg` was a literal, so no palette ever reached a dark control~~ — CLOSED 2026-08-28
+### OP-94 · ~~`--control-bg` was a literal, so no palette ever reached a dark control~~ — CLOSED 2026-08-28
 
 **Found 2026-08-28 by inventorying which tokens a palette can actually reach, while
-building [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
+building [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
 
 `--control-bg` is `var(--surface)` in the light `:root` and was re-declared as the literal
 `#171b21` in **both** dark blocks — `[data-theme="dark"]` and the
@@ -3283,7 +3348,7 @@ default is byte-identical and the token follows the palette from now on.
 
 ---
 
-### OP-92 · ~~`--shadow-lg` could not be re-toned by any palette~~ — CLOSED 2026-08-28
+### OP-95 · ~~`--shadow-lg` could not be re-toned by any palette~~ — CLOSED 2026-08-28
 
 **Found the same way, the same day.**
 
@@ -3293,18 +3358,18 @@ three places it is declared — so a palette could re-tone two of the three shad
 **10 consumers** (5 in `extension/app.css`, 2 in `pages/data-workspace.css`, 2 in
 `webui.css`, 1 in `design/components.css`) kept the default tone under every appearance.
 
-**Fixed, and the fix got simpler when [R-72](RULINGS.md#r-72--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
-landed.** `R-71` first made `--shadow-lg` reachable by a palette, so a palette could set the
-whole shadow — offsets, blur and colour — in one value. `R-72` cancelled that axis: elevation
+**Fixed, and the fix got simpler when [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+landed.** `R-73` first made `--shadow-lg` reachable by a palette, so a palette could set the
+whole shadow — offsets, blur and colour — in one value. `R-74` cancelled that axis: elevation
 belongs to the design system, not to a palette. So all three shadow tokens now derive their
 colour from `var(--shadow-color)` **in the baseline**, and the literal is gone rather than
-kept. Nothing was lost by it — the reason the literal had to stay under `R-71` was that
-deriving it would have flattened the two existing palettes, and under `R-72` those palettes
+kept. Nothing was lost by it — the reason the literal had to stay under `R-73` was that
+deriving it would have flattened the two existing palettes, and under `R-74` those palettes
 do not carry elevation at all.
 
 ---
 
-### OP-93 · ~~Six references to two tokens that are defined nowhere~~ — CLOSED 2026-08-28
+### OP-96 · ~~Six references to two tokens that are defined nowhere~~ — CLOSED 2026-08-28
 
 **Found the same way, the same day. These resolved to nothing and always had.**
 
@@ -3318,15 +3383,15 @@ An undefined custom property makes the whole declaration invalid at computed-val
 those five elements were falling back to the inherited font and that button was drawing no
 shadow at all — for as long as the references have existed.
 
-**Why it belongs to `R-71` rather than waiting:** a design system whose typography token
+**Why it belongs to `R-73` rather than waiting:** a design system whose typography token
 does not reach five of its consumers is not a design system. Repointed at the real tokens;
 zero remain.
 
 ---
 
-### OP-94 · 138 hard-coded values still bypass the design tokens, and the scale would have to grow
+### OP-97 · 138 hard-coded values still bypass the design tokens, and the scale would have to grow
 
-**Measured 2026-08-28 while building `R-71`, after fixing the free half.**
+**Measured 2026-08-28 while building `R-73`, after fixing the free half.**
 
 A design system a rule does not consume is decoration: `--radius` moving from 9px to 6px
 changes nothing at a rule that spells `border-radius: 9px` by hand. Every such site was
@@ -3334,7 +3399,7 @@ counted across the 9 non-generated stylesheets and split by what it would take t
 
 | bucket | count | verdict |
 |---|---|---|
-| **A** — duplicates a token exactly | **48** | **fixed** in `R-71`. Same pixels at the default, so zero visual change, and 48 rules now follow the appearance |
+| **A** — duplicates a token exactly | **48** | **fixed** in `R-73`. Same pixels at the default, so zero visual change, and 48 rules now follow the appearance |
 | **B** — within 1px of a token | **75** | **left.** 57 font-size, 18 border-radius. Pointing them at the near token moves the default look, which no ruling asked for |
 | **C** — no token equivalent | **63** | **left.** 26 of them are `border-radius: 0`, which is a real "no radius" and not a bypass. The rest need the scale to grow: `font-weight` 750 (×5) and 650 (×2), font sizes from `.56rem` to `.62rem` below `--fs-2xs`, four marketing `clamp()` sizes, and radii at 2px/2.5px/14px |
 
@@ -3351,7 +3416,7 @@ re-measure it.
 
 ---
 
-### OP-95 · A killed engine leaves its job saying `running` — on Windows, and CI cannot see it
+### OP-98 · A killed engine leaves its job saying `running` — on Windows, and CI cannot see it
 
 **Found 2026-08-28 by running the full suite on the owner's machine. NOT this branch's
 defect — proven.**
@@ -4087,7 +4152,7 @@ with HTTP 429.
 
 | ID | Debt | Why it was acceptable |
 |---|---|---|
-| **DEBT-1** | **Migration `0047`'s coverage guard runs *after* the MADAR upgrade that fills its NULLs**, so it checks a narrower condition than its comment claims. | `0047`'s sha256 is verified on every connection and there is no re-stamp path; replaying it over the real pre-0047 warehouse gives an identical result with or without the fix. Recorded as a **strict xfail** at `tests/test_db.py:194` — this is the "1 xfailed" in every suite line, and it should stay visible. (`c7fa4ea`) |
+| **DEBT-1** | ~~**Migration `0047`'s coverage guard runs *after* the MADAR upgrade that fills its NULLs**, so it checks a narrower condition than its comment claims.~~ *(DISCHARGED BY DELETION 2026-08-29 — `0047` went with the `db/migrations/` stream when it was retired, and with it the four tests that replayed the stream to v46 to reach it. The debt was never repairable in place: an applied migration's sha256 is verified on every connection and no re-stamp path exists, which is what the original entry said.)* | — |
 | **DEBT-2** | **ETag / Last-Modified persistence across runs.** In-memory validators exist in `HttpFetcher`; they are not persisted. | Naive 304-skipping breaks price *confirmations* (`last_confirmed_at`) and the volume canary. It needs a content-cache design, not a flag. Owner approved the deferral 2026-07-22. |
 | **DEBT-3** | **`_derive_seen` rebuilds the whole derived timeline of every offer a run touched, unconditionally** (`scrapex/ingest.py:1349-1363` — cited as `:1029-1043` until 2026-08-12). | Gating it on success *was* the incident: one contained error left every offer with an appended observation but no `offer_state` and no `price_period`, and the same-day dedupe then blocked the re-append that would have repaired it. The cost is accepted; ت3's claim that it is ~396,000 operations was never refuted (**OP-6** — and OP-6's row for ت3 pointed at DEBT-4 by mistake; it means this entry). |
 | **DEBT-4** | **advancedcastle's Egyptian price is deliberately not crawled.** *(Discharged as intended — re-measured 2026-08-12: the 14 ADVANCEDCASTLE rate rows are there and no converted price is.)* | It is a *conversion*, not a price the merchant set — the EGP/SAR ratio is constant at 11.768 across five probed products. `price_basis` / `original_price` live on `COMMODITY_PRICE`, not `PRODUCT_PRICES`, so recording it honestly is a schema migration and therefore the owner's call. He took it: capture the published **rate**, never the converted price. Note the warehouse *would* keep the two countries apart correctly (`source_offer` is keyed on `country_code_alpha2`) — the reason is the derivation, not a modelling limit. (`e639310`, `b43405c`) |
@@ -4110,7 +4175,13 @@ table, everything else in the **row's own card**, because contractors will have 
 sources and a column is a promise every source must keep. The question is kept below,
 unedited, because the answer is only legible beside what was asked (**C4**).
 
-### Q-27 · `/api/health` says the databases are `ok` while it also lists two migrations pending
+### Q-27 · ~~`/api/health` says the databases are `ok` while it also lists two migrations pending~~ — ANSWERED 2026-08-29
+
+> **It was reading the other stream.** `schema_lag` compared his engine warehouse against
+> `db/migrations/` — the pre-collapse stream, 61 files — so it reported his current
+> database as permanently two migrations behind a chain that never governed it. `R-72`
+> retired that folder, `scrapex/db.py` now points at `db/engine/migrations/`, and there is
+> one thing left to compare against. No question for him remains.
 
 **Asked 2026-08-27 · measured on his live engine, both before and after the `0.4.2` restart**
 

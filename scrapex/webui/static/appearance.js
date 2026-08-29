@@ -111,7 +111,7 @@
         },
       },
     }],
-    // R-72 · SUPABASE IS THE BASELINE, SO THIS ENTRY DECLARES NO COLOURS.
+    // R-74 · SUPABASE IS THE BASELINE, SO THIS ENTRY DECLARES NO COLOURS.
     //
     // «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب
     // وجت هب و device» -- the design system IS Supabase, and WhatsApp, GitHub and
@@ -130,7 +130,7 @@
     // colour choices is in force. apply() removes all 36 colour properties for
     // it, and removal is exactly what "fall through to the baseline" means.
     //
-    // R-71 built the opposite and it was wrong: a `design` block here gave the
+    // R-73 built the opposite and it was wrong: a `design` block here gave the
     // design system to this palette and to NOBODY ELSE. Measured on the built
     // engine -- `brand`, `blue` and device colours all fell back to the
     // pre-Supabase 9px radius, 14px body and Segoe UI. Three of four.
@@ -159,7 +159,7 @@
   const DEFAULTS = Object.freeze({
     mode: "device",
     scheme: "light",
-    // R-71: `supabase` is the default appearance, superseding R-59 decision 1's
+    // R-73: `supabase` is the default appearance, superseding R-59 decision 1's
     // `brand`.
     palette: "supabase",
     // AND THIS IS THE LINE THAT MAKES THE ONE ABOVE MEAN ANYTHING. It was `true`,
@@ -202,13 +202,13 @@
     "switch-track-off", "switch-thumb", "switch-thumb-off", "shadow-color",
     "overlay",
   ]);
-  // R-72 · THERE IS NO SECOND AXIS, AND THAT IS THE RULING.
+  // R-74 · THERE IS NO SECOND AXIS, AND THAT IS THE RULING.
   //
-  // The 36 properties above are colours, and under R-72 a palette may set
+  // The 36 properties above are colours, and under R-74 a palette may set
   // NOTHING ELSE: «whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم
   // فتعدل على الالوان فقط لا تعدل على design system».
   //
-  // R-71 added a DESIGN_PROPERTIES list here so a palette could carry radius,
+  // R-73 added a DESIGN_PROPERTIES list here so a palette could carry radius,
   // typography, elevation and motion. It is removed rather than left unused,
   // because «واى تعارض معاها يلغى» and a mechanism whose whole purpose is "a
   // palette may change the design system" is the conflict itself.
@@ -216,7 +216,7 @@
   // The design system did not go anywhere -- it moved to where it belongs.
   // design/tokens.css IS the Supabase design system now, so all four colour
   // choices sit on it, including device, which applies no palette at all. That
-  // is what R-71's axis could not do: measured on the built engine, it gave the
+  // is what R-73's axis could not do: measured on the built engine, it gave the
   // system to `supabase` and left `brand`, `blue` and device on the old 9px
   // radius, 14px body and Segoe UI. Three of four.
   //
@@ -327,7 +327,7 @@
     else root.removeAttribute("data-theme");
 
     // Device colours: no palette, so every colour override is removed and the
-    // page falls through to design/tokens.css. Under R-72 that is not a
+    // page falls through to design/tokens.css. Under R-74 that is not a
     // degraded state -- tokens.css IS the Supabase design system, so shape,
     // typography, elevation and motion are exactly what they are under every
     // other choice, and only the colours come from the operating system.

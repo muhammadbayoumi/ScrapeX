@@ -52,7 +52,7 @@ class Directory:
     of accidental sharing that becomes a bug the first time one carries state.
     """
 
-    #: Matches `site_profile.site_key`, which is how a crawl finds its scope, and is
+    #: Matches `source_site.site_key`, which is how a crawl finds its scope, and is
     #: what `--source` names on the command line.
     key: str
     display_name: str

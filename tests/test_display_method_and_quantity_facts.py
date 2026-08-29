@@ -539,51 +539,11 @@ def test_every_tracked_product_field_can_actually_be_updated():
         f"tracked but unreachable by the diff: {sorted(tracked - reachable)}")
 
 
-def test_migration_0056_corrects_has_variants_on_rows_that_already_exist():
-    """The backfill, on a warehouse that predates it.
-
-    ingest only ever wrote has_variants at INSERT, so fixing the rule there
-    corrects products discovered from now on and leaves every EXISTING one
-    reading 1 — all 763 MADAR products and every product of sources
-    1,2,3,4,7,8,9. A column that is right for new rows and wrong for old ones
-    is worse than one that is uniformly wrong, because nothing on screen says
-    which kind of row you are looking at. Unlike the other three columns this
-    one is derivable from rows the warehouse already holds, so it is the one
-    thing in 0056 that can be — and is — repaired in place.
-    """
-    conn = dbmod.connect(":memory:")
-    try:
-        for number, file in dbmod._migration_files():      # the pre-0056 warehouse
-            if number >= 56:
-                continue
-            conn.executescript(file.read_text(encoding="utf-8"))
-            conn.execute(f"PRAGMA user_version = {number}")
-        conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar)"
-                     " VALUES (1, 'MADAR', 'المدار')")
-        # Both stored the way ingest really stored them: has_variants = 1,
-        # because external_variant_id was never empty for either.
-        for pid, ext in ((1, "SIMPLE"), (2, "GROUPED")):
-            conn.execute("INSERT INTO source_product"
-                         " (source_product_id, source_id, external_product_id, has_variants)"
-                         " VALUES (?, 1, ?, 1)", (pid, ext))
-        # A simple product is one variant wearing the PRODUCT's own id...
-        conn.execute("INSERT INTO source_variant (source_product_id, external_variant_id)"
-                     " VALUES (1, 'SIMPLE')")
-        # ...while a grouped product's members carry ids of their own.
-        for member in ("MEMBER-8", "MEMBER-32"):
-            conn.execute("INSERT INTO source_variant (source_product_id, external_variant_id)"
-                         " VALUES (2, ?)", (member,))
-        conn.commit()
-
-        assert dbmod.migrate(conn) == [56, 57, 58, 59, 60, 61]
-
-        flags = dict(conn.execute(
-            "SELECT external_product_id, has_variants FROM source_product"))
-        assert flags["SIMPLE"] == 0, (
-            "a product whose only variant IS itself has no variations")
-        assert flags["GROUPED"] == 1
-    finally:
-        conn.close()
+# `test_migration_00NN_*` REMOVED 2026-08-29 WITH THE MIGRATION IT GUARDED.
+# `db/migrations/` was retired on his ruling; a test that replays a stream by
+# number to reach a file that no longer exists cannot fail for a real reason, and
+# keeping it is the doubled effort the retirement was for.
+# The migration itself is still readable: `git show 8901a2a:db/migrations/`.
 
 
 def test_a_connector_that_says_nothing_never_blanks_what_was_learned(tmp_path):

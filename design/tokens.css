@@ -15,7 +15,7 @@
  * rather than written once somewhere nobody is looking.
  * ======================================================================== */
 /* ==========================================================================
- * R-72 · THIS FILE IS THE SUPABASE DESIGN SYSTEM, and that is a ruling rather
+ * R-74 · THIS FILE IS THE SUPABASE DESIGN SYSTEM, and that is a ruling rather
  * than a description.
  *
  * «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت
@@ -28,7 +28,7 @@
  * design/appearance.js carries colour and nothing else, and
  * tests/test_a_palette_may_change_nothing_but_colour.py refuses one that does.
  *
- * WHY THIS FILE HOLDS THEM RATHER THAN THE PALETTE. R-71 first built the
+ * WHY THIS FILE HOLDS THEM RATHER THAN THE PALETTE. R-73 first built the
  * opposite — a per-palette design axis — and measured on the built engine it
  * gave the design system to `supabase` and to NOBODY ELSE: `whatsapp`, `github`
  * and device colours all fell back to the pre-Supabase 9px radius, 14px body and
@@ -126,7 +126,7 @@
   --sp-7: 2.5rem;
   --sp-8: 3rem;
 
-  /* Shape — Supabase, under R-72. Their effective ramp is 2/4/6/8/12/16px:
+  /* Shape — Supabase, under R-74. Their effective ramp is 2/4/6/8/12/16px:
      `rounded-md` = 6px is the universal control radius (431 files in their
      repository) and `rounded-lg` = 8px the container ceiling; 16px appears in
      19. NOT the 10px that circulates as "Supabase's radius" — that belongs to
@@ -147,7 +147,7 @@
      and the shadow is what gets dropped, `shadow-none` appears in more of their
      files than `shadow-md`, and even their box-shadow utilities draw a 1px line
      at zero blur. So these are deliberately flat, and flatter again in the dark
-     blocks below. OP-92: --shadow-lg's colour was a literal while its two
+     blocks below. OP-95: --shadow-lg's colour was a literal while its two
      siblings derived from --shadow-color, so no appearance could re-tone it;
      all three derive now. */
   --shadow-color: rgb(3 3 3 / 0.06);
@@ -159,7 +159,7 @@
      schemes, so this one value is not re-declared in the dark blocks. */
   --overlay: rgb(0 0 0 / 0.40);
 
-  /* Typography — Supabase, under R-72.
+  /* Typography — Supabase, under R-74.
      THEY MIGRATED OFF THE PROPRIETARY CIRCULAR. The live stack across studio,
      www and design-system is Inter (body) + Manrope (headings, 600) + Source
      Code Pro (mono), all OSS. The `Circular, custom-font` stack still sitting in
@@ -315,7 +315,7 @@
   --red-weak: #3b1813;        /* destructive-300 dark  PUBLISHED */
   --danger-contrast: #090504; /* --destructive-fg      derived */
 
-  /* OP-91. This was the literal `#171b21` while --control-bg was not reachable
+  /* OP-94. This was the literal `#171b21` while --control-bg was not reachable
      by any appearance, so every palette's dark control backgrounds stayed on the
      default surface no matter what the palette said -- WhatsApp's dark surface
      is #182229 and GitHub's #151B23, and neither ever arrived. It follows
@@ -376,7 +376,7 @@
     --red-weak: #3b1813;
     --danger-contrast: #090504;
 
-    /* OP-91, the prefers-color-scheme copy of the same defect. */
+    /* OP-94, the prefers-color-scheme copy of the same defect. */
     --control-bg: var(--surface);
     --control-hover: #1e1f1e;
     --shadow-color: rgb(0 0 0 / 0.40);
@@ -393,7 +393,7 @@
  * white; dark mode mixes more of the hue into the neutral dark foundation.
  * Text remains neutral so records and long descriptions stay readable.
  */
-/* R-72: device is a COLOUR exception, so it mixes the system accent into
+/* R-74: device is a COLOUR exception, so it mixes the system accent into
  * SUPABASE's neutral ladder -- not into the pre-Supabase one it used to name.
  * Getting this wrong is how three of four colour choices lost the design system
  * in the first place, and device is the choice a fresh install used to get.

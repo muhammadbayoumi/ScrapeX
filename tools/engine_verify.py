@@ -4,7 +4,7 @@ Captures the restructured Engine card in realistic Chrome Side Panel sizes and
 in both schemes and conceptual palette labels. Production palette IDs are mapped
 to the conceptual names used in filenames.
 
-The IDs became the conceptual names under R-71, which built the registry R-59
+The IDs became the conceptual names under R-73, which built the registry R-59
 asked for: `brand` and `blue` are the real keys and `whatsapp`/`github` are the
 legacy aliases. `capture()` reads this dict with `PALETTES[palette_id]`, so a
 palette missing a row here is a KeyError mid-run rather than a skipped file --

@@ -14,6 +14,8 @@ WHAT IS ASSERTED HERE RATHER THAN TRUSTED:
 """
 from __future__ import annotations
 
+import re
+
 import shutil
 import socket
 import sqlite3
@@ -87,16 +89,22 @@ def engine(tmp_path_factory):
         stored_ids = [str(row["contractor_id"]) for row in candidate.rows]
         record_sightings(conn, DATASET, [*stored_ids, NEVER_STORED],
                          run_ref="listing-test")
+        # NO EXPLICIT `source_id`, AND THE MERGE IS WHY. `approve_candidate` above
+        # registers the SITE, which since `0014` is a row in this very table -- so a
+        # hard-coded `1` here collided with it. The two registries were two id spaces
+        # and are now one; letting SQLite assign is the only spelling that stays true
+        # however many rows the approval writes.
         conn.execute(
-            "INSERT INTO source_site (source_id, source_key, source_name_ar, "
-            " source_name, base_url, platform, currency, timezone, authority, active) "
-            "VALUES (1,?,'س','S','http://s','custom_json','SAR','UTC','shop',1)",
+            "INSERT INTO source_site (source_key, source_name_ar, "
+            " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+            "VALUES (?,'س','S','http://s','custom_json','SAR','UTC','shop','active')",
             (PRICE,))
         conn.execute(
             "INSERT INTO crawl_run (run_id, source_id, started_at, finished_at, "
             " status, requests_count, rows_seen, errors_count) "
-            "VALUES (1,1,'2026-08-01T00:00:00Z','2026-08-01T00:04:00Z','success',"
-            " 812, 4001, 0)")
+            "SELECT 1, source_id, '2026-08-01T00:00:00Z','2026-08-01T00:04:00Z',"
+            " 'success', 812, 4001, 0 FROM source_site WHERE source_key = ?",
+            (PRICE,))
         conn.commit()
     finally:
         conn.close()
@@ -142,7 +150,7 @@ def test_the_warehouse_really_holds_both_kinds(client):
 @pytest.mark.parametrize("key,kind,registry", [
     (PRICE, "price", "sources.yaml"),
     (DATASET, "dataset", "dataset_definition"),
-    (SITE, "dataset", "site_profile"),
+    (SITE, "dataset", "source_site"),
 ])
 def test_a_key_either_register_knows_answers_200(client, key, kind, registry):
     """THE WHOLE POINT OF 'every source type'. `POST /api/jobs` answers 404 for two
@@ -172,7 +180,7 @@ def test_an_unknown_key_is_404_and_names_both_registries(client):
     assert response.status_code == 404
     detail = response.json()["detail"]
     assert "sources.yaml" in detail
-    assert "dataset_definition" in detail and "site_profile" in detail
+    assert "dataset_definition" in detail and "source_site" in detail
 
 
 def test_the_route_answers_a_dataset_key_that_post_api_jobs_still_refuses(client):
@@ -360,15 +368,21 @@ def test_the_price_writes_are_exactly_what_ingest_writes():
 def test_every_table_a_pass_claims_to_write_exists():
     """A renamed table would otherwise leave a hover naming a table that is gone."""
     schema = (ROOT / "db" / "engine" / "schema.sql").read_text(encoding="utf-8")
-    for folder in ("db/engine/migrations", "db/migrations"):
-        for path in sorted((ROOT / folder).glob("*.sql")):
-            schema += path.read_text(encoding="utf-8")
+    for path in sorted((ROOT / "db" / "engine" / "migrations").glob("*.sql")):
+        schema += path.read_text(encoding="utf-8")
 
     claimed = {name for one in (*passes._DIRECTORY.values(), *passes._PRICE.values())
                for name in one.writes}
     assert claimed, "no pass declares a write; the field has stopped being filled"
     for name in sorted(claimed):
-        assert f"TABLE {name} " in schema or f"TABLE IF NOT EXISTS {name} " in schema, (
+        # A QUOTED IDENTIFIER IS STILL THE TABLE, and the first spelling of this check did
+        # not know that. `db/engine/schema.sql` is generated, and the generator emits
+        # `CREATE TABLE "currency_rate" (` — so this passed only because a legacy migration
+        # happened to create the same table unquoted somewhere in the text it also scanned.
+        # Retiring that stream on 2026-08-29 took the unquoted spelling with it and the
+        # guard failed on a table that has existed all along.
+        opener = rf'TABLE\s+(IF\s+NOT\s+EXISTS\s+)?"?{re.escape(name)}"?\W'
+        assert re.search(opener, schema), (
             f"a pass says it writes {name!r} and no schema file creates it")
 
 
@@ -448,7 +462,7 @@ def test_the_refusal_lifts_when_the_scope_asks_for_profiles(client, engine):
     registry, _ = engine
     conn = registry.engine.connect()
     try:
-        conn.execute("UPDATE site_profile SET crawl_scope = ? WHERE site_key = ?",
+        conn.execute("UPDATE source_site SET crawl_scope = ? WHERE source_key = ?",
                      (CrawlScope.FULL_THEN_LISTING.value, SITE))
         conn.commit()
         body = client.get(f"/api/dry/{DATASET}").json()
@@ -456,7 +470,7 @@ def test_the_refusal_lifts_when_the_scope_asks_for_profiles(client, engine):
         assert details["blocked_by"] is None
         assert body["scope"]["value"] == CrawlScope.FULL_THEN_LISTING.value
     finally:
-        conn.execute("UPDATE site_profile SET crawl_scope = ? WHERE site_key = ?",
+        conn.execute("UPDATE source_site SET crawl_scope = ? WHERE source_key = ?",
                      (CrawlScope.LISTING_ONLY.value, SITE))
         conn.commit()
         conn.close()

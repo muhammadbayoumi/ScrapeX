@@ -112,7 +112,7 @@ def test_appearance_is_synchronized_through_one_validated_local_contract(client)
 def test_a_legacy_palette_id_is_accepted_and_stored_under_its_real_name(client):
     """THE 400 THIS PREVENTS WAS SILENT AND PERMANENT.
 
-    Before R-71 this route's allowlist was the literal `{"whatsapp", "github"}`
+    Before R-73 this route's allowlist was the literal `{"whatsapp", "github"}`
     while `design/appearance.js` had already been given a third palette -- so the
     panel POSTed a name the engine refused. That refusal reached nobody:
     `pushRemote` returns `response.ok` from inside a try block and both call

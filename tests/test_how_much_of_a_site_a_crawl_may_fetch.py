@@ -112,12 +112,12 @@ def test_every_source_carries_its_own_scope(tmp_path):
     con = db.connect()
     try:
         con.execute(
-            "INSERT INTO site_profile (site_key, display_name, base_url, lifecycle) "
+            "INSERT INTO source_site (source_key, source_name, base_url, lifecycle) "
             "VALUES ('muqawil', 'muqawil.org', 'https://muqawil.org/', 'draft')")
         con.commit()
         scope, sl = con.execute(
-            "SELECT crawl_scope, crawl_slice FROM site_profile "
-            "WHERE site_key='muqawil'").fetchone()
+            "SELECT crawl_scope, crawl_slice FROM source_site "
+            "WHERE source_key='muqawil'").fetchone()
     finally:
         con.close()
 

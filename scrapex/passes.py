@@ -153,11 +153,11 @@ def directory_passes(directory: Directory | None, *, scope: CrawlScope | None,
         elif key == "details":
             if scope is CrawlScope.LISTING_ONLY:
                 one = replace(one, blocked_by=(
-                    "site_profile.crawl_scope is listing_only, under which this pass "
+                    "source_site.crawl_scope is listing_only, under which this pass "
                     "refuses and asks you to change the scope"))
             elif scope is CrawlScope.LISTING_PLUS_SLICE and not crawl_slice.strip():
                 one = replace(one, blocked_by=(
-                    "site_profile.crawl_scope is listing_plus_slice and "
+                    "source_site.crawl_scope is listing_plus_slice and "
                     "crawl_slice names no slice, so there is nothing to select"))
         elif key == "approve" and not extraction_enabled:
             one = replace(one, blocked_by=(

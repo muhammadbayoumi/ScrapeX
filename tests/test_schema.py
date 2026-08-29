@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 61   # +0061 the weight the price is quoted against
+    assert dbmod.schema_version(conn) == dbmod.latest_schema_version()
 
 
 def test_all_owner_tables_exist(conn):
@@ -150,36 +150,11 @@ def test_job_status_vocabulary_matches_vocab_enum(conn):
         conn.execute("UPDATE crawl_job SET status = 'not_a_status' WHERE job_ref = 'job_t'")
 
 
-def test_migration_0020_preserves_existing_jobs_and_their_log_references():
-    """The CHECK widening rebuilds crawl_job on a LIVE warehouse; rows, ids and
-    the job_log_entry references through job_id must survive the swap intact."""
-    upgrading = dbmod.connect(":memory:")
-    try:
-        for number, file in dbmod._migration_files():     # the pre-0020 warehouse
-            if number >= 20:
-                continue
-            upgrading.executescript(file.read_text(encoding="utf-8"))
-            upgrading.execute(f"PRAGMA user_version = {number}")
-        upgrading.execute("INSERT INTO crawl_job (job_ref, run_mode, status, source_keys)"
-                          " VALUES ('job_old', 'update', 'completed', '[\"A\"]')")
-        job_id = upgrading.execute("SELECT job_id FROM crawl_job").fetchone()[0]
-        upgrading.execute("INSERT INTO job_log_entry (job_id, message) VALUES (?, 'kept')",
-                          (job_id,))
-        upgrading.commit()
-
-        assert dbmod.migrate(upgrading) == [20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61]
-
-        joined = upgrading.execute(
-            "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"
-            " JOIN crawl_job j ON j.job_id = l.job_id").fetchone()
-        assert (joined["job_ref"], joined["status"], joined["message"]) == (
-            "job_old", "completed", "kept")
-        # The FK is enforced against the REBUILT table, not silently dangling.
-        with pytest.raises(sqlite3.IntegrityError):
-            upgrading.execute("INSERT INTO job_log_entry (job_id, message) VALUES (999, 'x')")
-    finally:
-        upgrading.close()
+# `test_migration_00NN_*` REMOVED 2026-08-29 WITH THE MIGRATION IT GUARDED.
+# `db/migrations/` was retired on his ruling; a test that replays a stream by
+# number to reach a file that no longer exists cannot fail for a real reason, and
+# keeping it is the doubled effort the retirement was for.
+# The migration itself is still readable: `git show 8901a2a:db/migrations/`.
 
 
 def test_review_status_vocabulary_matches_vocab_enum(conn):

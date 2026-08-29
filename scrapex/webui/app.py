@@ -191,7 +191,7 @@ from .update_api import create_update_router
 #: panel is open, tells the user nothing, and never persists their choice.
 #:
 #: R-59 decision 3: `whatsapp` and `github` are legacy compatibility ALIASES for
-#: `brand` and `blue`. Before R-71 this function enforced only the aliases while
+#: `brand` and `blue`. Before R-73 this function enforced only the aliases while
 #: the registry they alias did not exist -- OP-82, now closed. Both spellings are
 #: accepted here because every appearance stored before 2026-08-28 uses the old
 #: one, and the value is canonicalised on the way in so the warehouse ends up
@@ -722,8 +722,8 @@ def create_app(
                 "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
                 "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
                 "FROM dataset_definition AS d "
-                "JOIN site_profile AS s "
-                "ON s.site_profile_id = d.site_profile_id "
+                "JOIN source_site AS s "
+                "ON s.source_id = d.source_id "
                 "LEFT JOIN generic_record AS r "
                 "ON r.dataset_definition_id = d.dataset_definition_id "
                 "AND r.status = 'active' "
@@ -758,7 +758,7 @@ def create_app(
                 # `freshnessLine` says so in words when it is. A price source
                 # gets it from `crawl_run`; a dataset can have no row there at
                 # all — `crawl_run.source_id` is NOT NULL into `source_site` and
-                # muqawil is in `site_profile`, which is the split `REQ-25`
+                # muqawil is in `source_site`, which is the split `REQ-25`
                 # holds — so this reads the evidence the crawl already stored.
                 # Same SHAPE as `ingest.last_successful_run`, deliberately: the
                 # panel and `_source_list.html` both draw `last_success`, and a
@@ -788,7 +788,7 @@ def create_app(
         again — the exact regression #212 was built to close.
 
         THE GROUPING KEY IS NOT THE SITE ALONE, and measuring it is what settled
-        that. `REQ-37` names `site_profile_id`, and both muqawil datasets do share
+        that. `REQ-37` names `source_id`, and both muqawil datasets do share
         one (id 2, `muqawil_org`) — but `R-47`'s own justification is narrower than
         the site: *"the join is the thing that makes the single card honest rather
         than a label over two unrelated tables."* Two datasets that happen to sit on
@@ -800,13 +800,13 @@ def create_app(
 
         MEASURED READ-ONLY ON HIS WAREHOUSE, 2026-08-23:
 
-            dataset_definition   1 contractors         site_profile_id 2
-                                 2 contractor_profiles site_profile_id 2
+            dataset_definition   1 contractors         source_id 2
+                                 2 contractor_profiles source_id 2
             dataset_relationship parent 1, child 2, one_to_one, confirmed
             active rows          17,304 and 704
 
         AND `base_url` WOULD HAVE BEEN THE WRONG KEY, which only the measurement
-        shows: `site_profile` holds TWO muqawil rows — id 1 `https://muqawil.org/ar/
+        shows: `source_site` holds TWO muqawil rows — id 1 `https://muqawil.org/ar/
         contractors` and id 2 `https://muqawil.org/` — so the host is shared and the
         base URL is not. Grouping on the URL works today only because id 1 carries no
         datasets.
@@ -1810,7 +1810,7 @@ def create_app(
 
         # A GENERIC DATASET IS A SOURCE THE OWNER CAN OPEN, and until now it was
         # invisible here: this route walked the manifest alone, so a
-        # `site_profile` row could never reach the panel however much data it
+        # `source_site` row could never reach the panel however much data it
         # held. The Data screen lists what this answers and opens it through
         # /api/table/{key}, which already serves a dataset — so listing them is
         # the whole of what was missing.

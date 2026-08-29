@@ -401,7 +401,7 @@ def test_a_dataset_appears_among_the_sources_the_panel_lists(tmp_path):
     """«اريد ان ارى المصدر ضمن صفحة data فى extension حتى استطيع تصفح البيانات».
 
     `/api/table/{key}` has served a dataset since the payload landed — but
-    `/api/sources` walked the manifest alone, so a `site_profile` row could
+    `/api/sources` walked the manifest alone, so a `source_site` row could
     never reach the panel however much data it held. The Data screen lists what
     that route answers, so a dataset that is servable and unlistable is a
     dataset nobody can open.
@@ -977,7 +977,7 @@ def test_a_site_label_cannot_collide_with_an_observed_key():
 # muqawil, `generic_page_snapshot` holds 24,480 pages, and `generic_record` holds
 # 17,304 + 704 rows for the two datasets. The card was reading the price pipeline's
 # ledger about a dataset that can never appear in it — `crawl_run.source_id` is NOT
-# NULL into `source_site`, and muqawil lives in `site_profile`.
+# NULL into `source_site`, and muqawil lives in `source_site`.
 
 
 def _dataset_id(conn, dataset_key: str = "contractors") -> int:
@@ -1059,9 +1059,9 @@ def test_a_dataset_nothing_has_fed_reports_no_crawl_rather_than_inventing_one(co
     stored(conn)
     unfed = conn.execute(
         "INSERT INTO dataset_definition "
-        "(site_profile_id, dataset_key, original_name, discovery_method) "
-        "SELECT site_profile_id, 'nothing_yet', 'nothing_yet', 'manual' "
-        "FROM site_profile LIMIT 1")
+        "(source_id, dataset_key, original_name, discovery_method) "
+        "SELECT source_id, 'nothing_yet', 'nothing_yet', 'manual' "
+        "FROM source_site LIMIT 1")
 
     assert service.last_evidence_captured_at(conn, int(unfed.lastrowid)) is None
     assert _dataset_freshness(conn, int(unfed.lastrowid)) is None

@@ -53,7 +53,7 @@ PROFILE_EN = (FIXTURES / "profile-en.html").read_text(encoding="utf-8")
 PROFILE_AR = (FIXTURES / "profile-ar.html").read_text(encoding="utf-8")
 
 #: The site both datasets hang off. Measured read-only on his warehouse
-#: 2026-08-23: `site_profile_id = 2`, `site_key = 'muqawil_org'`, carrying
+#: 2026-08-23: `source_id = 2`, `site_key = 'muqawil_org'`, carrying
 #: `contractors` (17,304 active rows) and `contractor_profiles` (704).
 SITE = "muqawil_org"
 PARENT = "contractors"
@@ -168,10 +168,10 @@ def test_the_warehouse_really_holds_two_related_datasets(tmp_path):
     conn = client.app.state.general_database.connect()
     try:
         rows = conn.execute(
-            "SELECT d.dataset_key, d.site_profile_id FROM dataset_definition AS d "
+            "SELECT d.dataset_key, d.source_id FROM dataset_definition AS d "
             " WHERE d.valid_to IS NULL ORDER BY d.dataset_key").fetchall()
         keys = [row["dataset_key"] for row in rows]
-        sites = {row["site_profile_id"] for row in rows}
+        sites = {row["source_id"] for row in rows}
         link = conn.execute(
             "SELECT cardinality, review_status FROM dataset_relationship "
             " WHERE valid_to IS NULL").fetchone()

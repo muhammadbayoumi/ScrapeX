@@ -13,7 +13,7 @@ is thirty-five thousand requests, a parse that turns out wrong costs minutes
 instead of ten hours. That is the product, not an optimisation — so this module
 has no idea what a contractor is, and must not learn.
 
-THE SCOPE COMES FROM THE DATABASE AND NOWHERE ELSE. `site_profile.crawl_scope`
+THE SCOPE COMES FROM THE DATABASE AND NOWHERE ELSE. `source_site.crawl_scope`
 and `crawl_slice` were added by M6a and, until this file, **nothing in Python
 read them**. A scope the caller could also pass would be a scope enforced in two
 places, which is a scope enforced in neither — so the signature does not offer
@@ -53,7 +53,7 @@ Fetch = Callable[[str], str]
 
 
 class SiteNotRegistered(LookupError):
-    """No `site_profile` row, so nobody has said how deep this crawl may go.
+    """No `source_site` row, so nobody has said how deep this crawl may go.
 
     RAISED RATHER THAN DEFAULTED. The column's default is `listing_only`, which
     is the safe scope — but a site with no row at all has not been ASKED, and
@@ -90,11 +90,11 @@ def read_scope(conn: sqlite3.Connection, site_key: str) -> tuple[CrawlScope, str
     The first reader these two columns have ever had.
     """
     row = conn.execute(
-        "SELECT crawl_scope, crawl_slice FROM site_profile WHERE site_key = ?",
+        "SELECT crawl_scope, crawl_slice FROM source_site WHERE source_key = ?",
         (site_key,)).fetchone()
     if row is None:
         raise SiteNotRegistered(
-            f"no site_profile row for {site_key!r}, so how deep its crawl may "
+            f"no source_site row for {site_key!r}, so how deep its crawl may "
             "go has never been decided. Register the site first — a crawl that "
             "picked the default would be answering for the owner.")
     return CrawlScope(row[0]), (row[1] or "")

@@ -115,6 +115,25 @@ this session's context nor this warehouse. Everything below is the whole handove
 > process's own `__file__`. Measured in [OP-88](BACKLOG.md). It now runs `0.4.2` from the main
 > checkout, started through `ScrapeX Engine.vbs`.
 >
+> **AND THE SOURCE REGISTRY IS ONE, with a second stream retired behind it.** `R-62`
+> executed as migration `0014`: `site_profile` merged into `source_site`, eight rows
+> repointed across four tables, 31 triggers before and 31 after, `foreign_key_check` clean,
+> 6.5 s on a copy of his 1,421 MB warehouse. `R-71` records the three decisions the merge
+> forced and corrects two of `R-62`'s own measurements.
+>
+> **Then he ruled `R-72`**: nothing is kept because deleting it is work. `db/migrations/`
+> — 61 files, frozen since 2026-08-04 — is gone, with `db/schema.sql`, a duplicate migration
+> runner and five tests that guarded deleted migrations. **No test fixture moved**:
+> `db.migrate` delegates to the engine runner instead of owning a stream.
+>
+> **The deletion found three defects the duplication had been hiding** (`LESSONS` §23), the
+> worst of them that **a new installation has never had a default retention policy** — the
+> seed row lived in the retired stream and the schema derivation carried `CREATE` and not
+> `INSERT`. His own warehouse has the row and was checked first; `0015` is the repair.
+>
+> `VERSION` → **0.4.3**, which understates it: `R-69` reserves `0.5.0` for
+> `feat/organization-enrichment` and that ruling was not overridden here.
+>
 > **Step 2's ROOT HALF is built** — `R-54`, on his order 1 → 2 → 5 → 3 (`R-69`). A
 > confirming pass now moves the record's own `last_seen_at`, which is the field the state
 > comparison rests on; `approve_candidate` returned seventy lines above the only write that
@@ -125,9 +144,30 @@ this session's context nor this warehouse. Everything below is the whole handove
 > 17,221 of 17,304 rows — 99.5%**, because its sighting ledger is already full (17,417) so
 > the `MAX(last_seen_at)` comparison runs, and only the 48 rows written in the crawl's final
 > second survive it. `contractor_profiles` escapes with `unsighted` only because its ledger
-> is empty. **The second pull request replaces that comparison with the RUN**, and needs no
-> migration: `generic_page_snapshot.crawl_run_ref` carries a value on 55,313 of 57,041
-> snapshots, and he ruled the remaining 1,728 read `unsighted`.
+> is empty.
+>
+> **The second pull request needs the table `R-52` already ruled, and my earlier note here
+> > was wrong.** It said the comparison needs no migration because
+> > `generic_page_snapshot.crawl_run_ref` carries a value on 55,313 of 57,041 snapshots. The
+> > column exists; **it is not a run identity.** Measured 2026-08-27:
+> >
+> > - **141 distinct values** across 55,313 snapshots — per CELL for listing crawls
+> >   (`listing-2026-08-20` alone has 64, `residual-2026-08-21` 40, `deficit-2026-08-21b` 33)
+> >   and per crawl for the profile run (`profiles-2026-08-22`, one ref for 34,834 pages).
+> > - It **joins to nothing**: zero matches against any column of `crawl_run` or against
+> >   `crawl_job.job_ref`. It is the free-text `--run-ref` the operator types, and one stored
+> >   value is literally **`R`**, on two snapshots.
+> > - Simulated: comparing against "the run of the most recently captured snapshot" would read
+> >   **`absent` on 17,030 of 17,304** listing rows and **17,384 of 17,385** profile rows —
+> >   worse than today, not better.
+> >
+> > `R-52` had already measured this and he had already chosen the answer: **option B, a generic
+> > crawl-run table**, because `crawl_run` is the price path alone and its `source_id` points at
+> > `source_site`, where muqawil does not exist. So the second half is a migration plus a writer
+> > plus the comparison — and its `source_id` problem is `R-62`'s registry merge, the same thing
+> > that blocks the crawl button.
+>
+> He ruled that rows whose run cannot be established read `unsighted`.
 
 ### The code and the decisions are in the repository. The DATA is not.
 
@@ -345,7 +385,7 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 ### The supabase appearance — 2026-08-28 · branch `feat/the-supabase-appearance-is-a-design-system`, no PR yet
 
 **`REQ-48`, ruled the same day as
-[R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
 Based on `main` at `b836de3`.**
 
 > «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
@@ -368,8 +408,8 @@ numbers he decided on:
 | what a fresh user sees instead today | the OS `AccentColor` on Chrome and Edge; otherwise the `tokens.css` teal that `R-59` decision 2 calls *"deprecated — legacy colour residue and migration debt"* |
 
 **What is built, AND IT WAS BUILT TWICE.** All 36 `THEME_PROPERTIES` were colours, so «design
-system كامل» was impossible in principle rather than merely absent. `R-71` answered that with
-a per-palette design axis — and `R-72`, later the same day, cancelled it:
+system كامل» was impossible in principle rather than merely absent. `R-73` answered that with
+a per-palette design axis — and `R-74`, later the same day, cancelled it:
 
 > «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»
 
@@ -401,11 +441,11 @@ selectable, to label its tile and to name itself in `data-palette`; `apply()` re
 properties for it and the baseline shows through. `brand` and `blue` have entries precisely
 because they differ from it.
 
-**Three defects were fixed because a design system could not work without them:** `OP-91`
+**Three defects were fixed because a design system could not work without them:** `OP-94`
 `--control-bg` was a literal in both dark blocks so no palette ever reached a dark control;
-`OP-92` `--shadow-lg`'s colour was a literal while both siblings derived from
-`--shadow-color`; `OP-93` six references to `--font-sans` and `--shadow-md`, tokens defined
-nowhere in the repository. `OP-94` records the 138 hard-coded values still bypassing a token
+`OP-95` `--shadow-lg`'s colour was a literal while both siblings derived from
+`--shadow-color`; `OP-96` six references to `--font-sans` and `--shadow-md`, tokens defined
+nowhere in the repository. `OP-97` records the 138 hard-coded values still bypassing a token
 and what the scale would have to grow to absorb them; the 48 that duplicated a token exactly
 are fixed.
 
@@ -426,7 +466,7 @@ thresholds this repository already enforces:
 
 **Two guards were holes rather than numbers needing an edit.** The contrast parametrize was
 the literal `["whatsapp", "github"]`, so a new palette was never contrast-tested at all —
-under `R-71` the **default** would have been the untested one. Derived from the registry it
+under `R-73` the **default** would have been the untested one. Derived from the registry it
 goes from 68 assertions to 102. Same fix for the hover sweep's four hard-coded pairs.
 
 **Not verifiable on this machine:** everything in `tests/test_panel_dom.py` and

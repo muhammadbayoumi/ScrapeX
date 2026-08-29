@@ -2255,7 +2255,7 @@ deliberate exception is DECLARED, not inferred.** A historical name goes in
 `HISTORICAL` ([tests/test_the_tests_name_tests_that_exist.py:86](../tests/test_the_tests_name_tests_that_exist.py#L86))
 with the ref to read it at, and every row is **verified** rather than trusted —
 `git show <ref>:<path>` must still produce the test
-([tests/test_the_tests_name_tests_that_exist.py:144](../tests/test_the_tests_name_tests_that_exist.py#L144)).
+([tests/test_the_tests_name_tests_that_exist.py:151](../tests/test_the_tests_name_tests_that_exist.py#L151)).
 
 That verification caught its own author on its first run: the row for the
 native-host test named `6ccdd3c`, which does not contain it. The commit that does
@@ -2590,7 +2590,7 @@ assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
 
 `unsighted` is in that set. So a table where **every single row** collapsed to
 `unsighted` is green. And there is a live path that does exactly that:
-[scrapex/extract/service.py:915](../scrapex/extract/service.py#L915) resolves the
+[scrapex/extract/service.py:968](../scrapex/extract/service.py#L968) resolves the
 identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
 two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
 every sighting lookup misses, and the whole column is wrong with nothing to say so.
@@ -2825,11 +2825,171 @@ nothing, and reports `rowcount` 0 — exactly what the guard returned by hand. T
 gone rather than kept behind a corrected comment, and the test now pins the behaviour,
 which holds either way.
 
+## 20 · `generic_page_snapshot.crawl_run_ref` is an operator's label, not a run identity
+
+Worth its own section because the column *looks* exactly like the thing three row states need,
+and because a ruling had already established it was not — which is the part that cost time.
+
+**Measured 2026-08-27** on the finished warehouse:
+
+    distinct values                          141   across 55,313 snapshots
+    listing-2026-08-20                        64   distinct refs -- ONE per cell
+    residual-2026-08-21                       40
+    deficit-2026-08-21b                       33
+    profiles-2026-08-22                        1   -- one ref for 34,834 pages
+    one stored value is literally  'R'         2   snapshots
+    matches against crawl_run.* or crawl_job.job_ref:  0
+
+It is the free-text `--run-ref` a crawl is invoked with. Nothing validates it, nothing joins
+to it, and its granularity is **per partition cell** for a listing crawl and **per crawl** for
+a profile crawl — so "the latest run" means two different sizes of thing depending on which
+dataset is asked.
+
+**What that does if you build the state comparison on it**, simulated before any code was
+written: taking "the run of the most recently captured snapshot this dataset's rows point at"
+gives `deficit-2026-08-21b-region_id_1-company_size_verysmall-a8` with **11 rows** for the
+listing and `gap-2026-08-23` with **1 row** for the profiles — so **17,030 of 17,304** and
+**17,384 of 17,385** rows would read `absent`. That is worse than the defect it replaces.
+
+**And `R-52` had already said so, in the paragraph titled "Why nothing stored could answer
+it".** `crawl_run` is the price path alone; its `source_id` points at `source_site`, where
+muqawil does not exist at all; `dataset_sighting` has `first_run_ref` and
+`last_absent_run_ref` and no `last_run_ref`. He chose **option B — a generic crawl-run
+table** — on 2026-08-24.
+
+**The lesson is `C1` with a price on it.** The plan's step 2 is titled *"Re-rule `R-52`
+before anything is built on it"*, and the ruling's own measurement section contained the
+answer to the question I spent an afternoon measuring from scratch — then published a wrong
+conclusion from, in `STATE.md`, the document every session reads second. Read the ruling
+that names the mechanism before designing the mechanism.
+
+## 21 · Nine citations drifted at once and four tiers of guard said nothing
+
+`#281` added a 53-line function at `scrapex/extract/service.py:303`. Every citation below it
+moved. **Nine of them, across `BACKLOG.md` and `LESSONS.md`, were left pointing 53 lines above
+their subject, and the build was green through two pull requests.**
+
+The failure is not that a guard was missing. Four ran and each was satisfied honestly:
+
+- the file exists — it does;
+- the line exists — the file is 1,339 lines;
+- **the line is not blank** — and this is the one worth staring at. That tier was written
+  after `#255` pushed a cited sentence 38 lines down onto an empty line. A 53-line shift in a
+  file of dense code lands on *another statement*, so the tier that catches drift catches
+  only the drift that happens to land in a gap;
+- `PINNED` — none of the nine was in it.
+
+**The repair, and the measurement that made it trustworthy.** All ten are pinned now, and a
+mutation that inserts thirteen lines above them turns the suite red and names each subject.
+Had those rows existed a day earlier, `#281` could not have shipped.
+
+**And a survivor taught what `PINNED` actually pins.** The first mutation changed a
+DOCUMENT's number from `:996` back to the stale `:943` and the suite stayed green: a pinned
+row asserts what `service.py:996` says, not that anything cites 996. It guards the code
+moving under a citation — the common case — and not a citation written wrong to begin with.
+Knowing which of the two a guard covers is the difference between trusting it and assuming it.
+
+**The cheap rule that follows:** after inserting anything above line ~300 of a long, heavily
+cited module, re-derive every citation into it. `difflib` between the old blob and the new one
+gives the map in one pass — **and read each answer**, because one of the nine was better after
+the drift than before it: `STATE.md:918` had pointed at a docstring's closing quote and the
+shift landed it on the `def` the sentence names. Applying the map blindly would have repaired
+it into being wrong.
+
+## 22 · Rebuilding a table drops every trigger on it, and only a count says so
+
+Migration `0014` rebuilds five tables. Its first draft dropped the four triggers that name the
+column being renamed, recreated those four, and carried a comment stating that `0012`'s two
+`datasets_differ` triggers were *"untouched: they never named the registry, so the rebuild
+above kept them."*
+
+**Measured on a copy of his warehouse: 31 triggers before, 29 after.**
+
+`ALTER TABLE … RENAME TO` moves a table's triggers with it, but `DROP TABLE` on the old name
+takes every trigger still attached — and a rebuild ends in exactly that. Whether the trigger
+mentions the changed column is irrelevant; it belongs to the table, and the table is gone.
+
+**What was nearly lost:** `RAISE(ABORT, 'the enrichment output must be a new dataset')` — the
+trigger that stops an enrichment run writing back over the dataset it read, which is `R-45`
+enforced in the schema rather than in a review. It would have vanished silently: the FK check
+passes, `quick_check` passes, every row is intact, and nothing in a green suite asks how many
+triggers there are.
+
+**So a migration that rebuilds a table asserts the trigger set BY NAME, before and after.**
+Not the count alone — the count caught it here, but a rebuild that lost one and added one
+would balance. The check that holds is the set difference in both directions. A comment
+asserting that a trigger survived is not evidence that it did.
+
+## 23 · A duplicated migration stream hid three real defects, and the tests could not see them
+
+`db/migrations/` was retired on 2026-08-29 (`R-72`). Deleting it broke 255 tests, which was
+expected. What was not expected is that **three of the failures were real defects in the
+product**, invisible for as long as the duplication lasted — because every affected test
+built its database from the RETIRED stream while the product built his from the other one.
+
+### 1 · A new installation has had no default retention policy
+
+`db/migrations/0011_retention.sql` created `retention_policy` **and seeded its global `'*'`
+row in the same file**. `db/engine/schema.sql` was derived from the two streams' DDL, and a
+derivation carries `CREATE`, not `INSERT`. The table came across; the row did not.
+
+`derived-from.json` freezes 134 objects and their columns and **says nothing about rows**, so
+the guard that proves the collapse lost nothing was structurally blind to it. And every
+retention test built through `dbmod.migrate` — the legacy stream, which seeded the row — so
+the suite was green on a database no installation would ever have. His own warehouse is
+unaffected and was checked before the fix was written: it predates the split and carries the
+row. `0015_the_shipped_retention_default.sql` is the repair.
+
+### 2 · Seventeen tables have never had a description
+
+`test_the_table_catalogue_covers_every_table_the_schema_creates` asks whether `/data-model`
+can say what each table is for. It built its warehouse from the legacy `db/schema.sql` — 51
+tables. Pointed at the real engine schema it found **17 undescribed**, including
+`dataset_sighting`, which is the ledger the State column reads, and eleven enrichment tables.
+All were being filed on screen under "Other" with no purpose given.
+
+### 3 · A duplicate dict key silently deleted a whole group
+
+A blind rename of `site_profile` → `source_site` turned `TABLE_GROUPS`'s two entries into two
+entries with the SAME key. Python keeps the last. No error, no warning — a group of tables
+simply stopped being described. Found by the guard above, which is the only reason it is not
+still true.
+
+**The shape of all three:** a test that builds its own database is only as honest as the
+builder it calls. When two builders exist, half the suite is testing a product nobody runs.
+
+## 24 · There are two run modes, and the flag that looks like "everything" turns one guard off
+
+Every suite in this session was run with `SCRAPEX_FULL_MIGRATIONS=1`, on the belief that it
+is the stricter of the two ways to run the tests. It is stricter about migrations and
+**weaker about exactly one thing**: it disables the schema template, and
+`tests/test_fast_migrations.py` — the file that exists to check the template — skips itself
+when it is set.
+
+So that file had not run locally all day. CI runs without the flag, and it failed there.
+
+**Two defects were hiding in the gap, and both are the same shape as everything else this
+session found — a guard whose premise had quietly stopped being true:**
+
+1. **A truncation that no longer truncated.** `test_a_truncated_stream_is_never_served_the_template`
+   cut the stream at `<= 46` to prove a short chain is refused the template. Once
+   `R-72` left the chain ending at 15, `<= 46` kept every file, nothing was truncated, and
+   the assertion inverted. The cut is `every[:-1]` now — one short of whatever the chain is,
+   which cannot stop truncating.
+2. **A clock column that had never needed excluding.** The template is compared against an
+   honest run row by row, with wall-clock columns excluded by name. `database_migration.applied_at`
+   was not among them and did not need to be: the old `db.migrate` never wrote the ledger, so
+   the table was empty in both databases and matched trivially. Delegating to the engine
+   runner made both write it — and two runs differ by the second they ran in.
+
+**The rule that follows:** before pushing, run the suite BOTH ways. `SCRAPEX_FULL_MIGRATIONS=1`
+and without it are not "thorough" and "quick"; they are two different products, and each
+turns off a guard the other needs.
 ---
 
-## 20 · Copying a design system copies its accessibility failures too, and four ways a default can be a fiction
+## 25 · Copying a design system copies its accessibility failures too, and four ways a default can be a fiction
 
-*Written 2026-08-28, building `REQ-48` / [R-71](RULINGS.md#r-71--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).*
+*Written 2026-08-28, building `REQ-48` / [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).*
 
 The task was to add a `supabase` appearance and make it the default. Five of the things that
 made it hard were not in the request, not visible from the code, and each is the kind of
@@ -2892,7 +3052,7 @@ rename would have satisfied the request in the register and changed nothing on s
 
 **A hard-coded parametrize list is a hole, not a list.** The contrast guard read
 `["whatsapp", "github"]`, so a palette added to the registry was simply never
-contrast-tested — and under `R-71` the **default** would have been the untested one, with
+contrast-tested — and under `R-73` the **default** would have been the untested one, with
 nothing anywhere saying so. Derived from the registry it went from 68 assertions to 102.
 Same shape in the hover sweep's four hard-coded pairs.
 
