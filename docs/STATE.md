@@ -462,11 +462,62 @@ insertions: the pinned `scrapex/webui/app.py:3022` in `tests/test_the_documents_
 and `docs/REQUESTS.md`'s jobs-route citation, which was **already 27 lines stale** —
 Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists.
 
-### The supabase appearance — 2026-08-28 · branch `feat/the-supabase-appearance-is-a-design-system`, no PR yet
+### The design system reviewed against Supabase's — 2026-08-29 · branch `claude/design-system-review-d6787a`, based on `main` at `ef86a19`
+
+**`REQ-49`. A review, not a change: no value, no selector and no component rule moved.**
+Seven comments in `design/tokens.css`, six documents, the registers, and one report at
+[docs/reviews/2026-08-29-the-design-system-against-supabase.md](reviews/2026-08-29-the-design-system-against-supabase.md).
+
+He set the scope before any finding — *«اولا تحديد كل محاور المراجعة»* — chose six axes of
+twenty-six, and pointed the review at Supabase's **source** rather than its website, which
+is what made the token half of it verifiable at all.
+
+**The headline, measured in Chromium 149 across the 8 shipped colour states:** `R-74`
+holds — 62 of 118 root properties move and every one is a colour — **and is enforced by
+almost nothing.** Mutation on a byte-verified mirror put `--fs`, `--font-body` and `--lh`
+into a palette and 11 of the 13 forbidden families into a surface stylesheet, and 91 static
+guards plus all 218 browser tests stayed green. That is `OP-102`.
+
+**And the inference behind the palette was right.** `STATE.md` recorded that Supabase
+publishes names without values, so the colours were derived; the source publishes both, and
+re-derived against it **15 values are byte-exact, 19 more reproduce their expressions, and
+the scalars match 9 of 10 in light and 10 of 10 in dark**. What the false premise cost was
+six comments arguing from things that are not true, now corrected.
+
+**Filed:** `OP-101`–`OP-110`. **Refuted by the verify pass and NOT filed: 21 findings**,
+two of which had accused the code of breaking a ruling it obeys. **Twelve decisions are
+open and all of them are his** — each either grows `THEME_PROPERTIES`, changes what a
+shipped colour choice paints, or creates a shared module.
+
+**`OP-100` and `R-76` are reserved to `claude/request-deadline-exceeded-3b1cad`** — a
+LOCAL-ONLY branch, visible from any worktree because they share one ref namespace and
+invisible to `git ls-remote`. The reservation row says so.
+
+**VERSION deliberately not bumped.** `scrapex/version.py` moves on a functional,
+architectural or behavioural change and this is none of the three; `ENGINEERING.md` W4 says
+every merged pull request. The primary reserved **0.4.7** if the wider rule wins — an open
+question, not an omission.
+
+
+### The supabase appearance — MERGED 2026-08-29 as #283 (`208d829`)
+
+> **This entry said "no PR yet" for a day after it had merged.** Corrected 2026-08-29 by
+> the design-system review ([REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases)):
+> `208d829` landed 37 files, +2858/-524, and `gh pr list --state open` returns nothing. The
+> `deviceColors` flip this entry calls "open" is also settled and shipped — `design/appearance.js`
+> reads `deviceColors: false`. This is `OP-89` in miniature: a present-tense heading over
+> merged work, which is what tells the next session the work never landed.
 
 **`REQ-48`, ruled the same day as
-[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
-Based on `main` at `b836de3`.**
+[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one),
+and amended hours later by [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).
+Branched from `main` at `b836de3`; merged into `main` at `208d829`.**
+
+> **The commit subject says `R-72` and that is the wrong number.** The branch was opened
+> when `R-72` was newest and the subject was never corrected, so `git log --grep='R-73'` and
+> `--grep='R-74'` both return **zero rows** and the two rulings this section is about are
+> unfindable by the sweep `ORCHESTRATION.md` demonstrates. `R-72` itself belongs to `81edc02`
+> (#285). Read `docs/RULINGS.md`, not the log.
 
 > «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
 > system كامل»
@@ -533,8 +584,11 @@ are fixed.
 stepped ramps are HSL literals and every semantic colour is computed at runtime in OKLCH
 from ten scalar inputs, so each one is marked `PUBLISHED` or `derived` at the value. **All 34
 contrast assertions were computed against the guard's own formula before the palette was
-written** — playwright is not installed on this machine, so CI would otherwise have been the
-first to know. That found two light-mode failures, and three Supabase values that fail
+written** — playwright was not installed on the machine that wrote this, so CI would
+otherwise have been the first to know. (**It is installed on the other one.** Measured
+2026-08-29: Chromium 149.0.7827.55 launches and the browser suite runs. A capability
+sentence has to name its machine — `CLAUDE.md` makes two machines the governing fact of
+this repository.) That found two light-mode failures, and three Supabase values that fail
 thresholds this repository already enforces:
 
 | their value | measured | the guard needs |
@@ -549,9 +603,12 @@ the literal `["whatsapp", "github"]`, so a new palette was never contrast-tested
 under `R-73` the **default** would have been the untested one. Derived from the registry it
 goes from 68 assertions to 102. Same fix for the hover sweep's four hard-coded pairs.
 
-**Not verifiable on this machine:** everything in `tests/test_panel_dom.py` and
-`tests/test_panel_startup.py` needs playwright, which `importorskip` skips here. The rest of
-the suite is green.
+**~~Not verifiable on this machine~~ — VERIFIED 2026-08-29 on the other machine.**
+`tests/test_panel_dom.py` and `tests/test_panel_startup.py` collect **218 tests and all 218
+pass**; playwright imports and Chromium 149.0.7827.55 launches. The original sentence was
+true where it was written and named no machine, which is how it became a false general
+claim — and it mattered: it is why `OP-102`'s mutation gap went unmeasured for a day, since
+the guards that would have caught it are in exactly these two files.
 
 ---
 

@@ -780,8 +780,17 @@ nothing looks broken enough to notice.
 (`--control-active: var(--chip)`) — that needs no palette work and follows device
 tones for free. Reach for a raw hex per palette only when the hue itself must be
 fixed. **`--accent` is not a safe state colour**: device mode resolves it to the
-OS `AccentColor`, so it can collide with the fixed `--amber`. Guarded by
-`test_every_custom_property_a_stylesheet_reads_is_one_something_defines`.
+OS `AccentColor`, so it can collide with the fixed `--amber`.
+
+**THE GUARD THIS PARAGRAPH USED TO NAME HAS NEVER EXISTED.** It cited
+`test_every_custom_property_a_stylesheet_reads_is_one_something_defines`; a grep for that
+name returns this line and nothing else. Measured 2026-08-29: **twelve declarations across
+six files read a custom property nothing declares**, including the `--control-active` this
+very paragraph proposes a fix for — so the citation was covering the exact defect it named.
+`OP-103` carries them. The near-miss is worth the space: `tests/test_the_tests_name_tests_that_exist.py`
+guards backticked test names but reads only `tests/*.py`, and the citation guard reads
+`docs/` but checks only `file:line`. **A backticked test name inside a document falls in the
+seam between the two**, and that seam is `OP-109`.
 
 ### Half a composite component is dressed for the half that is missing
 
@@ -1869,7 +1878,11 @@ adds no *completeness* the count does not.
 **What made it hard to see is worth more than the fix.** The module docstring stated
 the opposite as settled fact — *"the union can reach N by luck across two generations
 and that proves nothing"* — and a test was named
-`test_a_union_across_two_generations_is_not_a_proof` and asserted it. Nine guards and
+`test_a_union_across_two_generations_is_not_a_proof` and asserted it. (**The live test is
+`test_a_union_across_two_generations_IS_a_proof`** — the opposite polarity, at
+`tests/test_a_crawl_that_can_prove_it_read_everything.py:363`. This lesson had gone on
+citing the pre-correction name of the very test whose rule it inverted; corrected
+2026-08-29 by `REQ-49`.) Nine guards and
 twenty-one killed mutations all agreed with each other, because they were all
 checking the same wrong rule. **Mutation testing cannot find a mistake in what you
 decided to prove**; it only checks that you still prove it. The error surfaced only
@@ -2892,9 +2905,44 @@ Knowing which of the two a guard covers is the difference between trusting it an
 **The cheap rule that follows:** after inserting anything above line ~300 of a long, heavily
 cited module, re-derive every citation into it. `difflib` between the old blob and the new one
 gives the map in one pass — **and read each answer**, because one of the nine was better after
-the drift than before it: `STATE.md:918` had pointed at a docstring's closing quote and the
-shift landed it on the `def` the sentence names. Applying the map blindly would have repaired
-it into being wrong.
+the drift than before it: the citation then sitting at line 918 of `STATE.md` had pointed at a
+docstring's closing quote, and the shift landed it on the `def` the sentence names. Applying
+the map blindly would have repaired it into being wrong.
+
+**AND THAT SENTENCE HAS NOW PROVED ITSELF TWICE.** It used to write "918" in `file:line`
+form, so the citation guard read a RECOUNTING of a past drift as a live citation — and on
+2026-08-29 the line drifted again, twice in one afternoon, until it landed on a blank line
+and went red. **A number quoted as history is indistinguishable from a number offered as a
+destination**, and this file cannot tell a reader which it meant. So prose about a line
+number is written without the colon form, and only a citation meant to be FOLLOWED gets it.
+
+**Three independent instances the same afternoon, in three different documents, found by two
+sessions who did not know the other was looking.** This one; a sentence in `docs/REQUESTS.md`
+whose whole subject was that its quoted line is *dated, therefore history rather than rot* —
+written in the form reserved for destinations; and a bulk repoint into
+`docs/ENGINE-ROLE-MEASURED.md` that had to be reverted, because that file is a snapshot at a
+named commit and rewriting a reference inside it makes the snapshot say something it did not
+say. Add the fourth already known: a backticked TEST name in a document, which
+`tests/test_the_tests_name_tests_that_exist.py` cannot see because it reads only `tests/*.py`.
+
+**The shape under all four is that a guard cannot see INTENT.** It can check that a
+destination resolves; it cannot ask whether the writer meant a destination at all. That is
+not a defect to fix in the guard — a guard that guessed intent would be worse — it is a
+constraint on how we write. **Signal the intent in the FORM: the colon form means "go here",
+and anything else means "this is what it said".**
+
+### The merge rule that came out of the same afternoon
+
+Three sessions were writing these documents at once, and resolving a rebase conflict by
+keeping BOTH sides silently produced a stale heading with no body under it. The mechanism:
+one side's hunk ENDED with an untouched heading as trailing context, and that same heading
+was the OTHER side's edit target. Concatenating kept the original and the correction.
+
+**"Keep both" is safe for two appends at one anchor. It is NOT safe when one side's trailing
+context is the other side's edit target** — and a conflict hunk does not distinguish the two,
+because trailing context and edited content look identical inside it. **After any
+keep-both resolution, read the seam**, not just the ends: the duplicate is at the join, and
+nothing in the register or citation guards will catch a heading that merely repeats.
 
 ## 22 · Rebuilding a table drops every trigger on it, and only a count says so
 
@@ -3202,3 +3250,35 @@ fires on a mutation, ask what the far side is still doing; the answer is usually
 other bounding a request. No guard compares a documented duration against a coded timeout,
 and none is proposed here; what is worth keeping is that the evidence for a defect can be
 fully present in the repository, in two files, and still be nobody's finding.
+## 28 · A counting tool is fooled by the documentation of the thing it counts
+
+Two sessions hit this from opposite ends on 2026-08-29, within two hours, and neither was
+looking for it.
+
+**Here.** `REQ-49` reported into `OP-110` that the authored stylesheets carry *"35 bare
+numeric `z-index` declarations against 11 tokenised, 34 of them below the token floor"*. All
+three numbers were wrong. Re-counted with a parser that strips `/* ... */` before scanning:
+**38 bare, 6 tokenised, 29 below the floor.** The line-grep had counted `z-index` mentioned
+inside comments — including the comment in `extension/app.css` that *explains the
+`--z-modal` collision*, which is to say the census counted the prose written about the
+defect as further instances of the defect. `calc(var(--z-modal) + 10)` fooled it the other
+way, reading as bare because the digits were there.
+
+**And in the panel, the same hour.** A parser written to read `LOCAL_POLICIES` out of
+`extension/startup.js` broke on a `[/?]` sequence sitting inside the `//` comment written to
+explain the rule that uses `[/?]`. Fixed with a `_without_comments` pass before scanning.
+
+**THE RULE: strip comments before counting anything, and treat a grep-based census of a
+commented file as an estimate.** A file's comments are exactly where its syntax gets quoted,
+so the denser the documentation the worse the count — and this repository documents its
+values at the value on purpose.
+
+**THE PART THAT IS EASY TO MISS.** All three of the numbers moved in the same direction, so
+they stayed consistent with each other and read as trustworthy. **A miscount that shifts one
+figure looks like a typo; a miscount that shifts every figure looks like a measurement.**
+The tell is not internal consistency, it is whether the tool could see what it was counting
+— and the answer here was written into the same file, four lines above.
+
+Related: section 21's rule about re-deriving citations after an insertion is the same
+discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
+applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
