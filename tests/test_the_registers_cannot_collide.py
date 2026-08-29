@@ -127,6 +127,25 @@ RESERVED: dict[str, dict[int, str]] = {
         # landed -- which is the rule this table states about itself. Delete this row
         # the day that branch lands too.
         43: "branch feat/organization-enrichment",
+        # 46 and 47 ADDED 2026-08-28 by `feat/the-supabase-appearance-is-a-design-system`,
+        # which took REQ-48 over the top of them and so created the holes it declares.
+        # Both are INVISIBLE claims -- the sweep run before taking 48 found neither number
+        # declared as a heading in any of the 236 local and remote refs -- and both are
+        # real, which is the exact state §3 of ORCHESTRATION.md says to step over rather
+        # than trust the repository about.
+        #
+        # 46: `docs/STATE.md` records the dry-route work asking the primary for a REQ
+        # number and noting 46 was free across all 419 refs on 2026-08-27. That work
+        # merged as #274 WITHOUT taking one, so the claim outlived its pull request and
+        # the number is still spoken for by a follow-up nobody has written yet. Verify by
+        # reading the "Awaiting the primary" line in STATE.md, not by grepping REQUESTS.md
+        # -- grepping is what would hand it out twice.
+        46: "PR #274's follow-up, per docs/STATE.md 'Awaiting the primary'",
+        # 47: `docs/BACKLOG.md`'s review row for `feat/organization-enrichment` instructs
+        # that branch to renumber its colliding REQ-44 to REQ-47. The branch is pushed,
+        # has no open PR, and still declares 43 and 44 on `origin` -- so the renumber is
+        # recommended-and-unperformed, which is a claim on 47 either way.
+        47: "branch feat/organization-enrichment, per docs/BACKLOG.md's renumber row",
     },
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a

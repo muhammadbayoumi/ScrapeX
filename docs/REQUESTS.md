@@ -99,6 +99,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
+| [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 
 ---
 
@@ -2491,3 +2492,117 @@ and leave the undecided fact visible rather than absorbed by a default.
 
 **What is NOT safe to build before `REQ-25`:** the button. Which key and which registry is
 the open question itself, and guessing it is how a default absorbs a ruling.
+
+---
+
+## REQ-48 · A `supabase` appearance that is a whole design system, and the default
+**Captured 2026-08-28 · Ruled the same day ([R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)) · In flight — branch `feat/the-supabase-appearance-is-a-design-system`, one line still his**
+
+> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
+> system كامل · https://supabase.com/design-system · على tree جديدة»
+
+Captured under **C7** in the session he said it. The words that decide the shape of the work
+are **«لن يكون الوان فقط»** — *not colours only* — and **«ويصبح default»**.
+
+Both of them collide with something already in the repository, and neither collision is
+visible from the request.
+
+### Collision 1 — the engine can only carry colour
+
+`THEME_PROPERTIES` in [design/appearance.js](../design/appearance.js) is the complete list of
+what a palette entry may override. Counted on 2026-08-28: **36 entries, and all 36 are
+colours** — surfaces, text, accent, button, amber, red, switch, `shadow-color`, `overlay`.
+
+There is **no** radius, no font, no type scale, no spacing step, no shadow ramp, no duration
+and no easing curve in it. Those live in [design/tokens.css](../design/tokens.css) as
+`:root` values that no appearance choice can reach.
+
+So *«design system كامل»* is not a bigger palette entry, and the request cannot be satisfied
+by adding a third row to `PALETTES`.
+
+> **This paragraph read *"it is a second axis on the appearance engine"*, and that was the
+> wrong conclusion from the right measurement.** `R-73` built the axis; the same day
+> [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+> cancelled it, because an axis puts the design system in **one palette** and measured on the
+> built engine that is exactly what happened — `whatsapp`, `github` and device colours all
+> fell back to the pre-Supabase shape. The design system belongs in the BASELINE, where all
+> four colour choices reach it. Kept rather than rewritten, per **C4**: the count above is
+> still the finding, and only the answer to it moved.
+
+### Collision 2 — `DEFAULTS.palette` is not what a new user sees
+
+`DEFAULTS` is `{mode: "device", scheme: "light", palette: "github", deviceColors: true}`.
+And `apply()` reads:
+
+```js
+if (value.deviceColors) {
+  root.removeAttribute("data-palette");
+  clearTheme(root);
+  return;                    // <-- the palette is never applied
+}
+```
+
+`deviceColors` defaults to **`true`**, so on a fresh install the named default palette is
+**dead code for that user**: no `data-palette` attribute, no custom properties written. What
+they actually get is `tokens.css`'s `:root` — the **teal** that
+[R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+decision 2 calls *"deprecated — legacy colour residue and migration debt"* — overridden by
+the operating system's `AccentColor` where the browser exposes one.
+
+**So `github` has never been the default anybody saw, and neither would `supabase` be.**
+"Becomes the default" is two changes: name it, and stop `deviceColors` from suppressing it.
+
+### And it lands on a ruling and an open debt
+
+- **`R-59` decision 1** says *"`brand` is the default palette"*, with `alternatives`
+  extensible and `blue` its first entry. A `supabase` default contradicts it, so this needs a
+  ruling of his that supersedes that half under **C4** — not an edit.
+- **`R-59` decision 3** says `whatsapp` and `github` are *legacy compatibility aliases* for
+  `brand` and `blue`. That registry was never built.
+- **[OP-82](BACKLOG.md)** is exactly that hole: [scrapex/webui/app.py](../scrapex/webui/app.py)
+  refuses any palette outside `{"whatsapp", "github"}`, so a third id is rejected by the
+  engine before the panel ever renders it. OP-82's own note — *"no third palette exists to
+  add"* — stops being true with this request.
+- **[tests/test_vendor.py](../tests/test_vendor.py)**'s
+  `test_only_the_two_reviewed_application_palettes_are_available` asserts
+  `appearance.count('description: "') == 2`. That is a **review decision encoded as a
+  guard**: a third palette is meant to cost a written justification, not an edited number.
+
+> **The four items above describe the tree AS IT WAS ON 2026-08-28 at capture, and three of
+> them are now closed.** They are kept rather than rewritten, for the same reason a
+> superseded ruling is kept under **C4** — what a request walked into is part of the
+> request. `OP-82` is closed, the registry is built, and the guard is now
+> `test_only_the_three_reviewed_application_palettes_are_available` with the justification
+> for the third palette written inside it. **Only the first item is still open**, and only
+> in its second half: `R-73` supersedes `R-59` decision 1, and whether a fresh user
+> actually *sees* the default is the question he asked for numbers on.
+
+### The name
+
+He wrote **`supbase`** and linked **supabase.com**. The id is not cosmetic — it is written to
+`localStorage`, sent over `POST /api/appearance`, validated server-side, set as
+`data-palette` on the root element, and used in screenshot filenames. Which spelling is
+canonical is his call and is recorded before it is typed anywhere.
+
+### The Arabic constraint, which the reference does not know about
+
+`--font` is `"Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans Arabic",
+sans-serif`. Supabase's brand face is a licensed one this repository cannot ship, and any
+swap has to keep Arabic rendering — he reads and writes this product in Arabic. A typography
+change is therefore a decision, not a transcription.
+
+### State
+
+**Ruled the same day** as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).
+He answered all four questions:
+
+| question | his answer |
+|---|---|
+| the id | **`supabase`** — the correct spelling, not the `supbase` he first typed |
+| how far *«كامل»* reaches | **the deepest of three** — «الكامل: التوكنز + قواعد المكونات»: the tokens **and** the component rules. Then corrected by [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour): «كاملة بكل جوانبه وفروعه» means the design system is the **baseline**, not a per-palette axis — the axis gave it to `supabase` and left `whatsapp`, `github` and device on the old shape |
+| what a palette may change | **colour, and nothing else** — «فتعدل على الالوان فقط لا تعدل على design system». `whatsapp` and `github` are colour themes that do not represent the brand |
+| does a new user actually see it | **numbers first** — «قوله لى بالأرقام الأول», then **«اقلبها»**. `deviceColors` defaults to `false`, so a fresh install paints `supabase`; 1 stored state of 8 is affected and it is the one that never chose |
+| the `R-59` collision | **«امسح التعارض الغرض الحصول على تعديلات»** — clear it. `R-73` builds the registry `R-59` asked for and closes `OP-82`; `R-59` itself stays marked per `C4` |
+
+A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on `main` at
+`b836de3`.

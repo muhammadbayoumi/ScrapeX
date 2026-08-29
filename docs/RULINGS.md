@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1671`, drawn by
+(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1699`, drawn by
 `extension/app.js:607` and `:641`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line
@@ -2569,7 +2569,14 @@ finishes when the problems the audit found are solved. Then Drive.
 
 ### R-59 · The palette registry: `brand` is default, `alternatives` is extensible, teal is debt
 
-**2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked**
+**2026-08-09 · design system · rescued 2026-08-27 from a file nothing linked ·
+decision 1 ~~active~~ SUPERSEDED 2026-08-28 by [R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**
+
+**Decision 1 only.** `brand` is no longer the default palette — `supabase` is. Decisions
+2–6 are untouched and still govern: teal is still debt, the aliases still stand, components
+still consume roles, and `R-73` builds the extensible `alternatives` collection that
+decision 1 asked for rather than abandoning it. Per **C4** the original text below stays
+exactly as it was recorded.
 
 Six decisions of his lived **only** in `docs/design-system/SCRAPEX_GLOBAL_MAPPING.md` —
 zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. That breaks
@@ -2587,9 +2594,13 @@ zero in-links, and not one of them named in `RULINGS`, `BACKLOG` or `LESSONS`. T
    endpoints are an internal layer; only what is reusable beyond ScrapeX is a candidate.
 6. **The FastAPI/Jinja surfaces are an explicit LOCAL-WEB profile.**
 
-**Decisions 1 and 3 are half-built:** `scrapex/webui/app.py:195` refuses any palette outside
-`{"whatsapp", "github"}` — the aliases are enforced and the registry they alias does not
-exist. Registered as `OP-82`.
+**Decisions 1 and 3 were half-built for nineteen days:** `scrapex/webui/app.py` refused any
+palette outside `{"whatsapp", "github"}` — the aliases were enforced and the registry they
+alias did not exist. Registered as `OP-82`, **and built on 2026-08-28 by
+[R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one)**,
+which closed `OP-82`. The keys are `brand`, `blue` and `supabase`; the two legacy names are
+resolved in `normalize()` and canonicalised server-side, and a test compares the two
+surfaces' registries because a divergence between them is silent.
 
 **Not carried:** that file's §11 listed ten questions pending the *other* products' audits.
 They are mbiXaddin's and mbiXsite's to answer, not this repository's. `git show
@@ -2992,3 +3003,179 @@ zero references to the stream. His price data has been in the engine since the c
 
 **AND THE DELETION FOUND THREE DEFECTS THAT THE DUPLICATION HAD BEEN HIDING**, all in
 `LESSONS` §23. Every one was invisible because the tests were building the wrong database.
+---
+
+### R-73 · An appearance is a whole design system, and `supabase` is the default one
+**2026-08-28 · design system · supersedes [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt) decision 1 only**
+
+> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
+> system كامل · https://supabase.com/design-system · على tree جديدة»
+> — [REQ-48](REQUESTS.md#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default)
+
+Four questions were put to him with the measurement behind each, because three of them
+walked into something already decided. He answered all four.
+
+#### 1 · The id is `supabase`, spelled correctly
+
+He wrote `supbase` in the request and linked `supabase.com`; asked which spelling was
+canonical, he chose **`supabase`**. It is not cosmetic — the id is written to
+`localStorage`, sent over `POST /api/appearance`, validated server-side, set as
+`data-palette` on the root element, and used in screenshot filenames, so a later correction
+would break stored preferences. Recorded before it was typed anywhere.
+
+#### 2 · «كامل» means the tokens AND the component rules
+
+Measured and put to him: `THEME_PROPERTIES` in `design/appearance.js` is **36 entries and
+all 36 are colours.** Radius, font, type scale, spacing, elevation, duration and easing live
+in `design/tokens.css` as `:root` values that **no appearance choice can reach.** So *"not
+colours only"* could not be satisfied by a third row in `PALETTES`.
+
+Offered three depths — colour only, colour plus a new token axis, or both plus rewriting the
+component rules — **he chose the deepest: «الكامل: التوكنز + قواعد المكونات».**
+
+So the work is: a second axis on the appearance engine so an appearance carries shape,
+typography, elevation, spacing and motion; **and** the component anatomy in
+`design/components.css` restyled to match. Decision 4 of `R-59` is unaffected and binding
+throughout — components consume semantic roles, never a palette identifier.
+
+> **~~The axis~~ SUPERSEDED THE SAME DAY by
+> [R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).**
+> A per-palette axis puts the design system in **one palette**, and measured on the engine
+> this section produced, that is what it did: `supabase` got all nine design properties and
+> `whatsapp`, `github` and device colours got none, falling back to the pre-Supabase 9px
+> radius, 14px body and Segoe UI. Three of four colour choices. The design system belongs in
+> `design/tokens.css`, where every choice reaches it. **The half of this section that stands
+> is the component rules** — that work is untouched, and it is what lets the baseline reach
+> anything at all.
+
+#### 3 · Whether a new user actually SEES it is still his call
+
+`DEFAULTS` is `{mode: "device", scheme: "light", palette: "github", deviceColors: true}`,
+and `apply()` returns early on the `deviceColors` branch after `clearTheme(root)` — no
+`data-palette`, no custom properties. **So `github` has never been the default anybody saw**,
+and neither would `supabase` be from a rename alone. A fresh user gets `tokens.css`'s `:root`
+teal — the residue `R-59` decision 2 calls debt — or the OS `AccentColor` where the browser
+exposes one.
+
+Asked whether to flip `deviceColors` to `false` so the default is real, **he asked for the
+numbers first: «قوله لى بالأرقام الأول».** They were measured over `normalize()`'s own
+precedence rather than estimated:
+
+| | |
+|---|---|
+| stored states that change | **1 of 8** — only "no stored preference at all" |
+| preserved | every state that ever expressed a choice, including a legacy `v1` record with neither key, which still derives from `mode` |
+| migration | **none** — `normalize()` already resolves every stored shape |
+| server | **none** — `_appearance_value` has no defaults, `GET` returns `null` when unset |
+| tests pinning the old default | **one line.** The other nine `deviceColors` references in `tests/` all set the value explicitly |
+
+**He then chose the flip**, so `DEFAULTS.deviceColors` is `false` and `supabase` is what a
+fresh install paints. *"Device colours"* remains available and is one click away in the
+panel — this changed which way the switch starts, not whether it exists.
+
+**And it closes a second thing nobody asked about.** What a fresh user actually got was
+`tokens.css`'s `:root` teal — the residue decision 2 above calls *"deprecated ... migration
+debt"* — or the operating system's `AccentColor` where the browser exposes one. **The
+deprecated colour was the shipped default, not a leftover.**
+
+#### 4 · The conflict with `R-59` is removed rather than left standing
+
+His instruction: **«امسح التعارض الغرض الحصول على تعديلات»** — clear the conflict; the point
+is to get the change made.
+
+So the code stops contradicting the register. `R-59` decision 3 made `whatsapp` and `github`
+legacy aliases for `brand` and `blue`, and decision 1 made `alternatives` extensible; neither
+was ever built, which is [OP-82](BACKLOG.md) — `scrapex/webui/app.py` refuses any palette
+outside `{"whatsapp", "github"}`, enforcing a compatibility layer over a registry that does
+not exist. **R-73 builds that registry and closes `OP-82`**, so adding an appearance after
+this one costs nothing.
+
+**One thing is deliberately NOT erased.** «امسح» is read as *clear the conflict*, not *delete
+the ruling*: **C4** is his own rule and it says a superseded ruling stays, marked, pointing at
+its replacement. `R-59` is therefore intact above with decision 1 struck and this entry named,
+and decisions 2–6 still active. Erasing it would have hidden why `brand` was ever the default
+from the next session to ask.
+
+---
+
+### R-74 · The design system is Supabase's, always, and a palette may change nothing but colour
+**2026-08-28 · design system · GENERAL — «واى تعارض معاها يلغى» · amends
+[R-73](#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) §2 and
+discharges [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+decision 2**
+
+> «نقطة مهمة ضعها قرار واى تعارض معاها يلغى فهذا تحديث عام
+> · اولا supabase design system هو default للبراندى اما واتساب وجيت هب فهى الوان يمكن
+> اختيارها ولكنها لا تعبر عن brand
+> · design system اعنيها كاملة بكل جوانبه وفروعه
+> · whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم فتعدل على الالوان فقط لا تعدل
+> على design system
+> · يعنى design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و
+> device»
+
+**He labelled this himself: a general update, and anything that conflicts with it is
+cancelled.** It is recorded before the code changes, because the code it corrects is code
+this repository shipped hours earlier.
+
+#### The rule, in four parts
+
+1. **The Supabase design system is THE design system.** Not an option, not a palette, not one
+   entry among three. It is the baseline every surface is drawn on — *«كاملة بكل جوانبه
+   وفروعه»*: complete, in every aspect and every branch. Shape, typography, spacing,
+   elevation, motion, focus geometry.
+2. **The only thing a user chooses is COLOUR.** Four options, and `supabase` is the default:
+   `supabase`, `whatsapp`, `github`, `device`.
+3. **`whatsapp` and `github` are colour themes and do not represent the brand.** *«لا تعبر عن
+   brand»*. They change colours. They **must not** change the design system.
+4. **`device` is on the same footing** — it swaps colours for the operating system's, and the
+   design system underneath it does not move.
+
+#### What was wrong, measured before this was written
+
+`R-73` built the opposite architecture: a **per-palette** design axis, where an appearance
+*could* carry shape and typography. Because only `supabase` declared a `design` block, the
+other three fell back to `design/tokens.css` — which still held the pre-Supabase shape and
+type. Run against the built engine on 2026-08-28:
+
+| colour choice | design properties applied |
+|---|---|
+| `supabase` | radius, fs, fw-regular, fw-heavy, font, shadow, dur, ease, focus-ring — **9 of 9** |
+| `whatsapp` (`brand`) | **none** — fell back to the old 9px radius, 14px body, 400/700 weights, Segoe UI |
+| `github` (`blue`) | **none** — same |
+| **device colours** | **none** — same |
+
+**Three of the four colour choices lost the design system entirely**, and device colours is
+the one a fresh install would have used had the flip not landed. That is precisely what part
+3 forbids, and it is why this ruling exists.
+
+#### What it changes in the code
+
+- **`design/tokens.css` becomes the Supabase design system.** Its `:root` carries Supabase's
+  shape, typography, motion, focus geometry and elevation, and its dark blocks carry
+  Supabase's dark elevation. Every colour choice — including `device`, which applies no
+  palette at all — therefore sits on it.
+- **`DESIGN_PROPERTIES` and `designFor()` are removed.** A mechanism whose entire purpose was
+  *"a palette may carry a design system"* conflicts with part 3, and *«واى تعارض معاها يلغى»*
+  cancels it. `R-73` §2's axis is amended, not the request behind it: *«لن يكون الوان فقط»*
+  is satisfied **better** by putting the design system in the baseline than by letting each
+  palette carry its own.
+- **A guard replaces it, inverted.** Instead of a list of non-colour properties a palette
+  *may* set, a test asserts a palette entry may contain **nothing but colour**. The ruling
+  becomes unbreakable rather than merely documented.
+- **The `supabase` palette entry stops duplicating the baseline.** Its colours *are* the
+  `:root` colours, so it declares none and exists to be selectable and to name itself in
+  `data-palette`. `brand` and `blue` stay exactly what they are: colour overrides.
+
+#### And it discharges `R-59` decision 2
+
+Decision 2 called the teal *"deprecated — legacy colour residue and migration debt, not brand
+and not a future palette."* It survived because it was the `:root` fallback and therefore
+what a fresh user actually saw. Under this ruling `:root` becomes Supabase, so **the teal is
+deleted rather than deprecated.** The debt is paid, not re-registered.
+
+#### What this ruling does NOT touch
+
+The three Sign-in-with-Google values and that button's fixed type size stay outside every
+appearance's reach — Google's branding rules, and their own guard. `--sp-*`,
+`--control-height*` and `--touch-target` keep the panel's 48px floor. `R-59` decision 4 still
+governs: components consume semantic roles, never a palette identifier.

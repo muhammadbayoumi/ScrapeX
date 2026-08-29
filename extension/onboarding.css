@@ -12,7 +12,7 @@ body { line-height: var(--lh-relaxed); }
   .status.checking { background: var(--chip); } .status.checking .dot { background: var(--muted); }
   .status.down { background: var(--red-weak); } .status.down .dot { background: var(--red); }
   .status.up { background: var(--accent-weak); color: var(--accent-ink); } .status.up .dot { background: var(--accent); }
-  .status .sub { font-weight: 400; color: var(--muted); font-size: var(--fs-sm); margin-inline-start: auto; }
+  .status .sub { font-weight: var(--fw-regular); color: var(--muted); font-size: var(--fs-sm); margin-inline-start: auto; }
   .card { margin-bottom: var(--sp-4); padding: var(--sp-4) var(--sp-5); }
   .step { display: flex; gap: var(--sp-4); padding: var(--sp-2) 0; }
   .step .n { flex: none; width: 1.625rem; height: 1.625rem; border-radius: 50%; background: var(--accent-weak);

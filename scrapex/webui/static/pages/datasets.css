@@ -1,8 +1,8 @@
 .dataset-workflow{display:grid;gap:1rem}
   .dataset-workflow section{background:var(--surface);border:1px solid var(--line);
-    border-radius:12px;padding:1rem 1.1rem;box-shadow:var(--shadow)}
+    border-radius:var(--radius-lg);padding:1rem 1.1rem;box-shadow:var(--shadow)}
   .dataset-workflow h2{margin:.1rem 0 .5rem}
-  .state{border:1px solid var(--line);border-radius:9px;padding:.65rem .75rem;
+  .state{border:1px solid var(--line);border-radius:var(--radius);padding:.65rem .75rem;
     margin:.75rem 0;font-size:.88rem}
   .state[hidden]{display:none}
   .state.failure{border-inline-start:4px solid var(--red)}
@@ -24,7 +24,7 @@
   .candidate-preview thead th,.records-table thead th{top:0}
   .dataset-item{display:flex;align-items:center;justify-content:space-between;gap:.8rem;
     border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem}
-  .dataset-title{font-weight:600;unicode-bidi:plaintext}
+  .dataset-title{font-weight:var(--fw-bold);unicode-bidi:plaintext}
   .dataset-sub{font-size:.8rem;color:var(--muted)}
   .value{unicode-bidi:plaintext;text-align:left;white-space:pre-wrap}
   .approval-note{font-size:.82rem;color:var(--muted);margin:.35rem 0}

@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1682` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2749` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1710` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2777` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2749`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2777`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1743,12 +1743,12 @@ menu's own `z-index: 120` inside it. The fix adds
 `var(--z-overlay)` while open — correct, measured, and guarded by a hit test.
 
 **Why the rule belongs one level up.** The `120` is the shared component's
-([design/components.css:1429](../design/components.css#L1429)), so the knowledge *"this
+([design/components.css:1456](../design/components.css#L1456)), so the knowledge *"this
 menu must not be painted over"* is the component's too. The component's own comment,
 ten lines under that declaration, states the repository's rule for exactly this
 situation: *"When two independent consumers break the same way, the shared rule is the
 defect rather than the consumers"*
-([design/components.css:1439](../design/components.css#L1439)).
+([design/components.css:1466](../design/components.css#L1466)).
 
 **And the prose now tells the next consumer to write the selector again.**
 `docs/UI-KIT.md` records the trap as placement guidance — *"where a layer really is
@@ -1839,7 +1839,7 @@ declaration whose knowledge it is:
 ```
 
 then `python tools/sync_design_assets.py`. It applies — `.split-button` is already
-`position: relative` ([design/components.css:1352](../design/components.css#L1352)) —
+`position: relative` ([design/components.css:1377](../design/components.css#L1377)) —
 and it is inert unless a menu is open. The card keeps its own `z-index: 1`, which is
 local placement, not this rule.
 
@@ -1878,7 +1878,7 @@ concurrent edit on 2026-08-22 and every rule below it shifts when the card block
 it changes. See `OP-47` for the same reason at more length.
 
 **The scale is three tokens** — `--z-sticky: 10`, `--z-overlay: 20`, `--z-modal: 30`
-([design/tokens.css:128](../design/tokens.css#L128)) — and **three rules across two
+([design/tokens.css:222](../design/tokens.css#L222)) — and **three rules across two
 sheets** write a token's value as a raw number instead of reading it. This is the
 complete set, measured at `451468d` by matching a bare integer equal to any of the three:
 
@@ -1950,7 +1950,7 @@ that is the question a person is asking.**
 
 **The same file breaks the three-token rule in four more places, and those are NOT this
 entry.** `.workspace-menu` invents `z-index: 25` between overlay and modal;
-`.split-button-options` uses `120` ([design/components.css:1429](../design/components.css#L1429));
+`.split-button-options` uses `120` ([design/components.css:1456](../design/components.css#L1456));
 `.grid-feature-popover` uses `100` and `.column-chooser-backdrop` `10020`
 ([scrapex/webui/static/grid-theme.css:663](../scrapex/webui/static/grid-theme.css#L663),
 [scrapex/webui/static/grid-theme.css:311](../scrapex/webui/static/grid-theme.css#L311)).
@@ -3292,19 +3292,160 @@ nothing breaks while it waits.
 
 ---
 
-### OP-82 · The palette registry is two hard-coded aliases, not a registry
+### OP-82 · ~~The palette registry is two hard-coded aliases, not a registry~~ — CLOSED 2026-08-28
 
-**Found 2026-08-27 by sweeping the documents, not by a failure.**
+**Found 2026-08-27 by sweeping the documents, not by a failure. Closed by
+[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
 
-[scrapex/webui/app.py:195](../scrapex/webui/app.py#L195) rejects anything outside
-`{"whatsapp", "github"}`. Under [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
-those two names are **legacy aliases** and the real names are `brand` and `blue`, with
-`alternatives` extensible. So the route enforces the compatibility layer and knows nothing
-of the thing it is compatible with.
+The route rejected anything outside the two legacy names. Under
+[R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+those two are **aliases** and the real names are `brand` and `blue`, with `alternatives`
+extensible — so the route enforced the compatibility layer and knew nothing of the thing it
+was compatible with.
 
-**Not urgent** — no third palette exists to add. It is registered because the ruling that
-contradicts the code was itself invisible until today, and the next session to add a palette
-would find the refusal before it found the rule.
+**Its own closing note was wrong within a day.** It read *"Not urgent — no third palette
+exists to add"*, and the owner asked for one on 2026-08-28. What that day also found is
+that the refusal was **not** the visible failure this entry assumed. Traced end to end:
+
+| step | what happens |
+|---|---|
+| 1 | the user picks the palette; `set()` stores it locally, so the panel looks correct |
+| 2 | `pushRemote` POSTs it, and `_appearance_value` raises 400 |
+| 3 | `pushRemote` returns `response.ok` from inside a `try`, and **both call sites discard it** — nothing is logged, thrown or shown |
+| 4 | `pullRemote` keeps polling every 2 s. Its GET answers **200** with `{"appearance": null}`, so `consecutiveFailures = 0` runs every tick and the `QUIET_AFTER_FAILURES` backoff **never engages** |
+| 5 | `!remote && current.updatedAt` is true, so every tick POSTs again — a permanent 2-second write loop that persists nothing and says nothing |
+
+**And the suite could not have caught it.** The only POST in the whole test suite sent
+`whatsapp` and expected 200; one other sent `popular-blush` and expected 400. That pair
+returns the same verdict whether a third palette is allowed or not.
+
+**Built:** `APPEARANCE_PALETTES` and `APPEARANCE_PALETTE_ALIASES` in
+`scrapex/webui/app.py`, the registry in `design/appearance.js` keyed on `brand`/`blue`/
+`supabase` with the two legacy names resolved in `normalize()` and canonicalised
+server-side, and
+`tests/test_the_appearance_registry_agrees_across_both_surfaces.py` — seven assertions
+including *the server accepts the engine's own default*, which is the one that fires if a
+future rename happens in the wrong order.
+
+---
+
+### OP-94 · ~~`--control-bg` was a literal, so no palette ever reached a dark control~~ — CLOSED 2026-08-28
+
+**Found 2026-08-28 by inventorying which tokens a palette can actually reach, while
+building [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one).**
+
+`--control-bg` is `var(--surface)` in the light `:root` and was re-declared as the literal
+`#171b21` in **both** dark blocks — `[data-theme="dark"]` and the
+`prefers-color-scheme: dark` copy. It is not a `THEME_PROPERTY`, so nothing could override
+either literal.
+
+**Measured:** WhatsApp's dark surface is `#182229` and GitHub's is `#151B23`. Neither ever
+reached a control background in dark mode; both palettes silently drew controls on the
+default surface. **8 consumers.**
+
+**Fixed** by pointing both at `var(--surface)`. The dark `--surface` *is* `#171b21`, so the
+default is byte-identical and the token follows the palette from now on.
+
+---
+
+### OP-95 · ~~`--shadow-lg` could not be re-toned by any palette~~ — CLOSED 2026-08-28
+
+**Found the same way, the same day.**
+
+`--shadow-xs` and `--shadow-sm` both derive their colour from `var(--shadow-color)`, which
+IS in `THEME_PROPERTIES`. `--shadow-lg` spelled its colour as a literal `rgb()` in all
+three places it is declared — so a palette could re-tone two of the three shadows and its
+**10 consumers** (5 in `extension/app.css`, 2 in `pages/data-workspace.css`, 2 in
+`webui.css`, 1 in `design/components.css`) kept the default tone under every appearance.
+
+**Fixed, and the fix got simpler when [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+landed.** `R-73` first made `--shadow-lg` reachable by a palette, so a palette could set the
+whole shadow — offsets, blur and colour — in one value. `R-74` cancelled that axis: elevation
+belongs to the design system, not to a palette. So all three shadow tokens now derive their
+colour from `var(--shadow-color)` **in the baseline**, and the literal is gone rather than
+kept. Nothing was lost by it — the reason the literal had to stay under `R-73` was that
+deriving it would have flattened the two existing palettes, and under `R-74` those palettes
+do not carry elevation at all.
+
+---
+
+### OP-96 · ~~Six references to two tokens that are defined nowhere~~ — CLOSED 2026-08-28
+
+**Found the same way, the same day. These resolved to nothing and always had.**
+
+| reference | sites | the token that exists |
+|---|---|---|
+| `var(--font-sans)` | `extension/app.css` ×3, `extension/console.css`, `extension/data.css` | `--font` |
+| `var(--shadow-md)` | `scrapex/webui/static/webui.css` | `--shadow-sm` |
+
+Neither `--font-sans` nor `--shadow-md` is declared in any stylesheet in the repository.
+An undefined custom property makes the whole declaration invalid at computed-value time, so
+those five elements were falling back to the inherited font and that button was drawing no
+shadow at all — for as long as the references have existed.
+
+**Why it belongs to `R-73` rather than waiting:** a design system whose typography token
+does not reach five of its consumers is not a design system. Repointed at the real tokens;
+zero remain.
+
+---
+
+### OP-97 · 138 hard-coded values still bypass the design tokens, and the scale would have to grow
+
+**Measured 2026-08-28 while building `R-73`, after fixing the free half.**
+
+A design system a rule does not consume is decoration: `--radius` moving from 9px to 6px
+changes nothing at a rule that spells `border-radius: 9px` by hand. Every such site was
+counted across the 9 non-generated stylesheets and split by what it would take to fix:
+
+| bucket | count | verdict |
+|---|---|---|
+| **A** — duplicates a token exactly | **48** | **fixed** in `R-73`. Same pixels at the default, so zero visual change, and 48 rules now follow the appearance |
+| **B** — within 1px of a token | **75** | **left.** 57 font-size, 18 border-radius. Pointing them at the near token moves the default look, which no ruling asked for |
+| **C** — no token equivalent | **63** | **left.** 26 of them are `border-radius: 0`, which is a real "no radius" and not a bypass. The rest need the scale to grow: `font-weight` 750 (×5) and 650 (×2), font sizes from `.56rem` to `.62rem` below `--fs-2xs`, four marketing `clamp()` sizes, and radii at 2px/2.5px/14px |
+
+**One value in bucket A was a trap and the guard caught it.** `design/components.css`'s
+Sign-in-with-Google rule spelled `font-size: 14px`, which is exactly `--fs` — so it looked
+like a free win. Google's branding guidelines fix that button's type size and
+`tests/test_the_google_button_follows_googles_rules.py` asserts the literal; Supabase moves
+`--fs` to 15px, so the swap would have taken the button out of spec. Reverted with the
+reason written at the value.
+
+**Not urgent.** Buckets B and C are cosmetic drift, not breakage, and closing either is a
+decision about the scale rather than a fix. Registered so the next session does not
+re-measure it.
+
+---
+
+### OP-98 · A killed engine leaves its job saying `running` — on Windows, and CI cannot see it
+
+**Found 2026-08-28 by running the full suite on the owner's machine. NOT this branch's
+defect — proven.**
+
+`tests/test_the_engine_survives_being_killed.py::test_a_killed_engine_does_not_leave_a_job_claiming_to_run`
+starts a real engine, kills it, restarts over the same database with `swept=True`, and
+asserts the sweep has reset the job. It reads `running`.
+
+**Isolated to the platform, not to the change.** Re-run on a clean checkout of `main` at
+`b836de3` in a second worktree, with none of this branch's commits present: **identical
+failure, same assertion, same value.** `main`'s CI is green, and
+[the CI workflow](../.github/workflows/ci.yml) runs on ubuntu only — so this is a
+**Windows-only red that CI is structurally unable to report.**
+
+**Why it matters more than a flaky test.** The test's own failure message states the
+consequence: `_source_is_busy` reads that status, so the source is *"blocked from every
+future crawl and nothing anywhere says why"*. If the sweep really does not run on Windows,
+then a crashed engine on either of the owner's two machines wedges that source silently —
+and he works from Windows exclusively.
+
+**Not diagnosed here.** It was found while verifying an unrelated change and is registered
+rather than absorbed, per `R-01`: the cause has to be proven before anything is edited, and
+this branch is not the place. **The first question is whether the sweep runs at all on
+Windows or runs and fails to match** — `Engine.start(swept=True)` and `OP-19` are the thread
+to pull.
+
+**This is the "a green lies" case in [ORCHESTRATION.md](ORCHESTRATION.md) §7 pointing the
+other way:** an ubuntu-only matrix makes a platform-specific defect invisible to every gate
+the repository has, on the only platform the owner uses.
 
 ---
 

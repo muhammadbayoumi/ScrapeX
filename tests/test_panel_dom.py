@@ -72,6 +72,7 @@ numbers for the second one.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -404,7 +405,12 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
         "aria-pressed") == "true"
     assert device_colours.is_checked()
     assert view.locator("[data-appearance-group]").count() == 0
-    assert view.locator("[data-appearance-palette]").count() == 2
+    # One tile per registry entry, derived so this cannot drift from the source.
+    # `renderPaletteBrowser` maps over PALETTES.values() with no cap, so a
+    # hard-coded number here would only ever record what the registry USED to
+    # hold.
+    assert view.locator("[data-appearance-palette]").count() == len(
+        _registered_palette_ids())
     scheme_icons = view.locator(".appearance-scheme-picker svg use")
     assert scheme_icons.count() == 2
     assert scheme_icons.nth(0).get_attribute("href").endswith("#light-mode")
@@ -443,18 +449,33 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     view.locator('[data-appearance-scheme-mode="light"]').click()
     assert page.locator("html").get_attribute("data-theme") == "light"
     device_colours.uncheck(force=True)
-    view.locator('[data-appearance-palette="whatsapp"]').click()
-    assert page.locator("html").get_attribute("data-palette") == "whatsapp"
+    view.locator('[data-appearance-palette="brand"]').click()
+    assert page.locator("html").get_attribute("data-palette") == "brand"
     assert page.locator("html").get_attribute("data-color-mode") == "manual"
-    whatsapp_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    brand_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
 
-    view.locator('[data-appearance-palette="github"]').click()
-    github_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert github_light != whatsapp_light
+    view.locator('[data-appearance-palette="blue"]').click()
+    blue_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert blue_light != brand_light
 
+    # The third tile, and the one that proves the axis R-73 added actually
+    # reaches the page: a palette that changed only colour would leave the
+    # radius alone. `--radius` is 9px for the other two and 6px here.
+    view.locator('[data-appearance-palette="supabase"]').click()
+    assert page.locator("html").get_attribute("data-palette") == "supabase"
+    supabase_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert supabase_light not in (brand_light, blue_light)
+    assert page.evaluate(
+        "() => getComputedStyle(document.documentElement)"
+        ".getPropertyValue('--radius').trim()") == "0.375rem"
+    assert page.evaluate(
+        "() => getComputedStyle(document.documentElement)"
+        ".getPropertyValue('--fw-regular').trim()") == "450"
+
+    view.locator('[data-appearance-palette="blue"]').click()
     view.locator('[data-appearance-scheme-mode="dark"]').click()
-    github_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert github_dark != github_light
+    blue_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert blue_dark != blue_light
 
     view.locator('[data-appearance-scheme-mode="device"]').click()
     assert page.locator("html").get_attribute("data-appearance") == "device"
@@ -477,7 +498,31 @@ def _contrast(first: str, second: str) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
-@pytest.mark.parametrize("palette", ["whatsapp", "github"])
+def _registered_palette_ids() -> list[str]:
+    """The registry's own ids, read from the source rather than copied.
+
+    THIS LIST WAS `["whatsapp", "github"]` AND THAT WAS THE HOLE. A palette
+    added to `design/appearance.js` was simply not contrast-tested -- the guard
+    kept passing on the two it already knew, and nothing anywhere said the new
+    one had never been measured. Under R-73 the default itself would have been
+    the untested one.
+
+    Deriving the list means adding a palette AUTOMATICALLY adds 17 assertions in
+    each scheme, and a palette that cannot meet them fails on the day it lands.
+    parametrize runs at collection time, before any browser exists, so this has
+    to parse the file; `window.ScrapeXAppearance.palettes` is not reachable yet.
+    """
+    source = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+    registry = source.split("const PALETTES = new Map([", 1)[1]
+    registry = registry.split("const PALETTE_ALIASES", 1)[0]
+    ids = re.findall(r'^\s{4}\["([a-z-]+)", \{', registry, re.M)
+    assert len(ids) >= 3, (
+        f"parsed {ids} from the registry; the shape of design/appearance.js "
+        "changed and this guard is no longer covering every palette")
+    return ids
+
+
+@pytest.mark.parametrize("palette", _registered_palette_ids())
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         open_panel, palette, scheme):
@@ -537,7 +582,29 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
 
 
 def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
+    """And, since R-73, that the LEGACY ID still reaches it.
+
+    The palette is keyed `brand` in the registry now; `whatsapp` is the
+    compatibility alias R-59 decision 3 declared. This test asks for it by the
+    old name on purpose -- that is the name every appearance stored before
+    2026-08-28 carries, in localStorage and in the engine's `ui_appearance`
+    setting -- and the values it then reads are what proves the alias resolved
+    instead of falling through to the default. An identical set of numbers here
+    with `brand` typed in would test one thing less.
+    """
     page = open_panel()
+
+    resolved = page.evaluate("""() => {
+        window.ScrapeXAppearance.set({
+          mode: "manual", scheme: "light", palette: "whatsapp",
+          deviceColors: false,
+        });
+        return {
+          stored: window.ScrapeXAppearance.get().palette,
+          attribute: document.documentElement.dataset.palette,
+        };
+    }""")
+    assert resolved == {"stored": "brand", "attribute": "brand"}
 
     for scheme, expected in (
         ("light", {
@@ -1536,7 +1603,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert source_trigger_label_style["centerDelta"] <= 1
-    assert source_trigger_label_style["fontWeight"] <= 400
+    # 400 UNTIL R-74. The assertion's SUBJECT is "this label is not emphasised",
+    # and it expressed that as "not heavier than normal" -- true while normal was
+    # 400. Supabase's --font-weight-normal is 450, so under R-74 the baseline's
+    # regular weight IS 450 and the label is still exactly as unemphasised as it
+    # was. Raising the threshold keeps the meaning; leaving it at 400 would
+    # assert that the design system's own body weight counts as emphasis.
+    # --fw-medium is 500, so this still fails if the label is ever made medium.
+    assert source_trigger_label_style["fontWeight"] <= 450
     selected_currency = page.locator(
         "#finance-converter-currency-list .finance-converter-option[aria-selected='true']")
     assert selected_currency.count() == 1
@@ -1610,7 +1684,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
           };
         }""")
     assert target_trigger_label_style["centerDelta"] <= 1
-    assert target_trigger_label_style["fontWeight"] <= 400
+    # 400 UNTIL R-74. The assertion's SUBJECT is "this label is not emphasised",
+    # and it expressed that as "not heavier than normal" -- true while normal was
+    # 400. Supabase's --font-weight-normal is 450, so under R-74 the baseline's
+    # regular weight IS 450 and the label is still exactly as unemphasised as it
+    # was. Raising the threshold keeps the meaning; leaving it at 400 would
+    # assert that the design system's own body weight counts as emphasis.
+    # --fw-medium is 500, so this still fails if the label is ever made medium.
+    assert target_trigger_label_style["fontWeight"] <= 450
     target_option.click()
     converter_rows = page.locator(".finance-converter-row").evaluate_all("""elements =>
       elements.map(element => ({
@@ -4770,7 +4851,13 @@ def test_the_engine_card_uses_outlined_cards(open_panel):
           boxShadow: getComputedStyle(el).boxShadow,
         })""")
         assert style["borderTopWidth"] == "1px", style
-        assert style["borderRadius"] == "16px", style
+        # 16px UNTIL R-74, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+        # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
+        # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
+        # already at the generous end of what their system would use for a grouped
+        # list. The test reads the computed value on purpose, so it tracks the token
+        # rather than restating it -- which is why it caught the change.
+        assert style["borderRadius"] == "12px", style
         assert style["boxShadow"] == "none", style
 
     rows = page.locator("#engine-candidates .engine-row")
@@ -4992,7 +5079,13 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
       textAlign: getComputedStyle(el).textAlign,
       overflow: getComputedStyle(el).overflow,
     })""")
-    assert style["borderRadius"] == "16px"
+    # 16px UNTIL R-74, and no ruling pinned it -- it was `--radius-xl` at 1rem in
+    # the pre-Supabase ramp. Supabase's ramp is 2/4/6/8/12/16 with `rounded-lg`
+    # = 8px as its CONTAINER ceiling, so --radius-xl is 12px now and this card is
+    # already at the generous end of what their system would use for a grouped
+    # list. The test reads the computed value on purpose, so it tracks the token
+    # rather than restating it -- which is why it caught the change.
+    assert style["borderRadius"] == "12px"
     assert style["boxShadow"] == "none"
     assert style["textAlign"] in ("start", "left")
     # `overflow: hidden` is what makes the radius clip the first and last rows;
@@ -5276,12 +5369,14 @@ def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
-    combos = [
-        ("light", "whatsapp"),
-        ("dark", "whatsapp"),
-        ("light", "github"),
-        ("dark", "github"),
-    ]
+    # Every registered palette in both schemes, derived rather than listed. This
+    # was four hard-coded pairs, so a palette added later was swept by nothing --
+    # and it is a plain list driven by a `for`, not a parametrize, so all of it
+    # reports under ONE test id and a new palette failing here shows up as this
+    # test rather than as a case of its own. The message below carries the pair.
+    combos = [(scheme, palette)
+              for palette in _registered_palette_ids()
+              for scheme in ("light", "dark")]
     open_engine(page)
     # `#engine-detail-back` is deliberately NOT here. It is a muted icon button
     # that brightens to `--text` on hover, exactly as `.manage-account-back`

@@ -148,7 +148,18 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
     assert 'mode: "device"' in script
-    assert "deviceColors: true" in script
+    # `deviceColors` DEFAULTS TO FALSE since R-73, and the assertion is kept
+    # rather than deleted because it is the only one in the suite that pins this
+    # default at all -- measured: nine other references to `deviceColors` in
+    # tests/ all SET the value explicitly, so none of them would notice a flip.
+    #
+    # Why it has to be false: apply() returns early on the true branch after
+    # clearTheme(), so with `true` the named default palette is never applied for
+    # a user with no stored preference. `github` was the default for as long as
+    # the setting existed and nobody ever saw it. `mode: "device"` above still
+    # holds -- the SCHEME follows the device, only the COLOURS no longer do.
+    assert "deviceColors: false" in script
+    assert 'palette: "supabase"' in script
     assert "data-appearance-scheme-mode" in script
     assert "data-appearance-palettes" in script
 
@@ -181,17 +192,54 @@ def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
     assert 'bg: "#0D1117"' in appearance  # GitHub dark
 
 
-def test_only_the_two_reviewed_application_palettes_are_available():
+def test_only_the_three_reviewed_application_palettes_are_available():
+    """THE COUNT IS A REVIEW GATE, NOT A FACT ABOUT THE FILE.
+
+    This was `== 2` and named "the two reviewed application palettes" from the
+    day seven speculative palettes and a `custom` entry were deleted. The number
+    is deliberately brittle so that ADDING a palette costs a written
+    justification instead of an edited digit -- which is exactly the trap a
+    session told to "add a palette" walks into, because making this green is a
+    one-character change.
+
+    So the justification, recorded here rather than in a commit message: the
+    third palette is `supabase`, requested by the owner on 2026-08-28 and ruled
+    as R-73. Its values are not invented -- every colour is either a published
+    HSL literal from Supabase's own packages or derived by evaluating their
+    OKLCH expressions, marked value by value in the palette entry, and all 34
+    contrast assertions in
+    `tests/test_panel_dom.py::test_every_manual_theme_keeps_text_controls_and_focus_legible`
+    were computed against the guard's own formula before it was written.
+
+    Three of its values deliberately diverge from Supabase, each because their
+    own value fails a threshold this repository already enforces; the palette
+    entry states each divergence with the measured ratio.
+    """
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
 
-    assert appearance.count('description: "') == 2
-    assert '["whatsapp", {' in appearance
-    assert '["github", {' in appearance
+    assert appearance.count('description: "') == 3
+    # R-59 decision 3: the real keys, with the legacy names as aliases rather
+    # than as entries. Asserting both halves is what stops a session from
+    # "simplifying" the alias map away and silently resetting every stored
+    # preference to the default.
+    assert '["brand", {' in appearance
+    assert '["blue", {' in appearance
+    assert '["supabase", {' in appearance
+    assert '["whatsapp", "brand"]' in appearance
+    assert '["github", "blue"]' in appearance
     assert 'accent: "#35AA65"' in appearance
     assert 'red: "#B3002F"' in appearance
     assert 'switchTrack: "#35AA65"' in appearance
     assert 'buttonBg: "#43D36D"' in appearance
     assert 'buttonHover: "#1C1E21"' in appearance
+    # SUPABASE'S OWN COLOURS ARE NOT PINNED HERE, and that is R-74 rather than an
+    # omission. It is the BASELINE, not one option among three, so its colours
+    # live in design/tokens.css and its palette entry declares none -- pinning
+    # them here would be asserting a duplicate that no longer exists.
+    # tests/test_a_palette_may_change_nothing_but_colour.py owns that half.
+    assert '"#3FCF8E"' not in appearance, (
+        "the supabase entry has grown colours again; under R-74 its colours are "
+        "design/tokens.css's and the entry exists only to be selectable")
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
         "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',
@@ -200,6 +248,46 @@ def test_only_the_two_reviewed_application_palettes_are_available():
     assert 'data-accent="' not in (
         ROOT / "design" / "tokens.css"
     ).read_text(encoding="utf-8")
+
+
+def test_the_design_system_is_the_baseline_and_not_a_palette():
+    """R-74 REPLACED THIS TEST'S SUBJECT, so the test is rewritten rather than
+    deleted -- the question it asks is still the right one and only the answer
+    moved.
+
+    It used to assert a DESIGN_PROPERTIES list existed, so a palette COULD carry
+    radius, typography, elevation and motion. Measured on the built engine, that
+    architecture handed the design system to `supabase` and to nobody else:
+    `brand`, `blue` and device colours all fell back to the pre-Supabase 9px
+    radius, 14px body and Segoe UI. Three of four colour choices lost it, and
+    device is what a fresh install uses.
+
+    So the axis is gone and the design system moved to design/tokens.css, which
+    every colour choice sits on -- including device, which applies no palette at
+    all. This asserts the new shape: no axis in the engine, the system in the
+    baseline.
+    """
+    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+
+    # The axis, and the two functions that read it, are gone from the engine.
+    for removed in ("const DESIGN_PROPERTIES", "function designFor(",
+                    "palette.themes[scheme].design", "palette.design"):
+        assert removed not in appearance, (
+            f"`{removed}` is back in design/appearance.js. R-74: a palette "
+            "changes colour only -- the design system belongs to tokens.css so "
+            "that all four colour choices sit on it.")
+
+    # And the baseline says so at the top, so a reader who opens tokens.css
+    # learns it before they start typing.
+    assert "R-74" in tokens
+    assert "THIS FILE IS THE SUPABASE DESIGN SYSTEM" in tokens
+
+    # apply() still writes the 36 colours, and clearTheme still removes exactly
+    # those -- symmetry that matters because `supabase` declares no colours, so
+    # REMOVAL is what makes the baseline show through for it.
+    assert "THEME_PROPERTIES.forEach" in appearance
+    assert "DESIGN_PROPERTIES.forEach" not in appearance
 
 
 def test_appearance_has_one_cross_surface_sync_contract():
@@ -767,7 +855,25 @@ def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     assert header == pytest.approx(row * 1.25)
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     assert "--grid-header-weight: var(--fw-heavy)" in css
-    assert "--fw-heavy: 700" in tokens
+    # 700 UNTIL R-74, AND THE CHANGE IS DELIBERATE RATHER THAN A CASUALTY.
+    #
+    # This line pinned the top of the weight ramp because the grid header has to
+    # read as a header. Supabase has NO BOLD: their --font-weight-normal is 450,
+    # `strong` is downgraded to 500, and the ceiling is Manrope 600 on headings --
+    # so under R-74, which makes their system the baseline, --fw-heavy is 600 and
+    # equal to --fw-bold.
+    #
+    # What that costs, stated rather than waved past: the header is no longer
+    # heavier than other emphasised text. It is still separated from an ordinary
+    # row by the three things this same test pins around it -- the 1.25x height
+    # above, --grid-header-surface (a mixed, distinct plate) and
+    # --grid-header-text -- which is exactly how Supabase separates a table
+    # header, since it has no heavier weight to reach for either.
+    #
+    # The token is still --fw-heavy and not --fw-bold on purpose: the grid asks
+    # for "the top of the ramp", and where the top sits is the design system's
+    # decision, not the grid's.
+    assert "--fw-heavy: 600" in tokens
     assert "--grid-header-surface: color-mix(" in css
     assert "var(--surface-container-low) 76%" in css
     assert "var(--outline-variant)" in css
