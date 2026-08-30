@@ -262,6 +262,29 @@ RESERVED: dict[str, dict[int, str]] = {
         112: "branch claude/scrapex-engine-consolidation-d69e0a",
         113: "branch claude/scrapex-engine-consolidation-d69e0a",
         114: "branch claude/scrapex-engine-consolidation-d69e0a",
+        #
+        # AND 115 IS GONE TOO, ONE MERGE LATER AGAIN. `#295` landed while this
+        # branch was in flight, so `OP-115` is declared and its row would be the
+        # same contradiction. THREE TIMES IN ONE DAY, from three unrelated
+        # merges, and every one was caught by
+        # `test_a_reserved_number_is_not_also_declared` rather than by the
+        # session doing the rebase.
+        #
+        # That is the whole argument of `LESSONS` 29's counterexample, measured
+        # three times: this assertion compares two things that are maintained
+        # SEPARATELY -- the reservations and the headings -- so it does not
+        # matter which side moves, and nobody has to remember to look.
+        #
+        # 112-114 remain. Each names a ref that `git rev-parse --verify`
+        # resolves, checked with `git show <ref>:docs/BACKLOG.md` rather than
+        # taken from the message that allocated them. They spent about an hour
+        # with no ref at all, when the only holder that could be written was a
+        # session name -- the form this comment forbids. A row in that state
+        # must SAY SO and be re-checked; re-checking is what turned them into
+        # refs.
+        112: "branch claude/scrapex-engine-consolidation-d69e0a",
+        113: "branch claude/scrapex-engine-consolidation-d69e0a",
+        114: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
         # open). They became holes HERE the moment this branch declared `OP-69`, because
         # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and
