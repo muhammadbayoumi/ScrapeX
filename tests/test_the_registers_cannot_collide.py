@@ -225,6 +225,20 @@ RESERVED: dict[str, dict[int, str]] = {
     # Nothing else was touched.
     "OP": {
         45: "branch claude/drive-without-a-server",
+        # 101 THROUGH 110 WERE RESERVED HERE AND THE ROWS ARE GONE, which is this
+        # table's own rule applied to itself: `claude/design-system-review-d6787a`
+        # merged, so the numbers are declared on `main` and a reservation for a
+        # declared number is a contradiction -- `test_a_reserved_number_is_not_also
+        # _declared` says so, and it is what caught the rows on this rebase.
+        #
+        # WORTH KEEPING FROM THE HOUR THEY EXISTED: `git ls-remote` is the WRONG
+        # check for whether a number is claimed, and it fails in the direction that
+        # hurts. Every worktree under `.claude/worktrees/` shares one ref namespace
+        # with the main checkout, so a sibling session's local-only branch shows up
+        # in `git branch -a` and not in `ls-remote` at all. "Has it been pushed" is
+        # a different question from "has it been claimed"; this table is about the
+        # second, and that advice was given once on 2026-08-30 and would have
+        # reported a held number as free.
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
         # open). They became holes HERE the moment this branch declared `OP-69`, because
         # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and

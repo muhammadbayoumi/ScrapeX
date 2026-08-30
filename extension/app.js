@@ -6109,6 +6109,12 @@ async function backUpToDrive(token) {
     ? await (await fetch(base + "/api/bundle/panel-pack")).blob()
     : null;
 
+  // `manifest: built` is not decoration. WHAT THE ENGINE DESCRIBED AND WHAT
+  // ARRIVED ARE TWO DIFFERENT FACTS -- the manifest comes from the POST above,
+  // the bytes from a second request that reads the newest file on disk -- and
+  // on 2026-08-30 those resolved to different builds and a 0-byte archive went
+  // to Drive under a pointer carrying the real one's digest. `backUp` compares
+  // them now, because it is handed both.
   const stored = await backUp(token, {
     archive, name: built.name, panelPack,
     manifest: built, bundleFormat: built.bundle_format,

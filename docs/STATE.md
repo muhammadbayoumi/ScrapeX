@@ -424,6 +424,52 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### A backup of nothing — 2026-08-30 · branch `claude/the-backup-that-uploaded-nothing`, no PR yet
+
+**`OP-111`. No ruling — nothing here was his to decide.** Based on `main` at `25e9dd8`.
+Secondary session; `recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+He backed up and Drive received a **0-byte archive, a 0-byte panel pack, and a pointer saying
+a backup existed**. Two complete 378.7 MB archives were safe on local disk. The engine was
+running `0.4.5` while `main` carried `0.4.6` — a running process keeps its loaded modules — so
+`#288`'s build lock was merged and **not active**, two builds overlapped, and the route that
+serves "the newest archive" served the one that had been created and not yet filled.
+
+**Built here:**
+
+| | |
+|---|---|
+| the archive is written to `<name>.zip.part` and renamed | `scrapex/bundle.py:388` |
+| the panel-pack copy, the same way | `scrapex/webui/app.py` |
+| `expectSize` — refuses a part the engine described differently, before a byte leaves | `extension/drive.js:405` |
+| an empty archive or pack refused outright, on upload and on download | `extension/drive.js:436` |
+| the download check is a `typeof`, not a truthiness test | `extension/drive.js:540` |
+
+**Measured, because the fix could have re-introduced the bug:** `Path.replace` carries the
+**write-completion** mtime across the rename, so a renamed archive still sorts by when its
+bytes finished. Had it carried the creation time, a fast rebuild could have sorted behind an
+older complete archive.
+
+**Left open, and named in `OP-111` as D4:** the engine detected its own staleness, displayed
+it correctly — *"3 loaded module(s) changed since it started"* — and gated nothing. The
+Engine page has no restart control on it either, so the sentence names an action the page
+cannot perform. That is a separate track and the owner has asked for it.
+
+**A guard was removed as well as added.** A filter against `.part` was written into `_newest`
+and then taken out: measured, `*.zip` cannot match `*.zip.part`, so the condition could never
+fire — and a condition that can never be true reads as a hazard that is still live. The
+naming enforces it; a test proves the naming.
+
+**No version bump.** The regenerated contract baseline moves only its version stamp, so
+`R-35`'s trigger does not fire, and `0.4.7` is held while the `R-06`/`R-35` cadence question
+is with him.
+
+**Ten `RESERVED` rows added** for `OP-101..110`, held by `claude/design-system-review-d6787a`
+— delete them the day that branch merges.
+
+### ~~The backup that said it failed~~ — MERGED as #288 (`3a745a9`), 2026-08-30
+
 ### Device colours reach the user — 2026-08-30 · branch `claude/device-colours-reach-the-user`, based on `main` at `f920e7d`
 
 **`R-79`, the first two of `REQ-49`'s twelve decisions.** Closes `OP-101` and half of
@@ -503,7 +549,8 @@ pruning and the sweep; all four were mutation-checked (break the guard, watch th
 red) rather than merely written.
 
 **Two citations were repaired on the way past**, both exposed rather than caused by the
-insertions: the pinned `scrapex/webui/app.py:3022` in `tests/test_the_documents_cite_what_they_claim.py`,
+insertions: the pinned citation for `if source_key not in known:` in
+`tests/test_the_documents_cite_what_they_claim.py`,
 and `docs/REQUESTS.md`'s jobs-route citation, which was **already 27 lines stale** —
 Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists.
 

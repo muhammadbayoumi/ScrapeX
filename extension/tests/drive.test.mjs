@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   backUp, download, fetchLatest, folderId, listing, prunable, upload,
   fetchPanelPack,
-  BUNDLE_FORMAT, DriveError, KEEP, LATEST, PANEL_PACK,
+  BUNDLE_FORMAT, DriveError, KEEP, LATEST, PANEL_PACK, expectSize,
 } from "../drive.js";
 import {readFileSync} from "node:fs";
 
@@ -541,4 +541,114 @@ test("a truncated pack shows nothing rather than half the rows", async () => {
     assert.match(error.message, /Nothing is shown/);
     return true;
   });
+});
+
+// ---- a backup of nothing, 2026-08-30 (OP-111) --------------------------------
+//
+// Drive ended up holding a 0-byte archive, a 0-byte panel pack and a pointer
+// beside them saying a backup existed. Two engine builds overlapped, the second
+// had created its zip and not yet filled it, and the route that serves "the
+// newest archive" served that. Nothing on this side compared what arrived with
+// what the engine had described, and the download guard was written
+// `if (pointer.bytes && ...)` — so a recorded size of zero disabled it.
+
+test("a size of zero does not disable the size check", () => {
+  // THE WHOLE BUG IN ONE ASSERTION. Under `if (described && ...)` this passed
+  // silently, because zero is falsy and the comparison never ran.
+  assert.throws(() => expectSize("archive", new Blob(["abc"]), 0),
+                (error) => error instanceof DriveError && error.kind === "mismatched");
+  assert.throws(() => expectSize("archive", new Blob([]), 12),
+                (error) => error.kind === "mismatched");
+});
+
+test("a size the engine did not describe is still forgiven", () => {
+  // A caller with no manifest is legitimate; absent is not the same as zero.
+  expectSize("archive", new Blob(["abc"]), undefined);
+  expectSize("archive", new Blob(["abc"]), null);
+  expectSize("panel pack", null, undefined);
+});
+
+test("an archive shorter than the engine described is never uploaded", async () => {
+  const fetchImpl = scripted([[() => true, () => reply(500, {body: {}})]]);
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob([]), name: "bundle.zip",
+    manifest: {bytes: 378655878}, fetchImpl,
+  }), (error) => {
+    assert.equal(error.kind, "mismatched");
+    assert.match(error.message, /378655878 bytes and this panel read 0/);
+    assert.match(error.message, /backup already in Drive is untouched/,
+                 "the refusal must say the existing backup survived");
+    return true;
+  });
+  // AND NOTHING WAS ASKED OF GOOGLE. The check has to fail before the first
+  // request, or a half-made backup folder is the cheapest thing it costs.
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test("an empty archive is refused even when nothing described it", async () => {
+  const fetchImpl = scripted([[() => true, () => reply(500, {body: {}})]]);
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob([]), name: "bundle.zip", fetchImpl,
+  }), (error) => {
+    assert.equal(error.kind, "empty");
+    return true;
+  });
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+test("an empty panel pack is refused too", async () => {
+  const fetchImpl = scripted([[() => true, () => reply(500, {body: {}})]]);
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob(["real"]), panelPack: new Blob([]), name: "bundle.zip",
+    fetchImpl,
+  }), (error) => error.kind === "empty");
+  assert.equal(fetchImpl.calls.length, 0);
+});
+
+/** A Drive whose pointer records `bytes` and whose archive is `archiveBody`. */
+function driveHolding(bytes, archiveBody) {
+  return scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [{id: "ptr", name: LATEST}]}}))],
+    [(url) => url.includes("/ptr") && url.includes("alt=media"),
+      () => reply(200, {body: JSON.stringify(
+        {file_id: "arch", bytes, bundle_format: BUNDLE_FORMAT})})],
+    [(url) => url.includes("/arch") && url.includes("alt=media"),
+      () => reply(200, {body: archiveBody})],
+  ]);
+}
+
+test("a pointer recording zero bytes no longer waves the download through", async () => {
+  // EXACTLY THE COMPARISON THE OLD GUARD SKIPPED. `if (pointer.bytes && ...)`
+  // read a recorded zero as "no size to check" and returned whatever arrived.
+  await assert.rejects(
+    () => fetchLatest("tok", {fetchImpl: driveHolding(0, "some bytes")}),
+    (error) => {
+      assert.equal(error.kind, "truncated");
+      assert.match(error.message, /Nothing was restored/);
+      return true;
+    });
+});
+
+test("an empty archive is refused even though it matches its pointer", async () => {
+  // What the owner's Drive actually held on 2026-08-30: a 0-byte archive and a
+  // pointer agreeing it was 0 bytes. The size comparison is SATISFIED -- both
+  // are zero -- so it takes a second guard to say that nothing is not a backup.
+  // Without it a restore reports success and installs an empty bundle.
+  await assert.rejects(
+    () => fetchLatest("tok", {fetchImpl: driveHolding(0, "")}),
+    (error) => {
+      assert.equal(error.kind, "empty");
+      assert.match(error.message, /nothing to restore/);
+      return true;
+    });
+});
+
+test("a pointer with no recorded size at all is still honoured", async () => {
+  // Older pointers predate `bytes`. Absent must stay forgiven, or this fix
+  // turns every backup written before it into an unreadable one.
+  const {archive} = await fetchLatest(
+    "tok", {fetchImpl: driveHolding(undefined, "a real archive")});
+  assert.equal(archive.size, "a real archive".length);
 });

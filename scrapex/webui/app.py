@@ -2921,6 +2921,25 @@ def create_app(
         return backup_folder(conn, app.state.db_path)
 
     def _newest(folder: Path, suffix: str) -> Path | None:
+        """The newest COMPLETE artefact of its kind, never one being written.
+
+        THE SECOND HALF OF THAT SENTENCE IS THE WHOLE FUNCTION'S JOB, and it did
+        not used to be. On 2026-08-30 this returned a `.zip` that a concurrent
+        build had created and not yet filled — newest by mtime, zero bytes long —
+        and the panel uploaded it to Drive as the owner's backup.
+
+        WHAT ENFORCES IT IS THE NAMING, not a filter here. `bundle.pack` writes
+        to `<name>.zip.part` and renames, and `*.zip` does not match `*.zip.part`
+        — measured, not assumed. A guard was written here as well and then taken
+        out again: it could not fire, and a condition that can never be true
+        reads as a hazard that is still live.
+
+        Two properties this relies on, both measured 2026-08-30:
+        `Path.replace` is atomic on one filesystem, so this glob sees the name
+        either not at all or complete; and it carries the write-completion mtime
+        across the rename, so a renamed archive still sorts by when its bytes
+        finished rather than by when its name first appeared.
+        """
         made = sorted(folder.glob(f"{BUNDLE_PREFIX}*{suffix}"),
                       key=lambda p: p.stat().st_mtime, reverse=True)
         return made[0] if made else None
@@ -3029,7 +3048,19 @@ def create_app(
             pack_source = staging / bundle.PANEL_PACK
             panel_pack = folder / f"{BUNDLE_PREFIX}{stamp}{PANEL_SUFFIX}"
             if pack_source.is_file():
-                shutil.copy2(pack_source, panel_pack)
+                # COPIED ASIDE AND RENAMED, for the reason `bundle.pack` is now
+                # written the same way: a destination being copied INTO is a
+                # file that exists, is newest by mtime, and is the wrong length,
+                # and `_newest` would hand it to the panel as this backup's pack.
+                # Four megabytes copy fast, but "fast" is not "atomic".
+                building = panel_pack.with_name(
+                    panel_pack.name + bundle.PARTIAL_SUFFIX)
+                try:
+                    shutil.copy2(pack_source, building)
+                    building.replace(panel_pack)
+                except BaseException:
+                    building.unlink(missing_ok=True)
+                    raise
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         finally:
