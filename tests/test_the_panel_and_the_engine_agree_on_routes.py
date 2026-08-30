@@ -33,11 +33,34 @@ CALLS = re.compile(r'["`]/api/([a-z0-9/_-]+)')
 
 
 
+def _caller_files() -> list[pathlib.Path]:
+    """Every file in the product that names an engine route.
+
+    THIS USED TO BE `extension/**/*.js` AND NOTHING ELSE, and the omission was
+    not theoretical: `scrapex/webui/templates/settings.html` polled
+    `/api/marketlens/health` for the eleven days after M5 deleted it. The engine
+    page's Restart button therefore asked a 404 sixty times and then reported
+    "The engine has not come back" about an engine that had come back at once.
+
+    **The guard for that exact break already existed, and it read one half of
+    the product.** `test_the_health_route_the_panel_polls_is_the_one_the_engine
+    _serves` asserts the dead route is absent from `app.js` — and `app.js` was
+    the half that had been corrected. The engine's own pages call engine routes
+    too, and a rename breaks them in precisely the same way.
+
+    MEASURED BEFORE WIDENING, because a check that cries wolf gets switched off
+    and this file has been bitten by that three times already: the templates
+    make 34 distinct `/api/` calls and exactly ONE of them is unserved. The
+    widening costs no noise.
+    """
+    js = [path for path in (ROOT / "extension").rglob("*.js")
+          if "tests" not in path.parts]
+    return js + sorted((ROOT / "scrapex" / "webui" / "templates").glob("*.html"))
+
+
 def _panel_calls() -> set[str]:
     found: set[str] = set()
-    for path in (ROOT / "extension").rglob("*.js"):
-        if "tests" in path.parts:
-            continue
+    for path in _caller_files():
         for match in CALLS.finditer(path.read_text(encoding="utf-8")):
             found.add("/api/" + match.group(1).rstrip("/"))
     return found
@@ -94,18 +117,30 @@ def _template(route: str) -> re.Pattern:
                       .replace(r"\{", "{") + "$")
 
 
-def test_the_health_route_the_panel_polls_is_the_one_the_engine_serves(tmp_path):
+def test_no_restart_poll_anywhere_asks_for_the_route_m5_removed(tmp_path):
     """NAMED ON ITS OWN, because it is the one that broke and because its
-    failure is silent: the panel's restart poll simply never succeeds, and the
-    owner is told the engine did not come back when it did."""
+    failure is silent: a restart poll simply never succeeds, and the owner is
+    told the engine did not come back when it did.
+
+    IT USED TO ASK ONLY `app.js`, AND THAT IS WHY IT WENT ON PASSING. The panel
+    had been corrected at M5; `scrapex/webui/templates/settings.html` had not,
+    and kept polling `/api/marketlens/health` for eleven days. A guard that
+    names one caller of a route protects that caller, not the route.
+    """
     assert "/api/engine/health" in _engine_serves(tmp_path), (
         "the engine no longer serves /api/engine/health")
 
-    app_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
-    assert "/api/engine/health" in app_js, (
+    polls = [path for path in _caller_files()
+             if "/api/engine/health" in path.read_text(encoding="utf-8")]
+    assert any(path.name == "app.js" for path in polls), (
         "the panel does not poll /api/engine/health")
-    assert "/api/marketlens/health" not in app_js, (
-        "the panel still polls the route M5 removed")
+
+    dead = [str(path.relative_to(ROOT)) for path in _caller_files()
+            if "/api/marketlens/health" in path.read_text(encoding="utf-8")]
+    assert not dead, (
+        f"{dead} still ask for the route M5 removed. Whatever polls it will "
+        "wait out its whole budget and then report a failure that did not "
+        "happen.")
 
 
 def test_no_page_calls_an_engine_route_that_does_not_exist(tmp_path):

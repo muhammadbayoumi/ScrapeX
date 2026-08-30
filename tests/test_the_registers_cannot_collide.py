@@ -274,14 +274,40 @@ RESERVED: dict[str, dict[int, str]] = {
         112: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 116 is `claude/the-guard-that-reads-half-the-product` (PR #297, pushed) --
         # VERIFIED with `git show <ref>:docs/BACKLOG.md | grep "^### OP-116"`.
+        # 116's row is GONE: #297 merged, so the number is a heading and a reservation for
+        # a declared number fails the assertion below -- the fourth time that guard has
+        # noticed before a session did on 2026-08-30.
+        #
         # 117 WAS CLAIMED BY MESSAGE ONLY for about an hour, and this row said so in
         # those words: allocated to the Drive session with no ref declaring it. It has
         # one now (PR #300), and the re-check the row asked for is what produced this
         # line. **The claimed-by-message state is real and short**, which is exactly why
         # a row in it must say which kind of claim it is holding rather than read like
         # a verified one.
-        116: "branch claude/the-guard-that-reads-half-the-product, PR #297",
         117: "branch claude/marketlens-is-gone, PR #300",
+        113: "branch claude/scrapex-engine-consolidation-d69e0a",
+        114: "branch claude/scrapex-engine-consolidation-d69e0a",
+        #
+        # AND 115 IS GONE TOO, ONE MERGE LATER AGAIN. `#295` landed while this
+        # branch was in flight, so `OP-115` is declared and its row would be the
+        # same contradiction. THREE TIMES IN ONE DAY, from three unrelated
+        # merges, and every one was caught by
+        # `test_a_reserved_number_is_not_also_declared` rather than by the
+        # session doing the rebase.
+        #
+        # That is the whole argument of `LESSONS` 29's counterexample, measured
+        # three times: this assertion compares two things that are maintained
+        # SEPARATELY -- the reservations and the headings -- so it does not
+        # matter which side moves, and nobody has to remember to look.
+        #
+        # 112-114 remain. Each names a ref that `git rev-parse --verify`
+        # resolves, checked with `git show <ref>:docs/BACKLOG.md` rather than
+        # taken from the message that allocated them. They spent about an hour
+        # with no ref at all, when the only holder that could be written was a
+        # session name -- the form this comment forbids. A row in that state
+        # must SAY SO and be re-checked; re-checking is what turned them into
+        # refs.
+        112: "branch claude/scrapex-engine-consolidation-d69e0a",
         113: "branch claude/scrapex-engine-consolidation-d69e0a",
         114: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,

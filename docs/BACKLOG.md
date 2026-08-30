@@ -3638,7 +3638,7 @@ justifies the shape rule by saying `themeFor` dashes every key into a custom pro
 allowlisted names and drops the rest. The docstring argues from a mechanism the allowlist
 already prevents, and correcting it belongs in the same change as the guard.
 
-### OP-103 · Twelve declarations read custom properties that nothing declares
+### OP-103 · ~~Twelve declarations read custom properties that nothing declares~~ — CLOSED 2026-08-30
 
 Every one is invalid at computed-value time, none has a fallback, and none errors.
 
@@ -3664,6 +3664,33 @@ exactly this class. **That test has never existed** — a grep for the name retu
 citation and nothing else. The near-miss is real: `tests/test_the_tests_name_tests_that_exist.py`
 guards backticked test names but reads only `tests/*.py`, and the citation guard reads
 `docs/` but checks only `file:line`. The claim fell in the seam between the two.
+
+---
+
+**CLOSED 2026-08-30. All four fixed, and the guard the citation promised now exists** —
+`tests/test_every_custom_property_a_stylesheet_reads_is_one_something_defines.py`, written
+under the name the citation had been using.
+
+Each fix spells an existing role rather than adding a token, so `THEME_PROPERTIES` stays at
+36 and no palette gained a cell:
+
+| property | what it becomes | why that one |
+|---|---|---|
+| `--sticky-tabs` | **declared `0rem`** | it was `4rem`, the height of a topbar removed on 2026-07-28 by `4099930` — the declaration went with the bar and nine reads did not. Zero is honest with no chrome above the content, and keeping the token means the nine sites still read *"below whatever sticky chrome is above me"* if a bar ever returns |
+| `--fg` | `var(--text)` | a typo. `color` is inherited and the base rule was `color: inherit`, so the hover resolved to the colour it already had |
+| `--green` | `var(--accent-ink)` | **this repository has no success role at all** — but it already says "this one is good" that way, in `.ok`, `.ok-text` and `.badge.ok` |
+| `--control-active` | `var(--chip)`, an **alias** | the ladder already runs `--control-bg` (`--surface`) → `--control-hover` (`--surface-subtle`) → `--chip`. An alias follows every palette and device colours for free without becoming a 37th theme property, which is what `R-59` decision 4 argues for. The fix `docs/LESSONS.md` proposed |
+
+**AND THE GUARD IS MUTATION-PROVED RATHER THAN MERELY WRITTEN.** All four defects were
+re-introduced one at a time on a byte-verified mirror, the guard run, the file restored and
+`git status` asserted empty after each: **four mutations, four caught**, each naming the
+file, the line and the property. A guard for this class that had never been run against the
+defects it exists for would be the same shape as the citation it replaces.
+
+It reads `var(--x)` **without a fallback** only — `var(--x, 1rem)` is a stated decision and
+the author owns it — and it counts a property as defined if any authored stylesheet declares
+it, any script `setProperty`s it, or any template writes it inline. All three are how this
+repository already works: `design/appearance.js` writes 36 of them from JS.
 
 ### OP-104 · A palette can ship text at 1.00:1, and `device` is never measured at all
 
@@ -4013,6 +4040,58 @@ turns it red naming `0013` and `0014`.
 deadline table with a case for every rule and none for the fall-through (`OP-100`), and the
 route-agreement test that scans `extension/**/*.js` and never the engine's own templates,
 which is why `settings.html` still polls a route deleted at M5. Those two are not fixed here.
+
+### OP-116 · The engine page reported a failed restart on a restart that worked, and the guard for it read half the product
+
+**Found 2026-08-30**, in the same census as `OP-115`. `scrapex/webui/templates/settings.html`
+polled a health route M5 had deleted. The restart itself succeeded; the poll asked a 404 sixty
+times and then said *"The engine has not come back"* about an engine that had come back on the
+first attempt.
+
+**THE DEFECT IS NOT THE STRING. IT IS THE SCOPE OF THE GUARD.** A test named for exactly this
+break already existed and passed the whole time, because it asserted the dead route was absent
+from `extension/app.js` — and `app.js` was the half that HAD been corrected at M5. The general
+case beside it, `test_no_page_calls_an_engine_route_that_does_not_exist`, collected its callers
+from `(ROOT / "extension").rglob("*.js")`. **The engine serves its own pages, those pages call
+engine routes, and a rename breaks them identically — and nothing was looking.**
+
+**Measured before widening, because this file has cried wolf three times and a fourth would
+have retired it in practice:** the templates make **34 distinct `/api/` calls and exactly one
+is unserved**. The widening costs no noise. `_caller_files`
+([tests/test_the_panel_and_the_engine_agree_on_routes.py:36](../tests/test_the_panel_and_the_engine_agree_on_routes.py#L36))
+now returns the panel's JavaScript and the engine's templates, and the named test
+([:120](../tests/test_the_panel_and_the_engine_agree_on_routes.py#L120)) asks every caller
+rather than one file.
+
+**Mutation-checked in both directions, and the second is the load-bearing one:**
+
+| mutation | result |
+|---|---|
+| the template polls the retired route again | **caught** |
+| the guard narrowed back to `extension/**/*.js` | **the same broken template goes unnoticed** |
+
+Most mutation checks prove a guard catches its subject. That second line proves **the previous
+version could not have** — the scope was the defect, not the string.
+
+**TWO TRAPS WALKED INTO WHILE FIXING IT, both already written down in this repository.**
+
+**1 · The fourth confident false failure the `_walk` docstring predicts.** Reading `app.routes`
+directly to list mounted routes gave 70 instead of 88 and produced **nine** "dead" template
+calls. FastAPI stores an `_IncludedRouter` with no `.path` and no `.routes`; the mounted ones
+are behind `original_router`. That docstring says it "produced three confident false failures
+in a row" — this was the fourth, and the true count was **one**.
+
+**2 · `LESSONS` §28 occurring inside the change that widens the counter.** The template was
+fixed, and a comment was written above the fix explaining which route had been retired —
+**quoting the dead path**. The widened guard reads that file, found the string in the comment,
+and went red. *A counting tool is fooled by the documentation of the thing it counts*, caught
+in the act, one line after the fix. The comment now says the path is deliberately not written
+out, and why.
+
+**The synthesis, which is the part worth keeping:** the documentation of a thing and the thing
+are indistinguishable to a scanner. Four instances in two days. **The scanner cannot see intent
+and should not try** — one that guessed would be worse — so this is a constraint on how the
+prose beside a guard is written, not a defect to fix in the tool.
 
 ### OP-118 · A registry source's `crawl_scope` has no door — not in the panel, not in the API
 

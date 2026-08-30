@@ -782,12 +782,14 @@ tones for free. Reach for a raw hex per palette only when the hue itself must be
 fixed. **`--accent` is not a safe state colour**: device mode resolves it to the
 OS `AccentColor`, so it can collide with the fixed `--amber`.
 
-**THE GUARD THIS PARAGRAPH USED TO NAME HAS NEVER EXISTED.** It cited
-`test_every_custom_property_a_stylesheet_reads_is_one_something_defines`; a grep for that
-name returns this line and nothing else. Measured 2026-08-29: **twelve declarations across
+**THE GUARD THIS PARAGRAPH NAMED DID NOT EXIST FOR AS LONG AS IT WAS CITED, AND IT EXISTS
+NOW.** `tests/test_every_custom_property_a_stylesheet_reads_is_one_something_defines.py` was
+written on 2026-08-30, a day after the citation was found to be covering nothing, and it is
+mutation-proved against all four original defects: delete any one declaration and it names
+the file, the line and the property. **The citation is true for the first time.** Measured 2026-08-29: **twelve declarations across
 six files read a custom property nothing declares**, including the `--control-active` this
 very paragraph proposes a fix for — so the citation was covering the exact defect it named.
-`OP-103` carries them. The near-miss is worth the space: `tests/test_the_tests_name_tests_that_exist.py`
+`OP-103` carries them, and it is closed. The near-miss is worth the space: `tests/test_the_tests_name_tests_that_exist.py`
 guards backticked test names but reads only `tests/*.py`, and the citation guard reads
 `docs/` but checks only `file:line`. **A backticked test name inside a document falls in the
 seam between the two**, and that seam is `OP-109`.
