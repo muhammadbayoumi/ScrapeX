@@ -3284,7 +3284,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and four sessions found the same blind spot in one day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and five sessions found the same blind spot in one day
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3308,7 +3308,7 @@ the only protection there is and puts nothing in its place -- the ninety-one-com
 drift that produced them. The fix was to make each docstring say *"this enforces a rule that
 has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
 
-**THE SAME SHAPE, FOUND FOUR TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING FOR
+**THE SAME SHAPE, FOUND FIVE TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING FOR
 IT.** A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
@@ -3317,8 +3317,18 @@ IT.** A mechanism that is correct, visible, and load-bearing on nothing:
 | Drive incident | the panel's *"3 loaded module(s) changed"* row | displayed correctly, gated nothing; the backup ran on stale code |
 | engine page | `schema_lag` published and rendered | `engine.js` never carries the field, so the banner cannot appear in any state |
 | engine page | a guard slicing `app.js` between two markers | the window is ~2,800 lines and `detail` appears ~71 times in unrelated code |
+| design review | `getComputedStyle` read against the `device` palette | **nothing.** It does not resolve a custom property, so `AccentColor` and `color-mix(...)` come back as literal TEXT and there is nothing to score |
 
-**None of the four is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
+**THE FIFTH IS THE WORST AND IT IS A DIFFERENT KIND.** The other four ROTTED. That one
+would have been **born** rotten, and born from the fix for the finding: a session closing
+`OP-104` the obvious way adds `device` to the parametrize, watches **17 of 17 pass**, and
+records coverage that does not exist. The tell was that device-dark was passing 17 of 17
+**because it was not device** -- it was the default palette wearing device's name. **A green
+that arrives without the thing under test having run is indistinguishable from a green that
+earned it, and no count anywhere would differ.** (Found by the design-review session while
+building `R-79`; the words are its own.)
+
+**None of the five is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
 being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
 that finds them is the one §18 already states: *if the thing it protects were broken right
