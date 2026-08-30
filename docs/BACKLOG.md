@@ -2262,7 +2262,8 @@ commit it is building into a generated module, and `provenance` reads it if pres
 **NOT DONE HERE, and the reason is a live constraint rather than laziness.** The
 primary session is cutting `engine-v0.3.1` from `.github/workflows/release-engine.yml`,
 and a change to that workflow from a branch merging into the same window is a change to
-the thing being run. `R-35`'s gate also refuses a version edit from this branch. So the
+the thing being run. The version gate in force then also refused a version edit from this
+branch (that rule is now `R-77`). So the
 reader is the whole of this change and the writer is the next one.
 
 **Do not close this by making a frozen build guess.** The `None` is the feature.
@@ -4437,8 +4438,9 @@ silently or flake, and both are worse than not looking.
 
 **WHAT CHANGED THE QUESTION.** When this was written the source was 0.3.0 and the
 published engine was 0.2.1 — two bumps behind, with the newest installable build
-silent on a double-click. Hours later he tagged `engine-v0.3.0`, and `R-35`
-immediately moved the source to **0.3.1** for migration `0010`. So the steady state
+silent on a double-click. Hours later he tagged `engine-v0.3.0`, and the contract-change
+rule then in force -- since replaced by `R-77` -- immediately moved the source to
+**0.3.1** for migration `0010`. So the steady state
 of this
 project is **source ahead of published**, by design: `VERSION` moves on a contract
 change and releases are cut by hand (Decision 4).

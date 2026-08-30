@@ -501,7 +501,7 @@ def version_report(extension_version: str | None = None) -> dict:
     if extension_version is None:
         return report
     missing = missing_capabilities(extension_version)
-    # `R-07`: THE GATE STAYS AND THE ADVERT GOES — and this line was the advert.
+    # `R-77`: THE GATE STAYS AND THE ADVERT GOES — and this line was the advert.
     #
     # It read `bool(missing) or is_older(extension_version, VERSION)`, two different
     # questions welded into one verdict:
@@ -510,7 +510,7 @@ def version_report(extension_version: str | None = None) -> dict:
     #                   from the ledger. A fact the engine owns, and it stays.
     #   is_older(…)     THE ADVERT. "A newer extension exists" — which is Chrome's
     #                   answer and never the engine's, because the engine knows only its
-    #                   OWN number. `R-07` says it goes.
+    #                   OWN number. `R-77` says it goes.
     #
     # RULED 2026-08-16 AND NOT DONE, and the cost arrived twice. That ruling records the
     # defect being "found by trying the bump and reverting it the same day": the moment
@@ -520,11 +520,11 @@ def version_report(extension_version: str | None = None) -> dict:
     # moved VERSION to 0.3.0 for a legitimate reason and three panel layout tests failed
     # with the SAME 54px — because the advert was still here.
     #
-    # NOT FIXED BY BUMPING THE MANIFEST, which `R-07` forbids in as many words: that
+    # NOT FIXED BY BUMPING THE MANIFEST, which `R-77` forbids in as many words: that
     # re-welds what PLATFORM-PLAN Decision 21 unwelded, and the two ship down separate
     # paths — Google reviews the extension, nobody reviews the engine.
     #
-    # STILL OWED FROM `R-07`, so it does not go missing for another six days:
+    # STILL OWED FROM `R-77`, so it does not go missing for another six days:
     # `latest_extension_version`, `LATEST_SOURCE` and `UPDATE_INSTRUCTIONS` are named
     # there as also going. Each needs a coordinated change in `extension/app.js`, which
     # reads them — so they are not smuggled in behind this one-line fix to the harm.

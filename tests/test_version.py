@@ -542,7 +542,7 @@ def test_the_extension_may_be_tagged_for_the_store_on_its_own():
 
 
 def test_a_merely_older_extension_is_not_outdated():
-    """`R-07`, AND IT TOOK TWO COLLISIONS TO GET BUILT. The engine's verdict is a GATE —
+    """`R-77`, AND IT TOOK TWO COLLISIONS TO GET BUILT. The engine's verdict is a GATE —
     "this extension lacks a capability it needs" — and never an ADVERT, because "a newer
     extension exists" is Chrome's answer and the engine knows only its own number.
 
@@ -550,7 +550,7 @@ def test_a_merely_older_extension_is_not_outdated():
     panel told every user their extension was old, the notice clipped the profile card's
     legal line by 54px at 320x440, and the bump was REVERTED rather than the advert
     removed. On 2026-08-22 a schema change moved `VERSION` to 0.3.0 for a legitimate
-    reason under `R-35`, and three panel layout tests failed with the SAME 54px.
+    reason under `R-77`, and three panel layout tests failed with the SAME 54px.
 
     So: an extension at the minimum, missing nothing, is CURRENT — whatever the engine's
     own number happens to be.
@@ -567,7 +567,7 @@ def test_a_merely_older_extension_is_not_outdated():
 
 def test_an_extension_missing_a_capability_is_still_outdated():
     """THE HALF THAT STAYS. Dropping the advert must not drop the gate — an extension the
-    engine can name a missing capability for is genuinely too old, and `R-07` says that
+    engine can name a missing capability for is genuinely too old, and `R-77` says that
     fact is the engine's own."""
     report = version_report("0.1.0")
 

@@ -81,6 +81,31 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
         f"number is {prefix}-{max(numbers) + 1:02d}.")
 
 
+#: NUMBERS THAT WERE DELETED AND WILL NEVER COME BACK, which is the OPPOSITE of a
+#: reservation and must not share its table.
+#:
+#: A RESERVED row says "this hole is filled on another branch, delete the row when it
+#: lands". A RETIRED row says "this hole is permanent, and here is what replaced it". Using
+#: RESERVED for a deletion would be exactly the laundering its own comment warns about: a
+#: row whose holder can never arrive, reading as deliberate for ever.
+#:
+#: A RETIRED NUMBER IS NEVER REUSED. `REQUESTS.md` states the convention the registers
+#: share -- "IDs are stable and never reused" -- and a deleted entry does not release its
+#: number, because every citation ever written to it would then point at something else.
+#: That is the one property a deletion must not cost.
+#:
+#: THIS EXISTS BECAUSE `C4` WAS OVERRIDDEN BY THE OWNER, once, in writing. `C4` says a
+#: superseded ruling STAYS, marked -- which is why the gap check could assume contiguity in
+#: the first place. On 2026-08-30 he deleted the five version rulings outright: «احذف كل
+#: الاحكام او القرارات الخاصة ب version» and «احذف الكل واكتبه فى بند واحد غير متناثرين»,
+#: on the ground that five scattered entries were the cause of the failure `R-77` records --
+#: two sessions reading the same two documents, reaching opposite conclusions, and neither
+#: reaching the ruling that governed. The history is in `git log docs/RULINGS.md`; what this
+#: table preserves is the POINTER, so a reader who follows a dead citation lands somewhere.
+RETIRED: dict[str, dict[int, str]] = {
+    "R": dict.fromkeys((5, 6, 7, 35, 61), "deleted 2026-08-30, replaced by R-77"),
+}
+
 #: NUMBERS AN OPEN PULL REQUEST ALREADY HOLDS, and why this list has to exist.
 #:
 #: Contiguity is a property of `main`, not of a branch. A branch that deliberately skips a
@@ -237,7 +262,9 @@ def test_the_numbers_run_without_a_hole(document: str, prefix: str, what: str):
     numbers = _numbers(document, prefix)
     assert numbers, f"{document} declares no {prefix}- entries at all"
     reserved = RESERVED.get(prefix, {})
-    missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers) - set(reserved))
+    retired = RETIRED.get(prefix, {})
+    missing = sorted(set(range(1, max(numbers) + 1))
+                     - set(numbers) - set(reserved) - set(retired))
 
     assert not missing, (
         f"{document} has no {prefix}-{missing[0]:02d} but does have "
@@ -269,6 +296,36 @@ def test_a_reserved_number_is_not_also_declared():
         assert held.isdisjoint(_numbers(document, prefix)), (
             f"{prefix}: {sorted(held & set(_numbers(document, prefix)))} is reserved for "
             f"another branch AND declared in {document}")
+
+
+def test_a_retired_number_is_not_reserved_and_not_redeclared():
+    """THE TWO TABLES MEAN OPPOSITE THINGS, so a number in both is a contradiction: it
+    cannot be permanently gone and also arriving on someone's branch. And a RETIRED number
+    that reappears as a heading is the reuse that breaks every citation written to it --
+    `REQUESTS.md` says IDs are stable and never reused, and this is where that is enforced
+    rather than hoped for."""
+    for document, prefix, _what in REGISTERS:
+        gone = set(RETIRED.get(prefix, {}))
+        held = set(RESERVED.get(prefix, {}))
+        assert gone.isdisjoint(held), (
+            f"{prefix}: {sorted(gone & held)} is both retired and reserved -- one of the "
+            "two rows is wrong, and they cannot both be right")
+        assert gone.isdisjoint(_numbers(document, prefix)), (
+            f"{prefix}: {sorted(gone & set(_numbers(document, prefix)))} was retired and "
+            f"has been declared again in {document}. A retired number is never reused: "
+            "every citation ever written to it would now name something else.")
+
+
+def test_every_retired_number_names_what_replaced_it():
+    """A RETIRED ROW WITHOUT A DESTINATION IS WORSE THAN THE HOLE. The whole reason the
+    table exists is so a reader following a dead citation lands somewhere; a row saying
+    only "deleted" sends them nowhere and reads as deliberate, which is the laundering the
+    RESERVED comment warns about one table up."""
+    for prefix, rows in RETIRED.items():
+        for number, note in rows.items():
+            assert re.search(r"\b(R|REQ|OP|DEC)-\d+", note), (
+                f"{prefix}-{number:02d} is retired with the note {note!r}, which names no "
+                "replacement. Say what took its place.")
 
 
 def test_a_duplicate_would_actually_be_caught(tmp_path: Path):

@@ -11,7 +11,7 @@ when the CAPABILITY SET changes without `VERSION` moving. Capabilities had not
 changed in those 91 commits, so the gate stayed quiet while three engine migrations
 landed in one day. He ruled the criterion instead: **the engine's version moves on a
 CONTRACT change** — schema, protocol, or endpoint — and the extension's on a
-user-visible one (`R-35`).
+user-visible one (`R-77`).
 
 WHAT COUNTS AS THE CONTRACT, and each of the three is here because breaking it breaks
 somebody else's code rather than merely changing ours:
@@ -27,7 +27,7 @@ somebody else's code rather than merely changing ours:
 WHAT IS DELIBERATELY NOT IN IT. Not the code that implements any of it, not tests, not
 documents, not the number of commits. A refactor that leaves all three identical has
 changed nothing another program can observe — and a version that moves for it is the
-commit counter `R-05` was superseded for being.
+commit counter `R-77` was superseded for being.
 
 THE FINGERPRINT IS A SORTED LIST AND NOT A HASH, on purpose. When the gate fails it
 has to say WHICH part of the contract moved: a digest can only say "something did",

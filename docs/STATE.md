@@ -23,7 +23,7 @@ closed.** `OP-32` · `REQ-28` · guarded by
 ([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
 
 **AND THE NORMAL STATE FROM HERE IS SOURCE AHEAD OF PUBLISHED, WHICH IS NOT `OP-32`
-RETURNING.** `VERSION` moves on a contract change ([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one))
+RETURNING.** `VERSION` moved on a contract change under the rule in force then (now replaced by [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build), which removes the engine's version entirely))
 and releases are cut by hand (PLATFORM-PLAN Decision 4), so the two are *expected* to
 differ between releases. Migration `0010` has already taken the source to **0.3.1**
 on the branch that carries it, against a published **0.3.0** — that gap is
@@ -57,8 +57,8 @@ normal state and is not `OP-32` returning — but the three conditions that made
 defect are asked of the PUBLISHED build, and the second of them is true again right now:
 **the newest installable engine does not work.** `VERSION` reads `0.3.1` against a
 published `0.3.0`, so `engine-v0.3.1` ships the fix and no bump is needed
-([R-35](RULINGS.md#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one) —
-packaging is not a contract change). **Cutting the tag is his call**, and until he does
+(packaging was not a contract change under the rule in force then, since replaced by
+[R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)). **Cutting the tag is his call**, and until he does
 there is nothing installable that serves a page.
 
 This is the document that is **wrong the moment it is out of date**. Update it
@@ -1679,9 +1679,9 @@ See [LESSONS.md](LESSONS.md#7--a-document-can-drift-into-the-opposite-of-the-cod
 
 ## Track 3 · The version debt
 
-**Ruling:** [R-06](RULINGS.md#r-06--version-moves-with-every-merged-pull-request)
+**Ruling:** [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
 (every merged PR raises `VERSION`) · **Blocked by:**
-[R-07](RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
+[R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
 
 `VERSION` is `0.2.2` at [scrapex/version.py:76](../scrapex/version.py); the
 manifest is `0.2.2` too. It last moved at `adf31b2` on **2026-08-10**, and as of
