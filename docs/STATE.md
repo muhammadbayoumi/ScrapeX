@@ -536,53 +536,41 @@ is with him.
 **Ten `RESERVED` rows added** for `OP-101..110`, held by `claude/design-system-review-d6787a`
 — delete them the day that branch merges.
 
+### Every property a stylesheet reads — 2026-08-30 · branch `claude/every-property-a-stylesheet-reads`, based on `main` at `bf97eef`
+
+**`OP-103` closed, and the guard that was cited before it existed now exists.** No owner
+decision was needed for any of it: four undeclared reads, each fixed by spelling a role the
+system already has.
+
+**THE ONE THE USER WOULD HAVE FELT** is `--sticky-tabs`. It was `4rem`, the height of a
+topbar **removed on 2026-07-28** by `4099930`; the declaration went with the bar and **nine
+reads did not**. Every one sits inside `calc()` with no fallback, so the whole declaration
+was invalid and `top` fell back to `auto` — **the settings sidebar and the exports sidebar
+were `position: sticky` and never stuck, for a month**, on the two pages where a long form
+most needs one.
+
+The other three: `--fg` was a typo for `--text` on a base rule of `color: inherit`, so the
+hover changed nothing but the underline; `--green` had no role to spell it with, and the
+product already says "done" as `--accent-ink` in `.ok` and `.badge.ok`; `--control-active`
+became `var(--chip)`, an **alias** rather than a 37th theme property, so a pressed control
+follows every palette and device colours for free.
+
+**AN INVALID `var()` IS NEVER AN ERROR** — it invalidates the whole declaration and the
+property falls back. Nothing throws, nothing looks broken in a screenshot, and a reviewer
+reading the CSS sees a plausible token name. That is why none of the four was found by
+looking at the code.
+
+**The guard is mutation-proved, not merely written:** all four defects re-introduced one at
+a time on a byte-verified mirror, restored, `git status` asserted empty after each — **four
+mutations, four caught**, each naming file, line and property. `docs/LESSONS.md`'s citation
+of it is true for the first time.
+
 ### ~~The backup that said it failed~~ — MERGED as #288 (`3a745a9`), 2026-08-30
 
-### Device colours reach the user — 2026-08-30 · branch `claude/device-colours-reach-the-user`, based on `main` at `f920e7d`
+### ~~Device colours reach the user~~ — MERGED as #291 (`2386805`), 2026-08-30
 
-**`R-79`, the first two of `REQ-49`'s twelve decisions.** Closes `OP-101` and half of
-`OP-104`. He was offered four routes after the review merged and took "fix device and
-contrast together"; a second question inside the work — whether to drop a contrast assertion
-no surface renders — he answered "drop it with the evidence".
-
-**THE CASCADE WAS THE WHOLE DEFECT AND ELEVEN LINES WERE THE WHOLE FIX.** `@supports`
-contributes no specificity, so the device block was `(0,2,0)` — exactly what the two dark
-blocks are — and they came after it and redeclared all seven of its properties. Measured in
-Chromium 149: device-dark resolved `--accent` to `rgb(62, 207, 142)`, Supabase's own
-`#3ecf8e`, while the panel's status text said "Device colours".
-
-**THE FIX REVEALS THE CONTRAST FAILURES, IT DOES NOT CAUSE THEM.** device-dark was passing
-17 of 17 because it was not device: it was the default palette wearing device's name. Five
-pairs went red the moment they had something true to measure, and all five are fixed here
-rather than registered:
-
-| what moved | the number |
-|---|---|
-| the on-colour, `AccentColorText` → `contrast-color(AccentColor)` | the system's own ink is **4.21:1** on its own accent; black is **4.99** |
-| `--button-hover-text`, derived per surface | **3.766** → **5.576** light, 6.066 dark |
-| `--accent-ink` for device, 78% → 60% | **4.031** → 5.123 dark, 7.025 light |
-| dark `--line-strong` base, `#707070` → `#787878` | under 3:1 across the **entire** mix range: 2.982 / 2.994 / 3.002 / 2.994 |
-
-**And Supabase's own mechanism picks the wrong ink too** — their OKLCH-lightness step
-resolves to near-white for this accent, because OKLCH lightness and WCAG luminance disagree
-about saturated blues. Fifth departure from the baseline, written at the value like the
-other four.
-
-**THE GUARD'S READER WAS THE DEEPER HALF OF "device HAS NO COVERAGE".** `getComputedStyle`
-does not resolve a custom property, so device's `AccentColor` and `color-mix(...)` came back
-as literal text — **adding device to the parametrize without fixing the reader would have
-measured nothing and passed.** It resolves through a probe element now, for every palette.
-Coverage: **102 executions over 6 states → 168 over 8**, `THEME_PROPERTIES` still 36.
-
-**The five new pairs found their first defect in a shipped palette, not in device.** `brand`
-light painted `--accent-ink` `#18864B` at **4.180:1** on its own `--accent-weak`, already
-marginal at 4.615 on white; `--accent-weak` cannot be raised to meet it, so the ink moved to
-`#147742`.
-
-**No version bump, and under `R-77` there is no longer a question to ask** — the engine
-carries no version at all.
-
-
+`R-79`, `OP-101` closed and half of `OP-104`. The measurements live in the ruling and
+the backlog entries; this heading is a tombstone in the shape the entry above it uses.
 ### The backup that said it failed — 2026-08-29 · branch `claude/request-deadline-exceeded-3b1cad`, no PR yet
 
 **`OP-100`, ruled the same day as

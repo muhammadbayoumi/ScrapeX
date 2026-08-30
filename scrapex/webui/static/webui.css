@@ -1,5 +1,17 @@
 :root {
   --brand-mark: url("/static/x-mark.svg");
+  /* THE TOPBAR THIS MEASURED WAS REMOVED ON 2026-07-28 (`4099930`, "Remove the
+     web workspace header bar") AND NINE REFERENCES TO IT WERE NOT. It was
+     `--sticky-tabs: 4rem`, set from `base.html` because the bar's height changed
+     responsively; the declaration went with the bar and nothing sets it now.
+     Every one of the nine sits inside `calc()` with no fallback, so the whole
+     declaration was invalid at computed-value time and `top` fell back to `auto`:
+     the settings sidebar and the exports sidebar were `position: sticky` and never
+     stuck, and two data-workspace popovers lost their offset. Zero is the honest
+     value with no chrome above the content, and keeping the token means the nine
+     sites still read "below whatever sticky chrome is above me" if a bar ever
+     returns. OP-103. */
+  --sticky-tabs: 0rem;
   --workspace-sidebar-width: 17.75rem;
 }
 

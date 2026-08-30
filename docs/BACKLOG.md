@@ -3638,7 +3638,7 @@ justifies the shape rule by saying `themeFor` dashes every key into a custom pro
 allowlisted names and drops the rest. The docstring argues from a mechanism the allowlist
 already prevents, and correcting it belongs in the same change as the guard.
 
-### OP-103 · Twelve declarations read custom properties that nothing declares
+### OP-103 · ~~Twelve declarations read custom properties that nothing declares~~ — CLOSED 2026-08-30
 
 Every one is invalid at computed-value time, none has a fallback, and none errors.
 
@@ -3664,6 +3664,33 @@ exactly this class. **That test has never existed** — a grep for the name retu
 citation and nothing else. The near-miss is real: `tests/test_the_tests_name_tests_that_exist.py`
 guards backticked test names but reads only `tests/*.py`, and the citation guard reads
 `docs/` but checks only `file:line`. The claim fell in the seam between the two.
+
+---
+
+**CLOSED 2026-08-30. All four fixed, and the guard the citation promised now exists** —
+`tests/test_every_custom_property_a_stylesheet_reads_is_one_something_defines.py`, written
+under the name the citation had been using.
+
+Each fix spells an existing role rather than adding a token, so `THEME_PROPERTIES` stays at
+36 and no palette gained a cell:
+
+| property | what it becomes | why that one |
+|---|---|---|
+| `--sticky-tabs` | **declared `0rem`** | it was `4rem`, the height of a topbar removed on 2026-07-28 by `4099930` — the declaration went with the bar and nine reads did not. Zero is honest with no chrome above the content, and keeping the token means the nine sites still read *"below whatever sticky chrome is above me"* if a bar ever returns |
+| `--fg` | `var(--text)` | a typo. `color` is inherited and the base rule was `color: inherit`, so the hover resolved to the colour it already had |
+| `--green` | `var(--accent-ink)` | **this repository has no success role at all** — but it already says "this one is good" that way, in `.ok`, `.ok-text` and `.badge.ok` |
+| `--control-active` | `var(--chip)`, an **alias** | the ladder already runs `--control-bg` (`--surface`) → `--control-hover` (`--surface-subtle`) → `--chip`. An alias follows every palette and device colours for free without becoming a 37th theme property, which is what `R-59` decision 4 argues for. The fix `docs/LESSONS.md` proposed |
+
+**AND THE GUARD IS MUTATION-PROVED RATHER THAN MERELY WRITTEN.** All four defects were
+re-introduced one at a time on a byte-verified mirror, the guard run, the file restored and
+`git status` asserted empty after each: **four mutations, four caught**, each naming the
+file, the line and the property. A guard for this class that had never been run against the
+defects it exists for would be the same shape as the citation it replaces.
+
+It reads `var(--x)` **without a fallback** only — `var(--x, 1rem)` is a stated decision and
+the author owns it — and it counts a property as defined if any authored stylesheet declares
+it, any script `setProperty`s it, or any template writes it inline. All three are how this
+repository already works: `design/appearance.js` writes 36 of them from JS.
 
 ### OP-104 · A palette can ship text at 1.00:1, and `device` is never measured at all
 

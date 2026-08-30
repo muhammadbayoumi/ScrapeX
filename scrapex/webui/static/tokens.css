@@ -115,6 +115,19 @@
   --button-hover-text: var(--button-text);
   --control-bg: var(--surface);
   --control-hover: var(--surface-subtle);
+  /* The pressed rung, and it was READ at design/components.css:1530 and declared
+     nowhere until 2026-08-30. `background` is a shorthand, so the invalid `var()`
+     computed to `unset` -- transparent -- and a pressed split-button option showed
+     the container behind it while only its border darkened: a press that
+     half-registered.
+     AN ALIAS, NOT A 37th THEME PROPERTY. The ladder is already
+     --control-bg (--surface) -> --control-hover (--surface-subtle) -> and --chip is
+     the next step down in both schemes. Deriving from it means the pressed state
+     follows every palette AND device colours for free, and `THEME_PROPERTIES` stays
+     at 36 with no palette gaining a cell -- which is what R-59 decision 4 argues
+     for: components consume semantic roles. OP-103, and the fix docs/LESSONS.md
+     proposed. */
+  --control-active: var(--chip);
   --control-height: 2.5rem;
   --control-height-sm: 2rem;
   /* The third notch, added 2026-08-11 by the owner's ruling on the Profile

@@ -417,7 +417,12 @@
 
   .coverage-open:hover,
   .coverage-open:focus-visible {
-    color: var(--fg);
+    /* `--fg` until 2026-08-30 and it is declared nowhere in the repository -- a
+       typo for the semantic role. `color` is inherited and the base rule at :412
+       is `color: inherit`, so this resolved to the colour it already had: the
+       hover changed nothing but the underline style, and keyboard focus was that
+       much weaker. OP-103. */
+    color: var(--text);
     text-decoration-style: solid;
   }
 

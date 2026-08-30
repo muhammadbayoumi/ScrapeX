@@ -661,7 +661,14 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
    and the source list already use. A fourth way of saying "this one" would have
    to be learned separately. */
 .build-step { border-inline-start: 3px solid var(--amber); }
-.build-done { border-inline-start-color: var(--green); }
+/* `--green` until 2026-08-30 and it is declared nowhere -- and this repository has
+   no success role to spell it with. It already says "this one is good" as
+   `--accent-ink`: `.ok` and `.ok-text` (design/components.css:79) and `.badge.ok`
+   (:644) both use it. `border-inline-start-color` is not inherited, so the invalid
+   value made a completed build step lose its colour entirely rather than fall back
+   to anything. Reusing the existing role costs no token and keeps R-59 decision 4:
+   components consume semantic roles. OP-103. */
+.build-done { border-inline-start-color: var(--accent-ink); }
 .build-blocked {
   border-inline-start-color: var(--line);
   opacity: .6;
