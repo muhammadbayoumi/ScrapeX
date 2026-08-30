@@ -239,6 +239,29 @@ RESERVED: dict[str, dict[int, str]] = {
         # a different question from "has it been claimed"; this table is about the
         # second, and that advice was given once on 2026-08-30 and would have
         # reported a held number as free.
+        #
+        # 111 IS NOT RESERVED EITHER, FOR THE SAME REASON, ONE MERGE LATER:
+        # `claude/the-backup-that-uploaded-nothing` landed as #296 while this
+        # branch was in flight, so OP-111 is declared on `main` and a row for it
+        # would be the contradiction the paragraph above describes. Twice in one
+        # day, caught both times by the same assertion.
+        #
+        # 112-114 REMAIN, and each names a ref that `git rev-parse --verify`
+        # resolves, checked with `git show <ref>:docs/BACKLOG.md` rather than
+        # taken from the message that allocated them.
+        #
+        # A RESERVATION MAY BE TAKEN BEFORE ITS HOLDER HAS COMMITTED ANYTHING,
+        # which the rule above does not say and which cost an hour here. These
+        # three were allocated by the primary session and declared by no ref
+        # anywhere -- a search of refs/heads and refs/remotes found nothing -- so
+        # the only holder that could be written was a session name, which is the
+        # form the rule forbids, because sessions do not outlive their branches.
+        # A row whose holder has no ref yet must SAY SO and be RE-CHECKED: it is
+        # the orphan the comment above warns about, it just has not become one
+        # yet. Re-checking is what turned these three into refs.
+        112: "branch claude/scrapex-engine-consolidation-d69e0a",
+        113: "branch claude/scrapex-engine-consolidation-d69e0a",
+        114: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
         # open). They became holes HERE the moment this branch declared `OP-69`, because
         # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and

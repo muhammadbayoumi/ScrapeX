@@ -314,16 +314,47 @@ def test_the_lag_guard_does_not_cry_wolf_on_a_current_database(tmp_path):
         conn.close()
 
 
-def test_the_lag_guard_ignores_the_other_databases_migrations(tmp_path):
-    """The migrations directory holds BOTH streams. Only this database's own
-    may ever be reported, or the banner names files that will never apply."""
-    from scrapex.databases.domain import _MARKETLENS_LEGACY_NUMBERS
+def test_the_lag_guard_reports_every_migration_this_database_is_missing(tmp_path):
+    """THIS ASSERTED THE OTHER DIRECTION AND THAT IS WHY IT NEVER FIRED.
 
-    conn = dbmod.connect(tmp_path / "streams.db")
+    It used to check that nothing STRAY was reported — every number reported had
+    to be in `_MARKETLENS_LEGACY_NUMBERS` — and never that nothing was SUPPRESSED.
+    A filter can only shrink the reported set, so the old assertion could not
+    fail no matter how much the filter hid, and it stayed green for as long as
+    `0013` and `0014` were invisible to the banner (`OP-115`).
+
+    Its docstring also stated the premise as fact — "the migrations directory
+    holds BOTH streams" — after `R-72` had deleted the second one.
+    """
+    import sqlite3
+
+    from scrapex.databases.domain import EngineDatabase
+
+    path = tmp_path / "engine.db"
+    EngineDatabase(path).initialize()
+    conn = sqlite3.connect(path)
     try:
-        reported = {n for n, _name in dbmod.pending_migrations(conn)}
-        assert reported, "a fresh database must be behind something"
-        stray = reported - set(_MARKETLENS_LEGACY_NUMBERS)
-        assert not stray, f"migrations from the other stream reported: {sorted(stray)}"
+        assert dbmod.pending_migrations(conn) == [], (
+            "a database built from every migration must be behind nothing")
+
+        # Forget three, one of them on each side of the old filter's blind spot:
+        # 0013 and 0014 were the suppressed pair, 0016 was always reportable.
+        forgotten = []
+        for prefix in ("0013", "0014", "0016"):
+            row = conn.execute(
+                "SELECT migration_name FROM database_migration "
+                "WHERE migration_name LIKE ?", (f"{prefix}%",)).fetchone()
+            assert row, f"no {prefix} migration in the ledger to forget"
+            forgotten.append(row[0])
+            conn.execute("DELETE FROM database_migration WHERE migration_name = ?",
+                         (row[0],))
+        conn.commit()
+
+        reported = {name for _n, name in dbmod.pending_migrations(conn)}
+        missing = [name for name in forgotten if name not in reported]
+        assert not missing, (
+            f"the banner cannot report {missing}. A migration this database has "
+            "not applied and the engine will not name is the silence "
+            "pending_migrations exists to break.")
     finally:
         conn.close()

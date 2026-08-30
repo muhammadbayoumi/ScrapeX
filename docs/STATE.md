@@ -424,6 +424,38 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The two migrations the banner could not name — 2026-08-30 · branch `claude/two-migrations-the-banner-could-not-report`, no PR yet
+
+**`OP-115`. No ruling — nothing here was his to decide.** Based on `main` at `a167417`.
+Secondary session; `recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+`pending_migrations` filtered through `_MARKETLENS_LEGACY_NUMBERS`, a hand-listed tuple from
+when one directory held two migration streams. **`R-72` deleted that world and the filter
+survived it** — and 13 and 14 had become real engine migrations it had never heard of. Proven
+on a real database: one missing `0013`, `0014` and `0016` reported **`[16]`**. `0014` is
+`one_source_registry`, so a warehouse that cannot resolve a dataset source was told nothing
+was pending.
+
+**The guard asserted the direction that cannot fail.** It checked that nothing STRAY was
+reported and never that nothing was SUPPRESSED — and a filter can only shrink the reported
+set, so it was green for as long as the defect existed. Rewritten and mutation-checked:
+restoring the filter turns it red naming both files.
+
+**Two register facts recorded rather than assumed.** `OP-111` is reserved to
+`claude/the-backup-that-uploaded-nothing` and that is **verified against the ref**;
+`OP-112..114` are recorded as **claimed, with no ref anywhere** — a search of `refs/heads` and
+`refs/remotes` finds no branch declaring them. A reservation taken on a message is worth less
+than one taken on a ref, and the row says which it is.
+
+**Two things this branch does NOT fix, both found in the same census:**
+`scrapex/webui/templates/settings.html` polls `/api/marketlens/health`, a route deleted at M5
+— so the engine page's restart button reports failure on a successful restart; and the guard
+written for exactly that scans `extension/**/*.js` and never the engine's own templates.
+
+**Blocked on rebase, not on review:** `claude/the-backup-that-uploaded-nothing` adds a
+`LESSONS` §28 and `main` now has a different §28. Mine renumbers when it rebases.
+
 ### A backup of nothing — 2026-08-30 · branch `claude/the-backup-that-uploaded-nothing`, no PR yet
 
 **`OP-111`. No ruling — nothing here was his to decide.** Based on `main` at `25e9dd8`.

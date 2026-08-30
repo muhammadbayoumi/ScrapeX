@@ -161,19 +161,21 @@ def _folder_migrations(folder: Path, start: int = 2) -> list[Migration]:
     return result
 
 
-# Legacy migrations belonging to the PRICE domain, in the order MarketLens
-# applies them. Legacy 13 and 14 are deliberately absent — they created the
-# generic catalogue and generic extraction storage, which are General's alone.
+# `_MARKETLENS_LEGACY_NUMBERS` AND `_IDENTITY_POSITION` STOOD HERE AND ARE GONE
+# (2026-08-30, OP-115). Both described a world with two migration streams in one
+# directory: the tuple listed the price stream's numbers so the legacy facade
+# could tell them apart, and it deliberately omitted 13 and 14 because those
+# belonged to General.
 #
-# Listed rather than ranged: the unified chain and this one have diverged, so a
-# new price migration lands at the END of the legacy chain but in the middle of
-# this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61)
-
-# Where the identity migration sits in this stream. Everything before it is the
-# price history the unified warehouse already had; everything after is a price
-# migration written since the split.
-_IDENTITY_POSITION = 13
+# R-72 deleted that world — `db/` holds only `engine/`, and `db/general/` and
+# `scrapex/databases/split.py` are gone — but the tuple survived it, and 13 and
+# 14 had meanwhile become real engine migrations. `db.pending_migrations` was
+# still filtering through it, so it could not report them AT ALL: measured on a
+# database missing 0013, 0014 and 0016, it answered `[16]`.
+#
+# Recorded here rather than silently removed because the shape recurs: removing a
+# duplicated system leaves behind the things that were SHAPED by it, and those
+# are harder to find than the system was — nothing points at them any more.
 
 
 class DomainDatabase(Generic[T]):
