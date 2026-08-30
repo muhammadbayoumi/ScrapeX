@@ -3895,6 +3895,73 @@ under.
 *(An earlier draft of this entry said 35 against 11, and 34 below the floor. Both were
 counted with a line-grep that did not strip comments. Re-counted with a parser: 38, 6, 29.)*
 
+### OP-111 · A backup of nothing reached Drive, and the check that would have caught it was disabled by zero
+
+**Found 2026-08-30, by him, from the Drive folder.** After pressing "Back up to
+Drive" his `ScrapeX backups` folder held `scrapex-bundle-20260830-045416.zip` at **0
+bytes**, `panel.jsonl.gz` at **0 bytes**, and a `latest.json` beside them saying a backup
+existed. **He had no usable backup in Drive.** Two complete 378.7 MB archives were safe on
+local disk, so nothing was lost — but nothing on either side said so.
+
+**The chain, each link measured:**
+
+1. **The running engine was not the code on disk.** It reported `engine_version 0.4.5`
+   while `main` carried `0.4.6`; a running Python process keeps the modules it loaded. So
+   `OP-100`'s build lock was merged and **not active**. Two builds ran 36 seconds apart
+   (stamps `20260830-045340` and `045416`) and three stamps sat in a folder where
+   `BUNDLE_KEEP = 2` would have left two.
+2. **`zipfile.ZipFile(archive, "w")` created the file under its FINAL name immediately**,
+   at zero bytes, and filled it over the ~33 s of the deflate.
+3. **`GET /api/bundle/archive` answers with the newest `.zip` by mtime**
+   ([scrapex/webui/app.py:2923](../scrapex/webui/app.py#L2923)), so it handed the panel the
+   second build's empty, in-progress file.
+4. **Nothing compared what arrived with what the engine had described.** The pointer took
+   `bytes` from the uploaded blob (0) and `sha256` from the manifest of the *complete*
+   378 MB build. Two sources, never reconciled.
+5. **And the restore-side check was written `if (pointer.bytes && …)`.** With `bytes: 0`
+   that is falsy, so it never ran. **The guard was switched off by exactly the value that
+   means the thing it guards against has happened** — a truthiness test on a size is a test
+   that the size is *interesting*, and zero is the least interesting number and the most
+   alarming one. A restore would have reported success on an empty archive.
+
+**Four defects. `OP-100` closed only the first, and D4 is the one that would have
+prevented all of it.**
+
+| | defect | state |
+|---|---|---|
+| **D1** | two builds at once | fixed by `OP-100`'s lock — **which was not loaded** |
+| **D2** | the archive is written in place under its final name, so the route can serve a partial file | **fixed here** |
+| **D3** | nothing verifies the bytes against the manifest, and the restore check disables itself at zero | **fixed here** |
+| **D4** | **the engine knew it was stale, said so, and gated nothing** | **open** |
+
+**D4 is not a deployment accident and should not be read as one.** The panel's build row
+said *"the code this engine is running is not the code on disk — 3 loaded module(s) changed
+since it started"*. That is the system detecting the exact condition that made this
+possible, **displaying it correctly, and letting the button be pressed anyway.** Nothing
+said the button was unsafe. A detected-and-displayed staleness that gates nothing is a
+decorative guard; the Engine page also has no restart control on it, so the sentence names
+an action the page cannot perform.
+
+**Fixed here.** `bundle.pack` writes to `<name>.zip.part` and renames
+([scrapex/bundle.py:388](../scrapex/bundle.py#L388), `PARTIAL_SUFFIX` at
+[:357](../scrapex/bundle.py#L357)); `Path.replace` is atomic on one filesystem, so the real
+name either does not exist or names a complete archive. The panel-pack copy is done the
+same way. On the panel, `expectSize` refuses a part whose length is not the length the
+engine described ([extension/drive.js:405](../extension/drive.js#L405), called at
+[:432](../extension/drive.js#L432)) before a byte leaves the machine, an empty archive is
+refused outright ([:436](../extension/drive.js#L436)), and the download check is a `typeof`
+rather than a truthiness test ([:540](../extension/drive.js#L540)).
+
+**Measured rather than assumed, because the rename could have re-introduced the bug:**
+`Path.replace` carries the **write-completion** mtime across the rename, not the creation
+time. A renamed archive therefore still sorts by when its bytes finished. Had it carried
+the creation time, a fast rebuild could have sorted behind an older complete archive and
+`_newest` would have served the wrong one.
+
+**No version bump.** The regenerated contract baseline moves only its version stamp — no
+migration, route or protocol change — so `R-35`'s engine trigger does not fire, and `0.4.7`
+is held while the `R-06`/`R-35` cadence question is with him.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

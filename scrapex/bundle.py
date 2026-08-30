@@ -352,12 +352,30 @@ def read_dataset(bundle_dir: Path | str, source_key: str,
 # instead of seventy-one.
 
 
+#: What a half-written archive is called while it is being written. Anything
+#: carrying this suffix is a build in progress and is not a backup.
+PARTIAL_SUFFIX = ".part"
+
+
 def pack(bundle_dir: Path | str, archive_path: Path | str) -> dict:
     """Compress a verified bundle into one file, and describe it.
 
     Refuses to pack a bundle that does not verify. The whole point of
     `latest.json` naming only a validated bundle is lost if the validation can
     be skipped by packing first and checking later.
+
+    THE ARCHIVE APPEARS UNDER ITS REAL NAME ONLY WHEN IT IS WHOLE, and that is
+    not tidiness. `zipfile.ZipFile(path, "w")` creates the file the instant it
+    is called and leaves it at zero bytes for the thirty-odd seconds it takes to
+    deflate the owner's warehouse. `GET /api/bundle/archive` answers with
+    `_newest(folder, ".zip")` — newest by mtime — so for that whole window the
+    freshest `.zip` on disk is the emptiest one.
+
+    ON 2026-08-30 THAT WINDOW WAS ENTERED AND A BACKUP OF NOTHING REACHED HIS
+    DRIVE: a 0-byte archive and a 0-byte panel pack, with a pointer beside them
+    saying a backup existed. Writing to `<name>.zip.part` and renaming closes it
+    — `Path.replace` is atomic on one filesystem, so the name either does not
+    exist or names a complete archive, and there is no third state to serve.
     """
     root, archive = Path(bundle_dir), Path(archive_path)
     report = verify(root)
@@ -367,10 +385,20 @@ def pack(bundle_dir: Path | str, archive_path: Path | str) -> dict:
             + "; ".join(f"{f.path}: {f.problem}" for f in report.faults[:3]))
 
     archive.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as out:
-        for path in sorted(root.rglob("*")):
-            if path.is_file():
-                out.write(path, path.relative_to(root).as_posix())
+    building = archive.with_name(archive.name + PARTIAL_SUFFIX)
+    try:
+        with zipfile.ZipFile(building, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as out:
+            for path in sorted(root.rglob("*")):
+                if path.is_file():
+                    out.write(path, path.relative_to(root).as_posix())
+        building.replace(archive)
+    except BaseException:
+        # A crash must not leave the half-written file behind to be mistaken for
+        # a backup later. `.part` is already excluded from every reader, so this
+        # is housekeeping rather than correctness -- but a 372 MB remnant per
+        # failed build is the leak this module has just been taught to avoid.
+        building.unlink(missing_ok=True)
+        raise
     return {"path": str(archive), "bytes": archive.stat().st_size,
             "sha256": sha256_of(archive), "files": report.files,
             "uncompressed_bytes": report.bytes}

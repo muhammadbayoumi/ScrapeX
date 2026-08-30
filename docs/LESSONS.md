@@ -3004,6 +3004,16 @@ entries with the SAME key. Python keeps the last. No error, no warning — a gro
 simply stopped being described. Found by the guard above, which is the only reason it is not
 still true.
 
+**IT HAPPENED AGAIN ON 2026-08-30, in `tests/test_the_registers_cannot_collide.py` — the
+guard against register collisions.** `RESERVED` is a long dict literal with a comment block
+before each key, and ten reservations were added as a second `"OP":` near the top without
+noticing an `"OP":` already existed a hundred lines below. Python kept the lower one, the ten
+reservations evaporated, and the register guard failed with the numbers still missing —
+reporting the symptom the new rows had just been written to explain. **The comment blocks are
+what hide it**: they are long enough that the two keys never appear on one screen. Read a dict
+literal for its KEYS before adding one, and prefer `**dict.fromkeys(...)` merged into the
+existing key over a second entry that looks separate.
+
 **The shape of all three:** a test that builds its own database is only as honest as the
 builder it calls. When two builders exist, half the suite is testing a product nobody runs.
 
@@ -3284,7 +3294,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found five times in a day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found six times in a day
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3335,7 +3345,7 @@ indistinguishable from a green that earned it, and no count anywhere would diffe
 device half was found by the design-review session while building `R-79`; those words are its
 own.)
 
-**Two in five is a rate, not an anecdote.** "It rotted" is the comfortable reading because it
+**Two of the first five is a rate, not an anecdote** (the sixth below could fail, at any mismatch but zero, so it is not in that count)**.** "It rotted" is the comfortable reading because it
 implies the guard was once correct and time did the damage. **Forty per cent of these were
 never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
 matter of course, not only when a guard looks stale.
@@ -3345,3 +3355,24 @@ being what it was written for, and none of them can say so. `LESSONS` §7 is the
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
 that finds them is the one §18 already states: *if the thing it protects were broken right
 now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
+
+| Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
+
+**The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
+
+**And the two idioms are one character apart, which is why this is worth a paragraph rather than a rule.** Measured across `extension/` before writing it: the `x && …` shape appears five times on a size- or count-like name and **all five are the safe one** — `if (rows.length && …)` asks *is there anything at all*, where zero is a real answer and skipping is correct. `if (pointer.bytes && …)` asks *do I have a measurement* and answers it with a test for whether the measurement is interesting. Same shape, opposite meaning, and only the second is wrong.
+
+**AND ONE COUNTEREXAMPLE, WHICH THIS SECTION NEEDS OR IT READS AS A LIST OF THINGS THAT
+CANNOT WORK.** Every entry above is a guard that could not notice its subject had changed.
+On the rebase that produced this very paragraph, one did. `tests/test_the_registers_cannot_collide.py`
+held ten reservations for `OP-101..110` on behalf of another branch. That branch merged, the
+numbers became DECLARED on `main`, and `test_a_reserved_number_is_not_also_declared` refused
+the rebase and **named all ten** — a reservation for a number that has landed is a
+contradiction, and the table says so about itself.
+
+**What makes it work is the shape of the assertion, not the care of its author.** It compares
+two things that move independently — the reservations and the headings — so a change to
+either side breaks the agreement. The failures above all assert something about ONE side and
+cannot see the other move. That is the buildable version of §18's question: do not ask *"would
+this fail if the thing broke"* and hope; **assert an agreement between two things that are
+maintained separately**, and the guard notices without anybody remembering to ask.

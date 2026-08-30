@@ -476,3 +476,168 @@ def test_a_failed_build_does_not_take_the_last_good_archive_with_it(client, monk
     survived = {p.name[len("scrapex-bundle-"):][:15]
                 for p in backups.glob("scrapex-bundle-*.zip")}
     assert survived == {"20260101-000000", "20260102-000000", "20260103-000000"}
+
+
+# ---- an archive is only servable when it is whole (OP-111) --------------------
+#
+# On 2026-08-30 a 0-byte archive reached the owner's Drive under a pointer
+# saying a backup existed. Two builds overlapped; the second had CREATED its zip
+# and not yet filled it; and this route answers with the newest `.zip` on disk.
+# `zipfile.ZipFile(path, "w")` makes that window thirty seconds wide on his
+# warehouse. The archive is now written beside its real name and renamed into
+# place, so the name either does not exist or names a complete file.
+
+
+def test_a_finished_build_leaves_no_half_written_file_behind(client):
+    connected, backups = client
+
+    connected.post("/api/bundle")
+
+    leftovers = [p.name for p in backups.glob("*.part")]
+    assert not leftovers, f"the build left a partial file behind: {leftovers}"
+
+
+def test_an_archive_still_being_written_is_never_served(client):
+    """THE INCIDENT, as a test. The partial file is deliberately the NEWEST
+    thing in the folder, because mtime is exactly what the route sorts on."""
+    import os
+    import time
+
+    connected, backups = client
+    connected.post("/api/bundle")
+    whole = next(iter(backups.glob("scrapex-bundle-*.zip")))
+
+    partial = backups / "scrapex-bundle-29991231-235959.zip.part"
+    partial.write_bytes(b"")
+    later = time.time() + 60
+    os.utime(partial, (later, later))
+
+    got = connected.get("/api/bundle/archive")
+
+    assert got.status_code == 200, got.text
+    assert len(got.content) == whole.stat().st_size, (
+        "the route served something other than the complete archive")
+    assert len(got.content) > 0, "the route served an empty archive"
+
+
+def test_a_panel_pack_still_being_copied_is_never_served(client):
+    """Four megabytes copy fast, and `shutil.copy2` is still not atomic."""
+    import os
+    import time
+
+    connected, backups = client
+    connected.post("/api/bundle")
+    whole = next(iter(backups.glob("scrapex-bundle-*-panel.jsonl.gz")))
+
+    partial = backups / "scrapex-bundle-29991231-235959-panel.jsonl.gz.part"
+    partial.write_bytes(b"")
+    later = time.time() + 60
+    os.utime(partial, (later, later))
+
+    got = connected.get("/api/bundle/panel-pack")
+
+    assert got.status_code == 200, got.text
+    assert len(got.content) == whole.stat().st_size
+    assert len(got.content) > 0
+
+
+def test_a_partial_file_left_by_a_crash_is_pruned_with_its_stamp(client):
+    """It carries a stamp like any other file of that backup, so retention
+    reaches it. A crash that leaves 372 MB behind is the leak this closes."""
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+    orphan = backups / "scrapex-bundle-20260101-000000.zip.part"
+    orphan.write_bytes(b"half a zip")
+
+    connected.post("/api/bundle")
+
+    assert not orphan.exists(), "the partial file outlived its own stamp"
+
+
+def test_a_pack_that_dies_leaves_nothing_that_looks_like_a_backup(tmp_path, monkeypatch):
+    """A raise mid-zip must not leave a file the next reader could serve."""
+    from scrapex import bundle as bundlemod
+
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "warehouse.db").write_bytes(b"x" * 32)
+
+    # A bundle that verifies, so `pack` gets past its own refusal and reaches
+    # the zip -- which is where the failure is injected.
+    monkeypatch.setattr(
+        bundlemod, "verify",
+        lambda root: bundlemod.BundleReport(root=Path(root), files=1, bytes=32))
+
+    real_zipfile = bundlemod.zipfile.ZipFile
+
+    class DiesMidWrite:
+        def __init__(self, path, *a, **kw):
+            self._inner = real_zipfile(path, *a, **kw)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def write(self, *a, **kw):
+            raise OSError("the disk filled up")
+
+        def __exit__(self, *exc):
+            return self._inner.__exit__(*exc)
+
+    monkeypatch.setattr(bundlemod.zipfile, "ZipFile", DiesMidWrite)
+
+    archive = tmp_path / "scrapex-bundle-20260101-000000.zip"
+    with pytest.raises(OSError):
+        bundlemod.pack(source, archive)
+
+    assert not archive.exists(), "a failed pack published an archive"
+    assert not list(tmp_path.glob("*.part")), "a failed pack left a partial file"
+
+
+def test_the_final_name_appears_only_when_the_archive_is_complete(tmp_path, monkeypatch):
+    """THE DECISIVE ONE. The tests above prove a `.part` is not served; this
+    proves the archive is written as one, which is what makes that true.
+
+    Asserted from INSIDE the zip write, because that is the only moment the old
+    code was wrong: `zipfile.ZipFile(archive, "w")` created the real name up
+    front and left it empty for the length of the deflate.
+    """
+    from scrapex import bundle as bundlemod
+
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "warehouse.db").write_bytes(b"x" * 4096)
+    monkeypatch.setattr(
+        bundlemod, "verify",
+        lambda root: bundlemod.BundleReport(root=Path(root), files=1, bytes=4096))
+
+    archive = tmp_path / "scrapex-bundle-20260101-000000.zip"
+    real_zipfile = bundlemod.zipfile.ZipFile
+    seen = []
+
+    class Watching:
+        def __init__(self, path, *a, **kw):
+            seen.append(("opened", archive.exists()))
+            self._inner = real_zipfile(path, *a, **kw)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def write(self, *a, **kw):
+            seen.append(("writing", archive.exists()))
+            return self._inner.write(*a, **kw)
+
+        def __exit__(self, *exc):
+            return self._inner.__exit__(*exc)
+
+    monkeypatch.setattr(bundlemod.zipfile, "ZipFile", Watching)
+    bundlemod.pack(source, archive)
+
+    assert seen, "the zip was never opened; this test proved nothing"
+    for moment, existed in seen:
+        assert not existed, (
+            f"the archive existed under its final name while {moment} — that is "
+            "the window a concurrent reader served 0 bytes out of")
+    assert archive.exists() and archive.stat().st_size > 0

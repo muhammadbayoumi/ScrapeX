@@ -391,10 +391,56 @@ export async function readLatest(token, parent, {fetchImpl = fetch} = {}) {
  * through: this file never opens a bundle, because that is the engine's job and
  * doing it twice is how two readers of one format drift.
  */
+/** Refuse a part whose length is not the length the engine described.
+ *
+ * `typeof`, NEVER truthiness. `if (described && ...)` is the shape that let the
+ * 2026-08-30 backup through: a size of zero is falsy, so the comparison was
+ * skipped, and THE CHECK SWITCHED ITSELF OFF AT EXACTLY THE VALUE THAT MEANS
+ * THE THING IT CHECKS FOR HAS HAPPENED. A missing size is still forgiven — a
+ * caller may legitimately have no manifest — but a size of zero is not missing.
+ *
+ * Exported for its own test. The truthiness bug is invisible in a test that
+ * only ever passes plausible numbers, so it is asserted at zero directly.
+ */
+export function expectSize(what, blob, described) {
+  if (typeof described !== "number") return;
+  const size = blob ? blob.size : 0;
+  if (size === described) return;
+  throw new DriveError(
+    `The engine built a ${what} of ${described} bytes and this panel read ` +
+    `${size}. Nothing was uploaded, and the backup already in Drive is ` +
+    "untouched. Restart the engine from the Engine page, then try again.",
+    null, "mismatched");
+}
+
 export async function backUp(token, {
   archive, name, panelPack = null, manifest = {}, bundleFormat = 1,
   onProgress = null, fetchImpl = fetch,
 } = {}) {
+  // NOTHING COMPARED THE BYTES TO THE DESCRIPTION UNTIL 2026-08-30, and the
+  // manifest was already being passed in when it happened. The engine's POST
+  // reply says how long the archive is; the archive arrives from a SECOND
+  // request that serves the newest file on disk. Two concurrent builds made
+  // those two different things, and a 0-byte archive went to Drive under a
+  // pointer carrying the complete build's digest -- a backup that reported
+  // success and could restore nothing.
+  //
+  // Refused here, before a single byte leaves the machine, and refused twice:
+  // the size must match what the engine described, AND an empty archive is
+  // never a backup whatever anyone described. The second is not redundant --
+  // it holds for a caller that passes no manifest at all.
+  expectSize("archive", archive, manifest.bytes);
+  expectSize("panel pack", panelPack, manifest.panel_pack?.bytes);
+  if (!archive || archive.size === 0) {
+    throw new DriveError(
+      "The archive was empty, so nothing was uploaded. The backup already in " +
+      "Drive is untouched.", null, "empty");
+  }
+  if (panelPack && panelPack.size === 0) {
+    throw new DriveError(
+      "The panel pack was empty, so nothing was uploaded. The backup already " +
+      "in Drive is untouched.", null, "empty");
+  }
   const parent = await folderId(token, {fetchImpl});
 
   const stored = await upload(token, {
@@ -485,10 +531,23 @@ export async function fetchLatest(token, {
       "again. Nothing was restored.", null, "wrong-format");
   }
   const archive = await download(token, pointer.file_id, {onProgress, fetchImpl});
-  if (pointer.bytes && archive.size !== pointer.bytes) {
+  // `typeof`, NOT `pointer.bytes &&`. The truthiness version read a pointer
+  // saying `bytes: 0` as "no size recorded, nothing to compare" and returned an
+  // empty archive as a good one -- THE GUARD WAS DISABLED BY EXACTLY THE VALUE
+  // THAT MEANS THE THING IT GUARDS AGAINST HAS HAPPENED. A pointer with no
+  // `bytes` at all is a genuinely older pointer and is still forgiven; a
+  // pointer that says zero is now the loudest failure here.
+  if (typeof pointer.bytes === "number" && archive.size !== pointer.bytes) {
     throw new DriveError(
       `The download stopped at ${archive.size} of ${pointer.bytes} bytes. ` +
       "Nothing was restored.", null, "truncated");
+  }
+  // Reached when a pointer carries no size at all, so the comparison above had
+  // nothing to compare. An empty archive is unusable whatever the pointer says.
+  if (archive.size === 0) {
+    throw new DriveError(
+      "The backup in Drive is empty, so there is nothing to restore. Take a " +
+      "new backup from this panel.", null, "empty");
   }
   return {archive, pointer};
 }
