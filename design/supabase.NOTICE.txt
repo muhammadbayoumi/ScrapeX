@@ -1,0 +1,139 @@
+SUPABASE DESIGN SYSTEM — ATTRIBUTION AND STATEMENT OF CHANGES
+============================================================
+
+WHAT THIS FILE IS FOR
+
+design/tokens.css carries colour values, and the expressions behind them, that
+were read from Supabase's design system. Ruling R-74 makes that system this
+product's baseline rather than one option among several, so the borrowing is
+structural and not incidental, and it is owed a notice.
+
+This file discharges that. It is carried into every distribution of the design
+assets by tools/sync_design_assets.py, and a guard in tests/test_design_system.py
+fails the build if a copy goes missing.
+
+
+WHAT WAS TAKEN, AND FROM WHERE
+
+  Project    Supabase
+  Source     https://github.com/supabase/supabase
+  Commit     86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94  (2026-08-28)
+
+  Files read:
+    packages/ui/build/css/themes/light.css
+    packages/ui/build/css/themes/dark.css
+    packages/ui/build/css/source/semantic.css
+    packages/ui/build/css/source/global.css
+    apps/design-system/styles/globals.css
+
+  What came across:
+    * Fifteen colour values, byte-exact.
+    * Nineteen more, re-derived by evaluating Supabase's own OKLCH expressions
+      for the scalar inputs their theme files declare.
+    * The type scale, the weights, the radius scale and the focus geometry.
+    * Token NAMES, where this product's semantic role matches theirs.
+
+  No code was copied. No file of theirs is redistributed here.
+
+
+THE TWO LICENCES, AND WHY BOTH ARE NAMED
+
+Their repository declares Apache-2.0 at its root — LICENSE, and "license":
+"Apache-2.0" in package.json — under "Copyright 2024 Supabase".
+
+packages/ui, which is the package holding every file listed above, declares
+"license": "MIT" in its own package.json and ships no licence text of its own.
+There is no NOTICE file anywhere in their repository.
+
+So which licence governs these particular files is genuinely ambiguous, and it is
+cheaper to satisfy both than to argue it. Nothing below is a legal opinion; it is
+the conservative reading.
+
+
+APACHE LICENSE 2.0
+
+    Copyright 2024 Supabase
+
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not
+    use this file except in compliance with the License. You may obtain a copy of
+    the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+    License for the specific language governing permissions and limitations under
+    the License.
+
+The full text of the Apache License 2.0 is carried in this repository alongside
+this file, as design/material-icons.LICENSE.txt. It is the same licence text and
+it is not duplicated; that file is Google's attribution and this one is
+Supabase's, and both point at the same terms.
+
+
+MIT LICENSE
+
+    Copyright (c) Supabase
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+Reproduced from their package.json declaration; packages/ui ships no licence file
+of its own, so no copyright line of theirs exists to copy verbatim.
+
+
+STATEMENT OF CHANGES — Apache License 2.0, section 4(b)
+
+The values in design/tokens.css are CHANGED from what Supabase publishes. Every
+change is recorded at the value in that file; this is the summary.
+
+  1. RESOLVED, NOT COPIED. Their semantic colours are computed at runtime in
+     OKLCH from a small set of scalar inputs per theme. This product resolves
+     those expressions to static values, because it ships CSS without a build
+     step. The arithmetic is theirs; the constants are the output of it.
+
+  2. FIVE VALUES WERE DELIBERATELY REPLACED, each because it fails a contrast
+     floor this product enforces and theirs does not state:
+
+       --line-strong   their --border-stronger is 1.57:1 on their own card
+       --amber         their --warning is 2.68:1 on their own warning-300 tint
+       --focus         their focus ring flattens to 1.47:1 on their background
+       --accent-contrast   their brand green is 1.99:1 against white
+       device --accent-contrast   the on-colour their OKLCH-lightness step picks
+                       is near-white where WCAG relative luminance wants black,
+                       because the two disagree about saturated blues
+
+  3. NAMES DIVERGE ABOVE THE BODY SIZE. This product's type scale carries an
+     `md` step that Tailwind has no name for, so from --fs-md upward every rung
+     sits one place below theirs. The values match; the names do not.
+
+  4. THE MOTION VOCABULARY IS NOT THEIRS. Neither easing curve in
+     design/tokens.css appears in their source, and their most-used duration has
+     no token here.
+
+  5. TOKENS THEY DO NOT HAVE. Shadow tokens, line-height tokens, a forced-colors
+     block, a prefers-contrast accommodation, and a bidirectional-text contract
+     are this product's own. Supabase publishes none of them.
+
+
+WHAT IS NOT COVERED BY THIS NOTICE
+
+Supabase's brand marks, their wordmark, and their licensed typeface are not used
+here and are not distributed with this product. design/tokens.css names a font
+STACK of freely available faces; it does not ship theirs.

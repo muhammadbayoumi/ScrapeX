@@ -127,6 +127,42 @@ def test_ui_templates_do_not_use_inline_style_attributes() -> None:
     assert offenders == []
 
 
+def test_the_supabase_notice_travels_with_the_values_it_covers() -> None:
+    """R-74 makes Supabase's design system the baseline, so the borrowing is
+    structural and it is owed a notice -- and a notice that exists only in
+    `design/` is not carried to anyone who installs the extension or the engine.
+
+    THIS REPOSITORY ALREADY DISCHARGED THE SAME OBLIGATION THREE TIMES FOR A
+    SMALLER BORROWING. The Material icons licence is present in three places and
+    two of them are asserted below. For the values `design/tokens.css` is built
+    from there was, until 2026-08-30, no notice anywhere at all -- `OP-108`.
+
+    Both licences are named on purpose. Their repository root declares Apache-2.0
+    under "Copyright 2024 Supabase"; `packages/ui`, which holds every file the
+    values were read from, declares MIT in its own package.json and ships no
+    licence text. Satisfying both is cheaper than deciding which governs.
+    """
+    notice_paths = (
+        ROOT / "design" / "supabase.NOTICE.txt",
+        ROOT / "extension" / "supabase.NOTICE.txt",
+        ROOT / "scrapex" / "webui" / "static" / "supabase.NOTICE.txt",
+    )
+    for path in notice_paths:
+        assert path.exists(), f"{path} is missing; run tools/sync_design_assets.py"
+        text = path.read_text(encoding="utf-8")
+        # Attribution, both licences, and the section 4(b) statement of change.
+        # A notice that names neither licence, or that drops the statement, is a
+        # file rather than a discharge.
+        for required in (
+            "Copyright 2024 Supabase",
+            "Apache License",
+            "MIT LICENSE",
+            "STATEMENT OF CHANGES",
+            "86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94",
+        ):
+            assert required in text, f"{path.name} no longer carries {required!r}"
+
+
 def test_material_icons_keep_their_license() -> None:
     license_paths = (
         ROOT / "extension" / "icons" / "material-icons.LICENSE.txt",

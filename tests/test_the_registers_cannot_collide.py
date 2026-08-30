@@ -137,20 +137,20 @@ RESERVED: dict[str, dict[int, str]] = {
     # R-46 belongs to `claude/drive-without-a-server` (pushed at e00711d, no PR
     # yet), and this branch declares R-47 -- so 46 is a hole here that exists
     # elsewhere. Delete this row the day that branch merges.
-    # R-80 belongs to `claude/scrapex-engine-consolidation-d69e0a` (pushed, PR #293,
-    # unmerged), and this branch declares R-81 -- so 80 is a hole here that exists
-    # elsewhere. VERIFIED against the ref, not taken from a message:
-    #   git show claude/scrapex-engine-consolidation-d69e0a:docs/RULINGS.md | grep "### R-80"
-    # Delete this row the day #293 merges.
-    "R": {46: "branch claude/drive-without-a-server",
-          80: "branch claude/scrapex-engine-consolidation-d69e0a, PR #293"},
-
-    # 79 WAS RESERVED HERE AND IS NOT ANY MORE, which is the rule working. It was
-    # held by `claude/device-colours-reach-the-user` with no pull request, so no
-    # sweep of `main` could see it and it was verified against the ref itself. #291
-    # merged it, `R-79` became a heading rather than a hole, and a number that is
-    # both reserved and declared fails `test_a_reserved_number_is_not_also_declared`
-    # -- so the row goes in the first change that rebases past it, which is this one.
+    # ONE "R" ENTRY, AND THERE WERE TWO. `main` carried `"R"` twice inside this
+    # dict -- once holding {46, 80} with a ref-verified comment, once holding {46}
+    # alone -- and Python keeps the LAST, so the first was dead from the day it was
+    # written. The row reserving R-80 for #293 therefore protected nothing for the
+    # whole time it existed, and `test_a_reserved_number_is_not_also_declared` stayed
+    # green throughout, because every test in this file reads the BUILT dict and a
+    # built dict cannot show you the key it discarded. Collapsed here.
+    #
+    # R-80 AND R-81 ARE GONE FROM THIS TABLE BECAUSE THEY LANDED. #293 merged as
+    # `1d8816d8` and #301 as `5af838ca`, so both are declared headings in
+    # docs/RULINGS.md now; leaving the rows would make each number reserved AND
+    # declared at once, which is the failure the neighbouring test exists for.
+    # Verified against origin/main rather than against the local `main` ref, which
+    # in a shared worktree is whatever the last session left behind.
     "R": {46: "branch claude/drive-without-a-server"},
     # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
     # not on this one, which is the state this table is for -- and being handed a
