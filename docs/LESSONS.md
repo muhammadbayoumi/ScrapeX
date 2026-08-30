@@ -3349,6 +3349,26 @@ own.)
 implies the guard was once correct and time did the damage. **A third of these were never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
 matter of course, not only when a guard looks stale.
 
+**AND THERE IS A NINTH SHAPE THAT NO GUARD COULD HAVE CAUGHT, which is why it is recorded
+here rather than as a defect in one.** Twice on 2026-08-30 a mechanism was found still
+running against a boundary that had been DELETED:
+
+    _MARKETLENS_LEGACY_NUMBERS   filtered pending migrations against a second stream
+                                 `R-72` retired -- hiding `0013` and `0014` (`OP-115`)
+    POST /api/jobs               validated a source against `sources.yaml` after `0014`
+                                 moved the registry into `source_site` (`REQ-45`)
+
+**A guard needs two things to compare, and in both cases one of them stopped existing.** The
+filter did not disagree with anything; the second stream was simply gone and nothing pointed
+at the filter afterwards. `#285` was a net deletion of 4,106 lines that found three defects
+the duplication had been hiding, and **these are the fourth and fifth -- they survived the
+deletion rather than being exposed by it.**
+
+**So the rule is about deletions, not about guards.** When a system is removed, the things
+SHAPED by it outlive it and are harder to find than it was, because the thing that would have
+named them is what went away. **The only method that works is a person going looking** --
+which is how both of these were found, by two sessions, on the day after the deletion.
+
 **None of the first six is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
 being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test

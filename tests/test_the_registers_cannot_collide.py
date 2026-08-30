@@ -274,13 +274,14 @@ RESERVED: dict[str, dict[int, str]] = {
         112: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 116 is `claude/the-guard-that-reads-half-the-product` (PR #297, pushed) --
         # VERIFIED with `git show <ref>:docs/BACKLOG.md | grep "^### OP-116"`.
-        # 117 is CLAIMED BY MESSAGE ONLY: allocated to the Drive session on 2026-08-30
-        # for the /data-model double-count, with no ref declaring it at the time this
-        # row was written. That distinction is the one the comment above asks for --
-        # a reservation taken before its holder has committed anything is the orphan
-        # this table warns about; it just has not become one yet. RE-CHECK IT.
+        # 117 WAS CLAIMED BY MESSAGE ONLY for about an hour, and this row said so in
+        # those words: allocated to the Drive session with no ref declaring it. It has
+        # one now (PR #300), and the re-check the row asked for is what produced this
+        # line. **The claimed-by-message state is real and short**, which is exactly why
+        # a row in it must say which kind of claim it is holding rather than read like
+        # a verified one.
         116: "branch claude/the-guard-that-reads-half-the-product, PR #297",
-        117: "the Drive session, claimed 2026-08-30, NO REF YET -- re-check",
+        117: "branch claude/marketlens-is-gone, PR #300",
         113: "branch claude/scrapex-engine-consolidation-d69e0a",
         114: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
