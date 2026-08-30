@@ -1933,7 +1933,7 @@ fire after a regression has been written:
   `.workspace-menu-button` in `webui.css`, which is how the third row of the table above
   was found. That is exactly the rule `docs/LESSONS.md` now states in prose (*"The
   extension's layers are three tokens …; a fourth number invented at a call site is the
-  next instance of this bug"*, [docs/LESSONS.md:831](LESSONS.md#L831)) and nothing
+  next instance of this bug"*, [docs/LESSONS.md:840](LESSONS.md#L840)) and nothing
   enforces. It is also cheap: the three substitutions below are the whole of today's
   violation set, so the guard goes green the moment they land.
 * **Behavioural, for `.modal-veil`:** open the confirmation and hit-test a point over the
@@ -3399,7 +3399,8 @@ zero remain.
 
 A design system a rule does not consume is decoration: `--radius` moving from 9px to 6px
 changes nothing at a rule that spells `border-radius: 9px` by hand. Every such site was
-counted across the 9 non-generated stylesheets and split by what it would take to fix:
+counted across **9 of the 19** authored stylesheets — see the correction at the end of this
+entry — and split by what it would take to fix:
 
 | bucket | count | verdict |
 |---|---|---|
@@ -3417,6 +3418,20 @@ reason written at the value.
 **Not urgent.** Buckets B and C are cosmetic drift, not breakage, and closing either is a
 decision about the scale rather than a fix. Registered so the next session does not
 re-measure it.
+
+**RE-MEASURED 2026-08-29 BY [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases),
+AND THE SCOPE WAS HALF THE FILES.** This entry says "the 9 non-generated stylesheets".
+**There are 19.** The ten `scrapex/webui/static/pages/*.css` were never opened — they were
+added five weeks before this entry was measured. A like-for-like bucket-A census over all
+19 finds **140 exact-duplicate sites: 47 in the nine originally scanned, and 93 (66%) in
+the ten that were not** — data-workspace 37, schedules 29, datasets 11, settings 11.
+
+**140 and this entry's 138 are different quantities, not a restatement.** The 138 above is
+B+C, the buckets deliberately left. The 140 is bucket A, the one this entry reports as
+swept. Do not read the near-match as agreement.
+
+The 47 reproduces exactly, so nothing here was wrong — it was scoped to a file list that
+had gone stale, which is the same failure the `9`-of-`19` phrasing made invisible.
 
 ---
 
@@ -3567,6 +3582,278 @@ staging tree it finds.
    2026-08-29 row would falsify. **The rule is not that every plan is frozen:** one under
    `## Current` is a live document and `C2` makes a stale one a bug to fix. This one is
    Historical, which is what settles it.
+### OP-101 · "Device colours" paints Supabase's own accent in dark mode
+
+`design/tokens.css:302` wraps the device block in `@supports (color: AccentColor)`, which
+contributes **no specificity**. The selector is therefore `(0,2,0)` — identical to the two
+dark blocks that come *after* it and redeclare all seven of its properties. Source order
+decides and the dark blocks win, so a user on a dark OS who selects Device colours gets
+`#3ecf8e` for every accent, focus ring, button and switch track while the panel's status
+text reports the choice it is not painting. Measured in Chromium 149 by counterfactual —
+device-dark differs from supabase-dark in **9 of 36** theme properties against **24 of 36**
+in light.
+
+**One of the four colour choices `R-74` names by name, unreachable in half its states.**
+
+**THE FIX IS NOT FREE, AND THAT IS THE WHOLE DECISION.** Moving the seven declarations
+below the dark blocks costs zero tokens and no palette cells — and takes device-dark from
+0 of 17 to **5 of 17** failing contrast assertions, two of them worse than anything
+device-light shows, because `color-mix(in srgb, AccentColor 84%, var(--text))` mixes toward
+near-white in dark. The fix does not create the illegibility; it reveals it. So it lands
+with `OP-104`'s device coverage or not at all. Recorded as OD-04 in
+[REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases).
+
+### OP-102 · `R-74` is enforced by one unasserted statement, and mutation proves it
+
+The allowlist loop at `design/appearance.js:347` is what makes *"a palette may change
+nothing but colour"* true at runtime. Its only guard is the substring assertion at
+`tests/test_vendor.py:289` — and `clearTheme` at `design/appearance.js:310` contains the
+same substring, so **the assertion is satisfied whether or not the loop in `apply()`
+exists.**
+
+Mutation testing on a byte-verified mirror, restored and `git status` asserted clean after
+each: replacing the loop with `Object.keys(theme).forEach` put `--fs`, `--font-body` and
+`--lh` into a palette; a second mutation put **11 of the 13 forbidden families** into a
+surface stylesheet. **91 static guards and all 218 browser tests stayed green for both.**
+The architecture `R-74` abolished is reachable today and no gate would say a word.
+
+`--radius` and `--fw-regular` *are* pinned, at `tests/test_panel_dom.py:468` and `:471` —
+two values, hand-written, which is why the gap is 11 families and not 13.
+
+**Entangled with a false docstring.** `tests/test_a_palette_may_change_nothing_but_colour.py:10`
+justifies the shape rule by saying `themeFor` dashes every key into a custom property so a
+`radius` key becomes a real `--radius`. Measured false: `apply()` writes only the 36
+allowlisted names and drops the rest. The docstring argues from a mechanism the allowlist
+already prevents, and correcting it belongs in the same change as the guard.
+
+### OP-103 · Twelve declarations read custom properties that nothing declares
+
+Every one is invalid at computed-value time, none has a fallback, and none errors.
+
+- **`--sticky-tabs` — nine references, zero declarations.** All nine sit inside `calc()`,
+  so the whole declaration is dropped and `top` falls back to `auto`: **the settings
+  sidebar and the exports sidebar are `position: sticky` and never stick**, and two
+  data-workspace popovers lose their offset.
+- **`--control-active`** at `design/components.css:1530`. `background` is a shorthand, so
+  an invalid `var()` computes to `unset`: a pressed split-button option shows the
+  container's background while only its border darkens — a press that half-registers.
+  `docs/LESSONS.md` already proposes `var(--chip)`; whether it enters `THEME_PROPERTIES`
+  or stays a derived alias decides whether a palette can override it, and `R-59` decision 4
+  argues for the alias.
+- **`--fg`** in the extension, a typo for `--text`. `color` is inherited, so the hover and
+  focus rule resolves to the colour the base already inherits: the hover changes nothing
+  but the underline, and keyboard focus is that much weaker.
+- **`--green`** in the console. `border-inline-start-color` is not inherited, so a
+  completed build step loses its colour entirely.
+
+**Why no guard caught them.** `docs/LESSONS.md` cites
+`test_every_custom_property_a_stylesheet_reads_is_one_something_defines` as the guard for
+exactly this class. **That test has never existed** — a grep for the name returns the
+citation and nothing else. The near-miss is real: `tests/test_the_tests_name_tests_that_exist.py`
+guards backticked test names but reads only `tests/*.py`, and the citation guard reads
+`docs/` but checks only `file:line`. The claim fell in the seam between the two.
+
+### OP-104 · A palette can ship text at 1.00:1, and `device` is never measured at all
+
+Two holes in one guard, and `STATE.md` records the first half of it as already fixed.
+
+**The token pairs are still hand-written while the palette list is derived.** The
+parametrize takes its palettes from the registry — which is the fix that landed — but the
+pairs it asserts are a literal list of 12. Mutation: setting `brand`'s `chip`,
+`surfaceSubtle` and `surfaceRaised` each to that palette's own `--text` gives three
+text-bearing backgrounds at **exactly 1.00:1**, and 91 static guards plus all 218 browser
+tests pass. A quarter of what a palette controls carries text and is never read.
+
+**`device` has zero coverage in either scheme.** `_registered_palette_ids()` parses the
+`PALETTES` map, and `device` is removed as a palette entirely by `design/appearance.js`, so
+it can never appear in the parametrize; the fixture then hard-codes `deviceColors: false`.
+Structurally uncoverable, not merely uncovered. Run by hand, **device-light fails two of
+the seventeen assertions at 4.21:1**, on the primary button using the browser's own
+`AccentColor` — a value that varies per machine, which makes an unguarded state worse than
+an unguarded palette.
+
+Five pairs would close the first half — muted-on-chip, text-on-chip, text-on-surfaceSubtle,
+text-on-surfaceRaised, accentInk-on-accentWeak — taking 102 assertions to 132 using only
+existing tokens, so `THEME_PROPERTIES` stays at 36. Recorded as OD-03.
+
+**One reason for deferring this was measured and is false.** The fear was that an alpha or
+system colour would make the guard silently vacuous. It does not: Chromium returns the
+unresolved expression and the parser raises `ValueError`. It fails loudly.
+
+### OP-105 · The OS Increase-contrast setting reaches one of the four colour choices
+
+`design/tokens.css` implements `prefers-contrast: more` at specificity `(0,1,0)`. `apply()`
+writes the 36 theme properties as **inline style**, which outranks it. Measured under
+`page.emulate_media(contrast="more")` with `matchMedia` matching: the two palettes that
+declare a full colour set get nothing.
+
+Silent in both directions — the OS setting is on, the CSS rule is present, no test reads
+it, and a screenshot looks correct. **The accommodation works only for the colour choice
+that declares the fewest colours.**
+
+### OP-106 · An untyped `.banner` reads as a warning
+
+`design/components.css:365` paints `--amber-weak` as the **default**, with `.info`,
+`.promise` and `.danger` as modifiers. Supabase's untyped `Alert` is neutral and its
+`destructive` and `warning` are opt-ins.
+
+Five untyped sites ship. **Four of them are not warnings** — including a database-failure
+alert that is under-coloured by the same rule — and one is `design/gallery.html`'s own
+example, labelled "a statement of fact". The design system's documentation contradicts
+itself in a single viewport, which is how a wrong default gets copied.
+
+### OP-107 · Two guards that look like assertions and are gates
+
+**The sprite check is disabled by renaming a comment.** `tools/sync_design_assets.py`
+regenerates the gallery's sprite block only `if` the marker string is present. Tampering
+with the block is caught; tampering with the block **and** renaming the marker passes, and
+the tool then reports the catalogue current forever. `docs/UI-KIT.md` calls the gallery
+"the catalogue that cannot go stale".
+
+**A colour baked into a shipped SVG is invisible.** The colour-literal guard's suffix
+filter is `{".css", ".js", ".html"}` — no `.svg`. An edit made at `design/material-icons.svg`
+and synced to both copies, which is how anyone would actually introduce one, passes
+`test_vendor.py`, `test_design_system.py`, `test_ui_kit.py` and `sync --check`. Only an
+*inconsistent* edit is caught, and only by the byte-drift guard. An icon with a baked fill
+would ignore the palette in both schemes.
+
+**AND A THIRD, WHICH IS A BELIEF RATHER THAN A GUARD.** Added 2026-08-29 while #289 was in
+CI, because the belief was actively circulating between three sessions at the time.
+
+**The claim:** a branch that touches `design/` runs extra design workflows, so it gets
+**19** CI checks and reading 14 as settled is a false green.
+
+**Measured from `.github/workflows/`, not from a run: fourteen is the complete set, for
+every branch.** `ci.yml` declares five jobs — `lint`, `scope`, `test`, `migration-authority`,
+`contract-parity` — its trigger block is `on: push:` / `pull_request:` with **no `paths:`
+filter**, so it fires twice per pull request: 5 x 2 = 10. CodeQL adds three `Analyze` jobs
+plus its umbrella: 4. Total **14**, and `gh pr checks` on #289 returns exactly that shape.
+
+**There is no design workflow at all.** Grepping the directory for `design`, `tokens.css`,
+`components.css` or `gallery` returns three incidental hits — two comments, and
+`release-engine.yml` curling `/static/tokens.css` as a post-tag smoke check. The only real
+`paths:` filter in the whole directory is `publish-docs.yml` on `docs/privacy-policy.md` and
+`docs/support.md`.
+
+**AND THE BELIEF DID NOT REQUIRE A MISSING WORKFLOW — IT REQUIRED ONE THAT CANNOT EXIST.**
+`ci.yml:60-66` is not a note about the `scope` job; it is a general prohibition on
+conditional checks anywhere in this repository, with the failure mode written out:
+
+> *"A workflow- or job-level `paths:` filter makes the consuming job not exist, and a
+> required check that does not exist stays pending forever — the pull request can never
+> merge. A job that always runs, plus step-level `if:` on the expensive steps, leaves every
+> check reporting on every change, which is what branch protection needs."*
+
+A design-gated workflow is exactly the shape that comment forbids. So "19 on a design
+branch" was never merely unverified: it described an architecture this repository had
+already reasoned through and ruled out **in writing, with the reason attached** — and the
+belief grew anyway, in a repository whose first rule is that the repository is the memory.
+
+**`design/tokens.css` is covered anyway**, because `test` runs the whole suite and the
+`scope` job's rule is one-sided: `docs` requires that EVERY changed file be documentation,
+and a change to `design/`, `extension/` or `tests/` falls through to "run everything". So
+nothing is unguarded. **What is wrong is the belief, and its cost is symmetrical.** Someone
+waiting for 19 waits forever. Someone told "19" who sees 14 reads a complete run as partial
+and holds a mergeable pull request.
+
+**THE PROVENANCE, AND IT IS NOT HYPOTHETICAL.** The session holding the belief passed it to
+two other sessions in one afternoon and then built a CI monitor whose floor was
+`[ "$n" -ge 14 ]`. **Had that floor matched its author's own stated belief of 19, the monitor
+would have waited out its full hour on every design branch and reported `TIMED OUT` on a
+green pull request.** The tooling was correct only because it disagreed with the prose of the
+session that wrote it.
+
+**Why this belongs beside the other two in this entry.** All three are the same shape: a
+mechanism that reports something weaker than what a reader takes it to mean. The sprite check
+is a gate read as an assertion; the colour guard is a suffix list read as complete coverage;
+and a check count is a fixed property of the workflow files read as a property of the
+branch. `ci.yml:60-66` already anticipates the family — it explains that `scope` is a job
+output rather than a `paths:` filter precisely because *"a required check that does not exist
+stays pending forever — the pull request can never merge."* The architecture is deliberately
+fixed-count, which is what makes the 19 unsupportable rather than merely unverified.
+
+**Nothing to fix in CI. The discharge is one line, and it must carry the DERIVATION rather
+than the number** — "it is 14" rots the moment a job is added, silently, exactly the way
+"19" did:
+
+> The CI check count is a property of `.github/workflows/`, never of the diff. It is the
+> jobs declared across those files, times two for the push/pull-request pair, plus CodeQL's
+> analyses and its umbrella. Recompute it; do not carry it.
+
+A reader who knows the derivation can recompute it in ten seconds and can never be stale. A
+reader handed "14" is holding a number with an expiry date nobody wrote on it — which is the
+same argument this repository already makes about deriving a deadline rather than picking
+one, and about `MINIMUM_EXTENSION_VERSION` being derived from the ledger and never typed.
+
+### OP-108 · Values traceable to Supabase ship with no attribution
+
+`github.com/supabase/supabase` is Apache-2.0 at the root (`Copyright 2024 Supabase`), and
+`packages/ui` — the package holding the theme files these values came from — declares
+**MIT**. There is no `NOTICE` file on their side.
+
+`design/tokens.css` carries fifteen byte-exact published values and nineteen more that
+reproduce their OKLCH expressions, and `design/*.css`, `*.js` and `*.html` carry **zero**
+Apache-2.0 or MIT notice. Apache-2.0 §4 requires retaining attribution, shipping the
+licence with the derivative, and **stating prominently that files were changed**; MIT
+requires the notice in all copies or substantial portions.
+
+The same repository discharges the identical obligation **three times over** for a smaller
+borrowing — the Material icons Apache-2.0 text exists in three places and two of them are
+guarded. Discharging both licences is cheaper than deciding which applies. Recorded as
+OD-08.
+
+### OP-109 · The design documents are guarded by nothing, and one guarded claim is false
+
+Neither `docs/DESIGN-SYSTEM.md` nor `docs/UI-KIT.md` is in the citation guard's `DOCUMENTS`
+tuple, and **adding them today would change no verdict**: neither contains a citation of
+the shape the guard can see, and no tier resolves a bare backticked path. Two documents
+governing 12,060 lines of authored CSS have the weakest guarantee in the repository —
+weaker than `docs/plans/`, which is at least deliberately excluded and says so.
+
+Four live stale facts survived because of it, all corrected in this pull request: a licence
+path that does not exist, a `.source-row` primitive that is not in the shared sheet, icon
+markup in a form the repository does not use, and a canonical-file list that is 3 of 10.
+
+**And the same class of hole is inside `design/tokens.css` itself.** Its device block
+claimed `tests/test_vendor.py` asserts the tonal bases match `:root`. That test asserts
+nine token **names** and two substrings and compares no literal — grep the suite for any of
+those hexes and it returns nothing. **The drift it claimed to prevent has happened**: the
+light `--control-hover` base is `#f3f3f3` (`--chip`) where `:root` declares
+`var(--surface-subtle)` = `#f6f6f6`. The comment is corrected; the drift is not.
+
+Order matters: the **bare-path tier first**, the `DOCUMENTS` widening second. Widening
+alone is a green no-op here.
+
+**AND TIER 1 CANNOT TELL A DELIBERATE SNAPSHOT PIN FROM ROT.** Sweeping every citation into
+the five documents this review edited turned up three that point at **blank lines**, and all
+three were already doing so at `ef86a19`, before anything was touched: two in
+`docs/ENGINE-ROLE-MEASURED.md` and one in `docs/MUQAWIL-AUDIT-2026-08-26.md`. Both files are
+snapshots pinned to `31c369e` and `5722b6f` and say so in their headers, so their citations
+are correct **against those commits** and wrong against `HEAD` by design. Tier 1 checks only
+that a line exists, so it passes either way and can distinguish neither. Left alone
+deliberately — repairing them would falsify two frozen records — but a reader sweeping
+citations will keep rediscovering them, so a snapshot document needs a way to declare its
+pin to the guard rather than only to a human.
+
+### OP-110 · The layering scale is 6 tokenised declarations against 38 bare ones
+
+`extension/app.css` declares `nav.side-rail { z-index: 30 }` against `--z-modal: 30`. The
+collision is stated in a comment on the screen that had to route around it and resolved
+nowhere: a modal and a persistent navigation rail sit in one stacking band with the winner
+decided by stylesheet order.
+
+The wider shape, measured over the 19 authored stylesheets with comments stripped:
+**38 bare numeric `z-index` declarations against 6 that use a token**, values sprawling
+`0, 1, 2, 3, 4, 6, 8, 9, 10, 20, 25, 30, 100, 120, 130, 10020`. **29 of the 38 sit BELOW
+the scale's floor** (`--z-sticky: 10`), so they are not bypasses of the scale at all — they
+are local stacking inside a context, a different problem, and a census that files them as
+"literals bypassing tokens" reports the wrong diagnosis. The 9 at or above the floor are the
+real candidates. Two of the three tokens are live (`--z-overlay` five times, `--z-modal`
+once inside a `calc`); **`--z-sticky` is dead**, and it is the one whose value the 29 sit
+under.
+
+*(An earlier draft of this entry said 35 against 11, and 34 below the floor. Both were
+counted with a line-grep that did not strip comments. Re-counted with a parser: 38, 6, 29.)*
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was

@@ -100,6 +100,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Ruled** — [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) settles the shape: **the scheduler resolves a source through `source_site`, and the button falls out of that.** `POST /api/jobs` validates against `sources.yaml`, and `scrapex/jobs.py` has zero references to any contractor module, so opening the route alone would turn a clear 404 into a job that fails mid-run (`OP-92`). Not started | 2026-08-26 |
 | [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
+| [REQ-49](#req-49--review-the-design-system-against-supabases) | Review the design system against Supabase's | **In flight** — measured 2026-08-29; he set the scope first («اولا تحديد كل محاور المراجعة»), then pointed at the SOURCE rather than the site, then chose six axes of twenty-six («ابدأ بالستة»). `R-74` **holds in the built product** (8 states x 118 properties in Chromium 149: 62 move, all colour) **and is guarded by almost nothing** — mutation put the type scale into a palette with 91 static and 218 browser guards green. `device` does not reach the user in dark. 21 findings were refuted by the verify pass. Filed as [OP-101](BACKLOG.md)–[OP-110](BACKLOG.md); **twelve decisions open, all his** | 2026-08-29 |
 
 ---
 
@@ -2573,8 +2574,10 @@ the operating system's `AccentColor` where the browser exposes one.
   engine before the panel ever renders it. OP-82's own note — *"no third palette exists to
   add"* — stops being true with this request.
 - **[tests/test_vendor.py](../tests/test_vendor.py)**'s
-  `test_only_the_two_reviewed_application_palettes_are_available` asserts
-  `appearance.count('description: "') == 2`. That is a **review decision encoded as a
+  `test_only_the_three_reviewed_application_palettes_are_available` asserts
+  `appearance.count('description: "') == 3`. (**Both were `two` and `2` when this was
+  written**, and `R-74` made them three by adding the `supabase` entry; corrected
+  2026-08-29 by `REQ-49`.) That is a **review decision encoded as a
   guard**: a third palette is meant to cost a written justification, not an edited number.
 
 > **The four items above describe the tree AS IT WAS ON 2026-08-28 at capture, and three of
@@ -2615,3 +2618,72 @@ He answered all four questions:
 
 A worktree exists — `feat/the-supabase-appearance-is-a-design-system`, based on `main` at
 `b836de3`.
+
+---
+
+## REQ-49 · Review the design system against Supabase's
+
+**Captured 2026-08-29 · measured the same day · In flight — branch `claude/design-system-review-d6787a`, PR to open. Twelve decisions await his ruling**
+
+> «عاوز اراجع design SYSTEM · https://supabase.com/design-system · اولا تحديد كل محاور
+> المراجعة»
+> — then, on being shown the scope: «لو عاوز تشغل AGENTS
+> https://github.com/supabase/supabase/tree/master/apps/design-system لمزيد من التفاصيل»
+> — then, on being offered twenty-six axes with a recommendation of six: «ابدأ بالستة»
+
+He asked for the axes **before** any finding, which is what made the review scopeable: the
+scoping pass produced twenty-six, a completeness critic found seven that were missing and
+refused eleven measurement steps as unexecutable, and he chose the six that the rest stand
+on. The report is
+[docs/reviews/2026-08-29-the-design-system-against-supabase.md](reviews/2026-08-29-the-design-system-against-supabase.md).
+
+**His second message changed the review's foundation.** `docs/STATE.md` recorded that
+*"Supabase publishes token names with no values"*, and the whole palette had therefore been
+derived by inference and marked `PUBLISHED` or `derived` at each value. Reading the source
+he pointed at shows **the values are published** — `packages/ui/build/css/` carries the
+scalar inputs, the OKLCH derivation and the literal ramps. The premise was false.
+
+**And the inference was right anyway.** Re-derived against the real source: 15 values are
+byte-exact, 19 more reproduce their expressions, light scalars match 9 of 10 and dark 10 of
+10, including `--elevation-step` solved independently at two elevation ratios. What the
+false premise cost was not accuracy — it was six comments that argue from things that are
+not true, now corrected.
+
+### What the review found, in one line each
+
+`R-74` **holds in the built product** — 8 states by 118 properties in Chromium 149, 62 move
+and all 62 are colours — **and is enforced by almost nothing**: mutation put the type scale
+and the body face into a palette with 91 static and 218 browser guards green. One of the
+four colour choices `R-74` names does not reach the user in dark. Twelve declarations read
+properties nothing declares, and two sidebars marked `sticky` never stick. Sixteen comments
+and documents argue from something untrue. Attribution to Supabase is absent entirely.
+
+Filed as [OP-101](BACKLOG.md) through [OP-110](BACKLOG.md).
+
+**Twenty-one findings were refuted by the verify pass** and are listed rather than buried —
+including two that had accused the code of breaking a ruling it obeys.
+
+### The twelve decisions, none of which a reviewer may take
+
+| | question | the number that decides it | recommendation |
+|---|---|---|---|
+| OD-01 | adopt their numeric ramps `200`-`600`? | 15 tokens across 3 blocks = 45 declarations minimum; `THEME_PROPERTIES` 36 to 51, and the contrast matrix grows with it | **no** to the ramps, **yes** to the four status-border tokens — a quarter of the cost, 14 call sites and nine competing mix percentages behind it |
+| OD-02 | is `--amber` the intended colour or the accident of a clip? | the target is 27.6% outside sRGB; the shipped hex is a naive clip 9.5 degrees off their warning hue; the hue-holding value is `#8d5e00` | switch **or** rule "clip accepted" — the comment is now true either way, and it blocks any future warning ramp |
+| OD-03 | five more contrast pairs, and a `device` state? | 102 to 132 assertions, **zero new tokens**, `THEME_PROPERTIES` unchanged | **yes** — measure first and land green, never land red |
+| OD-04 | fix the device cascade? | a seven-declaration block move, zero tokens — and device-dark goes 0 of 17 to **5 of 17** failing | **yes**, but land it with OD-03. The fix reveals the illegibility, it does not create it |
+| OD-05 | make `--surface-subtle`, `--chip` and `--line` true alpha? | exact on `--background`, wrong on `--card` and `--popover` by 2/255 light and (5,6,6) dark | **plan it, do not slip it in.** The deferral's stated hazard was measured and is false — the guard fails loudly, not silently |
+| OD-06 | extract a shared table primitive? | two implementations, 101 lines already token-bound and 1,837 of Tabulator override; the extension has **zero** table CSS | extract the 101-line one only. `OP-46` makes a new shared module yours |
+| OD-07 | grow the shared `.empty`? | 3 declarations against 10 surface-local implementations and 19 usage sites | **yes** — the cheapest item in the review, and the local copies exist because the shared one was too thin |
+| OD-08 | discharge attribution under Apache-2.0 or MIT? | their root is Apache-2.0, `packages/ui` is MIT, and this repository already discharges the same obligation three times for Google | **both** — cheaper than deciding, and Apache-2.0 §4(b) also wants the statement of change |
+| OD-09 | sanction the panel's control-height override? | 2 tokens of 111, documented in a comment, asserted by no test | sanction it, and make it `OP-102`'s guard's only allowlist row — that turns a comment into a mechanism |
+| OD-10 | exempt `design/gallery.html`'s inline styles, or convert them? | 22 attributes, 21 of them pure `var(--token)` | **exempt explicitly**, asserting they are token-only — the catalogue must keep demonstrating tokens |
+| OD-11 | fold `STATE.md`'s "Open pull requests" section? | 642 lines with nothing open; `OP-89` measured it at 535 two days ago and chose a banner, and it has grown 107 lines **above** the banner since | **fold it.** The stopgap was overtaken by the exact mechanism it did not defend against |
+| OD-12 | citation guard: bare-path tier, `DOCUMENTS` widening, or both? | `DOCUMENTS` is 9 of 82 tracked `.md`; design citations are 8 and exactly 1 is pinned | **bare-path tier first** — widening alone changes zero verdicts here |
+
+### What was deliberately not done
+
+**No value, no selector and no component rule changed.** Seven comments, six documents, the
+registers and one review. Every defect is filed rather than fixed, per **C1** — and the
+twelve above are open because each one either grows `THEME_PROPERTIES`, changes what a
+shipped colour choice paints, or creates a shared module, and `R-59` decision 4, `OP-46`
+and `LESSONS` section 5 all put those with him.
