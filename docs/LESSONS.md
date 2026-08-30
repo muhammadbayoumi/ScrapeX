@@ -3361,3 +3361,18 @@ now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 
 **And the two idioms are one character apart, which is why this is worth a paragraph rather than a rule.** Measured across `extension/` before writing it: the `x && …` shape appears five times on a size- or count-like name and **all five are the safe one** — `if (rows.length && …)` asks *is there anything at all*, where zero is a real answer and skipping is correct. `if (pointer.bytes && …)` asks *do I have a measurement* and answers it with a test for whether the measurement is interesting. Same shape, opposite meaning, and only the second is wrong.
+
+**AND ONE COUNTEREXAMPLE, WHICH THIS SECTION NEEDS OR IT READS AS A LIST OF THINGS THAT
+CANNOT WORK.** Every entry above is a guard that could not notice its subject had changed.
+On the rebase that produced this very paragraph, one did. `tests/test_the_registers_cannot_collide.py`
+held ten reservations for `OP-101..110` on behalf of another branch. That branch merged, the
+numbers became DECLARED on `main`, and `test_a_reserved_number_is_not_also_declared` refused
+the rebase and **named all ten** — a reservation for a number that has landed is a
+contradiction, and the table says so about itself.
+
+**What makes it work is the shape of the assertion, not the care of its author.** It compares
+two things that move independently — the reservations and the headings — so a change to
+either side breaks the agreement. The failures above all assert something about ONE side and
+cannot see the other move. That is the buildable version of §18's question: do not ask *"would
+this fail if the thing broke"* and hope; **assert an agreement between two things that are
+maintained separately**, and the guard notices without anybody remembering to ask.
