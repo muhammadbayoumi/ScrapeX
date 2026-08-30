@@ -638,6 +638,8 @@ twice over questions either command would have closed.
   already there"* — and the guard answers the first identically whether the entry is present
   or absent, because an unlisted document is simply never scanned.
 
+---
+
 ## 8 · Delegating: a brief is not a record
 
 **Anything he asks for goes on the board in the session he asked it** — `C7` — **and
@@ -693,3 +695,56 @@ He gave the primary session the right to change this document, and that right co
 an obligation: **when the seams cost something, the rule that failed is written here
 before the session ends.** Add the date and the count. A rule without its price is a
 preference, and preferences do not survive the next afternoon.
+
+---
+
+## 11 · A worktree must never hold `main` — 2026-08-30
+
+**Syncing a worktree to the merged state is `git checkout --detach origin/main`. Never
+`git checkout -B main origin/main`.**
+
+The second one takes the branch REF. Git allows one checkout of a ref at a time, so the
+moment a worktree holds `main`, **the main checkout cannot be on `main`** — and it says so
+only if somebody happens to run the command:
+
+    fatal: 'main' is already used by worktree at .../worktrees/<name>
+
+**HOLDING THE REF DOES NOT BREAK THE WORKTREE THAT HOLDS IT. IT STRANDS THE MAIN CHECKOUT**,
+and that is the one the editable install serves. Measured on 2026-08-30: a session synced its
+worktree with `-B main` after its pull request merged; nothing appeared wrong for an hour;
+then the primary deleted a merged branch and the main checkout was left sitting on a **dead
+ref**. `scrapex` is pip-installed editable against that checkout and the owner's engine runs
+from it, so the next restart would have served whatever it happened to point at.
+
+**That is `OP-88`'s mechanism — the engine serving code that is not `main` — arriving by a
+route nobody was watching.** `OP-88` was a worktree the engine had been started from. This is
+the same outcome with no worktree involved at all: the main checkout itself, unable to return
+home.
+
+**WHY NO SINGLE SESSION CAN SEE IT.** From inside a worktree everything looks correct — the
+tree is clean, the branch is `main`, the log is right. The problem is somewhere else, in a
+checkout the session is not looking at, and **nothing prompts anyone to look**. `git worktree
+list` is the only place it shows, and there is no reason to run it while your own work is
+fine. `CLAUDE.md`'s trap says imports and edits default to the main checkout; it does not say
+a worktree can stop the main checkout from being on `main` at all.
+
+**THE FIX, in order:**
+
+1. **In the worktree that holds it:** `git checkout --detach <sha>`.
+2. **Verify the ref is free:** `git worktree list | grep -c "\[main\]"` — it must be **0**
+   before the main checkout can take it, and **1** afterwards, which is the main checkout
+   itself.
+3. **In the main checkout:** `git checkout main && git pull --ff-only origin main`.
+4. **Prove the code, not the path.** Import a symbol that only exists at the version you
+   expect — `__file__` catches a misdirected import and never a stale one:
+
+        python -c "import scrapex.extract.muqawil as m, scrapex; \
+                   assert 'worktrees' not in m.__file__; \
+                   print(m.__file__, scrapex.__version__, hasattr(m,'DEFAULT_MAP_PIN'))"
+
+**AND A STOPGAP THAT IS SAFE WHEN THE HOLDER IS BUSY:** `git checkout --detach origin/main`
+in the main checkout. It serves exactly `main`'s code without needing the ref, so the engine
+is correct immediately — but **it is a confusing state to leave behind**, so it is a bridge
+to step 1, not a resting place.
+
+---
