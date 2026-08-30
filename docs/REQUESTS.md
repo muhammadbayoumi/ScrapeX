@@ -2669,8 +2669,8 @@ including two that had accused the code of breaking a ruling it obeys.
 |---|---|---|---|
 | OD-01 | adopt their numeric ramps `200`-`600`? | 15 tokens across 3 blocks = 45 declarations minimum; `THEME_PROPERTIES` 36 to 51, and the contrast matrix grows with it | **no** to the ramps, **yes** to the four status-border tokens — a quarter of the cost, 14 call sites and nine competing mix percentages behind it |
 | OD-02 | is `--amber` the intended colour or the accident of a clip? | the target is 27.6% outside sRGB; the shipped hex is a naive clip 9.5 degrees off their warning hue; the hue-holding value is `#8d5e00` | switch **or** rule "clip accepted" — the comment is now true either way, and it blocks any future warning ramp |
-| OD-03 | five more contrast pairs, and a `device` state? | 102 to 132 assertions, **zero new tokens**, `THEME_PROPERTIES` unchanged | **yes** — measure first and land green, never land red |
-| OD-04 | fix the device cascade? | a seven-declaration block move, zero tokens — and device-dark goes 0 of 17 to **5 of 17** failing | **yes**, but land it with OD-03. The fix reveals the illegibility, it does not create it |
+| ~~OD-03~~ | ~~five more contrast pairs, and a `device` state?~~ | **Ruled 2026-08-30 as [R-79](RULINGS.md#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted).** He was offered four routes after the review merged and took this one, coupled with OD-04. Landed at **168 executions over 8 states**, not the 132 estimated here — the estimate counted 6 states because it did not yet know `device` would become two of them | done |
+| ~~OD-04~~ | ~~fix the device cascade?~~ | **Ruled 2026-08-30 as `R-79`.** Landed with OD-03 exactly as recommended. The move revealed **five** failures, not the four the review priced, and all five are fixed rather than registered | done |
 | OD-05 | make `--surface-subtle`, `--chip` and `--line` true alpha? | exact on `--background`, wrong on `--card` and `--popover` by 2/255 light and (5,6,6) dark | **plan it, do not slip it in.** The deferral's stated hazard was measured and is false — the guard fails loudly, not silently |
 | OD-06 | extract a shared table primitive? | two implementations, 101 lines already token-bound and 1,837 of Tabulator override; the extension has **zero** table CSS | extract the 101-line one only. `OP-46` makes a new shared module yours |
 | OD-07 | grow the shared `.empty`? | 3 declarations against 10 surface-local implementations and 19 usage sites | **yes** — the cheapest item in the review, and the local copies exist because the shared one was too thin |
@@ -2681,6 +2681,13 @@ including two that had accused the code of breaking a ruling it obeys.
 | OD-12 | citation guard: bare-path tier, `DOCUMENTS` widening, or both? | `DOCUMENTS` is 9 of 82 tracked `.md`; design citations are 8 and exactly 1 is pinned | **bare-path tier first** — widening alone changes zero verdicts here |
 
 ### What was deliberately not done
+
+> **THE FIRST TWO OF THE TWELVE ARE DECIDED.** OD-03 and OD-04 landed together on 2026-08-30 as
+> [R-79](RULINGS.md#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted),
+> closing `OP-101` and half of `OP-104`. Ten remain, and a third question was put to him
+> inside that work — whether to drop a contrast assertion no surface renders — which he
+> answered "drop it with the evidence". **The version question every one of these used to
+> raise is gone**: `R-77` gives the engine no version at all.
 
 **No value, no selector and no component rule changed.** Seven comments, six documents, the
 registers and one review. Every defect is filed rather than fixed, per **C1** — and the

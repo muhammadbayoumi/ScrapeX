@@ -3582,7 +3582,7 @@ staging tree it finds.
    2026-08-29 row would falsify. **The rule is not that every plan is frozen:** one under
    `## Current` is a live document and `C2` makes a stale one a bug to fix. This one is
    Historical, which is what settles it.
-### OP-101 · "Device colours" paints Supabase's own accent in dark mode
+### OP-101 · ~~"Device colours" paints Supabase's own accent in dark mode~~ — CLOSED 2026-08-30
 
 `design/tokens.css:302` wraps the device block in `@supports (color: AccentColor)`, which
 contributes **no specificity**. The selector is therefore `(0,2,0)` — identical to the two
@@ -3602,6 +3602,18 @@ device-light shows, because `color-mix(in srgb, AccentColor 84%, var(--text))` m
 near-white in dark. The fix does not create the illegibility; it reveals it. So it lands
 with `OP-104`'s device coverage or not at all. Recorded as OD-04 in
 [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases).
+
+**CLOSED 2026-08-30 by [R-79](RULINGS.md#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted).**
+The block moved below both dark blocks; `test_device_colours_reach_the_user_in_both_schemes`
+asserts the property that broke — device DIFFERS from the baseline in both schemes — rather
+than a value, because the accent belongs to the machine.
+
+**And the price was paid rather than deferred.** The five failures the move revealed are
+fixed here, not registered: the on-colour is derived with `contrast-color()` because the
+system's own `AccentColorText` is 4.21:1 on its own accent; `--button-hover-text` derives per
+surface because one ink cannot serve both ends of an accent we do not choose; `--accent-ink`
+went 78% to 60%; and the dark `--line-strong` base went `#707070` to `#787878`. Device now
+passes 21 of 21 in both schemes.
 
 ### OP-102 · `R-74` is enforced by one unasserted statement, and mutation proves it
 
@@ -3679,6 +3691,34 @@ existing tokens, so `THEME_PROPERTIES` stays at 36. Recorded as OD-03.
 **One reason for deferring this was measured and is false.** The fear was that an alpha or
 system colour would make the guard silently vacuous. It does not: Chromium returns the
 unresolved expression and the parser raises `ValueError`. It fails loudly.
+
+---
+
+**HALF CLOSED 2026-08-30 by [R-79](RULINGS.md#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted):
+the five pairs are added and `device` is covered. The hand-written pair list remains.**
+
+Coverage goes from **102 executions over 6 states to 168 over 8**. All five new pairs use
+tokens that already exist, so `THEME_PROPERTIES` stays at 36 and no palette gained a cell.
+
+**AND THE DEEPER HALF OF "device HAS NO COVERAGE" WAS NEVER THE PARAMETRIZE.** The guard read
+custom properties as declared, and `getComputedStyle` does not resolve one — so device's
+`AccentColor` and `color-mix(...)` came back as the literal text `ACCENTCOLOR` and
+`COLOR-MIX(IN SRGB, ...)`, and nothing could score them. **Adding device to the parametrize
+without fixing the reader would have measured nothing and passed.** The reader now resolves
+through a probe element, for every palette rather than only for device, so a palette that
+starts using `color-mix` cannot quietly fall out of coverage either; the parser learned
+`rgb()` and `color(srgb ...)` to match.
+
+**The new pairs found their first defect in a shipped palette, not in device.** `brand` light
+painted `--accent-ink` `#18864B`, which is **4.180:1** on that palette's own `--accent-weak`
+and was already marginal at 4.615 on white. `--accent-weak` cannot be raised to meet it —
+even `#F0FEEE` reaches only 4.421 — so the ink moved to `#147742`, at 5.077 and 5.604.
+`R-79` makes that the rule: a failing pair is a defect in the palette, never a reason to
+lower a threshold.
+
+**What is still open here** is the shape the entry opens with: the pair list is still
+hand-written while the palette list is derived, so a token that starts carrying text is
+still invisible until somebody adds a row by hand.
 
 ### OP-105 · The OS Increase-contrast setting reaches one of the four colour choices
 

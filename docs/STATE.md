@@ -424,6 +424,51 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### Device colours reach the user — 2026-08-30 · branch `claude/device-colours-reach-the-user`, based on `main` at `f920e7d`
+
+**`R-79`, the first two of `REQ-49`'s twelve decisions.** Closes `OP-101` and half of
+`OP-104`. He was offered four routes after the review merged and took "fix device and
+contrast together"; a second question inside the work — whether to drop a contrast assertion
+no surface renders — he answered "drop it with the evidence".
+
+**THE CASCADE WAS THE WHOLE DEFECT AND ELEVEN LINES WERE THE WHOLE FIX.** `@supports`
+contributes no specificity, so the device block was `(0,2,0)` — exactly what the two dark
+blocks are — and they came after it and redeclared all seven of its properties. Measured in
+Chromium 149: device-dark resolved `--accent` to `rgb(62, 207, 142)`, Supabase's own
+`#3ecf8e`, while the panel's status text said "Device colours".
+
+**THE FIX REVEALS THE CONTRAST FAILURES, IT DOES NOT CAUSE THEM.** device-dark was passing
+17 of 17 because it was not device: it was the default palette wearing device's name. Five
+pairs went red the moment they had something true to measure, and all five are fixed here
+rather than registered:
+
+| what moved | the number |
+|---|---|
+| the on-colour, `AccentColorText` → `contrast-color(AccentColor)` | the system's own ink is **4.21:1** on its own accent; black is **4.99** |
+| `--button-hover-text`, derived per surface | **3.766** → **5.576** light, 6.066 dark |
+| `--accent-ink` for device, 78% → 60% | **4.031** → 5.123 dark, 7.025 light |
+| dark `--line-strong` base, `#707070` → `#787878` | under 3:1 across the **entire** mix range: 2.982 / 2.994 / 3.002 / 2.994 |
+
+**And Supabase's own mechanism picks the wrong ink too** — their OKLCH-lightness step
+resolves to near-white for this accent, because OKLCH lightness and WCAG luminance disagree
+about saturated blues. Fifth departure from the baseline, written at the value like the
+other four.
+
+**THE GUARD'S READER WAS THE DEEPER HALF OF "device HAS NO COVERAGE".** `getComputedStyle`
+does not resolve a custom property, so device's `AccentColor` and `color-mix(...)` came back
+as literal text — **adding device to the parametrize without fixing the reader would have
+measured nothing and passed.** It resolves through a probe element now, for every palette.
+Coverage: **102 executions over 6 states → 168 over 8**, `THEME_PROPERTIES` still 36.
+
+**The five new pairs found their first defect in a shipped palette, not in device.** `brand`
+light painted `--accent-ink` `#18864B` at **4.180:1** on its own `--accent-weak`, already
+marginal at 4.615 on white; `--accent-weak` cannot be raised to meet it, so the ink moved to
+`#147742`.
+
+**No version bump, and under `R-77` there is no longer a question to ask** — the engine
+carries no version at all.
+
+
 ### The backup that said it failed — 2026-08-29 · branch `claude/request-deadline-exceeded-3b1cad`, no PR yet
 
 **`OP-100`, ruled the same day as

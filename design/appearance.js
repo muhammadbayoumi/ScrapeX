@@ -32,7 +32,14 @@
           surfaceRaised: "#FFFFFF", line: "#E5E5E5", lineStrong: "#959393",
           text: "#0A0A0A", muted: "#666666", textSubtle: "#707070",
           chip: "#F7F5F3", accent: "#35AA65", accentHover: "#2E9D5B",
-          accentActive: "#278F52", accentInk: "#18864B",
+          // #18864B until 2026-08-30, when OD-03's new pair measured it at
+          // 4.180:1 on this palette's own accentWeak (#DBFDD5) against a 4.5
+          // floor -- the one failure the five added pairs found across all eight
+          // shipped states. It was marginal on --surface too, at 4.615. Darkened
+          // until both clear with headroom: 5.077 on accentWeak, 5.604 on white.
+          // accentWeak cannot be raised to meet it -- even #F0FEEE only reaches
+          // 4.421 -- so the ink is the only side that can move.
+          accentActive: "#278F52", accentInk: "#147742",
           accentContrast: "#0A0A0A", accentWeak: "#DBFDD5",
           focus: "#278F52", controlHover: "#F0EEEC",
           buttonBg: "#43D36D", buttonHover: "#1C1E21",

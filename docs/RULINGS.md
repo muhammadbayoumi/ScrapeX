@@ -3227,3 +3227,118 @@ guard that rejects out-of-contract rows stays where it is and keeps doing its jo
 `--approve`, `--coverage`, `--impostors`, and **four of the six make no network request at
 all**. Whatever the panel offers must name the pass; *"Update now"* describes none of them.
 
+---
+
+### R-79 · Device colours reach the user, and the ink is derived rather than trusted
+
+**2026-08-30 · design system · closes [OP-101](BACKLOG.md) and half of [OP-104](BACKLOG.md) ·
+first of [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases)'s twelve
+decisions**
+
+**HE CHOSE FROM OPTIONS RATHER THAN DICTATING, and this entry records the choice and the
+numbers that were in front of him when he made it** — not a quotation, because there is
+none to quote. Asked what should follow the merged review, he was offered four routes: fix
+device and contrast together, rule on all twelve decisions first, run the second wave of
+twenty axes, or fix the twelve silent undeclared properties. **He took the first**, which
+was the one labelled as the recommendation. Asked separately what to do about a contrast
+assertion that a shipped surface does not render, he was offered four and **took "drop it
+with the evidence"**, again the recommendation.
+
+#### 1 · Device colours must reach the user in both schemes
+
+`@supports` contributes **no specificity**. The device block's
+`:root[data-color-mode="device"]` is therefore `(0,2,0)` — exactly what
+`:root[data-theme="dark"]` and `:root:not([data-theme="light"])` are — and while it stood
+above them in `design/tokens.css` they won on source order and redeclared all seven of its
+properties. Measured in Chromium 149: device-dark resolved `--accent` to `rgb(62, 207, 142)`,
+which is Supabase's own `#3ecf8e`, **while the panel's status text reported "Device
+colours"**. One of the four choices `R-74` names by name, unreachable in half its states.
+
+The block moves below both dark blocks. That is the whole fix, and
+`test_device_colours_reach_the_user_in_both_schemes` asserts the property that broke —
+device DIFFERS from the baseline in both schemes — rather than a value, because the accent
+belongs to the machine and not to us.
+
+#### 2 · The fix REVEALS the contrast failures. It does not cause them.
+
+**This sentence exists so that a reader six weeks from now does not conclude the cascade fix
+broke something.** Device-dark was passing 0 of 17 assertions because it was not device: it
+was the default palette wearing device's name. Making it real exposed what the derivation
+actually produces, and five pairs went red the moment they had something true to measure.
+
+That is also why the coverage lands in the same change. Landing the cascade fix alone would
+have closed a visible defect and left an invisible one, with the guard still unable to see
+the mode it was now painting.
+
+#### 3 · The operating system's own ink is not legible on its own accent
+
+Chromium 149's `AccentColor` is `rgb(0, 117, 255)`. Its `AccentColorText` is **white**, which
+is **4.21:1** — under the 4.5 floor this repository enforces. Black on the same accent is
+**4.99:1**. The browser hands over the worse of the two, and it is the pair a user reads a
+primary button through.
+
+**Supabase's own mechanism picks the wrong one too**, which makes this the fifth departure
+from the baseline and it is written at the value like the other four. Their on-colour is a
+hard step on OKLCH lightness; for this accent it resolves to L 0.99, near-white, because
+OKLCH lightness and WCAG relative luminance disagree about saturated blues.
+`contrast-color()` asks the WCAG question directly and answers black.
+
+**And one ink cannot serve both ends of an accent the operating system chooses.**
+`--accent-hover` moves toward `--text`, so in light it darkens and converges on the black
+ink: 3.766:1. Derived per surface, light picks white for the hover (5.576) and dark keeps
+black (6.066). `--button-hover-text` already existed as a separate token; this is the system
+anticipating the problem before it was measured.
+
+#### 4 · A palette entry may carry only colour, and every value here does
+
+Nothing in this ruling touches shape, typography, spacing, elevation or motion.
+[R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+holds unchanged, and `tests/test_a_palette_may_change_nothing_but_colour.py` still passes.
+The four device values that moved — the ink derivation, the hover ink, `--accent-ink` at 60%
+instead of 78%, and the dark `--line-strong` base at `#787878` instead of `#707070` — are all
+inside device-scoped blocks in `design/tokens.css`, and the three registered palettes are
+untouched by them.
+
+The dark `--line-strong` base is the one that deserves its own line: device surfaces are
+tinted with the system accent and therefore **lighter** than the plain dark surface, so a
+border that clears 3:1 on the plain one does not clear on this one. `#707070` measured
+2.982:1 and stayed under the floor **across the entire mix range** — 2.982 at 26%, 2.994 at
+20%, 3.002 at 14%, 2.994 at 8% — because line and surface are mixed with the same accent and
+move together. That is a measured difference, not the silent drift recorded above it.
+
+#### 5 · An assertion that no surface renders is removed, with its evidence
+
+`("accentContrast", "accentHover")` is gone from the pair list. **`--accent-hover` has no
+consumer anywhere outside `design/tokens.css`** — the only thing that reads it is
+`--button-hover` — and the surface it becomes is inked with `--button-hover-text`, which
+`("buttonHoverText", "buttonHover")` covers. While the two inks were the same token the pair
+was a duplicate; once device derived them separately it became a duplicate that was also
+false.
+
+**Removing an assertion is the move this repository is most suspicious of**, and it was put
+to him as its own question with the alternatives priced: keep it and flatten the hover to
+94% of the accent, which passes at 4.489 and costs the hover its visible affordance; or
+repoint it at the tokens that actually render, which reproduces a pair already in the list.
+He chose removal with the evidence recorded. **No floor was lowered and no surface a reader
+meets went uncovered.**
+
+#### 6 · What the coverage now is, and the one thing it found that was not device
+
+The matrix goes from **102 executions over 6 states to 168 over 8** — three palettes plus
+device, two schemes each, 21 assertions apiece. Five pairs were added, all using tokens that
+already exist, so `THEME_PROPERTIES` stays at 36 and no palette gained a cell.
+
+**The deeper half of `device` having no coverage was never the parametrize.** The guard read
+custom properties as declared, and `getComputedStyle` does not resolve them — so device's
+`AccentColor` and `color-mix(...)` came back as the literal text `ACCENTCOLOR` and
+`COLOR-MIX(IN SRGB, ...)` and nothing could score them. **Pointing the old reader at device
+would have measured nothing.** It now resolves through a probe element, for every palette and
+not only for device, so a palette that starts using `color-mix` cannot quietly fall out of
+coverage either.
+
+**And the five new pairs found their first defect in a shipped palette, not in device.**
+`brand` light painted `--accent-ink` `#18864B`, which is **4.180:1** on that palette's own
+`--accent-weak` — and was already marginal at 4.615 on white. `--accent-weak` cannot be
+raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
+move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
+in the palette, never a reason to lower a threshold.**
