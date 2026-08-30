@@ -3284,7 +3284,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and five sessions found the same blind spot in one day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found five times in a day
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3309,7 +3309,7 @@ drift that produced them. The fix was to make each docstring say *"this enforces
 has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
 
 **THE SAME SHAPE, FOUND FIVE TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING FOR
-IT.** A mechanism that is correct, visible, and load-bearing on nothing:
+IT** -- and two of the five could never have failed at all. A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
 |---|---|---|
@@ -3319,14 +3319,26 @@ IT.** A mechanism that is correct, visible, and load-bearing on nothing:
 | engine page | a guard slicing `app.js` between two markers | the window is ~2,800 lines and `detail` appears ~71 times in unrelated code |
 | design review | `getComputedStyle` read against the `device` palette | **nothing.** It does not resolve a custom property, so `AccentColor` and `color-mix(...)` come back as literal TEXT and there is nothing to score |
 
-**THE FIFTH IS THE WORST AND IT IS A DIFFERENT KIND.** The other four ROTTED. That one
-would have been **born** rotten, and born from the fix for the finding: a session closing
-`OP-104` the obvious way adds `device` to the parametrize, watches **17 of 17 pass**, and
-records coverage that does not exist. The tell was that device-dark was passing 17 of 17
-**because it was not device** -- it was the default palette wearing device's name. **A green
-that arrives without the thing under test having run is indistinguishable from a green that
-earned it, and no count anywhere would differ.** (Found by the design-review session while
-building `R-79`; the words are its own.)
+**TWO OF THE FIVE WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
+rotted -- they held something once and their subject moved. **Rows 1 and 5 never held
+anything.**
+
+The `forEach` assertion was written on **2026-08-29** (`208d829`) against a file that had
+carried **two** occurrences since **2026-07-27** (`6779573`) -- checked with `git log -S`, and
+`git show 208d829^:design/appearance.js` counts 2. **So it could not distinguish them on any
+day of its life.** And the device reader would have been born rotten **from the fix for the
+finding**: a session closing `OP-104` the obvious way adds `device` to the parametrize,
+watches **17 of 17 pass**, and records coverage that does not exist. The tell was that
+device-dark was passing 17 of 17 **because it was not device** -- it was the default palette
+wearing device's name. **A green that arrives without the thing under test having run is
+indistinguishable from a green that earned it, and no count anywhere would differ.** (The
+device half was found by the design-review session while building `R-79`; those words are its
+own.)
+
+**Two in five is a rate, not an anecdote.** "It rotted" is the comfortable reading because it
+implies the guard was once correct and time did the damage. **Forty per cent of these were
+never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
+matter of course, not only when a guard looks stale.
 
 **None of the five is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
 being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
