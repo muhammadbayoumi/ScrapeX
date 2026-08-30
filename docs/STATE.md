@@ -424,6 +424,42 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The guard that read half the product — 2026-08-30 · branch `claude/the-guard-that-reads-half-the-product`, no PR yet
+
+**`OP-116`. No ruling.** Based on `main` at `6f8bbbb`. Secondary session;
+`recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+The engine page's Restart button polled a health route M5 deleted, so it reported *"The engine
+has not come back"* about an engine that had come back at once. **The guard named for exactly
+that break passed the whole time**, because it asserted the dead route was absent from
+`extension/app.js` — the half that had been corrected. `_caller_files` now returns the panel's
+JavaScript *and* the engine's templates.
+
+**Measured before widening**, because this file has cried wolf three times and a fourth would
+have retired it: the templates make **34 distinct `/api/` calls and exactly one is unserved**.
+
+**Mutation-checked both ways, and the second line is the point:**
+
+| | |
+|---|---|
+| the template polls the retired route again | caught |
+| the guard narrowed back to `extension/**/*.js` | **the same broken template goes unnoticed** |
+
+Most mutation checks prove a guard catches its subject. That one proves the previous version
+could not have.
+
+**Two traps walked into while fixing it, both already documented here.** Reading `app.routes`
+directly gave 70 mounted routes instead of 88 and produced nine false findings where the true
+count was one — the fourth confident false failure the `_walk` docstring predicts. And the
+comment written above the fix quoted the retired path, so the widened guard read its own
+author's prose and went red: `LESSONS` §28 occurring inside the change that widens the counter.
+
+**`RESERVED` rows now name refs, not sessions**, per the table's own rule — and carry a new
+sentence it lacked: a reservation may be taken before its holder has committed anything, and a
+row in that state must say so and be re-checked. `OP-112..114` sat in exactly that state for an
+hour before the ref appeared.
+
 ### The two migrations the banner could not name — 2026-08-30 · branch `claude/two-migrations-the-banner-could-not-report`, no PR yet
 
 **`OP-115`. No ruling — nothing here was his to decide.** Based on `main` at `a167417`.

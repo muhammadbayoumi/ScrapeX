@@ -4014,6 +4014,58 @@ deadline table with a case for every rule and none for the fall-through (`OP-100
 route-agreement test that scans `extension/**/*.js` and never the engine's own templates,
 which is why `settings.html` still polls a route deleted at M5. Those two are not fixed here.
 
+### OP-116 · The engine page reported a failed restart on a restart that worked, and the guard for it read half the product
+
+**Found 2026-08-30**, in the same census as `OP-115`. `scrapex/webui/templates/settings.html`
+polled a health route M5 had deleted. The restart itself succeeded; the poll asked a 404 sixty
+times and then said *"The engine has not come back"* about an engine that had come back on the
+first attempt.
+
+**THE DEFECT IS NOT THE STRING. IT IS THE SCOPE OF THE GUARD.** A test named for exactly this
+break already existed and passed the whole time, because it asserted the dead route was absent
+from `extension/app.js` — and `app.js` was the half that HAD been corrected at M5. The general
+case beside it, `test_no_page_calls_an_engine_route_that_does_not_exist`, collected its callers
+from `(ROOT / "extension").rglob("*.js")`. **The engine serves its own pages, those pages call
+engine routes, and a rename breaks them identically — and nothing was looking.**
+
+**Measured before widening, because this file has cried wolf three times and a fourth would
+have retired it in practice:** the templates make **34 distinct `/api/` calls and exactly one
+is unserved**. The widening costs no noise. `_caller_files`
+([tests/test_the_panel_and_the_engine_agree_on_routes.py:36](../tests/test_the_panel_and_the_engine_agree_on_routes.py#L36))
+now returns the panel's JavaScript and the engine's templates, and the named test
+([:120](../tests/test_the_panel_and_the_engine_agree_on_routes.py#L120)) asks every caller
+rather than one file.
+
+**Mutation-checked in both directions, and the second is the load-bearing one:**
+
+| mutation | result |
+|---|---|
+| the template polls the retired route again | **caught** |
+| the guard narrowed back to `extension/**/*.js` | **the same broken template goes unnoticed** |
+
+Most mutation checks prove a guard catches its subject. That second line proves **the previous
+version could not have** — the scope was the defect, not the string.
+
+**TWO TRAPS WALKED INTO WHILE FIXING IT, both already written down in this repository.**
+
+**1 · The fourth confident false failure the `_walk` docstring predicts.** Reading `app.routes`
+directly to list mounted routes gave 70 instead of 88 and produced **nine** "dead" template
+calls. FastAPI stores an `_IncludedRouter` with no `.path` and no `.routes`; the mounted ones
+are behind `original_router`. That docstring says it "produced three confident false failures
+in a row" — this was the fourth, and the true count was **one**.
+
+**2 · `LESSONS` §28 occurring inside the change that widens the counter.** The template was
+fixed, and a comment was written above the fix explaining which route had been retired —
+**quoting the dead path**. The widened guard reads that file, found the string in the comment,
+and went red. *A counting tool is fooled by the documentation of the thing it counts*, caught
+in the act, one line after the fix. The comment now says the path is deliberately not written
+out, and why.
+
+**The synthesis, which is the part worth keeping:** the documentation of a thing and the thing
+are indistinguishable to a scanner. Four instances in two days. **The scanner cannot see intent
+and should not try** — one that guessed would be worse — so this is a constraint on how the
+prose beside a guard is written, not a defect to fix in the tool.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

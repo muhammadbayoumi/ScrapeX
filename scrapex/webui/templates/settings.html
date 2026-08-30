@@ -570,7 +570,16 @@ revealSettingsHash();
     const timer = setInterval(async () => {
       attempts += 1;
       try {
-        const probe = await fetch("/api/marketlens/health", {cache: "no-store"});
+        // M5 collapsed two health routes into one, and until 2026-08-30 this
+        // poll still named the retired one. It asked a 404 sixty times and then
+        // told the owner "The engine has not come back" about an engine that had
+        // come back on the first attempt. The panel was corrected at M5; this
+        // page was not, because the guard for exactly that reads
+        // extension/**/*.js and never these templates.
+        //
+        // The retired path is deliberately NOT written out here: the guard now
+        // reads this file, and a comment quoting the dead route would fail it.
+        const probe = await fetch("/api/engine/health", {cache: "no-store"});
         if (probe.ok) { clearInterval(timer); location.reload(); return; }
       } catch (err) { /* still down */ }
       if (attempts > 60) {
