@@ -101,6 +101,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Ruled** — **and it is the HEAD of the muqawil queue** since `R-81`, because he never uses a terminal, so every remaining muqawil step passes through a control he does not have. [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) settles the shape: **the scheduler resolves a source through `source_site`, and the button falls out of that.** `POST /api/jobs` validates against `sources.yaml`, and `scrapex/jobs.py` has zero references to any contractor module, so opening the route alone would turn a clear 404 into a job that fails mid-run (`OP-92`). Not started | 2026-08-26 |
 | [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 | [REQ-49](#req-49--review-the-design-system-against-supabases) | Review the design system against Supabase's | **In flight** — measured 2026-08-29; he set the scope first («اولا تحديد كل محاور المراجعة»), then pointed at the SOURCE rather than the site, then chose six axes of twenty-six («ابدأ بالستة»). `R-74` **holds in the built product** (8 states x 118 properties in Chromium 149: 62 move, all colour) **and is guarded by almost nothing** — mutation put the type scale into a palette with 91 static and 218 browser guards green. `device` does not reach the user in dark. 21 findings were refuted by the verify pass. Filed as [OP-101](BACKLOG.md)–[OP-110](BACKLOG.md); **twelve decisions open, all his** | 2026-08-29 |
+| [REQ-50](#req-50--the-engine-lives-on-the-engine-page-enough-warning-a-restart-to-press-and-one-home-for-every-engine-control) | The engine lives on the Engine page: enough warning, a restart to press, and one home for every engine control | **In flight** — ruled the same day as [R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy), branch `claude/scrapex-engine-consolidation-d69e0a`. The Build row said *Restart needed* and the page had nothing to press, while **four callers** of `POST /api/engine/restart` sat elsewhere — two in Settings, two on the engine's own web pages; measured across the product, **11 routes on both surfaces, 31 only on the engine's pages, 18 only in the panel, 8 settings changeable nowhere but the web UI**. Landed: the duplicate restart deleted and the survivor moved onto the Engine screen, its budget raised from 30 s to the engine's real 121.5 s, `schema_lag` carried so its banner can appear at all, and the spec-row grid repaired. **The power switch waits on `POST /api/engine/stop`**, which cannot land until `R-77`'s gate work or his word. Files [OP-112](BACKLOG.md)–[OP-114](BACKLOG.md) | 2026-08-30 |
+
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 
 ---
@@ -1670,7 +1672,7 @@ in `/api/health` reports **how** this engine is running.
 
 **So the shape is: the engine reports its own run mode, and the panel has a third
 word.** Not the panel guessing from an empty version string, which is what it does
-now (`extension/app.js:3526` on empty `state.engineVersion`) — a guess is how
+now (`extension/app.js:3502` on empty `state.engineVersion`) — a guess is how
 "running from source" became "not detected" in the first place.
 
 **And it is not cosmetic.** He works from two machines and the update path is real:
@@ -2084,7 +2086,7 @@ them on this exact point. The corrected finding is better news than the error wa
 changes the request from *build this* to **finish and re-document this**.
 
 **THE DATA PAGE ALREADY READS HIS DATA WITH NO ENGINE. It has since 2026-08-12.**
-`extension/app.js:4414-4429` is the `catch` around `loadDatasets`, and its own comment says
+`extension/app.js:4394-4429` is the `catch` around `loadDatasets`, and its own comment says
 what it is for:
 
 > *"NOT A DEAD END ANY MORE. This is the machine with no engine on it — the case the whole
@@ -2114,7 +2116,7 @@ Not "the data page has not moved". Three specific, countable gaps:
 | hole | measured |
 |---|---|
 | **The pack carries no contractors at all** | `scrapex/bundle.py:140` sources the bundle from `list_sources`, which is `SELECT source_key FROM source_site` (`scrapex/reports.py:104`). `source_site` holds the **12 price shops**; muqawil lives in `site_profile`. So **0 of 18,008** contractor records — 17,304 + 704 — are in the one artefact an engine-less panel can read |
-| **The offline view shows counts, never rows** | `extension/app.js:4471-4477` renders only the dataset key, `N rows`, and *"with change history"* / *"current prices only"*. No click handler, no grid |
+| **The offline view shows counts, never rows** | `extension/app.js:4451-4477` renders only the dataset key, `N rows`, and *"with change history"* / *"current prices only"*. No click handler, no grid |
 | **And it cannot export** | `bundleview.js` exports `rowsOf` (`:82`) and `toCsv` (`:94`) **for exactly this purpose** and nothing imports them: `extension/app.js:23` takes only `readPanelPack, datasetSummaries` |
 
 **Against Decision 8 — *"the owner sees his data and exports it"* — he measurably sees
@@ -2156,7 +2158,7 @@ the decision.
 
 Measured above the transport, so the step is **parameterising what works, not inventing it**:
 a live backend address field (`extension/app.html:1772`), a switch that re-activates and
-re-adopts appearance, timezone and the UI contract (`extension/app.js:6326-6334`),
+re-adopts appearance, timezone and the UI contract (`extension/app.js:6362-6334`),
 abort-and-generation-bump on change (`extension/backend.js:68-77`), and a repaint guard
 whose own comment already names the multi-app hazard (`extension/data.js:74-76`):
 
@@ -2165,7 +2167,7 @@ whose own comment already names the multi-app hazard (`extension/data.js:74-76`)
 
 Installedness is measured **twice** — Chrome's `absent` verdict on the native host
 (`extension/transport.js:51-52`) and a six-rung health ladder that already includes
-*"Installed, not running"* (`extension/app.js:3408`). **There is one slot, not a list**:
+*"Installed, not running"* (`extension/app.js:3384`). **There is one slot, not a list**:
 `activeBackend` in `extension/backend.js:38`, from a single `chrome.storage.local` key
 (`extension/engine.js:11`), prefixing all 40 `/api/…` calls. Sixteen constants across the two
 products name exactly one product and **none is parameterised by app**.
@@ -2440,8 +2442,13 @@ reason is four links long, every one measured on the live engine rather than arg
 
 | link | evidence |
 |---|---|
-| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4064` |
-| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3570`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, and moved a fourth time when `#302` landed 7,242 insertions. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
+| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4044` |
+| 2 | that route validates the key against `app.state.manifest` — `scrapex/webui/app.py:3513-3517`, whose own comment reads *"fail before queueing, not mid-crawl"* (re-derived twice by the quoted comment rather than the number: `GET /api/dry/{source_key}` moved it 43 lines in #274, and the bundle-build lock moved it again here. It was 27 lines stale before that second move — Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists) |
+| 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** muqawil lives in `site_profile`, not `source_site` |
+| 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` |
+
+| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4044` |
+| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3570`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, and moved a fourth time when `#302` landed 7,242 insertions and a FIFTH when `#301` landed on top of it -- 4064 to 4044, found by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
 | 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** **This row was true when written and half of it is not now**: `0014` merged `site_profile` into `source_site` on 2026-08-29, which is what made a resolver possible rather than a third registry |
 | 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` — **and this turned out to be the DESIGN rather than the defect.** It asks a source for three things and none is price-specific, so the fix was a resolver and `jobs.py` is unchanged. **What remains is the collector**: the route now queues `muqawil_org`, and the worker still hands it to `capture_source` |
 
@@ -2706,6 +2713,89 @@ shipped colour choice paints, or creates a shared module, and `R-59` decision 4,
 and `LESSONS` section 5 all put those with him.
 
 ---
+
+## REQ-50 · The engine lives on the Engine page: enough warning, a restart to press, and one home for every engine control
+**Captured 2026-08-30 · Ruled the same day ([R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy)) · In flight**
+
+> «تنبيهات وتلميحات تكفى» · «RESTART button» · «تجمع اى حاجة متناثرة فى اى مكان فى الكود لها
+> علاقة بالمحرك فى صفحة ENGINE»
+
+Three things, and the third was read too narrowly until he corrected it mid-session:
+
+> «اقصد بصفحة engine هذه الصفحة فى الصور لا اقصد file فى الكود · ومتناثرة اققصد بها مرة
+> موجودة فى setting extension ومرة على ويب المحرك · لا اريد هذا»
+
+**The Engine page is `#view-engine-detail`** — the screen a person reaches from the engine
+row — not a source file. And **scattered means the same capability living on two surfaces**:
+once in the extension's Settings, once on the engine's own web UI at `127.0.0.1:8000`.
+
+### What triggered it, and it was not cosmetic
+
+His engine was running code older than the code on disk. **The panel detected it correctly
+and said so** — the Build row rendered `Restart needed` with the engine's own sentence
+underneath. He then had nowhere on that page to press. Because the engine kept serving the
+old tree, the bundle build lock merged in `#288` was not active, two builds overlapped, and a
+**0-byte archive reached Google Drive as though it were a backup**.
+
+A detector that is right, on a screen with no remedy, is the whole request in one incident.
+
+### Measured before anything was built
+
+**Four callers of `POST /api/engine/restart`, and none of them on the Engine page:**
+
+| where | file |
+|---|---|
+| Settings, in the panel | `extension/app.js` — `restartEngineFromPanel` |
+| Settings, in the panel | `extension/app.js` — `wireRuntimeRepair` |
+| the engine's own web page | `scrapex/webui/templates/settings.html` |
+| the engine's database-down page | `scrapex/webui/templates/database_unavailable.html` |
+
+The duplication is not news to the repository: `test_every_caller_of_the_restart_endpoint_reads_the_refusal`
+in [tests/test_settings_live_in_the_extension.py](../tests/test_settings_live_in_the_extension.py)
+opens with *"Four copies of one handler, and the bug was in all four."* It was guarded and
+never removed.
+
+**Across the whole product, by extraction rather than by reading:** 11 `/api` routes called
+from both surfaces, 31 live routes reachable only from the engine's own pages (plus one
+dead), 18 only from the panel. Eight settings can be changed **only** on the engine's web UI.
+
+**And the warnings are not merely thin — one of them cannot appear at all.** `schema_lag` is
+published on every health answer, rendered in full by `renderSchemaLag`, and was never
+carried across `checkEngine`, so *"Database is behind the engine"* could not be drawn in any
+state of the machine. `OP-113`.
+
+### The parts, and where each stands
+
+| | what he asked | state |
+|---|---|---|
+| 1 | enough warning and hint about engine state | in flight — `OP-113` repaired; one status vocabulary still open |
+| 2 | a Restart button | in flight — the duplicate deleted, the survivor moved onto the Engine page, its confirmation budget corrected (`OP-112`) |
+| 3 | every scattered engine control on the Engine page | ruled `R-80`; the engine half needs `POST /api/engine/stop`, which is blocked — see below |
+
+### Scope, his own words
+
+He approved a two-batch split — **«اوافق على 1»** — the engine alone in this change, with the
+rest of the surface recorded as a programme rather than smuggled in.
+
+And on the power switch, which was shipped `disabled` saying *"Control is not connected yet."*:
+
+> «اريد Engine power حيث ايقافه ثم تشغيله تعنى restart · اذا يكون لدينا زرين ايقاف وزر
+> ريسترت · وشوف اللازم للوصول لافضل حل»
+
+**The ON half is already built** — `START_ENGINE` is a native command and must stay native,
+because an engine that is down cannot serve the request to start itself. **The OFF half does
+not exist in any form**: no route, no native command, no CLI subcommand.
+
+### Why the switch is not in this change, and it is not a scoping preference
+
+`POST /api/engine/stop` adds an endpoint. `test_the_contract_has_not_moved_without_the_version_moving`
+fails when the endpoint fingerprint moves while `VERSION` stays — and
+[R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build),
+merged the same day, says the engine has no version to move and that `VERSION` stops being
+hand-edited. **The ruling is in force and the gate has not been rebuilt yet**, so the route
+cannot land without either spending a version number under a rule that deleted the question,
+or building `R-77`, which he has not ordered. The precondition is named rather than worked
+around.
 
 ## REQ-51 · `jobs.py` is the scheduler and should be named for what it does
 **Captured 2026-08-30 · Ruled 2026-08-30 · he approved the recommendation and the split**

@@ -50,6 +50,24 @@ export async function checkEngine({backend = null, signal = null,
       // and for the same reason: an engine too old to answer is not an engine
       // reporting a fault.
       build: h.build || null,
+      // THE BANNER THAT COULD NOT APPEAR. The engine has published
+      // `schema_lag` on every health answer since the schema gate was
+      // built (scrapex/webui/app.py), and app.js renders it in full —
+      // "Database is behind the engine", what breaks, and what fixes it.
+      // The one thing missing was this line: `checkEngine` did not carry
+      // the field, so `renderSchemaLag(engine.schema_lag)` was handed
+      // `undefined` on every call and its own guard hid the banner every
+      // time. Correct on both sides, load-bearing on nothing.
+      //
+      // `|| null` like `build` and `databases` above, and for the same
+      // reason: an engine too old to answer is not an engine reporting a
+      // fault, and the renderer treats absent and clean alike.
+      //
+      // THE ENGINE'S OWN KEY, not a camelCased one, so the single reader
+      // (`renderSchemaLag(engine.schema_lag)` in app.js) needs no edit. The
+      // rename is the kind of tidying that turns a one-line repair into a
+      // two-file diff for no behaviour.
+      schema_lag: h.schema_lag || null,
       backend: target,
     };
   } catch (error) {

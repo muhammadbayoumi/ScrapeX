@@ -66,8 +66,14 @@ def _panel_calls() -> set[str]:
     return found
 
 
-def _engine_serves(tmp_path) -> set[str]:
+def _engine_serves(tmp_path, *, registry: bool = True) -> set[str]:
     """THE ROUTES THE APP ACTUALLY MOUNTS, read off a built app.
+
+    `registry=False` BUILDS THE OTHER SHAPE THE ENGINE SHIPS IN, and it is not
+    hypothetical: `cli.py`'s `--db` branch leaves `registry = None`, and
+    `create_app` then skips `create_database_router` and
+    `create_domain_health_router` entirely. Those two conditional includes are
+    the whole difference, and `/api/engine/health` is inside the second one.
 
     Scraping decorators out of the source was tried first and was WRONG: routers
     are mounted with `prefix=`, so `@router.post("/upgrade")` under
@@ -80,11 +86,33 @@ def _engine_serves(tmp_path) -> set[str]:
     from scrapex.databases.registry import DatabaseRegistry
     from scrapex.webui.app import create_app
 
-    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
-                                pointer_file=tmp_path / "databases.json")
-    registry.initialize()
-    app = create_app(databases=registry)
+    reg = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                           pointer_file=tmp_path / "databases.json")
+    reg.initialize()
+    app = create_app(databases=reg) if registry else create_app(reg.engine.path)
     return {p for p in _walk(app.routes) if p.startswith("/api/")}
+
+
+def _engine_serves_however_it_started(tmp_path) -> set[str]:
+    """The routes served on EVERY start -- the intersection of both shapes.
+
+    THIS IS THE FIX FOR `OP-119`, AND THE OLD HELPER WAS THE DEFECT.
+    `_engine_serves` had already been widened once, from scraping decorators to
+    asking a built app, which made it right about ROUTES. It stayed wrong about
+    CONFIGURATIONS: it built the app one way, with a registry, so
+    `/api/engine/health` was always in its answer and `assert "/api/engine/health"
+    in _engine_serves(...)` could not fail. **The guard was written for the
+    restart poll, by the fix for the restart poll, and still could not see the
+    start on which that poll is guaranteed to 404.**
+
+    A liveness probe is the one call that must answer whenever the engine is up
+    at all, so probes are checked against this set rather than either shape
+    alone. Routes that are legitimately conditional -- the database pages exist
+    only when there is a database -- are not held to it; those are pinned by
+    `test_the_conditional_routes_are_declared_not_discovered`.
+    """
+    return (_engine_serves(tmp_path, registry=True)
+            & _engine_serves(tmp_path, registry=False))
 
 
 def _walk(routes):
@@ -127,13 +155,33 @@ def test_no_restart_poll_anywhere_asks_for_the_route_m5_removed(tmp_path):
     and kept polling `/api/marketlens/health` for eleven days. A guard that
     names one caller of a route protects that caller, not the route.
     """
-    assert "/api/engine/health" in _engine_serves(tmp_path), (
-        "the engine no longer serves /api/engine/health")
+    always = _engine_serves_however_it_started(tmp_path)
 
-    polls = [path for path in _caller_files()
-             if "/api/engine/health" in path.read_text(encoding="utf-8")]
-    assert any(path.name == "app.js" for path in polls), (
-        "the panel does not poll /api/engine/health")
+    # THIS ASSERTION USED TO REQUIRE THE DEFECT. It read
+    #     assert any(path.name == "app.js" for path in polls)
+    # where `polls` was every caller naming `/api/engine/health` -- so it
+    # obliged the panel to poll a route the engine does not serve when it is
+    # started with `--db`, and correcting the panel would have turned this test
+    # RED. A guard can do worse than miss a defect; it can mandate one.
+    # (`OP-119`.)
+    probes = {
+        "extension/app.js": "the panel's restart poll",
+        "scrapex/webui/templates/settings.html": "the engine page's restart poll",
+    }
+    for rel, what in probes.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        asked = sorted({"/api/" + m for m in CALLS.findall(text)}
+                       & (_engine_serves(tmp_path, registry=True)
+                          | _engine_serves(tmp_path, registry=False))
+                       & {"/api/health", "/api/engine/health"})
+        assert asked, f"{what} ({rel}) polls no health route at all"
+        outside = [route for route in asked if route not in always]
+        assert not outside, (
+            f"{what} ({rel}) polls {outside}, which the engine serves only when "
+            "it was started with a registry. Started with an explicit database "
+            "path it serves no such route, so the poll 404s its whole budget and "
+            "reports a failure that did not happen -- which is the defect this "
+            "test is named for, arrived at from the other direction.")
 
     dead = [str(path.relative_to(ROOT)) for path in _caller_files()
             if "/api/marketlens/health" in path.read_text(encoding="utf-8")]
@@ -141,6 +189,53 @@ def test_no_restart_poll_anywhere_asks_for_the_route_m5_removed(tmp_path):
         f"{dead} still ask for the route M5 removed. Whatever polls it will "
         "wait out its whole budget and then report a failure that did not "
         "happen.")
+
+
+#: THE ROUTES THAT EXIST ON ONE START AND NOT THE OTHER, declared rather than
+#: discovered. Every one is behind `if databases is not None:` in
+#: `webui/app.py`, which is legitimate -- a database page cannot work without a
+#: database. What is NOT legitimate is a liveness probe in here, and that is the
+#: whole point of writing the set down: `OP-119` happened because this axis was
+#: invisible, so nobody could notice that the restart poll had crossed it.
+CONDITIONAL_ON_A_REGISTRY = {
+    # `create_domain_health_router` -- and the one a restart poll reached for.
+    "/api/engine/health",
+    # `create_database_router`. Legitimately conditional: both act ON a registry,
+    # so neither has anything to answer without one.
+    "/api/databases/health",
+    "/api/databases/upgrade",
+}
+
+
+def test_the_conditional_routes_are_declared_not_discovered(tmp_path):
+    """The set above must be exactly what the two start shapes differ by.
+
+    MUTATION-CHECKED: mounting `create_domain_health_router` unconditionally
+    empties the difference and turns this red; adding a new conditional router
+    without declaring it here turns it red naming the new route. Either way the
+    axis stops being invisible, which is the only durable half of `OP-119` --
+    repointing the two polls fixed the instance and would not have stopped the
+    third.
+    """
+    with_registry = _engine_serves(tmp_path, registry=True)
+    without = _engine_serves(tmp_path, registry=False)
+
+    assert without, "the engine serves nothing when started with a database path"
+    assert without < with_registry, (
+        "starting without a registry should serve strictly fewer routes")
+
+    difference = with_registry - without
+    undeclared = sorted(difference - CONDITIONAL_ON_A_REGISTRY)
+    assert not undeclared, (
+        f"{undeclared} exist only when the engine was started with a registry "
+        "and are not declared in CONDITIONAL_ON_A_REGISTRY. A caller polling one "
+        "of these gets a 404 on the other start.")
+
+    gone = sorted(CONDITIONAL_ON_A_REGISTRY - difference)
+    assert not gone, (
+        f"{gone} are declared conditional but are now served on every start. "
+        "Delete them from CONDITIONAL_ON_A_REGISTRY -- a stale entry here is a "
+        "route nobody is allowed to poll for no reason.")
 
 
 def test_no_page_calls_an_engine_route_that_does_not_exist(tmp_path):

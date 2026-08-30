@@ -1389,7 +1389,7 @@ exactly one place — an unmerged worktree branch that had already been run agai
 warehouse — and `R-24` forbids the obvious shortcut of replacing the database.
 
 **What is NOT closed is the panel's sentence.** An engine that refuses to start never binds a
-port, so `extension/app.js:3424` reports **"Not detected"** for a schema fault, a permissions
+port, so `extension/app.js:3400` reports **"Not detected"** for a schema fault, a permissions
 fault and an absent engine alike — false, and it sends the reader to reinstall what is already
 installed. That half is `OP-38`.
 
@@ -1484,7 +1484,7 @@ is not filed as fixed with it.
 
 An engine that refuses to start never binds a port. So `checkEngine` in
 `extension/engine.js` gets a connection error, and
-`extension/app.js:3424` reports:
+`extension/app.js:3400` reports:
 
     text: "Not detected"      detail: "The panel could not reach the Engine."
 
@@ -1607,7 +1607,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:964](../extension/app.js#L964)) | `setupRunModeSelect` ([extension/app.js:2016](../extension/app.js#L2016)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:940](../extension/app.js#L940)) | `setupRunModeSelect` ([extension/app.js:1992](../extension/app.js#L1992)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -1648,11 +1648,11 @@ accessibility. They have not, and the difference is requirement-driven:
 
 * Run mode disables options **individually**, because which run modes are on offer
   depends on the selection — `for (const option of select.options) option.disabled =
-  !allow[option.value]` ([extension/app.js:2181](../extension/app.js#L2181)). Its
+  !allow[option.value]` ([extension/app.js:2157](../extension/app.js#L2157)). Its
   `focusOption` filters disabled candidates because it genuinely has some.
 * The finance converter disables **the whole control** when there are no stored
   rates — `select.disabled = !state.financeRates.length`
-  ([extension/app.js:1149](../extension/app.js#L1149)) — and mirrors that onto the
+  ([extension/app.js:1125](../extension/app.js#L1125)) — and mirrors that onto the
   trigger inside `sync()`. It never has a disabled option, so it has nothing to
   filter.
 * Type-ahead exists only on the finance side, and a currency list needs it where
@@ -2273,7 +2273,7 @@ reader is the whole of this change and the writer is the next one.
 **Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
 defect — that distinction is the whole entry.**
 
-A citation written as `` (`extension/app.js:1602`, `:1641`) `` carries two references
+A citation written as `` (`extension/app.js:1578`, `:1641`) `` carries two references
 and the guard sees one. `CITATION` in
 `tests/test_the_documents_cite_what_they_claim.py` requires a path before the colon, so
 it matches `app.js:1641` and does not match a bare `:1641`. Measured directly: the
@@ -3526,7 +3526,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 **Three consequences outlived the deadline itself**, all now fixed:
 
 * **The double click.** The panel re-enables its button the moment a request fails
-  (`extension/app.js:6092`), so a failure at ten seconds invited a second click while the
+  (`extension/app.js:6122`), so a failure at ten seconds invited a second click while the
   first build was still packing — two warehouse copies, two staging trees, and `_newest`
   free to hand the panel an archive from one build beside the manifest of the other.
 * **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
@@ -3989,6 +3989,98 @@ the creation time, a fast rebuild could have sorted behind an older complete arc
 migration, route or protocol change — so `R-35`'s engine trigger does not fire, and `0.4.7`
 is held while the `R-06`/`R-35` cadence question is with him.
 
+### OP-112 · The engine's own page reports a SUCCESSFUL restart as a failure
+**Fixed on `claude/scrapex-engine-consolidation-d69e0a` (`REQ-50`).**
+
+`scrapex/webui/templates/settings.html` polled `/api/marketlens/health` to detect the engine
+coming back. **That route does not exist.** It and `/api/general/health` were collapsed into
+`/api/engine/health` when the two databases became one, and `scrapex/webui/database_api.py`
+carries a comment recording the deletion. The probe could only 404, so a restart that had
+**succeeded** exhausted all sixty attempts and the page said *"The engine has not come back."*
+— on the one control a person reaches when they are already worried.
+
+**The panel's copy of the identical loop was repaired and this one was not**, which is `R-80`
+in one file: two copies of a flow do not stay two copies of the same flow.
+
+Fixed to `/api/health` and NOT to `/api/engine/health`, deliberately: `/api/health` is mounted
+unconditionally, while `/api/engine/health` is mounted only `if databases is not None` and the
+CLI can start the engine with `registry=None`.
+
+**Still open, same shape, on the panel side.** The panel's post-restart poll uses
+`/api/engine/health`, so on an engine started without a registry it can only 404 and will
+report a successful restart as a two-minute timeout. Not fixed here because it changes a
+tested path in a change that already moves that control; whoever takes it should decide
+whether the conditional mount is right at all.
+
+### OP-113 · A warning that could not appear: `schema_lag` was published, rendered, and never carried
+**Fixed on `claude/scrapex-engine-consolidation-d69e0a` (`REQ-50`).**
+
+The engine publishes `schema_lag` on **every** health answer. `renderSchemaLag` in
+`extension/app.js` renders it in full — *"Database is behind the engine"*, what breaks, and
+what fixes it — and `setStatus` calls it on every engine update. The banner could **not appear
+in any state of the machine**, because `checkEngine` in `extension/engine.js` did not carry
+the field: the renderer was handed `undefined` every time and its own guard hid the banner.
+
+One missing line between two correct halves. The repair is that line.
+
+**AND IT IS HALF THE DEFECT, WHICH NEITHER ENTRY COULD SEE ALONE.** `OP-115` was found
+the same day on the other side of the same banner: `_MARKETLENS_LEGACY_NUMBERS`, a filter
+left behind by a deleted stream, hid `0013` and `0014` from `pending_migrations`, so the
+engine computed a lag that was already incomplete. **This entry is why nothing was drawn;
+that one is why what would have been drawn was wrong.** Either fix alone leaves the owner
+with a banner that cannot tell him his warehouse is missing the source-registry merge --
+so the pair is worth reading together, and neither pull request closes the banner by
+itself.
+
+**It is one of seven findings of one shape in a single day**, and that is the part worth
+keeping: a mechanism that is correct, visible, and load-bearing on nothing. `LESSONS` §29
+holds all seven, including the `THEME_PROPERTIES` sweep from `#289`, the build-drift row
+that gated nothing in `OP-111`, the `0 &&` that switched a size check off at the only
+value that mattered, and the guard below.
+
+**And a fifth, repaired as a side effect.** `test_every_caller_of_the_restart_endpoint_reads_the_refusal`
+slices `extension/app.js` between the FIRST `"/api/engine/restart"` and the next `setInterval`.
+With two restart implementations in the file that window was **about 2,800 lines**, in which
+`detail` appears roughly seventy times from unrelated code — so half that guard was passing on
+other people's text. Deleting the duplicate implementation closes the window to about twenty
+lines and makes the assertion mean what it says.
+
+### OP-114 · `.engine-spec-row` resolves its value column to 0px, and only in the states the row exists to report
+**Fixed on `claude/scrapex-engine-consolidation-d69e0a` (`REQ-50`).**
+
+`grid-template-columns: auto minmax(0, 1fr)` in `extension/app.css`. Column 1 held
+`.engine-spec-note` — a label **and** its explanatory sentence — so the `auto` track sized
+toward the max-content of a whole sentence, took the row, and the `1fr` resolved to **literally
+0px**. `.engine-spec-value` is `justify-self: end` so it was never stretched, and
+`overflow-wrap: anywhere` makes its min-content one character: `source · 3a745a9` painted **8px
+wide and 273px tall**, one letter per line, over the sentence beside it.
+
+**Measured with the repository's own `tools/panel_harness.py`** at 320, 360, 400 and 600px: the
+value track resolved to **0px at every one of them**. It is not a narrow-panel defect, which is
+why widening the panel never revealed it. Two rows are affected, not one — Build and Latest
+version — and at 320px the power row's switch was squeezed to a 28.7px track for a control that
+is 46px wide.
+
+**It degrades only in the states the row exists to report.** The sentence is empty in the
+ordinary case and hidden by a rule, so the row looks correct until the engine has something to
+say — *"Restart needed"*, *"Checkout moved"* — and then the answer is unreadable. That is why
+nobody saw it, and it is exactly the screenshot the owner sent.
+
+**The obvious fix is the one the code already forbids.** Reversing to `minmax(0, 1fr) auto`
+repairs these rows and breaks the other five: measured on the same harness, Heritrix's
+*"Apache-2.0 · some files under other licences"* starved the label track to **0px** at 320px —
+the defect the comment above that rule was written to record. The two orderings fail on
+**disjoint row shapes**, so no single `grid-template-columns` is right for both.
+
+Fixed without touching the columns at all: `.engine-spec-note` becomes `display: contents`, its
+two children become grid items of the row, and the sentence drops to a second row spanning both
+columns. Column 1 then sizes to two or three words in every row, and both failure modes become
+impossible by construction rather than by string length. Measured after: the value is one line
+at 360px and above, and the row's height falls from 273px to 59px at 320px.
+
+**The defect was untested and the state was unrenderable by the screenshot harness** —
+`tools/engine_verify.py` has no stale-build case, so no capture ever showed it.
+
 ### OP-115 · The schema-lag banner could not report two real migrations, and its guard checked the direction that cannot fail
 
 **Found 2026-08-30**, while censusing what remains of MarketLens after `R-72`. **Proven on a
@@ -4039,7 +4131,12 @@ turns it red naming `0013` and `0014`.
 **Third instance in two days of a guard that works and looks the wrong way** — after the
 deadline table with a case for every rule and none for the fall-through (`OP-100`), and the
 route-agreement test that scans `extension/**/*.js` and never the engine's own templates,
-which is why `settings.html` still polls a route deleted at M5. Those two are not fixed here.
+which is why `settings.html` polled a route deleted at M5. Those two are not fixed here.
+
+> *(The `settings.html` poll itself is repaired in `OP-112` on the engine-page branch, which
+> landed after this entry was written. **The guard gap it names is not** -- the
+> route-agreement test still reads only `extension/`, so the next dead route on an engine
+> template will be just as invisible. The instance closed; the blindness did not.)*
 
 ### OP-116 · The engine page reported a failed restart on a restart that worked, and the guard for it read half the product
 
@@ -4134,6 +4231,115 @@ compares the two.
    the one that would have caught this in August rather than today.
 
 ---
+
+### OP-119 · The restart-poll guard builds the app in the one configuration where its route exists
+
+**Found 2026-09-02**, while rebasing the engine-page branch onto `bf033ca` and hitting a
+conflict in `settings.html` that was SUBSTANTIVE rather than positional: two branches had
+fixed the same defect and chosen different routes.
+
+**`OP-116` repointed the restart poll at `/api/engine/health`, which is mounted
+conditionally.** Four legs, each re-read rather than argued:
+
+```
+scrapex/webui/database_api.py:78   @router.get("/api/engine/health")   -- in create_domain_health_router
+scrapex/webui/app.py:604           include_router(create_domain_health_router(...))
+scrapex/webui/app.py:602           if databases is not None:          -- the gate above it
+scrapex/webui/app.py:1587          @app.get("/api/health")            -- a plain route, every start
+scrapex/cli.py:856                 registry = None if args.db else DatabaseRegistry.defaults()
+```
+
+So `scrapex ui --db <path>` starts an engine that does not serve `/api/engine/health` at all,
+and on that start the restart poll exhausts all sixty attempts against a 404 and tells the
+owner *"The engine has not come back"* about an engine that came back on the first attempt.
+**That is the defect `OP-116` set out to fix, reproduced by its own fix.** Confirmed by the
+session that merged it, by building the app with no registry: `/api/health` served `True`,
+`/api/engine/health` served `False`.
+
+**Fixed here** by polling `/api/health` (`scrapex/webui/templates/settings.html`), which is
+mounted on every start. The retired M5 route is described in the comment beside it and
+deliberately never written out -- `OP-116`'s own widened guard fails any caller file
+containing it, which is `LESSONS` §28 and correct.
+
+**BUT THE INSTANCE IS NOT THE FINDING, AND THIS IS WHY IT IS A SEPARATE NUMBER.**
+`_engine_serves(tmp_path)` in `tests/test_the_panel_and_the_engine_agree_on_routes.py` builds
+the app with `create_app(databases=registry)` -- a registry always present. So
+`assert "/api/engine/health" in _engine_serves(...)` proves the route exists **in the only
+configuration in which it can**, and `test_no_page_calls_an_engine_route_that_does_not_exist`
+compares every caller against that same route set. **Neither guard can reach `databases=None`,
+so neither can see the start on which the poll it protects is guaranteed to fail.**
+Repointing the template closes the instance and leaves that blindness exactly where it was.
+
+**AND IT IS A DIFFERENT KIND FROM THE SEVEN IN `LESSONS` §29, WHICH IS THE PART WORTH KEEPING.**
+That section's closing claim is that none of them is a defect in the guard's logic -- each is a
+guard whose SUBJECT stopped being what it was written for. **This one's subject never
+stopped.** `/api/engine/health` is exactly what the guard was written for and it is still
+that. What was never in scope is the **configuration**: the guard varies the route and never
+the app it asks. A guard can be correct about its subject, current, mutation-checked, and
+still blind along an axis it never varies -- and that axis is where the product breaks.
+
+**AND THE COMMENT EXPLAINING THIS DEFECT WAS REDDENED BY THREE INDEPENDENT SCANNERS.** Writing
+it required naming the retired route, the pull request that introduced the regression, and the
+start mode that triggers it. Each is forbidden on a `webui/` template, by a different guard,
+and **every one of them was right**:
+
+| what the comment had to name | the guard | why it is not a false positive |
+|---|---|---|
+| the route M5 retired | `test_no_restart_poll_anywhere_asks_for_the_route_m5_removed` | it fails any caller file containing the path, and a comment is in the file |
+| the pull request, as a bare number after a hash | `test_ui_colour_literals_live_only_in_the_canonical_colour_system` | a hash and three hex digits IS a colour literal; `297` is three hex digits |
+| the command that starts the engine that way | `test_no_surface_tells_the_owner_to_open_a_terminal` | a surface printing a runnable command is the defect `R-51` removed |
+
+So the comment describes all three and writes none: the route by what happened to it, the pull
+request as `PR 297`, the start mode by its flag. **This is `LESSONS` §28's fifth, sixth and
+seventh instances, all in one comment, whose own subject is that a scanner cannot tell a
+citation from the thing it cites.** The lesson already said the scanner should not try to
+guess intent. What these three add is the practical form: **on a scanned surface, name the
+thing by its history or its shape, never by its literal** -- and expect that the more
+carefully a comment explains a defect, the more guards it trips.
+
+**AND THE PANEL HAD THE SAME DEFECT, WHICH THE FIRST REPORT MISSED.**
+`extension/app.js` polled the engine-scoped health route too -- the restart poll this very
+branch moved onto the Engine screen. So the feature `REQ-50` asked for was itself broken on a
+`--db` start, and the entry above described only the template. Found by reading the panel
+rather than by trusting a report of the template, including this entry's own.
+
+**THE GUARD DID NOT MERELY MISS THE DEFECT. IT REQUIRED IT.**
+
+```
+assert any(path.name == "app.js" for path in polls), (
+    "the panel does not poll /api/engine/health")
+```
+
+Correcting the panel would have turned that assertion RED. **A guard can do worse than fail to
+catch a defect: it can oblige the product to keep it** -- and this one was written by the fix
+for the defect it now mandated. Nothing about it looked wrong; it named the right route, the
+right file and the right failure.
+
+**BOTH HALVES ARE FIXED HERE, and the durable half is the second.**
+
+1. Both polls ask `/api/health`, which `webui/app.py` mounts on every start.
+2. `_engine_serves(tmp_path, registry=...)` builds **both shapes the engine ships in**, and
+   `_engine_serves_however_it_started` returns their INTERSECTION. A liveness probe -- the one
+   call that must answer whenever the engine is up at all -- is checked against that, never
+   against either shape alone.
+3. `CONDITIONAL_ON_A_REGISTRY` declares the three routes that exist on one start and not the
+   other (`/api/engine/health`, `/api/databases/health`, `/api/databases/upgrade`), and
+   `test_the_conditional_routes_are_declared_not_discovered` fails if the set drifts in either
+   direction. **That is what stops a fourth instance**: the axis is now written down, so
+   crossing it is a visible act rather than an invisible one.
+
+**Mutation-checked both ways rather than asserted:** repointing either poll back at the
+engine-scoped route turns the restart guard red naming the file; mounting
+`create_domain_health_router` unconditionally turns the declaration test red naming the route
+that is no longer conditional. The old guard could not be made to fail by any change to the
+thing it protected.
+
+**AND THE NEW GUARD CAUGHT ITS OWN AUTHOR IN THE SAME TRAP, ONE STEP LATER.** The comment
+written beside the fix explained which route had been avoided -- by naming it -- and the
+widened scanner read the comment as a caller and went red. That is `LESSONS` §28's EIGHTH
+instance in this branch, the first found by a guard written in the same commit. Both comments
+now name that route by description and never by path, and say why in one line so the next
+writer does not spend the minute.
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was

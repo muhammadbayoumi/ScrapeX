@@ -203,6 +203,36 @@ def main() -> int:
         capture(page, "one-candidate", 400, 800, "light", "brand")
         page.close()
 
+        # THE STALE-BUILD STATE, and it is here because its absence is why a real
+        # defect shipped. Every capture above leaves `#engine-build-detail` EMPTY,
+        # a rule hides an empty `<small>`, and the Build row therefore looked
+        # correct in every screenshot ever taken of this screen -- while in the two
+        # states the row exists to report, the value column collapsed to 0px and
+        # the version printed one character per line down the page (`OP-114`). The
+        # owner found it by using the product.
+        #
+        # A harness that can only photograph the resting state is a harness that
+        # certifies the resting state. `stub()` has carried the `engine_build` knob
+        # since the row was built, exactly so this state could be driven; nothing
+        # had asked it to.
+        page_file = build_page(tmp, _stub("http://127.0.0.1:8000", engine_build={
+            "mode": "source", "sealed_at": "2026-08-30T05:00:00+00:00",
+            "commit": "451468dcb42b3981de11c4793074a4bcadacf14d",
+            "commit_now": "31c369e409037f823068c681ef721d82e61f7087",
+            "moved": True, "stale": True,
+            "detail": "the code this engine is running is not the code on disk "
+                      "— 3 loaded module(s) changed since it started. "
+                      "Restart the engine to pick the new code up."}))
+        for width in (320, 400):
+            page = browser.new_page(viewport={"width": width, "height": 800})
+            page.goto(page_file.as_uri())
+            page.wait_for_timeout(700)
+            page.click('#tab-engines')
+            settle(page)
+            open_engine(page)
+            capture(page, "restart-needed", width, 800, "light", "brand")
+            page.close()
+
         # Narrow 320x480 layout, light/default.
         page = browser.new_page(viewport={"width": 320, "height": 480})
         page.goto(page_file.as_uri())

@@ -261,6 +261,55 @@ def test_every_caller_of_the_restart_endpoint_reads_the_refusal():
                 "reaches the owner as a generic outcome")
 
 
+def test_the_panel_has_exactly_one_restart_implementation():
+    """`R-80`, made mechanical for the flow that proved it.
+
+    Two implementations of one restart lived in `extension/app.js`, and they were
+    not equivalent: one had a preflight, a poll, button disabling and an error
+    card, and the other announced `"restart requested"` and ended. Which one the
+    owner got depended on which of two buttons he found -- both of them in
+    Settings, neither on the Engine screen where the engine's own `Restart needed`
+    badge is drawn. Two more callers sat on the engine's own web pages, and
+    `test_every_caller_of_the_restart_endpoint_reads_the_refusal` above opens by
+    naming all four.
+
+    THE GUARD ABOVE WAS ITSELF HALF-ROTTED BY THE DUPLICATION, which is the sharpest
+    argument for this one. It slices `app.js` between the FIRST occurrence of the
+    endpoint and the next `setInterval`; with two implementations that window ran
+    from the first function to a `setInterval` some 2,800 lines away, and `detail`
+    appears roughly seventy times in between from code that has nothing to do with
+    restarting. It was passing on other people's text. Deleting the duplicate closed
+    the window to about twenty lines -- the survivor's own poll -- so the assertion
+    now means what it says.
+
+    Counted on the SOURCE and not in a browser, deliberately: a second copy that is
+    never wired would still be a second copy to keep true, and that is what `R-80`
+    forbids.
+    """
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    panel = PANEL.read_text(encoding="utf-8")
+
+    assert script.count('"/api/engine/restart"') == 1, (
+        "extension/app.js calls the restart endpoint more than once. One flow, one "
+        "implementation -- a second copy drifts, and the two the panel used to carry "
+        "reported the same failure differently")
+    assert "restartEngineFromPanel" not in script, (
+        "the deleted second implementation is back")
+    assert panel.count('id="runtime-restart"') == 1, (
+        "more than one restart button in the panel's markup")
+    assert 'id="engine-restart"' not in panel, (
+        "the second restart button is back in Settings")
+
+    # AND IT IS ON THE ENGINE SCREEN, which is the half of `REQ-50` a count cannot
+    # see. The button is only useful beside the badge that asks for it.
+    detail = panel.split('id="view-engine-detail"', 1)
+    assert len(detail) == 2, "the Engine detail view is gone"
+    body = detail[1].split('id="view-console"', 1)[0]
+    assert 'id="runtime-restart"' in body, (
+        "the restart control is not on the Engine screen, so the `Restart needed` "
+        "badge still has no remedy beside it")
+
+
 # The Windows rituals. Owner ruling, 2026-08-01: «انا مستخدم على قدى غير محترف
 # عاوز كل حاجة تتم اتوماتك فى الخلفية بسلاسة كالتطبيقات الاحترافية». A message
 # that ends in a four-step keyboard ritual is the application handing its own job

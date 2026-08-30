@@ -2519,7 +2519,7 @@ crawl", and the honest report would have had to say so.
 Not part of the incident, and it is recorded here because **this branch is what
 demonstrated it.** A continuation citation — a bare `` `:NNN` `` inheriting its path
 from a full citation a few words earlier, as in
-`` (`extension/app.js:1602`, `:1641`) `` — **is invisible to
+`` (`extension/app.js:1578`, `:1641`) `` — **is invisible to
 `tests/test_the_documents_cite_what_they_claim.py`.** `CITATION` requires a path before
 the colon, so it matches `app.js:1641` and does not match `:1641`. Measured, not
 reasoned: the regex returns a match for the first string and `None` for the second.
@@ -3296,7 +3296,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day and twice more since
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3320,8 +3320,9 @@ the only protection there is and puts nothing in its place -- the ninety-one-com
 drift that produced them. The fix was to make each docstring say *"this enforces a rule that
 has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
 
-**THE SAME SHAPE, FOUND FIVE TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING FOR
-IT** -- and two of the five could never have failed at all. A mechanism that is correct, visible, and load-bearing on nothing:
+**THE SAME SHAPE, FOUND SEVEN TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING
+FOR IT, AND AN EIGHTH ON 2026-09-02** -- and three of the eight could never have failed
+at all. A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
 |---|---|---|
@@ -3330,10 +3331,24 @@ IT** -- and two of the five could never have failed at all. A mechanism that is 
 | engine page | `schema_lag` published and rendered | `engine.js` never carries the field, so the banner cannot appear in any state |
 | engine page | a guard slicing `app.js` between two markers | the window is ~2,800 lines and `detail` appears ~71 times in unrelated code |
 | design review | `getComputedStyle` read against the `device` palette | **nothing.** It does not resolve a custom property, so `AccentColor` and `color-mix(...)` come back as literal TEXT and there is nothing to score |
+| Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
+| engine page | `test_the_web_page_offers_no_setting_to_change`, which mechanises an owner ruling | **nothing.** Its `_control_ids` regex matches `input\|select\|textarea`, so it cannot see a `<button>` -- and the nine ids it can see are exactly the nine on its own exemption list |
+| rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; `scrapex ui --db <path>` serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
 
-**TWO OF THE FIVE WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
-rotted -- they held something once and their subject moved. **Rows 1 and 5 never held
-anything.**
+**THREE OF THE EIGHT WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
+rotted -- they held something once and their subject moved. **Rows 1, 5 and 7 never held
+anything.** Row 8 is neither, and it is the reason this section's closing claim had to be
+rewritten rather than extended -- see below.
+
+> *(Row 6 arrived after this section was written, from the engine-page work. It is added
+> here rather than in a section of its own, and the counts above and below are moved with
+> it -- a table that grows while its own arithmetic stays put is the defect this section
+> describes, committed by the person describing it Row 8 arrived three days later the same
+> way, and its arrival cost more than a row: it made the section's closing generalisation
+> false, so that sentence is rewritten above rather than qualified. **A counterexample
+> found after the conclusion is the cheapest evidence there is and the easiest to file as
+> an exception** -- filing it as an exception is how a document keeps a claim its own
+> table refutes.)*
 
 The `forEach` assertion was written on **2026-08-29** (`208d829`) against a file that had
 carried **two** occurrences since **2026-07-27** (`6779573`) -- checked with `git log -S`, and
@@ -3350,6 +3365,12 @@ own.)
 **Two of the first six were BORN rotten -- the `forEach` assertion and the `device` reader -- and that is a rate rather than an anecdote.** (The `pointer.bytes` row is the exception in both directions: it CAN fail, at any mismatch but zero, so it neither rotted nor was born rotten. The seventh is a different kind again and is discussed below.) "It rotted" is the comfortable reading because it
 implies the guard was once correct and time did the damage. **A third of these were never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
 matter of course, not only when a guard looks stale.
+
+**Row 7 could not fail on any day of its life, and it took two separate defects to keep it
+that way.** For months the guard read `settings.html` as flat text, so Jinja `{% include %}`
+was never expanded and it asserted against an empty set. When the include walk was added, the
+nine controls it could finally see were exempted in the same change. **Two independent
+mistakes, each of which alone would have left it working.**
 
 **AND THERE IS A NINTH SHAPE THAT NO GUARD COULD HAVE CAUGHT, which is why it is recorded
 here rather than as a defect in one.** Twice on 2026-08-30 a mechanism was found still
@@ -3372,13 +3393,37 @@ named them is what went away. **The only method that works is a person going loo
 which is how both of these were found, by two sessions, on the day after the deletion.
 
 **None of the first six is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
-being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
+being what it was written for, and none of them can say so.
+
+**ROWS 8 AND 9 ARE NEITHER, AND TOGETHER THEY NAME A THIRD FAMILY.** Row 8 is a full suite that
+ran to completion and exited 0 -- against the tree it STARTED on, after a checkout swapped the
+subject mid-run. Row 9 is a guard that is correct about its subject, current, and
+mutation-checked, and asks about it in the only configuration that mounts it. **Neither is
+stale and neither was born wrong. Both report truthfully about something other than what they
+appear to measure.**
+
+**AND A THIRD OF THE SAME FAMILY WAS FOUND IN THE TOOLING ON 2026-09-02**, which is why this is
+a family and not two anecdotes: `pytest -q | tail -6 > file` reports `tail`'s exit status, so a
+run with three failures is announced as *exit code 0*. Nothing shipped on it -- the failures
+were read off the captured output -- but the number was a true statement about the wrong
+process. The fix is to record the status of the thing you meant to measure, in the artefact you
+will read: `echo "pytest exit=$?"` into the file itself.
+
+    row 8   a green   for the tree the run STARTED on
+    row 9   a route   in the configuration the guard always builds
+    tooling an exit 0 from the last process in the pipe
+
+**All three are honest reports of the wrong subject, and no count anywhere would differ.** So
+the question the section closes on is not only *could this ever have failed* but **what exactly
+did this measure, and is it the thing the sentence beside it claims?**
+ `LESSONS` §7 is the older half of
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
 that finds them is the one §18 already states: *if the thing it protects were broken right
 now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
 
 | Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
 | design review | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
+| rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; an engine started against an explicit database path serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 
@@ -3398,3 +3443,35 @@ either side breaks the agreement. The failures above all assert something about 
 cannot see the other move. That is the buildable version of §18's question: do not ask *"would
 this fail if the thing broke"* and hope; **assert an agreement between two things that are
 maintained separately**, and the guard notices without anybody remembering to ask.
+
+## 30 · A measured constant carries the platform it was measured on, and a pixel is the least portable of them
+
+A layout guard written on 2026-08-30 asserted that a grid column was at least **40px** wide.
+That is what the repaired layout renders on the Windows workstation it was measured on. **CI
+is Linux, the same layout renders 39.83 there, and the pull request went red on a 0.17px
+miss** -- while the failure text called 39.83px *"the 0px-track collapse"*, which it plainly
+is not. The next person to read that red would have believed the column had collapsed.
+
+**The tempting repair is to lower the number, and it is the wrong one.** A threshold chosen to
+clear the value that happens to appear passes for a reason unrelated to what it tests -- the
+same shape as the `<= 46` truncation guard that stopped truncating, and as §29's guards that
+hold nothing. It would also have been measured on Windows again.
+
+**Derive the threshold from the thing under test instead.** The defect was a grid track
+resolving to `0`, where `overflow-wrap: anywhere` makes the value's min-content **one
+character**, so it painted one letter per line. So the floor is *three characters of this
+page's own font* and the ceiling *four lines of its own line height*, both read from the
+element at run time:
+
+| | collapsed | repaired (Windows) | repaired (CI) | derived floor |
+|---|---|---|---|---|
+| width | 7.6px | 56px | 39.8px | 22.9px |
+
+The floor is recomputed on whatever browser runs it, so it means the same thing under any
+font, and both states sit far from it. **A constant that cannot state its own units in terms
+of the thing it measures is a constant that has quietly encoded a machine.**
+
+**This was the third platform-dependent measurement to bite in one day.** `OP-98` fails on
+Windows and CI cannot see it at all; this one passed on Windows and only CI could see it. The
+pair is the argument: a measurement taken on one platform is evidence about that platform, and
+the guard has to say which -- or, better, stop depending on it.

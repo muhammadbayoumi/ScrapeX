@@ -2718,11 +2718,18 @@ def test_engine_actions_are_consistent_and_the_next_card_is_separate(open_panel)
     assert engine_box and storage_box
     assert storage_box["y"] - (engine_box["y"] + engine_box["height"]) >= 8
 
+    # ONE, NOT TWO, since `runtime-restart` moved to the Engine screen where the
+    # engine's own "Restart needed" badge is drawn (REQ-50). Upgrade database
+    # stays here: it repairs the WAREHOUSE, not the engine, and it is the one
+    # action with a native fallback for when the engine cannot answer at all.
+    #
+    # EDITED TO 1 RATHER THAN RELAXED TO `>= 1`. The width-parity check below
+    # exists because two buttons of different widths in one row read as two
+    # different kinds of thing; a count that forgives any number would let the
+    # pair silently become three unequal ones, which is what it was written for.
     actions = page.locator("#s-engine .engine-maintenance-actions .engine-action")
-    assert actions.count() == 2
-    widths = [actions.nth(index).bounding_box()["width"] for index in range(2)]
-    assert max(widths) - min(widths) <= 1
-    assert page.locator("#s-engine .engine-action .sx-icon").count() == 2
+    assert actions.count() == 1
+    assert page.locator("#s-engine .engine-action .sx-icon").count() == 1
 
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "diagnostics"
@@ -4185,6 +4192,115 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     assert old.locator("#engine-build-verdict").is_visible() is False
 
 
+def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
+    """OP-114. The value column resolved to 0px and the version printed VERTICALLY.
+
+    The mirror of the Heritrix guard further down, and it had to be written
+    because that one measures the wrong three rows. It checks the five rows whose
+    column 1 is a bare label; the defect lives in the three whose column 1 held a
+    label AND a sentence, where `auto` sized toward the max-content of the whole
+    sentence, took the row, and left `minmax(0, 1fr)` at LITERALLY zero. With
+    `justify-self: end` and `overflow-wrap: anywhere`, the value's used width was
+    then its min-content -- ONE CHARACTER -- so `source · 451468d` painted 8px wide
+    and 273px tall.
+
+    IT DEGRADES ONLY IN THE STATES THE ROW EXISTS TO REPORT. `<small>` is empty in
+    the ordinary case and hidden by a rule, so every screenshot ever captured of
+    this screen looked right: `tools/engine_verify.py` had no stale-build case
+    until this defect was found. The test therefore drives the panel into the
+    stale state deliberately, with the engine's OWN longest sentence.
+
+    Measured at 320, 360, 400 and 600px before the fix: the track was 0px at every
+    one of them. It was never a narrow-panel defect, which is why widening the
+    panel never revealed it -- so this asserts at two widths, not one.
+    """
+    # VERBATIM from scrapex/provenance.py's `changed` branch, with the module
+    # count the owner actually saw. A shortened stand-in would not reproduce it:
+    # the defect is a function of how long this sentence is.
+    detail = ("the code this engine is running is not the code on disk — "
+              "3 loaded module(s) changed since it started. Restart the engine "
+              "to pick the new code up.")
+    page = open_panel(engine_build={
+        "mode": "source", "sealed_at": "2026-08-30T05:00:00+00:00",
+        "commit": "451468dcb42b3981de11c4793074a4bcadacf14d",
+        "commit_now": "31c369e409037f823068c681ef721d82e61f7087",
+        "moved": True, "stale": True, "detail": detail})
+    page.click("#tab-engines")
+    open_engine(page)
+    settle_view(page, "engine-detail")
+    assert text_of(page, "#engine-build-verdict") == "Restart needed"
+
+    # THE THRESHOLDS ARE DERIVED FROM THE PAGE, NOT MEASURED ON ONE MACHINE.
+    #
+    # This asserted `width >= 40`, which is what the repaired layout renders on a
+    # Windows workstation. CI is Linux, the same layout renders 39.83 there, and
+    # the build went red on a 0.17px miss -- while the failure text called 39.83px
+    # "the 0px-track collapse", which it plainly is not. The next reader of that
+    # red would have believed the column collapsed.
+    #
+    # A threshold chosen to clear the number that happened to appear is the shape
+    # that made the old `<= 46` truncation guard stop truncating: it passes for a
+    # reason unrelated to what it tests. And a pixel is the least portable
+    # measurement there is -- a measured constant carries the platform it was
+    # measured on, whether or not anyone writes that down.
+    #
+    # What the defect actually was: the track resolved to 0, and `overflow-wrap:
+    # anywhere` makes the value's min-content ONE CHARACTER, so it painted one
+    # letter per line. So the floor is a multiple of THIS page's own character
+    # width and the ceiling a multiple of its own line height, both read from the
+    # element under test. Measured in the collapse: 7.6px wide (one character) and
+    # 273px tall (17 lines). Repaired: 56px and 59px. Three characters and four
+    # lines sit far from both, and they mean the same thing under any font.
+    metrics = page.evaluate("""() => {
+      const v = document.querySelector('#engine-spec-build .engine-spec-value');
+      const cs = getComputedStyle(v);
+      const probe = document.createElement('span');
+      probe.textContent = '0';
+      probe.style.position = 'absolute';
+      probe.style.visibility = 'hidden';
+      probe.style.whiteSpace = 'pre';
+      probe.style.font = cs.font
+        || `${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;
+      document.body.appendChild(probe);
+      const ch = probe.getBoundingClientRect().width;
+      probe.remove();
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      return {ch, line};
+    }""")
+    assert metrics["ch"] > 0 and metrics["line"] > 0, metrics
+    floor = 3 * metrics["ch"]
+    ceiling = 4 * metrics["line"]
+
+    for width in (320, 400):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.wait_for_timeout(150)
+        for row in ("engine-spec-build", "engine-spec-latest"):
+            value = page.locator(f"#{row} .engine-spec-value").bounding_box()
+            assert value, row
+            assert value["width"] >= floor, (
+                f"{row} at {width}px: the value column is {value['width']:.1f}px, "
+                f"narrower than three characters ({floor:.1f}px) of its own font. "
+                f"The track has collapsed toward its one-character min-content, so "
+                f"the version is printing one letter per line")
+            # THE REAL SYMPTOM, and the one a width alone can miss. A tall narrow
+            # box IS the vertical printing; the panel is only 520px high.
+            assert value["height"] <= ceiling, (
+                f"{row} at {width}px: the value is {value['height']:.1f}px tall, "
+                f"more than four lines ({ceiling:.1f}px) of its own line height, "
+                f"so it is stacking rather than wrapping")
+
+    # AND THE SWITCH IS NOT SQUEEZED EITHER. It is 46px wide by its own rule, and
+    # in the same collapse its track was measured at 28.7px at 320px.
+    page.set_viewport_size({"width": 320, "height": 900})
+    page.wait_for_timeout(150)
+    switch = page.locator("#engine-spec-power .m3-switch").bounding_box()
+    assert switch and switch["width"] >= 46 - 0.5, switch
+
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= "
+        "document.documentElement.clientWidth"), "the page scrolls sideways"
+
+
 def test_the_latest_row_never_contradicts_the_sentence_under_it(open_panel):
     """THE GENERAL FORM OF THE DEFECT ABOVE, so it cannot come back in another
     state. The reader distinguishes four outcomes; the row is allowed to
@@ -5137,8 +5253,17 @@ def test_the_engine_actions_are_rows_and_no_overflow_menu_is_left_behind(open_pa
     page.click("#tab-engines")
     open_engine(page)
 
+    # RESTART LEADS, because this screen is where the engine says a restart is
+    # needed: the Build row renders that badge from the engine's own provenance
+    # and the owner met it with nothing here to press, while FOUR callers of
+    # POST /api/engine/restart existed elsewhere (REQ-50).
+    #
+    # The list is asserted whole, in order, and not with `in`: the order is the
+    # claim -- the remedy first, then the three that were promoted out of the
+    # overflow menu.
     rows = page.locator("#engine-action-list .engine-action-row")
     assert [r.get_attribute("id") for r in rows.all()] == [
+        "runtime-restart",
         "engine-diagnostics", "engine-setup-guide", "engine-copy-details"]
     for row in rows.all():
         assert row.is_visible()
