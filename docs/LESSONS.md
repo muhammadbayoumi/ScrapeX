@@ -3294,7 +3294,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found six times in a day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3345,18 +3345,18 @@ indistinguishable from a green that earned it, and no count anywhere would diffe
 device half was found by the design-review session while building `R-79`; those words are its
 own.)
 
-**Two of the first five is a rate, not an anecdote** (the sixth below could fail, at any mismatch but zero, so it is not in that count)**.** "It rotted" is the comfortable reading because it
-implies the guard was once correct and time did the damage. **Forty per cent of these were
-never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
+**Two of the first six were BORN rotten -- the `forEach` assertion and the `device` reader -- and that is a rate rather than an anecdote.** (The `pointer.bytes` row is the exception in both directions: it CAN fail, at any mismatch but zero, so it neither rotted nor was born rotten. The seventh is a different kind again and is discussed below.) "It rotted" is the comfortable reading because it
+implies the guard was once correct and time did the damage. **A third of these were never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
 matter of course, not only when a guard looks stale.
 
-**None of the five is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
+**None of the first six is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
 being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
 that finds them is the one §18 already states: *if the thing it protects were broken right
 now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
 
 | Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
+| design review | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 
