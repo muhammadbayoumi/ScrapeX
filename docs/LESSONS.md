@@ -938,12 +938,13 @@ rather than fails and so reports green while absent. All are recorded below.
   are **generated** now, and `tests/test_the_ruling_matches_the_code.py` is what
   stops them going stale again.
 - **`ENGINEERING.md` W4** — found 2026-08-17. It was stale twice: the version
-  trigger (superseded by R-06 on 2026-08-16), and a claim that
+  trigger (superseded on 2026-08-16 by a ruling since deleted; the whole family is
+  now [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)), and a claim that
   `extension/manifest.json` is an enforced mirror of `VERSION`. That second one
   had been deliberately undone on 2026-08-05 (Decision 21, PR #112), and
   `tests/test_version.py:536` now **fails if anyone re-pins the two numbers**. So
   the most-read rules document in the repository was pointing at an action the
-  test suite actively blocks and [R-07](RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
+  test suite actively blocks and [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
   explicitly forbids.
 
 **The pattern:** in both cases the *code* was right and the *document* was wrong,
@@ -1297,7 +1298,7 @@ working is a live instruction stops being checkable the moment the work is done.
 **AND THE NUMBER HAS A SECOND HOME, which a release runbook must name.** `VERSION`
 lives in `scrapex/version.py` and is mirrored in `pyproject.toml` because the
 installer cannot import Python. Both moved to `0.3.1` for migration `0010` — a
-contract change under `R-35`, refused at `0.3.0` by the gate, which is that gate
+contract change under `R-77`, refused at `0.3.0` by the gate, which is that gate
 working — and the primary session reports the mirror's guard firing on it when only
 the first was bumped. That guard is `tests/test_version.py:73`, and the words below
 are its own: **bump both or neither.** Three copies of one number now exist only if a document adds a
@@ -2429,7 +2430,7 @@ the `git tag` command in §7 and the past tense of `cut`.)*
     a source checkout sitting at that tag
     a process that imported that tree and kept running while the disk moved on
 
-And it cannot, **by design rather than by accident**. `R-35` moves the engine's number
+And it cannot, **by design rather than by accident**. `R-77` moves the engine's number
 on a *contract* change, so many trees share one number on purpose. Counted: **ten
 commits report `VERSION = "0.3.0"`** — every tree from `e963269` (#247) to `31c369e`'s
 parent (#257), one of them the release tag. **A string ten trees share cannot name one

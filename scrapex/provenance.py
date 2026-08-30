@@ -24,7 +24,7 @@ AND NOTHING COULD TELL, WHICH IS THE PART THIS MODULE EXISTS FOR. `/api/health` 
 
 Measured: **ten distinct commits report `VERSION = "0.3.0"`** — every tree from
 `e963269` (#247) to `31c369e`'s parent (#257), one of which is the release tag. That
-is by design, not by accident: `R-35` moves the engine's number on a CONTRACT change,
+is by design, not by accident: `R-77` moves the engine's number on a CONTRACT change,
 so many trees share one number deliberately. **A string ten trees share cannot
 identify one of them**, and it is the only thing the engine had ever been asked.
 

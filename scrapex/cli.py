@@ -254,7 +254,7 @@ def _cmd_export_version(args: argparse.Namespace) -> int:
     )
     print(f"wrote {vectors} (the compatibility rule, for the JavaScript copy)")
     print(_write_capability_baseline())
-    # R-35: the contract baseline the version gate compares against. Written by the
+    # R-77: the contract baseline the version gate compares against. Written by the
     # SAME command, because a baseline the release procedure does not maintain is a
     # baseline that goes stale and then has to be argued with.
     from . import contractstamp

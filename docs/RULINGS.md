@@ -91,86 +91,6 @@ exemption. The web page must keep **displaying** every value it stops editing
 
 ---
 
-### R-06 · `VERSION` moves with every merged pull request
-**2026-08-16 · release · supersedes [R-05](#r-05--version-moves-per-user-visible-capability)**
-
-`scrapex/version.py:VERSION` moves on **every new commit**. PRs are
-squash-merged here, so one commit on `main` = one merged PR = one bump. Each bump
-regenerates `contracts/capability-baseline.json` and `CHANGELOG.md` in the same
-commit, and updates the `pyproject.toml` mirror.
-
-**Why the old rule died:** "each user-visible capability" left the judgement to
-whoever was writing, and they kept deciding no. Measured with
-`git log -G'^VERSION = "'` — the number moved **three times in the project's
-life**, last at `adf31b2` on 2026-08-10, then stood still for 48 commits covering
-Phase A entire, T1 and B2. He noticed and said so. (As of 2026-08-17 the gap is
-**58 commits**.)
-
-> Use `-G`, not `-S`, on this file: `-S` finds only one of the three, because
-> `0.2.1` → `0.2.2` leaves the count of the searched string unchanged.
-
-**BLOCKED — do not simply bump it.** See [R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert).
-
-**Conflict — RESOLVED 2026-08-17.** [ENGINEERING.md](../ENGINEERING.md) **W4**
-read *"ONE product version, and it moves when the behaviour does"* — the
-superseded R-05 trigger — and was stale in a second, more dangerous way: it
-called `extension/manifest.json` a **mirror** with a drift test, which
-[R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert) and PR #112
-deliberately undid. Measured before rewriting: `pyproject.toml` really is an
-enforced mirror (`tests/test_version.py:79`), while the manifest comparison was
-removed on 2026-08-05 and `tests/test_version.py:536` now **fails if anyone
-re-pins it**. A reader following the old W4 literally would have re-welded the
-two numbers — the one thing this ruling forbids. W4 now states both correctly.
-
----
-
-### R-07 · The engine keeps the version **gate** and drops the **advert**
-**2026-08-16 · release · unblocks R-06**
-
-`MINIMUM_EXTENSION_VERSION` is a fact the engine owns, derived from the ledger —
-it **stays**. "What is the newest extension available" is Chrome's answer, not
-the engine's — it **goes**, along with the two constants that still say the
-engine carries the extension.
-
-**The defect, found by trying the bump and reverting it the same day:**
-`version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:483`, again in `scrapex/webui/app.py:1699`, drawn by
-`extension/app.js:607` and `:641`). The moment the engine moves ahead of
-`extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
-the engine it is talking to"*. Measured at 320×440: the profile page's legal line
-went from 396 to 494 against a 440 viewport — 54px clipped. Under "bump every
-commit" that card becomes **permanent and false**.
-
-Also to go: `LATEST_SOURCE` (*"it ships with the extension"*, `:289`) and
-`UPDATE_INSTRUCTIONS` (*"it carries the new extension with it"*, `:292`).
-
-**Never fix this by bumping `extension/manifest.json` alongside VERSION.** That
-was recommended once and it was wrong: it re-welds exactly what PLATFORM-PLAN
-Decision 21 unwelded (PR #112), whose "Done when" is *"the other number
-untouched"*. The two ship down separate paths — Google reviews the extension,
-nobody reviews the engine.
-
-> **PARTLY BUILT 2026-08-22, AND THE DELAY COST THE SAME 54px TWICE.** This ruling was
-> given on 2026-08-16 and the advert stayed in the code. On 2026-08-22 a schema change
-> moved `VERSION` to 0.3.0 for a legitimate reason under
-> [R-35](#r-35--the-engines-version-moves-on-a-contract-change-the-extensions-on-a-user-visible-one),
-> and **three panel layout tests failed with the identical 54px this ruling had already
-> measured** — because `version_report` still read
-> `bool(missing) or is_older(extension_version, VERSION)`, two questions welded into one
-> verdict. The `is_older` half is gone: the GATE ("this extension lacks a capability it
-> needs", a fact the engine owns) stays, and the ADVERT ("a newer extension exists",
-> which is Chrome's answer) does not. Two tests pin the distinction from both sides.
->
-> **STILL OWED, so it does not go missing for another six days:**
-> `latest_extension_version`, `LATEST_SOURCE` and `UPDATE_INSTRUCTIONS` are named above as
-> also going, and each needs a coordinated change in `extension/app.js`, which reads them.
-> They were not smuggled in behind a one-line fix to the harm.
-
-**Apply:** its own pull request, with a guard that fails if the engine ever
-answers for the extension's head again.
-
----
-
 ### R-08 · The plan and the state live in the repository
 **2026-08-15 · process · generalised by [R-09](#r-09--one-documentation-system-in-the-repository-all-english)**
 
@@ -416,7 +336,7 @@ rule wastes a session.
 | **SR-10** | **Every setting lives in the extension; the web page is display-only** — but display-only is not blank: the page must still show every value it stopped editing. | A setting that exists only on the web page is a setting the owner does not have — proven: crawl pace was built, plumbed to `HttpFetcher`, and he asked for it as if it did not exist. | Owner 2026-07-29: «لا اريد اى اعدادت على صفحة الويب الاعدادت كلها على extension بينما صفحة الويب للعرض فقط». Enforced by `tests/test_settings_live_in_the_extension.py` (`2253308`), not by memory |
 | **SR-11** | **Delete is two actions, never one.** *Stop tracking* keeps every row ever collected; *Erase collected data* keeps the registration. Both confirmed by typing, not by an OK. | Removing an entry is not a claim that none of the data happened. | Owner 2026-07-28, `412785b` |
 | **SR-12** | **A rename moves the data with the name** — all nine tables in ONE transaction, manifest rewritten only after the rows have moved. | Renaming the manifest alone would not rename a source, it would orphan one. | `412785b`, `scrapex/sources_admin.py:11` |
-| **SR-13** | **Nothing is collected that is not declared in `sources.yaml`.** The manifest is an extraction contract with a scope guard that rejects out-of-contract rows. | Owner principle: «له أساس ليس جمعاً عشوائياً» — *it has a basis, it is not random collection.* | `sources.yaml:1-18` |
+| **SR-13** | **Nothing is collected that is not DECLARED.** A declaration is an extraction contract with a scope guard that rejects out-of-contract rows — and since [R-78](#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) the declaration lives in `source_site`, not in `sources.yaml`. **The principle is unchanged and the file was never the point**: his words are «له أساس ليس جمعاً عشوائياً», which is a rule about basis, not about YAML. | Owner principle: «له أساس ليس جمعاً عشوائياً» — *it has a basis, it is not random collection.* | `sources.yaml:1-18` |
 | **SR-14** | **GPP: the latest published price only, never their paid historical series.** Our history accumulates from our own weekly observations. | A licence obligation, and it is tested (ENGINEERING T6). | `sources.yaml:436`, memory `scraper-ecosystem-design.md` |
 | **SR-15** | **Names state their language: unmarked = English, `_ar` = Arabic; the key and the label are the same word.** A monolingual Arabic source fills `product_name_ar` and leaves `product_name` **empty** — never "helpfully" carry Arabic into the unmarked column. | The reader had to learn a private vocabulary to use his own spreadsheet. | `docs/column-vocabulary.md`, migrations `0038`–`0042`, `PAYLOAD_VERSION 2` |
 | **SR-16** | **Column presence is per source.** Every gate in `reports.column_presence` asks *this* source's own rows, never a global table. | A global `currency_rate` count once put fuel-implied USD estimates on every shop. | memory `scrapex-columns-classification.md` |
@@ -897,23 +817,6 @@ returns; do not wait on it.
 Kept per **C4**. Do not follow these; they are here so the current rule can be
 understood.
 
-### R-05 · `VERSION` moves per user-visible capability
-**2026-08-01 · ~~active~~ SUPERSEDED 2026-08-16 by [R-06](#r-06--version-moves-with-every-merged-pull-request)**
-
-The rule was: raise `scrapex/version.py:VERSION` for each capability a person
-would notice the absence of.
-
-**What changed:** it left the judgement to whoever was writing, and they kept
-deciding no. The number stood still for 48 commits — Phase A entire, T1 and B2 —
-while the ledger's gate stayed green either way. The owner noticed and replaced
-the rule with a mechanical one that needs no judgement.
-
-**Still live from the old ruling:** the capability ledger itself, the derived
-`MINIMUM_EXTENSION_VERSION`, and the generated `CHANGELOG.md`. Only the *trigger*
-changed.
-
----
-
 ### R-36 · The engine updates itself; the panel only asks. And a published SHA-256 over HTTPS is enough to trust a download
 
 **2026-08-21 · install & update · answers `REQ-29`, and supersedes nothing**
@@ -1186,8 +1089,6 @@ where a server would have made them pointless, and that **nothing can reject an
 operation** — so retention policy, which destroys data, would need an automatic rule
 instead of a human decision. For a published tool, Drive-per-user also solves user
 isolation for free.
-
----
 
 ---
 
@@ -1826,88 +1727,6 @@ cannot drift, and this file already records what the alternative costs.
 > inferred; the card census is that argument applied one level up, to *which sections
 > exist at all* — the question two fixtures could not answer, and the one that hid a
 > price for months.
-
----
-
-### R-35 · The engine's version moves on a CONTRACT change; the extension's on a USER-VISIBLE one
-
-**2026-08-21 · release · settles the trigger R-05 lost and R-07 left open**
-
-> «كل تطويرتنا كانت تخص extension ام engine انا لا اعلم الان لان مشكل version غير
-> محلولة · فكل منهم لهم version وهم لا يتحركوا طبقا للقاعدة اجعلها ديناميكية 100%»
-> · «الثالث للمحرّك والثانى للإضافة، نفذ»
-
-**He could not answer a basic question about his own project**, and that is the
-defect: had the last two weeks' work gone into the engine or the extension? Measured
-2026-08-21, over the 91 commits since `VERSION` last moved (`adf31b2`, 2026-08-10):
-
-| | |
-|---|---|
-| touched `extension/` | **36** |
-| touched `scrapex/` or `db/` | **42** |
-| touched **both** | **12** |
-| today's work alone | 9 commits, **0** touching `extension/` |
-
-**One number asked about two products answers neither.** `scrapex/version.py` reads
-`0.2.2` and `extension/manifest.json` reads `0.2.2` — equal **by history, not by
-rule**: [R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
-unwelded them deliberately and `tests/test_version.py:536` fails if anyone re-pins
-them. So their agreement today is a coincidence, which is precisely why the question
-had no answer.
-
-**A GATE ALREADY EXISTED AND WATCHED THE WRONG THING.** `tests/test_version.py` fails
-when the *capability set* changes without `VERSION` moving. Capabilities had not
-changed in 91 commits, so it stayed quiet while **three engine migrations landed in a
-single day** — each one a change an older build cannot read.
-
-### The two criteria, and why not one rule for both
-
-    engine     a CONTRACT change: schema, protocol, or endpoint
-    extension  a USER-VISIBLE change
-
-A contract break stops **another program** working, which is what an engine consumer
-needs warned about. Chrome shows the extension's number **to people**, so it should
-move when what those people can *do* changes. One rule for both would either
-announce releases the extension's users cannot see, or leave an engine consumer with
-no signal that the schema moved.
-
-**"USER-VISIBLE" IS NOT INVENTED HERE.** It is read off `version.Surface`, the
-distinction `R-07` already relies on: a capability the **panel** executes raises the
-minimum extension version, one the engine executes alone does not. Seven of the eight
-capabilities are panel-executed.
-
-### What "100% dynamic" was taken to mean, and what it was not
-
-**Not** a number that moves with every commit — that is a commit counter, it is what
-`R-05` was superseded for being, and it would break
-`MINIMUM_EXTENSION_VERSION`, which `R-07` keeps as a **gate**: a gate that moves every
-commit refuses everything.
-
-**Instead: the criterion is enforced, so the number cannot fall 91 commits behind
-again.** `scrapex/contractstamp.py` fingerprints the three parts and
-`contracts/contract-baseline.json` records them against the version they describe. A
-contract change with `VERSION` unmoved **fails the build**, naming the part:
-
-```
-the engine contract changed while VERSION stayed at 0.2.2:
-  "schema": { "added": ["0008_a_page_remembers_how_to_ask_whether_it_changed.sql"] }
-```
-
-**The fingerprint is a sorted list and not a digest**, so the failure can say *which*
-part moved. A digest can only say that something did, which is the report that sends
-the next session reading three subsystems to find out.
-
-**AND A REFACTOR IS EXPLICITLY NOT A CONTRACT CHANGE.** Moving code between files,
-adding tests, writing documents — none of it changes anything another program can
-observe, and a guard asserts the fingerprint cannot grow a part that a refactor moves.
-
-**Proven by being made to fail**: the baseline was rolled back one migration and the
-gate fired with the migration named. Twelve guards, and `tests/test_version.py`'s
-forty-four still pass beside them.
-
-**What this does not do:** it does not bump anything for him. The human part stays two
-numbers and one command — `scrapex export-version` — which is what he measured it at.
-What changed is that forgetting it is now a red build rather than a silent drift.
 
 ---
 
@@ -2644,25 +2463,6 @@ something reads it, not how long it is.**
 
 ---
 
-### R-61 · A new engine endpoint is a MINOR version, not a patch
-
-**2026-08-27 · release · he chose 0.4.0 over the 0.3.2 I recommended**
-
-`#274` adds `GET /api/dry/{source_key}` — 95 routes to 96 — and `R-35` makes that a contract
-change, so CI forced the version. It was built as **0.3.1 → 0.3.2**, reasoning that the
-addition is additive, `MINIMUM_EXTENSION_VERSION` stays `0.2.2`, and the panel does not render
-the route yet, so nothing a user can reach moved.
-
-**HIS CHOICE: 0.4.0.** A new endpoint is a new capability and the number says so.
-
-**What the argument I lost was, kept because it is the one to answer next time:** a MINOR
-announces a capability nobody can reach, and `OP-32` is what an announcement without a
-reachable feature costs. His answer settles that the version describes **what the engine can
-do**, not what the panel currently shows — which is consistent with `R-48`: the engine
-executes and reports, and the panel is a separate release.
-
----
-
 ### R-62 · One source registry: `site_profile` merges into `source_site` — and `Q-24` is answered by that migration
 
 **2026-08-27 · data model · he chose the merge over teaching `POST /api/jobs` two registries, which is what I recommended · answers [REQ-25](REQUESTS.md#req-25--one-source-registry-with-a-category-visible-to-every-user) and `Q-24`**
@@ -3272,3 +3072,158 @@ reading of that screen is "ScrapeX cannot back up", which is false.
 stream a `FileResponse` whose headers arrive at once, so their existing 5-second bound is a
 real guard on a fast route. The rule is written `(?:\?|$)` rather than the usual
 `(?:[/?]|$)` precisely so the fix cannot take a guard off two routes while repairing one.
+
+---
+
+### R-77 · One number, one question: the extension carries the version, the engine carries a protocol and a build
+
+**2026-08-30 · release · REPLACES and DELETES `R-05`, `R-06`, `R-07`, `R-35` and `R-61`**
+
+> «احذف كل الاحكام او القرارات الخاصة ب version» · «احذف الكل واكتبه فى بند واحد غير متناثرين»
+> · «المحرك ليس الاساسى الاساسى هو extension والمحرك فرعى»
+
+**Five rulings in eleven days was not indecision. It was one number being asked three
+questions that have nothing to do with each other**, so each ruling answered a different one
+and read as a contradiction of the last:
+
+| question | what answered it | which ruling was really about it |
+|---|---|---|
+| **which build am I running?** | `VERSION` | `R-06` — every merged pull request |
+| **can the two halves talk?** | `VERSION` + `MINIMUM_EXTENSION_VERSION` | `R-35` — a contract change |
+| **what can the product do?** | `VERSION` | `R-05`, `R-61` — a capability, an endpoint |
+
+Each was right about its own question. None could be right about the other two, because a
+release cadence, a compatibility boundary and a capability claim do not move together and
+never will.
+
+**THE COST IS MEASURED, not asserted.** On 2026-08-29 two sessions read
+`ENGINEERING.md` W4 and the comment at `scrapex/version.py`, reached **opposite** conclusions
+about whether to bump, and **neither reached `R-35`** — the ruling that governed. The prose
+they read first cited `R-05`, `R-06` and `R-07` and did not mention `R-35` anywhere in the
+file. A rule that needs five documents to state it is a rule nobody can follow.
+
+---
+
+## The decision: split the three, and let the architecture answer each
+
+**1 · IDENTITY IS THE COMMIT, NOT A NUMBER.** The engine reports the SHA it was built from.
+It is free, it cannot be wrong, and it needs no rule — which kills the question *"does this
+pull request deserve a bump?"* outright. That question is the source of every conflict in this
+entry's history, and of the five-file bump dance (`scrapex/version.py`, `pyproject.toml`,
+and three generated files) that every session has to perform and can get wrong.
+
+**2 · COMPATIBILITY IS A PROTOCOL NUMBER, NOT A VERSION COMPARISON.** Half of it already
+exists: `contracts/contract-baseline.json` carries `protocol`. The extension asks *"do you
+speak protocol N?"* — never *"is your version at least X?"* Comparing versions couples the
+release cadence to the compatibility boundary, and they are independent facts: the engine can
+ship fifty times without the wire changing, and can break the wire in one line.
+
+**3 · THE PRODUCT VERSION IS THE EXTENSION'S, AND ONLY THE EXTENSION'S.** This follows from
+his correction of 2026-08-30 — «المحرك ليس الاساسى الاساسى هو extension والمحرك فرعى» — and
+from [R-48](#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports).
+Chrome reviews the extension and pushes it to every user automatically; that number is the one
+a person sees. **The engine gets no marketing version at all** — a protocol number and a build
+SHA, both facts rather than judgements.
+
+---
+
+## What this dissolves, and one defect it dissolves by construction
+
+**`R-07` ORDERED THE ADVERT REMOVED ON 2026-08-16 AND IT WAS NEVER BUILT.** Measured
+2026-08-30, thirteen days later, still live in three places:
+
+    scrapex/version.py:483      "latest_extension_version": VERSION
+    scrapex/webui/app.py:1698   "latest_extension_version": VERSION
+    extension/app.js:607, :641  drawn to the user as "Latest available extension"
+
+The engine answers *"what is the newest extension available"* with **its own number**, which
+is not an answer it has. `R-07` correctly said this is Chrome's fact, not the engine's. The
+fix was ruled, recorded, cited in `ENGINEERING.md` as an open blocker on `R-06` — and thirteen
+days of sessions read past it.
+
+**Under this ruling it cannot come back**, and that is the point of preferring an architecture
+to a rule: **an engine with no version has nothing to advertise.** The defect is not fixed,
+it is made unrepresentable.
+
+The same is true of the arguments that produced the other four:
+
+| what stops being a question | why |
+|---|---|
+| "every merged PR, or only a functional change?" | nothing bumps per PR; the SHA is already exact |
+| "is this a contract change?" | the protocol moves when the wire breaks, which is rare and obvious |
+| "is a new endpoint MINOR or PATCH?" | the engine has no number to argue about |
+| "did the advert get removed?" | there is no number to advertise |
+
+---
+
+## What must be built, and what stays
+
+**Built:** the engine reports `build_sha` and stops reporting any version of the extension;
+`protocol` in `contracts/contract-baseline.json` becomes the compatibility authority and
+`MINIMUM_EXTENSION_VERSION` is replaced by a minimum protocol; `scrapex/version.py:VERSION`
+stops being hand-edited.
+
+**Kept, because it answers a real question:** the **capability ledger**. "Which build has X"
+is worth answering and `version.CAPABILITIES` answers it. It attaches to the extension's
+version and to the protocol, not to an engine release number.
+
+**Deleted, not marked superseded** — and this is a deliberate exception to `C4`, made by him
+in his own words, on the ground that five scattered entries are what caused the failure this
+entry describes. **The history is not lost**: every deleted ruling is in `git log` for
+`docs/RULINGS.md`, and `tests/test_the_registers_cannot_collide.py` carries a declared
+`RETIRED` set naming all five and pointing here, so the five holes in the `R` sequence are
+legible rather than mysterious.
+
+---
+
+### R-78 · The scheduler reads the REGISTRY, not a file — and a new source needs no new code
+
+**2026-08-30 · architecture · «انا اريد الكود ديناميكى لا اعيد اختراع العجلة»**
+
+He asked why the price crawl and the muqawil crawl take different paths when they have
+different tables and different treatment. **Measured against the code rather than answered
+from the design: they do not.**
+
+| layer | price | muqawil | a real difference? |
+|---|---|---|---|
+| fetching | `HttpFetcher` | `HttpFetcher` ([contractors.py:49](../scrapex/contractors.py)) | **none** — one throttle, one robots policy, one retry |
+| which page next | a connector per shop | 56 partition cells, then a profile frontier | **yes** — the listing reorders every thirty seconds, so partitioning is a necessity |
+| interpreting | known schema → `price_observation` | discovered schema → approval, versions, `generic_record` | **yes** — the columns are not known before the page is read |
+| **what runs it** | **a background worker reading `sources.yaml`** | **a command line, and nothing else** | **NO — and this is the whole defect** |
+
+**THE FOURTH ROW IS HISTORY, NOT DESIGN.** Prices came first, so the scheduler was built
+around their shape: *a source is an entry in a YAML file.* muqawil arrived as a source that
+lives in the **database**, found no door, and took a command line instead. Measured
+2026-08-30 on `3a745a9`:
+
+    scrapex/jobs.py   17 references to the manifest
+    scrapex/jobs.py    0 references to muqawil, contractors, partitioncrawl,
+                       snapshotcrawl, generic_record or dataset
+    POST /api/jobs     app.state.manifest.get(key) -> 404 unknown source_key
+
+**THE DECISION: the scheduler resolves a source through `source_site`, and `sources.yaml`
+stops being a registry.** `R-62` did half of this by merging `site_profile` into
+`source_site`; this is the half that makes the merge worth having.
+
+**WHAT THIS IS NOT.** It is not a crawl button for muqawil. A button built on a
+manifest-driven worker would turn a clear `404` into a job that is accepted, queued and fails
+inside the run — `R-71` measured that and it is why `OP-92` exists. **Build the resolution and
+the button falls out**; build the button and the resolution never gets built.
+
+**AND IT IS WHY THE THING GENERALISES.** `CLAUDE.md` says of `products` that *"a new shop
+needs no new module"*. Prices earned that; muqawil never did, and neither will `jobs` or
+`tenders` — the two categories he has named as coming — while the door is a file only a
+developer edits. **A registry-driven scheduler is what makes the platform a platform rather
+than three programs sharing a warehouse.** It is `R-72`'s reasoning again: a registry in a
+file and a registry in a database are two concepts for one thing.
+
+**`SR-13` IS NOT WEAKENED AND ITS TEXT IS AMENDED ABOVE, not deleted.** *"Nothing is
+collected that is not declared"* is his principle — «له أساس ليس جمعاً عشوائياً» — and it is
+about **basis**, not about YAML. A row in `source_site` is a declaration exactly as a manifest
+entry is, made through the extension rather than by editing a file, which is `R-48`. The scope
+guard that rejects out-of-contract rows stays where it is and keeps doing its job.
+
+**Six passes, not one button.** The muqawil crawl is `--plan`, `--crawl`, `--details`,
+`--approve`, `--coverage`, `--impostors`, and **four of the six make no network request at
+all**. Whatever the panel offers must name the pass; *"Update now"* describes none of them.
+

@@ -12,7 +12,7 @@ changed in those 91 commits — so the gate stayed quiet while **three engine
 migrations landed in a single day**, each of them a change an older build cannot
 read.
 
-He ruled the criterion rather than the number (`R-35`):
+He ruled the criterion rather than the number (`R-77`):
 
     engine     moves on a CONTRACT change — schema, protocol, or endpoint
     extension  moves on a USER-VISIBLE change — which this codebase already
@@ -44,7 +44,7 @@ def panel_capabilities() -> set[str]:
     `version.Surface` distinguishes where a capability RUNS, not where it is drawn,
     and its docstring says why: a capability the panel executes raises the minimum
     extension version and one the engine executes alone does not. So "user-visible
-    behaviour" is not invented here — it is read off the distinction `R-07` already
+    behaviour" is not invented here — it is read off the distinction `R-77` already
     relies on.
 
     `CAPABILITIES` IS A TUPLE AND THE FIELD IS `surfaces`, PLURAL — a capability can
@@ -143,7 +143,7 @@ def test_an_unchanged_contract_reports_nothing():
 def test_a_refactor_is_not_a_contract_change():
     """WHAT THE RULING DELIBERATELY EXCLUDES. Moving code between files, adding
     tests, or writing documents changes nothing another program can observe — and a
-    version that moves for it is the commit counter `R-05` was superseded for being.
+    version that moves for it is the commit counter `R-77` was superseded for being.
     """
     seen = contractstamp.fingerprint()
 
@@ -163,25 +163,25 @@ def test_a_refactor_is_not_a_contract_change():
 # The gate's own note says a false positive "costs one marker". Here the marker would
 # cost the gate, so the prose avoids the name instead. The one test that really read
 # `manifest.json` asserted only that two strings were strings; its real subject —
-# that R-07 unwelded the two numbers and they must not be re-pinned — is already
+# that R-77 unwelded the two numbers and they must not be re-pinned — is already
 # owned by `tests/test_version.py:536`, which fails if the old drift comparison comes
 # back. Two guards for one rule is one guard and one liability.
 
 def test_the_panel_surface_is_what_the_extension_version_answers_to():
-    """`R-35`'s second half. The set may be empty on a build with no panel
+    """`R-77`'s second half. The set may be empty on a build with no panel
     capabilities, but the DISTINCTION must exist — if `Surface.PANEL` ever stops
     being used, the extension's criterion has quietly lost its subject."""
     panel = panel_capabilities()
 
     assert panel, (
         "no capability declares the panel surface any more, so 'user-visible' has "
-        "nothing to be read off — R-35's extension criterion needs a new subject")
+        "nothing to be read off — R-77's extension criterion needs a new subject")
     # Measured 2026-08-21: seven of the eight capabilities run in the panel.
     assert len(panel) >= 5, sorted(panel)
 
 
 def test_the_minimum_extension_version_is_still_the_engines_to_own():
-    """`R-07`: the engine keeps the GATE and drops the ADVERT. A dynamic version
+    """`R-77`: the engine keeps the GATE and drops the ADVERT. A dynamic version
     must not quietly turn the minimum into a moving target — it is derived from the
     ledger, so it moves when a panel capability's `since` does, and not otherwise."""
     assert MINIMUM_EXTENSION_VERSION

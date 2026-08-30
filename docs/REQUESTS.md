@@ -98,7 +98,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Ruled** — 2026-08-27 as [R-68](RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions): automatic at the end of every crawl, **both directions**. He refused the free-side-only split — his words name the fetch twice, and a command is the session doing it. 148 need zero network; the fetching side is bounded and reported inside the crawl's own report | 2026-08-23 |
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
-| [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Captured** — root cause proven on the live engine: `POST /api/jobs` validates against `sources.yaml` and muqawil lives in `site_profile`, so the route answers 404 and the panel hides the button deliberately. The fix needs `REQ-25`; **four parts do not** and he approved all four | 2026-08-26 |
+| [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Ruled** — [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) settles the shape: **the scheduler resolves a source through `source_site`, and the button falls out of that.** `POST /api/jobs` validates against `sources.yaml`, and `scrapex/jobs.py` has zero references to any contractor module, so opening the route alone would turn a clear 404 into a job that fails mid-run (`OP-92`). Not started | 2026-08-26 |
 | [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 | [REQ-49](#req-49--review-the-design-system-against-supabases) | Review the design system against Supabase's | **In flight** — measured 2026-08-29; he set the scope first («اولا تحديد كل محاور المراجعة»), then pointed at the SOURCE rather than the site, then chose six axes of twenty-six («ابدأ بالستة»). `R-74` **holds in the built product** (8 states x 118 properties in Chromium 149: 62 move, all colour) **and is guarded by almost nothing** — mutation put the type scale into a palette with 91 static and 218 browser guards green. `device` does not reach the user in dark. 21 findings were refuted by the verify pass. Filed as [OP-101](BACKLOG.md)–[OP-110](BACKLOG.md); **twelve decisions open, all his** | 2026-08-29 |
 
@@ -347,9 +347,11 @@ Three drifts had been reported on 2026-08-20 and he asked for them to be
 **attacked before being written**, not merely checked. The review is why the work
 that followed is not the work that was proposed:
 
-- **It refuted one of the three.** `RULINGS.md:106` reads *"(As of 2026-08-17 the
+- **It refuted one of the three.** A line in `RULINGS.md` read *"(As of 2026-08-17 the
   gap is 58 commits.)"* — dated, therefore history rather than rot. The finding
-  was withdrawn.
+  was withdrawn. (Its ruling was deleted on 2026-08-30 by `R-77`, which is why this
+  sentence no longer carries the line number: a number quoted as HISTORY is not a
+  destination, and writing it in `file:line` form told the guard otherwise.)
 - **It widened another.** "16 days" had a second copy in `STATE.md`, and a third
   written out in words as "sixteen days ago".
 - **It found what the three had missed:** the board is hand-written with no
@@ -2412,7 +2414,14 @@ because it is believed.
 ---
 
 ## REQ-45 · The crawl button does not work for muqawil
-**Captured 2026-08-26 · root cause proven · partly blocked on `REQ-25`**
+**Captured 2026-08-26 · root cause proven · Ruled 2026-08-30 as `R-78`, and the shape it settles is not a button**
+
+> **Ruled 2026-08-30 as [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code).** He asked why the price crawl and this one take
+> different paths, and the measurement said they do not: the fetch layer is one
+> `HttpFetcher`, and the only unjustified difference is that the scheduler learns its
+> sources from a FILE while the registry is a database. **So the work is not a button.**
+> It is the scheduler resolving through `source_site` -- after which this request, and
+> the door for `jobs` and `tenders`, are one piece of work rather than three.
 
 > «مشكلة زر الزحف لا يعمل مع موقع مقاول»
 

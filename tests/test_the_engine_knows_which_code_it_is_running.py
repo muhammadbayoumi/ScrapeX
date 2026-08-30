@@ -561,7 +561,7 @@ def test_the_version_string_cannot_do_this_job(loaded):
     """THE MEASUREMENT THAT JUSTIFIES THE WHOLE MODULE, kept as a test so nobody
     proposes deleting it in favour of `VERSION`.
 
-    `R-35` moves the engine's number on a CONTRACT change, so many trees share one
+    `R-77` moves the engine's number on a CONTRACT change, so many trees share one
     number BY DESIGN. Ten commits report `0.3.0` -- `e963269` through `31c369e`'s
     parent -- and one of them is the `engine-v0.3.0` tag. Counted from git here
     rather than written down, so it cannot go stale the way the thing it describes
