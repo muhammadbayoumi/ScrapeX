@@ -3283,3 +3283,43 @@ The tell is not internal consistency, it is whether the tool could see what it w
 Related: section 21's rule about re-deriving citations after an insertion is the same
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
+
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and four sessions found the same blind spot in one day
+
+`R-77` deleted five rulings and every live citation of them was repointed mechanically.
+That is the right operation for a link. **It is the wrong operation for a sentence that
+recounts what a ruling DID**, and the difference is invisible to grep.
+
+    "R-35 immediately moved the source to 0.3.1"    -> now a claim about a ruling dated today
+    "superseded by R-06 on 2026-08-16"              -> R-77 did not exist on 2026-08-16
+    "R-07 already ruled it must go"                 -> inside a snapshot pinned to 31c369e
+
+**Six were caught. Two were not, and the two say where to look next time.** The six were in
+`LESSONS`, `STATE`, `BACKLOG` and `REQUESTS`; the two that shipped were **test docstrings** --
+`tests/test_the_version_moves_when_the_contract_does.py` came out of `#290` citing `R-77` for
+the criterion `R-77` abolished, and a second test asserting the constant `R-77` retires. The
+review pass read documentation and did not read code comments. **A citation inside a guard is
+the one a reader trusts most**, because a guard is supposed to be the thing that cannot be
+wrong.
+
+**AND A RETIRED GUARD IS NOT A GUARD TO DELETE.** Both tests still enforce the deleted rule
+ON PURPOSE: `R-77` is a ruling and not yet an architecture, so removing them today takes away
+the only protection there is and puts nothing in its place -- the ninety-one-commit silent
+drift that produced them. The fix was to make each docstring say *"this enforces a rule that
+has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
+
+**THE SAME SHAPE, FOUND FOUR TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING FOR
+IT.** A mechanism that is correct, visible, and load-bearing on nothing:
+
+| found | the mechanism | what it actually held |
+|---|---|---|
+| design review | `assert "THEME_PROPERTIES.forEach" in appearance` | the string occurs TWICE, so deleting `apply()`'s loop leaves it green on `clearTheme` |
+| Drive incident | the panel's *"3 loaded module(s) changed"* row | displayed correctly, gated nothing; the backup ran on stale code |
+| engine page | `schema_lag` published and rendered | `engine.js` never carries the field, so the banner cannot appear in any state |
+| engine page | a guard slicing `app.js` between two markers | the window is ~2,800 lines and `detail` appears ~71 times in unrelated code |
+
+**None of the four is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
+being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
+this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
+that finds them is the one §18 already states: *if the thing it protects were broken right
+now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.

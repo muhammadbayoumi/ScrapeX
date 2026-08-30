@@ -1,4 +1,8 @@
-"""The engine's version moves when its CONTRACT moves, and the extension's when the panel's behaviour does.
+"""The gate that holds the version rule until `R-77` replaces the rule with an architecture.
+
+Its title is the rule it enforces -- the engine's version moves when its CONTRACT moves,
+the extension's when the panel's behaviour does -- and that rule was deleted on
+2026-08-30. Read the next paragraph before changing anything here.
 
 WHY THIS FILE EXISTS. `VERSION` sat at `0.2.2` for **91 commits** — last moved
 `adf31b2` on 2026-08-10 — and the owner could no longer answer a simple question
@@ -12,11 +16,43 @@ changed in those 91 commits — so the gate stayed quiet while **three engine
 migrations landed in a single day**, each of them a change an older build cannot
 read.
 
-He ruled the criterion rather than the number (`R-77`):
+**THIS FILE ENFORCES A RULE THAT HAS BEEN REPLACED, AND IT STAYS UNTIL ITS REPLACEMENT
+IS BUILT.** The criterion below is `R-35`'s, and `R-35` was DELETED on 2026-08-30 by
+`R-77` along with `R-05`, `R-06`, `R-07` and `R-61`:
 
     engine     moves on a CONTRACT change — schema, protocol, or endpoint
     extension  moves on a USER-VISIBLE change — which this codebase already
                models as a capability whose `Surface` is the panel
+
+**`R-77` says the engine has no version at all** — a `protocol` number for compatibility,
+a build SHA for identity, and the product version is the extension's alone. Under it, "is
+a new endpoint a bump?" stops being a question.
+
+**SO WHY IS THIS STILL HERE.** `R-77` is a ruling and not yet an architecture: `VERSION`
+is still hand-edited, and nothing yet reads `protocol` as the compatibility authority.
+**Deleting this gate today would remove the only protection there is and put nothing in
+its place** — a contract could move silently again, which is the ninety-one-commit
+failure that produced it. So it enforces the old rule on purpose, and it is the FIRST
+thing `R-77`'s builder must change:
+
+    test_the_contract_has_not_moved_without_the_version_moving
+        -> asks `endpoints`; becomes a check that `protocol` moved
+    test_the_minimum_extension_version_is_still_the_engines_to_own
+        -> asserts what `R-77` retires; becomes a MINIMUM PROTOCOL
+
+**AND UNTIL THEN A NEW ROUTE CANNOT LAND WITHOUT A DECISION.** `contractstamp._ROUTE`
+matches `@app.<verb>("...")`, so one new endpoint puts an entry in `endpoints["added"]`
+and reddens the gate unless `VERSION` is bumped by hand — which is the churn `R-77`
+ended. Measured 2026-08-30, this blocked `POST /api/engine/stop` and the work was split
+around it rather than spending a version number on a rule that had been deleted.
+
+**HOW THIS DOCSTRING CAME TO CITE THE RULING THAT DELETED IT**, recorded because it is
+the failure this file is about, one level up: `#290` repointed every citation of the five
+deleted rulings to `R-77` mechanically. Four sentences in `LESSONS`, `STATE`, `BACKLOG`
+and `REQUESTS` were caught and rewritten — prose that RECOUNTS what a ruling did reads
+as a claim about the ruling it now names. **These two were missed because they are test
+docstrings and the review pass read prose.** A citation inside a guard is the one a reader
+trusts most.
 
 WHY THESE TWO AND NOT ONE RULE FOR BOTH. A contract break stops another program
 working, and that is what an engine consumer needs warned about. Chrome shows the
@@ -181,9 +217,17 @@ def test_the_panel_surface_is_what_the_extension_version_answers_to():
 
 
 def test_the_minimum_extension_version_is_still_the_engines_to_own():
-    """`R-77`: the engine keeps the GATE and drops the ADVERT. A dynamic version
-    must not quietly turn the minimum into a moving target — it is derived from the
-    ledger, so it moves when a panel capability's `since` does, and not otherwise."""
+    """THE RULE THIS ASSERTS IS RETIRED BY `R-77`, AND THE ASSERTION STAYS UNTIL IT IS
+    BUILT. The sentence it was written for -- "the engine keeps the GATE and drops the
+    ADVERT" -- was `R-07`'s, deleted on 2026-08-30. `R-77` replaces
+    `MINIMUM_EXTENSION_VERSION` with a minimum PROTOCOL, so this test asserts something the
+    ruling retires and will fail the day somebody builds it correctly. **That is the
+    intended signal, not a regression**: whoever removes the constant must remove this with
+    it, and a green suite either side would mean nobody noticed.
+
+    What it still buys today: a dynamic version must not quietly turn the minimum into a
+    moving target -- it is derived from the ledger, so it moves when a panel capability's
+    `since` does, and not otherwise."""
     assert MINIMUM_EXTENSION_VERSION
     assert MINIMUM_EXTENSION_VERSION <= VERSION, (
         f"the engine requires an extension newer than itself "
