@@ -3468,6 +3468,105 @@ one lifecycle is what `R-72` is about, and the second copy is the one that decid
 behind it and no test that currently fails, so it is recorded rather than slipped into a
 pull request about something else.
 
+### OP-100 · "Back up to Drive" reported failure on a backup that had succeeded
+
+**Found 2026-08-29, by him, pressing the button.** The panel said *"The request exceeded
+its 10000 ms deadline."* The backup had worked.
+
+`POST /api/bundle` matched no rule in `LOCAL_POLICIES`, so it fell through to the default
+for a mutation — [extension/startup.js:14](../extension/startup.js#L14), `localMutation:
+10000`. The route answers only when the whole job is finished: it copies the warehouse,
+exports every dataset, hashes each file, zips the lot and hashes that before writing a
+first byte. A deadline that bounds time-to-first-byte therefore bounds the entire build.
+
+**Measured on his disk the same hour**, from the artefacts the run left behind:
+
+| | |
+|---|---|
+| warehouse | **1,490 MB** |
+| build phase (start → `panel.jsonl.gz` written) | **71 s** |
+| pack (→ archive closed) | **104 s** total |
+| archive produced | **372.6 MB** |
+| budget it was given | **10 s** |
+
+**The engine finished. Only the panel gave up.** The archive was closed 94 seconds after
+the abort, complete, and the staging tree was removed — so the route reached its `finally`.
+Aborting a `fetch` cancels nothing on the far side of it.
+
+**What the bundle actually is**, read from the archive's own index rather than by
+extracting it: `warehouse.db` is **93.6%** of the 1,592 MB packed (360 of 372.6 MB
+compressed). The 72 export files are 97.7 MB, 6.1%. So build time tracks warehouse size,
+and the exports are noise — which is why the 2026-08-12 sizing note below no longer
+predicts anything.
+
+**A correction to that note, and it matters for how this entry is read.** The
+*Measured: what a backup bundle actually weighs* note records "22.4s to build" at a 113.6 MB
+database. Putting that beside the 10 s bound shows the route was already over budget on the
+day it was measured — **but that is this session's inference, not something the note
+reported.** It is a sizing measurement about why the bundle is zipped; it never mentions a
+deadline, and nothing was watching the two numbers together. Its baseline is also stale:
+113.6 MB then, 1,490 MB now, **13× in 17 days**.
+
+**Three consequences outlived the deadline itself**, all now fixed:
+
+* **The double click.** The panel re-enables its button the moment a request fails
+  (`extension/app.js:6092`), so a failure at ten seconds invited a second click while the
+  first build was still packing — two warehouse copies, two staging trees, and `_newest`
+  free to hand the panel an archive from one build beside the manifest of the other.
+* **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
+  Only Drive was pruned (`extension/drive.js:65`, `KEEP = 3`).
+* **A killed engine leaks its staging tree.** The `rmtree` is in a `finally`
+  ([scrapex/webui/app.py:3038](../scrapex/webui/app.py#L3038)), so a process that dies
+  skips it and leaves the bundle expanded — 1.5 GB. This, not a second build, is what
+  actually survives a crash: the build is a thread inside the engine and cannot outlive it.
+
+**Fixed here** under [R-76](RULINGS.md#r-76--the-backup-deadline-is-raised-from-a-measurement-and-the-rebuild-that-would-end-it-is-deferred):
+`bundleBuild: 600000` ([extension/startup.js:33](../extension/startup.js#L33)) with a rule
+that deliberately excludes the two streaming sub-paths
+([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
+`threading.Lock` ([scrapex/webui/app.py:2915](../scrapex/webui/app.py#L2915)) refusing a
+concurrent build with the house 409; `BUNDLE_KEEP = 2`
+([scrapex/webui/app.py:2896](../scrapex/webui/app.py#L2896)) pruning **by stamp** so the
+two files of one backup cannot be split; and an age-guarded sweep
+([scrapex/webui/app.py:2952](../scrapex/webui/app.py#L2952)) for orphaned staging.
+
+**Residual, named rather than closed.** The lock is in-process, which is correct here —
+`start_engine` refuses to spawn a second engine on a held port
+([scrapex/native.py:297](../scrapex/native.py#L297)), and a crashed build leaves no
+survivor to race. An engine started by hand on another port would share the folder and
+defeat it; that is why the sweep keeps a 6-hour age guard
+([scrapex/webui/app.py:2903](../scrapex/webui/app.py#L2903)) rather than deleting any
+staging tree it finds.
+
+**Two things this measurement exposed that belong to other tracks.**
+
+1. **Disk.** 7.9 GB free while a build needs ~3 GB of transient peak. Bounded retention was
+   housekeeping when it was written and is closer to urgent now.
+2. **The retention gap is already recorded — this only prices it.** It is
+   [docs/plans/2026-08-21-the-platform-not-a-price-tracker.md:159](plans/2026-08-21-the-platform-not-a-price-tracker.md#L159)
+   §4, out of `R-32`, and `CLAUDE.md` states it in its opening. **Nothing new is claimed
+   here.** What is new is the SHARE, measured 2026-08-29: `generic_page_snapshot` is
+   **932.9 MB** of row payload, **75.8%** of the database, against **25.6 MB / 2.1%** for
+   `price_observation` — the only table `retention.py` and `compaction.py` touch. The
+   exports moved 90.2 MB → 97.7 MB across the same 17 days in which the database went 13×,
+   because the contractor datasets export **0.00 MB**.
+
+   **A DISAGREEMENT WITH THE PLAN'S ORDERING, not a correction of it — the plan is his and
+   so is the order.** §4 puts retention last on the grounds that it *"can wait, because
+   nothing is deleting contractor rows today"*. That is true, and it is about deletion. The
+   share adds a second cost the ordering could not have weighed: retention is now also why a
+   backup takes 104 seconds, through a chain nobody had traced — the bundle is 93.6% the
+   database, and the database is three-quarters the one table nothing tends. Recorded under
+   `C5` for him to re-rank or not.
+
+   **Why the number is here and not in the plan.** That plan is listed under `## Historical`
+   (`docs/plans/README.md:83`), and historical records are kept verbatim because *"a plan
+   edited after the fact stops being evidence of what was decided when"*
+   (`docs/plans/README.md:9`) — §4's own table is stamped *"measured 2026-08-21"*, which a
+   2026-08-29 row would falsify. **The rule is not that every plan is frozen:** one under
+   `## Current` is a live document and `C2` makes a stale one a bug to fix. This one is
+   Historical, which is what settles it.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

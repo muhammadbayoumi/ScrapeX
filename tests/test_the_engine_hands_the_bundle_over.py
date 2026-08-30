@@ -305,3 +305,174 @@ def test_the_row_ceiling_is_the_same_number_in_all_three_places():
     assert panel_limit, "MAX_EXPORT_ROWS is gone from extension/sheets.js"
     assert int(route_limit.group(1).replace("_", "")) == engine_default
     assert int(panel_limit.group(1).replace("_", "")) == engine_default
+
+
+# ---- one build at a time, and no rubbish left behind -------------------------
+#
+# ALL OF THIS IS ABOUT A ROUTE THAT ANSWERS ONLY WHEN IT IS FINISHED. On the
+# owner's warehouse the build takes 104 seconds, the panel used to abort at ten
+# and re-enable its button, and nothing stopped the next click from starting a
+# second build over the top of the first. The deadline is fixed in
+# extension/startup.js; these are the consequences that outlived it.
+
+
+def _fake_backup(folder, stamp: str, *, staging: bool = False):
+    """A backup that some earlier build left in the folder."""
+    if staging:
+        made = folder / f"scrapex-bundle-{stamp}"
+        made.mkdir()
+        (made / "warehouse.db").write_bytes(b"not really")
+        return made
+    archive = folder / f"scrapex-bundle-{stamp}.zip"
+    archive.write_bytes(b"not really a zip")
+    (folder / f"scrapex-bundle-{stamp}-panel.jsonl.gz").write_bytes(b"not really gzip")
+    return archive
+
+
+def test_a_second_build_is_refused_while_the_first_is_still_running(client, monkeypatch):
+    """THE DOUBLE CLICK. Two builds share a folder, a stamp format and `_newest`,
+    so the second does not merely waste 104 seconds of disk — it can leave the
+    panel holding the manifest of one build and the archive of the other."""
+    import threading
+
+    import scrapex.webui.app as module
+
+    connected, _ = client
+    real = module.bundle.build
+    inside, may_finish = threading.Event(), threading.Event()
+
+    def slow_build(db_path, staging, **kw):
+        inside.set()
+        may_finish.wait(timeout=10)
+        return real(db_path, staging, **kw)
+
+    monkeypatch.setattr(module.bundle, "build", slow_build)
+
+    first: dict = {}
+    worker = threading.Thread(
+        target=lambda: first.update(status=connected.post("/api/bundle").status_code))
+    worker.start()
+    try:
+        assert inside.wait(timeout=10), "the first build never started"
+        refused = connected.post("/api/bundle")
+    finally:
+        may_finish.set()
+        worker.join(timeout=30)
+
+    assert refused.status_code == 409, refused.text
+    assert "already being built" in refused.json()["detail"]
+    assert first["status"] == 200, "refusing the second must not disturb the first"
+
+
+def test_the_lock_is_released_when_a_build_fails(client, monkeypatch):
+    """A refusal that outlives its cause is worse than the collision it prevents:
+    every later backup would answer 409 until the engine was restarted."""
+    import scrapex.webui.app as module
+
+    connected, _ = client
+
+    def broken_build(*a, **kw):
+        raise ValueError("nope")
+
+    monkeypatch.setattr(module.bundle, "build", broken_build)
+    assert connected.post("/api/bundle").status_code == 400
+
+    monkeypatch.undo()
+    assert connected.post("/api/bundle").status_code == 200, (
+        "the lock was not released after a failed build")
+
+
+def test_only_the_newest_backups_survive_a_build(client):
+    """NOTHING PRUNED THESE UNTIL 2026-08-29. The archive is 372.6 MB on the
+    owner's machine and every successful backup left one behind for good."""
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+
+    connected.post("/api/bundle")
+
+    stamps = sorted({p.name[len("scrapex-bundle-"):][:15]
+                     for p in backups.glob("scrapex-bundle-*") if p.is_file()})
+    assert len(stamps) == module_keep(), stamps
+    assert "20260101-000000" not in stamps, "the oldest should have gone first"
+    assert "20260103-000000" in stamps, "the newest predecessor should survive"
+
+
+def module_keep() -> int:
+    """`BUNDLE_KEEP` is a closure inside `create_app`, so it is read from source
+    rather than imported — the alternative is hard-coding 2 in this file and
+    having the test disagree silently with the code the day it changes."""
+    import re
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "scrapex" / "webui" / "app.py")
+    found = re.search(r"^\s*BUNDLE_KEEP = (\d+)", source.read_text(encoding="utf-8"),
+                      re.MULTILINE)
+    assert found, "BUNDLE_KEEP is no longer in scrapex/webui/app.py"
+    return int(found.group(1))
+
+
+def test_both_files_of_a_backup_are_pruned_together(client):
+    """The two files of one backup do NOT share an mtime — `shutil.copy2` gives
+    the panel pack the timestamp of the staged file it came from, minutes before
+    the archive beside it is closed. Pruning each suffix independently could keep
+    an archive from one build and a pack from another, and the panel uploads the
+    pair as one description of one warehouse."""
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+
+    connected.post("/api/bundle")
+
+    for path in backups.glob("scrapex-bundle-*.zip"):
+        stamp = path.name[len("scrapex-bundle-"):][:15]
+        assert (backups / f"scrapex-bundle-{stamp}-panel.jsonl.gz").is_file(), (
+            f"{path.name} survived without its panel pack")
+
+
+def test_a_staging_tree_left_by_a_killed_engine_is_swept(client):
+    """WHAT ACTUALLY SURVIVES A CRASH. The build itself cannot — it is a thread
+    inside the engine — but the staging directory it was writing does, because
+    the `rmtree` that removes it runs in a `finally` the process never reached.
+    That tree is the bundle expanded: 1.5 GB on the owner's machine."""
+    import os
+    import time
+
+    connected, backups = client
+    orphan = _fake_backup(backups, "20260101-000000", staging=True)
+    old = time.time() - (7 * 3600)
+    os.utime(orphan, (old, old))
+
+    connected.post("/api/bundle")
+
+    assert not orphan.exists(), "the orphaned staging tree was left on disk"
+
+
+def test_a_staging_tree_that_may_still_be_in_use_is_left_alone(client):
+    """The age guard. `start_engine` refuses to spawn a second engine on a held
+    port (scrapex/native.py), so within one port there is never a second builder
+    — but an engine started by hand elsewhere would share this folder, and
+    deleting a live foreign build is a worse failure than the leak it fixes."""
+    connected, backups = client
+    fresh = _fake_backup(backups, "20260101-000000", staging=True)
+
+    connected.post("/api/bundle")
+
+    assert fresh.is_dir(), "a staging tree young enough to be live was deleted"
+
+
+def test_a_failed_build_does_not_take_the_last_good_archive_with_it(client, monkeypatch):
+    """Pruning runs only after a build that verified and packed. A build that
+    dies must not be able to delete the backup the owner still has."""
+    import scrapex.webui.app as module
+
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+
+    monkeypatch.setattr(module.bundle, "build",
+                        lambda *a, **kw: (_ for _ in ()).throw(ValueError("nope")))
+    assert connected.post("/api/bundle").status_code == 400
+
+    survived = {p.name[len("scrapex-bundle-"):][:15]
+                for p in backups.glob("scrapex-bundle-*.zip")}
+    assert survived == {"20260101-000000", "20260102-000000", "20260103-000000"}

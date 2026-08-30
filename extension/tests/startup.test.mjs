@@ -31,6 +31,47 @@ test("local endpoints receive purpose-specific deadlines", () => {
                STARTUP_DEADLINES.localMutation);
   assert.equal(deadlineForLocalRequest("/api/engine/restart", "POST"),
                STARTUP_DEADLINES.engineRepair);
+  assert.equal(deadlineForLocalRequest("/api/bundle", "POST"),
+               STARTUP_DEADLINES.bundleBuild);
+});
+
+// WHAT WAS MISSING HERE ON 2026-08-29, and the shape of the hole is the lesson.
+// The case above had a row for every rule in the table and none for a path that
+// matched no rule at all -- so `POST /api/bundle` collected `localMutation:
+// 10000` for a job that takes 104 seconds on the owner's warehouse, and the
+// panel told him a backup had FAILED while the engine went on to finish it. The
+// abort cancelled nothing: the archive was closed 94 seconds later, complete.
+//
+// The fall-through is a plausible number for a mutation, which is exactly why
+// nothing went red. A table like this cannot announce that it has stopped
+// covering a route; only a case naming the route can.
+test("the bundle build is bounded by the job, and its sub-paths are not", () => {
+  assert.equal(deadlineForLocalRequest("/api/bundle", "POST"),
+               STARTUP_DEADLINES.bundleBuild);
+  assert.equal(deadlineForLocalRequest("/api/bundle?force=1", "POST"),
+               STARTUP_DEADLINES.bundleBuild);
+
+  // THE OVER-MATCH, which is the way this fix could have made things worse.
+  // Both of these stream a FileResponse whose headers arrive at once, so the
+  // deadline they carry is a real guard on a fast route. Writing the rule with
+  // `(?:\?|$)` instead of the usual `(?:[/?]|$)` is what keeps them out of it.
+  assert.equal(deadlineForLocalRequest("/api/bundle/archive"),
+               STARTUP_DEADLINES.localGeneric);
+  assert.equal(deadlineForLocalRequest("/api/bundle/panel-pack"),
+               STARTUP_DEADLINES.localGeneric);
+  assert.notEqual(STARTUP_DEADLINES.bundleBuild, STARTUP_DEADLINES.localMutation);
+});
+
+// A floor, not an equality: the number is expected to be revisited, and what is
+// worth refusing is a revision that puts it back under the job it bounds. The
+// ceiling is here because a bound this long is a STOPGAP -- the panel shows no
+// progress for its whole duration, and R-76 records that the real fix is to stop
+// making a browser wait on a synchronous build at all.
+test("the bundle deadline still clears the measurement it was derived from", () => {
+  assert.ok(STARTUP_DEADLINES.bundleBuild >= 300000,
+            `bundleBuild is ${STARTUP_DEADLINES.bundleBuild} ms; the build was ` +
+            "measured at 104000 ms on 2026-08-29 with a 1,490 MB warehouse");
+  assert.ok(STARTUP_DEADLINES.bundleBuild <= 900000);
 });
 
 test("a nonresponsive request ends at its declared deadline", async () => {

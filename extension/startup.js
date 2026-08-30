@@ -14,6 +14,23 @@ export const STARTUP_DEADLINES = Object.freeze({
   localMutation: 10000,
   engineRepair: 15000,
   localGeneric: 5000,
+  // THE ONLY DEADLINE HERE DERIVED FROM A MEASUREMENT INSTEAD OF CHOSEN, because
+  // POST /api/bundle does not stream. The engine copies the warehouse, exports
+  // every dataset, hashes each file, zips the lot and hashes that -- all before
+  // it writes a first byte -- so this bound is the WHOLE JOB, not the time to
+  // answer. Every other rule below bounds a reply that starts arriving at once.
+  //
+  // MEASURED on the owner's machine 2026-08-29: warehouse 1,490 MB, build 71 s,
+  // pack 33 s, 104 s in total, archive 372.6 MB. It was running under
+  // `localMutation: 10000`, so the panel reported failure on a backup that had
+  // SUCCEEDED -- the engine finished 94 seconds after the panel gave up, because
+  // aborting a fetch cancels nothing on the far side of it.
+  //
+  // 600000 is 5.8x that measurement and covers a warehouse near 8.5 GB, more than
+  // this machine has free -- so the disk runs out before the deadline does. THAT
+  // DERIVATION IS ALSO ITS EXPIRY DATE: the warehouse grew 13x in 17 days, and the
+  // real fix is to stop making a browser wait for a synchronous build (R-76).
+  bundleBuild: 600000,
 });
 
 // A new Side Panel document can exist before Chrome considers it active enough
@@ -28,6 +45,11 @@ const LOCAL_POLICIES = [
   [/^\/api\/(?:appearance|timezone)(?:[/?]|$)/, STARTUP_DEADLINES.preferences],
   [/^\/api\/(?:engine\/restart|databases\/upgrade)(?:[/?]|$)/,
     STARTUP_DEADLINES.engineRepair],
+  // `(?:\?|$)` and NOT `(?:[/?]|$)` like every other rule, which is the whole
+  // point of writing it out: /api/bundle/archive and /api/bundle/panel-pack are
+  // FileResponse streams whose headers arrive immediately, and they must keep the
+  // fast generic bound. Only the build is slow, so only the build is matched.
+  [/^\/api\/bundle(?:\?|$)/, STARTUP_DEADLINES.bundleBuild],
   [/^\/api\/(?:sources|outputs|jobs|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/,
     STARTUP_DEADLINES.destinationData],
 ];

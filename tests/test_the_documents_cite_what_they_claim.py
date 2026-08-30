@@ -284,7 +284,7 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3022, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3115, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1204,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304

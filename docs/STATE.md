@@ -1,18 +1,17 @@
 # State — where the work stands
 
-**Last updated: 2026-08-23.** `main` is at `759a9df` (#264). #246 through #264 are
-all merged — **eighteen merges** landed after this line last said `afb8648` (#244),
-across two days, and the count here was measured with
-`git log --oneline afb8648..origin/main` rather than carried. **And this conflict is
+**Last updated: 2026-08-29.** `main` is at `ef86a19` (#287). **Twenty-three merges**
+landed after this line last said `759a9df` (#264), and the count was measured with
+`git log --oneline 759a9df..origin/main` rather than carried. **And this conflict is
 the argument itself:** resolving it, one side said `f1844af` (#261) with "fifteen"
 and the other `d10e974` (#258) with "thirteen", and both were already wrong before
 either could be read. A commit pointer written into prose is stale by the time it is
 read: `git log --oneline -1 origin/main` is the answer that cannot be — **and this
-very line has now proved it seven times across two days**, reading `4615a14` with
-#251 and #252 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in,
-then `31c369e` with #258 in, then `f1844af`, then `467a3ac` with #265 in, and now
-this. Each correction is the argument for the sentence rather than a counter-example
-to it.
+very line has now proved it eight times**, reading `4615a14` with #251 and #252
+already in, then `5f63bb0` with #254 in, then `451468d` with #255 in, then
+`31c369e` with #258 in, then `f1844af`, then `467a3ac` with #265 in, then `759a9df`
+with #287 in, and now this. Each correction is the argument for the sentence rather
+than a counter-example to it.
 
 **THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
 directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
@@ -424,6 +423,44 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 ---
 
 ## Open pull requests
+
+### The backup that said it failed — 2026-08-29 · branch `claude/request-deadline-exceeded-3b1cad`, no PR yet
+
+**`OP-100`, ruled the same day as
+[R-76](RULINGS.md#r-76--the-backup-deadline-is-raised-from-a-measurement-and-the-rebuild-that-would-end-it-is-deferred).
+Based on `main` at `ef86a19`.** Secondary session; `recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+He pressed "Back up to Drive" and was told *"The request exceeded its 10000 ms deadline."*
+**The backup had succeeded** — the archive was closed 94 seconds after the panel gave up,
+and the engine cleaned its staging tree. `POST /api/bundle` matched no rule in
+`LOCAL_POLICIES` and fell through to `localMutation: 10000`, while the route builds, packs
+and hashes 1,490 MB before it writes a first byte.
+
+**Built here — (b) and (c) of the three he was offered:**
+
+| | |
+|---|---|
+| `bundleBuild: 600000`, derived from 104 s measured at 1,490 MB | `extension/startup.js:33` |
+| a rule that does **not** re-time `/api/bundle/archive` or `/api/bundle/panel-pack` | `extension/startup.js:52` |
+| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2915` |
+| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2896` |
+| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2952` |
+
+**Deferred, and this is the load-bearing half:** (a), making the build asynchronous with
+progress polling. `R-76` records why the raise has a shelf life — the warehouse grew **13×
+in 17 days**, and no fixed number survives that.
+
+**Tests.** `extension/tests/startup.test.mjs` gains the two cases the table never had — the
+build's own rule, and the negative one proving the two streaming sub-paths keep their fast
+bound. Seven cases in `tests/test_the_engine_hands_the_bundle_over.py` cover the lock,
+pruning and the sweep; all four were mutation-checked (break the guard, watch the test go
+red) rather than merely written.
+
+**Two citations were repaired on the way past**, both exposed rather than caused by the
+insertions: the pinned `scrapex/webui/app.py:3022` in `tests/test_the_documents_cite_what_they_claim.py`,
+and `docs/REQUESTS.md`'s jobs-route citation, which was **already 27 lines stale** —
+Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists.
 
 ### The supabase appearance — 2026-08-28 · branch `feat/the-supabase-appearance-is-a-design-system`, no PR yet
 

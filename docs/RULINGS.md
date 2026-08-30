@@ -3232,3 +3232,43 @@ load-bearing rather than stylistic. A listing sweep stores no profile page, so
 `MAX(run_id)` for the source would call every profile row `absent` the moment a listing
 crawl finished — while the site still lists every one of them. `runs.latest_run_for` asks
 for the newest run among the snapshots this dataset's records actually point at.
+
+### R-76 · The backup deadline is raised from a measurement, and the rebuild that would end it is deferred
+
+**2026-08-29 · the panel/engine seam · `OP-100`**
+
+He pressed "Back up to Drive", was told the request had exceeded a 10-second deadline, and
+asked for the problem to be analysed. Shown the cause and three options, he chose **(b) and
+(c) now** and **deferred (a)**:
+
+| option | his call |
+|---|---|
+| **(a)** make the build asynchronous — `POST` returns at once, the panel polls for progress | **deferred** — named as the real fix, not done here |
+| **(b)** a named deadline policy for `POST /api/bundle` | **now** |
+| **(c)** a lock against concurrent builds, bounded local retention, orphan-staging sweep | **now** |
+
+**THE DEFERRAL IS THE HALF THAT HAD TO BE WRITTEN DOWN** (`C4`, `C5`). A raised deadline on
+a still-synchronous route reads like a solved problem, and the next session that finds a
+named `bundleBuild` policy will assume it was sized correctly. It was sized from a
+measurement **and that measurement expires**:
+
+* 104 s measured at a 1,490 MB warehouse, 2026-08-29. `600000` is **5.8×** that, covering a
+  warehouse near 8.5 GB — more than the machine has free, so the disk runs out before the
+  deadline does.
+* The warehouse grew **13× in 17 days**. Whatever number is chosen, the growth curve eats
+  it; (b) is a stopgap with a computable shelf life, not a fix.
+* **WHAT (b) ACTUALLY BUYS, said plainly: a false failure is replaced by a long silence.**
+  The route yields no bytes until it is finished, so the panel can now sit blocked for ten
+  minutes showing no progress. That is strictly better than telling him a backup failed
+  when it succeeded — he can at least trust the answer — and it is not a good screen. This
+  is the sharpest argument for (a): only an asynchronous build can report progress at all.
+
+**Why (b) was still worth doing today rather than waiting for (a).** The panel was reporting
+failure on a backup that had completed — the archive was closed 94 seconds after the abort,
+whole. An owner who is told his backup failed has no way to know he has one, and the honest
+reading of that screen is "ScrapeX cannot back up", which is false.
+
+**The bound is deliberately narrow.** `/api/bundle/archive` and `/api/bundle/panel-pack`
+stream a `FileResponse` whose headers arrive at once, so their existing 5-second bound is a
+real guard on a fast route. The rule is written `(?:\?|$)` rather than the usual
+`(?:[/?]|$)` precisely so the fix cannot take a guard off two routes while repairing one.

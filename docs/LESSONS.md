@@ -3166,3 +3166,39 @@ their fixture had registered the site from a slightly different URL. A crawl dec
 source it does not know; it does not re-assert the identity of one somebody already
 registered. The corrected shape asks first (`runs.open_run`, catching `UnknownSource`) and
 registers only on the way through.
+
+## 27 · A table of deadlines cannot report the route it stopped covering, and a cancelled fetch cancels nothing
+
+**2026-08-29, `OP-100`.** `POST /api/bundle` matched no rule in `LOCAL_POLICIES`, so it took
+the fall-through default `localMutation: 10000` for a job measured at **104 seconds**. Three
+properties made this invisible, and each is the general lesson.
+
+**1 · A plausible default is worse than no default.** Ten seconds is a *reasonable* number
+for a mutation, so nothing looked wrong at the point of failure or in review. A table like
+this has no moment at which it says "a route has outgrown me" — the fall-through is silent
+by construction. The existing test had a case for **every rule in the table and none for a
+path that matched no rule**, which is precisely the shape of the hole. A guard on a policy
+table must name the routes it does *not* cover, or it only tests the rules that already work.
+
+**2 · The bound was time-to-first-byte, and nobody had asked which routes that flatters.**
+`fetchWithDeadline` clears its timer in a `finally` the moment `fetch` resolves — and `fetch`
+resolves on **headers**, not on the body. For a streaming route that makes the number a
+connect bound and the body unbounded. For a route that does all its work before replying, the
+same number bounds the entire job. One constant, two completely different meanings, decided
+by whether the handler streams. That is why the fix's rule deliberately excludes
+`/api/bundle/archive` and `/api/bundle/panel-pack`: widening it to the shared prefix would
+have removed a real guard from two fast routes while repairing one slow one.
+
+**3 · Aborting a `fetch` cancels the client's wait, not the server's work.** The archive was
+closed **94 seconds after** the panel gave up, complete, and the staging tree was removed —
+the route ran to its `finally`. So the failure the owner saw was a *lie about a success*, and
+the button he pressed again started a **second** full build beside the first. When a timeout
+fires on a mutation, ask what the far side is still doing; the answer is usually "all of it".
+
+**And the arithmetic that was sitting in this repository the whole time.**
+`docs/BACKLOG.md`'s 2026-08-12 sizing note recorded *"22.4s to build"* while
+`extension/startup.js` granted 10 s. Both numbers were correct, both were committed, and
+**neither document was about the other** — one was measuring why a bundle is zipped, the
+other bounding a request. No guard compares a documented duration against a coded timeout,
+and none is proposed here; what is worth keeping is that the evidence for a defect can be
+fully present in the repository, in two files, and still be nobody's finding.
