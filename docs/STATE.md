@@ -566,9 +566,9 @@ and hashes 1,490 MB before it writes a first byte.
 |---|---|
 | `bundleBuild: 600000`, derived from 104 s measured at 1,490 MB | `extension/startup.js:33` |
 | a rule that does **not** re-time `/api/bundle/archive` or `/api/bundle/panel-pack` | `extension/startup.js:52` |
-| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2915` |
-| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2896` |
-| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2952` |
+| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2923` |
+| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2904` |
+| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2960` |
 
 **Deferred, and this is the load-bearing half:** (a), making the build asynchronous with
 progress polling. `R-76` records why the raise has a shelf life — the warehouse grew **13×
@@ -1872,7 +1872,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1699](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1715](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

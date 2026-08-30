@@ -159,10 +159,10 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1699, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1707, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1699, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1707, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -194,8 +194,8 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1710, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2777, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1718, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2785, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
@@ -267,7 +267,7 @@ PINNED = (
     # argument to the filter that replaced it.
     ("docs/BACKLOG.md", "extension/app.js", 4755,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 734, '"kind": "dataset",'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 742, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
     # first three.
     # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
@@ -284,8 +284,8 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3146, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1204,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3154, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1212,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one
@@ -382,7 +382,7 @@ PINNED = (
     # rests on the quote, and a quote whose line has drifted is a quote a reader
     # cannot check. Its six neighbours were only stale HREFS under correct labels and
     # stay unpinned -- the new label/anchor test is the guard they needed.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 693,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 701,
      "the row menu offers Update,"),
     # `OP-66`'s account of R-51 rests on WHICH array `merge_locales` reads, and the
     # citation for it was false in both halves once before: it named :1589, R-51

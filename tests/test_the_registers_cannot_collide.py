@@ -137,7 +137,13 @@ RESERVED: dict[str, dict[int, str]] = {
     # R-46 belongs to `claude/drive-without-a-server` (pushed at e00711d, no PR
     # yet), and this branch declares R-47 -- so 46 is a hole here that exists
     # elsewhere. Delete this row the day that branch merges.
-    "R": {46: "branch claude/drive-without-a-server"},
+    # R-80 belongs to `claude/scrapex-engine-consolidation-d69e0a` (pushed, PR #293,
+    # unmerged), and this branch declares R-81 -- so 80 is a hole here that exists
+    # elsewhere. VERIFIED against the ref, not taken from a message:
+    #   git show claude/scrapex-engine-consolidation-d69e0a:docs/RULINGS.md | grep "### R-80"
+    # Delete this row the day #293 merges.
+    "R": {46: "branch claude/drive-without-a-server",
+          80: "branch claude/scrapex-engine-consolidation-d69e0a, PR #293"},
     # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
     # not on this one, which is the state this table is for -- and being handed a
     # number by another session is not enough on its own: the assignment that named
@@ -147,6 +153,12 @@ RESERVED: dict[str, dict[int, str]] = {
     # hole nobody owns, which is the rule the comment above already states.
     "REQ": {
         34: "branch claude/drive-without-a-server",
+        # 50 is declared on `claude/scrapex-engine-consolidation-d69e0a` (PR #293,
+        # pushed, unmerged) and this branch declares 51 over the top of it. VERIFIED
+        # against the ref rather than taken from a message:
+        #   git show claude/scrapex-engine-consolidation-d69e0a:docs/REQUESTS.md \n        #     | grep "^## REQ-50"
+        # Delete this row the day #293 merges.
+        50: "branch claude/scrapex-engine-consolidation-d69e0a, PR #293",
         # 43 belongs to `feat/organization-enrichment`, which is pushed and unmerged.
         # 41 and 42 were reserved to #267 and their rows are GONE because #267 has
         # landed -- which is the rule this table states about itself. Delete this row
@@ -260,6 +272,15 @@ RESERVED: dict[str, dict[int, str]] = {
         # the orphan the comment above warns about, it just has not become one
         # yet. Re-checking is what turned these three into refs.
         112: "branch claude/scrapex-engine-consolidation-d69e0a",
+        # 116 is `claude/the-guard-that-reads-half-the-product` (PR #297, pushed) --
+        # VERIFIED with `git show <ref>:docs/BACKLOG.md | grep "^### OP-116"`.
+        # 117 is CLAIMED BY MESSAGE ONLY: allocated to the Drive session on 2026-08-30
+        # for the /data-model double-count, with no ref declaring it at the time this
+        # row was written. That distinction is the one the comment above asks for --
+        # a reservation taken before its holder has committed anything is the orphan
+        # this table warns about; it just has not become one yet. RE-CHECK IT.
+        116: "branch claude/the-guard-that-reads-half-the-product, PR #297",
+        117: "the Drive session, claimed 2026-08-30, NO REF YET -- re-check",
         113: "branch claude/scrapex-engine-consolidation-d69e0a",
         114: "branch claude/scrapex-engine-consolidation-d69e0a",
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,

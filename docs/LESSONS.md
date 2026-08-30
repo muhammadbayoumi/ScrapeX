@@ -685,7 +685,7 @@ data entries and the runtime opens five.
     --add-data db;db
     --add-data sources.yaml;.
 
-Nothing else rode along. `scrapex/webui/app.py:364` computes
+Nothing else rode along. `scrapex/webui/app.py:372` computes
 `Path(__file__).parent / "static"`, which in a one-file build is
 `_MEIPASS/scrapex/webui/static` — exactly the path in the owner's error —
 `StaticFiles(check_dir=True)` refuses to mount a directory that is not there, and
@@ -1004,7 +1004,7 @@ citations were already wrong:
 the obvious guard — passes all three. What makes this class dangerous is that the
 citation looks healthy: a reader follows it, lands on plausible code twenty lines
 early, and reasons from the wrong place with full confidence. Three more were
-found in `BACKLOG.md` the same afternoon (`app.py:1366`, `:2363`,
+found in `BACKLOG.md` the same afternoon (`app.py:1374`, `:2363`,
 `extension/app.js:885`), and two of mine were wrong within an hour of writing
 them — `scrapex/features.py:57` and `:62` are a closing bracket and a docstring;
 the flags are at 54 and 60.
@@ -1381,9 +1381,9 @@ beside a citation. `extension/manifest.json` sat sixty characters from a
 **correct** citation of `tests/test_version.py:536`; `` `_about` renders the
 engine's own `/settings` page (`…settings.html:162-167`) `` offers `/settings` as
 the nearest span while the citation is perfectly right. Tightening to fix those
-dropped coverage to three citations and stopped catching the `app.py:1355` drift
+dropped coverage to three citations and stopped catching the `app.py:1363` drift
 that motivated the whole exercise — because in
-`` (`scrapex/version.py:477`, again in `scrapex/webui/app.py:1355`) `` another
+`` (`scrapex/version.py:477`, again in `scrapex/webui/app.py:1363`) `` another
 citation stands between the symbol and its line.
 
 `tests/test_the_published_documents_are_checked_not_announced.py` had already
@@ -2195,7 +2195,7 @@ So, when a register id changes:
    fooled by wording.
 
 **And the same shape applies to line numbers, which this branch also carried three
-times.** `app.py:2710` → `2725` → `2787` in one day: `#252` measured it correctly on
+times.** `app.py:2718` → `2725` → `2787` in one day: `#252` measured it correctly on
 its own base, `#251` had already moved the symbol, and `main` went red between the two
 merges with no conflict for git to find, because no file was changed by both. Re-read
 the number out of the file at the new base on every rebase. Never adjust it by
@@ -2377,7 +2377,7 @@ which base is the whole discipline, so this line moves whenever the table is re-
 
 | # | the artefact | the base it outlived | what caught it |
 |---|---|---|---|
-| 1 | a `PINNED` citation, `app.py:2710` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
+| 1 | a `PINNED` citation, `app.py:2718` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
 | 2 | a `RESERVED` register row | the branch it named moved off the number | a session **asking who held 44** |
 | 3 | `docs/STATE.md`'s own opening line | five bases in one afternoon | the line correcting itself, again |
 | 4 | three docstring citations of a deleted test (§13, `#259`) | the test died ten days after it was written | a session **asking what else is unguarded** |
@@ -2415,7 +2415,7 @@ only that the line exists, so the guard passes it and the reader lands nowhere. 
 a remap script run over these documents will helpfully renumber it on the next edit,
 which is how a historical fact quietly becomes a false present-tense one. It happened
 here: a first draft of this entry carried that span, an automated re-derivation moved
-it, and it also moved `app.py:2710` in §12 — corrupting the very sentence whose
+it, and it also moved `app.py:2718` in §12 — corrupting the very sentence whose
 subject is that 2710 became 2725 and then 2787. **A historical line number is written
 in prose — "line 650 of that commit" — never in the shape that means "current",** and
 `git show <commit>:<path>` is how a reader gets there. This is the third time an entry

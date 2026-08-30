@@ -1436,7 +1436,7 @@ Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
 > *"Export stays in the engine — it is SQL over SQLite, not a file move."*
 
 **Export is a user-facing capability that exists only in the engine today**
-(`scrapex/webui/app.py:1321`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+(`scrapex/webui/app.py:1329`, `@app.get("/export/{source_key}.xlsx")`). Both statements
 are his, the newer one contradicts the older, and **the rule says a newer conflict is
 his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
 engine` (`:61`) is the same shape and rides with it.
@@ -2329,6 +2329,10 @@ stay exactly as the site published them.
 
 ### R-56 · The 263 stranded listing rows are fixed by a fresh listing crawl
 
+> **NOT WAITING ON HIM, and it was filed that way for four days.** Corrected 2026-08-30:
+> this crawl has no control in the panel, and [R-81](RULINGS.md#r-81--a-command-line-answer-is-not-an-answer-the-panel-is-the-only-door) records that he never uses a
+> terminal. **It waits on `REQ-45`, not on his decision** -- which he made on 2026-08-26.
+
 **2026-08-26 · collection · he chose (c) of four priced options**
 
 **The 263** are active listing rows frozen on retired schema **v1**, missing six keys
@@ -3133,7 +3137,7 @@ SHA, both facts rather than judgements.
 2026-08-30, thirteen days later, still live in three places:
 
     scrapex/version.py:483      "latest_extension_version": VERSION
-    scrapex/webui/app.py:1698   "latest_extension_version": VERSION
+    scrapex/webui/app.py:1706   "latest_extension_version": VERSION
     extension/app.js:607, :641  drawn to the user as "Latest available extension"
 
 The engine answers *"what is the newest extension available"* with **its own number**, which
@@ -3342,3 +3346,56 @@ coverage either.
 raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
 move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
 in the palette, never a reason to lower a threshold.**
+
+---
+
+### R-81 · A command-line answer is not an answer; the panel is the only door
+
+**2026-08-30 · how he works · corrects a session that had just offered him three shell commands**
+
+> «انا لا استخدم terminal نهائى انا فقط استخدم الواجهة من خلال extension»
+
+**He had asked twice when he could run a muqawil crawl.** He was told, in detail and with
+measurements, that `scrapex contractors --plan` and `--crawl` were ready today and that only
+the BUTTON was missing. **That answer was worth nothing to him**, and it took a second
+question to find out why.
+
+**WHAT THIS CHANGES, and it is not tone.**
+
+**1 · An unbuilt panel control is an unbuilt FEATURE.** Not a convenience gap, not a nicety
+deferred behind other work. If it has no control in the panel it does not exist for the one
+person the tool is for, and a report that says *"it works, from the command line"* is a
+report that a thing he cannot do is done.
+
+**2 · The data he owns was collected in a way he cannot repeat.**
+`REQUESTS.md` already carried the sentence and nobody had drawn the conclusion: *"every
+muqawil crawl to date, all 34,834 pages, ran from a terminal."* **Every one of them was run
+by a session on his behalf.**
+
+**3 · `REQ-45` moves to the HEAD of the muqawil queue.** It had been sequenced behind the
+engine page and the Drive defect on the reading that it was a convenience. **It is the door
+every remaining muqawil step passes through** — `R-56`'s listing crawl, the profile parser,
+`R-68`'s reconciliation — so it is not one item among them, it is the precondition for all of
+them.
+
+**4 · And `R-56` had been mis-filed as waiting on HIM.** It was ruled on 2026-08-26 — a fresh
+listing crawl, priced at 58 minutes — and has sat since under "awaiting the owner". **He was
+never the blocker.** It waits on a control he does not have, and this session filed it against
+him again on 2026-08-30 before he corrected it.
+
+**WHY THIS WAS NOT ALREADY WRITTEN DOWN, since it is the obvious question.** The repository
+says the *shape* of it in three places and the *fact* in none.
+[R-48](#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
+makes the extension the only interface;
+[R-50](#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+moves every task it can do to it; `PLATFORM-PLAN` names *"a non-technical user"* who never
+touches a command line. **All three are about the product's users. None says the owner is
+one of them.** So a session could hold every one of those rulings, obey them in design, and
+still hand him a shell command — which is exactly what happened.
+
+**WHAT A SESSION DOES INSTEAD.** Offer what the panel can do. Where it cannot, say so plainly
+and name what is missing, rather than routing around it with a command. **Running something on
+his behalf is a legitimate offer** — it is how the 34,834 pages were fetched — but it is an
+admission that the feature is absent, and it is recorded as one rather than counted as
+delivery.
+

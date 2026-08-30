@@ -17,7 +17,17 @@ thing.** The owner corrected this on 2026-08-21
 |---|---|---|
 | `products` | shops and price sources — **12 registered, 7 active, 5 built** | the settled one; a new shop needs no new module |
 | `contractors` | the muqawil.org directory, provably | collection works; `scrapex contractors` |
-| `jobs`, `tenders` | named by him as coming | not started |
+| `vacancies`, `tenders` | named by him as coming | not started |
+
+> **`vacancies` WAS `jobs` UNTIL 2026-08-30, and the rename is his.** `scrapex/jobs.py`
+> is the SCHEDULER — the queue, the politeness lanes, the cross-job admission, pause and
+> resume — and it is not price-specific: measured, it holds zero references to
+> `unit_charter`, `price_observation` or `tax_rule`, and its only price coupling is two
+> imports from `ingest`. **So the collision was never that the module was too narrow; it
+> was that a category name had been given to a module that schedules ALL categories.**
+> He chose to move the category rather than the module: the category is unbuilt and costs
+> one line, while the module carries 46 references across 12 files and renaming it would
+> be a behaviour-free diff large enough to hide a real one (`OP-18`).
 
 **Why this paragraph is worth its space:** this file is the first thing every session
 reads, so a description saying *"price-tracking warehouse"* produced sessions that
@@ -152,6 +162,14 @@ under the track they belong to.
 ---
 
 ## How the owner works
+
+- **HE NEVER USES A TERMINAL. The extension is his only interface.** Stated on
+  2026-08-30: *«انا لا استخدم terminal نهائى انا فقط استخدم الواجهة من خلال
+  extension»*. **So a `scrapex ...` command is not an answer to him** — it is an
+  answer to a machine he does not sit at, and offering one wastes his time and
+  hides that the feature does not exist. If a capability has no control in the
+  panel, **it has no control**, and saying so is the honest report. See
+  [R-81](docs/RULINGS.md#r-81--a-command-line-answer-is-not-an-answer-the-panel-is-the-only-door).
 
 - **He reasons about his own system.** He is the author and he wants evidence,
   not a recommendation on its own. Offer options with the *measured* consequence
