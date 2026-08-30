@@ -3962,6 +3962,58 @@ the creation time, a fast rebuild could have sorted behind an older complete arc
 migration, route or protocol change — so `R-35`'s engine trigger does not fire, and `0.4.7`
 is held while the `R-06`/`R-35` cadence question is with him.
 
+### OP-115 · The schema-lag banner could not report two real migrations, and its guard checked the direction that cannot fail
+
+**Found 2026-08-30**, while censusing what remains of MarketLens after `R-72`. **Proven on a
+real database, not argued**: build an engine database, delete the ledger rows for `0013`,
+`0014` and `0016`, ask [`pending_migrations`](../scrapex/db.py#L155) what is outstanding —
+
+```
+before:  reports pending = [16]      0013 hidden, 0014 hidden
+after:   reports pending = [13, 14, 16]
+```
+
+**`0014` is `one_source_registry`** — the merge of `site_profile` into `source_site`. A
+warehouse that never received it cannot resolve a dataset source at all, and the banner
+([scrapex/webui/app.py:1610](../scrapex/webui/app.py#L1610)) told its owner nothing was
+pending. That is the exact silence `pending_migrations`' own docstring says it exists to
+break: *"nothing said 'the database is one migration behind'; the product simply broke and
+the raw SQLite text was the only clue."*
+
+**THE CAUSE IS A SURVIVOR, NOT A MISTAKE.** `_MARKETLENS_LEGACY_NUMBERS` was a hand-listed
+tuple of the price stream's migration numbers, written when ONE directory held TWO streams so
+the legacy facade could tell them apart. It omitted 13 and 14 on purpose — they were General's.
+**`R-72` then deleted that world**: `db/` holds only `engine/`, and `db/general/` and
+`scrapex/databases/split.py` are both gone. The stream went away; its filter did not; and 13
+and 14 had meanwhile become real engine migrations that the filter had never heard of.
+
+**This is the shape worth keeping.** `R-72`'s pull request was a net deletion of 4,106 lines
+and it found three defects the duplication had been hiding. **This is the fourth, and it
+survived the deletion** — because removing a duplicated system leaves behind the things that
+were *shaped* by it, and those are harder to find than the system was: nothing points at them
+any more. `_IDENTITY_POSITION` beside it was the same, defined once and read nowhere.
+
+**AND THE GUARD ASSERTED THE ONE DIRECTION THAT COULD NOT FAIL.**
+`test_the_lag_guard_ignores_the_other_databases_migrations` checked that nothing STRAY was
+reported — every number reported had to be in the tuple — and never that nothing was
+SUPPRESSED. **A filter can only shrink the reported set**, so that assertion was safe against
+any amount of hiding. It stayed green for as long as the defect existed. Its docstring also
+stated the dead premise as present fact: *"The migrations directory holds BOTH streams."*
+
+**Fixed here.** The tuple and the filter are gone
+([scrapex/databases/domain.py:164](../scrapex/databases/domain.py#L164) records what stood
+there and why); the ledger is now the whole answer
+([scrapex/db.py:198](../scrapex/db.py#L198)), which is safe because `schema.sql` is recorded
+in the ledger like any other migration and so still excludes itself without being named. The
+guard is rewritten to assert the direction that matters
+([tests/test_db.py:317](../tests/test_db.py#L317)) and mutation-checked: restoring the filter
+turns it red naming `0013` and `0014`.
+
+**Third instance in two days of a guard that works and looks the wrong way** — after the
+deadline table with a case for every rule and none for the fall-through (`OP-100`), and the
+route-agreement test that scans `extension/**/*.js` and never the engine's own templates,
+which is why `settings.html` still polls a route deleted at M5. Those two are not fixed here.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

@@ -180,12 +180,24 @@ def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     # numbers a migration by its POSITION in this database's stream (0057 is
     # recorded as 55), so it announced two applied migrations as pending.
     #
-    # Second attempt compared filenames against the ledger, and announced 0013,
-    # 0014 and 0017 as pending — they are GENERAL-database migrations. One
-    # directory holds both streams, and the legacy facade cannot tell them
-    # apart. The domain layer already declares the split, so it is asked rather
-    # than re-derived here; one list, and it is the one the migrator obeys.
-    from .databases.domain import _MARKETLENS_LEGACY_NUMBERS as _MINE
+    # Second attempt compared filenames against the ledger and announced 0013,
+    # 0014 and 0017 as pending, because ONE DIRECTORY HELD TWO STREAMS and those
+    # three belonged to General. The answer was a hand-listed tuple of "my"
+    # numbers, `_MARKETLENS_LEGACY_NUMBERS`, and everything not in it was hidden.
+    #
+    # THAT PREMISE EXPIRED AND THE FILTER OUTLIVED IT. `db/` holds only `engine/`
+    # now; `db/general/` and `scrapex/databases/split.py` are both gone. There is
+    # one stream, so there is nothing to filter against — but the tuple never
+    # learned 0013 and 0014 had become engine migrations, so this function could
+    # not report them AT ALL. Measured 2026-08-30 on a database missing 0013,
+    # 0014 and 0016: it answered `[16]`. A database that never received
+    # `0014_one_source_registry` — the merge of `site_profile` into
+    # `source_site` — was told nothing was pending, which is the exact silence
+    # the docstring above says this function exists to break.
+    #
+    # THE LEDGER IS THE WHOLE ANSWER NOW. A migration is pending when this
+    # database has no row for it, and `schema.sql` is recorded like any other, so
+    # the baseline still excludes itself without being named.
     try:
         applied = {row[0] for row in conn.execute(
             "SELECT migration_name FROM database_migration")}
@@ -194,9 +206,9 @@ def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
         # database no renumbering has happened yet, so it is still true.
         current = schema_version(conn)
         return [(number, file.name) for number, file in _migration_files()
-                if number > current and number in _MINE]
+                if number > current]
     return [(number, file.name) for number, file in _migration_files()
-            if number in _MINE and file.name not in applied]
+            if file.name not in applied]
 
 
 def migrate(conn: sqlite3.Connection) -> list[int]:
