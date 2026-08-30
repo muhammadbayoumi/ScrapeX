@@ -70,9 +70,11 @@ def create_domain_health_router(
     def current() -> DatabaseRegistry:
         return databases() if callable(databases) else databases
 
-    # ONE DATABASE, ONE ROUTE. There were two — /api/general/health and
-    # /api/marketlens/health — because there were two files that could be
-    # healthy or broken independently. M5 removed that possibility, and a
+    # ONE DATABASE, ONE ROUTE. There were two, one per database, because
+    # there were two files that could be healthy or broken independently.
+    # The retired route is deliberately not spelled out: a guard reads the
+    # callers of engine routes, and prose naming a dead one reads as a call.
+    # M5 removed that possibility, and a
     # second route answering about the same file would only invite the panel to
     # show one of them.
     @router.get("/api/engine/health")

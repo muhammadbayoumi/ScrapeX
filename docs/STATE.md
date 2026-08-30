@@ -521,6 +521,45 @@ and the button -- and the stop half needs a route the node gate would redden whi
 gate whose question a ruling has retired is the wrong order.
 
 
+### MarketLens is gone — 2026-09-02 · branch `claude/marketlens-is-gone`, **PR #300, open**
+
+**`OP-117`, `REQ-52`.** Rebased onto `main` at `80659faa`. Secondary session;
+`recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+He asked for the retired product deleted. **189 references became 17, and every one that
+stays names something that still exists.**
+
+**The defect found on the way:** `/data-model` reported **134 tables where 67 exist**, because
+both its reports opened the same engine database -- one of them labelled *MarketLens*. Fixed by
+comparing paths rather than by deleting the second report, which would have been right today
+and wrong with `general_db_path` set.
+
+**What stays, and it is not caution.** `marketlens_path` is a key in `~/.scrapex/databases.json`
+whose rename fails SILENTLY and orphans the priced warehouse; `compaction.py`'s paragraphs
+explain why the kind check reads the file header, and a file wearing that value is on his disk;
+`schema.sql` and `0002` are checksummed and applied. **And the column they name does not exist
+in any database** -- measured: `schema.sql` creates `site_profile.marketlens_source_key`,
+`0002` renames it, and `0014` drops the whole table, so it lives for one migration step of a
+fresh install and appears in no warehouse at v16.
+
+**A guard keeps it deleted:** a new file naming it goes red, every exception must say what it
+protects, and an exception whose file no longer names it goes red too. It caught two of its
+author's own mistakes while being written.
+
+**And the reservation table was shadowing its own row.** `RESERVED["REQ"]` carried the key `50`
+twice -- this branch added one above one already there, and Python keeps the last, so the row
+carrying the verified holder was the one discarded. The failure this table's guard exists for,
+one level in, introduced by the pass that was de-duplicating the level above it.
+
+**`REQ-52` has moved on since this branch was written.** He ruled the squash on 2026-09-02, it
+was priced, and it is now four changes rather than one: `OP-120` (the drift check that proves
+it), `OP-122` (one migration plan, not two), `OP-123` (the citation guard's free floor), then
+the squash itself. His ruling is recorded as `R-84` **on the `OP-122` branch, not here** --
+deliberately, because a ruling recorded only on the branch it authorises is unrecorded until
+that branch merges, and the squash is the slowest thing in the queue. Read all four before
+touching the migration framework.
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**

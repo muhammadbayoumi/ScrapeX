@@ -41,14 +41,19 @@ from .registry import DEFAULT_ENGINE_PATH, REGISTRY_FILE, DatabasePointerError
 class CarryOverPlan:
     """What was found, before anything is written."""
 
-    marketlens: Path | None
+    #: The priced warehouse of a two-database installation. The FIELD is named
+    #: for what it holds; the on-disk KEY that fills it still carries the old
+    #: product's name and cannot be renamed -- see `read_split_pointer`. They are
+    #: joined by exactly one call, so a find-and-replace over this file would
+    #: rename both and break every installation that has not been carried over.
+    priced: Path | None
     general: Path | None
     destination: Path
     pointer: Path
 
     @property
     def sources(self) -> list[Path]:
-        return [path for path in (self.marketlens, self.general) if path is not None]
+        return [path for path in (self.priced, self.general) if path is not None]
 
 
 def read_split_pointer(pointer_file: Path | str = REGISTRY_FILE) -> CarryOverPlan:
@@ -93,7 +98,25 @@ def read_split_pointer(pointer_file: Path | str = REGISTRY_FILE) -> CarryOverPla
         return path
 
     return CarryOverPlan(
-        marketlens=named("marketlens_path"),
+        # `"marketlens_path"` IS NOT A LEFTOVER NAME AND MUST NOT BE RENAMED.
+        # It is a key inside `~/.scrapex/databases.json`, written there by a
+        # SHIPPED version of ScrapeX before the two databases became one. That
+        # file is on the owner's disk and cannot be rewritten from here; this is
+        # the only reader left.
+        #
+        # AND THE FAILURE IS SILENT, which is why it is called out. `named()`
+        # returns None for a key it cannot find, an absent path is not an error
+        # (see `sources` above, which simply drops it), `carry_over` then reports
+        # `ok` because a database it never opened contributes no rows to compare,
+        # and the pointer is rewritten to `mode: single`. The installation comes
+        # up healthy with its entire price history orphaned -- the exact trap the
+        # header of this module exists to describe, re-created by a rename.
+        #
+        # Measured 2026-08-30: this machine still holds 115.8 MB at
+        # `~/.scrapex/marketlens/marketlens.db`. Its own pointer already reads
+        # `mode: single`, so it is past the gate; the owner works from two
+        # machines and the other one's pointer has not been read.
+        priced=named("marketlens_path"),
         general=named("general_path"),
         destination=DEFAULT_ENGINE_PATH,
         pointer=pointer,

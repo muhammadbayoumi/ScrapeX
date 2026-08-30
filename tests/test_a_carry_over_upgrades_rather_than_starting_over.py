@@ -147,7 +147,7 @@ def _old_database(path: Path, *, offers_with_a_unit: int,
 def plan(tmp_path: Path) -> CarryOverPlan:
     old = tmp_path / "marketlens.db"
     _old_database(old, offers_with_a_unit=261, offers_without=3478)
-    return CarryOverPlan(marketlens=old, general=None,
+    return CarryOverPlan(priced=old, general=None,
                          destination=tmp_path / "engine" / "scrapex-engine.db",
                          pointer=tmp_path / "databases.json")
 

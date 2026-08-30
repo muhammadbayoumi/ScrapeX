@@ -146,6 +146,15 @@ def _typed_class_for(path: Path):
     itself and the check is worthless. The application id is the one answer it
     cannot forge, and it is exactly the one `EngineDatabase._verify` reads.
 
+    THE RETIRED PRODUCT'S NAME IS DELIBERATE HERE AND IS NOT A LEFTOVER. Measured
+    2026-08-30 on the owner's own disk: `~/.scrapex/marketlens/marketlens.db` is
+    115.8 MB, its header carries `application_id` 0x53584d4c, and its
+    `scrapex_meta` still reads `database_kind = 'marketlens'`. A real file can
+    therefore still arrive here wearing that value, which is the whole reason
+    this reads the header instead of the table. Delete the sentence and the next
+    reader has no reason not to "simplify" the check into the version that can
+    be forged.
+
     Only the engine database is recognised: it is the only kind there is, and
     the only one with price observations to compact.
     Anything else is a legacy unmarked warehouse, which has no typed door and

@@ -338,7 +338,7 @@ def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None =
     from a process that has opened nothing (STANDALONE_COMMANDS).
 
     `migrate` is for LEGACY single-file warehouses only (tests, --db sessions).
-    A MarketLens database has its own numbered migration stream and was
+    A registry database has its own numbered migration stream and was
     migrated when it was created; running the unified stream over it re-applies
     migration 1 and dies — "table tax_rule already exists" — before the first
     frame is read. That killed the host at startup, and from the extension's

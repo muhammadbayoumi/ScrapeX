@@ -1,4 +1,4 @@
-"""Typed SQLite boundaries for General and MarketLens.
+"""Typed SQLite boundaries for the engine database.
 
 Each type owns a migration stream, application id, lock, health check, backup,
 and restore path. Callers cannot accidentally pass one domain to the other.
@@ -44,7 +44,7 @@ class DatabaseKindError(RuntimeError):
 class MigrationStreamError(RuntimeError):
     """A migration stream no longer matches the shape its guards require.
 
-    Raised only by _marketlens_plan(), whose two checks exist because both
+    Raised by the plan builder, whose two checks exist because both
     failures renumber a database that has already shipped: a price migration
     renamed or deleted out from under the explicit legacy list, or one added
     below the identity boundary at v13. Both raise sites predate this class,
