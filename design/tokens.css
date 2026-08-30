@@ -296,21 +296,6 @@
 
 }
 
-/* Device colours use the colour preference exposed by the browser/operating
-   system. Browsers do not expose their private new-tab palette to extensions,
-   so the system accent is the truthful automatic colour source. */
-@supports (color: AccentColor) {
-  :root[data-color-mode="device"] {
-    --accent: AccentColor;
-    --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
-    --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));
-    --accent-ink: color-mix(in srgb, AccentColor 78%, var(--text));
-    --accent-contrast: AccentColorText;
-    --accent-weak: color-mix(in srgb, AccentColor 14%, var(--surface));
-    --focus: AccentColor;
-  }
-}
-
 :root[data-theme="dark"] {
   color-scheme: dark;
 
@@ -426,6 +411,73 @@
   }
 }
 
+/* Device colours use the colour preference exposed by the browser/operating
+   system. Browsers do not expose their private new-tab palette to extensions,
+   so the system accent is the truthful automatic colour source.
+ *
+ * IT SITS HERE, AFTER THE DARK BLOCKS, AND THE POSITION IS THE WHOLE POINT.
+ * `@supports` contributes NO specificity, so this selector is (0,2,0) -- exactly
+ * what `:root[data-theme="dark"]` and `:root:not([data-theme="light"])` are. When
+ * it stood above them they won on source order and redeclared all seven of these
+ * properties, so "Device colours" on a dark OS painted Supabase's own #3ecf8e for
+ * every accent, focus ring, button and switch track while the panel's status text
+ * reported the choice it was not painting. Measured in Chromium 149 before the
+ * move: device-dark resolved `--accent` to rgb(62, 207, 142). That is OP-101, and
+ * moving these eleven lines is the whole of its fix.
+ *
+ * KEEP IT BELOW BOTH DARK BLOCKS. A future block added after this one that also
+ * sets an accent will take device back, silently and in one scheme only, which is
+ * the shape that made this defect invisible for as long as it lived. */
+@supports (color: AccentColor) {
+  :root[data-color-mode="device"] {
+    --accent: AccentColor;
+    --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
+    --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));
+    /* 60%, not the 78% the other accent tones use. Measured on Chromium 149's
+       accent in dark: at 78% this is rgb(52,144,251) on an --accent-weak of
+       rgb(18,50,87) = 4.031:1, under the 4.5 floor; 66% is the first passing
+       value at 4.698 and 60% is the first with real headroom, 5.123 dark and
+       7.025 light. The other tones keep 78% because nothing pairs them with a
+       tinted weak surface. */
+    --accent-ink: color-mix(in srgb, AccentColor 60%, var(--text));
+    --accent-contrast: AccentColorText;
+    --accent-weak: color-mix(in srgb, AccentColor 14%, var(--surface));
+    --focus: AccentColor;
+  }
+}
+
+/* AND THE OPERATING SYSTEM'S OWN INK IS NOT LEGIBLE ON ITS OWN ACCENT.
+ *
+ * Measured in Chromium 149, whose AccentColor is rgb(0, 117, 255): its
+ * AccentColorText is WHITE, which is 4.21:1 against that accent where the panel
+ * guard needs 4.5. Black on the same accent is 4.99:1. The browser hands us the
+ * worse of the two, and it is the pair a user actually reads a primary button
+ * through.
+ *
+ * SUPABASE'S OWN MECHANISM PICKS THE WRONG ONE TOO, so this is a departure from
+ * the baseline with the number written at the value, the way the other four are.
+ * Their on-colour is a hard step on OKLCH lightness -- oklch(from <fill>
+ * clamp(0.12, calc((0.62 - l) * 100), 0.99) ...) -- and for this accent it
+ * resolves to L 0.99, near-white, because OKLCH lightness and WCAG relative
+ * luminance disagree about saturated blues. `contrast-color()` asks the WCAG
+ * question directly and answers black.
+ *
+ * It is a separate @supports on purpose: `contrast-color()` is newer than
+ * `AccentColor`, so a browser that has the accent and not the function keeps the
+ * declaration above and loses nothing it had. */
+@supports (color: contrast-color(red)) {
+  :root[data-color-mode="device"] {
+    --accent-contrast: contrast-color(AccentColor);
+    /* AND THE HOVER SURFACE NEEDS ITS OWN INK, which is why this token exists.
+       `--accent-hover` moves toward `--text`, so in LIGHT it darkens -- and the
+       ink chosen for the base accent is black, so the two converge: measured
+       3.766:1 against a 4.5 floor. Derived per surface instead, light picks
+       WHITE for the hover (5.576:1) and dark keeps black (6.066:1). One ink
+       cannot serve both ends of an accent the operating system chooses. */
+    --button-hover-text: contrast-color(var(--accent-hover));
+  }
+}
+
 /* Device-derived tonal surfaces
  *
  * When the browser exposes a system accent, it supplies a quiet family of
@@ -475,9 +527,19 @@
     color-mix(in srgb, var(--accent) 16%, #e9e9e9),
     color-mix(in srgb, var(--accent) 18%, #232423)
   );
+  /* THE DARK BASE IS #787878 HERE AND #707070 EVERYWHERE ELSE, deliberately.
+     Device surfaces are tinted with the system accent and therefore LIGHTER than
+     the plain dark surface, so a line that clears 3:1 on the plain one does not
+     clear on this one. Measured on Chromium 149's accent: #707070 gives 2.982:1
+     against a device-dark --surface of rgb(20,40,59), and it stays under the
+     floor across the whole mix range -- 2.982 at 26%, 2.994 at 20%, 3.002 at 14%,
+     2.994 at 8% -- because the line and the surface are mixed with the same
+     accent and move together. #787878 clears at every percentage, 3.249 at the
+     26% used here. This is a measured difference, not the silent drift recorded
+     above it. */
   --line-strong: light-dark(
     color-mix(in srgb, var(--accent) 28%, #8f8f8f),
-    color-mix(in srgb, var(--accent) 26%, #707070)
+    color-mix(in srgb, var(--accent) 26%, #787878)
   );
   --chip: light-dark(
     color-mix(in srgb, var(--accent) 10%, #f3f3f3),

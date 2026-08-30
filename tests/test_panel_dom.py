@@ -485,9 +485,39 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert page.locator("html").get_attribute("data-palette") is None
 
 
+def _channels(colour: str) -> list[float]:
+    """0..1 sRGB channels from every form the browser actually hands back.
+
+    THE HEX-ONLY PARSER IS WHY `device` HAD NO COVERAGE, and the reason is one
+    layer below its absence from the parametrize. A palette writes concrete hexes
+    as inline style, so reading the custom property returned `#RRGGBB` and hex was
+    enough. `device` writes `AccentColor` and `color-mix(...)`, and a custom
+    property is NOT resolved by `getComputedStyle` -- it hands back the SPECIFIED
+    value, so those came back as the literal text `ACCENTCOLOR` and
+    `COLOR-MIX(IN SRGB, ...)`. Nothing could score them. The page-side reader now
+    resolves through a probe element (see `_read_theme_colours`), which returns
+    `rgb(...)` and `color(srgb ...)`, and this parses both.
+    """
+    value = colour.strip()
+    if value.startswith("#"):
+        if len(value) == 4:
+            value = "#" + "".join(char * 2 for char in value[1:])
+        return [int(value[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+    lowered = value.lower()
+    if lowered.startswith("rgb"):
+        numbers = value[value.index("(") + 1:value.index(")")]
+        parts = numbers.replace("/", " ").replace(",", " ").split()
+        return [float(part) / 255 for part in parts[:3]]
+    if lowered.startswith("color(srgb"):
+        numbers = value[len("color(srgb"):value.rindex(")")]
+        return [min(1.0, max(0.0, float(part)))
+                for part in numbers.replace("/", " ").split()[:3]]
+    raise ValueError(f"cannot read a colour out of {colour!r}")
+
+
 def _contrast(first: str, second: str) -> float:
     def luminance(colour: str) -> float:
-        channels = [int(colour[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        channels = _channels(colour)
         linear = [
             value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
             for value in channels
@@ -522,63 +552,190 @@ def _registered_palette_ids() -> list[str]:
     return ids
 
 
+#: Read every themed colour the guard scores, RESOLVED rather than as declared.
+#:
+#: `getComputedStyle(root).getPropertyValue('--x')` returns the SPECIFIED value of
+#: a custom property, so `AccentColor` and `color-mix(...)` come back as text and
+#: cannot be scored -- which is the real reason `device` was never contrast-tested,
+#: one layer below its absence from the parametrize. Painting the token onto a
+#: probe element's `color` and reading THAT back gives the used value, resolved by
+#: the engine to `rgb(...)` or `color(srgb ...)`.
+#:
+#: It resolves for the three palettes too, and that is deliberate: one reader means
+#: a palette that starts using `color-mix` cannot quietly fall out of coverage.
+_THEME_COLOURS_JS = """() => {
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
+    document.documentElement.appendChild(probe);
+    const read = (name) => {
+      probe.style.color = '';
+      probe.style.color = `var(${name})`;
+      return getComputedStyle(probe).color;
+    };
+    const out = {
+      text: read("--text"), muted: read("--muted"),
+      subtle: read("--text-subtle"), surface: read("--surface"),
+      bg: read("--bg"), accent: read("--accent"),
+      accentHover: read("--accent-hover"),
+      accentInk: read("--accent-ink"),
+      accentContrast: read("--accent-contrast"),
+      accentWeak: read("--accent-weak"),
+      chip: read("--chip"),
+      surfaceSubtle: read("--surface-subtle"),
+      surfaceRaised: read("--surface-raised"),
+      buttonBg: read("--button-bg"),
+      buttonHover: read("--button-hover"),
+      buttonText: read("--button-text"),
+      buttonHoverText: read("--button-hover-text"),
+      lineStrong: read("--line-strong"), focus: read("--focus"),
+      amber: read("--amber"), amberWeak: read("--amber-weak"),
+      red: read("--red"), redHover: read("--red-hover"),
+      redWeak: read("--red-weak"),
+      dangerContrast: read("--danger-contrast"),
+      switchTrack: read("--switch-track"),
+      switchTrackHover: read("--switch-track-hover"),
+      switchTrackOff: read("--switch-track-off"),
+      switchThumb: read("--switch-thumb"),
+      switchThumbOff: read("--switch-thumb-off"),
+    };
+    probe.remove();
+    return out;
+}"""
+
+#: The pairs a reader actually meets, and the floors they must clear.
+#:
+#: `("accentContrast", "accentHover")` WAS HERE AND IS NOT ANY MORE, on his ruling
+#: of 2026-08-30. It asserted a combination the product does not render:
+#: `--accent-hover` has no consumer anywhere outside `design/tokens.css` -- the only
+#: thing that reads it is `--button-hover` -- and the surface it becomes is inked
+#: with `--button-hover-text`, which `("buttonHoverText", "buttonHover")` below
+#: covers. While the two inks were the same token the pair was a duplicate; once
+#: `device` derived them separately it became a duplicate that was also false.
+#: Removing it is not a lowered floor: every surface a reader meets is still scored.
+_TEXT_PAIRS = (
+    ("text", "bg"),
+    ("text", "surface"),
+    ("muted", "surface"),
+    ("subtle", "surface"),
+    ("accentInk", "surface"),
+    ("accentContrast", "accent"),
+    ("buttonText", "buttonBg"),
+    ("buttonHoverText", "buttonHover"),
+    ("amber", "amberWeak"),
+    ("red", "redWeak"),
+    ("dangerContrast", "red"),
+    # Added 2026-08-30 (OD-03). Four of the five are text on a surface that carries
+    # secondary text and was never measured; the fifth is accent text on the accent
+    # tint. All five use tokens that already exist, so THEME_PROPERTIES stays at 36.
+    ("muted", "chip"),
+    ("text", "chip"),
+    ("text", "surfaceSubtle"),
+    ("text", "surfaceRaised"),
+    ("accentInk", "accentWeak"),
+)
+
+#: Non-text pairs and their own floors, which are lower on purpose: a border and a
+#: switch track carry meaning without carrying words.
+_SHAPE_PAIRS = (
+    ("lineStrong", "surface", 3.0),
+    ("focus", "bg", 3.0),
+    ("switchThumb", "switchTrack", 2.9),
+    ("switchThumb", "switchTrackHover", 3.0),
+    ("switchThumbOff", "switchTrackOff", 2.9),
+)
+
+
+def _assert_legible(values: dict, label: str) -> None:
+    for foreground, background in _TEXT_PAIRS:
+        assert _contrast(values[foreground], values[background]) >= 4.5, (
+            f"{label}: {foreground} on {background} is not WCAG AA "
+            f"({_contrast(values[foreground], values[background]):.3f})")
+    for foreground, background, floor in _SHAPE_PAIRS:
+        assert _contrast(values[foreground], values[background]) >= floor, (
+            f"{label}: {foreground} on {background} is under {floor} "
+            f"({_contrast(values[foreground], values[background]):.3f})")
+
+
 @pytest.mark.parametrize("palette", _registered_palette_ids())
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         open_panel, palette, scheme):
     page = open_panel()
-    values = page.evaluate("""([palette, scheme]) => {
+    page.evaluate("""([palette, scheme]) => {
         window.ScrapeXAppearance.set({
           mode: "manual", scheme, palette, deviceColors: false,
         });
-        const style = getComputedStyle(document.documentElement);
-        const read = (name) => style.getPropertyValue(name).trim().toUpperCase();
-        return {
-          text: read("--text"), muted: read("--muted"),
-          subtle: read("--text-subtle"), surface: read("--surface"),
-          bg: read("--bg"), accent: read("--accent"),
-          accentHover: read("--accent-hover"),
-          accentInk: read("--accent-ink"),
-          accentContrast: read("--accent-contrast"),
-          buttonBg: read("--button-bg"),
-          buttonHover: read("--button-hover"),
-          buttonText: read("--button-text"),
-          buttonHoverText: read("--button-hover-text"),
-          lineStrong: read("--line-strong"), focus: read("--focus"),
-          amber: read("--amber"), amberWeak: read("--amber-weak"),
-          red: read("--red"), redHover: read("--red-hover"),
-          redWeak: read("--red-weak"),
-          dangerContrast: read("--danger-contrast"),
-          switchTrack: read("--switch-track"),
-          switchTrackHover: read("--switch-track-hover"),
-          switchTrackOff: read("--switch-track-off"),
-          switchThumb: read("--switch-thumb"),
-          switchThumbOff: read("--switch-thumb-off"),
-        };
     }""", [palette, scheme])
+    _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"{palette} {scheme}")
 
-    text_pairs = (
-        ("text", "bg"),
-        ("text", "surface"),
-        ("muted", "surface"),
-        ("subtle", "surface"),
-        ("accentInk", "surface"),
-        ("accentContrast", "accent"),
-        ("accentContrast", "accentHover"),
-        ("buttonText", "buttonBg"),
-        ("buttonHoverText", "buttonHover"),
-        ("amber", "amberWeak"),
-        ("red", "redWeak"),
-        ("dangerContrast", "red"),
-    )
-    for foreground, background in text_pairs:
-        assert _contrast(values[foreground], values[background]) >= 4.5, (
-            f"{palette} {scheme}: {foreground} on {background} is not WCAG AA")
-    assert _contrast(values["lineStrong"], values["surface"]) >= 3
-    assert _contrast(values["focus"], values["bg"]) >= 3
-    assert _contrast(values["switchThumb"], values["switchTrack"]) >= 2.9
-    assert _contrast(values["switchThumb"], values["switchTrackHover"]) >= 3
-    assert _contrast(values["switchThumbOff"], values["switchTrackOff"]) >= 2.9
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_device_colours_are_legible_in_both_schemes(open_panel, scheme):
+    """THE FOURTH COLOUR CHOICE, AND IT HAD NO COVERAGE OF ANY KIND.
+
+    `device` is not a palette -- `design/appearance.js` removes it from the theme
+    entirely -- so `_registered_palette_ids()` can never yield it and the sweep
+    beside this one is structurally unable to reach it. It is also the choice
+    `R-74` names fourth and the one a fresh install used to get before the
+    `deviceColors` flip, which made it the least measured and the most reachable
+    at the same time.
+
+    IT DID NOT MERELY LACK A ROW IN THE PARAMETRIZE. The guard read custom
+    properties as declared, and device declares `AccentColor` and `color-mix(...)`,
+    which a custom property read never resolves -- so even pointed at device the
+    old reader had nothing it could score. Both halves are fixed here.
+
+    WHAT IT COSTS TO OWN THIS: the accent is the operating system's, not ours, so
+    these assertions are about the DERIVATION holding for whatever accent arrives
+    rather than about a value we chose. Chromium's own accent is rgb(0, 117, 255),
+    whose `AccentColorText` is white at 4.21:1 -- under the floor -- which is why
+    `design/tokens.css` derives the ink with `contrast-color()` instead of trusting
+    the system's. A machine with a different accent exercises a different point of
+    the same derivation, and that is the intent.
+    """
+    page = open_panel()
+    page.evaluate("""([scheme]) => {
+        window.ScrapeXAppearance.set({
+          mode: "manual", scheme, deviceColors: true,
+        });
+    }""", [scheme])
+    assert page.evaluate("() => CSS.supports('color', 'AccentColor')"), (
+        "this browser has no AccentColor, so the device block never applied and "
+        "this test measured the baseline instead -- which is exactly the false "
+        "green it exists to prevent")
+    assert page.locator("html").get_attribute("data-color-mode") == "device"
+    _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"device {scheme}")
+
+
+def test_device_colours_reach_the_user_in_both_schemes(open_panel):
+    """OP-101. The cascade, not the colours -- and it is a source-order fact.
+
+    `@supports` contributes no specificity, so the device block's
+    `:root[data-color-mode="device"]` is (0,2,0) -- exactly what
+    `:root[data-theme="dark"]` and `:root:not([data-theme="light"])` are. While it
+    stood ABOVE them they won on source order and redeclared all seven of its
+    properties, so a user on a dark OS who chose "Device colours" was painted
+    Supabase's own #3ecf8e while the panel's status text reported otherwise.
+
+    The assertion is deliberately not a value: the accent belongs to the machine.
+    What must hold is that device DIFFERS from the palette it would otherwise fall
+    back to, in BOTH schemes. That is what source order broke and nothing caught.
+    """
+    page = open_panel()
+    assert page.evaluate("() => CSS.supports('color', 'AccentColor')")
+
+    def accent(**appearance):
+        page.evaluate("([a]) => window.ScrapeXAppearance.set(a)", [appearance])
+        return page.evaluate(_THEME_COLOURS_JS)["accent"]
+
+    for scheme in ("light", "dark"):
+        device = accent(mode="manual", scheme=scheme, deviceColors=True)
+        baseline = accent(mode="manual", scheme=scheme, palette="supabase",
+                          deviceColors=False)
+        assert device != baseline, (
+            f"device {scheme} paints {device}, which is the {scheme} baseline. "
+            "The device block is being outranked by source order again -- keep it "
+            "below both dark blocks in design/tokens.css.")
 
 
 def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
@@ -663,7 +820,12 @@ def test_whatsapp_extension_layers_navigation_and_primary_hover(open_panel):
         "main": "rgb(255, 255, 255)",
         "rail": "rgb(247, 245, 243)",
         "indicator": "rgb(53, 170, 101)",
-        "active": "rgb(24, 134, 75)",
+        # rgb(20, 119, 66) since 2026-08-30, was rgb(24, 134, 75). The active rail
+        # tab is painted with `--accent-ink`, and this palette's ink was darkened
+        # because OD-03's new `accentInk on accentWeak` pair measured the old one
+        # at 4.180:1 against a 4.5 floor. This pin follows what is painted; the
+        # reason lives at the value in `design/appearance.js`.
+        "active": "rgb(20, 119, 66)",
         "button": "rgb(67, 211, 109)",
         "buttonText": "rgb(10, 10, 10)",
     }
