@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organization Enrichment — ScrapeX</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="enrichment.css">
+</head>
+<body>
+
+<header class="workspace-head">
+  <div>
+    <p class="eyebrow">Linked dataset</p>
+    <h1>Organization Enrichment</h1>
+    <p id="workspace-summary" class="hint" role="status" aria-live="polite">
+      Reading the source definition…
+    </p>
+  </div>
+  <button id="reload" class="button ghost" type="button">Reload</button>
+</header>
+
+<p id="message" class="message hidden" role="alert" aria-live="assertive"></p>
+
+<main class="workspace-grid">
+  <section class="card config-card" aria-labelledby="configuration-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">1 · Identity</p>
+        <h2 id="configuration-title">Map the source</h2>
+      </div>
+      <span id="definition-state" class="status-pill">Draft</span>
+    </div>
+
+    <div class="form-grid">
+      <label>
+        <span>Organization source dataset</span>
+        <select id="source-dataset"></select>
+      </label>
+      <label>
+        <span>Stable organization key</span>
+        <select id="entity-key"></select>
+      </label>
+      <label>
+        <span>Optional detail dataset</span>
+        <select id="detail-dataset"></select>
+      </label>
+      <label>
+        <span>Detail join key</span>
+        <select id="detail-key"></select>
+      </label>
+    </div>
+
+    <div class="section-head compact-head">
+      <div>
+        <p class="eyebrow">2 · Meaning</p>
+        <h2>Assign field roles</h2>
+      </div>
+      <p class="hint">Unmapped roles stay empty. No value is inferred.</p>
+    </div>
+    <div id="field-mapping" class="mapping-grid"></div>
+
+    <div class="section-head compact-head">
+      <div>
+        <p class="eyebrow">3 · Evidence</p>
+        <h2>Choose providers</h2>
+      </div>
+    </div>
+    <div id="providers" class="provider-grid"></div>
+
+    <div class="section-head compact-head">
+      <div>
+        <p class="eyebrow">4 · Result</p>
+        <h2>Create a linked dataset</h2>
+      </div>
+    </div>
+    <div class="form-grid">
+      <label>
+        <span>Output dataset key</span>
+        <input id="output-key" type="text" maxlength="64" spellcheck="false">
+      </label>
+      <label>
+        <span>Output dataset name</span>
+        <input id="output-name" type="text" maxlength="200">
+      </label>
+    </div>
+
+    <div class="action-row">
+      <button id="create-definition" class="button" type="button">
+        Create enrichment dataset
+      </button>
+      <button id="edit-definition" class="button ghost hidden" type="button">
+        Edit definition
+      </button>
+      <button id="definition-status" class="button ghost hidden" type="button">
+        Pause definition
+      </button>
+      <button id="run-enrichment" class="button" type="button" disabled>
+        Run enrichment
+      </button>
+      <button id="open-data" class="button ghost" type="button" disabled>
+        Open enrichment data
+      </button>
+    </div>
+  </section>
+
+  <aside class="card guardrail-card" aria-labelledby="guardrails-title">
+    <p class="eyebrow">Verification contract</p>
+    <h2 id="guardrails-title">Evidence before values</h2>
+    <ul>
+      <li>The source rows remain unchanged.</li>
+      <li>Every enriched field keeps its provider, URL, score and evidence.</li>
+      <li>Unchanged facts are confirmed without adding duplicate revisions.</li>
+      <li>Changed facts keep history; uncertain matches enter manual review.</li>
+      <li>Unavailable providers cannot be selected.</li>
+    </ul>
+    <div id="dataset-counts" class="metric-stack"></div>
+  </aside>
+
+  <section id="run-card" class="card run-card hidden" aria-labelledby="run-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">Live job</p>
+        <h2 id="run-title">Enrichment progress</h2>
+      </div>
+      <span id="job-status" class="status-pill">Queued</span>
+    </div>
+    <progress id="job-progress" max="1" value="0"></progress>
+    <p id="job-progress-text" class="hint"></p>
+    <div id="job-counters" class="metric-row"></div>
+    <div class="action-row">
+      <button id="pause-job" class="button ghost" type="button">Pause</button>
+      <button id="resume-job" class="button ghost" type="button">Resume</button>
+      <button id="cancel-job" class="button danger" type="button">Cancel</button>
+      <button id="refresh-review" class="button ghost" type="button">
+        Refresh review queue
+      </button>
+    </div>
+  </section>
+
+  <section id="review-card" class="card review-card hidden" aria-labelledby="review-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">Exceptions only</p>
+        <h2 id="review-title">Manual review queue</h2>
+      </div>
+      <span id="review-count" class="status-pill">0</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th>Field</th>
+            <th>Candidate value</th>
+            <th>Provider</th>
+            <th>Confidence</th>
+            <th>Evidence</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="review-rows"></tbody>
+      </table>
+    </div>
+    <p id="review-empty" class="hint">No uncertain facts need review.</p>
+    <button id="review-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
+  </section>
+
+  <section id="identity-card" class="card identity-card hidden"
+           aria-labelledby="identity-title">
+    <div class="section-head">
+      <div>
+        <p class="eyebrow">Cross-source identity</p>
+        <h2 id="identity-title">Possible organization matches</h2>
+      </div>
+      <span id="identity-count" class="status-pill">0</span>
+    </div>
+    <p class="hint">
+      Matching domains or phones are candidates only. Merge requires an owner decision.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Organization</th>
+            <th>Matched by</th>
+            <th>Normalized value</th>
+            <th>Candidate</th>
+            <th>Confidence</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="identity-rows"></tbody>
+      </table>
+    </div>
+    <p id="identity-empty" class="hint">No cross-source identity candidates.</p>
+    <button id="identity-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
+    <div class="section-head compact-head">
+      <div>
+        <p class="eyebrow">Audit and recovery</p>
+        <h2>Canonical merge history</h2>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Source group</th>
+            <th>Target group</th>
+            <th>Merged at</th>
+            <th>Status</th>
+            <th>Decision</th>
+          </tr>
+        </thead>
+        <tbody id="merge-rows"></tbody>
+      </table>
+    </div>
+    <p id="merge-empty" class="hint">No canonical merges recorded.</p>
+    <button id="merge-more" class="button ghost hidden" type="button">
+      Load more
+    </button>
+  </section>
+</main>
+
+<script src="appearance.js"></script>
+<script type="module" src="enrichment.js"></script>
+</body>
+</html>

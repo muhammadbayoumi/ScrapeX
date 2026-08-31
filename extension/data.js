@@ -34,6 +34,7 @@ const $ = (id) => document.getElementById(id);
 /** Which source this tab is showing. Named in the URL so the tab is shareable
  *  and survives a reload — the panel opens it with ?source=KEY. */
 const SOURCE_KEY = sourceKeyFrom(window.location.search);
+const SITE_KEY = new URLSearchParams(window.location.search).get("site")?.trim() || "";
 
 let table = null;
 
@@ -68,8 +69,9 @@ async function load() {
   let payload;
   try {
     const wanted = $("data-fold").checked ? "1" : "0";
+    const site = SITE_KEY ? `&site_key=${encodeURIComponent(SITE_KEY)}` : "";
     payload = await api(
-      `/api/table/${encodeURIComponent(SOURCE_KEY)}?fold=${wanted}`);
+      `/api/table/${encodeURIComponent(SOURCE_KEY)}?fold=${wanted}${site}`);
   } catch (error) {
     // A DIFFERENT BACKEND IS NOW AUTHORITATIVE. Painting this answer would put
     // one engine's rows under another engine's name.

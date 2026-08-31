@@ -569,8 +569,8 @@ def create_app(
     app.state.runner = JobRunner(
         str(price_path), lambda: app.state.manifest,
         path_provider=lambda: app.state.db_path) if start_worker else None
-    if app.state.runner is not None:
-        app.state.runner.start()
+    # Start the worker only after every route has been registered. The final
+    # boundary below keeps app construction out of the orphan-resume race.
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -720,6 +720,7 @@ def create_app(
             # already the expensive half.
             catalogue = general.execute(
                 "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
+                "s.source_key AS site_key, "
                 "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
                 "FROM dataset_definition AS d "
                 "JOIN source_site AS s "
@@ -731,6 +732,7 @@ def create_app(
             ).fetchall()
             return [{
                 "kind": "dataset",
+                "site_key": row["site_key"],
                 "source_key": row["dataset_key"],
                 "source_name": row["display_name"] or row["original_name"],
                 "source_name_ar": "", "base_url": row["base_url"],
@@ -1183,7 +1185,11 @@ def create_app(
             status_code=200 if summary is not None else 404)
 
     @app.get("/api/table/{source_key}")
-    def api_table(source_key: str, fold: bool | None = None):
+    def api_table(
+        source_key: str,
+        fold: bool | None = None,
+        site_key: str | None = None,
+    ):
         """The whole table for one source, for a grid that filters it in place.
 
         Bounded at reports.TABLE_ROW_CAP — a large number, but a number. A source
@@ -1212,7 +1218,9 @@ def create_app(
         # asking the cheaper, smaller table first costs nothing when it misses.
         general = general_read_conn()
         try:
-            dataset = extract_service.dataset_table_payload(general, source_key)
+            dataset = extract_service.dataset_table_payload(
+                general, source_key, site_key=site_key
+            )
         finally:
             general.close()
         if dataset is not None:
@@ -2242,6 +2250,9 @@ def create_app(
         general_read_conn, _general_write, prefix="/api/catalog"
     ))
     app.include_router(create_extraction_router(general_read_conn, _general_write))
+    from ..enrichment.api import create_enrichment_router
+
+    app.include_router(create_enrichment_router(general_read_conn, _general_write))
 
     def _dataset_fields(source_key: str, schema_fields):
         """Choose-Columns for a DATASET: its own fields, and only its own.
@@ -3696,6 +3707,8 @@ def create_app(
     # yet. Sealing earlier misses `webui.app` itself — the module the incident of
     # 2026-08-23 was actually about; sealing later takes the baseline after the
     # edit it exists to notice. See `scrapex/provenance.py`.
+    if app.state.runner is not None:
+        app.state.runner.start()
     provenance.seal()
     return app
 
@@ -3838,6 +3851,7 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     done = job.get("progress_done") or 0
     return {
         "job_ref": job["job_ref"],
+        "job_kind": job.get("job_kind", "crawl"),
         "status": job["status"],
         "run_mode": job["run_mode"],
         "source_keys": job["source_keys"],
@@ -3846,7 +3860,12 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
         # SITES done, which is all this ever measured. It keeps its name and
         # loses the percentage: 0/1 is a true statement about a one-source job
         # and "0%" was not.
-        "progress": {"done": done, "total": total},
+        "progress": {
+            "done": done,
+            "total": total,
+            **({"unit": "organizations"}
+               if job.get("job_kind") == "organization_enrichment" else {}),
+        },
         # PAGES fetched against a stated denominator — what the bar draws.
         "fetch": _fetch_progress(job),
         # Why this job is not moving, when it is not. None for the job that holds

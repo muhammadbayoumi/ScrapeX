@@ -1271,9 +1271,19 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
     doors = card.locator("[data-open-dataset]")
     keys = [doors.nth(i).get_attribute("data-open-dataset") for i in range(doors.count())]
     assert keys, "the count line offers no coverage button, so the fold hid a table"
-    assert actions[1:] == [f"table:{key}" for key in keys], (
+    table_actions = [action for action in actions[1:]
+                     if action and action.startswith("table:")]
+    assert table_actions == [f"table:{key}" for key in keys], (
         f"the menu and the count line disagree about which tables this card stands "
-        f"for: {actions[1:]} against {keys}")
+        f"for: {table_actions} against {keys}")
+
+    # Non-table actions may sit between the card's primary table door and its
+    # coverage doors. Their engine routes are measured independently in
+    # test_a_dataset_card_offers_what_works.py, so the coverage assertion above
+    # must not mistake a newly proven action for a hidden dataset.
+    assert "enrich" in actions, (
+        "the organization enrichment route works for a dataset, but its card "
+        "does not offer the workspace")
 
     # NOT A MENU OF GREYED-OUT ROWS, which is the other half of his complaint and
     # the failure mode `sourceMenu`'s own comment rejects: "a button that cannot

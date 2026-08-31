@@ -106,7 +106,7 @@ window.fetch = (input, options = {}) => {
 };
 
 const DESTINATION_DATA_PATH =
-  /^\/api\/(?:sources|outputs|jobs|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/;
+  /^\/api\/(?:sources|outputs|jobs|enrichment|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/;
 
 export async function api(path, options = {}) {
   const backend = await backendBase();

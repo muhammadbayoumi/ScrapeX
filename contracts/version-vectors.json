@@ -1,6 +1,6 @@
 {
   "version": "0.4.6",
-  "minimum_extension_version": "0.2.2",
+  "minimum_extension_version": "0.3.3",
   "capability_reporting_since": "0.2.0",
   "note": "Both copies of capabilityProblem must reproduce every `problem` string exactly. Python: scrapex/version.py. JavaScript: extension/version.js.",
   "cases": [
@@ -41,6 +41,10 @@
         "display_method_and_unit": {
           "since": "0.2.0",
           "summary": "Record how a site displays a product and what one unit of its price buys, so a per-metre price is never read as a per-piece one."
+        },
+        "organization_enrichment": {
+          "since": "0.3.3",
+          "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -83,6 +87,10 @@
         "display_method_and_unit": {
           "since": "0.2.0",
           "summary": "Record how a site displays a product and what one unit of its price buys, so a per-metre price is never read as a per-piece one."
+        },
+        "organization_enrichment": {
+          "since": "0.3.3",
+          "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -121,6 +129,10 @@
         "display_method_and_unit": {
           "since": "0.2.0",
           "summary": "Record how a site displays a product and what one unit of its price buys, so a per-metre price is never read as a per-piece one."
+        },
+        "organization_enrichment": {
+          "since": "0.3.3",
+          "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -172,6 +184,10 @@
         "display_method_and_unit": {
           "since": "0.2.0",
           "summary": "Record how a site displays a product and what one unit of its price buys, so a per-metre price is never read as a per-piece one."
+        },
+        "organization_enrichment": {
+          "since": "0.3.3",
+          "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",

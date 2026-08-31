@@ -4446,6 +4446,7 @@ async function loadDatasets() {
     }
     box.innerHTML = withData.map((s) => `
       <article class="card dataset-card" data-open="${esc(s.source_key)}"
+               data-site="${esc(s.site_key || "")}"
                role="link" tabindex="0"
                aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
         ${sourceMenu(s)}
@@ -4455,8 +4456,9 @@ async function loadDatasets() {
           <div class="n muted">${freshnessLine(s)}</div></div>
       </article>`).join("");
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
-      const key = root.closest("[data-open]").dataset.open;
-      window.ScrapeXSplitButton.wire(root, (action) => runSourceAction(action, key));
+      const card = root.closest("[data-open]");
+      window.ScrapeXSplitButton.wire(
+        root, (action) => runSourceAction(action, card.dataset.open, card.dataset.site));
     });
     box.querySelectorAll("[data-open]").forEach((card) => {
       // THE MENU IS INSIDE THE CARD, AND THE CARD IS ITSELF A LINK. Without
@@ -4686,7 +4688,8 @@ function freshnessLine(s) {
 //   RESOLVES_A_DATASET   the route answers 2xx for a dataset key, so the action
 //                        is offered. `/api/table/{key}` asks the dataset
 //                        catalogue BEFORE the manifest — its own comment calls a
-//                        generic dataset "a table like any other table".
+//                        generic dataset "a table like any other table". The
+//                        enrichment route resolves it through the same catalogue.
 //   MANIFEST_ONLY        the route looks the key up in sources.yaml and answers
 //                        404 for anything else. Measured, not assumed.
 //   NO_SECTION           the route answers, and the thing the action promises is
@@ -4712,6 +4715,9 @@ const SOURCE_ACTIONS = [
   {action: "table", label: "Open the data table",
    why: "This source's rows, in a page that ships with the extension.",
    route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET},
+  {action: "enrich", label: "Enrich organizations",
+   why: "Create or update a linked organization enrichment dataset.",
+   route: "GET /api/enrichment/sources/{key}", proof: RESOLVES_A_DATASET},
   // THE ONE ACTION WHOSE ROUTE ANSWERS AND WHOSE PROMISE STILL DOES NOT HOLD:
   // `/source/{key}` renders for a dataset (measured, 200 and 42 KB of grid), and
   // the page carries no changes section for one — `browse_observations` and
@@ -4744,8 +4750,9 @@ const SOURCE_ACTIONS = [
  * that decides what a dataset is.
  *
  * A dataset keeps the actions whose route was MEASURED to resolve a dataset key.
- * That is one of the six today. The previous rule — no menu at all — was right
- * about the other five and wrong about this one, and it stayed wrong because
+ * Those are the data table and organization enrichment today. The previous rule
+ * — no menu at all — was right about the manifest-only actions and wrong about
+ * these routes, and it stayed wrong because
  * nothing tested it: `tools/panel_harness.py` carried no dataset-kind source, so
  * `test_dataset_action_opens_the_workspace_directly` could assert that EVERY card
  * has a menu and pass.
@@ -4808,13 +4815,19 @@ function sourceMenu(source) {
 }
 
 /** Everything a source menu can do, in one place so the card stays a template. */
-async function runSourceAction(action, key) {
+async function runSourceAction(action, key, siteKey = "") {
   // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
   // and this page ships in the extension. It still reads the engine for its
   // rows — the difference is that the PAGE is ours.
   if (action === "table") {
+    const site = siteKey ? "&site=" + encodeURIComponent(siteKey) : "";
     return chrome.tabs.create({url: chrome.runtime.getURL(
-      "data.html?source=" + encodeURIComponent(key))});
+      "data.html?source=" + encodeURIComponent(key) + site)});
+  }
+  if (action === "enrich") {
+    const site = siteKey ? "&site=" + encodeURIComponent(siteKey) : "";
+    return chrome.tabs.create({url: chrome.runtime.getURL(
+      "enrichment.html?source=" + encodeURIComponent(key) + site)});
   }
   // `table:<dataset_key>` — the same page, a table the CARD does not carry the key
   // for. See `sourceActions`: a folded card stands for more than one dataset and
