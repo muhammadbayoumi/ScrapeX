@@ -720,7 +720,7 @@ def create_app(
             # already the expensive half.
             catalogue = general.execute(
                 "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
-                "s.site_key, "
+                "s.source_key AS site_key, "
                 "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
                 "FROM dataset_definition AS d "
                 "JOIN source_site AS s "

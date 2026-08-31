@@ -216,6 +216,17 @@ CAPABILITIES: tuple[Capability, ...] = (
         settings=(),
         commit="55ae064",
     ),
+    Capability(
+        key="organization_enrichment",
+        since="0.3.3",
+        summary="Turn any approved company or contractor dataset into a linked, "
+                "progressively verified organization dataset with field-level evidence "
+                "and manual review for uncertain matches.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="enrichment.html",
+        settings=(),
+        commit="c0cd695",
+    ),
 )
 
 

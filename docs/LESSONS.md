@@ -1383,9 +1383,9 @@ beside a citation. `extension/manifest.json` sat sixty characters from a
 **correct** citation of `tests/test_version.py:536`; `` `_about` renders the
 engine's own `/settings` page (`…settings.html:162-167`) `` offers `/settings` as
 the nearest span while the citation is perfectly right. Tightening to fix those
-dropped coverage to three citations and stopped catching the `app.py:1355` drift
+dropped coverage to three citations and stopped catching the historical `app.py` line 1355 drift
 that motivated the whole exercise — because in
-`` (`scrapex/version.py:477`, again in `scrapex/webui/app.py:1355`) `` another
+`` (`scrapex/version.py:477`, again in `scrapex/webui/app.py` line 1355) `` another
 citation stands between the symbol and its line.
 
 `tests/test_the_published_documents_are_checked_not_announced.py` had already
@@ -2606,7 +2606,7 @@ assert row["observed_state"] in {"new", "updated", "confirmed", "returned",
 
 `unsighted` is in that set. So a table where **every single row** collapsed to
 `unsighted` is green. And there is a live path that does exactly that:
-[scrapex/extract/service.py:972](../scrapex/extract/service.py#L972) resolves the
+[scrapex/extract/service.py:992](../scrapex/extract/service.py#L992) resolves the
 identity field as `identity[0] if len(identity) == 1 else None`, so a dataset with
 two `key_part` fields — or zero — yields `None`, every row's `external` is `None`,
 every sighting lookup misses, and the whole column is wrong with nothing to say so.

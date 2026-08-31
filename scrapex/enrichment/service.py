@@ -82,14 +82,15 @@ def _dataset(
     conn: sqlite3.Connection, key: str, site_key: str | None = None
 ) -> sqlite3.Row:
     sql = (
-        "SELECT d.*, s.site_key, s.display_name AS site_display_name, s.base_url "
-        "FROM dataset_definition AS d JOIN site_profile AS s "
-        "ON s.site_profile_id = d.site_profile_id "
+        "SELECT d.*, s.source_key AS site_key, "
+        "s.source_name AS site_display_name, s.base_url "
+        "FROM dataset_definition AS d JOIN source_site AS s "
+        "ON s.source_id = d.source_id "
         "WHERE d.dataset_key = ? AND d.valid_to IS NULL AND s.valid_to IS NULL "
     )
     parameters: tuple[str, ...] = (key,)
     if site_key:
-        sql += "AND s.site_key = ? AND s.valid_to IS NULL "
+        sql += "AND s.source_key = ? "
         parameters += (site_key,)
     rows = conn.execute(
         sql + "ORDER BY d.dataset_definition_id LIMIT 2", parameters
@@ -136,14 +137,15 @@ def _suggest(fields: list[dict[str, Any]], scope: str = "") -> dict[str, str]:
 
 def _definition_row(conn: sqlite3.Connection, definition_id: int) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT e.*, s.site_key, s.display_name AS site_display_name, s.base_url, "
+        "SELECT e.*, s.source_key AS site_key, "
+        "s.source_name AS site_display_name, s.base_url, "
         "source.dataset_key AS source_dataset_key, "
         "detail.dataset_key AS detail_dataset_key, "
         "output.dataset_key AS output_dataset_key, "
         "output.display_name AS output_display_name, "
         "output.original_name AS output_original_name "
         "FROM organization_enrichment_definition AS e "
-        "JOIN site_profile AS s ON s.site_profile_id = e.site_profile_id "
+        "JOIN source_site AS s ON s.source_id = e.source_id "
         "JOIN dataset_definition AS source "
         "ON source.dataset_definition_id = e.source_dataset_id "
         "LEFT JOIN dataset_definition AS detail "
@@ -228,11 +230,11 @@ def propose_definition(
     if json.loads(source["locator_json"] or "{}").get("kind") == \
             "organization_enrichment":
         raise EnrichmentError("an enrichment output cannot be used as its own source")
-    site_id = int(source["site_profile_id"])
+    site_id = int(source["source_id"])
     rows = conn.execute(
         "SELECT d.dataset_definition_id, d.dataset_key, d.original_name, d.display_name, "
         "d.dataset_kind, d.locator_json "
-        "FROM dataset_definition AS d WHERE d.site_profile_id = ? "
+        "FROM dataset_definition AS d WHERE d.source_id = ? "
         "AND d.valid_to IS NULL ORDER BY d.dataset_definition_id",
         (site_id,),
     ).fetchall()
@@ -531,7 +533,7 @@ def create_definition(
     if detail is not None:
         if detail["dataset_definition_id"] == source["dataset_definition_id"]:
             raise EnrichmentError("source and detail datasets must be different")
-        if detail["site_profile_id"] != source["site_profile_id"]:
+        if detail["source_id"] != source["source_id"]:
             raise EnrichmentError("source and detail datasets must belong to one site")
         detail_fields = {item["field_key"] for item in _fields(
             conn, int(detail["dataset_definition_id"])
@@ -575,8 +577,8 @@ def create_definition(
     output_name = request.output_dataset_name or "Organization Enrichment"
     occupied = conn.execute(
         "SELECT dataset_definition_id FROM dataset_definition "
-        "WHERE site_profile_id = ? AND dataset_key = ? LIMIT 1",
-        (source["site_profile_id"], output_key),
+        "WHERE source_id = ? AND dataset_key = ? LIMIT 1",
+        (source["source_id"], output_key),
     ).fetchone()
     if occupied is not None:
         raise EnrichmentError(
@@ -636,11 +638,11 @@ def create_definition(
     )
     cursor = conn.execute(
         "INSERT INTO organization_enrichment_definition "
-        "(site_profile_id, source_dataset_id, detail_dataset_id, output_dataset_id, "
+        "(source_id, source_dataset_id, detail_dataset_id, output_dataset_id, "
         "entity_key_field, detail_key_field, field_mapping_json, providers_json) "
         "VALUES (?,?,?,?,?,?,?,?)",
         (
-            source["site_profile_id"],
+            source["source_id"],
             source["dataset_definition_id"],
             detail["dataset_definition_id"] if detail is not None else None,
             output_id,

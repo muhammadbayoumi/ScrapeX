@@ -109,7 +109,7 @@ number in it had moved. That `docs/plans/` sits outside the citation guard's `DO
 
 **Found 2026-08-26. Two halves, and the second is what lets the first survive.**
 
-**The collapse.** [scrapex/extract/service.py:972](../scrapex/extract/service.py#L972)
+**The collapse.** [scrapex/extract/service.py:992](../scrapex/extract/service.py#L992)
 resolves the identity field as `identity[0] if len(identity) == 1 else None`. With **two**
 `key_part` fields, or **zero**, that is `None` — so every row's external id is `None`, every
 `dataset_sighting` lookup misses, and `row_state` runs with `sighted_at=None,
@@ -136,7 +136,7 @@ of the three available answers: explicit refusal, a composite key, or silent omi
 
 ### OP-71 · The `MAX(observed_at)` subquery cannot be served by its index, twelve lines under a comment condemning that exact pattern
 
-**Found 2026-08-26.** [scrapex/extract/service.py:1046](../scrapex/extract/service.py#L1046)
+**Found 2026-08-26.** [scrapex/extract/service.py:1105](../scrapex/extract/service.py#L1105)
 runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
 v.generic_record_id = r.generic_record_id)` — once per row.
 
@@ -147,7 +147,7 @@ SQLite can seek a record's revisions from the index and must then read the table
 one to get the timestamp. No covering index, no index-only `MAX`.
 
 **And the trap is named on the same screen.**
-[service.py:1016](../scrapex/extract/service.py#L1016), twelve lines below, explains that the
+[scrapex/extract/service.py:1075](../scrapex/extract/service.py#L1075), explains that the
 sighting side is read in ONE query because joining per row *"would be the
 correlated-subquery defect `OP-27` measured at 49s all over again."* The rule is known,
 written down, and applied to the neighbouring table.
@@ -247,7 +247,7 @@ to `POST` later, alongside `OP-73`.**
 **Found 2026-08-26.** `grep display_name scrapex/reports.py` returns **zero hits**: the
 products payload labels from a module constant only —
 [reports.py:2191](../scrapex/reports.py#L2191), `labels = dict(BROWSE_COLUMNS)`. The dataset
-payload does the opposite at [service.py:1113](../scrapex/extract/service.py#L1113),
+payload does the opposite at [scrapex/extract/service.py:1174](../scrapex/extract/service.py#L1174),
 preferring his stored `display_name`.
 
 **So renaming a column reaches a contractor table's heading and never a products table's.**
@@ -261,7 +261,7 @@ tables display.
 ### OP-77 · `dataset_table_payload` reimplements two `fields.py` helpers inline while the products path calls them
 
 **Found 2026-08-26.** It imports and uses two of the five helpers
-([service.py:16](../scrapex/extract/service.py#L16)) and reimplements `hidden_columns` and
+([scrapex/extract/service.py:15](../scrapex/extract/service.py#L15)) and reimplements `hidden_columns` and
 `column_order` in the function body, where
 [reports.py:2183](../scrapex/reports.py#L2183) calls the helper. Two surfaces answering one
 question two ways — which is what step 2's own gate forbids: *"a grep finds no second copy of
@@ -274,7 +274,7 @@ shapes. Recorded so that a later reader does not "fix" it.
 ### OP-78 · `tree` is produced by both producers, asserted by a test, and read by no consumer anywhere
 
 **Found 2026-08-26.** [reports.py:2255](../scrapex/reports.py#L2255) computes it with
-`_tree_shape`; [service.py:1116](../scrapex/extract/service.py#L1116) hard-codes `{}`. No
+`_tree_shape`; [scrapex/extract/service.py:1203](../scrapex/extract/service.py#L1203) hard-codes `{}`. No
 consumer reads `payload.tree` — `grid.js`'s `features.tree` is a name collision — and the
 13-key list asserts it regardless.
 
@@ -291,7 +291,7 @@ test.
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
 price-path rows inert lives **only on the read path**, at
-[app.py:2243](../scrapex/webui/app.py#L2243). So the eleven are invisible in the chooser and
+[app.py:2282](../scrapex/webui/app.py#L2282). So the eleven are invisible in the chooser and
 still occupy `display_order` slots whenever anything is reordered.
 
 Depends on `OP-58`: whether those rows are deleted at all is his gate, since
@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1710` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2777` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1717` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2787` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2777`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2787`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -3540,11 +3540,11 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 `bundleBuild: 600000` ([extension/startup.js:33](../extension/startup.js#L33)) with a rule
 that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
-`threading.Lock` ([scrapex/webui/app.py:2915](../scrapex/webui/app.py#L2915)) refusing a
+`threading.Lock` ([scrapex/webui/app.py:2926](../scrapex/webui/app.py#L2926)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
-([scrapex/webui/app.py:2896](../scrapex/webui/app.py#L2896)) pruning **by stamp** so the
+([scrapex/webui/app.py:2907](../scrapex/webui/app.py#L2907)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep
-([scrapex/webui/app.py:2952](../scrapex/webui/app.py#L2952)) for orphaned staging.
+([scrapex/webui/app.py:2982](../scrapex/webui/app.py#L2982)) for orphaned staging.
 
 **Residual, named rather than closed.** The lock is in-process, which is correct here —
 `start_engine` refuses to spawn a second engine on a held port

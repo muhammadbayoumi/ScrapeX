@@ -590,9 +590,9 @@ and hashes 1,490 MB before it writes a first byte.
 |---|---|
 | `bundleBuild: 600000`, derived from 104 s measured at 1,490 MB | `extension/startup.js:33` |
 | a rule that does **not** re-time `/api/bundle/archive` or `/api/bundle/panel-pack` | `extension/startup.js:52` |
-| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2915` |
-| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2896` |
-| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2952` |
+| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2926` |
+| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2907` |
+| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2982` |
 
 **Deferred, and this is the load-bearing half:** (a), making the build asynchronous with
 progress polling. `R-76` records why the raise has a shelf life — the warehouse grew **13×
@@ -811,7 +811,7 @@ findings NOT in this wave are held pending numbers from the primary session (`R-
 **THE FINDING THAT MOVES THE PLAN.** Step 3 — the record card, `REQ-32`, the step he
 actually asked for — is priced in the plan at **967 lines** and gated on a new
 endpoint. Measured: `dataset_table_payload` SELECTed `generic_record_id`
-([service.py:922](../scrapex/extract/service.py#L922)) and the emitting loop dropped
+([scrapex/extract/service.py:927](../scrapex/extract/service.py#L927)) and the emitting loop dropped
 it, so the payload carried **no handle for the row at all**, while `grid.js` opens its
 card from `rows.filter((row) => row.offer_id)` and closes the panel when that is
 empty. **Selecting a contractor could never open anything**, and the fix is one
@@ -1895,8 +1895,8 @@ written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
-[scrapex/version.py:483](../scrapex/version.py) and
-[scrapex/webui/app.py:1699](../scrapex/webui/app.py), drawn by
+[scrapex/version.py:494](../scrapex/version.py) and
+[scrapex/webui/app.py:1706](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**
