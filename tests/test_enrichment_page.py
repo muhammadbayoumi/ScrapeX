@@ -24,7 +24,8 @@ def test_the_workspace_exposes_the_complete_owner_flow():
     for identifier in (
         "source-dataset", "detail-dataset", "entity-key", "detail-key",
         "field-mapping", "providers", "output-key", "create-definition",
-        "run-enrichment", "job-progress", "review-rows", "open-data",
+        "run-enrichment", "run-enrichment-complete", "job-progress",
+        "review-rows", "open-data",
     ):
         assert f'id="{identifier}"' in HTML
     assert "/api/enrichment/sources/" in JS
@@ -33,6 +34,8 @@ def test_the_workspace_exposes_the_complete_owner_flow():
     assert "encodeURIComponent(definition.site_key)" in JS
     assert "/api/enrichment/definitions" in JS
     assert "/api/jobs/" in JS
+    assert 'runEnrichment("update")' in JS
+    assert 'runEnrichment("complete")' in JS
     assert "restoreLatestJob" in JS
     assert "Providers disabled" in JS
     assert '"hidden", Boolean(definition) && !editMode' in JS

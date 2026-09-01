@@ -182,6 +182,7 @@ function lockDefinition() {
   $("definition-status").textContent = definition && !definitionActive
     ? "Activate definition" : "Pause definition";
   $("run-enrichment").disabled = !locked || jobActive || !definitionActive;
+  $("run-enrichment-complete").disabled = !locked || jobActive || !definitionActive;
   $("open-data").disabled = !locked;
   $("definition-state").textContent = editMode
     ? `Editing v${definition?.configuration_version || 1}`
@@ -358,13 +359,14 @@ async function pollJob() {
   pollTimer = setTimeout(pollJob, 2000);
 }
 
-async function runEnrichment() {
+async function runEnrichment(mode = "update") {
   if (!definition) return;
   message();
   $("run-enrichment").disabled = true;
+  $("run-enrichment-complete").disabled = true;
   try {
     const queued = await post(
-      `/api/enrichment/definitions/${definition.enrichment_definition_id}/runs`, {},
+      `/api/enrichment/definitions/${definition.enrichment_definition_id}/runs`, {mode},
     );
     renderJob({
       ...queued,
@@ -641,7 +643,10 @@ $("definition-status").addEventListener("click", toggleDefinitionStatus);
 $("review-more").addEventListener("click", () => refreshReview(false));
 $("identity-more").addEventListener("click", () => refreshIdentityCandidates(false));
 $("merge-more").addEventListener("click", () => refreshMergeHistory(false));
-$("run-enrichment").addEventListener("click", runEnrichment);
+$("run-enrichment").addEventListener("click", () => runEnrichment("update"));
+$("run-enrichment-complete").addEventListener(
+  "click", () => runEnrichment("complete"),
+);
 $("open-data").addEventListener("click", () => {
   if (!definition) return;
   chrome.tabs.create({url: chrome.runtime.getURL(

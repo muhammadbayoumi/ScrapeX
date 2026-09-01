@@ -26,6 +26,7 @@ from scrapex.enrichment import service as enrichment
 from scrapex.enrichment.matching import email_domain, name_similarity
 from scrapex.enrichment.models import (
     DefinitionCreate,
+    EnrichmentRunMode,
     FieldFact,
     OrganizationIdentity,
     OrganizationMergeCreate,
@@ -469,9 +470,14 @@ class _SystemFailureProvider:
         )
 
 
-def _run(conn, definition_id: int, monkeypatch, provider) -> dict:
+def _run(
+    conn, definition_id: int, monkeypatch, provider,
+    *, run_mode: EnrichmentRunMode = EnrichmentRunMode.COMPLETE,
+) -> dict:
     monkeypatch.setattr(enrichment, "build_providers", lambda names: [provider])
-    queued = enrichment.create_enrichment_job(conn, definition_id)
+    queued = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=run_mode
+    )
     return enrichment.run_enrichment_job_once(conn, queued["job_ref"])
 
 
@@ -588,6 +594,108 @@ def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     assert "3 provider request(s) failed" in completed["error_summary"]
 
 
+def test_update_only_queues_changed_or_incomplete_inputs(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    monkeypatch.setattr(
+        enrichment, "build_providers", lambda names: [_FakeWebsite()]
+    )
+    complete = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=EnrichmentRunMode.COMPLETE
+    )
+    enrichment.run_enrichment_job_once(conn, complete["job_ref"])
+
+    detail = conn.execute(
+        "SELECT generic_record_id, data_json FROM generic_record "
+        "WHERE dataset_definition_id=(SELECT detail_dataset_id FROM "
+        "organization_enrichment_definition WHERE enrichment_definition_id=?)",
+        (definition_id,),
+    ).fetchone()
+    detail_data = json.loads(detail["data_json"])
+    detail_data["city"] = "Changed city"
+    conn.execute(
+        "UPDATE generic_record SET data_json=?, content_hash=? "
+        "WHERE generic_record_id=?",
+        (json.dumps(detail_data), "changed-detail-hash", detail["generic_record_id"]),
+    )
+    conn.commit()
+
+    update = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=EnrichmentRunMode.UPDATE
+    )
+    assert update["mode"] == "update"
+    assert update["source_organizations"] == 4
+    assert update["organizations"] == 1
+    assert update["unchanged_skipped"] == 3
+    assert update["baseline_job_ref"] == complete["job_ref"]
+    enrichment.run_enrichment_job_once(conn, update["job_ref"])
+
+    output_id = conn.execute(
+        "SELECT output_dataset_id FROM organization_enrichment_definition "
+        "WHERE enrichment_definition_id=?",
+        (definition_id,),
+    ).fetchone()[0]
+    assert conn.execute(
+        "SELECT count(*) FROM generic_record "
+        "WHERE dataset_definition_id=? AND status='active'",
+        (output_id,),
+    ).fetchone()[0] == 4
+
+    no_changes = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=EnrichmentRunMode.UPDATE
+    )
+    assert no_changes["organizations"] == 0
+    assert no_changes["unchanged_skipped"] == 4
+    assert no_changes["baseline_job_ref"] == update["job_ref"]
+
+
+def test_update_ignores_cancelled_snapshots_as_incremental_baselines(
+    conn, monkeypatch
+):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    monkeypatch.setattr(
+        enrichment, "build_providers", lambda names: [_FakeWebsite()]
+    )
+    complete = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=EnrichmentRunMode.COMPLETE
+    )
+    enrichment.run_enrichment_job_once(conn, complete["job_ref"])
+    conn.execute(
+        "UPDATE generic_record SET content_hash='changed-after-complete' "
+        "WHERE generic_record_id=(SELECT generic_record_id FROM generic_record "
+        "WHERE dataset_definition_id=(SELECT detail_dataset_id FROM "
+        "organization_enrichment_definition WHERE enrichment_definition_id=?) "
+        "LIMIT 1)",
+        (definition_id,),
+    )
+    conn.commit()
+
+    cancelled = enrichment.create_enrichment_job(conn, definition_id)
+    conn.execute(
+        "UPDATE crawl_job SET status='cancelled' WHERE job_ref=?",
+        (cancelled["job_ref"],),
+    )
+    conn.commit()
+    resumed = enrichment.create_enrichment_job(conn, definition_id)
+
+    assert cancelled["organizations"] == resumed["organizations"] == 1
+    assert resumed["baseline_job_ref"] == complete["job_ref"]
+
+
+def test_update_retries_provider_failures_from_the_latest_attempt(conn, monkeypatch):
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    failed = _run(conn, definition_id, monkeypatch, _SystemFailureProvider())
+    assert failed["status"] == "completed_with_errors"
+
+    retry = enrichment.create_enrichment_job(conn, definition_id)
+
+    assert retry["organizations"] == retry["source_organizations"] == 4
+    assert retry["unchanged_skipped"] == 0
+    assert retry["baseline_job_ref"] == failed["job_ref"]
+
+
 def test_duplicate_detail_join_keys_are_refused_instead_of_last_row_winning(conn):
     detail_id = conn.execute(
         "SELECT dataset_definition_id FROM dataset_definition "
@@ -642,6 +750,8 @@ def test_the_extension_api_creates_and_queues_the_same_definition(registry, tmp_
     definition_id = created.json()["enrichment_definition_id"]
     queued = client.post(f"/api/enrichment/definitions/{definition_id}/runs", json={})
     assert queued.status_code == 202
+    assert queued.json()["mode"] == "update"
+    assert queued.json()["source_organizations"] == 4
     job = client.get(f"/api/jobs/{queued.json()['job_ref']}").json()
     assert job["job_kind"] == "organization_enrichment"
     assert job["progress"]["unit"] == "organizations"
@@ -653,6 +763,10 @@ def test_the_extension_api_creates_and_queues_the_same_definition(registry, tmp_
         f"/api/enrichment/definitions/{definition_id}/runs", json={}
     )
     assert duplicate.status_code == 400
+    invalid = client.post(
+        f"/api/enrichment/definitions/{definition_id}/runs", json={"mode": "all"}
+    )
+    assert invalid.status_code == 422
     diagnostics = client.get(
         f"/api/enrichment/definitions/{definition_id}/diagnostics"
     )
