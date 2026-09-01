@@ -28,6 +28,7 @@ TWO ASSERTIONS, AND THE SECOND IS THE USEFUL ONE.
     had not yet seen.
 """
 from __future__ import annotations
+import ast
 
 import re
 from pathlib import Path
@@ -151,6 +152,20 @@ RESERVED: dict[str, dict[int, str]] = {
     # declared at once, which is the failure the neighbouring test exists for.
     # Verified against origin/main rather than against the local `main` ref, which
     # in a shared worktree is whatever the last session left behind.
+    #
+    # AND IT CANNOT HAPPEN AGAIN, WHICH IS WHAT THIS BRANCH ADDS.
+    # `test_the_reservation_table_has_no_shadowed_rows` reads this file with `ast` and
+    # reports any key a later key hides -- at BOTH levels, because there are two shapes
+    # and the first version of that guard only saw one. A register key written twice puts
+    # one dict beside another; a ROW written twice inside one dict discards a single
+    # reservation, reads as an edit that took, and keeps the OLDER copy. Measured
+    # 2026-09-02: `main` carried the first and a sibling branch carried the second.
+    #
+    # 82 IS NOT RESERVED HERE, AND THAT IS THE RULE ABOVE APPLIED TO THIS BRANCH. It was,
+    # for `claude/the-notice-supabase-is-owed` while this branch took R-83 over the top of
+    # it. #299 merged as `80659faa`, so R-82 is a declared heading and a reservation for it
+    # would be the contradiction the neighbouring test refuses. The row went out in this
+    # rebase, which is the moment the table's own instruction names.
     "R": {46: "branch claude/drive-without-a-server"},
     # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
     # not on this one, which is the state this table is for -- and being handed a
@@ -492,6 +507,62 @@ def test_every_retired_number_names_what_replaced_it():
             assert re.search(r"\b(R|REQ|OP|DEC)-\d+", note), (
                 f"{prefix}-{number:02d} is retired with the note {note!r}, which names no "
                 "replacement. Say what took its place.")
+
+
+def _shadowed_keys(source: str, name: str) -> list[str]:
+    """Every key in the literal assigned to `name` that a later key of the same value
+    hides. Read from the SOURCE, because the dict object cannot report it: by the time
+    Python has built it the loser is gone without a trace."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        target = getattr(node, "target", None)
+        if not (isinstance(node, ast.AnnAssign) and isinstance(target, ast.Name)
+                and target.id == name):
+            continue
+        seen, shadowed = set(), []
+        for key in node.value.keys:                       # type: ignore[union-attr]
+            literal = ast.literal_eval(key)               # type: ignore[arg-type]
+            if literal in seen:
+                shadowed.append(literal)
+            seen.add(literal)
+        return shadowed
+    raise AssertionError(f"no annotated assignment to {name} in this file")
+
+
+def test_the_reservation_table_has_no_shadowed_rows():
+    """A DUPLICATE KEY IN THESE TABLES DELETES ROWS IN SILENCE, and it happened.
+
+    `origin/main`’s `RESERVED` carried `"R"` twice for eight days. The first entry held 46 and 80 with a
+    verified ref and an instruction to delete itself when #293 merged; the second held 46
+    alone, written as a new entry rather than an edit when 79 was released. Python keeps
+    the last, so the R-80 row never existed at runtime -- and `#293` merged, `R-80` became
+    a heading, and `test_a_reserved_number_is_not_also_declared` stayed green because the
+    contradiction it looks for was in a row that had already been thrown away.
+
+    THIS IS NOT A STYLE RULE. Every other test in this file reads the built dicts, so all
+    of them are blind to it in exactly the same way; the check has to read the source.
+    """
+    for table in ("RESERVED", "RETIRED"):
+        shadowed = _shadowed_keys(Path(__file__).read_text(encoding="utf-8"), table)
+        assert not shadowed, (
+            f"{table} declares {shadowed} more than once. Python keeps only the last "
+            "entry, so every row under the earlier one is discarded without an error. "
+            "Merge them into a single entry per register.")
+
+
+def test_a_shadowed_row_would_actually_be_caught():
+    """THE GUARD ABOVE, MUTATED. It reads source rather than a value, so a parser that
+    quietly stopped finding the assignment would make it vacuous -- and vacuous is the
+    precise failure it was written for."""
+    rows = ['X: dict[str, dict[int, str]] = {',
+            '    "R": {46: "a"},',
+            '    "R": {46: "a", 80: "b"},',
+            '    "REQ": {34: "c"},',
+            '}']
+
+    assert _shadowed_keys(chr(10).join(rows), "X") == ["R"]
+    assert _shadowed_keys(chr(10).join(rows[:1] + rows[2:]), "X") == []
+
 
 
 def test_a_duplicate_would_actually_be_caught(tmp_path: Path):

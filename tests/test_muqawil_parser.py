@@ -173,15 +173,18 @@ def test_the_address_has_no_english_half_so_it_gets_no_pair(english, arabic):
     assert "address_ar" not in merged
 
 
-def test_pages_that_disagree_about_their_shape_are_refused(english, arabic):
-    """Zipping to the shorter of the two would attach the wrong Arabic value to
-    every field after the divergence — and a wrong value is worse than a missing
-    one in a table whose whole purpose is to be believed."""
+def test_a_known_arabic_omission_keeps_the_english_field(english, arabic):
+    """Dropping Arabic City used to discard the whole profile. The known-label
+    subsequence now proves the omission: English City remains, `city_ar` is absent,
+    and Region after the gap still lands in its own Arabic column."""
     short = read_profile(html("profile-ar.html").replace(
         '<div class="info-name">المدينة</div>', ""))
 
-    with pytest.raises(ValueError, match="attach the wrong Arabic value"):
-        merge_locales(english, short)
+    merged = merge_locales(english, short)
+
+    assert merged["city"] == english.fields["city"]
+    assert "city_ar" not in merged
+    assert merged["region_ar"] == "الرياض"
 
 
 def test_being_a_saudi_contractor_is_derived_and_never_read_twice(english, arabic):
@@ -254,7 +257,8 @@ def test_a_profile_becomes_a_candidate_the_approval_path_accepts():
     all, and therefore into a row.
     """
     from scrapex.extract.muqawil import (
-        PROFILE_FIELD_ORDER, bilingual_profile_candidate,
+        PROFILE_FIELD_ORDER,
+        bilingual_profile_candidate,
     )
 
     english, arabic = _profile_pair()

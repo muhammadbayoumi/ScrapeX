@@ -27,11 +27,12 @@ concluded no repair was possible. `merge_locales` reads `labels` and `values`. A
 those the gap is **±1 on all 129, never ±2**, and nothing is misaligned before the
 divergence. `LESSONS` §9 is about exactly this class of error; this is an instance.
 
-WHY NO ARABIC LABEL IS READ, STILL. `PROFILE_FIELDS` is ordered, so an English label's
-position in it IS its box's canonical position — which means the gap can be LOCATED
-from the English side alone. That property is worth more than the 129: the site spells
-`المنطقه` with `ه` where `ة` belongs, so a hand-written Arabic vocabulary would have to
-carry the site's own typo and would break the day they fix it.
+WHY THE ARABIC LABEL IS READ ONLY FOR THE OPPOSITE EIGHT. `PROFILE_FIELDS` is ordered,
+so an English omission can be located from the English side alone and the normal path
+never depends on Arabic spelling. The eight `(10, 9)` / `(11, 10)` pairs are different:
+Arabic omitted a box, so English order cannot locate it. Their fallback accepts only an
+explicitly observed Arabic label sequence equal to English minus one label. Unknown,
+repeated or reordered labels still refuse the pair.
 
 THE FIXTURES ARE REAL PAGES, cut down to the block the parser reads — the info-box
 block IS the defect, so a synthetic fixture with the right counts could prove a counter
@@ -61,6 +62,11 @@ from scrapex.extract.muqawil import (
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures" / "muqawil"
 CANON = list(PROFILE_FIELDS)
+ARABIC_CANON = (
+    "رقم العضويه", "العضوية", "عضو منذ", "حجم المنشأة",
+    "عدد الساعات التدريبية", "رقم جوال المنشأة",
+    "البريد الإلكتروني للمنشأة", "المدينة", "المنطقه", "العنوان", "الخدمة",
+)
 
 #: The contractor each fixture pair is really about, so `read_profile`'s layer-1
 #: check is exercised on the same path production takes.
@@ -166,14 +172,94 @@ def _reading(labels: tuple[str, ...]) -> Reading:
                    values=tuple(f"v{index}" for index in range(len(labels))))
 
 
-def test_arabic_being_the_shorter_side_is_refused():
-    """EIGHT REAL PAGES. Which box ARABIC dropped is precisely what reading no Arabic
-    label leaves unknowable, and guessing would put a value one column out."""
+def test_shorter_arabic_with_unknown_labels_is_refused():
+    """A shorter side earns no guess. The eight real pages are recoverable only
+    because their labels are known; an unknown spelling leaves the omission
+    unknowable and still refuses the pair."""
     english = _reading(tuple(CANON[:10]))
     arabic = _reading(tuple(f"ar{index}" for index in range(9)))
     assert align_locales(english, arabic) is None
     with pytest.raises(ValueError, match="cannot be lined up"):
         merge_locales(english, arabic)
+
+
+def test_shorter_arabic_can_omit_the_trailing_address_without_losing_the_profile():
+    """SEVEN REAL PAGES. Arabic stops after Region while English publishes Address.
+    Every carried Arabic label is the exact known prefix, so its translations are
+    usable and the English-only address remains the authoritative base fact."""
+    english_values = (
+        "10001067", "Saudi Contractor", "2018/08/25", "Big Company Size", "0 h",
+        "0126600505", "[email protected]", "JEDDAH", "Makkah", "English address",
+    )
+    arabic_values = (
+        "10001067", "مقاول سعودي", "2018/08/25", "منشأة كبيرة", "0 س",
+        "0126600505", "[email protected]", "جدة", "مكة المكرمة",
+    )
+    english = Reading(
+        fields={PROFILE_FIELDS[label]: english_values[index]
+                for index, label in enumerate(CANON[:10])},
+        labels=tuple(CANON[:10]), values=english_values,
+    )
+    arabic = Reading(fields={}, labels=ARABIC_CANON[:9], values=arabic_values)
+
+    lined = align_locales(english, arabic)
+    assert lined is not None
+    assert lined.arabic_of == {index: index for index in range(9)}
+    assert 9 not in lined.arabic_of
+
+    merged = merge_locales(english, arabic)
+    assert merged["address"] == "English address"
+    assert merged["city_ar"] == "جدة"
+    assert merged["region_ar"] == "مكة المكرمة"
+    assert "address_ar" not in merged
+
+
+def test_shorter_arabic_activity_is_shifted_around_its_missing_address():
+    """THE EIGHTH REAL SHAPE. Arabic omits Address but retains `الخدمة` (Activity),
+    so its final value belongs to English index 10, not index 9. The strict label
+    sequence proves that shift instead of inferring it from the count."""
+    english_values = (
+        "20002048", "Non-Saudi Contractor", "2018/08/25", "Big Company Size", "0 h",
+        "920011401", "[email protected]", "JEDDAH", "Makkah",
+        "English address", "professional buildings",
+    )
+    arabic_values = (
+        "20002048", "مقاول غير سعودي", "2018/08/25", "منشأة كبيرة", "0 س",
+        "920011401", "[email protected]", "جدة", "مكة المكرمة", "المباني المهنية",
+    )
+    english = Reading(
+        fields={PROFILE_FIELDS[label]: english_values[index]
+                for index, label in enumerate(CANON)},
+        labels=tuple(CANON), values=english_values,
+    )
+    arabic = Reading(
+        fields={}, labels=(*ARABIC_CANON[:9], ARABIC_CANON[10]),
+        values=arabic_values,
+    )
+
+    lined = align_locales(english, arabic)
+    assert lined is not None
+    assert lined.arabic_of == {
+        **{index: index for index in range(9)},
+        10: 9,
+    }
+    assert 9 not in lined.arabic_of
+
+    merged = merge_locales(english, arabic)
+    assert merged["address"] == "English address"
+    assert merged["activity"] == "professional buildings"
+    assert merged["activity_ar"] == "المباني المهنية"
+    assert merged["region_ar"] == "مكة المكرمة"
+
+
+def test_shorter_arabic_known_labels_out_of_order_are_refused():
+    """Known words are not enough: their sequence is the evidence. Swapping City and
+    Region must not turn a familiar vocabulary into a wrong alignment."""
+    labels = list(ARABIC_CANON[:9])
+    labels[7], labels[8] = labels[8], labels[7]
+    assert align_locales(
+        _reading(tuple(CANON[:10])), _reading(tuple(labels))
+    ) is None
 
 
 def test_a_gap_of_two_is_refused():
