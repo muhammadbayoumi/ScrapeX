@@ -786,7 +786,8 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
 
 # ---- --approve: interpret what is on disk, re-fetching nothing ---------------
 
-def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
+def _pairs(conn, run_ref: str, *,
+           ids: tuple[str, ...] = ()) -> dict[str, dict[str, tuple[int, str]]]:
     """The stored pages of this run, grouped so each page's two locales meet.
 
     KEYED ON THE URL WITH THE LOCALE TAKEN OUT, so `en?region_id=1&page=7` and
@@ -808,6 +809,7 @@ def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
     # disk while 1,424 pages sat on it.
     pattern = escaped + "-%"
     found: dict[str, dict[str, tuple[int, str]]] = {}
+    wanted = set(ids)
     rows = conn.execute(
         "SELECT page_snapshot_id, source_url, html_content, html_codec, html_dict_id "
         "  FROM generic_page_snapshot "
@@ -815,6 +817,12 @@ def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
         " ORDER BY page_snapshot_id", (pattern, run_ref))
     for row in rows:
         url = row["source_url"]
+        # A TARGETED APPROVAL MUST BE TARGETED BEFORE DECODE. Apart from avoiding
+        # 34,818 needless snapshot inflations, this makes it impossible for a
+        # listing page or a neighbouring profile to enter the write loop merely
+        # because it shares the run-ref with the requested ids.
+        if wanted and _contractor_of(url) not in wanted:
+            continue
         for locale in ("en", "ar"):
             marker = f"/{locale}/contractors"
             if marker in url:
@@ -1262,9 +1270,18 @@ def _listing_membership_numbers(conn) -> dict[str, str]:
     return numbers
 
 
-def approve(conn, directory: Directory, run_ref: str) -> None:
-    pairs = _pairs(conn, run_ref)
-    say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
+def approve(conn, directory: Directory, run_ref: str, *,
+            ids: tuple[str, ...] = ()) -> None:
+    pairs = _pairs(conn, run_ref, ids=ids)
+    if ids:
+        present = {_contractor_of(key) for key in pairs}
+        missing = [one for one in ids if one not in present]
+        if missing:
+            _refuse("--ids asked approval for profile snapshots this run does not "
+                    f"carry: {', '.join(missing)}. Nothing was written")
+        say(f"targeted approve {run_ref}: {len(pairs)} named profile page(s) on disk")
+    else:
+        say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
     made = 0
     recovered = 0
     reparsed = 0
@@ -1482,9 +1499,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # questions — was it supplied, and is its content usable — stop competing for one
     # variable.
     parser.add_argument("--ids", default=None,
-                       help="with --details, fetch ONLY these contractor ids, "
-                            "comma-separated. This is how a row written from the "
-                            "wrong page is re-fetched (OP-64); the registered scope "
+                       help="with --details or --approve, act on ONLY these "
+                            "contractor ids, comma-separated. This is how a row "
+                            "written from the wrong page is re-fetched or a stored "
+                            "repair is re-approved (OP-64); the registered scope "
                             "is not consulted")
     parser.add_argument("--impostors", action="store_true",
                        help="OP-64: list profile rows whose membership number "
@@ -1569,9 +1587,9 @@ def validate(args: argparse.Namespace) -> None:
     # to repair reads as a request that was honoured.
     # REFUSED RATHER THAN IGNORED, for the same reason as `--repair`: `--ids` without
     # `--details` names work nothing will do.
-    if args.ids is not None and not args.details:
-        _refuse("--ids only means something with --details, which is what fetches "
-                "profile pages")
+    if args.ids is not None and not (args.details or args.approve):
+        _refuse("--ids only means something with --details or --approve, which "
+                "fetches or interprets named profile pages")
     if args.repair and not (args.impostors or args.reapprove_schema):
         _refuse("--repair has no meaning without --impostors, which is what finds "
                 "the rows it would retire")
@@ -1594,6 +1612,7 @@ def run(args: argparse.Namespace) -> int:
 
     conn = open_engine()
     try:
+        named = _named_ids(args.ids) if args.ids is not None else ()
         if args.crawl:
             fetcher, fetch = make_fetch(args.pace)
             # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
@@ -1635,12 +1654,11 @@ def run(args: argparse.Namespace) -> int:
             # about the FLAG. With `default=None` above, the flag answers for itself
             # and `_named_ids` judges the content — including `""`, which names
             # nobody and is refused like any other empty list.
-            named = _named_ids(args.ids) if args.ids is not None else ()
             details(conn, directory, fetch, fetcher, args.run_ref,
                     ceiling=args.ceiling, workers=args.workers, connect=factory,
                     ids=named)
         if args.approve:
-            approve(conn, directory, args.run_ref)
+            approve(conn, directory, args.run_ref, ids=named)
         if args.impostors:
             disown_impostors(conn, directory, dry_run=not args.repair)
         if args.reapprove_schema:

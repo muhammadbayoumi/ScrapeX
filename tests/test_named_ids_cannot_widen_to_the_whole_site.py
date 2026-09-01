@@ -25,10 +25,12 @@ three states.
 """
 from __future__ import annotations
 
+import argparse
+from types import SimpleNamespace
+
 import pytest
 
 from scrapex import contractors
-
 
 # ---- what a usable list looks like ------------------------------------------
 
@@ -109,12 +111,6 @@ def test_the_empty_refusal_says_what_falling_through_would_have_done(capsys):
 # suite green — three of the five states, undetectable. The tests below drive
 # `contractors.run` through the real parser and assert on what `details` was handed.
 
-import argparse
-from types import SimpleNamespace
-
-import pytest
-
-
 @pytest.fixture
 def parsed():
     """The real parser, so `default=` is under test and not restated here."""
@@ -125,16 +121,21 @@ def parsed():
 
 @pytest.fixture
 def handed(monkeypatch):
-    """`run` stubbed down to the one decision under test: what reached `details`."""
+    """`run` stubbed down to the decisions under test: which ids reach each mode."""
     seen: dict = {}
 
     def _details(conn, directory, fetch, fetcher, run_ref, **kw):
         seen["ids"] = kw.get("ids")
 
+    def _approve(conn, directory, run_ref, **kw):
+        seen["approve_ids"] = kw.get("ids")
+
     monkeypatch.setattr(contractors, "details", _details)
+    monkeypatch.setattr(contractors, "approve", _approve)
     monkeypatch.setattr(contractors, "open_engine", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(contractors, "get_directory", lambda key: SimpleNamespace(key="muqawil_org"))
     monkeypatch.setattr(contractors, "make_fetch", lambda pace: (None, None))
+    monkeypatch.setattr(contractors, "say", lambda message: None)
     return seen
 
 
@@ -165,6 +166,12 @@ def test_named_ids_reach_details_unchanged(parsed, handed):
     contractors.run(parsed.parse_args(
         ["--details", "--run-ref", "R", "--ids", "881, 20074580"]))
     assert handed["ids"] == ("881", "20074580")
+
+
+def test_named_ids_reach_approve_unchanged(parsed, handed):
+    contractors.run(parsed.parse_args(
+        ["--approve", "--run-ref", "R", "--ids", "1089, 2079"]))
+    assert handed["approve_ids"] == ("1089", "2079")
 
 
 def test_a_typed_empty_ids_without_details_is_still_refused(parsed):
