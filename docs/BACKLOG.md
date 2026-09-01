@@ -2553,7 +2553,7 @@ dict whose insertion order is not the page's, because `read_profile` adds
 `organization_email` and `commercial_registration` after the info-box loop.
 `merge_locales` reads `english.labels[index]` and — since `R-51` — the Arabic value at
 the position `align_locales` works out
-([scrapex/extract/muqawil.py:1749](../scrapex/extract/muqawil.py#L1749)). Re-measured
+([scrapex/extract/muqawil.py:1818](../scrapex/extract/muqawil.py#L1818)). Re-measured
 against **those**:
 
 | pages | shape | the last label on each side | is the odd box at the END? |
@@ -2590,7 +2590,7 @@ that gap. Measured over all 188:
 | count | outcome under the canonical-position repair |
 |---:|---|
 | **121** | **recoverable** — Arabic is the longer side, so the gap is deducible from English |
-| **8** | refused — Arabic is the SHORTER side, and which field *it* dropped cannot be deduced without reading an Arabic label |
+| **8** | **recoverable under R-80** — Arabic is the shorter side, and its observed labels identify the single omitted field without shifting later values |
 | 59 | untouched — layer 1 still refuses them, and rightly (`OP-64`) |
 
 **Why this preserves the property the current code is built on.** `merge_locales`'s docstring
@@ -2627,10 +2627,10 @@ network requests**:
 | re-parsed with NEW values | **0** — not one already-approved row was rewritten |
 | rows where `activity_ar` equals `address` | **0** — the corruption a tail-drop would have caused, on the whole table and not just the new rows |
 
-The 67 that remain are the floor this repair cannot lower: 59 need a page the site no
-longer serves, and 8 need an Arabic label read. `REQ-42` owns the 59. The 59 belong
-to `REQ-42` (a withdrawn contractor entered with a state that says so) and are separate
-from this.
+That run's 67-row residue was its historical result: 59 need a page the site no longer
+serves, and 8 needed an Arabic-label-aware repair. **R-80 now builds that narrow repair**
+for the eight measured shapes. The warehouse remains unchanged until their stored snapshots
+are re-approved; after that, the irrecoverable floor is the 59 dead ids owned by `REQ-42`.
 
 ### OP-65 · A snapshot records the URL we ASKED for, never the one we landed on
 

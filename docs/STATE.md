@@ -257,6 +257,14 @@ unchanged and wrote nothing, and **0 were re-parsed with new values**: not one
 already-approved row was rewritten. Checked across the whole table, **0 rows** have
 `activity_ar` equal to `address`, which is the corruption a tail-drop would have caused.
 
+**Superseded for the final eight on 2026-09-01 by
+[R-80](RULINGS.md#r-80--a-known-arabic-omission-loses-one-locale-value-not-the-whole-profile).**
+Their Arabic pages all omit `Address`: seven stop after `Region`, while contractor `2079`
+continues with `Activity`. A strict observed-label fallback now identifies that one omission,
+keeps every correctly aligned value, and replays all eight stored pairs as 27-field profiles
+with no warning. This is code state, not yet warehouse state: those eight remain absent until
+their snapshots are re-approved after the running enrichment job.
+
 A refresh crawl is a question about FRESHNESS — the listing is from 2026-08-21 — and not
 about coverage. The 148-and-35 reconciliation below was measured mid-crawl; the 35 became
 188 as the profile crawl reached the rest of the listing while the parser refused this
