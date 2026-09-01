@@ -17,6 +17,17 @@ class ProviderName(StrEnum):
     LINKEDIN = "linkedin"
 
 
+class EnrichmentRunMode(StrEnum):
+    UPDATE = "update"
+    COMPLETE = "complete"
+
+
+class EnrichmentRunCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: EnrichmentRunMode = EnrichmentRunMode.UPDATE
+
+
 FIELD_ROLES = (
     "company_name",
     "company_name_ar",
