@@ -2120,8 +2120,10 @@ only, exactly as before.
 their address**, a field the English page cannot supply for anyone. The other 97 recover
 as rows without the extra box's value, because English omits *two* boxes there and which
 one Arabic carries cannot be told apart — so it is dropped rather than filed under a
-guess. **Eight stay refused**: Arabic is the shorter side, and which box *Arabic* dropped
-is precisely what reading no Arabic label leaves unknowable.
+guess. **Eight stayed refused in this implementation**: Arabic is the shorter side, and
+which box *Arabic* dropped is precisely what reading no Arabic label leaves unknowable.
+**R-80 supersedes only that final-eight case** with a strict observed-label fallback after
+the eight pages themselves made the omission measurable.
 
 **Guarded by** `tests/test_the_two_locales_line_up_around_a_missing_box.py`, on two real
 page pairs committed as fixtures, and mutation-tested on eleven branches — including each
@@ -3342,3 +3344,36 @@ coverage either.
 raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
 move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
 in the palette, never a reason to lower a threshold.**
+
+---
+
+### R-80 · A known Arabic omission loses one locale value, not the whole profile
+
+**Ruled 2026-09-01.** After the profile refresh left eight locale mismatches, he asked to
+locate the exact differences and then ruled: **«نفذ الاصلاح»** — keep the information that
+is right and ignore only the missing value so nothing else is lost.
+
+The eight are not ambiguous once measured against their stored English and Arabic pages:
+Arabic omits `Address` on every one. Seven Arabic pages end at `Region`; contractor `2079`
+continues with `Activity`, so a positional zip would shift that value into `Address`. The
+correct result is a profile with the English address preserved, no invented `address_ar`,
+and every later bilingual value still paired with its own field.
+
+This does **not** replace `R-51`'s label-independent normal path. It adds one conservative
+fallback only when Arabic is shorter by exactly one box. The English labels must be the
+known canonical sequence, unique and ordered; every Arabic label must match the site's
+observed vocabulary, be unique, and form that same sequence with exactly one field omitted.
+An unknown spelling, duplicate, reorder, or any other count difference still refuses the
+whole merge. Thus the fallback uses an Arabic label only to prove the exceptional gap; it
+never guesses from a value or silently zips unequal arrays.
+
+Replaying the eight real stored pairs through the repaired parser approves **8 of 8**, each
+with the stable 27-field schema and no warning. Seven exercise the trailing omission and
+`2079` proves the interior shift: both `activity` and `activity_ar` survive while only the
+missing Arabic address is absent. The 177 ids rejected by the new crawl because the site
+returned its listing page remain rejected; this ruling cannot manufacture a dead profile.
+
+The repair changes code before it changes the warehouse. The running Organization
+Enrichment job has an immutable input snapshot and cannot see a later re-approval. Apply the
+eight recovered profiles after that job finishes, then run the update enrichment so only the
+newly available profile facts enter the next snapshot.
