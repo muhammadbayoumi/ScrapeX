@@ -708,7 +708,7 @@ anyway is not a resume."* The implementation checks the resume in the wrong plac
 
 ```
 scrapex/snapshotcrawl.py:154   def store(page: FetchedPage) -> None:
-scrapex/snapshotcrawl.py:169       if page.url in seen:
+scrapex/snapshotcrawl.py:180       if page.url in seen:
 ```
 
 `store` is the walker's `on_page`, and `PageWalker.walk` calls it **after**
@@ -4298,6 +4298,31 @@ its own first line) and a row whose reason was too thin to be a reason.
 
 ### OP-118 · A registry source's `crawl_scope` has no door — not in the panel, not in the API
 
+> **CORRECTED 2026-09-02, AND THE BLOCKAGE IS GONE.** The paragraph below calls the refusal
+> *correct* and repeats the module's own reason for it. **That reason was measurably false.**
+> `crawl_partition` passes `listing_phase_only=True` to the walker unconditionally and the
+> walker short-circuits on that flag *before* it consults the scope, so a detail page could
+> never be fetched from there under any registration. Bypassing only the gate, with the row
+> still reading `full_then_listing`, a real cell crawl fetched **9 listing pages, 0 detail
+> pages** and closed provably complete — and the fixture raises on a URL with no `?page=`,
+> so one detail attempt would have crashed rather than been miscounted.
+>
+> So the refusal never prevented the ~40,000 requests; it prevented
+> `full_then_listing`'s own second phase — *"then the listing catches the changes"*, the
+> half its name is about — from running at all. **It is gone**, replaced by
+> `test_the_listing_phase_fetches_no_detail_page_under_any_scope`, which asserts the
+> behaviour over all three scopes and reddens on the mutation the refusal could not see:
+> `listing_phase_only=False`.
+>
+> **Ask 3 below survives and gets sharper.** The scope moved from `listing_plus_slice` to
+> `full_then_listing` as data, against `R-39`, with nothing comparing the two — that is
+> still true and still unguarded. **Asks 1 and 2 lose their urgency, not their point**: the
+> reason he needed a write was the refusal, and there is nothing to change now to start a
+> listing crawl.
+>
+> The original text is kept below rather than edited, per `C4`: a register that quietly
+> replaces a wrong reason with a right one teaches nobody why the check was there.
+
 **Found 2026-08-30 while running his listing crawl on his behalf, and it stopped the crawl.**
 
 `crawl_partition` refuses any scope that is not `listing_only`, and refuses rather than
@@ -4335,6 +4360,46 @@ compares the two.
    his own crawl this afternoon instead of asking a session to.
 3. **A guard that a ruling's registered value still holds**, which is the general form and
    the one that would have caught this in August rather than today.
+
+---
+
+### OP-121 · A whole-crawl check standing over one phase of it, in three places
+
+**Found 2026-09-02 while removing the scope refusal `OP-118` recorded.** Writing the
+replacement guard over all three scopes turned one of them red for a reason that had nothing
+to do with the scope gate:
+
+```
+scrapex/crawlscope.py:97       raise SliceRequired(...)                              -- the refusal, unchanged
+scrapex/snapshotcrawl.py:164   phase_scope = CrawlScope.LISTING_ONLY if listing_phase_only else scope
+scrapex/snapshotcrawl.py:165   intended = plan(phase_scope, ...)                     -- was plan(scope, ...)
+scrapex/pagewalk.py:114        plan_scope(CrawlScope.LISTING_ONLY if listing_phase_only else scope, ...)
+```
+
+Those three numbers are **the repair's**, re-derived by content after it landed: the two
+plan calls moved by eleven and seven lines, so the lines the defect sat on now hold comments.
+
+**A partitioned listing crawl of a site registered `listing_plus_slice` with no slice died
+before its first request**, on a demand it could not act on: under `listing_phase_only` the
+walker never reaches `_details_wanted`, so a slice is never consulted. `SliceRequired`'s own
+reasoning is right — *"the only honest reading is 'every detail page'"* — and it is
+reasoning about a WHOLE crawl, asked of one phase that has no detail pages in it.
+
+**And the same mistake was costing a second thing quietly.** `plan(...)` feeds
+`declare_frontier(fetcher, intended.requests)`, the progress denominator. Under
+`listing_phase_only` it was declaring the registered scope's detail pages too, so progress
+on a `full_then_listing` source could only ever stall at a fraction it can never close.
+`crawl_partition` passes `fetcher=None`, which is why nobody had seen it.
+
+**Fixed** by asking about the phase rather than the registration —
+`CrawlScope.LISTING_ONLY if listing_phase_only else scope` — in both places. The scope still
+comes from the database and only from there; what changed is which question is put to it.
+
+**THE GENERAL FORM, and it is the third instance in one afternoon.** `listing_phase_only`
+was added on 2026-08-21 to stop a live `crawl_scope` change from breaking a running crawl,
+and it fixed the walker. **Three checks above the walker were never revisited** — the scope
+refusal, and these two plan calls. A flag that narrows what a run DOES has to be carried to
+everything that reasons about what the run WILL do, and nothing enumerates those callers.
 
 ---
 

@@ -151,7 +151,18 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
     # it now means the refusal costs nothing instead of arriving after fourteen
     # minutes of listing pages. The walker asks it again for itself; that is
     # deliberate duplication of a CHECK, never of the rule.
-    intended = plan(scope, listing_pages=listing_pages,
+    #
+    # AND THE PHASE DECIDES WHICH PLAN IS BEING MADE. `listing_phase_only` means no
+    # detail page will be fetched, so planning the registered scope's detail pages
+    # would declare a frontier this run cannot reach -- progress stalling at a
+    # fraction it can never close. It also asked `SliceRequired` a question the phase
+    # does not have: measured 2026-09-02, a partitioned listing crawl of a site
+    # registered `listing_plus_slice` with no slice raised "listing_plus_slice needs
+    # the slice named" out of a run that was never going to look at a slice. Same
+    # shape as the scope refusal `partitioncrawl` dropped the same day -- a
+    # whole-crawl check standing over one phase of it.
+    phase_scope = CrawlScope.LISTING_ONLY if listing_phase_only else scope
+    intended = plan(phase_scope, listing_pages=listing_pages,
                     detail_pages=detail_pages, slice_pages=slice_pages,
                     slice_of=slice_of)
     declare_frontier(fetcher, intended.requests)

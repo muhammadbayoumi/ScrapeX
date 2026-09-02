@@ -35,7 +35,6 @@ from scrapex.pagesource import WHOLE, Cell
 from scrapex.partitioncrawl import (
     DRY_ATTEMPTS,
     NotASubdivision,
-    ScopeNotPartitionable,
     crawl_partition,
     size_cell,
     witness,
@@ -78,6 +77,13 @@ class Directory:
 
     def fetch(self, url: str) -> str:
         self.fetched.append(url)
+        if "?" not in url:
+            # A DETAIL PAGE, SERVED RATHER THAN REFUSED. The fixture used to parse
+            # `?page=` unconditionally and died on a profile URL with an IndexError,
+            # which reddens a test without telling its reader what happened. Serving
+            # it means the assertion that counts detail fetches is what speaks.
+            self._noise += 1
+            return f"<html><!-- profile {self._noise} -->{url}</html>"
         query = url.split("?", 1)[1]
         parts = dict(pair.split("=", 1) for pair in query.split("&"))
         number = int(parts.pop("page"))
@@ -137,7 +143,16 @@ class _CellSource:
                     base_url, locale=locale, page=page, cell=self._cell)
 
     def detail_urls(self, page):
-        return ()
+        """The row links this page published, which the listing HTML already carries.
+
+        IT RETURNED `()` UNTIL 2026-09-02 AND THAT MADE A GUARD VACUOUS. With no
+        detail URL to yield, `_details_wanted` can produce nothing, so
+        `test_the_listing_phase_fetches_no_detail_page_under_any_scope` passed under
+        the very mutation it exists to catch -- `listing_phase_only=False` in
+        `partitioncrawl`. Every other test here reaches the walker through
+        `crawl_partition`, which is the listing phase, so nothing else reads this.
+        """
+        return tuple(re.findall(r'href="(/en/row/[^"]+)"', page.html))
 
     def belongs_to_slice(self, page, row_index, slice_of):
         return True
@@ -560,18 +575,51 @@ def test_a_cell_above_the_witness_ceiling_is_read_once_and_says_so(conn):
 
 # ---- the scope, which is the owner's and comes from the database -------------
 
-def test_a_scope_a_listing_partition_cannot_honour_is_refused(conn):
-    """REFUSED BEFORE THE FIRST REQUEST, and never narrowed. Under
-    `full_then_listing` this crawl would fetch a detail page for every row it
-    read: a run priced at ~2,000 requests becomes ~40,000 and takes a day."""
-    register(conn, scope="full_then_listing")
-    directory = Directory({"whole": ["1"], "region_id_1": ["1"]})
+@pytest.mark.parametrize("scope", ["listing_only", "listing_plus_slice",
+                                   "full_then_listing"])
+def test_the_listing_phase_fetches_no_detail_page_under_any_scope(conn, scope):
+    """THIS REPLACES A REFUSAL, AND IT IS THE PROPERTY THAT REFUSAL STOOD IN FOR.
+
+    Until 2026-09-02 `crawl_partition` refused anything but `listing_only`, and the
+    reason it gave was that under `full_then_listing` it "would fetch a detail page for
+    every row it read: a run priced at ~2,000 requests becomes ~40,000 and takes a day."
+
+    **That was measurably false when it was written.** `crawl_partition` passes
+    `listing_phase_only=True` to the walker unconditionally, and `pagewalk` short-circuits
+    on that flag BEFORE it consults the scope. Bypassing only the gate, with the row still
+    reading `full_then_listing`, a real cell crawl fetched 9 listing pages, 0 detail pages,
+    and closed provably complete.
+
+    What the refusal actually cost was a door: `full_then_listing` means "one founding
+    crawl of everything, then the listing catches the changes", and the listing half --
+    the half its name is about -- could not be run at all. The owner's muqawil
+    registration is `full_then_listing`, and the only route offered was editing
+    `source_site.crawl_scope` and editing it back, because the detail crawl reads the same
+    column.
+
+    SO THE ASSERTION MOVED FROM THE CONFIGURATION TO THE BEHAVIOUR, over all three
+    scopes. The refusal could not have caught a change that dropped `listing_phase_only`;
+    this does, and that flag is the only thing keeping this module inside its phase.
+    """
+    register(conn, scope=scope)
+    ids = [str(n) for n in range(1, 9)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
     partition = Partition(directory, cells=(cell(region_id=1),))
 
-    with pytest.raises(ScopeNotPartitionable) as raised:
-        run(conn, partition, directory)
-    assert "full_then_listing" in str(raised.value)
-    assert not directory.fetched, "and it cost nothing to refuse"
+    outcome = run(conn, partition, directory)
+
+    # THE FAKE SITE IS THE WITNESS, not the arithmetic. `Directory.fetch` parses
+    # `?page=` out of the query, and a detail URL -- `/en/row/3/143` -- has no query at
+    # all, so a single detail attempt raises rather than being quietly counted as a page.
+    detail = [url for url in directory.fetched if "page=" not in url]
+    assert not detail, (
+        f"registered {scope!r} and this crawl fetched {len(detail)} detail page(s): "
+        f"{detail[:3]} -- `listing_phase_only` is no longer holding, and the listing "
+        "phase has silently become a full crawl")
+    assert directory.fetched, "it fetched nothing at all, so it proves nothing"
+    assert outcome.cells[0].provably_complete, (
+        f"the cell did not close under {scope!r}, so this asserts nothing about a "
+        "crawl that works")
 
 
 # ---- arrivals, and a parse that must not look like a dead page ---------------

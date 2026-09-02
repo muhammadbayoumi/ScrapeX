@@ -205,8 +205,8 @@ PINNED = (
     # a reader sent one line off reads `store`'s docstring, agrees with it, and
     # concludes the entry is wrong. If someone moves this check into the walk, the
     # entry is answered and this row should go with it.
-    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 169, "if page.url in seen:"),
-    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 169, "if page.url in seen:"),
+    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 180, "if page.url in seen:"),
+    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 180, "if page.url in seen:"),
     # OP-22 / LESSONS §2 · one database, and where it is. That section described
     # the pre-collapse split layout in the present tense until 2026-08-20, so the
     # line naming the single file is worth holding still.

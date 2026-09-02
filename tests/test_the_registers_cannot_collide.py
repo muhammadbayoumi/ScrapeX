@@ -294,6 +294,25 @@ RESERVED: dict[str, dict[int, str]] = {
         # LAST duplicate key, so the guard stayed green and the file grew a copy
         # nobody read -- `LESSONS` section 3, a third time, inside the register
         # guard itself. De-duplicated 2026-09-02.
+        # 120, 122 AND 123 ARE HOLES THIS BRANCH CREATES by declaring OP-121 over them,
+        # and all three are VERIFIED AGAINST REFS rather than taken from the messages
+        # that announced them. Re-check before trusting; the commands are the check:
+        #   git show refs/remotes/origin/claude/the-drift-check-that-was-off:docs/BACKLOG.md | grep "^### OP-120"
+        #   git show refs/remotes/origin/claude/one-migration-plan-not-two:docs/BACKLOG.md | grep "^### OP-122"
+        #   git show refs/remotes/origin/claude/a-citation-nothing-reads:docs/BACKLOG.md | grep "^### OP-123"
+        # 121 IS THIS BRANCH'S OWN and is a heading in docs/BACKLOG.md, not a row here.
+        # DELETE EACH ROW THE DAY ITS PULL REQUEST LANDS -- a reservation left behind is a
+        # permanent hole nobody owns, which is the rule this table states about itself.
+        # 120 SURVIVES AS ONE ROW CARRYING BOTH SIDES' EVIDENCE. Two sessions
+        # reserved it and keep-both left two rows; the guard below reported
+        # `OP[120]` and the copy Python keeps is the lower one. Verified with
+        #   git show refs/remotes/origin/claude/the-drift-check-that-was-off:docs/BACKLOG.md | grep "### OP-120"
+        # at c6bdf813, and it now has PR #307 open, which the earlier row could
+        # not know. 121 and 122 are GONE: 121 is declared by this branch and 122
+        # landed with #306 (`3c2aaa0d`), so each was a number reserved AND
+        # declared -- the contradiction the neighbouring test refuses.
+        120: "branch claude/the-drift-check-that-was-off, PR #307, at c6bdf813",
+        123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
         45: "branch claude/drive-without-a-server",
         # 112 THROUGH 114 became holes when this branch declared OP-117.
         # 116's row was here and is GONE: #297 merged, so it is declared on
@@ -330,11 +349,6 @@ RESERVED: dict[str, dict[int, str]] = {
         # A sweep of every local and remote ref found OP-122 declared on none of them.
         #
         # Delete each row the day its branch merges.
-        120: "branch claude/the-drift-check-that-was-off (pushed, no PR yet)",
-        # 121's ref is LOCAL ONLY -- checked out in a sibling worktree, not on origin
-        # -- so `git ls-remote` would report the number free. `git branch -a` is the
-        # check that works here, because worktrees share one ref namespace.
-        121: "branch fix/the-listing-phase-has-a-door (local ref only, not pushed)",
         # 101 THROUGH 110 WERE RESERVED HERE AND THE ROWS ARE GONE, which is this
         # table's own rule applied to itself: `claude/design-system-review-d6787a`
         # merged, so the numbers are declared on `main` and a reservation for a
