@@ -307,11 +307,18 @@ test.
 **Found 2026-08-26.** [fields.py:162](../scrapex/fields.py#L162) builds `current` from a bare
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
-price-path rows inert lives **only on the read path**, at
-[app.py:2261](../scrapex/webui/app.py#L2261). So the eleven are invisible in the chooser and
+price-path rows inert lives **only on the read path**, in `_dataset_fields`
+([app.py:2287](../scrapex/webui/app.py#L2287)). So the eleven are invisible in the
+chooser and still occupy `display_order` slots whenever anything is reordered.
 
-[app.py:2291](../scrapex/webui/app.py#L2291). So the eleven are invisible in the chooser and
-still occupy `display_order` slots whenever anything is reordered.
+> **This paragraph carried that sentence TWICE, with two different line numbers, until
+> 2026-09-02** — the first copy citing `2261` and ending mid-clause on a dangling *"and"*.
+> On `origin/main`, `2261` was `def _general_write(fn):`, an unrelated function, so that
+> copy was the false one and it is deleted. The survivor names `_dataset_fields` rather
+> than a line of its docstring, because a named subject can be re-derived after a rebase.
+> **Third document with a keep-both duplication found the same afternoon** — `LESSONS`
+> §29's headerless table stub and `REQUESTS.md`'s duplicated `REQ-45` evidence table are
+> the other two, and none of the three was visible to any gate. `OP-125`.
 
 Depends on `OP-58`: whether those rows are deleted at all is his gate, since
 `COMPATIBILITY.md` puts a destructive migration behind his review.
