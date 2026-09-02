@@ -3382,12 +3382,13 @@ at all. A mechanism that is correct, visible, and load-bearing on nothing:
 | design review | `getComputedStyle` read against the `device` palette | **nothing.** It does not resolve a custom property, so `AccentColor` and `color-mix(...)` come back as literal TEXT and there is nothing to score |
 | Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
 | engine page | `test_the_web_page_offers_no_setting_to_change`, which mechanises an owner ruling | **nothing.** Its `_control_ids` regex matches `input\|select\|textarea`, so it cannot see a `<button>` -- and the nine ids it can see are exactly the nine on its own exemption list |
-| rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; `scrapex ui --db <path>` serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
+| design review, 2026-08-30 | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
+| rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; an engine started against an explicit database path serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
 
-**THREE OF THE EIGHT WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
+**THREE OF THE NINE WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
 rotted -- they held something once and their subject moved. **Rows 1, 5 and 7 never held
-anything.** Row 8 is neither, and it is the reason this section's closing claim had to be
-rewritten rather than extended -- see below.
+anything.** Rows 6, 8 and 9 are none of those three things, and row 9 is the reason this
+section's closing claim had to be rewritten rather than extended -- see below.
 
 > *(Row 6 arrived after this section was written, from the engine-page work. It is added
 > here rather than in a section of its own, and the counts above and below are moved with
@@ -3458,21 +3459,63 @@ were read off the captured output -- but the number was a true statement about t
 process. The fix is to record the status of the thing you meant to measure, in the artefact you
 will read: `echo "pytest exit=$?"` into the file itself.
 
-    row 8   a green   for the tree the run STARTED on
-    row 9   a route   in the configuration the guard always builds
-    tooling an exit 0 from the last process in the pipe
+**AND BY THE END OF THAT DAY THE TOOLING HAD SUPPLIED TWO MORE, WHICH IS WHAT MAKES THIS THE
+SECTION'S MOST GENERAL FINDING RATHER THAN A NOTE ABOUT GUARDS.** Every one is a true number
+about a subject nobody asked about:
 
-**All three are honest reports of the wrong subject, and no count anywhere would differ.** So
+    row 8    a green      for the tree the run STARTED on, not the branch reported
+    row 9    a route      in the configuration the guard always builds
+    `tail`   an exit 0    from the last process in the pipe, not from pytest
+    `grep -c` an exit 1   because it matched nothing -- which was the good news
+    `git diff --stat origin/main`   614 deletions   because `main` had MOVED, not
+                                                    because the branch deletes anything
+
+**The last two arrived while writing this paragraph.** `grep -cE "^FAILED" out/gate.txt` was the
+final command in a gate script, so a fully green run was announced as *failed with exit code 1*:
+zero matches is success to the person and failure to `grep`. And `git diff --stat origin/main`
+reported **614 deletions** on a branch whose real diff was 224 insertions and 56 deletions --
+truthful about a comparison against a `main` that had moved two merges ahead, and read as *"my
+change deletes 614 lines"*. **Neither was carelessness. Both are the same question unasked:
+which subject is this number about?**
+
+The fix is the same in all five: **record the status of the thing you meant to measure, in the
+artefact you will read** -- `echo "pytest exit=$?"` into the output file, `git diff --stat
+<your own base>` rather than a moving ref -- and never read a verdict off a wrapper that has
+its own opinion about success.
+
+**All of them are honest reports of the wrong subject, and no count anywhere would differ.** So
 the question the section closes on is not only *could this ever have failed* but **what exactly
 did this measure, and is it the thing the sentence beside it claims?**
- `LESSONS` §7 is the older half of
-this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
-that finds them is the one §18 already states: *if the thing it protects were broken right
-now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
 
-| Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
-| design review | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
-| rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; an engine started against an explicit database path serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
+**§7 IS THE OLDER HALF OF ALL OF THIS and §21 is the citation half**; what 2026-08-30 added is
+that **it is not rare**. The test that finds them is the one §18 already states: *if the thing
+it protects were broken right now, would this fail?* -- asked of the guard's SUBJECT and not of
+its assertion.
+
+> *(That sentence began mid-thought until 2026-09-02, and a three-row table stub with no header
+> sat immediately below it. Both were one keep-both merge resolution on 2026-08-30, in this
+> section, by the session that wrote the row it stranded: a paragraph was inserted INTO the
+> sentence, so its opening clause left with the other side, and the table's tail was kept twice
+> -- once in place and once as an orphan. **The stub's third row existed nowhere else**, so the
+> real table was one row short while the prose above it counted nine, and the numbers were the
+> only symptom. **A dangling half-sentence and an unheaded table are what a keep-both looks
+> like a day later.**
+>
+> **AND THE FORMAT MADE THE MISTAKE AVAILABLE, which matters more than the reader who took
+> it.** The first account of this said the resolution was made by someone who had not read what
+> the other side's rows were for -- true, and useless as a lesson, because the remedy it implies
+> is *read harder*, which is exactly what both sessions involved were already trying. **A
+> markdown table has no closing marker.** A row is a line beginning with a pipe; a header is a
+> separator line; and a run of rows with neither, a hundred lines below the table it came from,
+> **is not distinguishable from a table by looking** -- not to a reader scanning for "the
+> table", and not to any tool that reads the document as prose. So a resolution that keeps both
+> sides of a table's tail produces something that renders, passes every gate, and reads as
+> deliberate. **The reader is not the mechanism; the absence of a closing marker is.**
+>
+> The operational form, therefore, is not an instruction to concentrate: resolve by numeric
+> order, re-read the prose across the seam, **and let a check ask whether any run of table rows
+> in the documents has no separator above it** -- which is mechanical, and which is what finds
+> this class without anyone having to suspect it.)*
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 
