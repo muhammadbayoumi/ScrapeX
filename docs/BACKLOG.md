@@ -200,7 +200,7 @@ fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
 
 ### OP-74 · `list(body["order"])` is unguarded: a 500 one way, a forged «this is your arrangement» the other
 
-**Found 2026-08-26.** [scrapex/webui/app.py:2375](../scrapex/webui/app.py#L2375) is
+**Found 2026-08-26.** [scrapex/webui/app.py:2414](../scrapex/webui/app.py#L2414) is
 `reorder(conn, source_key, list(body["order"]))` with no type check. Two failure modes,
 traced through [scrapex/fields.py:153](../scrapex/fields.py#L153):
 
@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1717` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2787` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1726` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2796` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2787`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2796`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 

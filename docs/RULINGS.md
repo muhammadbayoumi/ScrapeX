@@ -3137,7 +3137,7 @@ SHA, both facts rather than judgements.
 2026-08-30, thirteen days later, still live in three places:
 
     scrapex/version.py:494      "latest_extension_version": VERSION
-    scrapex/webui/app.py:1706   "latest_extension_version": VERSION
+    scrapex/webui/app.py:1715   "latest_extension_version": VERSION
     extension/app.js:607, :641  drawn to the user as "Latest available extension"
 
 The engine answers *"what is the newest extension available"* with **its own number**, which
