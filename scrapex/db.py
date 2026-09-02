@@ -37,8 +37,8 @@ MIGRATIONS_DIR = DB_DIR / "migrations"
 # WHY SILENCE IS NOT A PATH (2026-07-30)
 #
 # This used to fall back to ~/.scrapex/harvest.db, which is NOT the warehouse —
-# the real one is ~/.scrapex/marketlens/marketlens.db, and harvest.db has been
-# sitting there empty since 21 July. So a caller that forgot its path opened a
+# the real one is the engine database under ~/.scrapex/engine/, and harvest.db
+# has been empty since 21 July. So a caller that forgot its path opened a
 # blank database, found no tables, and in the worst case would have WRITTEN a
 # whole crawl into a file nothing else in the product reads. It happened: one
 # settings write went there today before being caught.

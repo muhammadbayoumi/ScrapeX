@@ -160,12 +160,33 @@ RESERVED: dict[str, dict[int, str]] = {
     # DELETE A ROW THE MOMENT ITS PR LANDS. A reservation left behind is a permanent
     # hole nobody owns, which is the rule the comment above already states.
     "REQ": {
-        34: "branch claude/drive-without-a-server",
-        # 50 is declared on `claude/scrapex-engine-consolidation-d69e0a` (PR #293,
-        # pushed, unmerged) and this branch declares 51 over the top of it. VERIFIED
-        # against the ref rather than taken from a message:
-        #   git show claude/scrapex-engine-consolidation-d69e0a:docs/REQUESTS.md \n        #     | grep "^## REQ-50"
+        # 50 became a hole when this branch declared REQ-52. 51's row was here
+        # and is GONE: #301 merged, so it is a heading on `main` and a
+        # reservation for it is the contradiction this guard refuses -- the
+        # fifth row retired that way across five merges.
+        #
+        # AND IT WAS TWO ROWS BEFORE IT WAS NONE, which is worth one paragraph
+        # because the mechanism outlives this instance. This branch added a `50`
+        # above a `50` that was already here, and Python keeps the LAST -- so the
+        # row carrying the verified holder was the one being discarded, silently,
+        # on every run. That is the failure this table's own guard exists for, one
+        # level in, introduced by the pass that was de-duplicating the level above
+        # it. **No test in this file could see it**: they all read the BUILT dict,
+        # where the loser is already gone. Only a reader that parses the SOURCE
+        # can, and `main` grew one for the OUTER keys after another session found
+        # the register key "R" written twice the same day.
+        #
+        # Both rows are gone now -- `#293` landed and made the number a heading --
+        # so nothing here is left to fix. The paragraph stays because a duplicated
+        # key inside these dicts is invisible to everything except a source
+        # reader, and the next session to add a row needs to know that before it
+        # adds one, not after.
         # Delete this row the day #293 merges.
+        # 34 belongs to `claude/drive-without-a-server`, which also holds OP 45, 49
+        # and 50. It is a hole on this branch because that branch declared it and this
+        # one has not got its entries -- exactly the state the gap check exists to
+        # distinguish from a skipped number.
+        34: "branch claude/drive-without-a-server",
         # 50 HAS NO ROW: it was reserved for `claude/scrapex-engine-consolidation-d69e0a`
         # while `REQ-51` was declared over the top of it, and the row said to delete it
         # the day #293 merged. It is deleted one step earlier instead -- as #293 rebases
@@ -250,7 +271,36 @@ RESERVED: dict[str, dict[int, str]] = {
     # that is reserved AND declared fails test_a_reserved_number_is_not_also_declared.
     # Nothing else was touched.
     "OP": {
+        # 117'S ROW WAS HERE AND THIS BRANCH DECLARES IT, so it is gone -- the
+        # sixth reservation retired that way, across six merges.
+        #
+        # AND 112-114 APPEARED **TWICE** IN THIS DICT, on `main` as well as here:
+        # two rebases each concatenated both sides of one block. Python keeps the
+        # LAST duplicate key, so the guard stayed green and the file grew a copy
+        # nobody read -- `LESSONS` section 3, a third time, inside the register
+        # guard itself. De-duplicated 2026-09-02.
         45: "branch claude/drive-without-a-server",
+        # 112 THROUGH 114 became holes when this branch declared OP-117.
+        # 116's row was here and is GONE: #297 merged, so it is declared on
+        # `main` and a reservation for it is the contradiction the guard
+        # refuses. Fourth row retired that way today, on a fourth merge.
+        # Both holders verified with `git rev-parse --verify` and
+        # `git show <ref>:docs/BACKLOG.md`, not taken from the message that
+        # allocated them -- 112-114 at b7dc588, 116 at e0fe797.
+        #
+        # 115 IS THE ODD ONE AND IT IS DELIBERATE. It is already declared on
+        # `main` (#295), so it is NOT reserved here: a reservation for a
+        # declared number is the contradiction `test_a_reserved_number_is_not
+        # _also_declared` refuses. The gap check does not need it either --
+        # this branch has 115 from `main`. Three rows were retired that way
+        # today, on three unrelated merges, every one caught by that
+        # assertion rather than by the session doing the rebase.
+        # 112, 113 AND 114 STOOD HERE AND ARE GONE: `#293` merged as `1d8816d8`, so
+        # all three are headings on `main` and a reservation for a declared number is
+        # the contradiction `test_a_reserved_number_is_not_also_declared` refuses.
+        # `main` was already carrying the paragraph below saying they were gone WHILE
+        # the rows were still here -- a comment and the rows it contradicts, which is
+        # the same one-side-of-a-pair shape this table keeps catching in other files.
         # 101 THROUGH 110 WERE RESERVED HERE AND THE ROWS ARE GONE, which is this
         # table's own rule applied to itself: `claude/design-system-review-d6787a`
         # merged, so the numbers are declared on `main` and a reservation for a
@@ -298,7 +348,10 @@ RESERVED: dict[str, dict[int, str]] = {
         # line. **The claimed-by-message state is real and short**, which is exactly why
         # a row in it must say which kind of claim it is holding rather than read like
         # a verified one.
-        117: "branch claude/marketlens-is-gone, PR #300",
+        # 117 IS DECLARED BY THIS BRANCH, so its row is gone rather than updated.
+        # `main` reserves it to `claude/marketlens-is-gone` -- correctly, from main's
+        # point of view -- and this is the branch that ref names, so the reservation
+        # and the heading are the same claim seen from two sides. The heading wins.
 
         # 112, 113 AND 114 WERE RESERVED HERE FOR THIS BRANCH AND ARE NOT ANY MORE,
         # deleted by the branch they named as its headings arrive. The rule is the

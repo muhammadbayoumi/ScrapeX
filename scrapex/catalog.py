@@ -120,7 +120,7 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
         general_schema = False
     if general_schema and request.price_source_id is not None:
         raise CatalogConflict(
-            "General cannot store a MarketLens row id; provide "
+            "this database has no price_source_id column; provide "
             "price_source_key instead"
         )
     existing = conn.execute(

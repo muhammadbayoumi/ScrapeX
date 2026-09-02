@@ -928,7 +928,7 @@ def start_fresh(db_path: Path | str,
     """Put an EMPTY warehouse in place. The full one is sealed aside, not erased.
 
     Restore's shape exactly, with the incoming file built by `initialize`
-    (the caller supplies the marketlens migration stream — storage knows files,
+    (the caller supplies the migration stream — storage knows files,
     not schemas) instead of copied from a backup. The displaced database keeps
     every row and is named like a backup on purpose: it appears in the Restore
     picker, so undoing a reset is the same one click as any other restore.

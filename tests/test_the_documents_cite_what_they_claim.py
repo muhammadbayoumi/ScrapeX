@@ -159,10 +159,10 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1715, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1715, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -194,8 +194,8 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1726, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2796, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1745, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2815, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
@@ -284,7 +284,7 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3166, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3185, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304

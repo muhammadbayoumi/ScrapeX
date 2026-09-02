@@ -179,7 +179,7 @@ def test_running_it_twice_is_safe_and_does_not_double_the_rows(split):
     # The pointer now says "single", so the plan has to be rebuilt by hand —
     # which is itself the guard in the next test.
     from scrapex.databases.carry_over import CarryOverPlan
-    plan = CarryOverPlan(marketlens=None, general=None,
+    plan = CarryOverPlan(priced=None, general=None,
                          destination=destination, pointer=pointer)
     carry_over(plan)
 

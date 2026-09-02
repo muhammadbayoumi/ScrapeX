@@ -657,7 +657,7 @@ def create_app(
     def ensure_schema(conn) -> None:
         """Migrate ONLY a legacy single-file warehouse.
 
-        A MarketLens database has its own numbered migration stream and was
+        A registry database has its own numbered migration stream and was
         already migrated when it was created. Running the unified stream over it
         re-applies migration 1 and dies on "table offer_state already exists" —
         which is what happened the moment the owner pressed Run, because two
@@ -1243,16 +1243,35 @@ def create_app(
 
     @app.get("/data-model", response_class=HTMLResponse)
     def data_model_page(request: Request):
-        """The two live relational models, drawn from their own SQLite schemas."""
+        """Every live relational model, drawn from its own SQLite schema.
+
+        ONE FILE IS REPORTED ONCE, and until 2026-08-30 it was reported twice.
+        `create_app` sets `general_database = databases.engine` whenever a
+        registry is present, so both handles opened the SAME database — and
+        `data_model_report` selects every non-`sqlite_` table from
+        `sqlite_master` with no `database_key` predicate, so both reports listed
+        every table. Measured: 67 tables each, identical lists, and the page
+        summing them to **134**. One of the two was labelled *MarketLens*, after
+        a database `R-72` retired.
+
+        THE UNCONDITIONAL DELETION WOULD HAVE BEEN WRONG, which is why this is a
+        path comparison rather than one report. `general_db_path` is still a
+        parameter, and this module's own comment calls it "a legacy
+        test/session knob" that "names an engine database like any other" — with
+        it set the two handles are two different files and both belong here. The
+        page reports what is actually distinct, which is right in both cases
+        instead of right in today's.
+        """
         reports = []
         price_conn = read_conn()
         try:
             reports.append(data_model_report(
-                price_conn, database_key="marketlens", database_label="MarketLens"))
+                price_conn, database_key="engine", database_label="Engine"))
         finally:
             price_conn.close()
 
-        if app.state.general_database is not None:
+        second = app.state.general_database
+        if second is not None and Path(second.path) != Path(app.state.db_path):
             general_conn = general_read_conn()
             try:
                 reports.append(data_model_report(

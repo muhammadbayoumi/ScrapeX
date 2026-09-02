@@ -173,6 +173,9 @@ Related and separate: `fields.delete_view` is `DELETE FROM saved_view WHERE save
 ### OP-73 · `POST /api/fields` has no catalogue branch, so hiding a contractor column returns 404
 
 **Found 2026-08-26.** Step 0 of the plan gave `GET /api/fields` a dataset branch
+([scrapex/webui/app.py:2296](../scrapex/webui/app.py#L2296)) and **the POST at
+[:2335](../scrapex/webui/app.py#L2335) never got one.** It runs the price machinery
+
 ([scrapex/webui/app.py:2277](../scrapex/webui/app.py#L2277)) and **the POST at
 [:2335](../scrapex/webui/app.py#L2343) never got one.** It runs the price machinery
 unconditionally, and its seeding is keyed on `BROWSE_COLUMNS`: `wanted = [key for key, _ in
@@ -291,7 +294,9 @@ test.
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
 price-path rows inert lives **only on the read path**, at
-[app.py:2282](../scrapex/webui/app.py#L2282). So the eleven are invisible in the chooser and
+[app.py:2261](../scrapex/webui/app.py#L2261). So the eleven are invisible in the chooser and
+
+[app.py:2291](../scrapex/webui/app.py#L2291). So the eleven are invisible in the chooser and
 still occupy `display_order` slots whenever anything is reordered.
 
 Depends on `OP-58`: whether those rows are deleted at all is his gate, since
@@ -2125,6 +2130,9 @@ Two do not, and neither failure has anything to do with datasets:
 | **Recent changes** | `/source/{key}#changes` | the page renders, and **`id="changes"` exists nowhere in the repository** — `grep -rn 'id="changes"' scrapex/ extension/` returns nothing. The fragment is ignored, so the entry lands at the top of the source page |
 
 **The changes page it should be opening already exists**: `GET /changes?source_key=`
+is a real route (`scrapex/webui/app.py` line 1294 **at `31c369e`**, which is what it
+was re-derived against and is not a pointer into HEAD; #257 moved
+
 is a real route (`scrapex/webui/app.py:1302`, re-derived at `31c369e`; #257 moved
 it from 1223) and answers 200. So this is a wrong
 URL rather than a missing feature — one line, but it changes what a card does on
@@ -3551,6 +3559,8 @@ two files of one backup cannot be split; and an age-guarded sweep
 ([scrapex/native.py:297](../scrapex/native.py#L297)), and a crashed build leaves no
 survivor to race. An engine started by hand on another port would share the folder and
 defeat it; that is why the sweep keeps a 6-hour age guard
+([scrapex/webui/app.py:2921](../scrapex/webui/app.py#L2921)) rather than deleting any
+
 ([scrapex/webui/app.py:2911](../scrapex/webui/app.py#L2911)) rather than deleting any
 staging tree it finds.
 
@@ -3959,6 +3969,8 @@ local disk, so nothing was lost — but nothing on either side said so.
 2. **`zipfile.ZipFile(archive, "w")` created the file under its FINAL name immediately**,
    at zero bytes, and filled it over the ~33 s of the deflate.
 3. **`GET /api/bundle/archive` answers with the newest `.zip` by mtime**
+   ([scrapex/webui/app.py:2942](../scrapex/webui/app.py#L2942)), so it handed the panel the
+
    ([scrapex/webui/app.py:2932](../scrapex/webui/app.py#L2932)), so it handed the panel the
    second build's empty, in-progress file.
 4. **Nothing compared what arrived with what the engine had described.** The pointer took
@@ -4209,6 +4221,81 @@ are indistinguishable to a scanner. Four instances in two days. **The scanner ca
 and should not try** — one that guessed would be worse — so this is a constraint on how the
 prose beside a guard is written, not a defect to fix in the tool.
 
+### OP-117 · The data-model page reported 134 tables where 67 exist, and named a product that was abandoned
+
+**He asked for it, on 2026-08-30 — [REQ-52](REQUESTS.md#req-52--delete-everything-marketlens-a-product-that-was-abandoned).** Most of it went. This entry is the one defect found on the way, and the reason the
+rest could not simply follow it.
+
+**THE DEFECT, measured on a built app rather than read.** `/data-model` built two reports,
+labelled *MarketLens* and *General*, and summed their counts:
+
+| | `main` | fixed |
+|---|---|---|
+| tables that exist | 67 | 67 |
+| the page's **Live tables** figure | **134** | **67** |
+| "MarketLens" on the page | 3 | **0** |
+
+`create_app` sets `general_database = databases.engine` whenever a registry is present, so
+both handles opened one file; `reports.data_model_report` selects every non-`sqlite_` table
+from `sqlite_master` with no `database_key` predicate, so both reports listed all of them.
+
+**THE UNCONDITIONAL DELETION WOULD HAVE BEEN THE WRONG FIX**, and that is the part worth
+keeping. `create_app` still takes `general_db_path`, and its own comment calls it "a legacy
+test/session knob" naming "an engine database like any other" — with it set, the two handles
+are two different files and both belong on the page. So the page now compares paths and
+reports what is actually distinct: right in both cases instead of right in today's.
+
+---
+
+## What could not be deleted, and why it is not caution
+
+**The name survives in exactly the places where it names something that still exists.**
+Verified on his own disk, 2026-08-30:
+
+```
+~/.scrapex/marketlens/marketlens.db      115.8 MB, still there
+  application_id                          0x53584d4c
+  scrapex_meta[database_kind]             'marketlens'
+```
+
+* **`marketlens_path`** is a key inside `~/.scrapex/databases.json`, written by a shipped
+  version. **Renaming it does not raise** — `named()` returns None, the plan drops the priced
+  warehouse, `carry_over` reports success because a file it never opened contributes no rows
+  to compare, and the pointer is rewritten to `single`. The installation comes up healthy with
+  its whole price history orphaned. This machine's pointer already reads `single`; the second
+  machine's has not been read.
+* **`compaction.py`'s two paragraphs** are why the kind check reads the file header instead of
+  `scrapex_meta` — a copied row lets a wrong successor vouch for itself, and a real file
+  wearing that value is on his disk.
+* **`db/engine/schema.sql` and `0002_*.sql`** are an applied migration and a checksummed
+  baseline. `_stamp_and_verify_checksums` compares each digest on every connect and raises
+  *"checksum changed; restore the original migration file and retry"* — which this repository
+  has already seen fire on his live warehouse once. There is no re-stamp path, because the
+  verification runs before migrations could repair it.
+
+**AND THE COLUMN THEY NAME DOES NOT EXIST.** Measured on a database built from the full chain
+and on his live warehouse: `user_version` 16, no `site_profile`, no `marketlens*` column, and
+the word absent from the live schema SQL entirely. `0002` renames it at step two and `0014`
+merges its table away. **So editing those files would break every database he owns in order
+to delete two lines describing something no database contains.**
+
+**The route that does work is regeneration, not editing** — the baseline is generated from a
+live database, and one generated today has no such column, so the name would go as a side
+effect. `domain.py` records that the numbering was restarted once on exactly that reasoning:
+*"nothing is published, so no database in the world is stamped `engine` yet."* That is a
+decision about the migration chain and is `Q` for him, not a defect.
+
+---
+
+## The guard
+
+`tests/test_the_retired_product_is_only_named_where_it_must_be.py`. A new file naming the
+retired product goes red; every allowed file must **say what it protects**; and a row whose
+file no longer names it goes red too — because a reservation protecting nothing reads as proof
+the danger was handled. **It caught two of its own author's mistakes while being written**: a
+frozen record missed (`db/engine/derived-from.json`, which says "frozen at the M5 collapse" in
+its own first line) and a row whose reason was too thin to be a reason.
+
 ### OP-118 · A registry source's `crawl_scope` has no door — not in the panel, not in the API
 
 **Found 2026-08-30 while running his listing crawl on his behalf, and it stopped the crawl.**
@@ -4261,10 +4348,10 @@ fixed the same defect and chosen different routes.
 conditionally.** Four legs, each re-read rather than argued:
 
 ```
-scrapex/webui/database_api.py:78   @router.get("/api/engine/health")   -- in create_domain_health_router
-scrapex/webui/app.py:604           include_router(create_domain_health_router(...))
-scrapex/webui/app.py:602           if databases is not None:          -- the gate above it
-scrapex/webui/app.py:1587          @app.get("/api/health")            -- a plain route, every start
+scrapex/webui/database_api.py:80   @router.get("/api/engine/health")   -- in create_domain_health_router
+scrapex/webui/app.py:613           include_router(create_domain_health_router(...))
+scrapex/webui/app.py:611           if databases is not None:          -- the gate above it
+scrapex/webui/app.py:1615          @app.get("/api/health")            -- a plain route, every start
 scrapex/cli.py:856                 registry = None if args.db else DatabaseRegistry.defaults()
 ```
 

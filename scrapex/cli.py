@@ -627,8 +627,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     with dbmod.write_lock(db_path):
         conn = dbmod.connect(db_path)
         try:
-            # Only a legacy --db session owns its migrations. A MarketLens
-            # database has its OWN numbered stream (1-15) and was already
+            # Only a legacy --db session owns its migrations. A registry
+            # database has its OWN numbered stream and was already
             # migrated when it was created; running the unified stream (1-17)
             # over it re-applies migration 1 and dies on "table offer_state
             # already exists". That broke crawl -> ingest, the core workflow,
@@ -710,7 +710,7 @@ def _cmd_native_host(args: argparse.Namespace) -> int:
     from .native import serve
 
     db_path = _engine_path(args)
-    # Migrate only an EXPLICIT legacy --db warehouse. The registry's MarketLens
+    # Migrate only an EXPLICIT legacy --db warehouse. The registry's own
     # database has its own migration stream and is already at head; the unified
     # stream over it dies on "table tax_rule already exists" — which killed the
     # host at startup and made the Start-engine button look uninstalled.

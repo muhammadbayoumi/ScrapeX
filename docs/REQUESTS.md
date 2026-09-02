@@ -105,6 +105,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 
+| [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **Open, and his**: collapse the migration chain and regenerate the baseline, so the name goes as a side effect rather than by editing a checksummed file. Needs the second machine's pointer read, and a collapse verified by schema **equality** | 2026-08-30 |
+
 ---
 
 ## REQ-01 · One documentation system, in the repository
@@ -2843,4 +2845,66 @@ and the citations that name it are many; the gain is linguistic and the risk is 
 files, changing no behaviour, landing beside the crawl button -- which changes behaviour and
 must be reviewable. That is `OP-18`'s lesson: a diff large enough to hide a real one is a diff
 nobody can review, and a mutation that fails inside it cannot be attributed.
+
+## REQ-52 · Delete everything MarketLens, a product that was abandoned
+
+**Captured 2026-08-30 · measured the same day · In flight — branch `claude/marketlens-is-gone`
+(`OP-117`). Most of it is done; the last of it waits on one decision of his**
+
+> «اى حاجة لها علاقة ب MarketLens احذفها تم التخلى عنها مسبقا»
+> — and, when told two files could not be edited without breaking his databases:
+> «احذف نهائى كل شى»
+> — then, reframing the constraint himself: «احنا فى مرحلة التطوير … المفروض قاعدة البيانات
+> بتتغير · ولكن انا بطور فمش هاقبل مشاكل لان مفيش غيرى»
+
+**189 references. 17 remain, and every one names something that still exists.** The rest went:
+comments, docstrings, an error message, a dataclass field, and the one live defect they were
+hiding — `OP-117`, a page reporting 134 tables where 67 exist.
+
+**HIS THIRD MESSAGE IS THE ONE THAT MOVED THIS.** The refusal had been argued as "every
+existing database would refuse to open", and he pointed out what that actually means here:
+**there is no installed base — the databases are his, on two machines, and he can rebuild
+them.** He is right, and the repository had already made the identical argument once:
+`scrapex/databases/domain.py` restarted the migration numbering at 1 because *"nothing is
+published, so no database in the world is stamped `engine` yet"*.
+
+### What still names it, and why deletion is the wrong tool for each
+
+| what | why it stays |
+|---|---|
+| `db/engine/schema.sql`, `0002_*.sql` | An applied migration and a checksummed baseline. `_stamp_and_verify_checksums` compares each digest on every connect; there is no re-stamp path because verification runs first. **And they name a column NO database contains** — measured on a fresh chain and on his live warehouse: `user_version` 16, no `site_profile`, no `marketlens*` column |
+| `carry_over.py`'s `marketlens_path` | A key in `~/.scrapex/databases.json` written by a shipped version. Renaming it does not raise: the priced warehouse is dropped, success is reported, and the pointer is rewritten to `single` |
+| `compaction.py`'s two paragraphs | Why the kind check reads the file header and not `scrapex_meta` — a copied row lets a wrong successor vouch for itself |
+| `derived-from.json` | Says "frozen at the M5 collapse" in its own first line |
+
+**MEASURED, so the constraint is not carried as a fear.** His pointer already reads
+`mode: 'single'` and **does not contain `marketlens_path` at all**, and the old 115.8 MB file
+is superseded rather than unique — the engine database holds *more* rows in every priced
+table (97,337 price observations against 88,286). So on this machine nothing is at risk. The
+key is load-bearing only where a pointer still says `split` or `legacy`.
+
+### The open half, which is his
+
+**Regeneration, not editing.** The baseline is generated from a live database; one generated
+today has no such column, so the name would go as a side effect rather than as a hand edit of
+a checksummed file. That means collapsing the migration chain — 15 migrations and a frozen
+baseline whose only job is to carry his own data forward.
+
+**The argument for it is `OP-115`**, found the same day: a filter shaped by the two-stream
+world, left behind when `R-72` deleted that world, hiding two real migrations from the
+schema-lag banner. **The chain is where that history accumulates**, and he has now twice been
+the person it cost.
+
+**Two things must be true first, and one is a question only he can answer:**
+
+1. **Does the second machine's `databases.json` say `single`?** One word. It decides whether
+   `marketlens_path` can go at all.
+2. **A collapse must be verified by equality, not by review** — build a schema from the full
+   chain and from the new baseline and compare table by table, column by column, index by
+   index. A wrong baseline does not fail; it produces a database that looks right and differs
+   in one column. He said it himself: *«مفيش غيرى»*.
+
+**Also missing and worth naming here:** `tools/derive_engine_schema.py`, which generated the
+current baseline, **is not in the tree**. Collapsing the chain without the tool that generates
+baselines is exactly the file that looked unnecessary until it was needed.
 
