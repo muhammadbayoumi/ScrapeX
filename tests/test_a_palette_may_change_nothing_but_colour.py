@@ -93,7 +93,10 @@ def _palette_entries() -> dict[str, str]:
     entries: dict[str, str] = {}
     starts = [(m.start(), m.group(1))
               for m in re.finditer(r'^\s{4}\["([a-z-]+)", \{', registry, re.M)]
-    assert len(starts) >= 3, f"parsed {starts} palette entries; expected at least 3"
+    # `>= 3` UNTIL R-84, WHICH DELETED TWO OF THE THREE. The number was standing in
+    # for "the parser still finds entries"; asserting the id by name says the same
+    # thing and cannot rot when the registry shrinks again.
+    assert starts, f"parsed no palette entries from {ENTRY_PATTERN.pattern!r}"
     for index, (offset, name) in enumerate(starts):
         stop = starts[index + 1][0] if index + 1 < len(starts) else len(registry)
         entries[name] = registry[offset:stop]
@@ -103,7 +106,10 @@ def _palette_entries() -> dict[str, str]:
 def test_the_parser_finds_the_registry_and_the_properties():
     """A PARSER THAT MATCHED NOTHING WOULD MAKE EVERY TEST BELOW VACUOUS."""
     entries = _palette_entries()
-    assert set(entries) >= {"brand", "blue", "supabase"}, sorted(entries)
+    # Was {"brand", "blue", "supabase"}. R-84 deleted the first two — «احذف الثلاثة
+    # وابق supabase وحده» — so the registry is one entry and this asserts the one
+    # that must always be there rather than a set that recorded a deleted world.
+    assert set(entries) == {"supabase"}, sorted(entries)
     assert len(_theme_properties()) >= 30
 
 
