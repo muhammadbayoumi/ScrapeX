@@ -53,6 +53,19 @@ ASSETS = {
         ROOT / "extension" / "icons" / "material-icons.svg",
         ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.svg",
     ),
+    # THE NOTICE SUPABASE IS OWED, distributed exactly as Google's is. R-74 makes
+    # their design system this product's baseline rather than one option among
+    # several, so the borrowing is structural: `design/tokens.css` carries fifteen
+    # byte-exact values of theirs and nineteen more re-derived from their own
+    # expressions. Apache-2.0 section 4 wants attribution, the licence with the
+    # derivative, and a prominent statement that files were changed; MIT wants the
+    # notice in all copies. The file discharges both, because which of the two
+    # governs `packages/ui` is genuinely ambiguous -- their root declares
+    # Apache-2.0 and that package declares MIT with no licence text of its own.
+    ROOT / "design" / "supabase.NOTICE.txt": (
+        ROOT / "extension" / "supabase.NOTICE.txt",
+        ROOT / "scrapex" / "webui" / "static" / "supabase.NOTICE.txt",
+    ),
     ROOT / "design" / "material-icons.LICENSE.txt": (
         ROOT / "extension" / "icons" / "material-icons.LICENSE.txt",
         ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.LICENSE.txt",

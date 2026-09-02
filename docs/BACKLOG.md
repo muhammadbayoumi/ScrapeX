@@ -3852,7 +3852,7 @@ reader handed "14" is holding a number with an expiry date nobody wrote on it �
 same argument this repository already makes about deriving a deadline rather than picking
 one, and about `MINIMUM_EXTENSION_VERSION` being derived from the ledger and never typed.
 
-### OP-108 · Values traceable to Supabase ship with no attribution
+### OP-108 · ~~Values traceable to Supabase ship with no attribution~~ — CLOSED 2026-08-30
 
 `github.com/supabase/supabase` is Apache-2.0 at the root (`Copyright 2024 Supabase`), and
 `packages/ui` — the package holding the theme files these values came from — declares
@@ -3868,6 +3868,25 @@ The same repository discharges the identical obligation **three times over** for
 borrowing — the Material icons Apache-2.0 text exists in three places and two of them are
 guarded. Discharging both licences is cheaper than deciding which applies. Recorded as
 OD-08.
+
+---
+
+**CLOSED 2026-08-30 by [R-82](RULINGS.md#r-82--the-ten-remaining-decisions-of-req-49-taken-in-one-pass).**
+`design/supabase.NOTICE.txt` carries the attribution, both licences and the section 4(b)
+statement of changes, and `tools/sync_design_assets.py` distributes it to both surfaces the
+way Google's licence already is. `test_the_supabase_notice_travels_with_the_values_it_covers`
+fails the build if a copy goes missing or if the notice stops naming either licence.
+
+**It is pinned to a commit rather than to "their repository".** The values were read at
+`86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94` (2026-08-28) and the notice names the five files
+they came from. A statement of changes against a moving target says nothing.
+
+**The statement of changes is the part that took the work**, and it is what section 4(b)
+actually asks for: the expressions were resolved to static values because this product ships
+CSS without a build step; **five values were deliberately replaced** because they fail
+contrast floors Supabase does not state; the type-scale names diverge above the body size;
+neither easing curve is theirs; and the shadow, line-height, forced-colors, prefers-contrast
+and bidirectional-text work is this product's own.
 
 ### OP-109 · The design documents are guarded by nothing, and one guarded claim is false
 

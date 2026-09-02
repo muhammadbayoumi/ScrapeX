@@ -3465,3 +3465,60 @@ his behalf is a legitimate offer** — it is how the 34,834 pages were fetched �
 admission that the feature is absent, and it is recorded as one rather than counted as
 delivery.
 
+---
+
+### R-82 · The ten remaining decisions of REQ-49, taken in one pass
+
+**2026-08-30 · design system · completes
+[REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases) with
+[R-79](#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted)**
+
+**HE CHOSE FROM PRICED OPTIONS RATHER THAN DICTATING**, as with `R-79`, so there is nothing
+to quote and this entry records the choice and the numbers that were in front of him.
+Twelve decisions came out of the review; `R-79` took two; these are the other ten, answered
+in one pass when he asked for *«الاسئلة واختيارات للموصى»* — the questions with options and
+a recommendation on each.
+
+| | he chose | the number he chose it on |
+|---|---|---|
+| OD-01 | **no** to Supabase's numeric ramps, **yes** to the four status-border tokens only | 15 tokens x 3 blocks = 45 declarations, `THEME_PROPERTIES` 36 to 51, against 4 tokens with 14 call sites and nine competing mix percentages behind them |
+| OD-02 | switch `--amber` to **`#8d5e00`** | the shipped `#965900` is a naive per-channel clip of a target 27.6% outside sRGB; it sits 9.5 degrees off Supabase's warning hue |
+| OD-05 | the alpha-token fix gets **its own plan** | exact on `--background`, wrong on `--card` and `--popover` by 2/255 light and (5,6,6) dark |
+| OD-06 | extract **`table-theme.css` only** | 101 lines already token-bound, against `grid-theme.css`'s 1,837 lines of Tabulator override; the extension has zero table CSS |
+| OD-08 | discharge attribution under **both** licences | their root is Apache-2.0, `packages/ui` declares MIT with no licence text; this repository already discharges the same obligation three times for a smaller borrowing |
+| OD-11 | **fold** `STATE.md`'s "Open pull requests" section | 642 lines with nothing open, grown 107 lines **above** the banner placed to stop it |
+| OD-12 | **bare-path tier first**, `DOCUMENTS` widening second | the guard covers 9 of 82 documents, and widening alone changes zero verdicts |
+
+#### Three went against the recommendation, and they are recorded as his
+
+**`C5` asks for this explicitly** — *"if the evidence contradicts a ruling, say so and record
+it"* — and the argument that lost is the one the next session needs when it reaches the same
+fork. None of these is softened into agreement.
+
+**OD-07 · grow the shared `.empty` AND migrate the ten local implementations.** The
+recommendation was to grow it and migrate nothing until a screen was touched for another
+reason, because `docs/UI-KIT.md` records a measured extraction that was **refused** on
+exactly that ground. He chose the migration. The number either way: 3 declarations shared
+against 10 local implementations and 19 usage sites.
+
+**OD-10 · convert `design/gallery.html`'s 22 inline styles to classes.** The recommendation
+was to exempt the file explicitly, asserting that every inline style on it is token-only —
+21 of the 22 are pure `var(--token)` — so the catalogue could keep demonstrating tokens the
+way a reader sees them. He chose conversion.
+
+**OD-09 · "reject it", and IT IS NOT BUILT.** He was asked whether to sanction the panel's
+control-height override, raise the 48px touch floor to the baseline, or reject the override.
+He chose reject. **Measured, that reading deletes a live accessibility constraint**:
+`tests/test_panel_dom.py:443-448` asserts a 48px bounding box on three selectors, so
+"reject the override" is either "delete the floor with it" or "delete it and raise the
+baseline for both surfaces" — materially different work, one of which removes an Android
+touch floor. The three readings were put to him with the numbers and he replied *«كمل»*,
+which is *carry on*, not a choice among them. **So it is parked, visible, and unbuilt.**
+Nobody has quietly removed an accessibility constraint on his behalf, and nobody has
+overruled him either.
+
+#### Why they were taken in one pass rather than one at a time
+
+Nine of the ten are independent of each other and eight of them cost no new token. Asking
+them singly would have spent nine of his turns on decisions whose interaction is nil. The
+one real coupling — OD-03 with OD-04 — was already ruled together in `R-79` for that reason.
