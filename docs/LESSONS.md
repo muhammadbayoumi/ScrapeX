@@ -2519,7 +2519,7 @@ crawl", and the honest report would have had to say so.
 Not part of the incident, and it is recorded here because **this branch is what
 demonstrated it.** A continuation citation — a bare `` `:NNN` `` inheriting its path
 from a full citation a few words earlier, as in
-`` (`extension/app.js:1578`, `:1641`) `` — **is invisible to
+`` (`extension/app.js:1583`, `:1641`) `` — **is invisible to
 `tests/test_the_documents_cite_what_they_claim.py`.** `CITATION` requires a path before
 the colon, so it matches `app.js:1641` and does not match `:1641`. Measured, not
 reasoned: the regex returns a match for the first string and `None` for the second.
@@ -3296,7 +3296,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day and twice more since
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day and four times more since
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3321,7 +3321,7 @@ drift that produced them. The fix was to make each docstring say *"this enforces
 has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
 
 **THE SAME SHAPE, FOUND SEVEN TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING
-FOR IT, AND AN EIGHTH ON 2026-09-02** -- and three of the eight could never have failed
+FOR IT, AND FOUR MORE ON 2026-09-02** -- and three of the eleven could never have failed
 at all. A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
@@ -3334,6 +3334,8 @@ at all. A mechanism that is correct, visible, and load-bearing on nothing:
 | Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
 | engine page | `test_the_web_page_offers_no_setting_to_change`, which mechanises an owner ruling | **nothing.** Its `_control_ids` regex matches `input\|select\|textarea`, so it cannot see a `<button>` -- and the nine ids it can see are exactly the nine on its own exemption list |
 | rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; `scrapex ui --db <path>` serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
+| `R-81` repair, 2026-09-02 | `assert "scrapex ui" not in surface`, plus one more literal | **two strings.** The docstring stated the rule -- *"anything that needs a terminal is a missing button"* -- and the assertion was a blocklist; `python -m scrapex.cli init-db`, in a live banner, contains neither (`R-81` clause 5) |
+| `R-81` repair, 2026-09-02 | `assert "Engine" in text` on the installer checksum note | **the word, not the claim.** *"The Engine checks its own updates"* and *"the Engine does not fetch or install its own updates"* both contain it, so it could not tell a promise from its denial -- and stayed green for the whole period the promise was false |
 
 **THREE OF THE EIGHT WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
 rotted -- they held something once and their subject moved. **Rows 1, 5 and 7 never held
@@ -3412,6 +3414,17 @@ will read: `echo "pytest exit=$?"` into the file itself.
     row 8   a green   for the tree the run STARTED on
     row 9   a route   in the configuration the guard always builds
     tooling an exit 0 from the last process in the pipe
+
+**AND ROWS 10 AND 11 ARE A FOURTH KIND: THE ASSERTION CANNOT TELL A CLAIM FROM ITS DENIAL.**
+`assert "scrapex ui" not in surface` asks about two strings while its own docstring asks about
+terminals. `assert "Engine" in text` is satisfied by *"the Engine checks its own updates"* and
+equally by *"the Engine does not fetch or install its own updates"* -- so it held for the entire
+period the sentence it guarded was FALSE. **Both were repaired by tying the assertion to the code
+rather than to a word**: the terminal guard reads string VALUES via `ast` and asks about command
+SHAPE, and the checksum guard permits the claim only while `/api/update` has a caller -- failing
+in BOTH directions, since restoring the promise reddens it and building the updater reddens it
+too, demanding the sentence be updated. **A guard that can only fail in one direction is half a
+guard**, and this pair is what made that concrete.
 
 **All three are honest reports of the wrong subject, and no count anywhere would differ.** So
 the question the section closes on is not only *could this ever have failed* but **what exactly

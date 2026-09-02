@@ -2158,7 +2158,7 @@ the decision.
 
 Measured above the transport, so the step is **parameterising what works, not inventing it**:
 a live backend address field (`extension/app.html:1772`), a switch that re-activates and
-re-adopts appearance, timezone and the UI contract (`extension/app.js:6362-6334`),
+re-adopts appearance, timezone and the UI contract (`extension/app.js:6367-6339`),
 abort-and-generation-bump on change (`extension/backend.js:68-77`), and a repaint guard
 whose own comment already names the multi-app hazard (`extension/data.js:74-76`):
 

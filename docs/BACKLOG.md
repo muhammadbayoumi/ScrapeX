@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1726` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2796` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1737` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2807` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2796`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2807`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -2273,7 +2273,7 @@ reader is the whole of this change and the writer is the next one.
 **Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
 defect — that distinction is the whole entry.**
 
-A citation written as `` (`extension/app.js:1578`, `:1641`) `` carries two references
+A citation written as `` (`extension/app.js:1583`, `:1641`) `` carries two references
 and the guard sees one. `CITATION` in
 `tests/test_the_documents_cite_what_they_claim.py` requires a path before the colon, so
 it matches `app.js:1641` and does not match a bare `:1641`. Measured directly: the
@@ -3542,7 +3542,7 @@ that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
 `threading.Lock` ([scrapex/webui/app.py:2926](../scrapex/webui/app.py#L2926)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
-([scrapex/webui/app.py:2907](../scrapex/webui/app.py#L2907)) pruning **by stamp** so the
+([scrapex/webui/app.py:2918](../scrapex/webui/app.py#L2918)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep
 ([scrapex/webui/app.py:2982](../scrapex/webui/app.py#L2982)) for orphaned staging.
 
@@ -4995,7 +4995,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:848` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:853` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.

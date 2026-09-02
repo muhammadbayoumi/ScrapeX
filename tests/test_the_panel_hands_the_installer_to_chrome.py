@@ -133,8 +133,32 @@ def test_the_checksum_on_screen_says_who_checks_it():
     note = re.search(r'id="engine-checksum-note">(.*?)</p>', APP_HTML, re.S)
     assert note, "the note element has no text"
     text = " ".join(note.group(1).split())
-    assert "Engine" in text, f"the note does not say who verifies it: {text!r}"
-    assert "check" in text.lower()
+    assert "check" in text.lower(), (
+        f"the note does not say whether anything verifies the number: {text!r}")
+
+    # `assert "Engine" in text` STOOD HERE AND COULD NOT FAIL USEFULLY. The
+    # sentence it was written for -- "the Engine checks its own updates" -- and
+    # the sentence that replaced it -- "the Engine does not fetch or install its
+    # own updates" -- both contain the word, so the assertion could not tell a
+    # promise from its denial. It was satisfied throughout the whole period the
+    # promise was FALSE.
+    #
+    # SO THE CLAIM IS TIED TO THE CODE INSTEAD. The note may say the engine
+    # verifies updates only while something actually asks it to: measured
+    # 2026-09-02, `GET /api/update` has zero callers in `extension/`, and
+    # `scrapex/update.py`'s module docstring says it "deliberately does not"
+    # replace the running executable. See `R-81` clause 5 and `R-36`.
+    panel_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    asks_the_engine = "/api/update" in panel_js
+    claims_the_engine_checks = any(
+        phrase in text.lower()
+        for phrase in ("engine downloads and", "engine checks its own",
+                       "checked by the engine", "verified by the engine"))
+    assert claims_the_engine_checks == asks_the_engine, (
+        "the note claims engine-side update verification while nothing calls "
+        "/api/update" if claims_the_engine_checks else
+        "the panel now calls /api/update, so the note may say the engine "
+        "verifies updates — and should")
 
 
 def test_the_saveas_dialogue_is_suppressed_deliberately():

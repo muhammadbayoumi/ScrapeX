@@ -2663,13 +2663,84 @@ def test_no_surface_tells_the_owner_to_open_a_terminal():
     button. The panel told him to run `scrapex ui` in one - on a machine where
     the launcher WAS installed and the helper answered - because a cold start
     took longer than the five-second budget and every failure printed the same
-    sentence."""
-    panel = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
-    settings = (ROOT / "scrapex" / "webui" / "templates" / "settings.html").read_text(encoding="utf-8")
+    sentence.
 
-    for surface, name in ((panel, "the panel"), (settings, "Settings")):
-        assert "scrapex ui" not in surface, f"{name} still names a terminal command"
-        assert "in a terminal" not in surface, f"{name} still sends the owner to a terminal"
+    THE ASSERTION USED TO BE TWO LITERALS -- `"scrapex ui"` and `"in a
+    terminal"` -- and the docstring above already stated the rule correctly.
+    A rule in prose and a blocklist in code are not the same thing, and the gap
+    between them was measurable: `"python -m scrapex.cli init-db"` sat in the
+    schema-lag banner's `fix` field, contains neither literal, and was rendered
+    in the panel. It had even been REMOVED from the database-attention page and
+    replaced by a button, and went on living in a second copy -- see
+    `webui/database_api.py`'s `upgrade` docstring, which records that removal.
+
+    SO THIS ASKS ABOUT SHAPE, and it reads STRING VALUES rather than files.
+    Scanning raw text would flag every comment that explains a past defect,
+    which is `LESSONS` 28 and would make the check noisy enough to switch off.
+    Python surfaces are parsed with `ast` so a docstring is distinguishable
+    from a value; JavaScript and HTML have their comments stripped first.
+
+    `scrapex/cli.py` IS DELIBERATELY NOT A SURFACE. Its stdout is a terminal, so
+    a command there is the answer rather than the defect. The surfaces are the
+    two things with a screen: `extension/` and `scrapex/webui/`.
+    """
+    import ast
+    import re
+
+    command = re.compile(
+        r"(python\s+-m\s+\S|py\s+-m\s+\S|pip\s+install"
+        r"|(?<![A-Za-z])scrapex\s+(?:ui|init-db|contractors|crawl|export|ingest|migrate)"
+        r"|in a terminal|on the command line|command prompt"
+        r"|open (?:a|the) terminal|PowerShell)")
+
+    def literals(path):
+        """Every string a surface can DISPLAY, without its prose."""
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".py":
+            out = []
+            tree = ast.parse(text)
+            docstrings = {
+                id(node.body[0].value)
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                     ast.AsyncFunctionDef))
+                and node.body and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)
+            }
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                        and id(node) not in docstrings):
+                    out.append((node.lineno, node.value))
+            return out
+        stripped = re.sub(r"/\*.*?\*/|<!--.*?-->", " ", text, flags=re.S)
+        stripped = re.sub(r"^\s*//.*$", "", stripped, flags=re.M)
+        return [(n, line) for n, line in enumerate(stripped.splitlines(), 1)
+                if '"' in line or "'" in line or "`" in line]
+
+    surfaces = (
+        [p for p in (ROOT / "extension").rglob("*.js") if "tests" not in p.parts]
+        + list((ROOT / "extension").rglob("*.html"))
+        + [p for p in (ROOT / "scrapex" / "webui").rglob("*.py")]
+        + list((ROOT / "scrapex" / "webui" / "templates").rglob("*.html"))
+    )
+    assert len(surfaces) > 20, f"the surface list collapsed to {len(surfaces)}"
+
+    offenders = []
+    for path in surfaces:
+        if "tests" in path.parts:
+            continue
+        for line, value in literals(path):
+            found = command.search(value)
+            if found:
+                offenders.append(
+                    f"{path.relative_to(ROOT).as_posix()}:{line} -> {found.group(1)!r}")
+
+    assert not offenders, (
+        "these surfaces tell the owner to type something: "
+        + "; ".join(sorted(offenders))
+        + ". He does not use a terminal (R-81), so each of these is a button "
+        "that was never built or one that exists and is not named.")
 
 
 def test_each_native_failure_is_named_rather_than_blamed_on_the_install():
