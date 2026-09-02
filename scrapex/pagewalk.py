@@ -104,7 +104,15 @@ class PageWalker:
         # for a slice scope with no slice named, and asking it here means the
         # refusal costs nothing instead of arriving after fourteen minutes of
         # listing pages.
-        plan_scope(scope, listing_pages=0, detail_pages=0, slice_of=slice_of)
+        #
+        # AND IT IS ASKED ABOUT THE PHASE, NOT THE REGISTRATION. Under
+        # `listing_phase_only` the loop below never reaches `_details_wanted`, so a
+        # slice is not consulted and "name the slice" is a demand this run cannot
+        # act on and does not need. Measured 2026-09-02: a partitioned listing crawl
+        # of a site registered `listing_plus_slice` with no slice died on it, having
+        # fetched nothing, in a run that was never going to look at a slice.
+        plan_scope(CrawlScope.LISTING_ONLY if listing_phase_only else scope,
+                   listing_pages=0, detail_pages=0, slice_of=slice_of)
 
         report = WalkReport(scope=scope)
         for url in self._source.listing_urls(base_url):

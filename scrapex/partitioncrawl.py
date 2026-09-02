@@ -98,7 +98,6 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .connectors.base import declare_frontier
-from .crawlscope import CrawlScope
 from .pagesource import WHOLE, Cell, PageSource
 from .sightings import record_sightings
 from .snapshotbody import decode
@@ -151,25 +150,14 @@ DRY_ATTEMPTS = 2
 class NotASubdivision(ValueError):
     """The cells handed in are not all inside the parent they claim to subdivide.
 
-    REFUSED RATHER THAN AUDITED, for the same reason `ScopeNotPartitionable`
-    refuses rather than narrowing. The nested audit's whole claim is
+    REFUSED RATHER THAN AUDITED, and this is the one refusal in this module that
+    survives: it is about the ARITHMETIC, not about configuration. The nested audit's
+    whole claim is
     `Sum N_child == N_parent`, and a child that dropped one of the parent's
     filters is measured over a different, larger set. Such a run could report a
     zero deficit while covering none of the parent — a completeness claim that is
     false rather than merely weak, and the one failure this module is built to
     make impossible.
-    """
-
-
-class ScopeNotPartitionable(ValueError):
-    """This site is registered for a scope a listing partition cannot honour.
-
-    REFUSED RATHER THAN NARROWED. The scope comes from `source_site` and from
-    nowhere else — that is `snapshotcrawl`'s rule and the reason it has no scope
-    parameter. A partition crawl under `full_then_listing` would fetch twenty
-    profile pages for every listing page it read, so a run priced at ~2,000
-    requests would silently become ~40,000 and take a day. Quietly downgrading
-    the scope instead would be this module deciding what the owner registered.
     """
 
 
@@ -982,8 +970,20 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     residual crawl fetched 7,898 pages — four times the first crawl's 1,982 — to
     find nothing in its last 43 minutes. An allowance is not a stopping rule.
 
-    IT REFUSES A SCOPE IT CANNOT HONOUR rather than narrowing one. See
-    `ScopeNotPartitionable`.
+    THIS IS THE LISTING PHASE AND IT CANNOT BE ANYTHING ELSE, which is why it no
+    longer asks `source_site.crawl_scope` for permission. `listing_phase_only=True`
+    goes to the walker unconditionally below, and the walker short-circuits on that
+    flag before it reads the scope -- so a detail page cannot be fetched from here
+    under any registration. `test_the_listing_phase_fetches_no_detail_page_under_any_scope`
+    asserts that over all three scopes, which is the property the old
+    `ScopeNotPartitionable` refusal was standing in for.
+
+    IT REFUSED `full_then_listing` UNTIL 2026-09-02, and the reason it gave --
+    "would fetch twenty profile pages for every listing page it read" -- was already
+    impossible when it was written down. What the refusal actually did was leave that
+    scope's own second phase, the "then the listing catches the changes" half of its
+    name, with no way to run: the only route offered was editing the row and editing
+    it back, because the detail crawl reads the same column.
 
     `parent` IS THE NESTED AUDIT, AND IT IS ONE SIZING REQUEST. Every number this
     returns is measured against `parent`: pass `WHOLE` (the default) and the
@@ -996,14 +996,12 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     one. The cells must actually lie inside `parent` or this raises
     `NotASubdivision`.
     """
-    scope, _slice = read_scope(conn, partition.site_key)
-    if scope is not CrawlScope.LISTING_ONLY:
-        raise ScopeNotPartitionable(
-            f"{partition.site_key} is registered as {scope.value!r}. A partition "
-            "crawl is the LISTING half and would fetch a detail page for every "
-            "row it read under that scope — thousands of requests nobody asked "
-            f"for. Register it as {CrawlScope.LISTING_ONLY.value!r} for this "
-            "crawl, or run the detail crawl deliberately.")
+    # READ FOR THE REGISTRATION, NOT FOR PERMISSION. `read_scope` raises
+    # `SiteNotRegistered` for a site nobody has decided about, and that check is worth
+    # keeping: a crawl that picked the default would be answering for the owner. The
+    # scope VALUE is not this function's business -- see `_the_listing_phase_only` in
+    # the docstring above.
+    read_scope(conn, partition.site_key)
 
     plan = tuple(cells) if cells is not None else partition.cells()
 

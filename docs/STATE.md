@@ -624,6 +624,53 @@ defect the squash absorbs, and `R-84` for the two things it must carry: a check 
 refuses to delete a migration once a release marker exists, and the separation of
 tests that exercise a one-off migration from tests that assert a property of the
 resulting schema.
+### The listing phase has a door — 2026-09-02 · branch `fix/the-listing-phase-has-a-door`, **open**
+
+**`OP-118` corrected, `OP-121` filed.** His muqawil listing crawl has been blocked since
+2026-08-30 on one refusal, and the refusal's stated reason was **false when it was written
+down**. It is gone.
+
+**What was measured, because the entry it corrects repeats the wrong reason.**
+`crawl_partition` refused any scope but `listing_only`, saying a `full_then_listing` run
+"would fetch a detail page for every row it read" and turn ~2,000 requests into ~40,000. But
+`crawl_partition` passes `listing_phase_only=True` to the walker **unconditionally**, and the
+walker short-circuits on that flag *before* it reads the scope. Bypassing only the gate, with
+the row still reading `full_then_listing`, a real cell crawl fetched **9 listing pages, 0
+detail pages** and closed provably complete.
+
+So the refusal never prevented the 40,000 requests. It prevented `full_then_listing`'s own
+second phase — *"then the listing catches the changes"*, the half its name is about —
+from running at all, and the only route offered him was editing `source_site.crawl_scope` and
+editing it back afterwards, because the detail crawl reads the same column. He does not use a
+terminal ([R-81](RULINGS.md#r-81--a-command-line-answer-is-not-an-answer-the-panel-is-the-only-door)).
+
+**What replaces it is stronger than what it removed.**
+`test_the_listing_phase_fetches_no_detail_page_under_any_scope` asserts the behaviour over
+all three scopes. The refusal could never have caught a change that dropped
+`listing_phase_only`; this reddens on exactly that, with the count in the message.
+
+**And the guard was vacuous until a mutation said so.** `Partition.detail_urls` in the
+fixture returned `()`, so no scope could ever produce a detail fetch and the new assertion
+passed under the very defect it was written for. The fake publishes and serves its detail
+pages now.
+
+**`OP-121`, found while writing that guard:** the same mistake in two more places.
+`SliceRequired` was asked of the registration rather than the phase, in
+`snapshotcrawl.crawl_to_snapshots` and `pagewalk.walk`, so a partitioned listing crawl of a
+site registered `listing_plus_slice` with no slice **died before its first request** on a
+demand it could not act on. The same call feeds `declare_frontier`, so progress on a
+`full_then_listing` source could only ever stall at a fraction it can never close. Three
+checks above the walker were never revisited when `listing_phase_only` was added on
+2026-08-21.
+
+**THE OTHER HALF OF THE BUTTON IS STILL NOT BUILT, and this branch does not pretend
+otherwise.** `POST /api/jobs` queues `muqawil_org` since `REQ-45`, and the worker still hands
+every source to `capture_source` — the price path. The route to follow is the one
+`organization_enrichment` already took: a job KIND with its own runner
+([scrapex/jobs.py](../scrapex/jobs.py), `_start_job`), not a widened `CaptureResult`, whose
+counters are price-shaped. That chain is two kinds today and a third makes it a registry,
+which is what «خلى الشغل dry» asks for. **Until that lands he still cannot press a button;
+what changed is that the engine no longer refuses the run when something does press it.**
 
 ## Track 1 · The Console migration
 
