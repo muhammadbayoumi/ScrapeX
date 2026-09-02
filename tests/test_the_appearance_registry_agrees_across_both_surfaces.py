@@ -72,7 +72,11 @@ def test_the_parser_actually_finds_the_registry():
     is the failure mode of reading a file instead of importing it. Floors, not
     exact numbers, so adding a palette does not have to edit this."""
     ids, aliases, default = _registry()
-    assert len(ids) >= 3, ids
+    # `>= 3` until R-84 left one colour choice. Same correction as its sibling:
+    # what must hold is that the parse produced something and that `supabase` is in
+    # it, not a count that encodes how many palettes existed on one afternoon.
+    assert ids, "parsed no palette ids; the registry's shape changed"
+    assert "supabase" in ids, ids
     assert len(aliases) >= 2, aliases
     assert default in ids, (default, ids)
 

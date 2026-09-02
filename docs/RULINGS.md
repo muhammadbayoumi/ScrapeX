@@ -3551,7 +3551,7 @@ way a reader sees them. He chose conversion.
 **OD-09 · "reject it", and IT IS NOT BUILT.** He was asked whether to sanction the panel's
 control-height override, raise the 48px touch floor to the baseline, or reject the override.
 He chose reject. **Measured, that reading deletes a live accessibility constraint**:
-`tests/test_panel_dom.py:443-448` asserts a 48px bounding box on three selectors, so
+`tests/test_panel_dom.py:462-467` asserts a 48px bounding box on two selectors, so
 "reject the override" is either "delete the floor with it" or "delete it and raise the
 baseline for both surfaces" — materially different work, one of which removes an Android
 touch floor. The three readings were put to him with the numbers and he replied *«كمل»*,
@@ -3694,3 +3694,120 @@ often asserts a PROPERTY of the resulting schema and is then the only thing chec
 it; and `tests/test_migration_drift.py` must survive regardless, because proving that
 an upgraded database equals a fresh build is the entire claim a new baseline makes.
 
+---
+
+### R-84 · The system is Supabase's exactly, and `supabase` is the only colour choice
+
+**2026-08-31 · design system · GENERAL — «عدل اى قرار يتعارض مع هذا النظام» · supersedes
+[R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+parts 2, 3 and 4, and discharges the palette registry
+[R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+decisions 1 and 3 · TWO QUESTIONS INSIDE IT ARE OPEN AND NAMED BELOW**
+
+> «انا اريد النظام مطابق تماما لنظام supbase عدل اى قرار يتعارض مع هذا النظام»
+>
+> then, asked which of R-74's four colour choices survive:
+>
+> «احذف الثلاثة وابق supabase وحده»
+
+**RECORDED THE SESSION HE GAVE IT, WITH THE WORK NOT YET STARTED.** `C3` does not wait for a
+plan and `C5` wants the open half visible rather than resolved by a session's judgement. Two
+questions inside this ruling change its cost by orders of magnitude and neither is answered;
+they are section 4.
+
+#### 1 · What it replaces
+
+`R-74` made Supabase's design system the baseline and then **named three exceptions on top of
+it** — *«قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»*. This ruling deletes those
+three. `supabase` is not the default among four; it is the only one.
+
+**Both rulings are general and each cancels what conflicts with it.** `R-74` said *«واى تعارض
+معاها يلغى»* about itself; this one says *«عدل اى قرار يتعارض مع هذا النظام»* about Supabase.
+Put to him as a direct question — do the three exceptions survive — and he answered by
+deleting them. So the later ruling wins on the point it was asked about, and `R-74`'s first
+part is untouched: the design system is still Supabase's.
+
+#### 2 · What deleting the three costs, measured before it is built
+
+| | |
+|---|---|
+| filled palette cells removed | **134** — `brand` 36+36, `blue` 31+31 (`blue` is five short of `THEME_PROPERTIES` in each scheme) |
+| registry lines removed | **120** of `design/appearance.js` |
+| device declarations removed | **20** across three blocks of `design/tokens.css` |
+| stored-preference migration needed | **none** — `resolvePalette` already returns `DEFAULTS.palette` for an id it does not know, so a stored `whatsapp`, `github`, `brand` or `blue` resolves to `supabase` on its own |
+| contrast matrix | **168 executions over 8 states → 21 over 2** |
+
+**And it deletes work that landed hours earlier.** `R-79` was entirely about device colours —
+the cascade fix that made *"Device colours"* reach the user in dark (`OP-101`), the discovery
+that the operating system's own ink scores 4.21:1 on its own accent, the per-surface derived
+ink, and two new tests. All of it goes with `device`. That was correct work under the ruling
+standing at the time, and `C4` requires the history to be visible rather than tidied away.
+
+#### 3 · What "exactly" costs, measured — three readings, orders of magnitude apart
+
+**The ruling does not say which layer it means, and this is not a quibble.**
+
+| reading | what it costs |
+|---|---|
+| **VALUES** — restore their colour values | **14 of 168 contrast assertions go red**, 18 once their white switch thumb is counted; all concentrated in the two states a fresh install paints |
+| **SYSTEM** — also adopt what they have and delete what they do not | **+124 declarations**, `THEME_PROPERTIES` **36 → 72**, **144 hand-picked palette cells**, matrix **168 → 448** — *and the subtraction of* the bidirectional contract, `forced-colors`, `prefers-contrast`, seven of nine `reduced-motion` blocks, **79 `aria-live` sites**, the 48px touch floor and the Google button |
+| **IMPLEMENTATION** — React, Tailwind, Radix, a build step | **351 `.ts/.tsx` files and 26 npm dependencies** against 20 authored stylesheets, inside an MV3 side panel and a pip-installed Flask app with no `package.json` at the repository root |
+
+**THIRTEEN COMPONENTS ARE STRUCTURALLY IMPOSSIBLE, NOT MERELY EXPENSIVE**, and the reason is
+the same each time: the thing being copied is a *runtime*, not a style. `chart.tsx` is
+recharts reconciling a React tree to place axis ticks. `command.tsx` is cmdk's scoring and
+virtual-focus engine. `form.tsx` **has no visual output at all** — it exists to wire
+react-hook-form to `aria-describedby` ids from `React.useId`. `calendar.tsx` is
+react-day-picker's locale and grid semantics; `drawer.tsx` is vaul's pointer-drag physics.
+
+#### 4 · THE TWO QUESTIONS THAT ARE OPEN
+
+**4a · Which layer does «مطابق تماما» mean?** Nothing can be planned before this. The
+recommendation put to him: the VALUE layer plus the token-vocabulary additions that cost
+nothing, with the implementation layer excluded **in the ruling's own text** — because
+[R-48](#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports),
+[R-50](#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+and [R-77](#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
+all assume an engine with no framework.
+
+**4b · Is the Arabic axis exempt?** **This is the only item whose cost is not counted in
+assertions.** Supabase is LTR-authored and the lock is explicit, not an omission: **268
+physical directional properties against 6 logical** across 351 files, zero `rtl:` variants,
+zero `DirectionProvider`, zero `unicode-bidi`, and no mention of rtl, bidi, Arabic or i18n in
+any of its 105 documentation files.
+
+This repository is the inverse **because its data is Arabic**: 22 bidi-control declarations,
+190 logical inline-axis properties against 20 physical, 26 `dir="auto"` render sites, 55
+`*_ar` field names, 11 `*_ar` schema columns, and `"Noto Sans Arabic"` inside both font stacks
+because Inter and Manrope do not cover Arabic.
+
+**17,417 of 34,834 crawled pages are Arabic — exactly half** — and `contractors`, one of the
+four categories `CLAUDE.md` names, is Arabic throughout.
+
+**So on this axis there is nothing to copy. Exact match can only mean subtraction**: delete 22
+declarations and flip 190 properties, after which Arabic company names, activities, regions
+and addresses render with their digits, punctuation and Latin fragments in the wrong order
+inside every English row. The affected screens are named: `source.html`, `offer.html`,
+`changes.html`, `review.html`, `overview.html`, `manage.html`, `excel.html`.
+
+The recommendation put to him is to exempt it **in the ruling's own words**, the way `R-74`
+exempted three colour choices in its.
+
+#### 5 · Three departures this ruling would revert, and one that was never a departure
+
+Measuring the ruling found the record of the departures itself partly wrong, and the
+correction stands whatever he answers.
+
+- **`--accent-contrast` was never a departure.** It is byte-exact to their
+  `--primary-foreground` in both schemes — `#030303` light and `#131413` dark. The comment
+  calling it a deliberate move away from their brand green describes a colour **Supabase does
+  not use there either**.
+- **`--amber`'s pair is this repository's invention.** Supabase never puts warning text on
+  its own `warning-300` tint; its on-amber ink is `--warning-foreground`, which scores
+  **6.92:1**. The 2.68:1 that justified the departure is a number for a pairing they do not
+  render.
+- **`--focus` fails in one scheme, not two.** Restoring their ring gives 1.47:1 in light and
+  **3.56:1 in dark**, which clears the floor.
+
+So the real departures are three positions, not five values: `--line-strong` in both schemes,
+`--amber` in light, `--focus` in light.

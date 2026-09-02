@@ -136,6 +136,15 @@ def test_nothing_in_the_ui_loads_code_from_the_internet():
     assert offenders == [], f"remote code referenced: {offenders}"
 
 
+def _without_comments(source: str) -> str:
+    """Strip `/* ... */` and `// ...` so an assertion about CODE cannot be
+    satisfied or defeated by prose. This repository keeps the history of a deleted
+    decision in comments on purpose (C4), so a substring check over raw source
+    reports the record as if it were the thing recorded."""
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    return re.sub(r"(?m)^\s*//.*$", "", source)
+
+
 def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     canonical = (ROOT / "design" / "appearance.js").read_bytes()
     panel = (ROOT / "extension" / "appearance.js").read_bytes()
@@ -148,51 +157,47 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
     assert 'mode: "device"' in script
-    # `deviceColors` DEFAULTS TO FALSE since R-73, and the assertion is kept
-    # rather than deleted because it is the only one in the suite that pins this
-    # default at all -- measured: nine other references to `deviceColors` in
-    # tests/ all SET the value explicitly, so none of them would notice a flip.
+    # `deviceColors` HAD A DEFAULT AND NOW HAS NO KEY. R-73 flipped it to false so
+    # the named default palette was the one a fresh install actually painted; R-84
+    # deleted device colours outright on 2026-08-31, so there is nothing left to
+    # default. Asserting its ABSENCE rather than dropping the line: a key that came
+    # back would mean a deleted colour mode had returned without a ruling.
     #
-    # Why it has to be false: apply() returns early on the true branch after
-    # clearTheme(), so with `true` the named default palette is never applied for
-    # a user with no stored preference. `github` was the default for as long as
-    # the setting existed and nobody ever saw it. `mode: "device"` above still
-    # holds -- the SCHEME follows the device, only the COLOURS no longer do.
-    assert "deviceColors: false" in script
+    # `mode: "device"` above is untouched and is a different thing — the SCHEME
+    # follows the operating system's light/dark preference, which R-84 did not
+    # touch. Only the COLOURS stopped following it.
+    # Asserted against the CODE, not the word: three comments in
+    # design/appearance.js still name `deviceColors`, kept deliberately because C4
+    # wants the history of a decision rather than its last state — the flip he asked
+    # for the numbers on, and its removal four weeks later. What must be gone is the
+    # KEY and every read of it.
+    for code in ("deviceColors:", "deviceColors ", ".deviceColors",
+                 "deviceColors}", "deviceColors)"):
+        assert code not in _without_comments(script), (
+            f"{code!r} is live code, not history; R-84 deleted device colours")
     assert 'palette: "supabase"' in script
     assert "data-appearance-scheme-mode" in script
     assert "data-appearance-palettes" in script
 
 
-def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
-    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
-    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
-    tonal = tokens.split("/* Device-derived tonal surfaces", 1)[1].split(
-        "@media (prefers-contrast: more)", 1)[0]
-
-    assert ':root[data-color-mode="device"]' in tonal
-    for token in (
-        "--bg",
-        "--surface",
-        "--surface-subtle",
-        "--surface-raised",
-        "--line",
-        "--line-strong",
-        "--chip",
-        "--control-bg",
-        "--control-hover",
-    ):
-        assert f"{token}:" in tonal
-    assert "light-dark(" in tonal
-    assert "color-mix(in srgb, var(--accent)" in tonal
-    assert "const THEME_PROPERTIES" in appearance
-    assert 'bg: "#F7F5F3"' in appearance  # WhatsApp light
-    assert 'bg: "#121B21"' in appearance  # WhatsApp dark
-    assert 'bg: "#FFFFFF"' in appearance  # GitHub light
-    assert 'bg: "#0D1117"' in appearance  # GitHub dark
+# test_appearance_colour_rebuilds_the_whole_tonal_surface_family STOOD HERE.
+#
+# It asserted that the device tonal block named all nine surface tokens and mixed
+# them with `light-dark()` and `color-mix(in srgb, var(--accent)`. R-84 deleted the
+# block on 2026-08-31 — «احذف الثلاثة وابق supabase وحده» — so the test split the
+# file on a marker that no longer exists and raised IndexError rather than failing
+# with a reason.
+#
+# WHAT IT WAS FOR IS RECORDED WHERE IT CAN STILL BE READ. The review of 2026-08-29
+# measured that this test asserted nine token NAMES and two substrings and compared
+# NO literal, while the comment above the block claimed it checked the bases
+# against `:root` — and that one base had already drifted (`--control-hover` was
+# `#f3f3f3`, `--chip`, where `:root` declared `var(--surface-subtle)`). That is in
+# design/tokens.css's own comment history and in OP-109. A future device mode should
+# read it before trusting a presence check to prevent drift.
 
 
-def test_only_the_three_reviewed_application_palettes_are_available():
+def test_only_the_one_reviewed_application_palette_is_available():
     """THE COUNT IS A REVIEW GATE, NOT A FACT ABOUT THE FILE.
 
     This was `== 2` and named "the two reviewed application palettes" from the
@@ -214,24 +219,38 @@ def test_only_the_three_reviewed_application_palettes_are_available():
     Three of its values deliberately diverge from Supabase, each because their
     own value fails a threshold this repository already enforces; the palette
     entry states each divergence with the measured ratio.
+
+    AND THEN THE COUNT WENT THE OTHER WAY. On 2026-08-31 he ruled R-84 — «احذف
+    الثلاثة وابق supabase وحده» — and `brand` and `blue` were deleted along with
+    device colours. So the gate now reads `== 1`, and it is still a review gate
+    rather than a fact: adding a palette back costs a written justification here,
+    and REMOVING this last one would mean the product has no colour at all.
+
+    THE ALIAS HALF MATTERS MORE THAN IT DID, NOT LESS. Every appearance stored
+    before today carries `whatsapp`, `github`, `brand` or `blue`, and the alias map
+    resolving all four to `supabase` IS the whole migration — there is no other. A
+    session that "simplified" it away would silently reset every stored preference,
+    which is why all four are asserted by name below.
     """
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
 
-    assert appearance.count('description: "') == 3
-    # R-59 decision 3: the real keys, with the legacy names as aliases rather
-    # than as entries. Asserting both halves is what stops a session from
-    # "simplifying" the alias map away and silently resetting every stored
-    # preference to the default.
-    assert '["brand", {' in appearance
-    assert '["blue", {' in appearance
+    assert appearance.count('description: "') == 1
     assert '["supabase", {' in appearance
-    assert '["whatsapp", "brand"]' in appearance
-    assert '["github", "blue"]' in appearance
-    assert 'accent: "#35AA65"' in appearance
-    assert 'red: "#B3002F"' in appearance
-    assert 'switchTrack: "#35AA65"' in appearance
-    assert 'buttonBg: "#43D36D"' in appearance
-    assert 'buttonHover: "#1C1E21"' in appearance
+    # DELETED BY R-84, and asserted ABSENT rather than simply unmentioned: an entry
+    # that came back without a ruling would otherwise pass unnoticed.
+    assert '["brand", {' not in appearance
+    assert '["blue", {' not in appearance
+    # All four retired ids resolve to the one that remains. This is the migration.
+    for retired in ("whatsapp", "github", "brand", "blue"):
+        assert f'["{retired}", "supabase"]' in appearance, (
+            f"{retired} no longer resolves to supabase; every appearance stored "
+            "before 2026-08-31 carries one of these four ids and this map is the "
+            "only thing that keeps such a record loadable")
+    # The WhatsApp and GitHub colour values went with their entries.
+    for gone in ('accent: "#35AA65"', 'red: "#B3002F"',
+                 'switchTrack: "#35AA65"', 'buttonBg: "#43D36D"',
+                 'buttonHover: "#1C1E21"'):
+        assert gone not in appearance, f"{gone} belongs to a deleted palette"
     # SUPABASE'S OWN COLOURS ARE NOT PINNED HERE, and that is R-74 rather than an
     # omission. It is the BASELINE, not one option among three, so its colours
     # live in design/tokens.css and its palette entry declares none -- pinning

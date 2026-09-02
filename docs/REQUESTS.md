@@ -2465,7 +2465,7 @@ reason is four links long, every one measured on the live engine rather than arg
 | link | evidence |
 |---|---|
 | 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4044` |
-| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3604`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, and moved a fourth time when `#302` landed 7,242 insertions and a FIFTH when `#301` landed on top of it -- 4064 to 4044, found by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
+| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3618`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, moved a fourth time when `#302` landed 7,242 insertions, a FIFTH when `#301` landed on top of it -- 4064 to 4044 -- and a SIXTH here, found every time by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
 | 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** **This row was true when written and half of it is not now**: `0014` merged `site_profile` into `source_site` on 2026-08-29, which is what made a resolver possible rather than a third registry |
 | 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` — **and this turned out to be the DESIGN rather than the defect.** It asks a source for three things and none is price-specific, so the fix was a resolver and `jobs.py` is unchanged. **What remains is the collector**: the route now queues `muqawil_org`, and the worker still hands it to `capture_source` |
 
@@ -2715,6 +2715,13 @@ including two that had accused the code of breaking a ruling it obeys.
 | OD-12 | citation guard: bare-path tier, `DOCUMENTS` widening, or both? | `DOCUMENTS` is 9 of 82 tracked `.md`; design citations are 8 and exactly 1 is pinned | **bare-path tier first** — widening alone changes zero verdicts here |
 
 ### What was deliberately not done
+
+> **AND THEN THE BASELINE ITSELF MOVED.** On 2026-08-31 he ruled
+> [R-84](RULINGS.md#r-84--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice):
+> the system is Supabase's **exactly**, any conflicting decision is amended, and `whatsapp`,
+> `github` and `device` are **deleted** — `supabase` alone. That supersedes `R-74` parts 2-4
+> and reaches back into several of the twelve below, `OD-01` and `OD-02` most directly. Two
+> questions inside `R-84` are open and nothing is built until he answers them.
 
 > **THE FIRST TWO OF THE TWELVE ARE DECIDED.** OD-03 and OD-04 landed together on 2026-08-30 as
 > [R-79](RULINGS.md#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted),

@@ -483,14 +483,27 @@ def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
         # R-59 decision 3 made `whatsapp` and `github` compatibility aliases for
         # `brand` and `blue`, and R-73 built the registry that honours them. So a
         # preference SAVED before 2026-08-28 carries the old name, and what has
-        # to survive is not the string -- it is the user's actual choice. These
-        # first two rows are the only place that is proven end to end, from a
-        # localStorage value written by the previous build through to the
-        # attribute on the painted frame.
-        pytest.param("whatsapp", "brand", id="legacy-whatsapp-resolves-to-brand"),
-        pytest.param("github", "blue", id="legacy-github-resolves-to-blue"),
-        pytest.param("brand", "brand", id="canonical-brand"),
-        pytest.param("supabase", "supabase", id="default-supabase"),
+        # to survive is not the string -- it is the user's actual choice. This
+        # table is the only place that is proven end to end, from a localStorage
+        # value written by a previous build through to the attribute on the
+        # painted frame.
+        #
+        # AND R-84 MADE ALL FOUR OLD NAMES POINT AT ONE. «احذف الثلاثة وابق
+        # supabase وحده», 2026-08-31: `brand` and `blue` were deleted, so a stored
+        # `whatsapp`, `github`, `brand` or `blue` now paints `supabase`. THIS IS THE
+        # WHOLE MIGRATION AND THERE IS NO OTHER — no upgrade step, no rewrite of
+        # stored records, nothing in the engine. It is the alias map plus
+        # `resolvePalette`'s fallback, and these five rows are what proves it
+        # rather than asserts it.
+        #
+        # A row that painted its own name would mean a deleted palette had come
+        # back; a row that painted nothing would mean a stored record had become
+        # unloadable. Both are what this table exists to refuse.
+        pytest.param("whatsapp", "supabase", id="retired-whatsapp"),
+        pytest.param("github", "supabase", id="retired-github"),
+        pytest.param("brand", "supabase", id="retired-brand"),
+        pytest.param("blue", "supabase", id="retired-blue"),
+        pytest.param("supabase", "supabase", id="canonical-supabase"),
     ],
 )
 @pytest.mark.parametrize("scheme", ["light", "dark"])
