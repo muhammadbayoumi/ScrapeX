@@ -22,8 +22,10 @@ NOT IMPLEMENTED HERE — stated plainly rather than stubbed:
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,12 +75,61 @@ RUNTIME_DATA: tuple[tuple[str, str], ...] = (
 )
 
 
-def add_data_arguments() -> list[str]:
-    """`RUNTIME_DATA` as PyInstaller arguments, with the platform's separator."""
+#: Where the commit lands inside the bundle. `scrapex/provenance.py` reads this name
+#: and nothing else does -- one string, in one place, so the two cannot drift.
+STAMP_NAME = "build-stamp.json"
+
+
+def head_commit() -> str | None:
+    """The commit this build is being cut from, or `None` outside a repository.
+
+    `None` RATHER THAN A PLACEHOLDER. `R-77` chose the commit as the engine's identity
+    precisely because "it cannot be wrong"; a build that could not read one and stamped
+    `unknown` anyway would put a value that is wrong into the field whose whole claim is
+    that it never is. A bundle with no stamp reports no commit, which is what
+    `provenance` already does honestly.
+    """
+    try:
+        found = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                               capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    commit = found.stdout.strip()
+    return commit if found.returncode == 0 and len(commit) == 40 else None
+
+
+def write_build_stamp(into: Path) -> Path | None:
+    """Write the stamp beside the build, and return it, or `None` if there is nothing.
+
+    NOT IN `RUNTIME_DATA`: every entry there is a tracked path checked for existence
+    before the build, and this one is generated and belongs to a single build.
+    """
+    commit = head_commit()
+    if commit is None:
+        return None
+    into.mkdir(parents=True, exist_ok=True)
+    stamp = into / STAMP_NAME
+    stamp.write_text(json.dumps({
+        "commit": commit,
+        # THE MOMENT, RECORDED BECAUSE A CLAIM WITHOUT ITS BASE IS THE FAILURE FAMILY
+        # `provenance` was written for (`docs/LESSONS.md` section 14). Nothing reads it
+        # today; it costs one line and answers "when was this cut" without a release feed.
+        "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }, indent=2) + "\n", encoding="utf-8")
+    return stamp
+
+
+def add_data_arguments(stamp: Path | None = None) -> list[str]:
+    """`RUNTIME_DATA` as PyInstaller arguments, with the platform's separator.
+
+    `stamp`, when given, is added at the bundle root -- the one generated resource.
+    """
     separator = ";" if sys.platform == "win32" else ":"
     arguments: list[str] = []
     for source, destination in RUNTIME_DATA:
         arguments += ["--add-data", f"{ROOT / source}{separator}{destination}"]
+    if stamp is not None:
+        arguments += ["--add-data", f"{stamp}{separator}."]
     return arguments
 
 
@@ -96,6 +147,19 @@ def build() -> int:
         print(f"the engine reads these at runtime and they are not here: {missing}",
               file=sys.stderr)
         return 1
+    # STAMPED BEFORE THE BUILD, from the tree being built. `R-77`: the engine's
+    # identity is the commit, and an installed build had no way to report one -- so
+    # `Build` read the bare words `installed build` on the surface that exists to say
+    # which code is running. Said out loud when it cannot be read, because a build
+    # nobody can identify is worth knowing about at build time rather than in the panel.
+    stamp = write_build_stamp(ROOT / "build")
+    if stamp is None:
+        print("WARNING: no commit could be read, so this build will report none. "
+              "The engine's identity is the commit under R-77; a build cut outside a "
+              "repository cannot have one, and will not invent one.", file=sys.stderr)
+    else:
+        print(f"stamped {stamp.name} with {json.loads(stamp.read_text())['commit'][:7]}")
+
     command = [
         sys.executable, "-m", "PyInstaller",
         "--onefile", "--name", NAME,
@@ -118,7 +182,7 @@ def build() -> int:
         "--distpath", str(ROOT / "dist"),
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
-        *add_data_arguments(),
+        *add_data_arguments(stamp),
         str(ENTRY),
     ]
     print(" ".join(command))

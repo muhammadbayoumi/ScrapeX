@@ -3451,9 +3451,20 @@ function updateEngineStatus() {
   $("engine-state-detail").textContent = summary.detail;
 }
 
+// GATED ON WHETHER AN ENGINE ANSWERED, NOT ON WHETHER IT HAS A VERSION NUMBER.
+// It read `state.engineVersion` until 2026-09-02, which coupled this row to a number
+// `R-77` retires: "the engine gets no marketing version at all -- a protocol number
+// and a build SHA, both facts rather than judgements." Under that ruling the version
+// row goes, and with the old gate the Protocol row would have gone silent with it --
+// reporting `Not available` about a protocol the engine had just stated. The two are
+// independent facts: whether a wire is compatible has nothing to do with a release
+// cadence, which is the whole argument of `R-77`'s second clause.
+//
+// `engineUp` IS THE RIGHT QUESTION because `/api/health` is what carries the protocol,
+// and it answers only from a running engine. Reachable-but-stopped has no protocol to
+// report and correctly falls into the same branch it always did.
 function engineProtocolText() {
-  const installed = state.engineVersion;
-  if (!installed) return "Not available";
+  if (!state.engineUp) return "Not available";
   if (state.engineProtocol === null) return `Not reported · Extension expects ${PROTOCOL_VERSION}`;
   if (state.protocolMismatch) return `Engine ${state.engineProtocol} · Extension ${PROTOCOL_VERSION}`;
   return String(state.engineProtocol);

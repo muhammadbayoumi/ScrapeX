@@ -64,6 +64,8 @@ when a file has ALREADY been seen to change.
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -209,6 +211,35 @@ def _read_head(git_dir: Path) -> str | None:
     return None
 
 
+#: What `packaging/build_engine.py` writes into the bundle. The name is declared there
+#: and repeated here rather than imported: `packaging/` is not on the path of an
+#: installed engine, and a build-time module is the wrong thing for a runtime read to
+#: depend on. `test_the_frozen_stamp_name_matches_the_builder` compares the two.
+BUNDLE_STAMP = "build-stamp.json"
+
+
+def _bundled_commit() -> str | None:
+    """The commit a frozen build was cut from, read from its own bundle.
+
+    EVERY FAILURE ANSWERS `None`. A bundle from before the stamp existed, a truncated
+    file, a value that is not a 40-character hex commit -- all of them mean "this build
+    cannot say", and that is what the field already meant. Under `R-77` this string is
+    the engine's identity, so a guess here is worse than a blank.
+    """
+    root = getattr(sys, "_MEIPASS", None)
+    if root is None:
+        return None
+    try:
+        found = json.loads((Path(root) / BUNDLE_STAMP).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    commit = found.get("commit") if isinstance(found, dict) else None
+    if not isinstance(commit, str):
+        return None
+    commit = commit.strip()
+    return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None
+
+
 class _Snapshot:
     """What the process had loaded at the moment it sealed, and when that was.
 
@@ -236,9 +267,19 @@ class _Snapshot:
         self.head = None
         self.git_dir = None
         if self.frozen:
-            # A frozen build has no source tree and no repository. Sealing it
-            # records the MODE and nothing else, so `report()` has a truthful
-            # basis for answering `None` rather than inventing a comparison.
+            # A frozen build has no source tree and no repository, so `report()`
+            # answers `None` to every comparison rather than inventing one.
+            #
+            # IT DOES CARRY ITS OWN IDENTITY, THOUGH, AND USED NOT TO. `R-77` made the
+            # commit the engine's identity -- "it is free, it cannot be wrong, and it
+            # needs no rule" -- and this branch returned before `head` was ever set, so
+            # an installed engine reported no commit at all and the panel's `Build` row
+            # read the bare words `installed build`. `packaging/build_engine.py` puts the
+            # commit in the bundle; this reads it. Still `None` when the bundle has none,
+            # which is the honesty `test_a_frozen_build_answers_unknown_and_never_false`
+            # protects: the comparison is unknowable, the identity is a fact, and the two
+            # are different questions.
+            self.head = _bundled_commit()
             return
         self.git_dir = _git_dir(_package_root())
         if self.git_dir is not None:

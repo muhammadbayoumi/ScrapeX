@@ -51,6 +51,7 @@ compare itself to a source tree it does not carry.
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import sys
 import types
@@ -279,6 +280,193 @@ def test_a_frozen_build_answers_unknown_and_never_false(monkeypatch):
     assert report["moved"] is None
     assert report["commit_now"] is None
     assert "cannot be answered" in report["detail"]
+
+
+def _recipe():
+    """`packaging/build_engine.py`, which is not importable as a package.
+
+    THE SAME LOADER `test_the_frozen_engine_carries_its_own_files.py` USES, and for the
+    same reason: the build recipe is a script, and a guard that re-implemented what it
+    says would be asserting against its own copy.
+    """
+    import importlib.util
+
+    recipe = ROOT / "packaging" / "build_engine.py"
+    assert recipe.is_file(), f"{recipe} is gone; this guard must follow it"
+    spec = importlib.util.spec_from_file_location("scrapex_build_recipe", recipe)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _frozen_bundle(monkeypatch, tmp_path: Path, stamp: str | None) -> dict:
+    """Seal as an installed build whose bundle holds `stamp`, and report."""
+    monkeypatch.setattr(provenance.enginelaunch, "frozen", lambda: True)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    if stamp is not None:
+        (tmp_path / provenance.BUNDLE_STAMP).write_text(stamp, encoding="utf-8")
+    provenance._SNAPSHOT = provenance._Snapshot()
+    provenance.seal()
+    return provenance.report()
+
+
+def test_a_frozen_build_reports_the_commit_its_bundle_carries(monkeypatch, tmp_path):
+    """`R-77` MADE THE COMMIT THE ENGINE'S IDENTITY, AND AN INSTALLED ONE HAD NONE.
+
+    The ruling's first clause is that identity is the commit rather than a number --
+    "it is free, it cannot be wrong, and it needs no rule". But `seal()` returned before
+    `head` was read whenever the build was frozen, and nothing in the repository stamped
+    a commit anywhere, so every installed engine answered `commit: None` and the panel's
+    Build row rendered the bare words `installed build`. `engineBuildText` has always
+    known how to draw `installed - <sha7>`; the fact was simply never in the bundle.
+
+    AND THE IDENTITY IS A DIFFERENT QUESTION FROM THE COMPARISON, which is why the
+    honesty assertions below still hold here: this build now says WHICH code it is and
+    still refuses to say whether newer code exists, because it carries no source tree
+    to compare against and never will.
+    """
+    commit = "b" * 40
+    report = _frozen_bundle(monkeypatch, tmp_path,
+                            json.dumps({"commit": commit, "built_at": "2026-09-02"}))
+
+    assert report["mode"] == "frozen"
+    assert report["commit"] == commit, "the bundle carried its commit and it was not read"
+    assert report["stale"] is None, "reading a commit taught it something it cannot know"
+    assert report["moved"] is None
+    assert report["commit_now"] is None
+
+
+@pytest.mark.parametrize("stamp", [
+    None,                                   # a bundle from before the stamp existed
+    "",                                     # a truncated write
+    "{",                                    # a torn one
+    '{"commit": null}',
+    '{"commit": ""}',
+    '{"commit": "abc123"}',                 # short
+    '{"commit": "' + "z" * 40 + '"}',       # 40 characters, not hex
+    '{"commit": ' + '["' + "a" * 40 + '"]}',  # the right value, wrong shape
+    '["' + "a" * 40 + '"]',                 # not an object at all
+])
+def test_a_frozen_build_invents_no_commit_it_cannot_read(monkeypatch, tmp_path, stamp):
+    """EVERY FAILURE IS A BLANK, NEVER A PLACEHOLDER, and there are eight of them.
+
+    Under `R-77` this string is the engine's identity, so `unknown` or a truncated hash
+    in that field is worse than an empty one: the field's whole claim is that it cannot
+    be wrong. An engine installed before the stamp existed is the common case and is not
+    an error -- it is a build that cannot say, which is what the field already meant.
+    """
+    report = _frozen_bundle(monkeypatch, tmp_path, stamp)
+
+    assert report["mode"] == "frozen"
+    assert report["commit"] is None, (
+        f"a stamp reading {stamp!r} produced {report['commit']!r} as this engine's "
+        "identity")
+    assert "cannot be answered" in report["detail"]
+
+
+def test_a_source_build_reads_head_and_not_a_bundle(monkeypatch, tmp_path):
+    """THE STAMP MUST NOT REACH THE PATH THAT ALREADY HAD AN ANSWER.
+
+    A source checkout reads `HEAD` from the repository, which is exact and live. If a
+    stray `_MEIPASS` or a stamp file could influence it, the honest path would start
+    answering from a stale artefact -- and `moved` compares `head` at seal against `HEAD`
+    now, so a wrong `head` reports a checkout that moved when it did not.
+    """
+    (tmp_path / provenance.BUNDLE_STAMP).write_text(
+        json.dumps({"commit": "c" * 40}), encoding="utf-8")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    provenance._SNAPSHOT = provenance._Snapshot()
+    provenance.seal()
+
+    report = provenance.report()
+
+    assert report["mode"] == "source"
+    assert report["commit"] != "c" * 40, (
+        "a source build took its identity from a bundle stamp instead of HEAD")
+
+
+def test_the_stamp_name_is_one_string_and_not_two():
+    """WRITTEN BY THE BUILD, READ BY THE RUNTIME, AND THE TWO CANNOT BE IMPORTED
+    TOGETHER: `packaging/` is not on the path of an installed engine, so `provenance`
+    repeats the name rather than importing it. This is what stops the repetition from
+    becoming a drift -- the same failure `RUNTIME_DATA`'s own comment records about
+    `pyproject.toml` carrying the same fact twice with nothing comparing them."""
+    assert _recipe().STAMP_NAME == provenance.BUNDLE_STAMP
+
+
+def test_the_builder_stamps_the_commit_it_is_building(tmp_path):
+    """A STAMP IS ONLY WORTH ANYTHING IF IT IS THIS TREE'S COMMIT.
+
+    Asserted against `git rev-parse HEAD` run separately, so a builder that wrote a
+    constant, an abbreviated hash, or the wrong repository's head fails here rather
+    than shipping an engine that misidentifies itself.
+    """
+    recipe = _recipe()
+    stamp = recipe.write_build_stamp(tmp_path / "build")
+
+    head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    assert stamp is not None, "the recipe read no commit inside a repository"
+    assert stamp.name == provenance.BUNDLE_STAMP
+    written = json.loads(stamp.read_text(encoding="utf-8"))
+    assert written["commit"] == head, (
+        f"stamped {written['commit']!r} for a tree whose HEAD is {head!r}")
+    assert written["built_at"], "the stamp carries no moment, so its claim has no base"
+
+
+def test_the_stamp_rides_along_in_the_bundle(tmp_path):
+    """A RESOURCE ABSENT FROM THE BUNDLE IS DISCOVERED BY A PERSON, ON THEIR MACHINE.
+
+    That sentence is `RUNTIME_DATA`'s own, earned by a published build that started,
+    prepared a database and could not serve one page. The stamp cannot join that list --
+    every entry there is a tracked path checked for existence before the build, and this
+    one is generated per build -- so it is added separately, and this is what says the
+    separate path is wired.
+    """
+    recipe = _recipe()
+    stamp = recipe.write_build_stamp(tmp_path / "build")
+    arguments = recipe.add_data_arguments(stamp)
+
+    separator = ";" if sys.platform == "win32" else ":"
+    assert f"{stamp}{separator}." in arguments, (
+        "the stamp was written and not handed to PyInstaller, so the .exe carries "
+        f"no commit: {arguments[-4:]}")
+    # AND IT IS ABSENT WHEN THERE IS NOTHING TO ADD, rather than passed as an empty
+    # argument PyInstaller would reject.
+    assert recipe.add_data_arguments(None) == recipe.add_data_arguments()
+
+
+def test_the_build_ITSELF_passes_the_stamp_and_not_only_the_helper(monkeypatch):
+    """ASSERTING THE HELPER WAS NOT ENOUGH, AND A MUTATION PROVED IT.
+
+    `test_the_stamp_rides_along_in_the_bundle` calls `add_data_arguments(stamp)` itself,
+    so it says the function can carry a stamp and nothing about whether `build()` hands
+    it one. Changing `build()` back to `add_data_arguments()` -- the exact defect, an
+    engine stamped on disk and shipped without it -- left that test GREEN.
+
+    So this reads the command `build()` actually assembles. `subprocess.call` is replaced
+    rather than the build run: PyInstaller takes ten minutes and is not installed in
+    every environment, and what is under test is the argument list, which is complete
+    before the call.
+    """
+    recipe = _recipe()
+    seen: list[list[str]] = []
+    monkeypatch.setattr(recipe.subprocess, "call",
+                        lambda command, *a, **k: seen.append(command) or 0)
+
+    assert recipe.build() == 0
+    assert seen, "build() assembled no command at all"
+    command = seen[0]
+
+    stamped = [argument for argument in command if recipe.STAMP_NAME in argument]
+    assert stamped, (
+        "build() never handed the stamp to PyInstaller, so the .exe it produces "
+        "reports no commit and its Build row reads `installed build` -- which is the "
+        f"whole defect this branch exists for. Command tail: {command[-6:]}")
+    separator = ";" if sys.platform == "win32" else ":"
+    assert all(one.endswith(f"{separator}.") for one in stamped), (
+        f"the stamp is bundled somewhere other than the root, where `provenance` "
+        f"reads it: {stamped}")
 
 
 def test_an_engine_that_never_sealed_says_it_does_not_know(monkeypatch):

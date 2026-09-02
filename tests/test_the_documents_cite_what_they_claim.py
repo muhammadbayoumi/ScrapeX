@@ -265,7 +265,7 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4742,
+    ("docs/BACKLOG.md", "extension/app.js", 4753,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 742, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
@@ -294,7 +294,7 @@ PINNED = (
     # The sentence itself, so it is clear the card reads a MISSING key and not a
     # missing crawl -- which is why writing a `crawl_run` row would not have moved
     # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4629, "const last = s.last_success;"),
+    ("docs/BACKLOG.md", "extension/app.js", 4642, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in source_site.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
