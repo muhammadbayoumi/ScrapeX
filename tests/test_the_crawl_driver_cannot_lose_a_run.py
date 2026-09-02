@@ -293,6 +293,46 @@ def test_pairs_keeps_the_later_read_of_a_page_a_retry_stored_twice(driver, conn)
         newer, "<html>second generation</html>")
 
 
+def test_targeted_pairs_decode_only_the_named_profiles(driver, conn):
+    """A surgical re-approval cannot widen to every page sharing the run-ref.
+    Filtering happens before decode, and listing pages have no contractor id so
+    they cannot enter the targeted set either."""
+    snapshot(conn, "https://muqawil.org/en/contractors/1089/143", "<html>1089 en</html>",
+             "r")
+    snapshot(conn, "https://muqawil.org/ar/contractors/1089/143", "<html>1089 ar</html>",
+             "r")
+    snapshot(conn, "https://muqawil.org/en/contractors/2079/143", "<html>2079 en</html>",
+             "r")
+    snapshot(conn, "https://muqawil.org/ar/contractors/2079/143", "<html>2079 ar</html>",
+             "r")
+    snapshot(conn, "https://muqawil.org/en/contractors?page=1", "<html>listing</html>",
+             "r")
+
+    found = driver._pairs(conn, "r", ids=("1089",))
+
+    assert list(found) == ["https://muqawil.org/contractors/1089/143"]
+    assert {locale: html for locale, (_, html) in found[next(iter(found))].items()} == {
+        "en": "<html>1089 en</html>",
+        "ar": "<html>1089 ar</html>",
+    }
+
+
+def test_targeted_approve_refuses_a_named_snapshot_the_run_does_not_carry(
+        driver, conn, capsys):
+    """Missing evidence is a refusal before the first candidate or commit. A typo
+    in one id must never turn the remaining ids into a partial, apparently
+    successful repair."""
+    snapshot(conn, "https://muqawil.org/en/contractors/1089/143", "<html>1089</html>",
+             "r")
+
+    with pytest.raises(SystemExit) as refused:
+        driver.approve(conn, None, "r", ids=("1089", "2079"))
+
+    assert refused.value.code == 2
+    assert "2079" in capsys.readouterr().err
+    assert conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0] == 0
+
+
 # ---- the approval the owner's answer stands for ------------------------------
 
 def _field(key: str, name: str):

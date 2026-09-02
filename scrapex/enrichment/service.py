@@ -26,6 +26,7 @@ from .models import (
     FIELD_ROLES,
     OUTPUT_FIELDS,
     DefinitionCreate,
+    EnrichmentRunMode,
     FieldFact,
     OrganizationIdentity,
     OrganizationMergeCreate,
@@ -885,6 +886,92 @@ def _snapshot_run_items(
     ).fetchone()[0])
 
 
+def _compatible_incremental_baseline(
+    conn: sqlite3.Connection,
+    *,
+    definition_id: int,
+    before_job_id: int,
+    definition_json: str,
+    provider_versions_json: str,
+) -> sqlite3.Row | None:
+    """Return the latest finished snapshot that is safe to increment from."""
+    return conn.execute(
+        "SELECT e.job_id, j.job_ref FROM organization_enrichment_job AS e "
+        "JOIN crawl_job AS j ON j.job_id=e.job_id "
+        "WHERE e.enrichment_definition_id=? AND e.job_id<? "
+        "AND e.definition_json=? AND e.provider_versions_json=? "
+        "AND j.status IN ('completed','completed_with_errors','partially_completed') "
+        "ORDER BY e.job_id DESC LIMIT 1",
+        (
+            definition_id,
+            before_job_id,
+            definition_json,
+            provider_versions_json,
+        ),
+    ).fetchone()
+
+
+def _keep_incremental_run_items(
+    conn: sqlite3.Connection,
+    *,
+    job_id: int,
+    definition_id: int,
+    definition_json: str,
+    provider_versions_json: str,
+) -> int:
+    """Drop inputs unchanged since their latest compatible finished attempt."""
+    conn.execute(
+        "CREATE TEMP TABLE IF NOT EXISTS enrichment_incremental_latest ("
+        "source_external_id TEXT PRIMARY KEY, job_id INTEGER NOT NULL) WITHOUT ROWID"
+    )
+    conn.execute("DELETE FROM enrichment_incremental_latest")
+    try:
+        conn.execute(
+            "INSERT INTO enrichment_incremental_latest (source_external_id, job_id) "
+            "SELECT item.source_external_id, max(item.job_id) "
+            "FROM organization_enrichment_run_item AS item "
+            "JOIN organization_enrichment_job AS enrichment_job "
+            "ON enrichment_job.job_id=item.job_id "
+            "JOIN crawl_job AS crawl ON crawl.job_id=item.job_id "
+            "WHERE enrichment_job.enrichment_definition_id=? AND item.job_id<? "
+            "AND enrichment_job.definition_json=? "
+            "AND enrichment_job.provider_versions_json=? "
+            "AND crawl.status IN "
+            "('completed','completed_with_errors','partially_completed') "
+            "GROUP BY item.source_external_id",
+            (definition_id, job_id, definition_json, provider_versions_json),
+        )
+        conn.execute(
+            "DELETE FROM organization_enrichment_run_item AS current "
+            "WHERE current.job_id=? AND EXISTS ("
+            "SELECT 1 FROM enrichment_incremental_latest AS latest "
+            "JOIN organization_enrichment_run_item AS previous "
+            "ON previous.job_id=latest.job_id "
+            "AND previous.source_external_id=latest.source_external_id "
+            "WHERE latest.source_external_id=current.source_external_id "
+            "AND previous.source_content_hash=current.source_content_hash "
+            "AND coalesce(previous.detail_content_hash,'')="
+            "coalesce(current.detail_content_hash,'') "
+            "AND previous.item_status='completed' AND NOT EXISTS ("
+            "SELECT 1 FROM organization_source_record AS link "
+            "JOIN organization_provider_observation AS observation "
+            "ON observation.organization_id=link.organization_id "
+            "AND observation.job_id=previous.job_id "
+            "WHERE link.enrichment_definition_id=? "
+            "AND link.generic_record_id=previous.generic_record_id "
+            "AND observation.observation_status IN "
+            "('failed','system_error','skipped')"
+            "))",
+            (job_id, definition_id),
+        )
+    finally:
+        conn.execute("DROP TABLE IF EXISTS enrichment_incremental_latest")
+    return int(conn.execute(
+        "SELECT count(*) FROM organization_enrichment_run_item WHERE job_id=?",
+        (job_id,),
+    ).fetchone()[0])
+
+
 def estimate_definition_run(
     conn: sqlite3.Connection, definition_id: int
 ) -> dict[str, Any]:
@@ -980,9 +1067,18 @@ def definition_diagnostics(
     }
 
 
-def create_enrichment_job(conn: sqlite3.Connection, definition_id: int) -> dict[str, Any]:
+def create_enrichment_job(
+    conn: sqlite3.Connection,
+    definition_id: int,
+    *,
+    run_mode: EnrichmentRunMode | str = EnrichmentRunMode.UPDATE,
+) -> dict[str, Any]:
     from .. import jobs
 
+    try:
+        selected_mode = EnrichmentRunMode(run_mode)
+    except ValueError as exc:
+        raise EnrichmentError(f"unknown enrichment run mode {run_mode!r}") from exc
     definition = _definition_row(conn, definition_id)
     if definition["status"] != "active":
         raise EnrichmentError(
@@ -1010,7 +1106,6 @@ def create_enrichment_job(conn: sqlite3.Connection, definition_id: int) -> dict[
             f"enrichment job {active['job_ref']} is already active for this dataset"
         )
     _create_output_schema(conn, int(definition["output_dataset_id"]))
-    estimate = estimate_definition_run(conn, definition_id)
     try:
         budget = int(os.environ.get("SCRAPEX_ENRICHMENT_REQUEST_BUDGET", "0") or 0)
     except ValueError as exc:
@@ -1021,35 +1116,69 @@ def create_enrichment_job(conn: sqlite3.Connection, definition_id: int) -> dict[
         raise EnrichmentError(
             "SCRAPEX_ENRICHMENT_REQUEST_BUDGET must be a non-negative integer"
         )
-    if budget > 0 and int(estimate["estimated_requests"]) > budget:
-        raise EnrichmentError(
-            f"estimated provider requests ({estimate['estimated_requests']}) exceed "
-            f"SCRAPEX_ENRICHMENT_REQUEST_BUDGET ({budget})"
+    provider_names = json.loads(definition["providers_json"] or "[]")
+    definition_json = _canonical(_definition_snapshot(definition))
+    provider_versions_json = _canonical(provider_versions(provider_names))
+    internal_mode = RunMode.UPDATE if selected_mode is EnrichmentRunMode.UPDATE \
+        else RunMode.FULL_REBUILD
+    conn.execute("SAVEPOINT enrichment_job_creation")
+    try:
+        job_ref = jobs.create_job(
+            conn,
+            [str(definition["source_dataset_key"])],
+            internal_mode,
+            job_kind="organization_enrichment",
+            commit=False,
         )
-    job_ref = jobs.create_job(
-        conn,
-        [str(definition["source_dataset_key"])],
-        RunMode.UPDATE,
-        job_kind="organization_enrichment",
-        commit=False,
-    )
-    job = jobs.get_job(conn, job_ref)
-    conn.execute(
-        "INSERT INTO organization_enrichment_job "
-        "(job_id, enrichment_definition_id, providers_json, definition_json, "
-        "provider_versions_json, estimated_requests) VALUES (?,?,?,?,?,?)",
-        (
-            job["job_id"], definition_id, definition["providers_json"],
-            _canonical(_definition_snapshot(definition)),
-            _canonical(provider_versions(json.loads(definition["providers_json"] or "[]"))),
-            estimate["estimated_requests"],
-        ),
-    )
-    item_count = _snapshot_run_items(conn, int(job["job_id"]), definition)
-    conn.execute(
-        "UPDATE crawl_job SET progress_total = ? WHERE job_id = ?",
-        (item_count, job["job_id"]),
-    )
+        job = jobs.get_job(conn, job_ref)
+        conn.execute(
+            "INSERT INTO organization_enrichment_job "
+            "(job_id, enrichment_definition_id, providers_json, definition_json, "
+            "provider_versions_json, estimated_requests) VALUES (?,?,?,?,?,?)",
+            (
+                job["job_id"], definition_id, definition["providers_json"],
+                definition_json, provider_versions_json, 0,
+            ),
+        )
+        source_count = _snapshot_run_items(conn, int(job["job_id"]), definition)
+        baseline = None
+        item_count = source_count
+        if selected_mode is EnrichmentRunMode.UPDATE:
+            baseline = _compatible_incremental_baseline(
+                conn,
+                definition_id=definition_id,
+                before_job_id=int(job["job_id"]),
+                definition_json=definition_json,
+                provider_versions_json=provider_versions_json,
+            )
+            if baseline is not None:
+                item_count = _keep_incremental_run_items(
+                    conn,
+                    job_id=int(job["job_id"]),
+                    definition_id=definition_id,
+                    definition_json=definition_json,
+                    provider_versions_json=provider_versions_json,
+                )
+        estimated_requests = estimate_requests(provider_names, item_count)
+        if budget > 0 and estimated_requests > budget:
+            raise EnrichmentError(
+                f"estimated provider requests ({estimated_requests}) exceed "
+                f"SCRAPEX_ENRICHMENT_REQUEST_BUDGET ({budget})"
+            )
+        conn.execute(
+            "UPDATE organization_enrichment_job SET estimated_requests=? "
+            "WHERE job_id=?",
+            (estimated_requests, job["job_id"]),
+        )
+        conn.execute(
+            "UPDATE crawl_job SET progress_total = ? WHERE job_id = ?",
+            (item_count, job["job_id"]),
+        )
+        conn.execute("RELEASE SAVEPOINT enrichment_job_creation")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT enrichment_job_creation")
+        conn.execute("RELEASE SAVEPOINT enrichment_job_creation")
+        raise
     conn.commit()
     return {
         "job_ref": job_ref,
@@ -1057,8 +1186,12 @@ def create_enrichment_job(conn: sqlite3.Connection, definition_id: int) -> dict[
         "job_kind": "organization_enrichment",
         "enrichment_definition_id": definition_id,
         "source_keys": [definition["source_dataset_key"]],
+        "mode": selected_mode.value,
         "organizations": item_count,
-        "estimated_requests": estimate["estimated_requests"],
+        "source_organizations": source_count,
+        "unchanged_skipped": source_count - item_count,
+        "baseline_job_ref": baseline["job_ref"] if baseline is not None else None,
+        "estimated_requests": estimated_requests,
     }
 
 
@@ -1882,6 +2015,10 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
                                 counters.get("provider_cache_hits", 0)
                             ) + 1
                             continue
+                        # Do not hold SQLite's writer lock while an external
+                        # provider is in flight. The source facts and any prior
+                        # provider result are idempotent if this item later retries.
+                        conn.commit()
                         request_before = int(getattr(provider, "requests_made", 0) or 0)
                         started = time.monotonic()
                         result = provider.run(identity)
@@ -2025,25 +2162,28 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
     finally:
         _close_providers(providers)
 
-    # Availability follows this job's immutable membership, not a source table
-    # that may have changed while network calls were in flight.
-    conn.execute(
-        "UPDATE generic_record SET status = 'unavailable' "
-        "WHERE dataset_definition_id = ? "
-        "AND source_locator LIKE 'organization:%' AND source_locator NOT IN ("
-        "SELECT 'organization:' || coalesce(entity.canonical_organization_id, "
-        "link.organization_id) "
-        "FROM organization_source_record AS link "
-        "JOIN organization_entity AS entity "
-        "ON entity.organization_id=link.organization_id "
-        "JOIN organization_enrichment_run_item AS item "
-        "ON item.generic_record_id = link.generic_record_id "
-        "WHERE link.enrichment_definition_id = ? AND item.job_id = ?)",
-        (
-            definition["output_dataset_id"], definition["enrichment_definition_id"],
-            job["job_id"],
-        ),
-    )
+    # Only a complete pass owns the entire current membership. An incremental
+    # update deliberately omits unchanged inputs and therefore cannot infer
+    # that omitted output rows disappeared from the source.
+    if job["run_mode"] == RunMode.FULL_REBUILD.value:
+        conn.execute(
+            "UPDATE generic_record SET status = 'unavailable' "
+            "WHERE dataset_definition_id = ? "
+            "AND source_locator LIKE 'organization:%' AND source_locator NOT IN ("
+            "SELECT 'organization:' || coalesce(entity.canonical_organization_id, "
+            "link.organization_id) "
+            "FROM organization_source_record AS link "
+            "JOIN organization_entity AS entity "
+            "ON entity.organization_id=link.organization_id "
+            "JOIN organization_enrichment_run_item AS item "
+            "ON item.generic_record_id = link.generic_record_id "
+            "WHERE link.enrichment_definition_id = ? AND item.job_id = ?)",
+            (
+                definition["output_dataset_id"],
+                definition["enrichment_definition_id"],
+                job["job_id"],
+            ),
+        )
     conn.execute(
         "UPDATE organization_enrichment_definition SET last_run_at = ?, updated_at = ? "
         "WHERE enrichment_definition_id = ?",

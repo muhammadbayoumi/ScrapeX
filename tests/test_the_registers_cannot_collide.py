@@ -29,6 +29,7 @@ TWO ASSERTIONS, AND THE SECOND IS THE USEFUL ONE.
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -151,6 +152,20 @@ RESERVED: dict[str, dict[int, str]] = {
     # declared at once, which is the failure the neighbouring test exists for.
     # Verified against origin/main rather than against the local `main` ref, which
     # in a shared worktree is whatever the last session left behind.
+    #
+    # AND IT CANNOT HAPPEN AGAIN, WHICH IS WHAT THIS BRANCH ADDS.
+    # `test_the_reservation_table_has_no_shadowed_rows` reads this file with `ast` and
+    # reports any key a later key hides -- at BOTH levels, because there are two shapes
+    # and the first version of that guard only saw one. A register key written twice puts
+    # one dict beside another; a ROW written twice inside one dict discards a single
+    # reservation, reads as an edit that took, and keeps the OLDER copy. Measured
+    # 2026-09-02: `main` carried the first and a sibling branch carried the second.
+    #
+    # 82 IS NOT RESERVED HERE, AND THAT IS THE RULE ABOVE APPLIED TO THIS BRANCH. It was,
+    # for `claude/the-notice-supabase-is-owed` while this branch took R-83 over the top of
+    # it. #299 merged as `80659faa`, so R-82 is a declared heading and a reservation for it
+    # would be the contradiction the neighbouring test refuses. The row went out in this
+    # rebase, which is the moment the table's own instruction names.
     "R": {46: "branch claude/drive-without-a-server"},
     # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
     # not on this one, which is the state this table is for -- and being handed a
@@ -492,6 +507,123 @@ def test_every_retired_number_names_what_replaced_it():
             assert re.search(r"\b(R|REQ|OP|DEC)-\d+", note), (
                 f"{prefix}-{number:02d} is retired with the note {note!r}, which names no "
                 "replacement. Say what took its place.")
+
+
+def _repeats(literal: ast.Dict) -> list:
+    """The keys of one dict literal that a later key of the same value hides."""
+    seen: set = set()
+    shadowed: list = []
+    for key in literal.keys:
+        # `None` IS WHAT A `**expansion` PUTS HERE, and it would crash
+        # `literal_eval`. These tables have no expansion today; if one arrives, this
+        # says so instead of the checker dying with a TypeError nobody can read.
+        assert key is not None, 'a **expansion in this table cannot be checked for duplicates'
+        value = ast.literal_eval(key)                     # type: ignore[arg-type]
+        if value in seen:
+            shadowed.append(value)
+        seen.add(value)
+    return shadowed
+
+
+def _shadowed_keys(source: str, name: str) -> list[str]:
+    """Every key the literal assigned to `name` discards, at BOTH levels.
+
+    Read from the SOURCE, because the dict object cannot report it: by the time Python
+    has built it the loser is gone without a trace.
+
+    TWO LEVELS, BECAUSE THE TWO SHAPES ARE DIFFERENT DEFECTS and one guard for the
+    outer keys alone let the other through. A register key written twice puts one dict
+    beside another, which a reader may notice. A ROW written twice inside one dict --
+    `"REQ": {50: ..., 34: ..., 50: ...}` -- discards a single reservation and reads as
+    an edit that took, and the row Python keeps is the OLDER of the two. Measured on
+    2026-09-02: `main` carried the first shape and a sibling branch carried the second.
+
+    Outer duplicates are reported as the key itself; inner ones as `"REQ[50]"`, so the
+    assertion message names the row a reader has to go and find.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        # BOTH ASSIGNMENT NODES, and the reason is a measured near-miss rather than
+        # completeness for its own sake. These tables are `AnnAssign` today --
+        # `RESERVED: dict[str, dict[int, str]] = {...}` -- and a reader written for
+        # `ast.Assign` alone reported every tree clean, including one already measured
+        # as dirty, because it parsed the file and never found the table in it. Dropping
+        # the annotation later must not do the same thing quietly.
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            continue
+        literal = node.value
+        assert isinstance(literal, ast.Dict), f"{name} is not a dict literal"
+        shadowed: list = list(_repeats(literal))
+        for key, rows in zip(literal.keys, literal.values, strict=True):
+            if isinstance(rows, ast.Dict):
+                register = ast.literal_eval(key)          # type: ignore[arg-type]
+                shadowed += [f"{register}[{number}]" for number in _repeats(rows)]
+        return shadowed
+    # LOUD, NEVER CLEAN. A checker that finds no table and reports no duplicates is
+    # indistinguishable from a table that has none, which is this same failure in a
+    # new place -- and a sibling session hit exactly that today by matching only
+    # `ast.Assign`: it parsed four refs and called every one clean.
+    raise AssertionError(
+        f"no assignment to {name} found in this file, so nothing was checked")
+
+
+def test_the_reservation_table_has_no_shadowed_rows():
+    """A DUPLICATE KEY IN THESE TABLES DELETES ROWS IN SILENCE, and it happened.
+
+    `origin/main`’s `RESERVED` carried `"R"` twice for eight days. The first entry held 46 and 80 with a
+    verified ref and an instruction to delete itself when #293 merged; the second held 46
+    alone, written as a new entry rather than an edit when 79 was released. Python keeps
+    the last, so the R-80 row never existed at runtime -- and `#293` merged, `R-80` became
+    a heading, and `test_a_reserved_number_is_not_also_declared` stayed green because the
+    contradiction it looks for was in a row that had already been thrown away.
+
+    AND IT WATCHES BOTH LEVELS. A sibling branch, measured the same day, carried the
+    other shape -- a ROW written twice inside one register's dict, where the copy Python
+    keeps is the older one and the newly written row with the verified holders is what
+    gets discarded. The first version of this guard read only the register keys and
+    reported that tree as clean.
+
+    THIS IS NOT A STYLE RULE. Every other test in this file reads the built dicts, so all
+    of them are blind to it in exactly the same way; the check has to read the source.
+    """
+    for table in ("RESERVED", "RETIRED"):
+        shadowed = _shadowed_keys(Path(__file__).read_text(encoding="utf-8"), table)
+        assert not shadowed, (
+            f"{table} declares {shadowed} more than once. Python keeps only the LAST "
+            "one, so the earlier is discarded without an error -- a bare register key "
+            "('R') throws away every row in the entry above; a row ('REQ[50]') throws "
+            "away that one reservation, and the copy that survives is the OLDER of the "
+            "two. Merge them into one, keeping what each side carried.")
+
+
+def test_a_shadowed_row_would_actually_be_caught():
+    """THE GUARD ABOVE, MUTATED. It reads source rather than a value, so a parser that
+    quietly stopped finding the assignment would make it vacuous -- and vacuous is the
+    precise failure it was written for."""
+    rows = ['X: dict[str, dict[int, str]] = {',
+            '    "R": {46: "a"},',
+            '    "R": {46: "a", 80: "b"},',
+            '    "REQ": {50: "c", 34: "d", 50: "e"},',
+            '}']
+
+    # BOTH SHAPES FROM ONE FIXTURE: the register key `"R"` written twice, and the row
+    # 50 written twice inside `"REQ"`. The second is the one the first version of this
+    # guard let through.
+    assert _shadowed_keys(chr(10).join(rows), "X") == ["R", "REQ[50]"]
+
+    # AND EACH GOES AWAY ON ITS OWN, which is what proves the two halves are not one
+    # assertion wearing two names.
+    assert _shadowed_keys(chr(10).join(rows[:1] + rows[2:]), "X") == ["REQ[50]"]
+    assert _shadowed_keys(
+        chr(10).join([*rows[:3], '    "REQ": {50: "c", 34: "d"},', rows[4]]),
+        "X") == ["R"]
+
 
 
 def test_a_duplicate_would_actually_be_caught(tmp_path: Path):

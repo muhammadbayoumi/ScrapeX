@@ -11,6 +11,7 @@ from . import service
 from .models import (
     DefinitionCreate,
     DefinitionStatusUpdate,
+    EnrichmentRunCreate,
     OrganizationMergeCreate,
     OrganizationMergeReverseCreate,
     ReviewDecisionCreate,
@@ -95,8 +96,13 @@ def create_enrichment_router(
     @router.post(
         "/definitions/{definition_id}/runs", status_code=status.HTTP_202_ACCEPTED
     )
-    def start_run(definition_id: PositiveId):
-        return write(lambda conn: service.create_enrichment_job(conn, definition_id))
+    def start_run(
+        definition_id: PositiveId, request: EnrichmentRunCreate | None = None
+    ):
+        selected = request or EnrichmentRunCreate()
+        return write(lambda conn: service.create_enrichment_job(
+            conn, definition_id, run_mode=selected.mode
+        ))
 
     @router.get("/definitions/{definition_id}/review")
     def review_queue(

@@ -393,8 +393,8 @@ PINNED = (
     # AND IT DRIFTED AGAIN BEFORE THE INK WAS DRY, thirteen lines, from correcting
     # the module header above it in the same commit -- which is the whole argument
     # for pinning it rather than trusting a number in prose.
-    ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1749,
-     "arabic_value = arabic.values[lined_up.arabic_of[index]]"),
+    ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1818,
+     "arabic_value = arabic.values[arabic_index]"),
     # EVERY `extract/service.py` CITATION IN THE GUARDED DOCUMENTS, pinned together on
     # 2026-08-29 after nine of them drifted at once and NOTHING here noticed.
     #

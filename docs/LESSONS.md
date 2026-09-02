@@ -3023,6 +3023,48 @@ what hide it**: they are long enough that the two keys never appear on one scree
 literal for its KEYS before adding one, and prefer `**dict.fromkeys(...)` merged into the
 existing key over a second entry that looks separate.
 
+**A THIRD TIME ON 2026-09-01, IN THE SAME FILE AS THE SECOND, AND THE ADVICE ABOVE WAS
+ALREADY WRITTEN WHEN IT HAPPENED.** `RESERVED` carried `"R"` twice: the upper entry held
+`{46, 80}` with a ref-verified comment and an instruction to delete row 80 the day `#293`
+merged; the lower held `{46}` alone, written as a fresh entry when `R-79` was released
+rather than as an edit one line up. **The R-80 row was dead the moment it was written.**
+`#293` then merged, `R-80` became a declared heading, and
+`test_a_reserved_number_is_not_also_declared` — the test whose entire job is that
+contradiction — stayed green, because the number it would have caught was in the row
+Python had thrown away. Eight days.
+
+**What is new is not the defect; it is that advice was the wrong instrument.** Every other
+test in that file reads the *built* dicts, so all of them are blind in exactly the same
+way — by the time Python has the object, the shadowed row is gone without a trace.
+`test_the_reservation_table_has_no_shadowed_rows` parses the file with `ast` and reports
+any key a later key hides, and it is mutation-tested by putting the duplicate back.
+**Any table whose rows are load-bearing needs the same check, and reading the dict is not
+it.**
+
+**AND THERE ARE TWO LEVELS, WHICH IS THE PART THE FIRST GUARD GOT WRONG.** Written for the
+shape above, it read only the register keys. Measured with `ast` over four refs on the same
+day, two sibling trees held two different shapes:
+
+| level | what it looks like | which copy survives |
+|---|---|---|
+| the register key | `"R": {…}` written twice | the **later** entry; every row in the earlier one is discarded |
+| a row inside one | `"REQ": {50: …, 34: …, 50: …}` | the **later** row — so the newly written one wins only if it is written below the old |
+
+**The inner shape is the more dangerous of the two.** A register key repeated puts one dict
+beside another, which a reader may notice. A row repeated inside one long commented dict
+discards a single reservation and reads as an edit that took — and on the branch where it
+was found, the row Python threw away was the *new* one carrying the ref-verified holders,
+while the stale row above it survived. The guard reports both now, as `R` and `REQ[50]`.
+
+**One trap in checking for it, and a session hit it in the first draft.** These tables are
+`RESERVED: dict[str, dict[int, str]] = {…}` — an **`ast.AnnAssign`**, not an `ast.Assign`.
+A reader matching `ast.Assign` alone parsed four refs and reported **every one clean**,
+including a tree already measured as dirty: it read the file and never found the table in
+it. That is the same failure as the thing being hunted, one level up. So the reader matches
+both node types and **raises rather than returning empty when it finds no table at all** —
+a checker that reports clean because it matched nothing is worse than no checker, because
+it also reports that it looked.
+
 **The shape of all three:** a test that builds its own database is only as honest as the
 builder it calls. When two builders exist, half the suite is testing a product nobody runs.
 
