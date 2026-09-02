@@ -672,6 +672,54 @@ counters are price-shaped. That chain is two kinds today and a third makes it a 
 which is what «خلى الشغل dry» asks for. **Until that lands he still cannot press a button;
 what changed is that the engine no longer refuses the run when something does press it.**
 
+### His ruling of 2026-09-02 on the migration baseline — captured here, being written as `R-84` elsewhere
+
+**Recorded under `C3` in the session he gave it, because the ruling itself is being written
+on `claude/one-migration-plan-not-two` (`OP-122`) and a decision that exists only in an
+unmerged branch is a decision that did not happen.** This is a pointer, not a second
+ruling — no `R-` heading, nothing the register guard can collide on. It goes when `R-84`
+lands.
+
+> «قواعد البيانات يتم ترقيتها ولكن base يتغير الان بحيث اننى لا اريد الاحتفاظ بترحيلات
+> كثيرة لا يستخدمها احد اكيد عند نشر الاداة ساريد الحفاظ على كافة الترحيلات لانها ستكون
+> مهمة للمستخدمين حيث غير محدد اى مستخدم توقف عنده هذه النسخة ولكن قبل الاصدار لا اريد
+> اراكم الكود باختبارات وترحيلات لن تستخدم سوى مرة واحدة وهى لى»
+
+**It reaffirms [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+rather than superseding any part of it**, and two sessions — this one included — had it
+the other way round for most of the day. His first clause is `R-24`'s own rule: *databases
+are upgraded*. What moves is the **baseline**. And `R-24`'s own quotation already drew the
+line he is drawing now: «طبعا الافضل تطويرها لان **عند نشر الاداة** المفروض نحافظ على بيانات
+المستخدمين». The publication boundary was in the ruling from the day it was made; what
+nobody had done was apply it to the migration CHAIN instead of to the DATA.
+
+| | |
+|---|---|
+| `R-24` governs **the data** | upgraded, never replaced. Untouched by this |
+| `R-84` governs **the baseline** | before publication the chain is not a user-facing asset; after it, no migration is ever deleted |
+
+**And one measurement makes it safe rather than merely authorised.** Read read-only from
+his live warehouse on 2026-09-02: `PRAGMA user_version = 16`, the head of the chain. **A
+baseline squashed at 16 replays nothing over his database** — there is no upgrade for it
+to take, so «تُحمَل» needs no implementation and no carry-over path is to be built.
+
+**The price, recorded as a waiver and not as a measurement.** The squash removes the
+upgrade path for any database below the new baseline. His primary machine is at 16 and
+unaffected; **the second machine's version is unknown and was never measured.** He said
+«لا اكترث لجهازى الثانى الان», which is a waiver. If that warehouse is below the baseline,
+this change strands it, and he accepted that without its version being known.
+
+**Two things his sentence carries that the plan did not.**
+1. **Tests, not only migrations** — «لا اريد اراكم الكود باختبارات وترحيلات». A test that
+   exists solely to exercise a one-off migration is the same debt. But a test *named* for a
+   migration is not always *about* it: some assert a property of the resulting schema and
+   survive as the only thing checking it. And `OP-120`'s drift check must not go — it is
+   what proves an upgraded database equals a fresh build, which is the whole claim a new
+   baseline makes.
+2. **The rule inverts at publication, and a rule in prose alone is the `R-07` failure** —
+   ordered on 2026-08-16, still live thirteen days later, read past by every session. So
+   the squash owes a check that refuses to delete a migration once a release marker exists.
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**
