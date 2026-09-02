@@ -488,6 +488,7 @@ is described in full.
 | `claude/the-guard-that-reads-half-the-product` | **#297** (`42ef068`) | `OP-116` -- the restart poll asked a route M5 deleted; the guard read only `extension/` |
 | (design review) | **#298** (`69ce391`) | `OP-103` -- every custom property a stylesheet reads is one something defines |
 | `codex/organization-enrichment-main` | **#302** (`bf033ca`) | organization enrichment, +7,242/-99 across 36 files, **merged by the owner himself on 2026-08-31** |
+| `claude/scrapex-engine-consolidation-d69e0a` | **#293** (`1d8816d`) | `REQ-50`, `R-80`, `OP-112`-`OP-114`, `OP-119` -- the engine page consolidated, and the Restart button the warning had nothing to press |
 
 **`#297` LANDED WITH A DEFECT AND IT IS ON `main` NOW -- read `OP-119` before touching that
 guard.** Its fix repointed `settings.html` at `/api/engine/health`, which
@@ -499,20 +500,20 @@ by its own fix.** The engine-page branch below repoints it at `/api/health`, whi
 on every start. **The instance is closed there; the guard's blindness is not**, and that is
 what `OP-119` is for.
 
-### The engine lives on the engine page — 2026-09-02 · branch `claude/scrapex-engine-consolidation-d69e0a`, **PR #293, open**
+### The two version rows — what #293 left open, and it is his
 
-**`REQ-50`, `R-80`, `OP-112`-`OP-114`, `OP-119`.** Rebased onto `main` at `bf033ca`. Secondary
-session; `recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+**`#293` merged as `1d8816d` on 2026-09-02.** Everything below is the half that did not
+land with it, kept here because it is a decision of his and there is no branch holding it:
+the next change to it starts from `main`.
 
-He asked for three things and got three: **enough notifications** -- the schema-lag banner can
+**It delivered the three things he asked for:** **enough notifications** -- the schema-lag banner can
 appear for the first time (`OP-113`: `engine.js` published the field and never carried it, so
 nothing was ever drawn); **a Restart button** on the engine's own page, under the warning that
 asks for it, with a **121.5-second** budget derived from the engine rather than the 30 seconds
 guessed (`R-80`); and **consolidation started at the engine**, with the rest measured -- 31
 engine routes the panel cannot reach, 8 settings changeable only on the engine's own web UI.
 
-**Open and his, not blocking the merge:** whether `Installed version` and `Latest version` stay
+**Still open, and his:** whether `Installed version` and `Latest version` stay
 on the consolidated page. He said *"commit it"*; measurement afterwards changed the answer,
 because an installed `.exe` reports **no commit SHA at all**
 ([`scrapex/provenance.py:238`](../scrapex/provenance.py#L238) returns before HEAD is read, and
@@ -529,11 +530,10 @@ and the button -- and the stop half needs a route the node gate would redden whi
 gate whose question a ruling has retired is the wrong order.
 
 
-### MarketLens is gone — 2026-09-02 · branch `claude/marketlens-is-gone`, **PR #300, open**
+### MarketLens is gone — 2026-09-02 · **merged as `2ce06b82` (#300)**
 
-**`OP-117`, `REQ-52`.** Rebased onto `main` at `80659faa`. Secondary session;
-`recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+**`OP-117`, `REQ-52`.** Landed on `main` at 14:42 UTC. Kept here rather than reduced to a table row because
+the measurement below is what the next MarketLens question gets answered from.
 
 He asked for the retired product deleted. **189 references became 17, and every one that
 stays names something that still exists.**
@@ -567,6 +567,34 @@ the squash itself. His ruling is recorded as `R-84` **on the `OP-122` branch, no
 deliberately, because a ruling recorded only on the branch it authorises is unrecorded until
 that branch merges, and the squash is the slowest thing in the queue. Read all four before
 touching the migration framework.
+### A known omission loses one value, not the profile — 2026-09-02 · branch `fix/a-known-omission-loses-one-value-not-the-profile`, **open**
+
+**`R-83`.** 691 insertions across 19 files that existed only as three commits on one
+machine's local `main` for a day, unpushed and unreachable from anywhere else — which is the
+exact failure [CLAUDE.md](../CLAUDE.md) opens with. The branch is those three rebased onto
+`main` at `1d8816d`, plus what the rebase found.
+
+**What it carries.** The eight profiles whose Arabic page omits `Address` are recoverable and
+now recovered in code (`R-83`, replaying 8 of 8 stored pairs as 27-field profiles); `--approve`
+can be narrowed to named ids instead of reapproving all 17,417 rows; and the enrichment page
+gains incremental and complete modes.
+
+**What the rebase found, and neither was in the three commits.** The ruling arrived as `R-80`
+and `#293` had already taken that number for a different ruling of his, so it is `R-83` —
+`R-82` is held by `#299`, verified against `217d9c48` rather than taken from a message. And
+`RESERVED` in
+[tests/test_the_registers_cannot_collide.py](../tests/test_the_registers_cannot_collide.py)
+carried `"R"` **twice**: Python keeps the last, so the row reserving 80 for `#293` was dead the
+day it was written, and `test_a_reserved_number_is_not_also_declared` stayed green through
+`#293`'s merge because the number it would have caught was in the discarded row. Third
+instance of the same defect in this repository and the second in that file, so it stops being
+advice: `test_the_reservation_table_has_no_shadowed_rows` reads the source with `ast`.
+[LESSONS §23.3](LESSONS.md) has it.
+
+**One fixture repair was the only red.** `test_the_cross_check_refuses_inside_approve`
+monkeypatches `_pairs` and its stub predated the `ids` keyword, so `approve` raised
+`TypeError` — the first thing to exercise the keyword at all. The stub records what it was
+handed rather than swallowing it, and the test now asserts the forward.
 
 ## Track 1 · The Console migration
 
