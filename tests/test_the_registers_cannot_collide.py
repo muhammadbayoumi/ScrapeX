@@ -162,18 +162,31 @@ RESERVED: dict[str, dict[int, str]] = {
     "REQ": {
         # 50 became a hole when this branch declared REQ-52. 51's row was here
         # and is GONE: #301 merged, so it is a heading on `main` and a
-        # reservation for it is the contradiction the guard refuses -- the
-        # FIFTH row retired that way across five merges. Only
-        # holders verified with `git show <ref>:docs/REQUESTS.md`, not taken
-        # from the message that allocated the number: 50 on the engine-page
-        # consolidation (also on origin), 51 on the scheduler branch.
-        50: "branch claude/scrapex-engine-consolidation-d69e0a",
-        34: "branch claude/drive-without-a-server",
-        # 50 is declared on `claude/scrapex-engine-consolidation-d69e0a` (PR #293,
-        # pushed, unmerged) and this branch declares 51 over the top of it. VERIFIED
-        # against the ref rather than taken from a message:
-        #   git show claude/scrapex-engine-consolidation-d69e0a:docs/REQUESTS.md \n        #     | grep "^## REQ-50"
+        # reservation for it is the contradiction this guard refuses -- the
+        # fifth row retired that way across five merges.
+        #
+        # AND IT WAS TWO ROWS BEFORE IT WAS NONE, which is worth one paragraph
+        # because the mechanism outlives this instance. This branch added a `50`
+        # above a `50` that was already here, and Python keeps the LAST -- so the
+        # row carrying the verified holder was the one being discarded, silently,
+        # on every run. That is the failure this table's own guard exists for, one
+        # level in, introduced by the pass that was de-duplicating the level above
+        # it. **No test in this file could see it**: they all read the BUILT dict,
+        # where the loser is already gone. Only a reader that parses the SOURCE
+        # can, and `main` grew one for the OUTER keys after another session found
+        # the register key "R" written twice the same day.
+        #
+        # Both rows are gone now -- `#293` landed and made the number a heading --
+        # so nothing here is left to fix. The paragraph stays because a duplicated
+        # key inside these dicts is invisible to everything except a source
+        # reader, and the next session to add a row needs to know that before it
+        # adds one, not after.
         # Delete this row the day #293 merges.
+        # 34 belongs to `claude/drive-without-a-server`, which also holds OP 45, 49
+        # and 50. It is a hole on this branch because that branch declared it and this
+        # one has not got its entries -- exactly the state the gap check exists to
+        # distinguish from a skipped number.
+        34: "branch claude/drive-without-a-server",
         # 50 HAS NO ROW: it was reserved for `claude/scrapex-engine-consolidation-d69e0a`
         # while `REQ-51` was declared over the top of it, and the row said to delete it
         # the day #293 merged. It is deleted one step earlier instead -- as #293 rebases

@@ -4348,10 +4348,10 @@ fixed the same defect and chosen different routes.
 conditionally.** Four legs, each re-read rather than argued:
 
 ```
-scrapex/webui/database_api.py:78   @router.get("/api/engine/health")   -- in create_domain_health_router
-scrapex/webui/app.py:604           include_router(create_domain_health_router(...))
-scrapex/webui/app.py:602           if databases is not None:          -- the gate above it
-scrapex/webui/app.py:1587          @app.get("/api/health")            -- a plain route, every start
+scrapex/webui/database_api.py:80   @router.get("/api/engine/health")   -- in create_domain_health_router
+scrapex/webui/app.py:613           include_router(create_domain_health_router(...))
+scrapex/webui/app.py:611           if databases is not None:          -- the gate above it
+scrapex/webui/app.py:1615          @app.get("/api/health")            -- a plain route, every start
 scrapex/cli.py:856                 registry = None if args.db else DatabaseRegistry.defaults()
 ```
 
