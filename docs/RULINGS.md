@@ -3149,8 +3149,8 @@ SHA, both facts rather than judgements.
 2026-08-30, thirteen days later, still live in three places:
 
     scrapex/version.py:517      "latest_extension_version": VERSION
-    scrapex/webui/app.py:1715   "latest_extension_version": VERSION
-    extension/app.js:607, :641  drawn to the user as "Latest available extension"
+    scrapex/webui/app.py:1747   "latest_extension_version": VERSION
+    extension/app.js:612, :646  drawn to the user as "Latest available extension"
 
 The engine answers *"what is the newest extension available"* with **its own number**, which
 is not an answer it has. `R-07` correctly said this is Chrome's fact, not the engine's. The
@@ -3460,6 +3460,36 @@ them.
 listing crawl, priced at 58 minutes — and has sat since under "awaiting the owner". **He was
 never the blocker.** It waits on a control he does not have, and this session filed it against
 him again on 2026-08-30 before he corrected it.
+
+**5 · AND IT WAS BEING BROKEN IN A LIVE FAILURE BANNER, WHICH THE GUARD FOR IT COULD NOT SEE.**
+Measured 2026-09-02, when he asked whether his own architectural decisions had been wrong.
+`scrapex/webui/app.py` published `"fix": "python -m scrapex.cli init-db"` inside the
+*database is behind the engine* banner, `extension/app.js` carried the same string a second
+time as a hardcoded fallback, and `POST /api/databases/upgrade` -- the button that does
+exactly that -- had already existed for weeks. `webui/database_api.py`'s `upgrade` docstring
+records that the identical instruction was taken OFF the database-attention page and replaced
+by that button, for this ruling's reason. **The command was removed from one page and went on
+living in two more.**
+
+**THE GUARD WAS NAMED FOR THIS RULE AND IMPLEMENTED A BLOCKLIST OF TWO STRINGS**
+(`"scrapex ui"`, `"in a terminal"`), while its own docstring stated the rule correctly:
+*"anything that needs a terminal is a missing button."* `python -m scrapex.cli init-db`
+contains neither literal. **A rule in prose and a blocklist in code are not the same thing**,
+and the gap was the whole defect -- `LESSONS` §29's ninth instance, and the only one where the
+guard's docstring already described what it should have been doing.
+
+**AND THE BANNER COULD NOT APPEAR AT ALL UNTIL `OP-113` WAS FIXED**, four commits earlier on
+the same branch. So repairing a warning that had never rendered is what put a terminal command
+in front of him for the first time. **A defect can be created by fixing the thing that was
+hiding it**, and no count anywhere would have moved.
+
+**Fixed 2026-09-02**: both copies name the button; the guard now asks about SHAPE, reading
+string VALUES via `ast` so that prose explaining a past defect does not trip it (§28), scoped
+to the two things with a screen -- `extension/` and `scrapex/webui/`. `scrapex/cli.py` is
+deliberately not a surface: its stdout IS a terminal, so a command there is the answer rather
+than the defect. Mutation-checked three ways, and the third is what makes it usable: the old
+command turns it red, a DIFFERENT command shape the blocklist never knew turns it red, and a
+comment describing the old command does not.
 
 **WHY THIS WAS NOT ALREADY WRITTEN DOWN, since it is the obvious question.** The repository
 says the *shape* of it in three places and the *fact* in none.

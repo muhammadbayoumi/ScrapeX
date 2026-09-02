@@ -2526,7 +2526,7 @@ crawl", and the honest report would have had to say so.
 Not part of the incident, and it is recorded here because **this branch is what
 demonstrated it.** A continuation citation — a bare `` `:NNN` `` inheriting its path
 from a full citation a few words earlier, as in
-`` (`extension/app.js:1578`, `:1641`) `` — **is invisible to
+`` (`extension/app.js:1583`, `:1641`) `` — **is invisible to
 `tests/test_the_documents_cite_what_they_claim.py`.** `CITATION` requires a path before
 the colon, so it matches `app.js:1641` and does not match `:1641`. Measured, not
 reasoned: the regex returns a match for the first string and `None` for the second.
@@ -3377,7 +3377,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day and twice more since
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day and six times more since
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3402,7 +3402,7 @@ drift that produced them. The fix was to make each docstring say *"this enforces
 has been replaced, here is what it becomes, and this is the first thing its builder changes"*.
 
 **THE SAME SHAPE, FOUND SEVEN TIMES ON 2026-08-30 BY FOUR SESSIONS THAT WERE NOT LOOKING
-FOR IT, AND AN EIGHTH ON 2026-09-02** -- and three of the eight could never have failed
+FOR IT, AND SIX MORE ON 2026-09-02** -- and three of the thirteen could never have failed
 at all. A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
@@ -3416,21 +3416,29 @@ at all. A mechanism that is correct, visible, and load-bearing on nothing:
 | engine page | `test_the_web_page_offers_no_setting_to_change`, which mechanises an owner ruling | **nothing.** Its `_control_ids` regex matches `input\|select\|textarea`, so it cannot see a `<button>` -- and the nine ids it can see are exactly the nine on its own exemption list |
 | design review, 2026-08-30 | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
 | rebase, 2026-09-02 | `assert "/api/engine/health" in _engine_serves(tmp_path)`, plus the caller sweep beside it | the route, **in the only configuration that mounts it** -- `create_app(databases=registry)`; an engine started against an explicit database path serves no such route and the poll it guards 404s its whole budget (`OP-119`) |
+| `R-81` repair, 2026-09-02 | `assert "scrapex ui" not in surface`, plus one more literal | **two strings.** The docstring stated the rule -- *"anything that needs a terminal is a missing button"* -- and the assertion was a blocklist; the terminal command in a live banner contains neither (`OP-124`) |
+| `R-81` repair, 2026-09-02 | `assert "Engine" in text` on the installer checksum note | **the word, not the claim.** *"The Engine checks its own updates"* and *"the Engine does not fetch or install its own updates"* both contain it, so it could not tell a promise from its denial -- and stayed green for the whole period the promise was false |
+| `OP-126`, 2026-09-02 | `assert 400 <= status < 500` on a refused panel action | **that a refusal happened, never which one.** The recipe carried the same invalid `run_mode` copied out of `app.js`, so the reason it RECORDED was not the reason it measured -- and «Update now» was broken on every card since the handler was written |
+| `OP-126`, 2026-09-02 | `test_a_dataset_card_offers_only_the_actions_that_work`, asserting the action is ABSENT | **the defect, as a requirement.** A guard that asserts a capability is missing goes red only when someone fixes it |
 
-**THREE OF THE NINE WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
+**THREE OF THE THIRTEEN WERE BORN ROTTEN, NOT ONE, AND THAT IS THE FINDING.** Rows 2, 3 and 4
 rotted -- they held something once and their subject moved. **Rows 1, 5 and 7 never held
-anything.** Rows 6, 8 and 9 are none of those three things, and row 9 is the reason this
-section's closing claim had to be rewritten rather than extended -- see below.
+anything.** Rows 6 and 8 through 13 are none of those three things -- seven of the thirteen are
+neither stale nor born wrong -- and row 9 is the reason this section's closing claim had to be
+rewritten rather than extended. **The section began as "guards that rotted" and its own table
+now says that is the minority case.** See below.
 
 > *(Row 6 arrived after this section was written, from the engine-page work. It is added
 > here rather than in a section of its own, and the counts above and below are moved with
 > it -- a table that grows while its own arithmetic stays put is the defect this section
-> describes, committed by the person describing it Row 8 arrived three days later the same
-> way, and its arrival cost more than a row: it made the section's closing generalisation
-> false, so that sentence is rewritten above rather than qualified. **A counterexample
-> found after the conclusion is the cheapest evidence there is and the easiest to file as
-> an exception** -- filing it as an exception is how a document keeps a claim its own
-> table refutes.)*
+> describes, committed by the person describing it. **Rows 8 to 11 arrived the same way three
+> days later**, and row 9's arrival cost more than a row: it made the section's closing
+> generalisation false, so that sentence is rewritten above rather than qualified. **A
+> counterexample found after the conclusion is the cheapest evidence there is and the easiest
+> to file as an exception** -- filing it as an exception is how a document keeps a claim its
+> own table refutes. (The missing full stop after *"describing it"* is where a keep-both
+> merge joined two sentences into one on 2026-09-02, and it survived a further rebase before
+> anyone read the line rather than the numbers around it.)*
 
 The `forEach` assertion was written on **2026-08-29** (`208d829`) against a file that had
 carried **two** occurrences since **2026-07-27** (`6779573`) -- checked with `git log -S`, and
@@ -3454,7 +3462,7 @@ was never expanded and it asserted against an empty set. When the include walk w
 nine controls it could finally see were exempted in the same change. **Two independent
 mistakes, each of which alone would have left it working.**
 
-**AND THERE IS A NINTH SHAPE THAT NO GUARD COULD HAVE CAUGHT, which is why it is recorded
+**AND THERE IS A SHAPE NO GUARD COULD HAVE CAUGHT, which is why it is recorded
 here rather than as a defect in one.** Twice on 2026-08-30 a mechanism was found still
 running against a boundary that had been DELETED:
 
@@ -3491,9 +3499,36 @@ were read off the captured output -- but the number was a true statement about t
 process. The fix is to record the status of the thing you meant to measure, in the artefact you
 will read: `echo "pytest exit=$?"` into the file itself.
 
-**AND BY THE END OF THAT DAY THE TOOLING HAD SUPPLIED TWO MORE, WHICH IS WHAT MAKES THIS THE
-SECTION'S MOST GENERAL FINDING RATHER THAN A NOTE ABOUT GUARDS.** Every one is a true number
-about a subject nobody asked about:
+**AND ROWS 10 AND 11 ARE A FOURTH KIND: THE ASSERTION CANNOT TELL A CLAIM FROM ITS DENIAL.**
+`assert "scrapex ui" not in surface` asks about two strings while its own docstring asks about
+terminals. `assert "Engine" in text` is satisfied by *"the Engine checks its own updates"* and
+equally by *"the Engine does not fetch or install its own updates"* -- so it held for the entire
+period the sentence it guarded was FALSE. **Both were repaired by tying the assertion to the code
+rather than to a word**: the terminal guard reads string VALUES via `ast` and asks about command
+SHAPE, and the checksum guard permits the claim only while `/api/update` has a caller -- failing
+in BOTH directions, since restoring the promise reddens it and building the updater reddens it
+too, demanding the sentence be updated. **A guard that can only fail in one direction is half a
+guard**, and this pair is what made that concrete.
+
+**ROW 12 IS THE FOURTH KIND AT ITS PUREST, BECAUSE THE IMPRECISION IS THE ABSTRACTION'S POINT.**
+`assert 400 <= status < 500` cannot separate *"wrong source key"* from *"not a RunMode"* -- and
+a status-code RANGE is not a sloppy assertion, it is a deliberately general one. So the guard
+recorded a reason it had never measured, and «Update now» was refused on every card, since the
+handler was written, with every check over it green. **When an assertion is imprecise BY DESIGN,
+the design is the defect.**
+
+**AND ROW 13 IS A FIFTH KIND: A GUARD THAT ASSERTS A CAPABILITY IS MISSING.**
+`test_a_dataset_card_offers_only_the_actions_that_work` required the action to be ABSENT, so it
+held the missing-ness in place: it converts a defect into a requirement, and **the only change
+that can ever turn it red is the fix.** Three instances now --
+`test_the_web_page_offers_no_setting_to_change`, `#297`'s `assert any(path.name == "app.js"
+...)`, and this -- which makes it a shape rather than three accidents. The tell is grammatical:
+**an assertion whose subject is an absence has nothing to protect**, and the repair is to assert
+what should be there instead, then delete the row that said it should not be.
+
+**AND BY THE END OF THAT DAY THE TOOLING HAD SUPPLIED TWO MORE BESIDES THE PIPE, WHICH IS WHAT
+MAKES THIS THE SECTION'S MOST GENERAL FINDING RATHER THAN A NOTE ABOUT GUARDS.** Every one is a
+true number about a subject nobody asked about:
 
     row 8    a green      for the tree the run STARTED on, not the branch reported
     row 9    a route      in the configuration the guard always builds
@@ -3501,6 +3536,13 @@ about a subject nobody asked about:
     `grep -c` an exit 1   because it matched nothing -- which was the good news
     `git diff --stat origin/main`   614 deletions   because `main` had MOVED, not
                                                     because the branch deletes anything
+    a rebase then a checkout   17 failures   from a tree that changed under a run
+                                             already in flight -- row 8, again, to the
+                                             session writing this paragraph
+    a row count                11 rows       counting the header and the separator AS
+                                             rows -- a LINE count reported as a ROW
+                                             count, and used as evidence that a repair
+                                             to a count had landed
 
 **The last two arrived while writing this paragraph.** `grep -cE "^FAILED" out/gate.txt` was the
 final command in a gate script, so a fully green run was announced as *failed with exit code 1*:
@@ -3510,9 +3552,29 @@ truthful about a comparison against a `main` that had moved two merges ahead, an
 change deletes 614 lines"*. **Neither was carelessness. Both are the same question unasked:
 which subject is this number about?**
 
-The fix is the same in all five: **record the status of the thing you meant to measure, in the
-artefact you will read** -- `echo "pytest exit=$?"` into the output file, `git diff --stat
-<your own base>` rather than a moving ref -- and never read a verdict off a wrapper that has
+**AND THE LAST ONE IS ROW 8 ITSELF, ARRIVING WHILE THIS PARAGRAPH WAS BEING WRITTEN ABOUT IT.**
+Four gates were launched in the background; twenty-six minutes later the same session ran
+`git checkout -b` to split the work into two branches. The second gate then reported **17
+failures**, every one of them in the two tests that read repository files at run time -- so they
+had seen a tree that changed under them. There was no defect. **Row 8 was already in the table,
+written by another session, describing precisely this**, and it was walked into anyway by the
+session documenting it. It is recorded because that is the whole point: *knowing the trap is
+written down is not the same as remembering it at the moment you are about to step in it.* The
+operational rule is one line -- **never move the tree while a gate is in flight** -- and it now
+has a second instance and two sessions behind it.
+
+**AND THE LAST ONE HAPPENED INSIDE THE VERIFICATION OF THIS SECTION'S OWN REPAIR**, which is
+why it is here rather than in a footnote. Checking that the table had been fixed, a session
+counted the pipe-prefixed lines -- eleven -- and reported eleven ROWS. Two of the eleven were
+the header and the separator; the table held nine. **The claim was true and the figure was
+not**, and the figure was the evidence. It was caught by re-measuring rather than by anything
+in the tree, and the session that made it corrected itself unprompted. *(Its own finding, and
+its own words for it.)*
+
+The fix is the same in all seven: **record the status of the thing you meant to measure, in the
+artefact you will read**, and make sure nothing changes the subject while you measure it --
+`echo "pytest exit=$?"` into the output file, `git diff --stat <your own base>` rather than a
+moving ref, no checkout while a run is open -- and never read a verdict off a wrapper that has
 its own opinion about success.
 
 **All of them are honest reports of the wrong subject, and no count anywhere would differ.** So
@@ -3550,6 +3612,19 @@ its assertion.
 > documents has no separator above it** -- which is mechanical, and which is `OP-125`: written
 > to measure whether it would be noisy, it found two more on `main` in a document nobody
 > suspected.)*
+>
+> *(**AND IT HAPPENED AGAIN TWICE MORE, TO THE SESSION THAT WROTE THE RULE, IN THE TWO REBASES
+> THAT CARRIED THIS PARAGRAPH FORWARD.** Both were caught, and only because the rule was
+> followed literally rather than remembered: both sides read, resolved in numeric order, **and
+> then the prose re-read across the seam.** That third step -- the one that feels redundant --
+> is what found a wholly duplicated paragraph, a summary block citing row numbers the merged
+> table no longer had, *"Row 11 is a full suite"* where it was row 8, *"three of the nine"*
+> against an eleven-row table, an ordinal left from an older count, one case told twice, and a
+> **missing full stop** where an earlier keep-both had welded two sentences into one and
+> survived a whole rebase because everyone was reading the numbers and not the line. Seven
+> things, none of which any guard could see. **The rule works and it is not automatic**, and
+> the difference between those two statements is the whole reason it is written here rather
+> than assumed.)*
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 

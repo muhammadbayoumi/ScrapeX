@@ -1651,9 +1651,20 @@ def create_app(
             if waiting:
                 schema_lag = {
                     "pending": [name for _n, name in waiting],
-                    # Named so the message can be acted on without a manual:
-                    # the fix is one command, and it is the ONLY sanctioned one.
-                    "fix": "python -m scrapex.cli init-db",
+                    # NAMED SO IT CAN BE ACTED ON, AND THAT MEANS A BUTTON.
+                    # This field held a terminal command until 2026-09-02, and
+                    # `POST /api/databases/upgrade` had been built for exactly
+                    # this remedy -- its own docstring in `database_api.py` says
+                    # the database-attention page's identical instruction was
+                    # replaced by that button because the owner does not use a
+                    # terminal (`R-81`). The command was removed from one page
+                    # and went on living in this field, which the panel renders.
+                    # The button works on either start: the panel tries the
+                    # route and falls back to the native host on a 404
+                    # (`app.js`, `upgradeDatabaseFromPanel`), so naming it here
+                    # is safe in both configurations -- checked, because a
+                    # remedy that is itself conditional is `OP-119` again.
+                    "fix": ("press Upgrade database on the Settings screen"),
                     "message": (
                         f"{len(waiting)} migration(s) on disk are not applied to "
                         f"this database — {waiting[0][1]} onward. Pages that read "

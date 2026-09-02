@@ -489,8 +489,13 @@ function renderSchemaLag(lag) {
   const title = el("div", "setup-title", "Database is behind the engine");
   const what = el("div", "muted steps mb-2", lag.message || "");
   const how = el("div", "muted text-xs");
-  how.textContent = "Fix: " + (lag.fix || "python -m scrapex.cli init-db")
-    + " — back up first, and apply it before restarting the engine.";
+  // THE FALLBACK IS A SECOND COPY AND IT WAS THE WORSE ONE: it survived a
+  // terminal command being taken off the engine's own page, and this banner
+  // could not appear at all until `OP-113` was fixed -- so repairing the
+  // warning is what put the command on screen for the first time. Both halves
+  // now name the button that already exists (`R-81`).
+  how.textContent = "Fix: " + (lag.fix || "press Upgrade database on the Settings screen")
+    + " — back up first, and do it before restarting the engine.";
   const which = el("div", "muted text-xs tech", lag.pending.join(", "));
   box.append(title, what, which, how);
   box.classList.remove("hidden");
