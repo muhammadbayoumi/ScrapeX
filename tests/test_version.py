@@ -488,13 +488,12 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.2.2", (
+    assert MINIMUM_EXTENSION_VERSION == "0.3.3", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
-    # MOVED FROM 0.2.0 ON 2026-08-10, deliberately, with the republish this
-    # message demands done in the same change: `robots_per_source` puts a
-    # control on the source editor, so a panel older than 0.2.2 does not have
-    # the screen the engine now expects it to have.
+    # MOVED FROM 0.2.2 with the extension workspace that supplies this
+    # capability: organization enrichment is initiated and configured from a
+    # new extension page, so an older panel cannot execute it.
     #
     # The trap this test exists to catch was live for about a minute. Raising
     # the floor to 0.2.2 while extension/manifest.json still said 0.2.1 would

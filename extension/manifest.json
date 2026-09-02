@@ -3,7 +3,7 @@
   "minimum_chrome_version": "116",
   "name": "ScrapeX",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAztNYpZ7kqRyVBrerQ24cHpkxzl/yeZHRa5WtlPEcK7MJP4ABiHwa5/Fe9NQzC/uV7JwmYuUEM/OylCTfaaAFnEscj6Wkgp/3ntIE+kzMhW2XvzOSL3Ss3xXune3OQxxev+nFYQjhnWsU1u9C6InB70utjLect6KS/Cak3iVKydr793cmqZjp73aY11dkEEkXEoBSS3i8j1THt1uK09VCAKwP6cSM3P7q2Gp723Io8nALXvg/K1AOxY3PuNpxsiQFE7fMl0KBgu1G2Sgyb/NZvO31pgGe43XYLmeYj4aaMdbrnz+KemyLfqIyBt8DF6O7uUuPNaYFQE+CrY16PTUZLwIDAQAB",
-  "version": "0.2.2",
+  "version": "0.3.3",
   "description": "A local scraping tool: capture prices from the sites you browse into a warehouse on your own machine.",
   "icons": {
     "16": "icons/x-mark-original-16.png",

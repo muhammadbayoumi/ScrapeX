@@ -880,7 +880,7 @@ def browse_records(
 
 
 def dataset_schema_fields(
-    conn: sqlite3.Connection, dataset_key: str,
+    conn: sqlite3.Connection, dataset_key: str, *, site_key: str | None = None,
 ) -> tuple[int, list[sqlite3.Row]] | None:
     """This dataset's id and its CURRENT schema's fields, in schema order.
 
@@ -896,11 +896,17 @@ def dataset_schema_fields(
     to the price path rather than having to ask twice — the same contract
     `dataset_table_payload` already offers.
     """
-    found = conn.execute(
+    sql = (
         "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
-        "FROM dataset_definition AS d "
-        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
-        (dataset_key,)).fetchone()
+        "FROM dataset_definition AS d JOIN source_site AS s "
+        "ON s.source_id = d.source_id "
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL AND s.valid_to IS NULL "
+    )
+    parameters: tuple[str, ...] = (dataset_key,)
+    if site_key:
+        sql += "AND s.source_key = ? "
+        parameters += (site_key,)
+    found = conn.execute(sql + "ORDER BY d.dataset_definition_id LIMIT 1", parameters).fetchone()
     if found is None:
         return None
     dataset_id = int(found["id"])
@@ -919,7 +925,8 @@ def dataset_schema_fields(
 
 
 def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
-                          *, cap: int | None = None) -> dict[str, Any] | None:
+                          *, cap: int | None = None,
+                          site_key: str | None = None) -> dict[str, Any] | None:
     """One generic dataset in the shape the grid already renders.
 
     THE PAGE NEEDS NO CHANGE, AND THAT IS THE WHOLE DESIGN. `grid.js` never asks
@@ -972,7 +979,7 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     A caller that needs a bound still passes one; what changed is that the
     default no longer decides for him.
     """
-    resolved = dataset_schema_fields(conn, dataset_key)
+    resolved = dataset_schema_fields(conn, dataset_key, site_key=site_key)
     if resolved is None:
         return None
     dataset_id, fields = resolved
@@ -1002,8 +1009,61 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     # resolution, so only the rows written in the final second ever compared equal --
     # 17,221 of 17,304 listing rows read `absent` on his warehouse after a crawl that
     # had read every one of them.
-    latest_run = runs.latest_run_for(conn, dataset_key) if dataset_key else None
-    run_started_at = runs.started_at_of(conn, latest_run)
+    # An enrichment output is generated from a source snapshot, so that snapshot's
+    # crawl run describes the INPUT and cannot truthfully describe when the output
+    # row was observed. Its own immutable run is the enrichment crawl_job. Every
+    # processed organization receives at least a source-provider observation, which
+    # gives each row the job that last proved it. Use only fully completed jobs here:
+    # a running or degraded pass must not label the unprocessed remainder absent.
+    enrichment_definition = None
+    try:
+        enrichment_definition = conn.execute(
+            "SELECT enrichment_definition_id "
+            "FROM organization_enrichment_definition "
+            "WHERE output_dataset_id = ? LIMIT 1",
+            (dataset_id,),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        # A legacy engine schema can still browse its ordinary generic datasets.
+        # The enrichment tables are additive, so their absence means only that this
+        # cannot be an enrichment output.
+        if "no such table" not in str(exc):
+            raise
+
+    enrichment_runs: dict[str, int] = {}
+    if enrichment_definition is not None:
+        definition_id = int(enrichment_definition[0])
+        latest = conn.execute(
+            "SELECT j.job_id, j.started_at FROM organization_enrichment_job AS e "
+            "JOIN crawl_job AS j ON j.job_id = e.job_id "
+            "WHERE e.enrichment_definition_id = ? AND j.status = 'completed' "
+            "ORDER BY j.job_id DESC LIMIT 1",
+            (definition_id,),
+        ).fetchone()
+        latest_run = int(latest["job_id"]) if latest is not None else None
+        run_started_at = latest["started_at"] if latest is not None else None
+        for entity_id, canonical_id, row_run in conn.execute(
+            "SELECT entity.organization_id, entity.canonical_organization_id, "
+            "MAX(observation.job_id) "
+            "FROM organization_provider_observation AS observation "
+            "JOIN organization_entity AS entity "
+            "ON entity.organization_id = observation.organization_id "
+            "JOIN organization_enrichment_job AS enrichment_job "
+            "ON enrichment_job.job_id = observation.job_id "
+            "JOIN crawl_job AS job ON job.job_id = observation.job_id "
+            "WHERE enrichment_job.enrichment_definition_id = ? "
+            "AND job.status = 'completed' "
+            "GROUP BY entity.organization_id, entity.canonical_organization_id",
+            (definition_id,),
+        ):
+            enrichment_runs[str(entity_id)] = int(row_run)
+            if canonical_id:
+                enrichment_runs[str(canonical_id)] = max(
+                    int(row_run), enrichment_runs.get(str(canonical_id), 0)
+                )
+    else:
+        latest_run = runs.latest_run_for(conn, dataset_key) if dataset_key else None
+        run_started_at = runs.started_at_of(conn, latest_run)
 
     # THE SIGHTING SIDE, READ ONCE. `unsighted` and `returned` are the two states that
     # cannot be answered from `generic_record` alone, and joining per row would be the
@@ -1059,6 +1119,8 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         record = json.loads(row["data_json"])
         external = record.get(identity_field) if identity_field else None
         seen_at, absent_at = sighted.get(str(external), (None, None))
+        row_run = enrichment_runs.get(str(external)) \
+            if enrichment_definition is not None else row["row_run"]
         # BESIDE THE SITE'S FIELDS, NEVER MERGED INTO THEM. These are facts about our
         # OBSERVATION, not facts the site published, and `data_json` is source truth —
         # so they are added to the row the grid renders and never written back.
@@ -1073,7 +1135,7 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         state = row_state(
             status=row["status"], first_seen_at=row["first_seen_at"],
             last_seen_at=row["last_seen_at"],
-            row_run=row["row_run"], latest_run=latest_run,
+            row_run=row_run, latest_run=latest_run,
             run_started_at=run_started_at,
             changed_at=row["changed_at"], sighted_at=seen_at,
             last_absent_at=absent_at)

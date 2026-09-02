@@ -158,12 +158,12 @@ PINNED = (
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
-    ("docs/STATE.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1707, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1706, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1707, '"latest_extension_version": VERSION'),
-    ("docs/RULINGS.md", "scrapex/version.py", 483, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1706, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
@@ -194,8 +194,8 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1718, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2785, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1717, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2787, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
@@ -265,7 +265,7 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4755,
+    ("docs/BACKLOG.md", "extension/app.js", 4761,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 742, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
@@ -284,8 +284,8 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3154, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1212,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3157, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1209,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one
@@ -412,9 +412,9 @@ PINNED = (
      'and recovered["schema_hash"] == schema_hash'),
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 667,
      "last_seen_at=strftime"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 972,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 978,
      "Pagination is what saves the render"),
-    ("docs/LESSONS.md", "scrapex/extract/service.py", 972,
+    ("docs/LESSONS.md", "scrapex/extract/service.py", 978,
      "Pagination is what saves the render"),
     # THESE TWO WERE REPLACED, NOT DELETED, on 2026-08-29. They pinned
     # `WHEN THE MOST RECENT CRAWL SAW ANYTHING` and `newest = conn.execute(` -- the
@@ -422,21 +422,21 @@ PINNED = (
     # both from the codebase, so the pins move to what took their place rather than
     # leaving the new mechanism unpinned; deleting a row to make a red build green is
     # what `PINNED_FLOOR` exists to refuse.
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 997,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1003,
      "WHICH RUN LAST WROTE INTO THIS DATASET"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1006,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1065,
      "latest_run = runs.latest_run_for("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1016,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1075,
      "for key, seen, absent in conn.execute("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1113,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1174,
      'presentation.get(row["field_key"])'),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1116,
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1177,
      "His ORDER only once he has actually arranged"),
     # NOT REMAPPED, AND THAT IS THE POINT OF READING EACH ONE. Before `#281` this pointed
     # at the closing `\"\"\"` of the docstring; the +53 shift landed it on the `def` that
     # `STATE.md`'s sentence actually names. Applying difflib blindly would have put it
     # back on the quote -- a repair that made the citation worse.
-    ("docs/STATE.md", "scrapex/extract/service.py", 922,
+    ("docs/STATE.md", "scrapex/extract/service.py", 927,
      "def dataset_table_payload"),
 )
 
