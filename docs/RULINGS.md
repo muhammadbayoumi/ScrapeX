@@ -3346,6 +3346,72 @@ coverage either.
 raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
 move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
 in the palette, never a reason to lower a threshold.**
+---
+
+### R-80 · One feature, one place — and a read-only second copy is still a second copy
+
+**2026-08-30 · architecture · SUPERSEDES his ruling of 2026-07-29, which stays per C4**
+
+> «لا اريد حتى صفحة الويب للعرض فقط · اتراجع عن هذه النقطة نظرا للحالة السيئة من البعثرة ·
+> اريد فقط الميزة فى مكان واحد محدد»
+
+**He retracted a concession he had made himself.** On 2026-07-29 he ruled *«لا اريد اى اعدادت
+على صفحة الويب — الاعدادت كلها على extension بينما صفحة الويب للعرض فقط»*: the controls move
+to the extension, and the engine's web page may keep **showing** the values. That half-measure
+is what he withdrew, and he named the reason — *the bad state of the scattering*.
+
+### What changed his mind, and it was measured in front of him
+
+He was shown the count. Across the two surfaces: **11 `/api` routes called from both**, **31
+live routes reachable only from the engine's own pages**, **18 only from the panel**, and
+**eight settings that can be changed nowhere but the engine's web UI**. The concession had not
+held the line; it had drawn one and left it unguarded for thirteen months of drift.
+
+**And the guard that was supposed to enforce the 2026-07-29 rule cannot see a button.**
+`_control_ids` in [tests/test_settings_live_in_the_extension.py](../tests/test_settings_live_in_the_extension.py)
+matches `input|select|textarea` only. `_storage.html` holds eleven buttons and `_retention.html`
+four — **fifteen actions the guard has never looked at**, driving thirteen write routes — and
+the nine ids it *can* see are exactly the nine on its own exemption list, so its assertion
+forbids nothing at all today. A rule enforced by a test that always passes is a rule that was
+never enforced.
+
+### The rule
+
+> **A capability lives in exactly one place. Display is not an exemption: a value shown on a
+> second surface is a second surface to keep true, and it is where the drift starts.**
+
+The single place is the extension, per [R-48](#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
+and [R-50](#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it).
+The engine keeps only what the extension **cannot** do — and `R-50` already requires that to be
+a measured technical limit rather than a category.
+
+### What it does NOT say
+
+**It does not order the engine's web UI deleted**, and it must not be read that way. `DEC-8`
+measured that page as the SOURCE of the port — 3,212 lines of `grid.js` — so it is the asset a
+migration spends, not debt to delete. What ends is a capability existing on both sides at once.
+
+**It does not make the drift a fault of the people who wrote it.** Every one of the eight
+web-only settings was correct when written; the concession is what allowed the second copy, and
+the concession is what he withdrew.
+
+### The cost, stated because it is a test that must be inverted
+
+`test_the_web_page_still_shows_what_the_engine_holds` in the same file **asserts the retracted
+rule**: *"Display-only is not the same as blank: moving the controls must not take the VALUES
+away."* Under this ruling that test fails the build for doing the right thing. It is inverted
+or deleted by whichever change first moves a value off the web page — not before, so that the
+guard never covers less than it covers today.
+
+### The evidence that a second copy rots rather than merely duplicating
+
+Both surfaces carry the same restart-and-poll loop. **The panel's copy was repaired and the
+engine page's was not**: `settings.html` polled `/api/marketlens/health`, a route deleted when
+the two per-database health checks collapsed into one, so it could only ever 404 — and the
+engine's own page reported a restart that had **succeeded** as *"The engine has not come
+back."* on the one control a person reaches when they are already worried. Filed as `OP-114`
+and repaired in the change that carries this ruling.
+
 
 ---
 

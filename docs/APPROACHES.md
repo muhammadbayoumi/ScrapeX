@@ -162,7 +162,7 @@ standing next to — do not tidy it, do not restyle it, mention dead code rather
 than deleting it. P1 governs *the thing you are building*.
 
 The live example is B2 step 2: the panel already has Choose-Columns
-(`extension/app.js:1602`, `:1641`), and the instruction is to **extract it into a
+(`extension/app.js:1578`, `:1617`), and the instruction is to **extract it into a
 shared module**, not to write a second one. Writing a duplicate in the name of
 staying surgical is precisely the failure the migration plan warns about — "or
 the two surfaces will disagree about how a column is saved."

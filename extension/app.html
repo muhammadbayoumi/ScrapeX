@@ -1562,6 +1562,28 @@
              rows. Same ids, same handlers. The menu is gone: with its every
              item on the screen it had nothing left to open. -->
         <section class="engine-action-list" id="engine-action-list" aria-label="Engine actions">
+          <!-- FIRST, AND ON THIS SCREEN AT ALL, because this is where the
+               engine says a restart is needed. The Build row above renders
+               "Restart needed" from the engine's own provenance, and the
+               owner met that badge with nothing on the page to press: both
+               restart controls were in Settings, and two more were on the
+               engine's own web page. A warning whose remedy is on another
+               screen is a warning that arrives after the search for it.
+
+               THE ID IS UNCHANGED ON PURPOSE. `runtime-restart` is read as a
+               literal by three assertions in
+               tests/test_settings_live_in_the_extension.py — the parity list,
+               the web-to-panel check and the wiring check — so moving the
+               button costs nothing there, while renaming it would have made a
+               layout change look like a capability change.
+
+               No chevron, unlike its three siblings: they open something and
+               this acts in place. The third grid column stays empty so the
+               row still lines up with them. -->
+          <button class="engine-action-row" id="runtime-restart" type="button">
+            <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#restart-alt"></use></svg>
+            <span>Restart engine</span>
+          </button>
           <button class="engine-action-row" id="engine-diagnostics" type="button">
             <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#tune"></use></svg>
             <span>Run diagnostics</span>
@@ -1585,7 +1607,15 @@
           </button>
         </section>
 
-        <p class="engine-diagnostics-output muted text-sm hidden" id="engine-diagnostics-output"></p>
+        <!-- Where the restart above reports. The handler ALSO keeps writing
+             #runtime-note in Settings, because #runtime-upgrade still lives
+             there and shares that line; what is new is that the sentence now
+             also lands on the screen the button is on. `role="status"` and not
+             `aria-live` on a hidden node: it is unhidden only when it has
+             something to say. -->
+        <p class="engine-action-output muted text-sm hidden" id="engine-restart-note"
+           role="status"></p>
+        <p class="engine-action-output muted text-sm hidden" id="engine-diagnostics-output"></p>
 
         <details class="install-steps hidden" id="engine-install-steps">
           <summary>Installation instructions <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#expand-more"></use></svg></summary>
@@ -1761,10 +1791,6 @@
                      do may be missing here. -->
                 <div class="engine-maintenance-actions" id="runtime-actions"
                      aria-label="Engine maintenance">
-                  <button id="runtime-restart" class="ghost engine-action engine-action-emphasis">
-                    <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#restart-alt"></use></svg>
-                    <span>Restart engine</span>
-                  </button>
                   <button id="runtime-upgrade" class="ghost engine-action">
                     <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#storage"></use></svg>
                     <span>Upgrade database</span>
@@ -1970,7 +1996,6 @@
 
               <div class="row mt-2">
                 <button id="crawl-save">Save</button>
-                <button id="engine-restart" class="link">Restart engine</button>
               </div>
               <div id="crawl-msg" class="muted text-sm" role="status" aria-live="polite"></div>
             </div>

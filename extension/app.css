@@ -3391,7 +3391,10 @@
   .engine-checksum code { overflow-wrap: anywhere; word-break: break-all; font-size: var(--fs-xs); margin: 0; }
 
 
-  .engine-diagnostics-output {
+  /* Renamed from `.engine-diagnostics-output`: it is margin and alignment, and
+     two outputs sit under the action list now -- diagnostics and the restart
+     report. The old name described the first caller rather than the rule. */
+  .engine-action-output {
     margin: var(--sp-2) 0 0;
     text-align: start;
   }
@@ -3686,6 +3689,11 @@
     grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
+    /* The COLUMN gap stays --sp-3; the row gap is the space between a
+       label and its own explanatory sentence, which is one line of prose
+       apart and not one column apart. Only the three rows that carry a
+       sentence have a second row at all. */
+    row-gap: 2px;
     padding: var(--sp-3) var(--sp-4);
   }
   /* A switch is 46x40 and brings its own touch target, so the row gives back
@@ -3701,13 +3709,57 @@
     min-width: 0;
     font-size: var(--fs-sm);
   }
-  .engine-spec-note {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    font-size: var(--fs-sm);
-  }
+  /* `display: contents` AND NOT A COLUMN FLEX BOX, which is what this was, and
+     the change is the whole repair of the row that renders a version
+     vertically. As a box, this element put the label AND its explanatory
+     sentence in column 1 — the `auto` track — so the track sized toward the
+     max-content of a whole sentence, took the row, and left `minmax(0, 1fr)`
+     resolving to LITERALLY 0px. `.engine-spec-value` is `justify-self: end` so
+     it was never stretched, and `overflow-wrap: anywhere` below makes its
+     min-content ONE CHARACTER: `source · 3a745a9` painted 8px wide and 273px
+     tall, one letter per line, over the sentence beside it.
+
+     MEASURED with tools/panel_harness.py at 320, 360, 400 and 600px: the value
+     track resolved to 0px at EVERY ONE of them. It is not a narrow-panel bug,
+     which is why widening the panel never showed it.
+
+     IT DEGRADES ONLY IN THE STATES THE ROW EXISTS TO REPORT. `<small>` is
+     empty in the ordinary case and hidden by the rule below, so the row looks
+     correct until the engine has something to say — "Restart needed",
+     "Checkout moved" — and then the answer is unreadable.
+
+     AND THE OBVIOUS FIX IS THE ONE THE COMMENT ABOVE `.engine-spec-row`
+     FORBIDS. Reversing to `minmax(0, 1fr) auto` fixes these three rows and
+     breaks the other five: measured on the same harness, Heritrix's
+     "Apache-2.0 · some files under other licences" starved the label track to
+     0px at 320px — the exact defect that comment records. The two orderings
+     fail on DISJOINT row shapes, so no single `grid-template-columns` is right
+     for both.
+
+     So the columns are not touched at all. This box is dissolved instead, its
+     two children become grid items of the row, and the sentence drops to a
+     second grid row spanning both columns — where prose belongs. The label and
+     the value then sit on one line exactly as they do in every other row, and
+     column 1 sizes to two or three words in EVERY row. Both failure modes
+     become impossible by construction rather than by string length.
+
+     `gap` and `font-size` leave with the box: `row-gap` on the row replaces
+     the first, and both children already set `--fs-sm` themselves. `min-width`
+     goes because there is no longer a box to constrain. A future background or
+     border on this element would render nothing — if one is ever wanted, bring
+     the box back and give the row an explicit two-row template instead. */
+  .engine-spec-note { display: contents; }
+  .engine-spec-note > .engine-spec-label { grid-column: 1; grid-row: 1; }
+  .engine-spec-note > small { grid-column: 1 / -1; grid-row: 2; }
+  /* Pinned rather than auto-placed. With the sentence explicitly on row 2, an
+     auto-placed value is at the mercy of the placement cursor; pinning costs
+     nothing in the five rows that have no sentence, because row 1 column 2 is
+     where they already were. */
+  .engine-spec-row > .engine-spec-value,
+  .engine-spec-row > .m3-switch { grid-column: 2; grid-row: 1; }
+  /* The switch ends the row like a value does. It was inheriting nothing,
+     because it was the only column-2 item that is not `.engine-spec-value`. */
+  .engine-spec-row > .m3-switch { justify-self: end; }
   .engine-spec-note small {
     color: var(--muted);
     font-size: var(--fs-sm);

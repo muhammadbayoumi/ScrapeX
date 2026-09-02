@@ -570,16 +570,34 @@ revealSettingsHash();
     const timer = setInterval(async () => {
       attempts += 1;
       try {
-        // M5 collapsed two health routes into one, and until 2026-08-30 this
-        // poll still named the retired one. It asked a 404 sixty times and then
-        // told the owner "The engine has not come back" about an engine that had
-        // come back on the first attempt. The panel was corrected at M5; this
-        // page was not, because the guard for exactly that reads
-        // extension/**/*.js and never these templates.
+        // `/api/health`, AND THE OTHER CANDIDATE IS A TRAP. PR 297 repaired this
+        // same poll and chose the ENGINE-SCOPED health route instead -- named
+        // here by description and not by path, because the guard below now reads
+        // this file for route literals and a comment naming it would register as
+        // a caller. That route is mounted only `if databases is not None`
+        // (webui/app.py, `create_domain_health_router`), and starting the engine
+        // against an explicit database path leaves `registry = None` (cli.py, the
+        // `--db` branch) -- so on that start the route
+        // does not exist and this poll 404s its whole budget, which is the very
+        // failure being fixed. `/api/health` (webui/app.py) is a plain route on
+        // the app, mounted on every start.
         //
-        // The retired path is deliberately NOT written out here: the guard now
-        // reads this file, and a comment quoting the dead route would fail it.
-        const probe = await fetch("/api/engine/health", {cache: "no-store"});
+        // WHAT IT REPLACED could only 404 as well: M5 collapsed two per-database
+        // health checks into one and retired the route this page kept asking for,
+        // for eleven days. The panel was corrected at M5; this page was not,
+        // because the guard for exactly that read `extension/**/*.js` and never
+        // these templates. PR 297 closed that gap -- it reads this file now, and
+        // that is why the retired path is described here and never written out:
+        // a comment quoting it would fail the guard, correctly. The pull request is
+        // written `PR 297` and not with a leading hash for the same reason: the
+        // colour-literal guard reads a hash followed by three hex digits as a
+        // colour value, and a bare pull-request number is exactly that shape. The
+        // start mode above is named by its flag alone for the same reason: a third
+        // guard forbids any surface from printing a runnable command, and it is right
+        // to. THREE SCANNERS REDDENED THIS ONE COMMENT -- routes, colours, commands --
+        // and every one of them was correct. It is
+        // right to -- a scanner cannot tell a citation from the thing it cites.
+        const probe = await fetch("/api/health", {cache: "no-store"});
         if (probe.ok) { clearInterval(timer); location.reload(); return; }
       } catch (err) { /* still down */ }
       if (attempts > 60) {

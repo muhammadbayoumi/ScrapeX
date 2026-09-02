@@ -91,6 +91,50 @@ and `OP-61` (continuation citations are invisible to the citation guard).
 
 ---
 
+### The engine's page is where the engine lives now (2026-08-30, `REQ-50`, open PR)
+
+**The incident.** His engine was running code older than the code on disk. The panel
+detected it and said so — the Build row rendered `Restart needed` with the engine's own
+sentence beneath it — and **there was nothing on that page to press**. Because the engine
+kept serving the old tree, the bundle build lock from `#288` was not active, two builds
+overlapped, and a **0-byte archive reached Google Drive as though it were a backup**.
+
+**Measured, not assumed.** `POST /api/engine/restart` had **four** callers and none of them
+on the Engine page: two in the panel's Settings and two on the engine's own web pages. Across
+the product, **11 `/api` routes are called from both surfaces**, **31 live routes only from
+the engine's own pages**, **18 only from the panel**, and **eight settings can be changed
+nowhere but the engine's web UI**.
+
+**He ruled [R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy)
+on that count**, retracting his own concession of 2026-07-29 that the engine's web page could
+stay display-only: *«لا اريد حتى صفحة الويب للعرض فقط ... اريد فقط الميزة فى مكان واحد
+محدد»*. `test_the_web_page_still_shows_what_the_engine_holds` currently asserts the retracted
+rule and is inverted by whichever change first moves a value off that page.
+
+**Landed on the branch:** the duplicate restart implementation deleted and the survivor moved
+onto the Engine screen; its confirmation budget raised from 30 s to the engine's own worst
+case of 121.5 s (`OP-112`); `schema_lag` carried across `checkEngine` so the *"Database is
+behind the engine"* banner can appear for the first time (`OP-113`); the spec-row grid
+repaired so a version stops printing one character per line (`OP-114`).
+
+**AND THE POWER SWITCH IS NOT IN IT, for a reason worth reading before anyone tries.** He
+asked for one — *«اريد Engine power حيث ايقافه ثم تشغيله تعنى restart»* — and the ON half is
+already built as the native `START_ENGINE` command. The OFF half needs `POST /api/engine/stop`,
+which exists in no form. **Adding it turns `test_the_contract_has_not_moved_without_the_version_moving`
+red**, because the endpoint fingerprint moves — while
+[R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build),
+merged the same day, says the engine has no version to move. **The ruling is in force and the
+gate has not been rebuilt**, so the route waits on either that work or his word. Named as a
+precondition rather than worked around.
+
+**A stop is safe to build when it can be built**, and that was measured rather than assumed:
+`reclaim_orphaned_jobs` re-queues anything left `running` at the next start, and
+`tests/test_the_engine_survives_being_killed.py` kills a real engine mid-crawl with no chance
+to clean up and proves it. What a hard kill still costs is the journal for the source in
+flight, so the design drains before it exits rather than mirroring restart's `os._exit(0)`.
+
+---
+
 ## RESUME HERE — written for the other machine, 2026-08-22
 
 He works from two machines and asked to continue from the other one, which has neither
@@ -424,888 +468,58 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
-### The guard that read half the product — 2026-08-30 · branch `claude/the-guard-that-reads-half-the-product`, no PR yet
-
-**`OP-116`. No ruling.** Based on `main` at `6f8bbbb`. Secondary session;
-`recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
-
-The engine page's Restart button polled a health route M5 deleted, so it reported *"The engine
-has not come back"* about an engine that had come back at once. **The guard named for exactly
-that break passed the whole time**, because it asserted the dead route was absent from
-`extension/app.js` — the half that had been corrected. `_caller_files` now returns the panel's
-JavaScript *and* the engine's templates.
-
-**Measured before widening**, because this file has cried wolf three times and a fourth would
-have retired it: the templates make **34 distinct `/api/` calls and exactly one is unserved**.
-
-**Mutation-checked both ways, and the second line is the point:**
-
-| | |
-|---|---|
-| the template polls the retired route again | caught |
-| the guard narrowed back to `extension/**/*.js` | **the same broken template goes unnoticed** |
-
-Most mutation checks prove a guard catches its subject. That one proves the previous version
-could not have.
-
-**Two traps walked into while fixing it, both already documented here.** Reading `app.routes`
-directly gave 70 mounted routes instead of 88 and produced nine false findings where the true
-count was one — the fourth confident false failure the `_walk` docstring predicts. And the
-comment written above the fix quoted the retired path, so the widened guard read its own
-author's prose and went red: `LESSONS` §28 occurring inside the change that widens the counter.
-
-**`RESERVED` rows now name refs, not sessions**, per the table's own rule — and carry a new
-sentence it lacked: a reservation may be taken before its holder has committed anything, and a
-row in that state must say so and be re-checked. `OP-112..114` sat in exactly that state for an
-hour before the ref appeared.
-
-### The two migrations the banner could not name — 2026-08-30 · branch `claude/two-migrations-the-banner-could-not-report`, no PR yet
-
-**`OP-115`. No ruling — nothing here was his to decide.** Based on `main` at `a167417`.
-Secondary session; `recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
-
-`pending_migrations` filtered through `_MARKETLENS_LEGACY_NUMBERS`, a hand-listed tuple from
-when one directory held two migration streams. **`R-72` deleted that world and the filter
-survived it** — and 13 and 14 had become real engine migrations it had never heard of. Proven
-on a real database: one missing `0013`, `0014` and `0016` reported **`[16]`**. `0014` is
-`one_source_registry`, so a warehouse that cannot resolve a dataset source was told nothing
-was pending.
-
-**The guard asserted the direction that cannot fail.** It checked that nothing STRAY was
-reported and never that nothing was SUPPRESSED — and a filter can only shrink the reported
-set, so it was green for as long as the defect existed. Rewritten and mutation-checked:
-restoring the filter turns it red naming both files.
-
-**Two register facts recorded rather than assumed.** `OP-111` is reserved to
-`claude/the-backup-that-uploaded-nothing` and that is **verified against the ref**;
-`OP-112..114` are recorded as **claimed, with no ref anywhere** — a search of `refs/heads` and
-`refs/remotes` finds no branch declaring them. A reservation taken on a message is worth less
-than one taken on a ref, and the row says which it is.
-
-**Two things this branch does NOT fix, both found in the same census:**
-`scrapex/webui/templates/settings.html` polls `/api/marketlens/health`, a route deleted at M5
-— so the engine page's restart button reports failure on a successful restart; and the guard
-written for exactly that scans `extension/**/*.js` and never the engine's own templates.
-
-**Blocked on rebase, not on review:** `claude/the-backup-that-uploaded-nothing` adds a
-`LESSONS` §28 and `main` now has a different §28. Mine renumbers when it rebases.
-
-### A backup of nothing — 2026-08-30 · branch `claude/the-backup-that-uploaded-nothing`, no PR yet
-
-**`OP-111`. No ruling — nothing here was his to decide.** Based on `main` at `25e9dd8`.
-Secondary session; `recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
-
-He backed up and Drive received a **0-byte archive, a 0-byte panel pack, and a pointer saying
-a backup existed**. Two complete 378.7 MB archives were safe on local disk. The engine was
-running `0.4.5` while `main` carried `0.4.6` — a running process keeps its loaded modules — so
-`#288`'s build lock was merged and **not active**, two builds overlapped, and the route that
-serves "the newest archive" served the one that had been created and not yet filled.
-
-**Built here:**
-
-| | |
-|---|---|
-| the archive is written to `<name>.zip.part` and renamed | `scrapex/bundle.py:388` |
-| the panel-pack copy, the same way | `scrapex/webui/app.py` |
-| `expectSize` — refuses a part the engine described differently, before a byte leaves | `extension/drive.js:405` |
-| an empty archive or pack refused outright, on upload and on download | `extension/drive.js:436` |
-| the download check is a `typeof`, not a truthiness test | `extension/drive.js:540` |
-
-**Measured, because the fix could have re-introduced the bug:** `Path.replace` carries the
-**write-completion** mtime across the rename, so a renamed archive still sorts by when its
-bytes finished. Had it carried the creation time, a fast rebuild could have sorted behind an
-older complete archive.
-
-**Left open, and named in `OP-111` as D4:** the engine detected its own staleness, displayed
-it correctly — *"3 loaded module(s) changed since it started"* — and gated nothing. The
-Engine page has no restart control on it either, so the sentence names an action the page
-cannot perform. That is a separate track and the owner has asked for it.
-
-**A guard was removed as well as added.** A filter against `.part` was written into `_newest`
-and then taken out: measured, `*.zip` cannot match `*.zip.part`, so the condition could never
-fire — and a condition that can never be true reads as a hazard that is still live. The
-naming enforces it; a test proves the naming.
-
-**No version bump.** The regenerated contract baseline moves only its version stamp, so
-`R-35`'s trigger does not fire, and `0.4.7` is held while the `R-06`/`R-35` cadence question
-is with him.
-
-**Ten `RESERVED` rows added** for `OP-101..110`, held by `claude/design-system-review-d6787a`
-— delete them the day that branch merges.
-
-### Every property a stylesheet reads — 2026-08-30 · branch `claude/every-property-a-stylesheet-reads`, based on `main` at `bf97eef`
-
-**`OP-103` closed, and the guard that was cited before it existed now exists.** No owner
-decision was needed for any of it: four undeclared reads, each fixed by spelling a role the
-system already has.
-
-**THE ONE THE USER WOULD HAVE FELT** is `--sticky-tabs`. It was `4rem`, the height of a
-topbar **removed on 2026-07-28** by `4099930`; the declaration went with the bar and **nine
-reads did not**. Every one sits inside `calc()` with no fallback, so the whole declaration
-was invalid and `top` fell back to `auto` — **the settings sidebar and the exports sidebar
-were `position: sticky` and never stuck, for a month**, on the two pages where a long form
-most needs one.
-
-The other three: `--fg` was a typo for `--text` on a base rule of `color: inherit`, so the
-hover changed nothing but the underline; `--green` had no role to spell it with, and the
-product already says "done" as `--accent-ink` in `.ok` and `.badge.ok`; `--control-active`
-became `var(--chip)`, an **alias** rather than a 37th theme property, so a pressed control
-follows every palette and device colours for free.
-
-**AN INVALID `var()` IS NEVER AN ERROR** — it invalidates the whole declaration and the
-property falls back. Nothing throws, nothing looks broken in a screenshot, and a reviewer
-reading the CSS sees a plausible token name. That is why none of the four was found by
-looking at the code.
-
-**The guard is mutation-proved, not merely written:** all four defects re-introduced one at
-a time on a byte-verified mirror, restored, `git status` asserted empty after each — **four
-mutations, four caught**, each naming file, line and property. `docs/LESSONS.md`'s citation
-of it is true for the first time.
-
-### ~~The backup that said it failed~~ — MERGED as #288 (`3a745a9`), 2026-08-30
-
-### ~~Device colours reach the user~~ — MERGED as #291 (`2386805`), 2026-08-30
-
-`R-79`, `OP-101` closed and half of `OP-104`. The measurements live in the ruling and
-the backlog entries; this heading is a tombstone in the shape the entry above it uses.
-### The backup that said it failed — 2026-08-29 · branch `claude/request-deadline-exceeded-3b1cad`, no PR yet
-
-**`OP-100`, ruled the same day as
-[R-76](RULINGS.md#r-76--the-backup-deadline-is-raised-from-a-measurement-and-the-rebuild-that-would-end-it-is-deferred).
-Based on `main` at `ef86a19`.** Secondary session; `recursing-shannon-068e63` merges
-([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
-
-He pressed "Back up to Drive" and was told *"The request exceeded its 10000 ms deadline."*
-**The backup had succeeded** — the archive was closed 94 seconds after the panel gave up,
-and the engine cleaned its staging tree. `POST /api/bundle` matched no rule in
-`LOCAL_POLICIES` and fell through to `localMutation: 10000`, while the route builds, packs
-and hashes 1,490 MB before it writes a first byte.
-
-**Built here — (b) and (c) of the three he was offered:**
-
-| | |
-|---|---|
-| `bundleBuild: 600000`, derived from 104 s measured at 1,490 MB | `extension/startup.js:33` |
-| a rule that does **not** re-time `/api/bundle/archive` or `/api/bundle/panel-pack` | `extension/startup.js:52` |
-| non-blocking `threading.Lock`, house 409 | `scrapex/webui/app.py:2926` |
-| `BUNDLE_KEEP = 2`, pruned **by stamp** so a backup's two files cannot be split | `scrapex/webui/app.py:2907` |
-| age-guarded sweep of staging left by a killed engine | `scrapex/webui/app.py:2982` |
-
-**Deferred, and this is the load-bearing half:** (a), making the build asynchronous with
-progress polling. `R-76` records why the raise has a shelf life — the warehouse grew **13×
-in 17 days**, and no fixed number survives that.
-
-**Tests.** `extension/tests/startup.test.mjs` gains the two cases the table never had — the
-build's own rule, and the negative one proving the two streaming sub-paths keep their fast
-bound. Seven cases in `tests/test_the_engine_hands_the_bundle_over.py` cover the lock,
-pruning and the sweep; all four were mutation-checked (break the guard, watch the test go
-red) rather than merely written.
-
-**Two citations were repaired on the way past**, both exposed rather than caused by the
-insertions: the pinned citation for `if source_key not in known:` in
-`tests/test_the_documents_cite_what_they_claim.py`,
-and `docs/REQUESTS.md`'s jobs-route citation, which was **already 27 lines stale** —
-Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists.
-
-### The design system reviewed against Supabase's — 2026-08-29 · branch `claude/design-system-review-d6787a`, based on `main` at `ef86a19`
-
-**`REQ-49`. A review, not a change: no value, no selector and no component rule moved.**
-Seven comments in `design/tokens.css`, six documents, the registers, and one report at
-[docs/reviews/2026-08-29-the-design-system-against-supabase.md](reviews/2026-08-29-the-design-system-against-supabase.md).
-
-He set the scope before any finding — *«اولا تحديد كل محاور المراجعة»* — chose six axes of
-twenty-six, and pointed the review at Supabase's **source** rather than its website, which
-is what made the token half of it verifiable at all.
-
-**The headline, measured in Chromium 149 across the 8 shipped colour states:** `R-74`
-holds — 62 of 118 root properties move and every one is a colour — **and is enforced by
-almost nothing.** Mutation on a byte-verified mirror put `--fs`, `--font-body` and `--lh`
-into a palette and 11 of the 13 forbidden families into a surface stylesheet, and 91 static
-guards plus all 218 browser tests stayed green. That is `OP-102`.
-
-**And the inference behind the palette was right.** `STATE.md` recorded that Supabase
-publishes names without values, so the colours were derived; the source publishes both, and
-re-derived against it **15 values are byte-exact, 19 more reproduce their expressions, and
-the scalars match 9 of 10 in light and 10 of 10 in dark**. What the false premise cost was
-six comments arguing from things that are not true, now corrected.
-
-**Filed:** `OP-101`–`OP-110`. **Refuted by the verify pass and NOT filed: 21 findings**,
-two of which had accused the code of breaking a ruling it obeys. **Twelve decisions are
-open and all of them are his** — each either grows `THEME_PROPERTIES`, changes what a
-shipped colour choice paints, or creates a shared module.
-
-**`OP-100` and `R-76` are reserved to `claude/request-deadline-exceeded-3b1cad`** — a
-LOCAL-ONLY branch, visible from any worktree because they share one ref namespace and
-invisible to `git ls-remote`. The reservation row says so.
-
-**VERSION deliberately not bumped.** `scrapex/version.py` moves on a functional,
-architectural or behavioural change and this is none of the three; `ENGINEERING.md` W4 says
-every merged pull request. The primary reserved **0.4.7** if the wider rule wins — an open
-question, not an omission.
-
-
-### The supabase appearance — MERGED 2026-08-29 as #283 (`208d829`)
-
-> **This entry said "no PR yet" for a day after it had merged.** Corrected 2026-08-29 by
-> the design-system review ([REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases)):
-> `208d829` landed 37 files, +2858/-524, and `gh pr list --state open` returns nothing. The
-> `deviceColors` flip this entry calls "open" is also settled and shipped — `design/appearance.js`
-> reads `deviceColors: false`. This is `OP-89` in miniature: a present-tense heading over
-> merged work, which is what tells the next session the work never landed.
-
-**`REQ-48`, ruled the same day as
-[R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one),
-and amended hours later by [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour).
-Branched from `main` at `b836de3`; merged into `main` at `208d829`.**
-
-> **The commit subject says `R-72` and that is the wrong number.** The branch was opened
-> when `R-72` was newest and the subject was never corrected, so `git log --grep='R-73'` and
-> `--grep='R-74'` both return **zero rows** and the two rulings this section is about are
-> unfindable by the sweep `ORCHESTRATION.md` demonstrates. `R-72` itself belongs to `81edc02`
-> (#285). Read `docs/RULINGS.md`, not the log.
-
-> «اريد عمل apperance جديد اسميه supbase ويصبح default · ولكن لن يكون الوان فقط بل design
-> system كامل»
-
-**THE DEFAULT IS REAL NOW.** `DEFAULTS.deviceColors` was `true`, and `apply()` returns early
-on that branch after `clearTheme()` — so a user with no stored preference never had *any*
-palette applied, and `github` was the default for as long as the setting existed **without
-anybody ever seeing it.** He asked for the numbers before deciding
-(«قوله لى بالأرقام الأول») and then chose the flip, so it is `false` and a fresh install
-paints `supabase`. *"Device colours"* is still there, one click away in the panel. The
-numbers he decided on:
-
-| | |
-|---|---|
-| stored states that change | **1 of 8** — only "no stored preference at all". Every user who ever chose keeps their choice, including a legacy `v1` record with neither key |
-| migration needed | **none** — `normalize()` already resolves every stored shape |
-| server changes | **none** — `_appearance_value` has no default and `GET` returns `null` when unset |
-| tests asserting the current default | **one line**, `tests/test_vendor.py`'s `assert "deviceColors: true" in script`. The other nine references set the value explicitly |
-| what a fresh user sees instead today | the OS `AccentColor` on Chrome and Edge; otherwise the `tokens.css` teal that `R-59` decision 2 calls *"deprecated — legacy colour residue and migration debt"* |
-
-**What is built, AND IT WAS BUILT TWICE.** All 36 `THEME_PROPERTIES` were colours, so «design
-system كامل» was impossible in principle rather than merely absent. `R-73` answered that with
-a per-palette design axis — and `R-74`, later the same day, cancelled it:
-
-> «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»
-
-**Why the first answer was wrong, measured on the built engine before the ruling was
-written:** only `supabase` declared a `design` block, so
-
-| colour choice | design properties applied |
-|---|---|
-| `supabase` | **9 of 9** |
-| `whatsapp` (`brand`) | **none** — fell back to the old 9px radius, 14px body, Segoe UI |
-| `github` (`blue`) | **none** |
-| **device colours** | **none** — and device is what a fresh install used |
-
-**Three of four colour choices lost the design system.** So `design/tokens.css` IS the
-Supabase design system now — shape, typography, elevation, motion, focus geometry — and every
-colour choice sits on it, including device, which applies no palette at all. `DESIGN_PROPERTIES`
-and `designFor()` are removed, and
-`tests/test_a_palette_may_change_nothing_but_colour.py` inverts the guard: a palette entry may
-contain **nothing but colour**. Re-measured after the rework: all four choices write **zero**
-design overrides.
-
-`R-59` decision 3 is built rather than only enforced — keys are `brand`/`blue`/`supabase`, the
-two legacy names are aliases — which closes **`OP-82`**. And `R-59` decision 2 is
-**discharged**: the teal it called migration debt was the `:root` fallback, so making the
-baseline Supabase deletes it rather than deprecating it again.
-
-**`supabase` declares no colours at all.** It is the baseline, so its entry exists to be
-selectable, to label its tile and to name itself in `data-palette`; `apply()` removes all 36
-properties for it and the baseline shows through. `brand` and `blue` have entries precisely
-because they differ from it.
-
-**Three defects were fixed because a design system could not work without them:** `OP-94`
-`--control-bg` was a literal in both dark blocks so no palette ever reached a dark control;
-`OP-95` `--shadow-lg`'s colour was a literal while both siblings derived from
-`--shadow-color`; `OP-96` six references to `--font-sans` and `--shadow-md`, tokens defined
-nowhere in the repository. `OP-97` records the 138 hard-coded values still bypassing a token
-and what the scale would have to grow to absorb them; the 48 that duplicated a token exactly
-are fixed.
-
-**The values are sourced, not chosen.** Supabase publishes token names with no values; the
-stepped ramps are HSL literals and every semantic colour is computed at runtime in OKLCH
-from ten scalar inputs, so each one is marked `PUBLISHED` or `derived` at the value. **All 34
-contrast assertions were computed against the guard's own formula before the palette was
-written** — playwright was not installed on the machine that wrote this, so CI would
-otherwise have been the first to know. (**It is installed on the other one.** Measured
-2026-08-29: Chromium 149.0.7827.55 launches and the browser suite runs. A capability
-sentence has to name its machine — `CLAUDE.md` makes two machines the governing fact of
-this repository.) That found two light-mode failures, and three Supabase values that fail
-thresholds this repository already enforces:
-
-| their value | measured | the guard needs |
+**Everything this section listed on 2026-08-30 has merged.** It said *"no PR yet"* for three
+branches that are now on `main`, which would send the other machine to refs that are gone --
+so the entries are replaced by the record of where they landed, and the one branch still open
+is described in full.
+
+| landed | as | what it was |
 |---|---|---|
-| their focus ring, flat | **1.47:1** on their own background | 3:1 |
-| their `--border-stronger` | **1.57:1** light, **1.53:1** dark, on their own card | 3:1 |
-| their `--warning` | **2.68:1** on their own `warning-300` tint | 4.5:1 |
-| their brand green on white | **1.99:1** | — the reason `accentContrast` is near-black in both schemes |
+| `claude/the-backup-that-uploaded-nothing` | **#296** (`a167417`) | `OP-111` -- a backup of nothing reached Drive, and the check was disabled by zero |
+| `claude/two-migrations-the-banner-could-not-report` | **#295** (`6f8bbbb`) | `OP-115` -- the schema-lag banner could not name two real migrations |
+| `claude/the-guard-that-reads-half-the-product` | **#297** (`42ef068`) | `OP-116` -- the restart poll asked a route M5 deleted; the guard read only `extension/` |
+| (design review) | **#298** (`69ce391`) | `OP-103` -- every custom property a stylesheet reads is one something defines |
+| `codex/organization-enrichment-main` | **#302** (`bf033ca`) | organization enrichment, +7,242/-99 across 36 files, **merged by the owner himself on 2026-08-31** |
+
+**`#297` LANDED WITH A DEFECT AND IT IS ON `main` NOW -- read `OP-119` before touching that
+guard.** Its fix repointed `settings.html` at `/api/engine/health`, which
+[`scrapex/webui/app.py:602`](../scrapex/webui/app.py#L602) mounts only `if databases is not
+None`, and [`scrapex/cli.py:856`](../scrapex/cli.py#L856) sets `registry = None` for
+`scrapex ui --db <path>`. On that start the restart poll 404s its whole sixty-attempt budget
+and reports a failure that did not happen -- **the defect `OP-116` set out to fix, reproduced
+by its own fix.** The engine-page branch below repoints it at `/api/health`, which is mounted
+on every start. **The instance is closed there; the guard's blindness is not**, and that is
+what `OP-119` is for.
+
+### The engine lives on the engine page — 2026-09-02 · branch `claude/scrapex-engine-consolidation-d69e0a`, **PR #293, open**
+
+**`REQ-50`, `R-80`, `OP-112`-`OP-114`, `OP-119`.** Rebased onto `main` at `bf033ca`. Secondary
+session; `recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+He asked for three things and got three: **enough notifications** -- the schema-lag banner can
+appear for the first time (`OP-113`: `engine.js` published the field and never carried it, so
+nothing was ever drawn); **a Restart button** on the engine's own page, under the warning that
+asks for it, with a **121.5-second** budget derived from the engine rather than the 30 seconds
+guessed (`R-80`); and **consolidation started at the engine**, with the rest measured -- 31
+engine routes the panel cannot reach, 8 settings changeable only on the engine's own web UI.
+
+**Open and his, not blocking the merge:** whether `Installed version` and `Latest version` stay
+on the consolidated page. He said *"commit it"*; measurement afterwards changed the answer,
+because an installed `.exe` reports **no commit SHA at all**
+([`scrapex/provenance.py:238`](../scrapex/provenance.py#L238) returns before HEAD is read, and
+no stamping mechanism exists anywhere in the repository), so `Build` renders the constant
+string `installed build` and deleting the version rows leaves him unable to identify which
+engine he is running. `engineProtocolText` is additionally gated on the version, so the other
+kept row would read `Not available` once `R-77`'s engine half lands. **The decision stands and
+its order is wrong**: stamp the SHA at build time, un-gate Protocol, re-home the
+no-installer sentence, then cut.
+
+**Not built, and deliberately:** a power switch. Half of it exists -- `POST /api/engine/restart`
+and the button -- and the stop half needs a route the node gate would redden while
+[R-77](RULINGS.md#r-77) says the engine has no number to raise. Spending a version to pass a
+gate whose question a ruling has retired is the wrong order.
 
-**Two guards were holes rather than numbers needing an edit.** The contrast parametrize was
-the literal `["whatsapp", "github"]`, so a new palette was never contrast-tested at all —
-under `R-73` the **default** would have been the untested one. Derived from the registry it
-goes from 68 assertions to 102. Same fix for the hover sweep's four hard-coded pairs.
-
-**~~Not verifiable on this machine~~ — VERIFIED 2026-08-29 on the other machine.**
-`tests/test_panel_dom.py` and `tests/test_panel_startup.py` collect **218 tests and all 218
-pass**; playwright imports and Chromium 149.0.7827.55 launches. The original sentence was
-true where it was written and named no machine, which is how it became a false general
-claim — and it mattered: it is why `OP-102`'s mutation gap went unmeasured for a day, since
-the guards that would have caught it are in exactly these two files.
-
----
-
-> **Measured 2026-08-27: exactly one is open, and it should not be merged.**
-> [#278](https://github.com/muhammadbayoumi/ScrapeX/pull/278) is green and `CLEAN`, and its
-> whole substance — `R-68`, `R-69`, the plan's status table, `REQUESTS.md` — **is already on
-> `main`** through later pull requests. The only difference left between the two is eight
-> citation line numbers into `scrapex/extract/service.py`, and the branch holds the
-> **stale** ones — line 895 where `main` says 915, and seven more twenty lines apart.
-> Merging it would regress them. (Written without the `file:line` form on purpose: the
-> citation guard reads that shape as a real citation, and it caught this paragraph.)
->
-> **Every entry below this banner has merged.** They are kept for the measurements in them,
-> not because anything is in flight; the section is 535 lines of history under a
-> present-tense heading, which is `OP-89`.
-
-### A dry route for every source type — 2026-08-27 · [#274](https://github.com/muhammadbayoumi/ScrapeX/pull/274)
-
-> «اعمل مسار dry لكل المصادر مهما اختلفت نوعها» · «ابنى المسار الجاف للثلاثة وخلى hover
-> الى يبان يكون واضح بدقة للمستخدم»
-
-`GET /api/dry/{source_key}` resolves a key in **both** registries. Measured against the
-same three keys `POST /api/jobs` was measured on:
-
-| key | registry | `POST /api/jobs` | `GET /api/dry/{key}` |
-|---|---|---|---|
-| `ADVANCEDCASTLE` | `sources.yaml` | 200 | 200 |
-| `contractors` | `dataset_definition` | **404** | **200** |
-| `muqawil_org` | `site_profile` | **404** | **200** |
-
-Zero requests and zero writes are guarded: a SQLite authorizer (`dryrun.refuse_writes`)
-denies every statement able to change the warehouse, which matters on the one call —
-`disown_impostors` deletes when `dry_run=False`. 16 mutations, 16 reds.
-
-The passes, their cost, what they write and the hover are declared once in
-`scrapex/passes.py`; `contractors.validate` gates on the same tuple, and `--plan`'s 114
-requests are derived as `2 x (cells + 1)`. **`extension/app.js` is untouched** — the
-engine declares and serves the hover, the panel does not yet render it.
-
-**Awaiting the primary:** a `REQ` number (`REQ-46` was free across all 419 refs on
-2026-08-27), and whether `VERSION` moves.
-
-### The source-page plan was reviewed, and the review found the step-3 blocker is one line — 2026-08-26
-
-**Branch `fix/a-dataset-row-gets-a-handle-and-the-payload-a-guard`, based on `35962cc`.**
-The owner asked for a full review of
-[the plan that moves the source page into the extension](plans/2026-08-22-the-source-page-moves-into-the-extension.md)
-before any code was written, ruled on sixteen findings, and approved a first wave of
-six that change no behaviour. Four commits, and the register entries for the twelve
-findings NOT in this wave are held pending numbers from the primary session (`R-42`).
-
-**THE FINDING THAT MOVES THE PLAN.** Step 3 — the record card, `REQ-32`, the step he
-actually asked for — is priced in the plan at **967 lines** and gated on a new
-endpoint. Measured: `dataset_table_payload` SELECTed `generic_record_id`
-([scrapex/extract/service.py:927](../scrapex/extract/service.py#L927)) and the emitting loop dropped
-it, so the payload carried **no handle for the row at all**, while `grid.js` opens its
-card from `rows.filter((row) => row.offer_id)` and closes the panel when that is
-empty. **Selecting a contractor could never open anything**, and the fix is one
-assignment. Emitted now as `observed_record_id`, following `offer_id`'s precedent
-exactly: it rides in `rows` and is absent from the column list, so it never draws.
-
-**What else landed, each with the measurement behind it:**
-
-| | |
-|---|---|
-| the payload held itself twice | `.fetchall()` kept every raw `data_json` live through the loop that parses them. `tracemalloc` on a 28-field, 17,304-row fixture: `stored` 60 MB, `stored`+`rows` 160 MB, 307 MB peak against a 43 MB wire payload — **7.2x**, excluding `sighted` as a third. Streaming: **160.0 → 103.8 MB, −35%**. The bound is untouched — `cap=None` still means every row |
-| the payload contract was retyped, not derived | two producers, three readers, no TypedDict/schema/`response_model` anywhere. The one guard asserted 13 hand-typed keys; `grid.js` reads 10, three of the 13 it never reads, and a NEW read would have failed no test. Now derived from both sides, two tiers, mutation-tested three ways |
-| two capabilities had no test on the surface being ported | `grep grid-lang-toggle tests/ tools/` was empty though the toggle renders in the harness; `moved_to_details` was `[]` in every rendered fixture in the repo. Four tests with their controls, mutation-tested |
-| CI's browser floor was `-ge 1` for nine of ten suites | its own comment says *"a per-file 'at least one' would not have noticed 48 becoming 1"*. `test_grid_dom.py` and `test_tab_page_dom.py` — the two that draw this page — now carry numbers |
-
-**AND THE PLAN'S OWN GATE IS STALE, which is not this branch's to fix.** It carries
-steps 3 and 5 as ⛔ blocked on a boundary study it says is *still running*. That study
-landed as [R-50](RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
-in #260 on 2026-08-23. Its structural claim that *"only `/api/table` uses
-`general_read_conn()`"* was falsified by its own step 0 — `GET /api/fields` resolves
-the catalogue first too. And its migration note is doubly stale: `main` holds `0010`
-and `origin/feat/organization-enrichment` holds `0011`, so the next free number is
-**`0012`**, asked for rather than counted. `docs/plans/` sits outside the citation
-guard's `DOCUMENTS`, which is the same unguarded position the plan criticises in
-`OP-59`.
-
-### muqawil is ONE card, and 17,304 contractors stop being products — 2026-08-23
-
-**`REQ-37` was ruled on 2026-08-22 as `R-47` and was still not built on 2026-08-23**,
-which is why he asked «حل المشكلة لم يصل لى ما السبب ؟» — the fix has not reached me,
-why? Measured before starting: **no file under `extension/`, `scrapex/` or `tests/`
-cited `R-47` or `REQ-37`.** A ruling with no code behind it is the `REQ-04` failure, and
-that is the whole answer to his question.
-
-Two of the four defects on that screenshot are this branch's; the other two
-(`no successful crawl yet` on both muqawil cards) landed as #255.
-
-- **`REQ-37` / `R-47` points 1 and 2 — BUILT.** `_dataset_listing` folds a confirmed
-  one-to-one child dataset into its parent for `/api/sources`, so `muqawil.org` is
-  listed once, and the second number stops being a second population: the card reads
-  `Contractor profiles: 704 of 17,304 (4.1%)`. **`_dataset_rows` is deliberately
-  untouched** — `/source/{key}` resolves one dataset out of it by key, so folding
-  in place would have made `/source/contractor_profiles` answer 404 again, which is
-  the regression #212 closed. Only the presentation collapses, which is what `R-47`
-  ruled.
-- **`R-47` point 3 — BLOCKED, not skipped.** «اختيارات الزحف» needs two crawl options
-  on the card and there is **no panel path to a dataset crawl at all**: `POST /api/jobs`
-  answers `404 unknown source_key 'contractors'` (`OP-52`). `REQ-37` therefore stays
-  **In flight**.
-- **`OP-63` — the panel half CLOSED, the engine half OPEN.** `17,304 products` over a
-  contractor directory. `countLine` replaces the hardcoded noun with three branches
-  keyed on what the engine reports, so `jobs` and `tenders` need no new code. The
-  engine's own `/source/{key}` page still prints a "Products" tile over the same rows —
-  left filed with the measurement because that page shows four tiles and two are
-  meaningless for a directory, which is his call, not a noun.
-- **`R-47` CORRECTED, ruling intact (`C4`/`C5`).** Its point 2 says the coverage figure
-  is *"the one `--coverage` already computes"*. It is not: `coverage("contractor_profiles")`
-  answers *"nothing has been sighted"* — `dataset_sighting` holds zero rows for that
-  key — and `coverage("contractors")` answers 17,269 of 17,417 (99.2%), a different
-  question. The 704-of-17,304 figure comes from the `dataset_relationship` row he asked
-  for by name, not from a sighting.
-- **His GPP comparison has no presentation to copy.** `grep -rin gpp extension/` returns
-  **nothing** — no branch, no card, no picker. `GPP_ENERGY` is one `source_key` and its
-  five energy types live in a dict inside `scrapex/connectors/gpp.py`, so the panel has
-  always drawn it as one card without knowing it was one. The transferable lesson is
-  *collapse below the surface*, which is what the listing now does; the part that cannot
-  be hidden — two separately-run crawls — goes to the `⋮` menu `REQ-36` built rather
-  than to a second vocabulary (`PLATFORM-PLAN` Decision 26).
-
-**Twelve mutations, twelve caught.** Every guard on this branch had its defect restored
-and was proven RED, then GREEN on restore, with `__pycache__` purged between runs and
-the restore verified by `git status --porcelain` rather than a content hash. **One
-mutation was NOT caught on the first pass and the guard was replaced**: a seam test
-asserted the string `c.stored` appears in `app.js`, and `c.stored` appears **twice**
-there, so renaming the occurrence the card reads left the substring present and the
-test green. It now compares the harness stub's coverage keys to the engine's own —
-behaviour at the seam, which is where #255 failed. *A search for one spelling of a
-feature is not a measurement of the feature* (`LESSONS.md` §9), arriving through a
-fourth door: a test.
-
-**This branch is from a SECONDARY session and does not merge itself** (`R-42`).
-
-**THE REGISTER MOVED THREE TIMES UNDER THIS ONE BRANCH, and the lesson is in the third
-move rather than the first two.**
-
-| took | why it moved |
-|---|---|
-| `OP-53` | correct when written — `main` topped out at `OP-52` |
-| → `OP-61` | #261 landed and declared **53…59**. A genuine duplicate, and `test_no_two_entries_share_a_number` would have had it |
-| → **`OP-63`** | `OP-61` was **already declared on a pushed branch** — `feat/the-engine-knows-which-code-it-is-running` holds 60 **and** 61 as a cross-linked pair. `OP-62` is a third session's |
-
-**The primary handed out two colliding numbers in one day and said so** — from the
-session that owns `ORCHESTRATION.md` §3. Its tables covered the branches it knew about,
-and this branch was in neither. **What found the second collision was a sweep of EVERY
-ref**, not of a named list:
-
-```bash
-git for-each-ref --format='%(refname:short)' refs/remotes/origin | while read -r r; do
-  git show "$r:docs/BACKLOG.md" 2>/dev/null | grep -oE '^#{2,4} +OP-[0-9]+'; done | sort -u
-```
-
-**Run independently here before accepting 63** rather than resting on the handover: it
-confirmed 60 and 61 on that branch and found nothing anywhere above 61. So a number you
-are handed is **provisional until you have swept for it** — which is §3's *"an unpushed
-claim is invisible and still real"* arriving from the other side: **a pushed claim is
-visible and still missed, if you look at a list of branches instead of at all of them.**
-
-**Checked rather than assumed before each renumber:** none of `OP-53`…`OP-59` covers the
-noun (they are the price-path columns registered against the directory, Choose-Columns,
-the unreachable server capabilities, the truthy `{}`, the `offer_id` index, his deletion
-gate, and the `HANDOFF` citations), so this is a distinct finding and not a second entry
-for one thing.
-
-**`RESERVED` carries `60`, `61` and `62`.** The first two name a verifiable branch ref
-because the sweep found them. **`62` is the weak row and says so** — no ref carries it,
-so it cannot name the branch §3 requires and admits that instead of inventing one,
-carrying an action: replace it with the ref when that holder pushes, or delete it if 62
-turns out free. **`OP-63` still needs the primary's confirmation.**
-
-**`R-49` was checked against this work and does not touch it.** The ruling makes
-`docs/MIGRATION-PLAN.md` the base plan for conflicts of *intent*. That document says
-nothing about `products`, a noun, or a dataset's row label — grepped — and the noun
-decision rests on **measurement** (`dataset_kind` is `'table'` for both muqawil
-datasets; nothing in the warehouse names the unit of a row) plus `R-45` part 1, which is
-a ruling rather than a plan. Where a measurement and a document disagree, the
-measurement wins regardless of dates.
-
-**A DRY review of `#252` recorded `OP-46`, `OP-47` and `OP-48` — documentation only,
-no code touched.** The review followed that PR's own comment to the three popovers it
-named as its layer precedent, and all three findings came out of checking that claim:
-
-- **`OP-46`** — `setupFinanceConverterSelect` and `setupRunModeSelect` are one
-  component written twice; `focusOption` is character-identical after normalising one
-  identifier.
-- **`OP-47`** — the split button's stacking trap is documented as prose that tells the
-  next consumer to re-write the selector by hand, instead of being owned by the shared
-  component that ships the trap.
-- **`OP-48`** — the layer scale is transcribed **by hand on both sides of the
-  extension/engine boundary**: three rules across `extension/app.css` and `webui.css`
-  write a token's value as a raw number, and the two sheets share nothing but
-  `tokens.css`. `.modal-veil`'s correctness depends on one of those equalities and only
-  a comment holds it. A guard scoped to either surface alone goes green with the other
-  still wrong.
-
-Nothing in any of the three is broken today; all are filed as cost, each with its
-narrow fix and the proof it must carry. **`OP-48` is the one to build first** — a
-three-value substitution that cannot change a pixel, and lowering `--z-overlay` today
-would undo `#252`'s fix from a file that never mentions it. `OP-47` should wait for the
-card-restyle session to land, because it edits a component five surfaces consume.
-
-**This branch is from a SECONDARY session and does not merge itself** (`R-42`). All
-three numbers were assigned by the primary session. The `RESERVED` rows in
-`tests/test_the_registers_cannot_collide.py` that covered them are **gone as of this
-branch**: `44` landed with #255 and `46`/`47`/`48` with #256, and a reservation for a
-number now on `main` fails `test_a_reserved_number_is_not_also_declared`. Only `45`,
-`49` and `50` remain, all held by `claude/drive-without-a-server` — **delete each row
-the day that branch lands.**
-
-### The source card's three dots — three defects in one control, two PRs, one day
-
-He photographed the Data screen three times on 2026-08-22 and each screenshot found
-a different defect in the same `⋮`. The first is merged; the other two are the PR
-open now.
-
-**1 · It appeared twice.** `REQ-30`, «لماذا تظهر مرتين» — **MERGED as
-[#252](https://github.com/muhammadbayoumi/ScrapeX/pull/252) (`5f63bb0`).**
-`.dataset-card > .split-button` carried `z-index: 1`, which made every card's menu
-wrapper a **stacking context** and spent the open menu's own `z-index: 120` inside
-it, so all the wrappers tied at level 1 and the card BELOW painted its button
-through the menu hanging over it. Lifted to `var(--z-overlay)` while open. Guarded
-by a **hit test**, not a z-index read: measured, the defect survives the menu's own
-z-index going to 2147483647.
-
-**2 · It was missing on a contractor card.** `REQ-36`, «ال 3 نقاط لا تظهر فى كارد
-مقاول» — and it closes `OP-42`, which this repository had already recorded from the
-same screenshot. `sourceMenu` returned `""` for `kind === "dataset"`, which was true
-of five of the six actions and false of the sixth: *Open the data table* drives
-`/api/table/{key}`, which resolves the dataset catalogue **first**, and was built
-after the blanket hide.
-
-The fix is not a per-entry allowlist, because that is the thing that rotted. Each
-action now declares **the engine route it drives** and **a proof of what that route
-does with a dataset key**, and `tests/test_a_dataset_card_offers_what_works.py`
-CALLS all six against a real approved dataset — asserting in both directions, so an
-action that is offered must answer with rows and an action that is withheld must be
-proven unable. Measured: `table` 200 with 4 rows and 25 columns; `sheet`, `update`,
-`pause`, `settings` all 404; `changes` 200 with no changes section on the page. So a
-contractor card carries **one live row and no greyed rows**.
-
-**3 · It looked wrong.** `REQ-36` again, «توجد ال3 نقاط بشكل غير احترافى فوق الكارت وداخل
-مربع اعتقد ان ال3 نقاط معمولة فى صفحة profile بشكل احترافى» — he named the reference
-himself and was right twice. `.split-button-trigger`'s radius computed to
-**`0 8px 8px 0`**: it rounds its outer corners only, because in a split button its
-inner edge butts against the primary action. On a card there is no primary action,
-so the shared rule drew a lopsided filled box on the card's own rounded corner. It
-is now `.account-menu-button`'s treatment — a bare 40px circle, `--muted`, tinted on
-hover and while open — in rules local to `.dataset-card`, using only tokens the
-profile row already uses, so no palette work was needed. Guarded by **comparing the
-two controls' computed styles** in light and dark rather than by asserting numbers.
-
-**SEEN, NOT DESCRIBED.** He asked in visual terms, so the answer is four pictures,
-committed rather than pasted into a message that lives on one machine:
-`docs/screenshots/the-source-card-three-dots-{before,after}-{light,dark}@360.png`.
-The *before* pair is `origin/main`'s `app.js` and `app.css` with the same stub, so
-it shows what he photographed — a boxed trigger on the two price cards and **none
-at all** on the muqawil card, 3 cards and 2 triggers — beside the *after*, which is
-3 and 3.
-
-**What the honest stub bought, and it is the part worth carrying forward.**
-`tools/panel_harness.py` had no `kind: "dataset"` source, so
-`test_dataset_action_opens_the_workspace_directly` asserted that EVERY card has a
-menu and passed for ten days while the product did the opposite. Adding one dataset
-row failed it immediately, and surfaced two further findings on screens nobody was
-looking at: **`OP-51`** (Source settings opens `/sources/{key}`, a route that exists
-for nobody; Recent changes opens `#changes`, a fragment that exists nowhere, while
-the real `/changes?source_key=` page does) and **`OP-52`** (the Run screen offers a
-dataset as crawlable and `POST /api/jobs` 404s it; the Source manager lists it with
-an Edit button that cannot reach it). Neither is fixed — both change what a screen
-offers, which is his call.
-
-**Still open and NOT touched by any of this:** both muqawil cards read "no
-successful crawl yet" while showing 17,304 and 704 rows. That is a third track's
-work, and the stub reproduces it rather than hiding it.
-
-**[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — MERGED (`afb8648`);
-kept here because the three blockers it named are still his.** `REQ-28`. The release
-gate now runs the binary the way a person runs it; the three things that actually
-unblock him are `OP-37`, `OP-32` and `OP-33`, and **all three are his**. See the
-section below.
-
-**THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
-`R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is
-not built. Everything else on Track 2 either waits behind it or waits behind the
-crawl. If a session wants work that depends on nobody: `REQ-20`, or run
-`--coverage` over what the crawl has already gathered.
-
-> **`main` MOVED WHILE THIS BRANCH WAS OPEN, and it changed the answer — read this
-> before the section below.** [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
-> (`eb691d9`) merged `claude/his-four-rulings`, and it closed **two** of the three
-> things that were blocking him:
->
-> - **engine migrations 0007/0008 are on `main`**, so a released engine can open his
-> warehouse. `OP-33` closed — verified read-only against his live file: `"status":
-> "Healthy", "schema_version": 8`.
-> - **the red suite is fixed**, by the identical one line this branch wrote at the same
-> time. `OP-37` closed. Two sessions reached the same repair without seeing each
-> other; #243's own comment calls it a time-of-day fault, which undersells it, and
-> the correction is recorded per **C5**.
->
-> It also took `OP-30` and `OP-31` for two different findings, so this branch's six
-> entries are renumbered **`OP-32`–`OP-37`**, and `OP-38` is new.
-
-
-### The updater — 2026-08-21 (evening) · `REQ-29` in flight
-
-**He asked for the engine's updater and the panel's `downloads` slice, and both
-are built.** *«ابدأ بالمحدث داخل الـEngine وشريحة downloads»*, under
-[R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download).
-
-| new | what it is |
-|---|---|
-| `scrapex/release.py` | the engine's own reading of the release feed — the **third** reader of one file, so `tests/test_the_engine_reads_the_same_release_feed.py` holds it to `releases.js` and the workflow |
-| `scrapex/update.py` | fetch, **verify**, stage. Four rules, none of which a caller can switch off |
-| `scrapex/webui/update_api.py` | `GET`/`POST /api/update`, `GET /api/update/plan` — wired **unconditionally**, because a database this build cannot open is a reason to want a newer engine, not a reason to hide the way to get one |
-| `extension/` | `downloads` permission; the first install now has a live percentage and a **Show in folder** |
-
-**Verified end to end against the real manifest**, and the answer it gives is
-itself the story:
-
-```
-installed 0.2.2 · latest ok 0.2.1 · verifiable true
-update_available false
-POST /api/update -> "0.2.2 is already the published version."
-```
-
-The published release is **older than what is installed**, because 0.2.2 was
-never cut. The updater is correct and has nothing to do until it is.
-
-**Seventeen mutations, seventeen killed — after two survived.** Both survivors
-were the same weakness and it was the most security-relevant one: every test
-supplied a digest that differed from the truth *everywhere*, so shortening the
-comparison to `expected[:8]` or a `startswith` refused them all and passed. A
-digest that shares a long prefix and differs late is the only thing that catches
-that, and it exists now.
-
-**What is NOT built, and it is one step:** replacing the running executable.
-`OP-39` says why stopping here is honest rather than incomplete — the swap cannot
-be tested without a frozen build, so the plan is returned as inspectable data and
-performs nothing.
-
-**And a new finding, measured while testing:** his warehouse is at **schema v9**
-and `main` reads v8 — the third time in one day that an unmerged branch has moved
-his live database ahead of `main`. `OP-40`, with `Q-15` for him.
-
-### In flight now — 2026-08-21 (afternoon) · [#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244)
-
-**The Engine would not install on his machine, and the cause is not the installer.**
-[REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
-He downloaded it, got a black screen, and could not install it. His download is
-perfect — 70,872,447 bytes, sha256 `df7a00ee…`, matching the hub manifest exactly.
-**The only installable engine is the build made before the fix for this exact
-symptom.** `engine-v0.2.1` is commit `4386d25`, where
-`4386d25:packaging/engine_entry.py:62` sends a double-click to the native
-messaging host (today's line 62 is a comment);
-`_first_run` landed six hours later at `7a067c5` and has never been released.
-Reproduced on his file: **0 bytes printed, still alive at 20 s.**
-
-**Built here:** the release now runs the binary **the way a person runs it** —
-`.github/workflows/release-engine.yml`, a step that launches it with no arguments at
-all, bounded by a timeout because a good first run never returns, and refuses a build
-that prints nothing or cannot get past preparing a database. Guarded by
-`tests/test_the_release_proves_the_double_click.py`; **eleven mutations, eleven
-killed**, one of which caught the guard accepting a data root that was named but
-never assigned.
-
-**HE THEN AUTHORISED THE NEXT TWO AND KEPT THE MERGE.** *«ابدأ بـ OP-36 و OP-35
-وضمهم لنفس tree واترك الدمج للمبرمج الرئيسيى»* — both are built in this same tree, and
-the merge is his. **That last clause is a process ruling, not a preference about one
-branch: [R-37](RULINGS.md#r-37--the-agent-does-not-merge-the-main-programmer-does)
-supersedes [R-18](RULINGS.md#r-18--merge-it-when-it-is-green)**, and R-18 stays in
-place, marked, per **C4**. What changed is who presses the button; R-18's reading of
-*green* is now the report rather than the action.
-
-**`OP-36` and `OP-35` are FIXED, and they were one defect wearing two faces.**
-`scrapex/enginelaunch.py` is new — `nativehost.py:57`'s three lines generalised — and
-`relaunch`, `native`, `autostart` and `osschedule` all call it instead of each
-deciding the `-m scrapex.cli` question for itself. `KNOWN_COMMANDS` is gone:
-`known_commands()` asks `scrapex.cli.subcommands()`, which reads the choices off
-`build_parser()`, so **24 of 24** subcommands are reachable from the shipped binary
-against 12 before. **Ten mutations, ten killed**, and the tenth caught my own test
-passing for the wrong reason.
-
-**WHAT R-36 UNBLOCKS.** Its part 4 said an Update button on top of these two would
-lie. It no longer would. **But it is not yet proved against a real frozen build** —
-the guards set `sys.frozen` and `sys.executable`, which is what makes them possible
-at all, and the first artifact to exercise them for real is the next release.
-
-**STILL HIS — ~~and now only one~~ NONE. Item 2 is DONE:**
-
-1. ~~`OP-37`~~ **— fixed, and by #243 in parallel rather than by this branch.** So
-   the release is no longer blocked by a red suite. The pattern was not invented:
-   `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
-   overrides one, for the same column.
-2. ~~**Cut the release.**~~ **— DONE 2026-08-22. He asked for it directly**
-   (*«اقطع الوسم»*) after reading the finding, and the tag `engine-v0.3.0` is on
-   `451468d`, which is this `main`. Verified from the tag rather than reported:
-   `scrapex/version.py:76` and the `pyproject.toml` mirror both read `0.3.0` there,
-   so the workflow's first step had a tag and a version that agreed. **The first
-   engine release in thirteen days, and the first that carries `_first_run`** — the
-   black window of `engine-v0.2.1` is no longer the only thing installable.
-   `OP-32` · `REQ-28`.
-
-   **This line is now history and is written as history on purpose.** It said
-   `engine-v0.2.2`, which stopped being cuttable the moment #247 moved `VERSION` to
-   0.3.0, and the release the repository was asking for would have been refused
-   before anything was built.
-   `tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py` is
-   what stops that recurring — and the reason the sentence above no longer spells
-   the tag inside a command is that guard's own third shape: **a completed release
-   must stop reading as an instruction, or it rots at the next bump.** It would have
-   rotted at the very next one, which is `0.3.1`.
-3. ~~**`claude/his-four-rulings` must merge, or the release will not help him.**~~
-   **— merged as #243** (`eb691d9`), which brought engine migrations 0007 and 0008,
-   so `main` reads schema v8 and the v8-against-v6 gap this item named is closed.
-   `OP-33`. **A v9-against-v8 gap was found later the same day** and is a different
-   entry — `OP-40`, with `Q-15` for him.
-
-~~**Until then, the engine that runs on this machine is that worktree's**~~ — **the
-instruction is dead: `determined-liskov-0c89fe` is not among the worktrees any
-more** (checked 2026-08-22), and #243 merged what it was carrying. Run it from the
-checkout you are in:
-
-```
-python -m scrapex.cli ui --no-open
-```
-
-Whether `main` can open **his** warehouse is a separate and still-open question —
-`OP-40` and `Q-15`, not this line.
-
-**AND HE ASKED FOR THE NEXT THING IN THE SAME BREATH — `REQ-29`:** an install
-surface *«تشبه اى برنامج محترف»* and an update anyone can apply. **Measured before
-designing: the surface is largely built — nineteen elements, six states, a verdict
-badge and a label that says what the button will do. What is missing is the
-MECHANICS**, and the finding that decides the design is that the panel *cannot*
-supply them: Chrome gives it no `downloads` permission, no file read and no way to
-launch a process, so `app.js:3620` hands a URL to the browser and lets go. **The
-engine can do all three.** So the first install goes through the browser because
-nothing is installed yet, and every update after it belongs to the engine. That is
-blocked on `OP-36` first, then a ruling from him on what makes a download
-trustworthy without a signing certificate. The full study is in `REQ-29`.
-
-Also found and filed, not fixed — all three are the SAME silent fall-through to
-`serve()` that produced the black window. **`OP-35`:** twelve of the CLI's
-twenty-four subcommands are unreachable from the shipped engine and print nothing,
-`database-status` among them — the one command that names `OP-33` in a line.
-**`OP-36`:** a frozen engine cannot restart itself, because `relaunch.py` puts
-`-m scrapex.cli` in front of an executable that does not honour it. And **`OP-34`** — a launch that dies in a console writes
-**nothing** to `~/.scrapex/engine.log`, because `_bind_log_streams` deliberately
-no-ops when it has real streams. That log is dated 2026-08-01 and is not evidence
-about anything that happened since.
-
-### Merged 2026-08-21
-
-**[#238](https://github.com/muhammadbayoumi/ScrapeX/pull/238) — his ruling tested
-before it was built.** `REQ-23`: eleven criteria fixed before measuring, five shapes,
-518,490 rows. **`R-19` is upheld** — JSON costs 1,168 ms on the query it names against
-0.6 ms for the best shape. It also decided only half the question, and the half it
-left open turns on a criterion nobody had raised: relabelling a category costs 103,698
-rows in 5.9 s one way and 1 row in 0.1 ms the other. Recommendation recorded as
-`Q-13`; **nothing built.**
-
-**[#237](https://github.com/muhammadbayoumi/ScrapeX/pull/237) — the file that starts
-every crawl had no tests.** `OP-28`: `tools/crawl_muqawil_listing.py`, 452 lines, zero
-tests, and CI cannot see it (ubuntu-only, and `tools/` is outside the linted path).
-Nineteen tests, eleven mutations killed — after four of the first twelve mutations
-turned out not to have applied at all.
-
-**[#236](https://github.com/muhammadbayoumi/ScrapeX/pull/236) — a subdivision is
-checked against its parent.** `REQ-21`: `crawl_partition` takes a `parent` cell and
-audits `Σ N_child` against **it**, `Cell.is_under` settles membership as a set
-question, and `NotASubdivision` refuses a child that dropped a parent filter before a
-request is spent. Eight mutations killed.
-
-**[#235](https://github.com/muhammadbayoumi/ScrapeX/pull/235) — a row says what
-state it is in.** The observation state as a column instead of something the reader
-infers from two dates: eight states, closed vocabulary, seven of them computed;
-engine migration `0006` for the eighth fact (`last_absent_at`, without which
-`returned` cannot exist); `R-27`, which stops a vanished row from leaving the sheet;
-`R-20`'s unchanged-means-no-revision, without which `last_changed` means nothing;
-the profile-page candidate adapter; and a **~1,600×** fix to `coverage()` /
-`missing_ids()` (49.7s → 0.03s each). All five CI jobs green including
-`migration-authority`. Ten mutations killed.
-
-Also merged 2026-08-21: [#233](https://github.com/muhammadbayoumi/ScrapeX/pull/233)
-and [#234](https://github.com/muhammadbayoumi/ScrapeX/pull/234) — a proof that
-demanded more than it needed, and 823 pages refused by one column.
-
-### The crawl that is still running
-
-The residual crawl of the nine heavy cells is **live** and resumable
-([R-26](RULINGS.md#r-26)). As of 2026-08-21 08:06 it had stored **3,563 listing
-pages** across all 56 cells; by 07:13 it was **5,458**, and the ledger held
-**THE LISTING IS COMPLETE: 17,414 of 17,414 distinct ids, `D = 0`** (2026-08-21). Stored *records* are 15,707 and climbing, because `OP-25` was
-extraction route is deferred by `R-25`; the gap between the two numbers, 14,101, is
-exactly the question the sightings ledger exists to answer.
-
-**The listing crawl itself** — `scrapex/partitioncrawl.py`, the `Cell`
-vocabulary, muqawil's facets, and the driver that had never existed — merged as
-#227-#234. Verified against the live directory: 56 cells, 897 pages, an
-exhaustiveness deficit of **0**.
-
-Sixteen merged on 2026-08-20, the last nine in this order, each on green CI under
-[R-18](RULINGS.md#r-18--merge-it-when-it-is-green):
-
-| | |
-|---|---|
-| `a683d70` | **#215** the profile background reverted, which unblocked `main` |
-| `bf2ae66` | **#220** the Arabic half was a column and not a value, and `/source/{key}` answered 404 for a dataset |
-| `a1d077f` | **#213** DEC-8: the engine's Data page is a port, not a rebuild |
-| `3d265cd` | **#216** the CI tiers, the docs gate, and two guards that had become silent skips |
-| `cb869f9` | **#222** R-18 itself — merge it when it is green |
-| `785533c` | **#221** the two generic flags lit, at `PARTIAL` |
-| `ce80886` | **#217** the Engine page is two screens, plus three defects an adversarial review confirmed |
-| `42dbf23` | **#223** a dataset exports a workbook and loads whole |
-| `72f93a8` | **#218** `main`'s padding is a token, and the two full-bleed screens finish #217's refactor |
-
-> **CI works again, and how it came back is worth knowing.** Every job from
-> 2026-08-19T14:28Z until 2026-08-20T06:34Z failed with *"the job was not started
-> because recent account payments have failed"* and **no step executed** — absent,
-> not red. It cleared because **the repository was made public**: private Actions
-> minutes on the free plan had run out, and public repositories get unlimited
-> standard-runner minutes. A ruling recording that, and recording that an exposure
-> audit was proposed and declined, is drafted but **not yet committed** — see the
-> uncommitted-work list under Named gaps.
-
-### What `ac3a5af` cost, kept because REQ-11 exists for it
-
-It reached `main` **with no pull request** — a single-parent commit, so no CI ran
-before it landed. It wrote a raw hex literal into `extension/app.css`, which
-`tests/test_vendor.py::test_ui_colour_literals_live_only_in_the_canonical_colour_system`
-forbids, and `main` was red from 2026-08-18 until #215 reverted it on 2026-08-19.
-Every pull request opened in between inherited that red, and I misread the outage's
-"failure" as a regression of my own once.
-
-**`main` still has no branch protection at all** — `gh api
-.../branches/main/protection` answers 404. So R-18 is the entire gate, enforced by
-discipline. Captured as
-[REQ-11](REQUESTS.md#req-11--branch-protection-for-main-in-a-session-of-its-own),
-deferred by him to a session of its own, with the trap that stopped it being done
-at once: `test` and `migration-authority` are gated on `needs: scope`, a docs-only
-change makes them **`SKIPPED`**, and a required check that is skipped can leave a
-pull request unmergeable for ever.
-
----
 
 ## Track 1 · The Console migration
 
@@ -1331,7 +545,7 @@ test (#200) · sign-out (#201, ruling [R-13](RULINGS.md#r-13--sign-out-of-all-ac
    source's answers 404 **without confirming the id exists at all**.
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`. Do not write a second one.**
    The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1602`) and `saveSourceColumns` (`:1641`), speaking the same
+   (`extension/app.js:1578`) and `saveSourceColumns` (`:1641`), speaking the same
    bodies. **Extract** it into a shared module the way `backend.js` was, or the
    two surfaces will disagree about how a column is saved.
 3. **Saved views — `POST /api/views/{key}`, `DELETE /api/views/{id}`.**

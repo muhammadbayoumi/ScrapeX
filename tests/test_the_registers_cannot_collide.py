@@ -144,6 +144,14 @@ RESERVED: dict[str, dict[int, str]] = {
     # Delete this row the day #293 merges.
     "R": {46: "branch claude/drive-without-a-server",
           80: "branch claude/scrapex-engine-consolidation-d69e0a, PR #293"},
+
+    # 79 WAS RESERVED HERE AND IS NOT ANY MORE, which is the rule working. It was
+    # held by `claude/device-colours-reach-the-user` with no pull request, so no
+    # sweep of `main` could see it and it was verified against the ref itself. #291
+    # merged it, `R-79` became a heading rather than a hole, and a number that is
+    # both reserved and declared fails `test_a_reserved_number_is_not_also_declared`
+    # -- so the row goes in the first change that rebases past it, which is this one.
+    "R": {46: "branch claude/drive-without-a-server"},
     # DECLARED HOLES, not tolerated ones. Both numbers exist on other branches and
     # not on this one, which is the state this table is for -- and being handed a
     # number by another session is not enough on its own: the assignment that named
@@ -158,7 +166,13 @@ RESERVED: dict[str, dict[int, str]] = {
         # against the ref rather than taken from a message:
         #   git show claude/scrapex-engine-consolidation-d69e0a:docs/REQUESTS.md \n        #     | grep "^## REQ-50"
         # Delete this row the day #293 merges.
-        50: "branch claude/scrapex-engine-consolidation-d69e0a, PR #293",
+        # 50 HAS NO ROW: it was reserved for `claude/scrapex-engine-consolidation-d69e0a`
+        # while `REQ-51` was declared over the top of it, and the row said to delete it
+        # the day #293 merged. It is deleted one step earlier instead -- as #293 rebases
+        # and its own heading arrives, which is the moment the contradiction exists.
+        # THE SIXTH ROW THIS BRANCH HAS RETIRED across five unrelated merges, and the
+        # sixth time `test_a_reserved_number_is_not_also_declared` said so before the
+        # session did.
         # 43 belongs to `feat/organization-enrichment`, which is pushed and unmerged.
         # 41 and 42 were reserved to #267 and their rows are GONE because #267 has
         # landed -- which is the rule this table states about itself. Delete this row
@@ -270,8 +284,8 @@ RESERVED: dict[str, dict[int, str]] = {
         # form the rule forbids, because sessions do not outlive their branches.
         # A row whose holder has no ref yet must SAY SO and be RE-CHECKED: it is
         # the orphan the comment above warns about, it just has not become one
-        # yet. Re-checking is what turned these three into refs.
-        112: "branch claude/scrapex-engine-consolidation-d69e0a",
+        # yet. Re-checking is what turned those three into refs -- and then into
+        # headings, which is why 112, 113 and 114 are no longer below.
         # 116 is `claude/the-guard-that-reads-half-the-product` (PR #297, pushed) --
         # VERIFIED with `git show <ref>:docs/BACKLOG.md | grep "^### OP-116"`.
         # 116's row is GONE: #297 merged, so the number is a heading and a reservation for
@@ -285,31 +299,39 @@ RESERVED: dict[str, dict[int, str]] = {
         # a row in it must say which kind of claim it is holding rather than read like
         # a verified one.
         117: "branch claude/marketlens-is-gone, PR #300",
-        113: "branch claude/scrapex-engine-consolidation-d69e0a",
-        114: "branch claude/scrapex-engine-consolidation-d69e0a",
+
+        # 112, 113 AND 114 WERE RESERVED HERE FOR THIS BRANCH AND ARE NOT ANY MORE,
+        # deleted by the branch they named as its headings arrive. The rule is the
+        # same every time and it is not a courtesy: a number that is both reserved
+        # and declared fails `test_a_reserved_number_is_not_also_declared`, so the
+        # guard removes the row if the session does not.
         #
-        # AND 115 IS GONE TOO, ONE MERGE LATER AGAIN. `#295` landed while this
-        # branch was in flight, so `OP-115` is declared and its row would be the
-        # same contradiction. THREE TIMES IN ONE DAY, from three unrelated
-        # merges, and every one was caught by
-        # `test_a_reserved_number_is_not_also_declared` rather than by the
-        # session doing the rebase.
+        # THAT GUARD CAUGHT FIVE ROWS ACROSS FOUR UNRELATED MERGES IN ONE DAY --
+        # `R-79`, `OP-111`, and these three -- and not once did the session doing
+        # the rebase notice first. `main` had meanwhile grown a comment explaining
+        # why these three REMAIN, written while they were still reserved and true
+        # when written; it goes with them.
         #
-        # That is the whole argument of `LESSONS` 29's counterexample, measured
-        # three times: this assertion compares two things that are maintained
-        # SEPARATELY -- the reservations and the headings -- so it does not
-        # matter which side moves, and nobody has to remember to look.
+        # THE ARGUMENT IS `LESSONS` 29's counterexample, now measured five times:
+        # this assertion compares two things maintained SEPARATELY -- the
+        # reservations and the headings -- so it does not matter which side moves,
+        # and nobody has to remember to look. Contrast the guards that read one
+        # side of a seam and pass forever.
         #
-        # 112-114 remain. Each names a ref that `git rev-parse --verify`
-        # resolves, checked with `git show <ref>:docs/BACKLOG.md` rather than
-        # taken from the message that allocated them. They spent about an hour
-        # with no ref at all, when the only holder that could be written was a
-        # session name -- the form this comment forbids. A row in that state
-        # must SAY SO and be re-checked; re-checking is what turned them into
-        # refs.
-        112: "branch claude/scrapex-engine-consolidation-d69e0a",
-        113: "branch claude/scrapex-engine-consolidation-d69e0a",
-        114: "branch claude/scrapex-engine-consolidation-d69e0a",
+        # 117 BECAME A HOLE HERE the moment this branch declared `OP-119`, and 118 did
+        # too until `#301` landed and declared it. Neither was
+        # on `main` when this was written; each was found by asking every remote ref for
+        # the heading rather than by trusting the message that allocated it:
+        #   git show <ref>:docs/BACKLOG.md | grep '^### OP-117 '
+        # 118 IS NOT HERE: `#301` merged while this branch was rebasing, so the number
+        # is a heading and a row for it would be the same contradiction. 117 is held
+        # above, with the better annotation `#300` added -- one row, not two.
+        #
+        # ONE LINE OF THE OLD COMMENT IS WORTH KEEPING, because it records the only
+        # hard case: these three were allocated before any ref carried them, so for
+        # about an hour the only writable holder was a session name -- the form this
+        # table forbids, since sessions do not outlive their branches. Re-checking
+        # is what turned them into refs, and re-checking is what removes them now.
         # 64 THROUGH 68 BELONG TO `docs/two-counts-and-the-gap-between-them` (PR #267,
         # open). They became holes HERE the moment this branch declared `OP-69`, because
         # the gap check runs from 1 to `max(numbers)`. #267 has an open pull request and
@@ -324,6 +346,12 @@ RESERVED: dict[str, dict[int, str]] = {
         # request that follows the Drive branch removes all three together.
         49: "branch claude/drive-without-a-server",
         50: "branch claude/drive-without-a-server",
+        # 111 WAS RESERVED HERE AND IS NOT ANY MORE, and it is the second row this
+        # branch has retired rather than inherited. It was verified against the ref
+        # while it was in flight -- with `git branch -a` and not `git worktree list`,
+        # because that branch was checked out nowhere. #296 merged it, `OP-111` became
+        # a heading, and a number that is both reserved and declared fails
+        # `test_a_reserved_number_is_not_also_declared`.
     },
     "DEC": {},
 }

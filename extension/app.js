@@ -860,30 +860,6 @@ async function saveCrawlSettings() {
   crawlParallelEffect();
 }
 
-async function restartEngineFromPanel() {
-  out("crawl-msg", "restarting the engine…");
-  // A DROPPED request is the success case: the restart tears down the very
-  // connection carrying its own reply. A DELIVERED refusal is the opposite, and
-  // the previous version could not tell them apart because it only read
-  // err.message from a thrown api() call. So a hard 500 — "could not start the
-  // helper ([Errno 13] Permission denied ...)" — was printed INSIDE the words
-  // "restart requested", and the owner was told to watch a status dot that
-  // would never change. Raw fetch, so the status and the body are both readable.
-  let refused = null;
-  try {
-    const asked = await fetch((await backendBase()) + "/api/engine/restart",
-                              {method: "POST"});
-    if (asked.status === 404) refused = ENGINE_TOO_OLD;
-    else if (!asked.ok) {
-      let detail = `The engine refused (HTTP ${asked.status}).`;
-      try { detail = (await asked.json()).detail || detail; } catch (_) {}
-      refused = detail;
-    }
-  } catch (_) { /* the socket died: it is going down, which is the point */ }
-  if (refused) { out("crawl-msg", esc(refused), "err"); return; }
-  out("crawl-msg", "restart requested — the status dot turns green when it is back", "ok");
-}
-
 // ---- Google Finance rate control -----------------------------------------
 function financeCurrencyName(currency) {
   if (currency === "USD") return "United States Dollar";
@@ -3778,6 +3754,10 @@ function renderEngineDetail(id) {
   $("engine-action-list").classList.toggle("hidden", !installed);
   $("engine-detail-actions").classList.toggle("hidden", !installed);
   $("engine-diagnostics-output").classList.toggle("hidden", !installed);
+  // The restart report goes with the button that writes it. Without this a
+  // sentence about the ScrapeX engine survives onto a candidate backend's
+  // screen, which is the one place the page promises nothing to press.
+  if (!installed) $("engine-restart-note").classList.add("hidden");
   if (!installed) $("engine-install-steps").classList.add("hidden");
 
   const banner = $("engine-state-banner");
@@ -5740,6 +5720,25 @@ async function render() {
 // engine is otherwise unhappy, which is the only day they are wanted. api()
 // throws on a non-2xx, and a 404 here is not a failure to report but a fact to
 // explain — an engine that started before these endpoints existed.
+
+// HOW LONG A RESTART IS ALLOWED TO TAKE, DERIVED FROM THE ENGINE AND NOT CHOSEN.
+// This was 30 attempts at one second, and the engine gives ITSELF far longer:
+// the helper waits PORT_FREE_TIMEOUT_S = 30 s for the old process to release the
+// port and ENGINE_UP_TIMEOUT_S = 90 s for the successor to answer
+// (scrapex/relaunch.py), after a 1.5 s bow-out so the reply is delivered before
+// the exit (scrapex/webui/app.py). That is 121.5 s of restart that the engine
+// considers entirely normal, against a panel that declared failure at 30.
+//
+// So the panel said "The engine has not answered in 30 seconds" over a restart
+// that was still legitimately running, and re-enabled the button under it --
+// inviting a second restart into the middle of the first. It is the same shape
+// as the backup the panel called failed 94 seconds before it finished: only the
+// side doing the work may bound the work (R-48 rule 2).
+//
+// 125 rather than 122 leaves the ceiling above the engine's own, so the engine
+// is always the one that gives up first and can say why.
+const RESTART_CONFIRM_ATTEMPTS = 125;
+
 const ENGINE_TOO_OLD =
   "This engine started before these actions existed, so it does not have them " +
   "yet, so it cannot be asked to replace itself from here. ScrapeX does this " +
@@ -5796,30 +5795,55 @@ function wireRuntimeRepair() {
   const upgrade = $("runtime-upgrade");
   if (!note || !restart || !upgrade) return;
 
+  // THE BUTTON AND ITS SENTENCE ARE NOW ON DIFFERENT SCREENS, which is the one
+  // thing this move could quietly break. `#runtime-restart` is on the Engine
+  // screen; `#runtime-note` stays in Settings because `#runtime-upgrade` still
+  // shares it. Writing only the old node would put every restart message on a
+  // screen the reader is not looking at -- the defect this whole change exists
+  // to end, rebuilt one layer down.
+  //
+  // `reason` IS NOT DECORATION, and pressing the button is how that was found.
+  // Four of these sentences end in "the reason is shown above": true in
+  // Settings, where `setRuntimeIssue` paints `#runtime-error` immediately above
+  // this line, and FALSE on the Engine screen, which has no such card. So each
+  // screen gets the form that is true where it is read -- Settings keeps the
+  // pointer beside the card, the Engine screen carries the reason itself.
+  //
+  // Unhidden as it is filled: an empty status line under the actions reads as a
+  // control that did nothing.
+  const say = (text, reason = "") => {
+    note.textContent = text;
+    const here = $("engine-restart-note");
+    if (!here) return;
+    here.textContent = reason || text;
+    here.classList.toggle("hidden", !(reason || text));
+  };
+
   upgrade.addEventListener("click", upgradeDatabaseFromPanel);
 
   restart.addEventListener("click", async () => {
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    note.textContent = "Restarting — the engine goes quiet for a few seconds.";
+    say("Restarting — the engine goes quiet for a few seconds.");
     clearRuntimeIssue();
     // Check the CURRENT build's database expectations before asking the old
     // process to leave. Without this gate, a newer process could die during
-    // startup and the panel would only be able to say "30 seconds".
+    // startup and the panel would only be able to say "two minutes".
     try {
       await checkStartup();
     } catch (startupError) {
       const nativeFailureKinds = ["absent", "forbidden", "crashed", "timeout"];
       if (!nativeFailureKinds.includes(startupError && startupError.kind)) {
         setRuntimeIssue(startupError);
-        note.textContent = "Restart was not attempted. Fix the issue shown above first.";
+        say("Restart was not attempted. Fix the issue shown above first.",
+            "Restart was not attempted: " + issueCopy(startupError).body);
         [restart, upgrade, $("runtime-check-action")].filter(Boolean)
           .forEach((button) => { button.disabled = false; });
         return;
       }
       // The engine is already reachable in this path, so HTTP restart remains
       // useful even when the native helper is unavailable or slow.
-      note.textContent = "Native helper unavailable — restarting through the engine.";
+      say("Native helper unavailable — restarting through the engine.");
     }
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
@@ -5843,7 +5867,8 @@ function wireRuntimeRepair() {
     if (refused) {
       const error = Object.assign(new Error(refused), {kind: "refused"});
       setRuntimeIssue(error);
-      note.textContent = "Restart was refused. The reason is shown above.";
+      say("Restart was refused. The reason is shown above.",
+          "Restart was refused. " + refused);
       [restart, upgrade, $("runtime-check-action")].filter(Boolean)
         .forEach((button) => { button.disabled = false; });
       return;
@@ -5854,18 +5879,23 @@ function wireRuntimeRepair() {
     const timer = setInterval(async () => {
       attempts += 1;
       try {
-        const probe = await fetch((await backendBase()) + "/api/engine/health",
+        // `/api/health`, NOT the engine-scoped one. That route is mounted only
+        // when the engine was started with a registry; started against an
+        // explicit database path it does not exist, and this poll would 404 its
+        // whole budget and report a restart failure that did not happen
+        // (`OP-119`). `/api/health` is a plain route on the app, every start.
+        const probe = await fetch((await backendBase()) + "/api/health",
                                   {cache: "no-store"});
         if (probe.ok) {
           clearInterval(timer);
           [restart, upgrade, $("runtime-check-action")].filter(Boolean)
             .forEach((button) => { button.disabled = false; });
-          note.textContent = "The engine is back.";
+          say("The engine is back.");
           await render();
           return;
         }
       } catch (_) { /* still down, which is expected */ }
-      if (attempts >= 30) {
+      if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
         clearInterval(timer);
         [restart, upgrade, $("runtime-check-action")].filter(Boolean)
           .forEach((button) => { button.disabled = false; });
@@ -5875,16 +5905,21 @@ function wireRuntimeRepair() {
         try {
           await checkStartup();
           const timeout = Object.assign(
-            new Error("The engine did not answer in 30 seconds. It may still be starting."),
+            new Error("The engine did not answer in two minutes. It may still be starting."),
             {kind: "timeout"});
           setRuntimeIssue(timeout);
-          note.textContent = "The engine has not answered in 30 seconds. Check the reason above.";
+          say("The engine has not answered in two minutes. Check the reason above.",
+              "The engine has not answered in two minutes. It may still be starting.");
         } catch (startupError) {
           setRuntimeIssue(startupError);
-          note.textContent = startupError && ["absent", "forbidden", "crashed", "timeout"]
-            .includes(startupError.kind)
+          const helperGone = startupError
+            && ["absent", "forbidden", "crashed", "timeout"].includes(startupError.kind);
+          say(helperGone
             ? "The engine did not confirm its restart because the local helper is unavailable."
-            : "The engine stopped during startup. The reason is shown above.";
+            : "The engine stopped during startup. The reason is shown above.",
+            helperGone
+              ? "The engine did not confirm its restart because the local helper is unavailable."
+              : "The engine stopped during startup. " + issueCopy(startupError).body);
         }
       }
     }, 1000);
@@ -6558,7 +6593,6 @@ function wireDeferredControls() {
   // than at boot: the panel must not spend a request on a page the owner may
   // never expand, and a stale value is worse than a late one.
   $("crawl-save").addEventListener("click", saveCrawlSettings);
-  $("engine-restart").addEventListener("click", restartEngineFromPanel);
   $("crawl_honour_delay").addEventListener("change", crawlPaceEffect);
   $("crawl_min_interval_s").addEventListener("input", crawlPaceEffect);
   $("crawl_parallel_sources").addEventListener("input", crawlParallelEffect);
