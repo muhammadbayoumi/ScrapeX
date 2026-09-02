@@ -284,16 +284,6 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say(f"replaying {len(kept):,} conditional validator(s) — an unchanged page "
             "answers 304 with no body")
 
-    # SAID BEFORE THE FIRST REQUEST, because this command is one PHASE of the
-    # registered scope and a person watching it must not read "crawl finished" as
-    # "everything the site publishes is on disk". Under `full_then_listing` the
-    # profile half is a separate deliberate command and this names it; the refusal
-    # this replaces said the same thing by declining to run at all.
-    registered, _slice_of = read_scope(conn, directory.key)
-    say(f"registered scope: {registered.value} — this is its listing phase")
-    if registered is not CrawlScope.LISTING_ONLY:
-        say("  the profile half is not part of this run: `scrapex contractors "
-            "--details` fetches it, and it reads the same registration")
     say(f"crawl {run_ref} starting")
     # `R-54`: A RUN WITH AN IDENTITY, opened before the first fetch so every page this
     # crawl stores names it. `run_ref` above is the operator's label and is derived per
@@ -301,6 +291,18 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # column compares against instead of `MAX(last_seen_at)` — a timestamp to the second
     # that only the crawl's final second could ever equal.
     run_id = _run_for(conn, directory, "listing")
+    # SAID BEFORE THE FIRST REQUEST, AND AFTER `_run_for`, WHICH IS THE ORDER THAT
+    # WORKS. This command is one PHASE of the registered scope, and a person watching
+    # it must not read "crawl finished" as "everything the site publishes is on disk" --
+    # the refusal this replaces said that by declining to run at all. Read here rather
+    # than twenty lines up because `_run_for` is what REGISTERS a site that has no
+    # `source_site` row yet, and reading the scope before it turned two driver tests red
+    # with `SiteNotRegistered` on a fixture that had every right not to pre-register.
+    registered, _slice_of = read_scope(conn, directory.key)
+    say(f"registered scope: {registered.value} — this is its listing phase")
+    if registered is not CrawlScope.LISTING_ONLY:
+        say("  the profile half is not part of this run: `scrapex contractors "
+            "--details` fetches it, and it reads the same registration")
     conn.commit()          # the workers open their own connections and must see it
     outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
                               run_ref=run_ref, run_id=run_id,
