@@ -159,19 +159,19 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1747, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "extension/app.js", 612, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1747, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
     # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
     # these two, so a reader sent to the wrong line writes the duplicate instead.
-    ("docs/STATE.md", "extension/app.js", 1578, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1578, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1617, "async function saveSourceColumns("),
+    ("docs/STATE.md", "extension/app.js", 1583, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1583, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1622, "async function saveSourceColumns("),
     # The guards the documents claim exist. A rule that cites a dead guard is a
     # rule with nothing behind it -- which is how W4 came to be believed.
     ("docs/RULINGS.md", "tests/test_version.py", 536,
@@ -194,11 +194,11 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1745, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2815, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1758, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2828, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
-    ("docs/BACKLOG.md", "extension/app.js", 848, "crawl_honour_delay:"),
+    ("docs/BACKLOG.md", "extension/app.js", 853, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
     # OP-21 · the resume that saves the write and none of the requests. This is a
     # citation of a DEFECT at an exact line, so it is the kind that must not drift:
@@ -228,7 +228,7 @@ PINNED = (
     # is refusing to start for a nameable reason. The entry's argument is that this
     # exact branch is the one a schema-ahead warehouse lands in, so a reader sent
     # to the wrong line reads the timeout branch and concludes the entry is wrong.
-    ("docs/BACKLOG.md", "extension/app.js", 3400, 'text: "Not detected"'),
+    ("docs/BACKLOG.md", "extension/app.js", 3405, 'text: "Not detected"'),
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
@@ -265,7 +265,7 @@ PINNED = (
     # than being loosened to keep passing — the same call `OP-36` records above.
     # `return ""` for a dataset is what OP-42 was about; the pin follows the
     # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4770,
+    ("docs/BACKLOG.md", "extension/app.js", 4775,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 742, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
@@ -284,7 +284,7 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3185, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3198, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
@@ -294,7 +294,7 @@ PINNED = (
     # The sentence itself, so it is clear the card reads a MISSING key and not a
     # missing crawl -- which is why writing a `crawl_run` row would not have moved
     # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4642, "const last = s.last_success;"),
+    ("docs/BACKLOG.md", "extension/app.js", 4647, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in source_site.
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
@@ -316,7 +316,7 @@ PINNED = (
     # agree and the release simply was not cut, so a reader sent to the wrong line
     # on any one of them would go hunting for a defect that is not there.
     ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
-    ("docs/BACKLOG.md", "extension/app.js", 3546, "latest.version"),
+    ("docs/BACKLOG.md", "extension/app.js", 3551, "latest.version"),
     # 488, and it was 379, 352, and 344 before that. THREE times now the same
     # pull request
     # has added comment lines above it and had to correct the number it had just
@@ -385,9 +385,9 @@ PINNED = (
     # all four of `OP-46`'s citations into it still name their symbols after #258 moved
     # that file. The remaining five citations in that entry stay unpinned on purpose --
     # they are the measured numbers, not the two symbols the argument rests on.
-    ("docs/BACKLOG.md", "extension/app.js", 940,
+    ("docs/BACKLOG.md", "extension/app.js", 945,
      "function setupFinanceConverterSelect("),
-    ("docs/BACKLOG.md", "extension/app.js", 1992, "function setupRunModeSelect("),
+    ("docs/BACKLOG.md", "extension/app.js", 1997, "function setupRunModeSelect("),
     # AND THE ONE CITATION THE ANCHOR SWEEP FOUND ACTUALLY FALSE. `docs/BACKLOG.md`
     # quotes this docstring as the reason the panel hides Update/Wipe/Rename on a
     # dataset row, and it read `app.py:706` under `#L697` -- two different wrong
@@ -874,13 +874,13 @@ def test_a_citation_that_quotes_its_subject_still_points_at_it(index):
 #: sessions, and a sweep that guessed would produce 26 confident wrong numbers in the
 #: one file whose subject is confident wrong numbers.
 PINNED_WITHOUT_A_CITATION = frozenset((
-    ("docs/APPROACHES.md", "extension/app.js", 1617),
+    ("docs/APPROACHES.md", "extension/app.js", 1622),
     ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 553),
     ("docs/BACKLOG.md", "db/engine/schema.sql", 122),
     ("docs/BACKLOG.md", "db/engine/schema.sql", 843),
-    ("docs/BACKLOG.md", "extension/app.js", 3546),
-    ("docs/BACKLOG.md", "extension/app.js", 4642),
-    ("docs/BACKLOG.md", "extension/app.js", 4770),
+    ("docs/BACKLOG.md", "extension/app.js", 3551),
+    ("docs/BACKLOG.md", "extension/app.js", 4647),
+    ("docs/BACKLOG.md", "extension/app.js", 4775),
     ("docs/BACKLOG.md", "extension/releases.js", 32),
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 1003),
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 1065),
@@ -889,21 +889,21 @@ PINNED_WITHOUT_A_CITATION = frozenset((
     ("docs/BACKLOG.md", "scrapex/version.py", 76),
     ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1745),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2815),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3185),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1758),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2828),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3198),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 701),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 742),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276),
     ("docs/LESSONS.md", "design/components.css", 380),
     ("docs/LESSONS.md", "scrapex/extract/service.py", 978),
     ("docs/LESSONS.md", "tests/test_panel_dom.py", 160),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1734),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1747),
     ("docs/RULINGS.md", "tests/test_version.py", 536),
     ("docs/RULINGS.md", "tests/test_version.py", 79),
     ("docs/STATE.md", "scrapex/extract/service.py", 927),
     ("docs/STATE.md", "scrapex/features.py", 65),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1734),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1747),
 ))
 
 

@@ -338,18 +338,16 @@ RESERVED: dict[str, dict[int, str]] = {
         # branch declares it, so it became a number both reserved AND declared -- and its
         # own row said to delete it the day #312 lands, which is this rebase. The guard
         # named it before the session did, which is the fifth time today.
-        # 124 IS CLAIMED BY MESSAGE ONLY, and this row says so because the rule above
-        # requires it to: the primary session allocated it for the terminal command in
-        # the schema-lag banner, and a search of every local and remote ref finds NO
-        # `### OP-124` heading -- checked with
-        #   git show <ref>:docs/BACKLOG.md | grep "^### OP-124 "
-        # over refs/heads and refs/remotes. The work exists on
-        # `claude/the-command-that-outlived-its-removal`; the ENTRY does not yet, and
-        # that branch cites `OP-124` from a `LESSONS` 29 row, so it must declare the
-        # heading before it merges or the row points at nothing. RE-CHECK THIS ROW
-        # rather than trusting it -- a holder with no ref is the orphan this table warns
-        # about, one step before becoming one.
-        124: "branch claude/the-command-that-outlived-its-removal (no heading on any ref yet)",
+        # 124 HAS NO ROW ANY MORE, and the way it went is the point. It was reserved
+        # here as CLAIMED BY MESSAGE ONLY -- allocated for the terminal command in the
+        # schema-lag banner, with no `### OP-124` heading on any ref, checked across
+        # refs/heads and refs/remotes rather than taken from the message. The row said
+        # to re-check it rather than trust it, and said the holding branch must declare
+        # the heading before merging or its `LESSONS` 29 row would point at nothing.
+        # THIS IS THAT REBASE: the heading is declared, so the row is the contradiction
+        # `test_a_reserved_number_is_not_also_declared` exists to catch -- and it caught
+        # it, again, before the session did. SEVENTH ROW THIS SESSION HAS RETIRED, and
+        # every one was named by the guard first.
         45: "branch claude/drive-without-a-server",
         # 112 THROUGH 114 became holes when this branch declared OP-117.
         # 116's row was here and is GONE: #297 merged, so it is declared on
