@@ -3557,3 +3557,100 @@ The repair changes code before it changes the warehouse. The running Organizatio
 Enrichment job has an immutable input snapshot and cannot see a later re-approval. Apply the
 eight recovered profiles after that job finishes, then run the update enrichment so only the
 newly available profile facts enter the next snapshot.
+
+### R-84 · The base changes now — and at publication no migration is ever deleted again
+
+**2026-09-02 · architecture. It governs the migration CHAIN, and it does not touch
+`R-24`, which governs the DATA.**
+
+> «قواعد البيانات يتم ترقيتها ولكن base يتغير الان بحيث اننى لا اريد الاحتفاظ
+> بترحيلات كثيرة لا يستخدمها احد اكيد عند نشر الاداة ساريد الحفاظ على كافة الترحيلات
+> لانها ستكون مهمة للمستخدمين حيث غير محدد اى مستخدم توقف عنده هذه النسخة ولكن قبل
+> الاصدار لا اريد اراكم الكود باختبارات وترحيلات لن تستخدم سوى مرة واحدة وهى لى»
+
+and, earlier the same day, the sentence this refines:
+
+> «قاعدة تحت v16 لا تُرقّى — تُحمَل أو تُبنى من جديد»
+
+**PROVENANCE, because `C3` asks for HIS words and these two sentences reached two
+different sessions.** Neither is second-hand: each was given by him directly, to
+whichever session was in front of him at the time.
+
+| the sentence | received directly by |
+|---|---|
+| «قاعدة تحت v16 لا تُرقّى — تُحمَل أو تُبنى من جديد» | the session that built `OP-120`-`OP-123`, in its own conversation |
+| «قواعد البيانات يتم ترقيتها ولكن base يتغير الان …» | the **primary** session, in its own conversation, then passed on character-for-character |
+
+**The distinction is not pedantry.** *"A session was told he said this"* and *"the
+session he said it to wrote it down"* are different claims, and only the second
+supports a ruling. Both here are the second. Recorded in the repository rather than
+left in either conversation, which is the whole of `C7` — and the reason two sessions
+had to compare notes to assemble one ruling is `ORCHESTRATION.md`'s subject, not a
+defect in either.
+
+**IT SUPERSEDES NOTHING, AND THE LINE WAS ALREADY IN `R-24`.** Read `R-24`'s own
+quotation again — *«طبعا الافضل تطويرها لان **عند نشر الاداة** المفروض نحافظ على بيانات
+المستخدمين»*. **The publication boundary was in that ruling from the day it was made.**
+What nobody had done was apply it to the migration CHAIN rather than to the DATA. He
+reaffirms the data half in this ruling's first clause: *«قواعد البيانات يتم ترقيتها»*.
+
+| | |
+|---|---|
+| [`R-24`](#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) protects **the data** | a database is upgraded, never replaced. **Untouched, and restated by him here** |
+| **`R-84`** governs **the baseline** | before publication the chain is not a user-facing asset and may be collapsed. After it, **no migration is ever deleted** |
+
+**AND A CORRECTION IS RECORDED HERE UNDER `C5`, because a session reported a conflict
+that does not exist.** It read `R-24` as forbidding this and said so — *"a carry-over or
+migration that refuses on real data is a release blocker"* and *"`init-db` is for an
+installation with nothing to lose"*. **Those sentences are the ruling's ELABORATION,
+written by a session, and they are stated unconditionally where his words were
+publication-scoped.** The collision was between his ruling and its own commentary, not
+between two of his rulings. Left standing in `R-24` rather than edited, because the
+elaboration is right about the world it describes — the published one — and rewriting
+it would hide that the distinction had to be found. `C4`'s reasoning applies to a gloss
+as much as to a ruling: a corrected text inherited by the next session teaches nobody
+that the mistake was available.
+
+**AND THE GENERAL SHAPE, because it is not about these two rulings.** **An elaboration
+under a ruling is not the ruling — and one written without the ruling's scope reads as
+a stronger rule than the owner gave.** Every ruling here is his words plus a session's
+working-out of them, and the working-out is the part that gets quoted later, because it
+is in English and in bullet points. `R-24`'s gloss dropped «عند نشر الاداة» and became
+an unconditional release blocker; two sessions then read it as his. **So a sentence in
+an elaboration that constrains future work must carry the scope its quotation carried**,
+or it will be obeyed further than it was meant. Three of the failures found on
+2026-09-02 were prose disagreeing with a mechanism; this one is prose disagreeing with
+the prose above it, which nothing guards at all.
+
+**«تُحمَل» DOES NOT NEED IMPLEMENTING, and that was the blocker.** His warehouse was
+measured read-only at `PRAGMA user_version = 16` — the head of the chain. **A baseline
+squashed at the head replays nothing over it**: there is no upgrade for it to take, so
+there is no carry-over to write and no rebuild to perform. The path that does not exist
+for an engine database — `carry_over` reads the two pre-M5 files and never an engine
+one, `warehousemerge` is evidence-only by its own docstring — is a path this ruling
+never asks for.
+
+**THE PRICE, RECORDED AS A WAIVER AND NOT AS A MEASUREMENT.** The squash removes the
+upgrade path for any database below the new baseline. His primary machine is at the
+head and unaffected. **The second machine's version is unknown and was never
+measured** — he said *«لا اكترث لجهازى الثانى الان»*, and that is a waiver. **If that
+warehouse is below the baseline, this change strands it**, and he accepted that on
+2026-09-02 without its version being known. Written down because `C5` is satisfied by
+recording missing evidence, not by treating a waiver as a finding.
+
+**WHAT MUST BE BUILT BECAUSE OF THIS RULING, and it is not the squash.** He says the
+rule INVERTS at publication: every migration kept forever, *«حيث غير محدد اى مستخدم
+توقف عنده هذه النسخة»*. **A rule that lives only in prose is the failure this
+repository keeps recording** — `R-07` ordered something removed on 2026-08-16 and
+thirteen days of sessions read past it. So the squash lands with a check that refuses
+to delete a migration once a release marker exists. That is the difference between
+this ruling holding and this ruling being remembered.
+
+**AND IT COVERS TESTS, WHICH IS EASY TO MISS IN HIS SENTENCE:** *«لا اريد اراكم الكود
+باختبارات وترحيلات لن تستخدم سوى مرة واحدة»* — **tests too**. A test that exists only
+to exercise a one-off migration is the same debt. **Two of them are not**, and the
+distinction has to be made per file rather than by name: a test named for a migration
+often asserts a PROPERTY of the resulting schema and is then the only thing checking
+it; and `tests/test_migration_drift.py` must survive regardless, because proving that
+an upgraded database equals a fresh build is the entire claim a new baseline makes.
+

@@ -4447,6 +4447,95 @@ instance in this branch, the first found by a guard written in the same commit. 
 now name that route by description and never by path, and say why in one line so the next
 writer does not spend the minute.
 
+### OP-122 · Two builders resolved the migration plan, and the baseline's version was a literal in both
+
+**Found 2026-09-02**, pricing `REQ-52`'s baseline squash. The squash is not what
+makes these defects; it is what makes them visible, and each one is wrong today.
+
+**ONE FACT, THREE COPIES, AND ONLY ONE OF THEM IS OBEYED.** The engine's baseline
+version was written as the literal `1` in
+[`scrapex/db.py`](../scrapex/db.py) `_migration_files`, again in
+[`scrapex/databases/domain.py`](../scrapex/databases/domain.py) `_engine_plan`, and a
+third time in `db/engine/schema.sql` as `PRAGMA user_version = 1`. **Only the SQL one
+is the number SQLite obeys.** The other two were assertions about it that nothing
+checked.
+
+**That is not a tidiness argument.** `latest_schema_version()` derives from those
+literals and flows into [`scrapex/storage.py:409`](../scrapex/storage.py#L409) →
+`health()`, which decides whether a database is too new for this engine to open. A
+stale copy does not merely disagree — it tells the owner his warehouse *"was written
+by a later version; update ScrapeX and do not downgrade the database"* about a
+warehouse this build wrote.
+
+**AND TWO SEPARATE BUILDERS WALKED THE SAME FOLDER**, agreeing only by coincidence
+and not even equivalent: `db`'s raises on a file in `db/engine/migrations/` that does
+not match `NNNN_name.sql`; `domain`'s globbed silently past it. **The coincidence was
+already load-bearing** — `tests/conftest.py` `_stream_fingerprint` decides whether a
+cached migrated database may be reused by resolving `db`'s builder, while the
+migration that filled that cache ran through `domain`'s. Two lists, one cache key.
+
+**`.githooks/pre-push` had already reached this conclusion** and says so in a comment:
+it asks `scrapex database-status` rather than reading `PRAGMA user_version` itself,
+because that *"keeps one owner for the comparison"*. This entry is that rule applied
+to the two places that had not got it.
+
+**Fixed here:**
+
+| | |
+|---|---|
+| `db._migration_files` is the only builder | `domain._engine_plan` wraps it; `_folder_migrations` is deleted. The direction is forced, not chosen — `domain` already imports `db`, so the shared code has to live there |
+| `declared_schema_version()` reads the version from the file that declares it | and requires **exactly one** `PRAGMA user_version`, because seven of the fifteen shipped migrations declare none at all and are silently corrected by the runner, so "take the last match" would read a number out of a file that never set one |
+| the plan must be **contiguous from the baseline's own version**, not gapless from 1 | "starts at 1" was true of the stream that existed when the rule was written. The half that matters — no MISSING migration between two present ones — is kept, and the floor stays 1 because `PRAGMA user_version` is 0 on a database nobody has migrated |
+| `release-engine.yml` `ceiling()` reads the baseline too | it measured schema level from migration FILENAMES, so a commit whose schema lives in the baseline with an empty folder measured as carrying **no schema at all** — and the `${here:?...}` line then aborted the release saying that "cannot be right". **No release could have been cut after a squash**, by the gate whose purpose is preventing migration loss |
+
+**Two assertions were only coincidentally true and now hold against the baseline**:
+`tests/test_db.py`'s `first == list(range(1, latest + 1))` and
+`latest_schema_version() == len(_migration_files())`. Both were right *because* the
+baseline declares 1, and both would have gone FALSE on a correct chain the moment it
+declared anything else — a guard moving in the worst direction.
+
+**PROVED BY MUTATION, five defects injected one at a time**, each caught by the one
+guard written for it and by no other:
+
+```
+CAUGHT  domain builds its own plan again          -> test_the_engine_plan_follows_the_one_builder
+CAUGHT  the baseline's number is the literal 1    -> test_a_migration_numbered_at_or_below_the_baseline_is_refused
+CAUGHT  gapless-from-1 is restored                -> test_a_plan_that_starts_above_one_is_accepted
+CAUGHT  the contiguity check is dropped           -> test_a_hole_in_the_plan_is_still_refused
+CAUGHT  the version reader takes the last match   -> test_the_declared_version_must_be_stated_exactly_once
+```
+
+`tests/test_one_migration_plan_not_two.py` holds all five. Its version reader is
+written a **second** way — walking lines and splitting on `=`, sharing no code with
+the subject — because the failure here is a fact asserted twice where only one copy is
+obeyed, and a guard that calls the implementation it checks reproduces that failure
+instead of catching it.
+
+**DELIBERATELY NOT IN THIS CHANGE.** `scrapex/contractstamp.py:43` builds the schema
+half of the contract fingerprint from the migrations folder **only** — it never reads
+`db/engine/schema.sql` — so a change to the file that defines the whole shape for
+every fresh install is invisible to the version gate. The fix is written and held
+back, because putting the baseline into the fingerprint MOVES the fingerprint
+(measured: `added: ["schema.sql v1"]`, nothing removed), and the gate's only sanctioned
+answer is a `VERSION` bump. `REQ-52`'s squash needs that bump anyway. **One bump, in
+the change that genuinely warrants it, rather than two.** The hole's reach is narrow
+meanwhile: editing the baseline's content cannot ship quietly, because every existing
+warehouse holds its digest in the ledger and refuses to open when it moves.
+
+**AND ONE THING THIS CHANGE TRIPPED OVER, WORTH ITS OWN NUMBER IF THE PRIMARY AGREES.**
+Inserting thirteen lines into `ceiling()` moved a Tier-2 pinned citation from
+`release-engine.yml:540` to `:553`, which is a legitimate repoint — the symbol still
+exists and the row's job is to sit beside it. But the row's OTHER side is gone:
+`grep -n "release-engine.yml[#:]"` over every document in the map returns **nothing**,
+so no document cites that file at any line. The row therefore asserts that the workflow
+still holds `"version": VERSION` — true, and worth asserting — while claiming to be a
+citation guard, and **nothing can tell the difference, because no test checks that a
+pinned row's DOCUMENT still cites it.** It also counts toward `PINNED_FLOOR`, so a row
+that has stopped being a citation still holds the floor up. Left in place and repointed
+rather than deleted, because deleting rows is precisely what that floor refuses. **Same
+shape as everything else found this week: a guard comparing one side of a pair whose
+other side had quietly left.**
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

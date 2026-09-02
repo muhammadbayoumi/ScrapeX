@@ -149,16 +149,15 @@ def _sqlite_connect(path: Path, *, create: bool) -> sqlite3.Connection:
     return conn
 
 
-def _folder_migrations(folder: Path, start: int = 2) -> list[Migration]:
-    if not folder.is_dir():
-        return []
-    result: list[Migration] = []
-    for path in sorted(folder.glob("[0-9][0-9][0-9][0-9]_*.sql")):
-        number = int(path.name[:4])
-        if number < start:
-            continue
-        result.append(Migration(number, path))
-    return result
+# `_folder_migrations` STOOD HERE AND IS GONE (2026-09-02). It walked
+# `db/engine/migrations/` and built a plan, and `db._migration_files` walked the
+# same folder and built the same plan -- separately written, agreeing only by
+# coincidence, and not even equivalent: `db`'s raises on a file that does not
+# match `NNNN_name.sql` and this one globbed silently past it.
+#
+# `_engine_plan` now wraps `db._migration_files`, so there is one builder. The
+# direction is forced rather than chosen: this module already imports `db`, so the
+# shared code has to live there.
 
 
 # `_MARKETLENS_LEGACY_NUMBERS` AND `_IDENTITY_POSITION` STOOD HERE AND ARE GONE
@@ -188,9 +187,22 @@ class DomainDatabase(Generic[T]):
         self.path = Path(path)
         self._migrations = migrations
         numbers = [item.number for item in migrations]
-        if numbers != list(range(1, len(numbers) + 1)):
+        # CONTIGUOUS FROM THE BASELINE'S OWN VERSION, not from 1. What this rule
+        # protects is that no migration is MISSING between two that are present --
+        # a hole means a database can reach a version this build cannot explain.
+        # "Starts at 1" was never part of that; it was true of the stream that
+        # happened to exist when the rule was written, and it is the half that a
+        # squashed baseline gives up while keeping the half that matters.
+        #
+        # The floor is still 1, because `PRAGMA user_version` is 0 on a database
+        # that has never been migrated and a plan numbered from 0 could not tell
+        # "never touched" from "already at the baseline".
+        first = numbers[0] if numbers else 0
+        if not numbers or first < 1 or \
+                numbers != list(range(first, first + len(numbers))):
             raise DatabaseMigrationError(
-                f"{self.kind} migrations must be gapless from 1, got {numbers}"
+                f"{self.kind} migrations must be contiguous from the baseline's own "
+                f"version and start at 1 or above, got {numbers}"
             )
 
     @property
@@ -617,8 +629,18 @@ class DomainDatabase(Generic[T]):
 
 
 def _engine_plan() -> tuple[Migration, ...]:
-    """One stream: the derived schema at v1, then the folder beside it."""
-    return (Migration(1, ENGINE_SCHEMA), *_folder_migrations(ENGINE_MIGRATIONS))
+    """One stream, and one builder for it: `db._migration_files` resolves the plan,
+    this wraps it in the typed objects this module works with.
+
+    THE BASELINE'S NUMBER IS NO LONGER THE LITERAL 1. It is whatever
+    `db/engine/schema.sql` declares in its own `PRAGMA user_version`, which is the
+    only copy of that number SQLite obeys. Today it declares 1 and this returns
+    1..16 exactly as before -- verified rather than assumed, because a refactor that
+    changes what the product DOES while claiming not to is worse than the
+    duplication it removes.
+    """
+    return tuple(Migration(number, path)
+                 for number, path in legacy_db._migration_files())
 
 
 class EngineDatabase(DomainDatabase[T]):

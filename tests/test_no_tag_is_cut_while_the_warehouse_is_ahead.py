@@ -202,6 +202,12 @@ def test_the_ci_half_compares_ceilings_across_every_branch():
         "the step does not compare migration numbers, so a branch merely BEHIND would "
         "trip it and a branch ahead might not")
     assert "exit 1" in step, "the step reports and does not refuse"
+    assert "db/engine/schema.sql" in step, (
+        "`ceiling()` does not read the BASELINE's declared version, only migration "
+        "filenames -- so a commit whose schema lives in db/engine/schema.sql with an "
+        "empty migrations folder measures as carrying no schema at all, and the "
+        "`${here:?...}` line below aborts every release saying that cannot be right. "
+        "It can be: it is what a squashed baseline looks like.")
 
 
 def test_the_install_line_is_in_the_readme():

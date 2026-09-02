@@ -142,9 +142,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # THE BASELINE COUNTS, AND IT USED NOT TO. This read migration FILENAMES
+          # only, so a commit whose schema lives in db/engine/schema.sql and whose
+          # migrations folder is empty measured as carrying no schema at all -- and
+          # the `${here:?...}` line below then aborted the release saying that
+          # "cannot be right". It can be right: it is exactly what a squashed
+          # baseline looks like, and this gate would have refused to cut any release
+          # after one. The version a file DECLARES is the number SQLite obeys, so
+          # both sources are read into one sort and the higher wins. Verified against
+          # HEAD, origin/main and 42ef0680: all three answer 16, as before.
           ceiling() {
-            git ls-tree --name-only "$1" db/engine/migrations/ 2>/dev/null \
-              | sed -n 's|.*/0*\([0-9][0-9]*\)_.*|\1|p' | sort -n | tail -1
+            {
+              git show "$1:db/engine/schema.sql" 2>/dev/null \
+                | sed -n 's|^[[:space:]]*PRAGMA[[:space:]]\{1,\}user_version[[:space:]]*=[[:space:]]*\([0-9]\{1,\}\).*|\1|p'
+              git ls-tree --name-only "$1" db/engine/migrations/ 2>/dev/null \
+                | sed -n 's|.*/0*\([0-9][0-9]*\)_.*|\1|p'
+            } | sort -n | tail -1
           }
           # fetch-depth: 0 above gives full history for THIS ref only; the other
           # branches still have to be asked for. Blob-less keeps it to seconds.

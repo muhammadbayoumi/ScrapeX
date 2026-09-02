@@ -316,6 +316,25 @@ RESERVED: dict[str, dict[int, str]] = {
         # `main` was already carrying the paragraph below saying they were gone WHILE
         # the rows were still here -- a comment and the rows it contradicts, which is
         # the same one-side-of-a-pair shape this table keeps catching in other files.
+        # 120 and 121 became holes when this branch declared OP-122. Both are inside
+        # the EXISTING "OP" entry rather than in a second one: this table carried a
+        # duplicated register key twice this week and Python keeps the last, so a new
+        # entry for a register that already has one silently discards whichever half
+        # is written first.
+        #
+        # Holders VERIFIED against the refs, never taken from the messages that
+        # allocated the numbers:
+        #   git show origin/claude/the-drift-check-that-was-off:docs/BACKLOG.md \
+        #     | grep "### OP-120"
+        #   git show fix/the-listing-phase-has-a-door:docs/BACKLOG.md | grep "### OP-121"
+        # A sweep of every local and remote ref found OP-122 declared on none of them.
+        #
+        # Delete each row the day its branch merges.
+        120: "branch claude/the-drift-check-that-was-off (pushed, no PR yet)",
+        # 121's ref is LOCAL ONLY -- checked out in a sibling worktree, not on origin
+        # -- so `git ls-remote` would report the number free. `git branch -a` is the
+        # check that works here, because worktrees share one ref namespace.
+        121: "branch fix/the-listing-phase-has-a-door (local ref only, not pushed)",
         # 101 THROUGH 110 WERE RESERVED HERE AND THE ROWS ARE GONE, which is this
         # table's own rule applied to itself: `claude/design-system-review-d6787a`
         # merged, so the numbers are declared on `main` and a reservation for a

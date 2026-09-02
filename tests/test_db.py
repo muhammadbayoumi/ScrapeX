@@ -30,7 +30,13 @@ def test_migrate_is_idempotent(tmp_path: Path):
     # THE WHOLE CHAIN, ASKED RATHER THAN TYPED. It used to be a literal list ending
     # at 61; that number belonged to a stream retired on 2026-08-29, and a literal
     # here would have to be edited by hand every time a migration is added.
-    assert first == list(range(1, dbmod.latest_schema_version() + 1))
+    #
+    # AND IT STARTS WHERE THE BASELINE SAYS, not at 1. `range(1, ...)` was right by
+    # coincidence -- `db/engine/schema.sql` happens to declare version 1 -- so the
+    # assertion agreed with the code for a reason that had nothing to do with the
+    # property it is about, which is that migrate() reports EVERY number it applied.
+    baseline = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+    assert first == list(range(baseline, dbmod.latest_schema_version() + 1))
     assert second == []  # T4: running again applies nothing
 
 
@@ -38,7 +44,14 @@ def test_latest_schema_version_matches_the_migration_chain():
     # NOT a tautology: the left side reads the last NUMBER and the right counts the
     # FILES, so a gap or a duplicate in the chain shows up here rather than in a
     # migration that silently never runs.
-    assert dbmod.latest_schema_version() == len(dbmod._migration_files())
+    #
+    # THE COUNT IS OFFSET BY THE BASELINE'S OWN VERSION. `latest == len(files)` held
+    # only because the baseline declares 1; stated that way the assertion breaks the
+    # moment the baseline declares anything else, and it breaks by going FALSE on a
+    # correct chain -- which is the worst direction for a guard to move.
+    files = dbmod._migration_files()
+    baseline = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+    assert dbmod.latest_schema_version() == baseline + len(files) - 1
 
 
 def test_foreign_keys_actually_enforced(tmp_path: Path):

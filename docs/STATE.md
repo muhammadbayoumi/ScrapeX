@@ -595,6 +595,35 @@ advice: `test_the_reservation_table_has_no_shadowed_rows` reads the source with 
 monkeypatches `_pairs` and its stub predated the `ids` keyword, so `approve` raised
 `TypeError` — the first thing to exercise the keyword at all. The stub records what it was
 handed rather than swallowing it, and the test now asserts the forward.
+### One migration plan, not two — 2026-09-02 · branch `claude/one-migration-plan-not-two`, no PR yet
+
+**`OP-122` and [`R-84`](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again).**
+Rebased onto `main` at `43f6ae50`. Secondary session;
+`recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+Fifth in the primary's fixed queue, behind `OP-120`.
+
+**Stage 1 of `REQ-52`'s squash, and correct with or without it.** Two builders resolved
+the engine migration plan and the baseline's version was a literal in both, while the
+only copy SQLite obeys is the `PRAGMA user_version` inside `db/engine/schema.sql`.
+`latest_schema_version()` derives from those literals and reaches `health()`, which is
+what tells the owner a warehouse is too new to open. Read `OP-122` in
+[BACKLOG.md](BACKLOG.md) before touching the migration framework.
+
+**HE HAS RULED AND THE SQUASH IS UNBLOCKED — `R-84`, carried by this branch.** The
+base may be collapsed before publication; after it, no migration is ever deleted. It
+supersedes nothing: `R-24`'s own words already scoped the data guarantee to *«عند نشر
+الاداة»*, and he restates that guarantee in this ruling's first clause. **And it
+dissolves the blocker rather than answering it** — his warehouse is at the head of the
+chain, so a baseline squashed there replays nothing over it and no carry-over path
+needs writing.
+
+**Stage 2, the squash itself, is priced and NOT built.** See `OP-122`'s closing
+paragraph for the one piece deliberately held back, `OP-120` for the shipped migration
+defect the squash absorbs, and `R-84` for the two things it must carry: a check that
+refuses to delete a migration once a release marker exists, and the separation of
+tests that exercise a one-off migration from tests that assert a property of the
+resulting schema.
 
 ## Track 1 · The Console migration
 
