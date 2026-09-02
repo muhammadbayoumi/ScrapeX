@@ -173,11 +173,8 @@ Related and separate: `fields.delete_view` is `DELETE FROM saved_view WHERE save
 ### OP-73 · `POST /api/fields` has no catalogue branch, so hiding a contractor column returns 404
 
 **Found 2026-08-26.** Step 0 of the plan gave `GET /api/fields` a dataset branch
-([scrapex/webui/app.py:2296](../scrapex/webui/app.py#L2296)) and **the POST at
-[:2335](../scrapex/webui/app.py#L2335) never got one.** It runs the price machinery
-
-([scrapex/webui/app.py:2277](../scrapex/webui/app.py#L2277)) and **the POST at
-[:2335](../scrapex/webui/app.py#L2343) never got one.** It runs the price machinery
+([scrapex/webui/app.py:2332](../scrapex/webui/app.py#L2332)) and **the POST at
+[:2396](../scrapex/webui/app.py#L2396) never got one.** It runs the price machinery
 unconditionally, and its seeding is keyed on `BROWSE_COLUMNS`: `wanted = [key for key, _ in
 BROWSE_COLUMNS if key in present or key == body.get("field_key")]`.
 
@@ -229,7 +226,7 @@ and an unknown key.**
 [app.py:2248](../scrapex/webui/app.py#L2248) — the dataset branch, seeding from the schema —
 and at [app.py:2299](../scrapex/webui/app.py#L2299) on the price branch. A grep over the
 whole `api_fields` region finds **two `conn.commit()` and zero `write_lock`**, while every
-`POST` goes through `_write` ([app.py:2186](../scrapex/webui/app.py#L2186)), which takes the
+`POST` goes through `_write` ([app.py:2236](../scrapex/webui/app.py#L2236)), which takes the
 lock for the reason it states: *"A crawl in progress holds that lock."*
 
 **The write-on-GET is deliberate, documented and tested** — that is not the finding. The
@@ -294,9 +291,7 @@ test.
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
 price-path rows inert lives **only on the read path**, at
-[app.py:2261](../scrapex/webui/app.py#L2261). So the eleven are invisible in the chooser and
-
-[app.py:2291](../scrapex/webui/app.py#L2291). So the eleven are invisible in the chooser and
+[app.py:2332](../scrapex/webui/app.py#L2332). So the eleven are invisible in the chooser and
 still occupy `display_order` slots whenever anything is reordered.
 
 Depends on `OP-58`: whether those rows are deleted at all is his gate, since
@@ -536,15 +531,15 @@ And only one of the **two** `worker_alive` computations was fixed:
 | where | what it calls | verdict |
 |---|---|---|
 | `scrapex/webui/app.py:1726` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2796` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:2810` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
-(`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
+(`scrapex/webui/templates/settings.html:151-160`), so **the engine still shows
 "Not running" while it is crawling**, and advises the owner to check whether the
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2796`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2810`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -3639,7 +3634,7 @@ each: replacing the loop with `Object.keys(theme).forEach` put `--fs`, `--font-b
 surface stylesheet. **91 static guards and all 218 browser tests stayed green for both.**
 The architecture `R-74` abolished is reachable today and no gate would say a word.
 
-`--radius` and `--fw-regular` *are* pinned, at `tests/test_panel_dom.py:468` and `:471` —
+`--radius` and `--fw-regular` *are* pinned, at `tests/test_panel_dom.py:480` and `:483` —
 two values, hand-written, which is why the gap is 11 families and not 13.
 
 **Entangled with a false docstring.** `tests/test_a_palette_may_change_nothing_but_colour.py:10`

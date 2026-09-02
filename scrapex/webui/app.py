@@ -197,8 +197,22 @@ from .update_api import create_update_router
 #: accepted here because every appearance stored before 2026-08-28 uses the old
 #: one, and the value is canonicalised on the way in so the warehouse ends up
 #: holding one name per palette rather than two.
-APPEARANCE_PALETTES = ("brand", "blue", "supabase")
-APPEARANCE_PALETTE_ALIASES = {"whatsapp": "brand", "github": "blue"}
+# R-84, 2026-08-31: one colour choice. `brand`, `blue` and device colours were
+# deleted -- «احذف الثلاثة وابق supabase وحده». The retired ids stay ACCEPTED rather
+# than refused, because every appearance stored before that date carries one of
+# them: the panel resolves them to `supabase` client-side, and a 400 here would
+# make an old stored record un-saveable instead of quietly current.
+APPEARANCE_PALETTES = ("supabase",)
+# R-84, 2026-08-31: all four retired ids resolve to the one choice that remains.
+# `test_both_surfaces_resolve_the_same_legacy_aliases` compares this map against
+# design/appearance.js's, because a disagreement loses a real user's stored choice
+# on one surface and keeps it on the other.
+APPEARANCE_PALETTE_ALIASES = {
+    "whatsapp": "supabase",
+    "github": "supabase",
+    "brand": "supabase",
+    "blue": "supabase",
+}
 
 
 def _appearance_value(body: dict | None) -> dict:

@@ -387,12 +387,28 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
 
 
 def test_appearance_is_a_complete_android_style_destination(open_panel):
+    """R-84 CUT THIS TEST IN HALF AND THE HALF THAT WENT IS WORTH NAMING.
+
+    It used to drive four colour choices — brand, blue, supabase and a device
+    switch — comparing body backgrounds between them to prove the axis reached the
+    page. On 2026-08-31 he ruled «احذف الثلاثة وابق supabase وحده», so three of the
+    four no longer exist and the comparisons had nothing to compare. What survives
+    is everything that was never about the count: the destination is a real tab,
+    the live preview renders, the scheme picker has exactly two icons and the
+    device scheme mode has none, there is no popover left over from the old
+    implementation, and the boxes clear the touch floor.
+
+    THE `--radius` AND `--fw-regular` ASSERTIONS STAY AND CHANGE MEANING. They were
+    written to prove that `supabase` carried a design axis the other two did not.
+    R-74 moved the design system into the baseline, so they now prove the opposite
+    and better thing: the ONE remaining choice sits on Supabase's shape and weights
+    rather than on a palette-local override.
+    """
     page = open_panel()
     tab = page.locator("#tab-appearance")
     view = page.locator("#view-appearance")
-    device_colours = view.locator("[data-appearance-device-colors]")
 
-    page.evaluate("() => window.ScrapeXAppearance.set({mode: 'device', deviceColors: true})")
+    page.evaluate("() => window.ScrapeXAppearance.set({mode: 'device'})")
     assert page.locator("html").get_attribute("data-appearance") == "device"
     assert not view.is_visible()
 
@@ -403,12 +419,15 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert view.locator(".appearance-live-preview").is_visible()
     assert view.locator('[data-appearance-scheme-mode="device"]').get_attribute(
         "aria-pressed") == "true"
-    assert device_colours.is_checked()
     assert view.locator("[data-appearance-group]").count() == 0
+    # THE SWITCH IS GONE, NOT MISSING. R-84 deleted device colours, so
+    # `[data-appearance-device-colors]` has no markup on either surface; asserting
+    # its absence is what stops it coming back without a ruling.
+    assert view.locator("[data-appearance-device-colors]").count() == 0
     # One tile per registry entry, derived so this cannot drift from the source.
     # `renderPaletteBrowser` maps over PALETTES.values() with no cap, so a
     # hard-coded number here would only ever record what the registry USED to
-    # hold.
+    # hold — and it used to hold three.
     assert view.locator("[data-appearance-palette]").count() == len(
         _registered_palette_ids())
     scheme_icons = view.locator(".appearance-scheme-picker svg use")
@@ -426,10 +445,8 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     # the module docstring on `#view-appearance` passing `is_visible()` at
     # `opacity: 0`. Do not move this call up; it would delete that measurement.
     # From here the test measures BOXES, and the `>= 48` floor below is the same
-    # hard touch-target floor that flakes in the Engine overflow test. Measured:
-    # these three boxes are also read mid-animation 20/20, and two of them are
-    # exactly 48px tall, so this site is the same coin flip — it has simply not
-    # come up tails yet. Settled, so it cannot.
+    # hard touch-target floor that flakes in the Engine overflow test. Settled, so
+    # it cannot.
     settle_view(page, "appearance")
 
     view_bounds = view.bounding_box()
@@ -438,33 +455,26 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert view_bounds["x"] >= main_bounds["x"]
     assert view_bounds["x"] + view_bounds["width"] <= (
         main_bounds["x"] + main_bounds["width"] + 1)
+    # `.appearance-switch` was the third selector here and it went with the device
+    # switch. The primitive still exists in design/components.css — Supabase ships a
+    # Switch atom, so keeping it is closer to the baseline than removing it — but
+    # nothing on this screen instantiates it any more.
     for selector in (
         '[data-appearance-scheme-mode="light"]',
         ".appearance-palette-tile",
-        ".appearance-switch",
     ):
         bounds = view.locator(selector).first.bounding_box()
         assert bounds and bounds["height"] >= 48
 
     view.locator('[data-appearance-scheme-mode="light"]').click()
     assert page.locator("html").get_attribute("data-theme") == "light"
-    device_colours.uncheck(force=True)
-    view.locator('[data-appearance-palette="brand"]').click()
-    assert page.locator("html").get_attribute("data-palette") == "brand"
-    assert page.locator("html").get_attribute("data-color-mode") == "manual"
-    brand_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-
-    view.locator('[data-appearance-palette="blue"]').click()
-    blue_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert blue_light != brand_light
-
-    # The third tile, and the one that proves the axis R-73 added actually
-    # reaches the page: a palette that changed only colour would leave the
-    # radius alone. `--radius` is 9px for the other two and 6px here.
     view.locator('[data-appearance-palette="supabase"]').click()
     assert page.locator("html").get_attribute("data-palette") == "supabase"
-    supabase_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert supabase_light not in (brand_light, blue_light)
+    # No `data-color-mode` at all now, rather than "manual": a stylesheet still
+    # selecting on it should stop matching loudly rather than quietly.
+    assert page.locator("html").get_attribute("data-color-mode") is None
+    supabase_light = page.evaluate(
+        "() => getComputedStyle(document.body).backgroundColor")
     assert page.evaluate(
         "() => getComputedStyle(document.documentElement)"
         ".getPropertyValue('--radius').trim()") == "0.375rem"
@@ -472,17 +482,42 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
         "() => getComputedStyle(document.documentElement)"
         ".getPropertyValue('--fw-regular').trim()") == "450"
 
-    view.locator('[data-appearance-palette="blue"]').click()
     view.locator('[data-appearance-scheme-mode="dark"]').click()
-    blue_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert blue_dark != blue_light
+    supabase_dark = page.evaluate(
+        "() => getComputedStyle(document.body).backgroundColor")
+    assert supabase_dark != supabase_light
 
     view.locator('[data-appearance-scheme-mode="device"]').click()
     assert page.locator("html").get_attribute("data-appearance") == "device"
     assert page.locator("html").get_attribute("data-theme") is None
-    device_colours.check(force=True)
-    assert page.locator("html").get_attribute("data-color-mode") == "device"
-    assert page.locator("html").get_attribute("data-palette") is None
+
+
+# FIVE TESTS STOOD HERE AND R-84 DELETED WHAT THEY TESTED, 2026-08-31.
+#
+#   test_device_colours_are_legible_in_both_schemes  (2 cases)
+#   test_device_colours_reach_the_user_in_both_schemes
+#   test_whatsapp_theme_matches_the_current_application_palette
+#   test_whatsapp_extension_layers_navigation_and_primary_hover
+#
+# «احذف الثلاثة وابق supabase وحده» removed `brand`, `blue` and device colours, so
+# three of the four colour choices these covered no longer exist. They are removed
+# rather than skipped: a skipped test for a deleted feature reads as coverage.
+#
+# WHAT THEY KNEW THAT THE CODE STILL NEEDS is preserved where it can act, not here.
+# The two device tests were written hours earlier for R-79 and carried two facts
+# no other test holds: that `@supports` contributes NO specificity, so a device
+# block must sit BELOW both dark blocks or lose on source order; and that the
+# operating system's own `AccentColorText` is 4.21:1 on its own `AccentColor`
+# where black is 4.99:1, so an on-colour must be derived rather than trusted.
+# Both are written into design/tokens.css at the tombstone that replaced the
+# device blocks, so a future device mode meets them before it is built.
+#
+# The two WhatsApp tests asked for the palette by its LEGACY id on purpose --
+# `whatsapp` rather than `brand` -- because that is what every appearance stored
+# before 2026-08-28 contains. That concern outlived the palette: the alias map in
+# design/appearance.js now resolves `whatsapp`, `github`, `brand` and `blue` to
+# `supabase`, and `test_the_appearance_registry_agrees_across_both_surfaces`
+# covers the resolution. The migration is free precisely because that map stayed.
 
 
 def _channels(colour: str) -> list[float]:
@@ -546,9 +581,23 @@ def _registered_palette_ids() -> list[str]:
     registry = source.split("const PALETTES = new Map([", 1)[1]
     registry = registry.split("const PALETTE_ALIASES", 1)[0]
     ids = re.findall(r'^\s{4}\["([a-z-]+)", \{', registry, re.M)
-    assert len(ids) >= 3, (
-        f"parsed {ids} from the registry; the shape of design/appearance.js "
-        "changed and this guard is no longer covering every palette")
+    # THE FLOOR WAS `>= 3` AND THAT ENCODED A FACT R-84 DELETED. Three palettes
+    # existed when this was written and the number was standing in for "the parser
+    # still finds them"; on 2026-08-31 he ruled one colour choice — «احذف الثلاثة
+    # وابق supabase وحده» — and a floor of 3 then failed collection for the whole
+    # file rather than reporting anything about coverage.
+    #
+    # The intent survives without the count: what must hold is that the parse
+    # produced SOMETHING and that `supabase` is in it, because a regex that stopped
+    # matching would return an empty list and silently cover nothing. Asserting the
+    # id by name is stronger than asserting a length, and it cannot rot when the
+    # registry grows or shrinks again.
+    assert ids, (
+        "parsed nothing from the registry; the shape of design/appearance.js "
+        "changed and this guard is no longer covering any palette")
+    assert "supabase" in ids, (
+        f"parsed {ids}; `supabase` is the baseline colour choice under R-84 and "
+        "must always be registered")
     return ids
 
 
@@ -667,176 +716,6 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         });
     }""", [palette, scheme])
     _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"{palette} {scheme}")
-
-
-@pytest.mark.parametrize("scheme", ["light", "dark"])
-def test_device_colours_are_legible_in_both_schemes(open_panel, scheme):
-    """THE FOURTH COLOUR CHOICE, AND IT HAD NO COVERAGE OF ANY KIND.
-
-    `device` is not a palette -- `design/appearance.js` removes it from the theme
-    entirely -- so `_registered_palette_ids()` can never yield it and the sweep
-    beside this one is structurally unable to reach it. It is also the choice
-    `R-74` names fourth and the one a fresh install used to get before the
-    `deviceColors` flip, which made it the least measured and the most reachable
-    at the same time.
-
-    IT DID NOT MERELY LACK A ROW IN THE PARAMETRIZE. The guard read custom
-    properties as declared, and device declares `AccentColor` and `color-mix(...)`,
-    which a custom property read never resolves -- so even pointed at device the
-    old reader had nothing it could score. Both halves are fixed here.
-
-    WHAT IT COSTS TO OWN THIS: the accent is the operating system's, not ours, so
-    these assertions are about the DERIVATION holding for whatever accent arrives
-    rather than about a value we chose. Chromium's own accent is rgb(0, 117, 255),
-    whose `AccentColorText` is white at 4.21:1 -- under the floor -- which is why
-    `design/tokens.css` derives the ink with `contrast-color()` instead of trusting
-    the system's. A machine with a different accent exercises a different point of
-    the same derivation, and that is the intent.
-    """
-    page = open_panel()
-    page.evaluate("""([scheme]) => {
-        window.ScrapeXAppearance.set({
-          mode: "manual", scheme, deviceColors: true,
-        });
-    }""", [scheme])
-    assert page.evaluate("() => CSS.supports('color', 'AccentColor')"), (
-        "this browser has no AccentColor, so the device block never applied and "
-        "this test measured the baseline instead -- which is exactly the false "
-        "green it exists to prevent")
-    assert page.locator("html").get_attribute("data-color-mode") == "device"
-    _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"device {scheme}")
-
-
-def test_device_colours_reach_the_user_in_both_schemes(open_panel):
-    """OP-101. The cascade, not the colours -- and it is a source-order fact.
-
-    `@supports` contributes no specificity, so the device block's
-    `:root[data-color-mode="device"]` is (0,2,0) -- exactly what
-    `:root[data-theme="dark"]` and `:root:not([data-theme="light"])` are. While it
-    stood ABOVE them they won on source order and redeclared all seven of its
-    properties, so a user on a dark OS who chose "Device colours" was painted
-    Supabase's own #3ecf8e while the panel's status text reported otherwise.
-
-    The assertion is deliberately not a value: the accent belongs to the machine.
-    What must hold is that device DIFFERS from the palette it would otherwise fall
-    back to, in BOTH schemes. That is what source order broke and nothing caught.
-    """
-    page = open_panel()
-    assert page.evaluate("() => CSS.supports('color', 'AccentColor')")
-
-    def accent(**appearance):
-        page.evaluate("([a]) => window.ScrapeXAppearance.set(a)", [appearance])
-        return page.evaluate(_THEME_COLOURS_JS)["accent"]
-
-    for scheme in ("light", "dark"):
-        device = accent(mode="manual", scheme=scheme, deviceColors=True)
-        baseline = accent(mode="manual", scheme=scheme, palette="supabase",
-                          deviceColors=False)
-        assert device != baseline, (
-            f"device {scheme} paints {device}, which is the {scheme} baseline. "
-            "The device block is being outranked by source order again -- keep it "
-            "below both dark blocks in design/tokens.css.")
-
-
-def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
-    """And, since R-73, that the LEGACY ID still reaches it.
-
-    The palette is keyed `brand` in the registry now; `whatsapp` is the
-    compatibility alias R-59 decision 3 declared. This test asks for it by the
-    old name on purpose -- that is the name every appearance stored before
-    2026-08-28 carries, in localStorage and in the engine's `ui_appearance`
-    setting -- and the values it then reads are what proves the alias resolved
-    instead of falling through to the default. An identical set of numbers here
-    with `brand` typed in would test one thing less.
-    """
-    page = open_panel()
-
-    resolved = page.evaluate("""() => {
-        window.ScrapeXAppearance.set({
-          mode: "manual", scheme: "light", palette: "whatsapp",
-          deviceColors: false,
-        });
-        return {
-          stored: window.ScrapeXAppearance.get().palette,
-          attribute: document.documentElement.dataset.palette,
-        };
-    }""")
-    assert resolved == {"stored": "brand", "attribute": "brand"}
-
-    for scheme, expected in (
-        ("light", {
-            "--bg": "#F7F5F3", "--surface": "#FFFFFF",
-            "--text": "#0A0A0A", "--accent": "#35AA65",
-            "--accent-weak": "#DBFDD5", "--red": "#B3002F",
-            "--red-weak": "#FCE5EA", "--switch-track": "#35AA65",
-            "--switch-track-off": "#FFFFFF",
-            "--switch-thumb-off": "#959393",
-            "--button-bg": "#43D36D", "--button-hover": "#1C1E21",
-            "--button-text": "#0A0A0A", "--button-hover-text": "#FFFFFF",
-        }),
-        ("dark", {
-            "--bg": "#121B21", "--surface": "#182229",
-            "--text": "#FFFFFF", "--accent": "#43D36D",
-            "--red": "#FF7892", "--red-weak": "#3A1722",
-            "--switch-track": "#35AA65", "--switch-track-off": "#182229",
-            "--switch-thumb-off": "#959393",
-            "--button-bg": "#43D36D", "--button-hover": "#FFFFFF",
-            "--button-text": "#0A0A0A", "--button-hover-text": "#0A0A0A",
-        }),
-    ):
-        values = page.evaluate("""([scheme, properties]) => {
-            window.ScrapeXAppearance.set({
-              mode: "manual", scheme, palette: "whatsapp", deviceColors: false,
-            });
-            const style = getComputedStyle(document.documentElement);
-            return Object.fromEntries(properties.map((property) => [
-              property, style.getPropertyValue(property).trim().toUpperCase(),
-            ]));
-        }""", [scheme, list(expected)])
-        assert values == expected
-
-
-def test_whatsapp_extension_layers_navigation_and_primary_hover(open_panel):
-    page = open_panel()
-    page.evaluate("""() => window.ScrapeXAppearance.set({
-      mode: "manual", scheme: "light", palette: "whatsapp", deviceColors: false,
-    })""")
-    page.click("#tab-data")
-    page.wait_for_timeout(220)
-
-    initial = page.evaluate("""() => {
-      const colour = (selector, property) =>
-        getComputedStyle(document.querySelector(selector))[property];
-      return {
-        main: colour("main", "backgroundColor"),
-        rail: colour("nav.side-rail", "backgroundColor"),
-        indicator: colour("#rail-indicator", "backgroundColor"),
-        active: colour("#tab-data", "color"),
-        button: colour("#open-workbook", "backgroundColor"),
-        buttonText: colour("#open-workbook", "color"),
-      };
-    }""")
-    assert initial == {
-        "main": "rgb(255, 255, 255)",
-        "rail": "rgb(247, 245, 243)",
-        "indicator": "rgb(53, 170, 101)",
-        # rgb(20, 119, 66) since 2026-08-30, was rgb(24, 134, 75). The active rail
-        # tab is painted with `--accent-ink`, and this palette's ink was darkened
-        # because OD-03's new `accentInk on accentWeak` pair measured the old one
-        # at 4.180:1 against a 4.5 floor. This pin follows what is painted; the
-        # reason lives at the value in `design/appearance.js`.
-        "active": "rgb(20, 119, 66)",
-        "button": "rgb(67, 211, 109)",
-        "buttonText": "rgb(10, 10, 10)",
-    }
-
-    page.hover("#open-workbook")
-    page.wait_for_timeout(180)
-    hovered = page.evaluate("""() => {
-      const style = getComputedStyle(document.querySelector("#open-workbook"));
-      return [style.backgroundColor, style.color];
-    }""")
-    assert hovered == ["rgb(28, 30, 33)", "rgb(255, 255, 255)"]
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):

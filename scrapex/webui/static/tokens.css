@@ -424,147 +424,24 @@
   }
 }
 
-/* Device colours use the colour preference exposed by the browser/operating
-   system. Browsers do not expose their private new-tab palette to extensions,
-   so the system accent is the truthful automatic colour source.
- *
- * IT SITS HERE, AFTER THE DARK BLOCKS, AND THE POSITION IS THE WHOLE POINT.
- * `@supports` contributes NO specificity, so this selector is (0,2,0) -- exactly
- * what `:root[data-theme="dark"]` and `:root:not([data-theme="light"])` are. When
- * it stood above them they won on source order and redeclared all seven of these
- * properties, so "Device colours" on a dark OS painted Supabase's own #3ecf8e for
- * every accent, focus ring, button and switch track while the panel's status text
- * reported the choice it was not painting. Measured in Chromium 149 before the
- * move: device-dark resolved `--accent` to rgb(62, 207, 142). That is OP-101, and
- * moving these eleven lines is the whole of its fix.
- *
- * KEEP IT BELOW BOTH DARK BLOCKS. A future block added after this one that also
- * sets an accent will take device back, silently and in one scheme only, which is
- * the shape that made this defect invisible for as long as it lived. */
-@supports (color: AccentColor) {
-  :root[data-color-mode="device"] {
-    --accent: AccentColor;
-    --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
-    --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));
-    /* 60%, not the 78% the other accent tones use. Measured on Chromium 149's
-       accent in dark: at 78% this is rgb(52,144,251) on an --accent-weak of
-       rgb(18,50,87) = 4.031:1, under the 4.5 floor; 66% is the first passing
-       value at 4.698 and 60% is the first with real headroom, 5.123 dark and
-       7.025 light. The other tones keep 78% because nothing pairs them with a
-       tinted weak surface. */
-    --accent-ink: color-mix(in srgb, AccentColor 60%, var(--text));
-    --accent-contrast: AccentColorText;
-    --accent-weak: color-mix(in srgb, AccentColor 14%, var(--surface));
-    --focus: AccentColor;
-  }
-}
 
-/* AND THE OPERATING SYSTEM'S OWN INK IS NOT LEGIBLE ON ITS OWN ACCENT.
- *
- * Measured in Chromium 149, whose AccentColor is rgb(0, 117, 255): its
- * AccentColorText is WHITE, which is 4.21:1 against that accent where the panel
- * guard needs 4.5. Black on the same accent is 4.99:1. The browser hands us the
- * worse of the two, and it is the pair a user actually reads a primary button
- * through.
- *
- * SUPABASE'S OWN MECHANISM PICKS THE WRONG ONE TOO, so this is a departure from
- * the baseline with the number written at the value, the way the other four are.
- * Their on-colour is a hard step on OKLCH lightness -- oklch(from <fill>
- * clamp(0.12, calc((0.62 - l) * 100), 0.99) ...) -- and for this accent it
- * resolves to L 0.99, near-white, because OKLCH lightness and WCAG relative
- * luminance disagree about saturated blues. `contrast-color()` asks the WCAG
- * question directly and answers black.
- *
- * It is a separate @supports on purpose: `contrast-color()` is newer than
- * `AccentColor`, so a browser that has the accent and not the function keeps the
- * declaration above and loses nothing it had. */
-@supports (color: contrast-color(red)) {
-  :root[data-color-mode="device"] {
-    --accent-contrast: contrast-color(AccentColor);
-    /* AND THE HOVER SURFACE NEEDS ITS OWN INK, which is why this token exists.
-       `--accent-hover` moves toward `--text`, so in LIGHT it darkens -- and the
-       ink chosen for the base accent is black, so the two converge: measured
-       3.766:1 against a 4.5 floor. Derived per surface instead, light picks
-       WHITE for the hover (5.576:1) and dark keeps black (6.066:1). One ink
-       cannot serve both ends of an accent the operating system chooses. */
-    --button-hover-text: contrast-color(var(--accent-hover));
-  }
-}
 
-/* Device-derived tonal surfaces
- *
- * When the browser exposes a system accent, it supplies a quiet family of
- * page, surface, border and hover tones. Light mode keeps that family close to
- * white; dark mode mixes more of the hue into the neutral dark foundation.
- * Text remains neutral so records and long descriptions stay readable.
- */
-/* R-74: device is a COLOUR exception, so it mixes the system accent into
- * SUPABASE's neutral ladder -- not into the pre-Supabase one it used to name.
- * Getting this wrong is how three of four colour choices lost the design system
- * in the first place, and device is the choice a fresh install used to get.
- *
- * WHY THE NEUTRALS ARE SPELLED AGAIN HERE. A custom property cannot be mixed
- * against its own cascaded value -- `--bg: color-mix(..., var(--bg)))` is a
- * cycle and computes to nothing -- so the base has to be named literally at the
- * point of the mix.
- *
- * NOTHING GUARDS THESE BASES, AND ONE HAS ALREADY DRIFTED. An earlier version of
- * this comment said `tests/test_vendor.py` asserts the bases match the `:root`
- * and dark-block values they copy. It does not: the named test checks that nine
- * token NAMES appear in this block and that the strings `light-dark(` and
- * `color-mix(in srgb, var(--accent)` are present, and it compares no literal at
- * all -- grep the whole test suite for any of these hexes and it returns nothing.
- * Measured 2026-08-29: the light `--control-hover` base here is #f3f3f3, which is
- * `--chip`, while `:root` declares `--control-hover: var(--surface-subtle)` =
- * #f6f6f6. The dark base still agrees. So the drift this comment claimed to
- * prevent is present in the file the comment is written in.
- */
-:root[data-color-mode="device"] {
-  --bg: light-dark(
-    color-mix(in srgb, var(--accent) 2%, #fdfdfd),
-    color-mix(in srgb, var(--accent) 12%, #131413)
-  );
-  --surface: light-dark(
-    color-mix(in srgb, var(--accent) 4%, #ffffff),
-    color-mix(in srgb, var(--accent) 15%, #181a19)
-  );
-  --surface-subtle: light-dark(
-    color-mix(in srgb, var(--accent) 7%, #f6f6f6),
-    color-mix(in srgb, var(--accent) 18%, #1a1b1a)
-  );
-  --surface-raised: light-dark(
-    color-mix(in srgb, var(--accent) 5%, #ffffff),
-    color-mix(in srgb, var(--accent) 17%, #1b1d1c)
-  );
-  --line: light-dark(
-    color-mix(in srgb, var(--accent) 16%, #e9e9e9),
-    color-mix(in srgb, var(--accent) 18%, #232423)
-  );
-  /* THE DARK BASE IS #787878 HERE AND #707070 EVERYWHERE ELSE, deliberately.
-     Device surfaces are tinted with the system accent and therefore LIGHTER than
-     the plain dark surface, so a line that clears 3:1 on the plain one does not
-     clear on this one. Measured on Chromium 149's accent: #707070 gives 2.982:1
-     against a device-dark --surface of rgb(20,40,59), and it stays under the
-     floor across the whole mix range -- 2.982 at 26%, 2.994 at 20%, 3.002 at 14%,
-     2.994 at 8% -- because the line and the surface are mixed with the same
-     accent and move together. #787878 clears at every percentage, 3.249 at the
-     26% used here. This is a measured difference, not the silent drift recorded
-     above it. */
-  --line-strong: light-dark(
-    color-mix(in srgb, var(--accent) 28%, #8f8f8f),
-    color-mix(in srgb, var(--accent) 26%, #787878)
-  );
-  --chip: light-dark(
-    color-mix(in srgb, var(--accent) 10%, #f3f3f3),
-    color-mix(in srgb, var(--accent) 18%, #1e1f1e)
-  );
-  --control-bg: var(--surface);
-  --control-hover: light-dark(
-    color-mix(in srgb, var(--accent) 9%, #f3f3f3),
-    color-mix(in srgb, var(--accent) 22%, #1e1f1e)
-  );
-}
 
+/* THERE IS NO DEVICE COLOUR PATH, AND THAT IS R-84 RATHER THAN AN OMISSION.
+ * «احذف الثلاثة وابق supabase وحده» -- 2026-08-31. Seventy-four lines stood here:
+ * an `@supports (color: AccentColor)` block mixing the operating system's accent
+ * into Supabase's neutral ladder, a second `@supports (color: contrast-color(red))`
+ * block deriving a legible ink for it, and a tonal-surface block.
+ *
+ * WHAT WENT WITH THEM IS WORTH KNOWING BEFORE ANYONE REBUILDS IT. R-79 had just
+ * fixed the cascade that made "Device colours" reach the user in dark at all --
+ * `@supports` contributes no specificity, so the block tied with the two dark
+ * blocks and lost on source order, painting Supabase green while the panel said
+ * otherwise. It also measured that the operating system's own AccentColorText is
+ * 4.21:1 on its own AccentColor where black is 4.99:1, so the ink had to be
+ * derived rather than trusted. Both facts survive their code: a future device
+ * mode must sit BELOW both dark blocks, and must not trust the system's ink.
+ * ======================================================================== */
 @media (prefers-contrast: more) {
   :root {
     --line: var(--line-strong);
