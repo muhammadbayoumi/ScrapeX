@@ -1,0 +1,194 @@
+"""One directory listing crawl, driven as a job so the panel can start it.
+
+WHY THIS IS A JOB KIND AND NOT A WIDER `capture_source`. `REQ-45` made `POST /api/jobs`
+queue `muqawil_org`, and the worker then handed it to `capture_source` -- the price path,
+whose `CaptureResult` carries `observations`, `duplicates`, `products`, `variants` and
+`attributes`. A contractor listing crawl produces none of those. It produces stored pages,
+a per-cell completeness proof, arrivals and departures. Forcing it through that result
+would mean either five zeroes reported as a success or five fields renamed to mean
+something else on one source, and `docs/BACKLOG.md` has a name for the second.
+
+`organization_enrichment` already established the alternative and it is the one followed
+here: a job KIND with its own runner, reached from `jobs.runner_for`, sharing the job
+table, the log, the progress fields and the pause/cancel controls and nothing else.
+
+WHAT IT DOES NOT DUPLICATE. Not one line of crawling lives here. `contractors.crawl` is
+the same function `scrapex contractors --crawl` calls -- «خلى الشغل dry» -- and this module
+is the three things a job needs that a command line does not: the log gets the lines
+instead of a console, progress is counted in cells, and the owner's pause or cancel is
+applied at a cell boundary.
+
+A CELL BOUNDARY IS THE ONLY SAFE PLACE, for the reason `jobs.py` states about sources:
+a cell's completeness proof compares an id sequence against a witness read of page one, so
+a cell interrupted halfway has fetched pages and proved nothing. Stopping between cells
+keeps every closed cell's proof and loses only the pages of the one in flight -- and those
+are already on disk, so a resume under the same `--run-ref` skips them.
+"""
+from __future__ import annotations
+
+import sqlite3
+import time
+
+from . import contractors, directories
+from .payload import utc_now_iso
+from .vocab import JobControl, JobStage, JobStatus, LogLevel
+
+#: The kind this module runs. Named once; `jobs.SPECIALISED_RUNNERS` reads it so the
+#: string cannot be spelled two ways in two files.
+JOB_KIND = "directory_crawl"
+
+#: Seconds between requests. The panel offers no pace control, so this is the pace a
+#: crawl he starts from the extension runs at, and it is the CLI's own default rather
+#: than a number chosen here -- `R-21` and `SR-8` are about the rate, and a second
+#: opinion about it living in a second file is how two front doors start being polite
+#: to different degrees.
+DEFAULT_PACE_S = contractors.DEFAULT_PACE_S
+
+
+class NotADirectory(LookupError):
+    """This job names a source that is not a directory this build can crawl.
+
+    REFUSED RATHER THAN FALLEN BACK TO THE PRICE PATH. A job queued as a directory
+    crawl whose key `directories.BUILDERS` does not know is a mistake somewhere above
+    this module, and running the wrong collector over it would report a success about
+    a source nobody crawled.
+    """
+
+
+def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
+    """Execute one directory listing crawl to completion, or to a control boundary.
+
+    Synchronous and connection-injected, exactly like `jobs.run_job_once`, so the
+    thread loop in `JobRunner` is the only thing that needs a thread.
+    """
+    from . import jobs
+
+    job = jobs.get_job(conn, job_ref)
+    if job is None:
+        raise KeyError(f"unknown job_ref {job_ref!r}")
+    if job.get("job_kind") != JOB_KIND:
+        raise ValueError(
+            f"job {job_ref!r} is a {job.get('job_kind')!r}, not a {JOB_KIND!r}")
+    if job["status"] in {status.value for status in jobs.TERMINAL_JOB_STATUSES}:
+        # ALREADY DECIDED. A cancelled or finished job that ran again would crawl a
+        # site the owner has already stopped, which is the one thing a re-pick must
+        # never do.
+        return job
+
+    keys = list(job["source_keys"])
+    if len(keys) != 1:
+        # ONE DIRECTORY PER JOB, AND THE REASON IS THE PROGRESS FIGURE. Cells are the
+        # denominator, two directories have different cell counts, and a bar that
+        # mixes them cannot say what is left of either. The route refuses a mixed
+        # queue; this refuses it again, because the route is not the only caller.
+        raise ValueError(
+            f"a {JOB_KIND!r} job crawls exactly one directory and {job_ref!r} names "
+            f"{len(keys)}: {keys}")
+    source_key = keys[0]
+    if source_key not in directories.BUILDERS:
+        raise NotADirectory(
+            f"{source_key!r} is not a directory this build can crawl. Known: "
+            f"{sorted(directories.BUILDERS)}")
+
+    directory = directories.get(source_key)
+    # THE REF IS THE JOB'S, so a resume under the same job skips the pages it already
+    # stored -- `already_stored` is scoped to the ref, and the job ref is the only
+    # label that is stable across a pause and a re-pick.
+    run_ref = f"job-{job_ref}"
+    cells = len(directory.partition().cells())
+
+    jobs._update(conn, job["job_id"], status=JobStatus.PREPARING.value,
+                 stage=JobStage.PREPARING.value, progress_total=cells,
+                 progress_done=0, current_source_key=source_key,
+                 last_heartbeat_at=utc_now_iso(),
+                 **({} if job["started_at"] else {"started_at": utc_now_iso()}))
+    jobs.append_log(conn, job["job_id"],
+                    f"{directory.display_name}: listing crawl of {cells:,} cell(s) "
+                    f"as {run_ref}", source_key=source_key)
+    conn.commit()
+
+    done = {"cells": 0}
+    stopped: list[str] = []
+
+    def note(line: str) -> None:
+        """One line of the crawl's own report, into the job log.
+
+        WRITTEN THROUGH `contractors.say`'S SINK rather than by re-implementing its
+        report. The crawl already says what it saw -- the registered scope, the
+        validators it replayed, each cell's outcome, arrivals and departures -- and a
+        job that logged its own summary instead would be a second account of the same
+        run, free to disagree with the console's.
+        """
+        jobs.append_log(conn, job["job_id"], line, source_key=source_key)
+
+    def cell_closed() -> bool:
+        """Called between cells. `True` asks the crawl to stop here.
+
+        `between_cells`, NOT `on_cell`: `crawl_partition` already has an `on_cell`, and
+        it is the per-cell report hook rather than a stop question.
+
+        The heartbeat and the progress write happen here too, because between cells is
+        also the only moment at which `progress_done` is a fact rather than a guess.
+        """
+        done["cells"] += 1
+        jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
+                     stage=JobStage.FETCHING.value, progress_done=done["cells"],
+                     last_heartbeat_at=utc_now_iso())
+        conn.commit()
+        current = jobs.get_job(conn, job_ref)
+        control = jobs._control_of(conn, job["job_id"])
+        if control == JobControl.PAUSE.value:
+            jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
+                         control=JobControl.NONE.value, stage=None,
+                         last_heartbeat_at=utc_now_iso())
+            jobs.append_log(
+                conn, job["job_id"],
+                f"paused at a cell boundary, {done['cells']:,} of {cells:,} closed. "
+                f"Resuming under {run_ref} skips the pages already stored",
+                source_key=source_key)
+            conn.commit()
+            stopped.append(JobStatus.PAUSED.value)
+            return True
+        if control == JobControl.CANCEL.value:
+            jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+            stopped.append(JobStatus.CANCELLED.value)
+            return True
+        # `current` IS READ AND USED, not read and discarded: a job the worker has
+        # been told to drop its database for is a job whose next cell must not open.
+        return bool(current is None)
+
+    started = time.monotonic()
+    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
+    try:
+        with contractors.lines_go_to(note):
+            contractors.crawl(conn, directory, fetch, fetcher, run_ref,
+                              contractors.DEFAULT_MAX_ATTEMPTS,
+                              between_cells=cell_closed)
+    except contractors.CrawlStopped:
+        # NOT AN ERROR, AND NOT SILENT EITHER. The crawl was asked to stop by
+        # `cell_closed`, which has already written the status and said why.
+        return jobs.get_job(conn, job_ref)
+    except Exception as exc:
+        jobs.append_log(conn, job["job_id"], f"failed: {exc}",
+                        level=LogLevel.ERROR, source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.FAILED, str(exc))
+        raise
+    finally:
+        fetcher.close()
+        jobs.record_source_fetch(
+            conn, job["job_id"], source_key,
+            requests=int(getattr(fetcher, "requests_count", 0) or 0),
+            state="done" if not stopped else "stopped")
+        conn.commit()
+
+    if stopped:
+        return jobs.get_job(conn, job_ref)
+    jobs.append_log(
+        conn, job["job_id"],
+        f"listing crawl finished in {(time.monotonic() - started) / 60:.1f} min, "
+        f"{getattr(fetcher, 'requests_count', 0):,} request(s). This is the LISTING "
+        "phase; the profile pages are a separate collector",
+        source_key=source_key)
+    jobs._update(conn, job["job_id"], progress_done=cells)
+    jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
+    return jobs.get_job(conn, job_ref)

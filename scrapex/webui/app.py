@@ -32,6 +32,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .. import (
     bundle,
     compaction,
+    directories,
+    directoryjob,
     localinbox,
     nativehost,
     pricehistory,
@@ -3593,6 +3595,35 @@ def create_app(
                 sources.get(key)
             except LookupError:
                 raise HTTPException(status_code=404, detail=f"unknown source_key {key!r}")
+        # AND WHICH COLLECTOR READS IT, decided here for the same reason the key is
+        # validated here. `REQ-45` made this route accept `muqawil_org`; the worker then
+        # handed it to `capture_source`, the PRICE collector, whose result carries
+        # observations, duplicates, products and variants -- none of which a contractor
+        # listing crawl produces. So the key was accepted and the wrong thing ran.
+        #
+        # `directories.BUILDERS` IS THE REGISTRY AND NOT A NEW COLUMN. It is keyed by
+        # `site_key`, it is what `--source` already names, and it already refuses a
+        # mistyped key rather than defaulting. A `source_site.collector` column would be
+        # a second place for a fact this one holds.
+        directory_keys = [key for key in source_keys if key in directories.BUILDERS]
+        if directory_keys and len(directory_keys) != len(source_keys):
+            # ONE DENOMINATOR PER JOB. A price job counts sources, a directory job counts
+            # cells, and a progress bar mixing them cannot say what is left of either.
+            raise HTTPException(
+                status_code=400,
+                detail="a directory crawl and a price crawl are different jobs: "
+                       f"{directory_keys} are directories and "
+                       f"{[k for k in source_keys if k not in directory_keys]} are not. "
+                       "Queue them separately.")
+        job_kind = directoryjob.JOB_KIND if directory_keys else "crawl"
+        if job_kind == directoryjob.JOB_KIND and len(source_keys) != 1:
+            # The runner refuses this too. Refused here as well because the message a
+            # person reads should come from the door they knocked on, not from a job
+            # that started and stopped.
+            raise HTTPException(
+                status_code=400,
+                detail="a directory crawl runs one directory at a time, and this names "
+                       f"{len(source_keys)}: {source_keys}")
         try:
             run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value))
         except ValueError:
@@ -3627,7 +3658,8 @@ def create_app(
         conn = read_conn()
         try:
             ensure_schema(conn)
-            job_ref = create_job(conn, source_keys, run_mode, checkpoint=checkpoint)
+            job_ref = create_job(conn, source_keys, run_mode, checkpoint=checkpoint,
+                                 job_kind=job_kind)
         finally:
             conn.close()
         return {"job_ref": job_ref, "status": "queued", "source_keys": source_keys,

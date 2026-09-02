@@ -225,12 +225,26 @@ and an unknown key.**
 
 ### OP-75 · `GET /api/fields` writes and commits on both branches, outside the write lock every `POST` pays for
 
-**Found 2026-08-26.** The GET commits at
-[app.py:2248](../scrapex/webui/app.py#L2248) — the dataset branch, seeding from the schema —
-and at [app.py:2299](../scrapex/webui/app.py#L2299) on the price branch. A grep over the
-whole `api_fields` region finds **two `conn.commit()` and zero `write_lock`**, while every
-`POST` goes through `_write` ([app.py:2186](../scrapex/webui/app.py#L2186)), which takes the
-lock for the reason it states: *"A crawl in progress holds that lock."*
+**Found 2026-08-26.** The GET commits inside `api_fields`
+([app.py:2340](../scrapex/webui/app.py#L2340)) while every `POST` goes through
+`_write` ([app.py:2224](../scrapex/webui/app.py#L2224)), which takes the lock for
+the reason it states: *"A crawl in progress holds that lock."*
+
+> **THREE CITATIONS RE-DERIVED 2026-09-02, AND ALL THREE WERE ALREADY WRONG.** This entry
+> cited `2248` for a dataset-branch commit, `2299` for a price-branch commit and `2186` for
+> `_write`. Measured on `origin/main` before this branch touched anything: `api_fields`
+> spans 2299–2348, so `2248` was outside the function altogether, `2299` was the `def`
+> line itself, and `_write` was at 2222. **The only reason any of it surfaced** is that a
+> two-line import insert here pushed `2299` onto a blank line, which is the one thing tier 1
+> of the citation guard can see. A drifted number that lands on real code is invisible to
+> the whole suite — measured the same afternoon in `OP-119`, where four of five citations
+> had drifted and one was caught, also by a blank line. That gap is `OP-123`.
+>
+> **And the count in the original sentence no longer holds:** the region has **one**
+> `conn.commit()` today, not two. Said here rather than quietly repointed, because a reader
+> sent hunting for a second commit that is not there would conclude the finding was
+> nonsense. Whether the second was removed deliberately is not established; the remaining
+> one is still a write on a GET outside the lock, so the finding stands on it.
 
 **The write-on-GET is deliberate, documented and tested** — that is not the finding. The
 finding is that it is **unlocked**, so the protection depends on the HTTP verb rather than
@@ -1305,7 +1319,7 @@ asked for the Engine to be started while a six-worker crawl was running. It refu
 
 ```
 sqlite3.OperationalError: database is locked
-  scrapex/jobs.py:932  record_worker_failure
+  scrapex/jobs.py:975  record_worker_failure
 ```
 
 Every connection sets `busy_timeout = 5000`, so a writer waits five seconds before
@@ -3548,7 +3562,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 `bundleBuild: 600000` ([extension/startup.js:33](../extension/startup.js#L33)) with a rule
 that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
-`threading.Lock` ([scrapex/webui/app.py:2926](../scrapex/webui/app.py#L2926)) refusing a
+`threading.Lock` ([scrapex/webui/app.py:2937](../scrapex/webui/app.py#L2937)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
 ([scrapex/webui/app.py:2907](../scrapex/webui/app.py#L2907)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep

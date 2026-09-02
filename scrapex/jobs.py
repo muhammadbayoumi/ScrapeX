@@ -14,6 +14,7 @@ capture step injected. JobRunner is a thin thread loop on top of it.
 """
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import sqlite3
@@ -46,7 +47,38 @@ from .vocab import (
 
 _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
                    "attributes", "skipped_ignored", "rejected_out_of_scope")
-JOB_KINDS = frozenset({"crawl", "organization_enrichment"})
+
+#: `job_kind` -> `(module, attribute)` for the kinds that are NOT the price crawl.
+#:
+#: THE PRICE CRAWL IS THE ABSENT ENTRY, deliberately: `run_job_once` takes a manifest,
+#: an injected capture, a backup, a connect factory and an admission, so it does not fit
+#: `(conn, job_ref)` and pretending it did would mean five parameters travelling through
+#: a table that has nowhere to put them. `runner_for` returning `None` MEANS the price
+#: path, and `_start_job` reads it that way.
+#:
+#: RESOLVED ON USE. `enrichment.service` imports this module, so naming these at module
+#: scope is a cycle -- which `_start_job` already worked around with a function-local
+#: import. Paths also keep `import scrapex.jobs` from pulling the enrichment providers
+#: and an HTTP fetcher into every process that only wants to read a job row.
+SPECIALISED_RUNNERS: dict[str, tuple[str, str]] = {
+    "organization_enrichment": (".enrichment.service", "run_enrichment_job_once"),
+    "directory_crawl": (".directoryjob", "run_directory_crawl_job_once"),
+}
+
+#: DERIVED, NEVER LISTED TWICE. This used to be a literal set of the same strings a
+#: thousand lines above the branch that dispatched them, so a kind added to one and
+#: forgotten in the other was either refused at the door or handed to the price
+#: collector in silence.
+JOB_KINDS = frozenset({"crawl", *SPECIALISED_RUNNERS})
+
+
+def runner_for(job_kind: str):
+    """The function that runs one job of this kind, or `None` for the price crawl."""
+    target = SPECIALISED_RUNNERS.get(job_kind)
+    if target is None:
+        return None
+    module, attribute = target
+    return getattr(importlib.import_module(module, __package__), attribute)
 
 
 # ---- store -------------------------------------------------------------------
@@ -1469,10 +1501,12 @@ class JobRunner:
                 job = get_job(conn, job_ref)
                 if job is None:
                     raise KeyError(f"unknown job_ref {job_ref!r}")
-                if job.get("job_kind", "crawl") == "organization_enrichment":
-                    from .enrichment.service import run_enrichment_job_once
-
-                    run_enrichment_job_once(conn, job_ref)
+                # ONE LOOKUP, NOT A CHAIN. `runner_for` returning `None` means the
+                # price crawl, which is the only kind whose runner needs more than
+                # `(conn, job_ref)` -- see `SPECIALISED_RUNNERS`.
+                runner = runner_for(job.get("job_kind", "crawl"))
+                if runner is not None:
+                    runner(conn, job_ref)
                 else:
                     run_job_once(conn, job_ref, self._manifest_provider(),
                                  capture=self._capture or self._locked_capture,
