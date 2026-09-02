@@ -323,7 +323,21 @@ PINNED = (
     # written down — the guard catching its author, in the exact shape LESSONS §7
     # describes. The third move was the 0.3.0 packaging fix, which explained the
     # new `ScrapeX UI` demand in twenty-seven lines of comment directly above.
-    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 540, '"version": VERSION'),
+    # REPOINTED 540 -> 553 on 2026-09-02: `OP-122` inserted thirteen lines into
+    # `ceiling()` above it, so the subject moved and the citation had to follow. A
+    # legitimate repoint -- the symbol still exists and this row's whole job is to
+    # sit beside it -- unlike the two `LESSONS` entries whose numbers were the
+    # RECORD and were destroyed by being repointed.
+    #
+    # AND THE DOCUMENT SIDE OF THIS ROW IS GONE. `docs/BACKLOG.md` contains no
+    # citation to this file at any line: measured, `grep -n "release-engine.yml[#:]"`
+    # over every document returns nothing. So this row asserts that the workflow
+    # still holds `"version": VERSION`, which is true and worth asserting, but it is
+    # not what tier 2 is for -- and nothing here can tell the difference, because no
+    # test checks that a pinned row's DOCUMENT still cites it. It also counts toward
+    # `PINNED_FLOOR`. Left in place rather than deleted, because removing rows is
+    # exactly what that floor exists to refuse; recorded in `OP-122`.
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 553, '"version": VERSION'),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
      'got["version"] == manifest["version"]'),
     # And the line whose VALUE went stale under a citation that stayed correct --

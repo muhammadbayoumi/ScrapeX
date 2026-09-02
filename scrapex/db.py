@@ -120,9 +120,66 @@ def has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
                for row in conn.execute(f"PRAGMA table_info({table})"))
 
 
+_USER_VERSION = re.compile(
+    r"^[ \t]*PRAGMA[ \t]+user_version[ \t]*=[ \t]*(\d+)[ \t]*;",
+    re.MULTILINE | re.IGNORECASE)
+
+#: `declared_schema_version` reads a 55 KB file, and `EngineDatabase()` builds its
+#: plan on every construction -- the suite does that hundreds of times. Keyed on
+#: mtime and size so an EDIT is still seen; a stat is three orders of magnitude
+#: cheaper than the read it replaces.
+_DECLARED: dict[tuple[str, int, int], int] = {}
+
+
+def declared_schema_version(path: Path) -> int:
+    """The version a migration file stamps, read from the file that stamps it.
+
+    THE BASELINE'S NUMBER USED TO BE THE LITERAL `1` IN THREE PLACES: here, in
+    `databases/domain.py` `_engine_plan`, and in `db/engine/schema.sql` itself as
+    `PRAGMA user_version = 1`. Only the third is the one SQLite obeys, and the
+    other two were assertions about it that nothing checked.
+
+    THAT IS NOT A TIDINESS ARGUMENT. `latest_schema_version()` is derived from this
+    number and flows into `storage.py` `health()`, which decides whether a database
+    is too new for this engine to open. Two hardcoded copies of a fact the file
+    declares is the shape where a change to the file leaves the code reporting the
+    old answer confidently -- and the answer it reports is "your warehouse was
+    written by a newer ScrapeX; do not downgrade it".
+
+    EXACTLY ONE is required, and the count is checked rather than the first match
+    taken: seven of the fifteen shipped migrations declare NO version at all and are
+    silently corrected by the runner, so "take the last one you find" would read a
+    number out of a file that never set one.
+    """
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    if key not in _DECLARED:
+        found = _USER_VERSION.findall(path.read_text(encoding="utf-8"))
+        if len(found) != 1:
+            raise ValueError(
+                f"{path.name} declares {len(found)} `PRAGMA user_version = N` "
+                "statements and exactly one is required: every other part of the "
+                "product derives its schema version from it")
+        _DECLARED[key] = int(found[0])
+    return _DECLARED[key]
+
+
 def _migration_files() -> list[tuple[int, Path]]:
-    """Ordered migrations: schema.sql is 0001; db/migrations/NNNN_*.sql follow."""
-    migrations: list[tuple[int, Path]] = [(1, SCHEMA_FILE)]
+    """THE migration plan, and the only builder of it.
+
+    `databases/domain.py` `_engine_plan` wraps this list rather than walking the
+    folder itself, which it used to do. The two builders agreed only by
+    coincidence -- same folder, same pattern, separately written -- and they were
+    not even equivalent: this one RAISES on a file in the migrations folder that
+    does not match `NNNN_name.sql`, and the other silently globbed past it.
+
+    The coincidence was already load-bearing. `tests/conftest.py`
+    `_stream_fingerprint` decides whether a cached migrated database may be reused
+    by resolving THIS function, while the migration that filled that cache ran
+    through the other builder. Two lists, one cache key.
+    """
+    baseline = declared_schema_version(SCHEMA_FILE)
+    migrations: list[tuple[int, Path]] = [(baseline, SCHEMA_FILE)]
     if MIGRATIONS_DIR.is_dir():
         for file in sorted(MIGRATIONS_DIR.iterdir()):
             match = _MIGRATION_NAME.match(file.name)
@@ -131,14 +188,19 @@ def _migration_files() -> list[tuple[int, Path]]:
                     f"migration file {file.name!r} does not match NNNN_name.sql (S6)"
                 )
             number = int(match.group(1))
-            if number == 1:
-                raise ValueError("0001 is reserved for db/schema.sql")
+            if number <= baseline:
+                raise ValueError(
+                    f"migration {file.name!r} is numbered {number}, at or below the "
+                    f"baseline's own declared version {baseline}; "
+                    f"{SCHEMA_FILE.name} already carries everything up to there")
             migrations.append((number, file))
     numbers = [n for n, _ in migrations]
     if numbers != sorted(set(numbers)):
         raise ValueError(f"migration numbers must be unique and ordered, got {numbers}")
-    if numbers != list(range(1, len(numbers) + 1)):
-        raise ValueError(f"migration numbers must be gapless from 1, got {numbers}")
+    if numbers != list(range(baseline, baseline + len(numbers))):
+        raise ValueError(
+            f"migration numbers must be contiguous from the baseline's own declared "
+            f"version {baseline}, got {numbers}")
     return migrations
 
 
