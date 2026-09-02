@@ -248,10 +248,20 @@ def test_the_cross_check_refuses_inside_approve(monkeypatch, capsys):
             candidate=lambda en, ar, *, contractor_id: _Candidate(numbers[contractor_id]),
             groups=(), locate=lambda *a, **k: None, dataset_name="Contractor profiles"),
     )
-    monkeypatch.setattr(contractors, "_pairs", lambda conn, run_ref: {
-        "https://example.test/contractors/1001/143": {"en": (1, "<html></html>")},
-        "https://example.test/contractors/1002/143": {"en": (2, "<html></html>")},
-    })
+    # RECORDS THE `ids` IT WAS HANDED rather than swallowing it. This stub used to
+    # take `(conn, run_ref)` only, so `approve` gaining an `ids` keyword raised
+    # TypeError here -- and the widening that silences that (`**_`) would assert
+    # nothing about the argument. `forwarded` is what the assertion at the end reads.
+    forwarded: list[tuple[str, ...]] = []
+
+    def _stub_pairs(conn, run_ref, *, ids: tuple[str, ...] = ()):
+        forwarded.append(tuple(ids))
+        return {
+            "https://example.test/contractors/1001/143": {"en": (1, "<html></html>")},
+            "https://example.test/contractors/1002/143": {"en": (2, "<html></html>")},
+        }
+
+    monkeypatch.setattr(contractors, "_pairs", _stub_pairs)
     monkeypatch.setattr(contractors, "_contractor_of",
                         lambda key: key.rsplit("/", 2)[-2])
     written: list[str] = []
@@ -272,3 +282,17 @@ def test_the_cross_check_refuses_inside_approve(monkeypatch, capsys):
         "the refusal did not name both numbers, so nobody can check it")
     assert "1 page(s) refused because the profile and the listing disagree" in said, (
         "the mismatch was folded into the ordinary refusals and lost its own count")
+
+    # AND THE `ids` KEYWORD IS FORWARDED, NOT DROPPED. `approve` gained it so a
+    # re-approval can be narrowed to profiles a person named; a version that accepted
+    # the argument and passed nothing on would reapprove all 17,417 rows and read as a
+    # success. The empty tuple above proves the default; the call below proves the pass.
+    assert forwarded == [()], (
+        "the unnarrowed call did not reach the page reader with an empty id set: "
+        + str(forwarded))
+
+    contractors.approve(conn, directory, "run-x", ids=("1001",))
+    capsys.readouterr()
+    assert forwarded[-1] == ("1001",), (
+        "the named id never reached `_pairs`, so narrowing was accepted and ignored: "
+        + str(forwarded))
