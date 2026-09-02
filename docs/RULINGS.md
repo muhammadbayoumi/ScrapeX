@@ -3112,6 +3112,16 @@ file. A rule that needs five documents to state it is a rule nobody can follow.
 
 ## The decision: split the three, and let the architecture answer each
 
+> **BUILT 2026-09-02 — clauses 1 and 2. Clause 3's last step needs `mbiX-hub`.** The
+> engine now stamps `git rev-parse HEAD` into its bundle and reports it, and `Protocol` no
+> longer asks whether the engine has a version. **What is not done is the cut**, and the
+> reason is measured rather than chosen: the `Latest version` row feeds
+> `engineReleaseVerdict`, whose `isOlder(installed, latest.version)` produces the download
+> and install surface. With no engine version the check must compare COMMITS, and the
+> published side of it is `mbiX-hub/ScrapeX/json/version.json` — a manual manifest in
+> another repository. Cutting the rows first would leave him unable to install a new engine.
+> `docs/STATE.md` carries the four steps and which two are behind us.
+
 **1 · IDENTITY IS THE COMMIT, NOT A NUMBER.** The engine reports the SHA it was built from.
 It is free, it cannot be wrong, and it needs no rule — which kills the question *"does this
 pull request deserve a bump?"* outright. That question is the source of every conflict in this

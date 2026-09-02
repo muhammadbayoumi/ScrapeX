@@ -4522,6 +4522,34 @@ def test_the_engine_page_says_not_detected_when_unreachable(open_panel):
     assert text_of(page, "#engine-protocol-row") == "Not available"
 
 
+def test_the_protocol_row_does_not_depend_on_the_engine_having_a_version(open_panel):
+    """`R-77` RETIRES THE ENGINE'S VERSION AND KEEPS ITS PROTOCOL, so one row must not
+    be able to silence the other.
+
+    `engineProtocolText` opened with `const installed = state.engineVersion; if
+    (!installed) return "Not available"` -- so an engine that stated protocol 1 on
+    `/api/health` and carried no version number would have had its Protocol row read
+    *Not available* about a fact it had just supplied. That is not hypothetical: the
+    ruling's third clause is that the engine gets no marketing version at all, and the
+    two version rows on this page are going, so this row's gate had to stop being one of
+    them first.
+
+    The engine here is UP and reports an empty version, which is exactly the state the
+    ruling creates. The row must show the protocol.
+    """
+    page = open_panel(engine_version="")
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    open_engine(page)
+    assert text_of(page, "#engine-protocol-row") == str(PROTOCOL), (
+        "an engine with no version number reported no protocol either, so the two "
+        "facts are still coupled: "
+        + text_of(page, "#engine-protocol-row"))
+
+
 def test_the_engine_status_uses_a_single_live_region(open_panel):
     """Status changes are announced once through a polite live region, and the
     region exposes busy while the engine and release feed are being checked."""

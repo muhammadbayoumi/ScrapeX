@@ -671,6 +671,61 @@ every source to `capture_source` — the price path. The route to follow is the 
 counters are price-shaped. That chain is two kinds today and a third makes it a registry,
 which is what «خلى الشغل dry» asks for. **Until that lands he still cannot press a button;
 what changed is that the engine no longer refuses the run when something does press it.**
+### The engine reports the commit it was built from — 2026-09-02 · branch `fix/the-engine-reports-the-commit-it-was-built-from`, **open**
+
+**`R-77`'s first two clauses, built. The third leaves this repository, and that is why it
+stops here.**
+
+`R-77` split one number into three questions and answered each with an architecture:
+identity is the **commit**, compatibility is a **protocol number**, and the product version
+is the **extension's alone**. Measured against the code, the first was never built and the
+second was coupled to the thing being retired.
+
+**1 · An installed engine reported no commit at all.**
+[`scrapex/provenance.py`](../scrapex/provenance.py)'s `seal()` returned before `HEAD` was
+read whenever the build was frozen — correctly, because a one-file `.exe` carries no
+repository — and **no stamping mechanism existed anywhere in the repository**, so
+`commit` was `None` on every published build and the panel's `Build` row rendered the bare
+words `installed build`. `engineBuildText` has always known how to draw `installed ·
+<sha7>`; the fact was simply never in the bundle.
+
+`packaging/build_engine.py` now writes `build-stamp.json` from `git rev-parse HEAD` and
+bundles it; `provenance` reads it when frozen. **It still answers `None` for every failure**
+— a bundle from before the stamp, a torn file, anything that is not a 40-character hex
+commit — because under `R-77` that string is the engine's identity and a guess there is
+worse than a blank. Eight such cases are asserted, and the honesty test that predates this
+(`a frozen build answers None and never False`) is untouched: **which code this is** and
+**whether newer code exists** are different questions, and only the second is unknowable
+from inside an `.exe`.
+
+**2 · `Protocol` was gated on the version, so retiring the version would have silenced
+it.** `engineProtocolText` opened `const installed = state.engineVersion; if (!installed)
+return "Not available"`, so an engine that had just stated protocol 1 on `/api/health` and
+carried no version would have reported *Not available* about a fact it supplied. It asks
+`state.engineUp` now — whether an engine answered — which is `R-77`'s second clause
+made structural: a compatibility boundary and a release cadence are independent facts.
+
+**3 · THE CUT IS BLOCKED OUTSIDE THIS REPOSITORY, and this is the measurement to put to
+him.** `Latest version` is not a label. It feeds `engineReleaseVerdict`, whose verdicts —
+`Update available`, `Up to date`, `Available to install` — come from
+`isOlder(installed, latest.version)`, and from those verdicts come the download button and
+the install steps. **Remove the engine's version and the comparison loses its own side**, so
+the update check has to become *is the published build's commit mine?*
+
+That needs the published side to carry a commit, and the published side is
+`mbiX-hub/ScrapeX/json/version.json` — `extension/releases.js`'s `VERSION_MANIFEST`, a
+manual manifest **in a different repository, which he publishes**. Nothing here can add a
+field to it. So:
+
+| | |
+|---|---|
+| stamp the SHA at build time | **done, this branch** |
+| un-gate `Protocol` from the version | **done, this branch** |
+| make the update check compare commits | **needs `version.json` to carry the release's commit — his repository** |
+| cut the two rows | after the above, and not before: cutting first removes his only way to install a new engine |
+
+**The decision stands and the order was the wrong part**, which is what `#293` recorded. Two
+of the four steps are now behind us.
 
 ## Track 1 · The Console migration
 
