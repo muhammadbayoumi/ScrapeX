@@ -135,6 +135,7 @@ from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
+from ..sourceresolver import SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
     StorageRefused,
@@ -566,8 +567,16 @@ def create_app(
     # The worker follows the warehouse: a move or a compaction changes
     # app.state.db_path, and a worker still holding the old file would crawl
     # into a database nothing else reads.
+    # `R-78`: THE SCHEDULER RESOLVES A SOURCE THROUGH THE REGISTRY, NOT A FILE.
+    # This is the whole wire. `SourceResolver` answers `.get(key)` for the manifest
+    # first and `source_site` second, and it is duck-compatible with `Manifest` on
+    # purpose -- `jobs.py` takes the manifest as a bare object and calls `.get`, so
+    # passing a resolver here needs NO change to the scheduler and a contractor source
+    # inherits host lanes, cross-job admission, pause/resume and per-source failure
+    # isolation, none of which the CLI path has.
     app.state.runner = JobRunner(
-        str(price_path), lambda: app.state.manifest,
+        str(price_path),
+        lambda: SourceResolver(app.state.manifest, lambda: dbmod.connect(app.state.db_path)),
         path_provider=lambda: app.state.db_path) if start_worker else None
     # Start the worker only after every route has been registered. The final
     # boundary below keeps app construction out of the orphan-resume race.
@@ -3552,10 +3561,18 @@ def create_app(
             source_keys = [source_keys]
         if not source_keys:
             raise HTTPException(status_code=400, detail="source_keys is required")
+        # `R-78`: ASKED OF THE REGISTRY, NOT THE FILE. `muqawil_org` lives in
+        # `source_site` since `0014` and answered 404 here -- `REQ-45`, and the reason
+        # every muqawil crawl to date ran from a terminal. `UnknownSource` subclasses
+        # `LookupError` alongside `KeyError`, so this still fails BEFORE queueing: a key
+        # accepted here and refused inside the run is the delayed failure `R-71`
+        # measured and `OP-92` records.
+        sources = SourceResolver(app.state.manifest,
+                                 lambda: dbmod.connect(app.state.db_path))
         for key in source_keys:  # fail before queueing, not mid-crawl
             try:
-                app.state.manifest.get(key)
-            except KeyError:
+                sources.get(key)
+            except LookupError:
                 raise HTTPException(status_code=404, detail=f"unknown source_key {key!r}")
         try:
             run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value))

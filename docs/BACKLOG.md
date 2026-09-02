@@ -173,8 +173,8 @@ Related and separate: `fields.delete_view` is `DELETE FROM saved_view WHERE save
 ### OP-73 · `POST /api/fields` has no catalogue branch, so hiding a contractor column returns 404
 
 **Found 2026-08-26.** Step 0 of the plan gave `GET /api/fields` a dataset branch
-([scrapex/webui/app.py:2269](../scrapex/webui/app.py#L2269)) and **the POST at
-[:2335](../scrapex/webui/app.py#L2335) never got one.** It runs the price machinery
+([scrapex/webui/app.py:2277](../scrapex/webui/app.py#L2277)) and **the POST at
+[:2335](../scrapex/webui/app.py#L2343) never got one.** It runs the price machinery
 unconditionally, and its seeding is keyed on `BROWSE_COLUMNS`: `wanted = [key for key, _ in
 BROWSE_COLUMNS if key in present or key == body.get("field_key")]`.
 
@@ -182,14 +182,14 @@ BROWSE_COLUMNS if key in present or key == body.get("field_key")]`.
 `company_name`, `contractor_id`, `membership_level` and `company_name_ar` are all absent.
 The comprehension iterates `BROWSE_COLUMNS`, so a contractor key never enters `wanted`,
 `ensure_fields` seeds nothing, `set_visibility` updates zero rows and raises `KeyError`, and
-[:2371](../scrapex/webui/app.py#L2371) turns that into **404**.
+[:2371](../scrapex/webui/app.py#L2379) turns that into **404**.
 
 **Reachable today.** Hiding a column from the grid's three-dot menu is the POST at
 [grid.js:1246](../scrapex/webui/static/grid.js#L1246); the GET that seeds runs only inside
 the Choose-Columns panel builder at
 [grid.js:1205](../scrapex/webui/static/grid.js#L1205). Open the contractors table, hide a
 column from the column menu without opening Choose-Columns → 404. **And the comment at
-[app.py:2340](../scrapex/webui/app.py#L2340) describes this exact failure and says it was
+[app.py:1143](../scrapex/webui/app.py#L1143) describes this exact failure and says it was
 fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
 
 **Nothing tests it:** every `POST /api/fields` test uses a products key, and all four
@@ -200,7 +200,7 @@ fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
 
 ### OP-74 · `list(body["order"])` is unguarded: a 500 one way, a forged «this is your arrangement» the other
 
-**Found 2026-08-26.** [scrapex/webui/app.py:2367](../scrapex/webui/app.py#L2367) is
+**Found 2026-08-26.** [scrapex/webui/app.py:2414](../scrapex/webui/app.py#L2414) is
 `reorder(conn, source_key, list(body["order"]))` with no type check. Two failure modes,
 traced through [scrapex/fields.py:153](../scrapex/fields.py#L153):
 
@@ -223,10 +223,10 @@ and an unknown key.**
 ### OP-75 · `GET /api/fields` writes and commits on both branches, outside the write lock every `POST` pays for
 
 **Found 2026-08-26.** The GET commits at
-[app.py:2240](../scrapex/webui/app.py#L2240) — the dataset branch, seeding from the schema —
-and at [app.py:2291](../scrapex/webui/app.py#L2291) on the price branch. A grep over the
+[app.py:2248](../scrapex/webui/app.py#L2248) — the dataset branch, seeding from the schema —
+and at [app.py:2299](../scrapex/webui/app.py#L2299) on the price branch. A grep over the
 whole `api_fields` region finds **two `conn.commit()` and zero `write_lock`**, while every
-`POST` goes through `_write` ([app.py:2178](../scrapex/webui/app.py#L2178)), which takes the
+`POST` goes through `_write` ([app.py:2186](../scrapex/webui/app.py#L2186)), which takes the
 lock for the reason it states: *"A crawl in progress holds that lock."*
 
 **The write-on-GET is deliberate, documented and tested** — that is not the finding. The
@@ -316,7 +316,7 @@ second surface.
 **Found 2026-08-26.** Zero hits for `cache-control|etag|last-modified|max-age` across
 `webui/app.py`, `reports.py`, `extract/service.py` and `fields.py`, and zero for
 `lru_cache|functools.cache|@cache` across **all** of `scrapex/`. None of the three registered
-middlewares ([app.py:565](../scrapex/webui/app.py#L565)) adds a header. Every open of a data
+middlewares ([app.py:573](../scrapex/webui/app.py#L573)) adds a header. Every open of a data
 tab recomputes the whole payload, measured at 24.26 MB over 17,304 rows for `contractors`.
 
 **Recorded as a characteristic rather than a defect to fix, and he ruled against caching
@@ -530,8 +530,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1717` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2787` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1726` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2796` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -539,7 +539,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2787`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2796`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -2125,7 +2125,7 @@ Two do not, and neither failure has anything to do with datasets:
 | **Recent changes** | `/source/{key}#changes` | the page renders, and **`id="changes"` exists nowhere in the repository** — `grep -rn 'id="changes"' scrapex/ extension/` returns nothing. The fragment is ignored, so the entry lands at the top of the source page |
 
 **The changes page it should be opening already exists**: `GET /changes?source_key=`
-is a real route (`scrapex/webui/app.py:1294`, re-derived at `31c369e`; #257 moved
+is a real route (`scrapex/webui/app.py:1302`, re-derived at `31c369e`; #257 moved
 it from 1223) and answers 200. So this is a wrong
 URL rather than a missing feature — one line, but it changes what a card does on
 his screen, which is why it was recorded instead of fixed inside a PR about the
@@ -2211,8 +2211,8 @@ diagnosis:** every step the engine announced succeeded, and then it could not re
 |---|---|---|
 | `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:20](../scrapex/databases/domain.py#L20) | **yes** |
 | `sources.yaml` | [scrapex/config.py:55](../scrapex/config.py#L55) | **yes** |
-| `scrapex/webui/templates` | [scrapex/webui/app.py:294](../scrapex/webui/app.py#L294), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
-| `scrapex/webui/static` | [scrapex/webui/app.py:364](../scrapex/webui/app.py#L364) | **no** |
+| `scrapex/webui/templates` | [scrapex/webui/app.py:302](../scrapex/webui/app.py#L302), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
+| `scrapex/webui/static` | [scrapex/webui/app.py:372](../scrapex/webui/app.py#L372) | **no** |
 | `apps_script/StagingAppScript.txt` | [scrapex/outputs.py:214](../scrapex/outputs.py#L214) | **no** |
 
 **Only one of the three missing ones crashes, and that is the luck in it.**
@@ -3532,7 +3532,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 * **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
   Only Drive was pruned (`extension/drive.js:65`, `KEEP = 3`).
 * **A killed engine leaks its staging tree.** The `rmtree` is in a `finally`
-  ([scrapex/webui/app.py:3038](../scrapex/webui/app.py#L3038)), so a process that dies
+  ([scrapex/webui/app.py:3046](../scrapex/webui/app.py#L3046)), so a process that dies
   skips it and leaves the bundle expanded — 1.5 GB. This, not a second build, is what
   actually survives a crash: the build is a thread inside the engine and cannot outlive it.
 
@@ -3551,7 +3551,7 @@ two files of one backup cannot be split; and an age-guarded sweep
 ([scrapex/native.py:297](../scrapex/native.py#L297)), and a crashed build leaves no
 survivor to race. An engine started by hand on another port would share the folder and
 defeat it; that is why the sweep keeps a 6-hour age guard
-([scrapex/webui/app.py:2903](../scrapex/webui/app.py#L2903)) rather than deleting any
+([scrapex/webui/app.py:2911](../scrapex/webui/app.py#L2911)) rather than deleting any
 staging tree it finds.
 
 **Two things this measurement exposed that belong to other tracks.**
@@ -3940,7 +3940,7 @@ local disk, so nothing was lost — but nothing on either side said so.
 2. **`zipfile.ZipFile(archive, "w")` created the file under its FINAL name immediately**,
    at zero bytes, and filled it over the ~33 s of the deflate.
 3. **`GET /api/bundle/archive` answers with the newest `.zip` by mtime**
-   ([scrapex/webui/app.py:2923](../scrapex/webui/app.py#L2923)), so it handed the panel the
+   ([scrapex/webui/app.py:2932](../scrapex/webui/app.py#L2932)), so it handed the panel the
    second build's empty, in-progress file.
 4. **Nothing compared what arrived with what the engine had described.** The pointer took
    `bytes` from the uploaded blob (0) and `sha256` from the manifest of the *complete*
@@ -4002,7 +4002,7 @@ after:   reports pending = [13, 14, 16]
 
 **`0014` is `one_source_registry`** — the merge of `site_profile` into `source_site`. A
 warehouse that never received it cannot resolve a dataset source at all, and the banner
-([scrapex/webui/app.py:1610](../scrapex/webui/app.py#L1610)) told its owner nothing was
+([scrapex/webui/app.py:1618](../scrapex/webui/app.py#L1618)) told its owner nothing was
 pending. That is the exact silence `pending_migrations`' own docstring says it exists to
 break: *"nothing said 'the database is one migration behind'; the product simply broke and
 the raw SQLite text was the only clue."*
@@ -4092,6 +4092,48 @@ out, and why.
 are indistinguishable to a scanner. Four instances in two days. **The scanner cannot see intent
 and should not try** — one that guessed would be worse — so this is a constraint on how the
 prose beside a guard is written, not a defect to fix in the tool.
+
+### OP-118 · A registry source's `crawl_scope` has no door — not in the panel, not in the API
+
+**Found 2026-08-30 while running his listing crawl on his behalf, and it stopped the crawl.**
+
+`crawl_partition` refuses any scope that is not `listing_only`, and refuses rather than
+narrowing -- correctly, because under `full_then_listing` it would fetch a detail page for
+every listing row and turn a run priced at **~1,982 requests into ~40,000**. Measured today
+against the live directory: 56 cells, 906 pages, `2.65 s` a request, **~1.5 h** at the
+registered listing scope.
+
+**`muqawil_org` is registered `full_then_listing`, so the crawl he asked for cannot start.**
+
+**AND NOTHING CAN CHANGE IT EXCEPT A DIRECT DATABASE WRITE.** Searched before concluding:
+`/api/sources/{key}/edit`, `/api/sources/{key}/active`, `/api/sources` and
+`/api/sources/{key}/rename` all operate on the MANIFEST (`sources.yaml`), not on
+`source_site`. **No route, no native command and no panel control reads or writes
+`source_site.crawl_scope`.**
+
+**SO IT IS `REQ-45`'S OWN SHAPE, ONE LEVEL DOWN.** `R-45` gives him the crawl button; a
+button that can only ever run one scope, on a value nobody can see or set, is half a
+control. `R-81` is the rule it breaks: *if it has no control in the panel it does not exist
+for the one person the tool is for.*
+
+**AND THE VALUE CHANGED UNDER A RULING WITHOUT ANYONE NOTICING.**
+[R-39](RULINGS.md#r-39--muqawil-is-registered-listing_plus_slice-and-one-city-is-crawled-before-eleven-hours-are-spent)
+registered muqawil as `listing_plus_slice` on 2026-08-25. It reads `full_then_listing`
+today. **No migration in `db/engine/migrations/` mentions either string** -- checked -- so it
+moved as data, most likely carried from `site_profile` by `0014`'s registry merge. A ruling
+about a source's scope, and the scope silently not what the ruling says, with nothing that
+compares the two.
+
+**Three things this wants, and the first is the cheap one:**
+
+1. **A read.** The panel shows a source's scope. Today nobody can see it without opening
+   the database, which is why a four-day-old ruling and the live value could disagree.
+2. **A write, through the extension** -- `R-48`, and the thing that would have let him start
+   his own crawl this afternoon instead of asking a session to.
+3. **A guard that a ruling's registered value still holds**, which is the general form and
+   the one that would have caught this in August rather than today.
+
+---
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was

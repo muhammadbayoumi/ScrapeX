@@ -685,7 +685,7 @@ data entries and the runtime opens five.
     --add-data db;db
     --add-data sources.yaml;.
 
-Nothing else rode along. `scrapex/webui/app.py:364` computes
+Nothing else rode along. `scrapex/webui/app.py:372` computes
 `Path(__file__).parent / "static"`, which in a one-file build is
 `_MEIPASS/scrapex/webui/static` — exactly the path in the owner's error —
 `StaticFiles(check_dir=True)` refuses to mount a directory that is not there, and
@@ -2197,7 +2197,7 @@ So, when a register id changes:
    fooled by wording.
 
 **And the same shape applies to line numbers, which this branch also carried three
-times.** `app.py:2710` → `2725` → `2787` in one day: `#252` measured it correctly on
+times.** `app.py:2718` → `2725` → `2787` in one day: `#252` measured it correctly on
 its own base, `#251` had already moved the symbol, and `main` went red between the two
 merges with no conflict for git to find, because no file was changed by both. Re-read
 the number out of the file at the new base on every rebase. Never adjust it by
@@ -2379,7 +2379,7 @@ which base is the whole discipline, so this line moves whenever the table is re-
 
 | # | the artefact | the base it outlived | what caught it |
 |---|---|---|---|
-| 1 | a `PINNED` citation, `app.py:2710` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
+| 1 | a `PINNED` citation, `app.py:2718` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
 | 2 | a `RESERVED` register row | the branch it named moved off the number | a session **asking who held 44** |
 | 3 | `docs/STATE.md`'s own opening line | five bases in one afternoon | the line correcting itself, again |
 | 4 | three docstring citations of a deleted test (§13, `#259`) | the test died ten days after it was written | a session **asking what else is unguarded** |
@@ -2417,7 +2417,7 @@ only that the line exists, so the guard passes it and the reader lands nowhere. 
 a remap script run over these documents will helpfully renumber it on the next edit,
 which is how a historical fact quietly becomes a false present-tense one. It happened
 here: a first draft of this entry carried that span, an automated re-derivation moved
-it, and it also moved `app.py:2710` in §12 — corrupting the very sentence whose
+it, and it also moved `app.py:2718` in §12 — corrupting the very sentence whose
 subject is that 2710 became 2725 and then 2787. **A historical line number is written
 in prose — "line 650 of that commit" — never in the shape that means "current",** and
 `git show <commit>:<path>` is how a reader gets there. This is the third time an entry
@@ -3296,7 +3296,7 @@ Related: section 21's rule about re-deriving citations after an insertion is the
 discipline applied to line numbers rather than to counts, and `OP-97` is the same failure
 applied to a file LIST — a census scoped to 9 stylesheets when there were 19.
 
-## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found six times in a day
+## 29 · Deleting a ruling rewrites the sentences that talk ABOUT it, and one blind spot was found seven times in a day
 
 `R-77` deleted five rulings and every live citation of them was repointed mechanically.
 That is the right operation for a link. **It is the wrong operation for a sentence that
@@ -3347,18 +3347,38 @@ indistinguishable from a green that earned it, and no count anywhere would diffe
 device half was found by the design-review session while building `R-79`; those words are its
 own.)
 
-**Two of the first five is a rate, not an anecdote** (the sixth below could fail, at any mismatch but zero, so it is not in that count)**.** "It rotted" is the comfortable reading because it
-implies the guard was once correct and time did the damage. **Forty per cent of these were
-never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
+**Two of the first six were BORN rotten -- the `forEach` assertion and the `device` reader -- and that is a rate rather than an anecdote.** (The `pointer.bytes` row is the exception in both directions: it CAN fail, at any mismatch but zero, so it neither rotted nor was born rotten. The seventh is a different kind again and is discussed below.) "It rotted" is the comfortable reading because it
+implies the guard was once correct and time did the damage. **A third of these were never correct** -- which means a reviewer should ask *"could this ever have failed?"* as a
 matter of course, not only when a guard looks stale.
 
-**None of the five is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
+**AND THERE IS A NINTH SHAPE THAT NO GUARD COULD HAVE CAUGHT, which is why it is recorded
+here rather than as a defect in one.** Twice on 2026-08-30 a mechanism was found still
+running against a boundary that had been DELETED:
+
+    _MARKETLENS_LEGACY_NUMBERS   filtered pending migrations against a second stream
+                                 `R-72` retired -- hiding `0013` and `0014` (`OP-115`)
+    POST /api/jobs               validated a source against `sources.yaml` after `0014`
+                                 moved the registry into `source_site` (`REQ-45`)
+
+**A guard needs two things to compare, and in both cases one of them stopped existing.** The
+filter did not disagree with anything; the second stream was simply gone and nothing pointed
+at the filter afterwards. `#285` was a net deletion of 4,106 lines that found three defects
+the duplication had been hiding, and **these are the fourth and fifth -- they survived the
+deletion rather than being exposed by it.**
+
+**So the rule is about deletions, not about guards.** When a system is removed, the things
+SHAPED by it outlive it and are harder to find than it was, because the thing that would have
+named them is what went away. **The only method that works is a person going looking** --
+which is how both of these were found, by two sessions, on the day after the deletion.
+
+**None of the first six is a defect in the guard's logic.** Each is a guard whose SUBJECT stopped
 being what it was written for, and none of them can say so. `LESSONS` §7 is the older half of
 this and §21 is the citation half; what 2026-08-30 added is that **it is not rare**. The test
 that finds them is the one §18 already states: *if the thing it protects were broken right
 now, would this fail?* -- asked of the guard's SUBJECT and not of its assertion.
 
 | Drive incident | `if (pointer.bytes && archive.size !== pointer.bytes)` | **nothing, at the only value that matters.** `0 &&` is falsy, so the comparison never ran and a 0-byte backup passed as good |
+| design review | **a full suite run to completion, exit 0** | **the tree it STARTED on, not the branch it was reported for** -- a checkout during the run swapped the subject |
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 

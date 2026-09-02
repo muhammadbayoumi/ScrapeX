@@ -98,9 +98,10 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-41](#req-41--the-two-crawls-disagree-so-the-code-must-reconcile-them-itself) | The two crawls disagree, so the code must reconcile them itself — fetch or approve whichever side is short | **Ruled** — 2026-08-27 as [R-68](RULINGS.md#r-68--the-two-crawls-reconcile-themselves-at-the-end-of-every-crawl-in-both-directions): automatic at the end of every crawl, **both directions**. He refused the free-side-only split — his words name the fetch twice, and a command is the session doing it. 148 need zero network; the fetching side is bounded and reported inside the crawl's own report | 2026-08-23 |
 | [REQ-42](#req-42--a-contractor-the-site-withdrew-is-entered-with-what-we-know-and-a-state-that-says-so) | A contractor the site withdrew is entered with what we know and a state that says so | **Captured** — measured: all **202** with no *active* profile row DO have their listing card, 24 fields each, and 0 have nothing. **Two counts, and which one is meant has to be said**: 188 have no profile row AT ALL, and 202 have none that is `active` — the difference is the 14 rows `--impostors --repair` retired. `203` was written here on 2026-08-23 against the same definition as the 202; one contractor gained a profile in the `gap-2026-08-23` run. The state must separate 'the site withdrew it' from 'we never fetched it' from 'we wrote it wrong' | 2026-08-23 |
 | [REQ-44](#req-44--the-state-gets-its-own-column-and-the-user-never-infers-it) | The state gets its own column, and the user never infers it | **Done** — ruled as `R-27` and built the same day (#235 + migration 0006), and the column it asked for now lies: `OP-68` measures it reporting 17,256 of 17,304 contractors as gone after a crawl that read every one | 2026-08-21 |
-| [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Ruled** — [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) settles the shape: **the scheduler resolves a source through `source_site`, and the button falls out of that.** `POST /api/jobs` validates against `sources.yaml`, and `scrapex/jobs.py` has zero references to any contractor module, so opening the route alone would turn a clear 404 into a job that fails mid-run (`OP-92`). Not started | 2026-08-26 |
+| [REQ-45](#req-45--the-crawl-button-does-not-work-for-muqawil) | The crawl button does not work for muqawil | **Ruled** — **and it is the HEAD of the muqawil queue** since `R-81`, because he never uses a terminal, so every remaining muqawil step passes through a control he does not have. [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code) settles the shape: **the scheduler resolves a source through `source_site`, and the button falls out of that.** `POST /api/jobs` validates against `sources.yaml`, and `scrapex/jobs.py` has zero references to any contractor module, so opening the route alone would turn a clear 404 into a job that fails mid-run (`OP-92`). Not started | 2026-08-26 |
 | [REQ-48](#req-48--a-supabase-appearance-that-is-a-whole-design-system-and-the-default) | A `supabase` appearance that is a whole design system, not a palette — and the default | **In flight** — ruled 2026-08-28 as [R-73](RULINGS.md#r-73--an-appearance-is-a-whole-design-system-and-supabase-is-the-default-one) (the ruling *was* the plan), built on `feat/the-supabase-appearance-is-a-design-system`, no PR yet. Measured before a line was written: the appearance engine carries **36 theme properties and every one is a colour**, so "a design system" needs an axis that does not exist; and `DEFAULTS.palette` is **unreachable for a fresh user** because `deviceColors` defaults to `true`, so `github` has never been the default anybody saw. He chose the deepest scope (tokens **and** component rules), the `supabase` spelling, and clearing the `R-59` conflict; the `deviceColors` flip is **open** pending numbers he asked for. Closes [OP-82](BACKLOG.md) | 2026-08-28 |
 | [REQ-49](#req-49--review-the-design-system-against-supabases) | Review the design system against Supabase's | **In flight** — measured 2026-08-29; he set the scope first («اولا تحديد كل محاور المراجعة»), then pointed at the SOURCE rather than the site, then chose six axes of twenty-six («ابدأ بالستة»). `R-74` **holds in the built product** (8 states x 118 properties in Chromium 149: 62 move, all colour) **and is guarded by almost nothing** — mutation put the type scale into a palette with 91 static and 218 browser guards green. `device` does not reach the user in dark. 21 findings were refuted by the verify pass. Filed as [OP-101](BACKLOG.md)–[OP-110](BACKLOG.md); **twelve decisions open, all his** | 2026-08-29 |
+| [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 
 ---
 
@@ -2414,7 +2415,7 @@ because it is believed.
 ---
 
 ## REQ-45 · The crawl button does not work for muqawil
-**Captured 2026-08-26 · root cause proven · Ruled 2026-08-30 as `R-78`, and the shape it settles is not a button**
+**Captured 2026-08-26 · root cause proven · Ruled 2026-08-30 — `R-78` settles the shape, `R-81` moves it to the HEAD of the muqawil queue**
 
 > **Ruled 2026-08-30 as [R-78](RULINGS.md#r-78--the-scheduler-reads-the-registry-not-a-file-and-a-new-source-needs-no-new-code).** He asked why the price crawl and this one take
 > different paths, and the measurement said they do not: the fetch layer is one
@@ -2422,6 +2423,15 @@ because it is believed.
 > sources from a FILE while the registry is a database. **So the work is not a button.**
 > It is the scheduler resolving through `source_site` -- after which this request, and
 > the door for `jobs` and `tenders`, are one piece of work rather than three.
+>
+> **AND ON 2026-08-30 IT BECAME THE FIRST THING, not the enabling one.** He said he never
+> uses a terminal -- «انا لا استخدم terminal نهائى انا فقط استخدم الواجهة من خلال extension»
+> ([R-81](RULINGS.md#r-81--a-command-line-answer-is-not-an-answer-the-panel-is-the-only-door)). **So this is not the request that unblocks the others; it is the request
+> without which none of them can be USED.** `R-56`'s listing crawl, the profile parser and
+> `R-68`'s reconciliation all pass through a control he does not have.
+>
+> **And `R-56` was mis-filed against him because of it.** Ruled 2026-08-26, priced at 58
+> minutes, and listed ever since as awaiting the owner. **He was never the blocker.**
 
 > «مشكلة زر الزحف لا يعمل مع موقع مقاول»
 
@@ -2431,9 +2441,9 @@ reason is four links long, every one measured on the live engine rather than arg
 | link | evidence |
 |---|---|
 | 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4064` |
-| 2 | that route validates the key against `app.state.manifest` — `scrapex/webui/app.py:3513-3517`, whose own comment reads *"fail before queueing, not mid-crawl"* (re-derived twice by the quoted comment rather than the number: `GET /api/dry/{source_key}` moved it 43 lines in #274, and the bundle-build lock moved it again here. It was 27 lines stale before that second move — Tier 1 only asks that a cited line exist, and a stale line that is not blank still exists) |
-| 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** muqawil lives in `site_profile`, not `source_site` |
-| 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` |
+| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3570`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, and moved a fourth time when `#302` landed 7,242 insertions. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
+| 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** **This row was true when written and half of it is not now**: `0014` merged `site_profile` into `source_site` on 2026-08-29, which is what made a resolver possible rather than a third registry |
+| 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` — **and this turned out to be the DESIGN rather than the defect.** It asks a source for three things and none is price-specific, so the fix was a resolver and `jobs.py` is unchanged. **What remains is the collector**: the route now queues `muqawil_org`, and the worker still hands it to `capture_source` |
 
 **Confirmed against the running engine:**
 
@@ -2694,3 +2704,53 @@ registers and one review. Every defect is filed rather than fixed, per **C1** �
 twelve above are open because each one either grows `THEME_PROPERTIES`, changes what a
 shipped colour choice paints, or creates a shared module, and `R-59` decision 4, `OP-46`
 and `LESSONS` section 5 all put those with him.
+
+---
+
+## REQ-51 · `jobs.py` is the scheduler and should be named for what it does
+**Captured 2026-08-30 · Ruled 2026-08-30 · he approved the recommendation and the split**
+
+> «لو jobs مختصة فقط فى المنتجات غير اسمها» · «اوافق على توصيتك»
+
+**HIS PREMISE WAS HALF RIGHT AND THE OTHER HALF IS SHARPER.** Measured on `scrapex/jobs.py`
+before answering:
+
+    unit_charter  0      price_observation  0      tax_rule  0
+    "currency"   10  --  every one of them is the word "concurrency"
+    "connector"   7  --  one exception import and six comments
+    price coupling: TWO lines, `from .ingest import canary_breach, previous_rows_seen`
+                    and a local `from .ingest import last_successful_run`
+
+**So it is not a products module.** It is a general scheduler -- the queue, the politeness
+lanes, the cross-job admission, pause and resume, archive-before-rebuild, per-source failure
+isolation, the counters -- and `R-78`'s whole point is that those seven mechanisms exist once
+and every category should inherit them.
+
+**The real defect is the opposite of the one he suspected: a CATEGORY NAME was given to the
+module that schedules ALL categories.** `jobs` is one of his four (`products`, `contractors`,
+`jobs`, `tenders`), so the day that category is built, `scrapex/jobs.py` means two things.
+
+**BOTH ENDS OF THE COLLISION ARE BEING FIXED, and they are independent rather than redundant.**
+He asked for the `CLAUDE.md` change first and approved the module rename after:
+
+| | | why it stands on its own |
+|---|---|---|
+| the category `jobs` → **`vacancies`** | done, `CLAUDE.md` | one line, unbuilt category, and `vacancies` says what it collects |
+| `scrapex/jobs.py` → **`scrapex/worker.py`** | this request | the module should be named for what it does whether or not a category ever claimed the word |
+
+> **NOT `scheduler.py`, and finding out cost nothing because the import failed loudly.**
+> That was the name recommended and approved, and `scrapex/scheduler.py` ALREADY EXISTS --
+> local-runtime slot scheduling, `missed_run_policy`, the thing that fires a crawl at a
+> time. `jobs.py` is what EXECUTES one: the queue, the lanes, the admission gate,
+> `JobRunner`. Two different jobs, and `worker.py` is the free and accurate name.
+> Discovered on 2026-08-30 while wiring `REQ-45`, by reading the import block rather than
+> by the rename failing later.
+
+**`crawl_job`, `job_kind`, `job_ref` and `job_id` STAY.** Renaming the table is a migration
+and the citations that name it are many; the gain is linguistic and the risk is not.
+
+**AND IT IS ITS OWN REQUEST BECAUSE IT MUST NOT RIDE WITH `REQ-45`.** 46 references across 12
+files, changing no behaviour, landing beside the crawl button -- which changes behaviour and
+must be reviewable. That is `OP-18`'s lesson: a diff large enough to hide a real one is a diff
+nobody can review, and a mutation that fails inside it cannot be attributed.
+

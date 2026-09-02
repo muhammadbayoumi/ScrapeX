@@ -282,9 +282,12 @@ citation (`LESSONS.md` §7), and it costs nothing.
 **It is also the one thing `PINNED` structurally cannot express.** A `PINNED` row proves
 a symbol sits on a line; it never proves the *document's claim* about that line. So a
 paragraph can be pinned, green, and wrong about what it cites. Measured the same day: an
-entry that quoted *"a generic dataset is a table like any other table"* beside
-`scrapex/webui/app.py:1048` survived two rebases which moved that line twice — the quoted
-fragment, not the number, is what made it recoverable.
+entry that quoted *"a generic dataset is a table like any other table"* beside a line of
+`scrapex/webui/app.py` survived two rebases which moved it twice — the quoted fragment,
+not the number, is what made it recoverable. **The number is deliberately not written
+here**: it is being recounted, not offered as a destination, and in `file:line` form the
+guard cannot tell the two apart — which is how this very sentence broke a third time when
+`#302` moved the line again.
 
 ---
 
