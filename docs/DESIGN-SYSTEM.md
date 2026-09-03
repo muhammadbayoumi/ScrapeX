@@ -63,15 +63,30 @@ python tools/sync_design_assets.py --check
 2. **Shared behavior is a component concern.** Hover, active, focus-visible,
    invalid, and disabled states live in `components.css`. A page stylesheet
    should normally contain layout only.
-3. **Theme-aware by default.** Light, dark, increased-contrast, reduced-motion,
-   forced-colour, touch, and keyboard states are part of the core system.
+3. **Theme-aware by default, and three of these are ADDITIONS above the
+   baseline.** Light, dark, increased-contrast, reduced-motion, forced-colour,
+   touch and keyboard states are all part of the core system here — and Supabase
+   publishes **no** `forced-colors` block, **no** `prefers-contrast`
+   accommodation and only three `prefers-reduced-motion` rules, none of them
+   global. Light and dark are theirs; the rest are this repository's own, kept
+   deliberately under `R-85` rather than removed by it, and they need a recorded
+   rationale rather than a fix.
 4. **English chrome, any-language data.** Scraped values use `.content`,
    `.name`, or `dir="auto"` so bidirectional text is isolated correctly.
 5. **Use native semantics first.** Real buttons, links, labels, fieldsets,
    tables, tabs, and dialogs are preferred; ARIA augments them only where the
    native element cannot express the interaction.
-6. **One icon source.** Reuse a symbol from the Material sprite instead of
-   embedding an SVG path or drawing a replacement.
+6. **One icon source, and it is a DECLARED DEPARTURE from Supabase.** Reuse a
+   symbol from the Material sprite instead of embedding an SVG path or drawing a
+   replacement. **Supabase's set is Lucide** — size 24, `strokeWidth` 1.5,
+   `stroke: currentColor`, `fill: none` — and this repository ships filled Google
+   Material: 50 symbols, 37 referenced, 173 call sites. He recorded the difference
+   rather than migrating it («سجلها خروجا معلنا», 2026-09-02) because
+   [R-85](RULINGS.md#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice)
+   §4a is «القيم فقط» and an icon set is not a colour value; §6 carries the cost, and
+   `design/supabase.NOTICE.txt` carries it where Apache-2.0 §4(b) wants it. **This
+   line used to read as a house rule, which is how a divergence stops looking like
+   one.**
 
 ## Token groups
 
@@ -79,7 +94,7 @@ python tools/sync_design_assets.py --check
 |---|---|
 | Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
-| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` — **40px and 32px, from the baseline.** The panel raised them to 48/40 until `R-85` §5 deleted that override; `--touch-target` survives for the 24 places that size an element for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
 | Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
 | Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |

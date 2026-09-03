@@ -3871,7 +3871,36 @@ changed; its two values did.
 keeps **24 explicit reads** in `extension/app.css` where a specific element is sized for
 touch deliberately. What went is the blanket raise of every control.
 
-#### 6 · Three departures this ruling would revert, and one that was never a departure
+#### 6 · The icon set is a DECLARED DEPARTURE, not an oversight
+
+**«سجلها خروجا معلنا» — 2026-09-02.** Asked whether to migrate the icons or record the
+difference, he chose to record it.
+
+Supabase mandates **Lucide** as its sole set, at size 24, `strokeWidth` 1.5,
+`stroke: currentColor`, `fill: none`, with the stroke width on the root `<svg>` only. This
+repository ships a curated **Google Material** sprite: **50 symbols, 37 of them actually
+referenced, across 173 call sites.**
+
+**WHY IT IS RECORDED RATHER THAN MIGRATED, and the reason is this ruling's own scope.** §4a
+answered «القيم فقط» — the VALUE layer. **An icon set is not a colour value.** Migrating it
+is a different order of work from restoring four hexes: 37 symbols to map, of which an unknown
+number have no Lucide equivalent, 173 sites to edit, a stroke-versus-fill change to every
+icon's rendering, and **three copies of the Apache-2.0 notice that this repository currently
+discharges would fall with the sprite** — `design/material-icons.LICENSE.txt` and its two
+distributed copies, 11,558 bytes each, guarded by
+`test_material_icons_keep_their_license`.
+
+**SO THE DEPARTURE IS NAMED HERE AND IN `design/supabase.NOTICE.txt`'s statement of
+changes**, which is where Apache-2.0 §4(b) requires a change to be stated. It is the sixth
+entry in that statement and the only one that is not a colour.
+
+**And `docs/DESIGN-SYSTEM.md`'s principle 6 is corrected to say so.** It read *"One icon
+source. Reuse a symbol from the Material sprite"* as though the choice were settled by this
+repository alone; it now records that Supabase's set is Lucide and that Material is a
+departure with its cost written down. **A principle that states a divergence as a house rule
+is how the next session concludes there is nothing to decide.**
+
+#### 7 · Three departures this ruling would revert, and one that was never a departure
 
 Measuring the ruling found the record of the departures itself partly wrong, and the
 correction stands whatever he answers.

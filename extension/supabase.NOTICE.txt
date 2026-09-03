@@ -131,6 +131,25 @@ change is recorded at the value in that file; this is the summary.
      block, a prefers-contrast accommodation, and a bidirectional-text contract
      are this product's own. Supabase publishes none of them.
 
+  6. THE ICON SET IS THEIRS IN NAME ONLY, AND THIS IS THE ONE CHANGE HERE THAT IS
+     NOT A COLOUR. Supabase mandates Lucide at size 24, strokeWidth 1.5, stroke
+     currentColor and fill none. This product ships a curated Google Material
+     sprite instead: 50 symbols, 37 of them referenced, across 173 call sites,
+     filled rather than stroked. The owner recorded the difference rather than
+     migrating it, on 2026-09-02, because the ruling that adopts their system
+     adopts its VALUES and an icon set is not a value. The Material sprite carries
+     its own Apache-2.0 notice in three places in this repository, and that notice
+     is separate from this one.
+
+  7. THE BIDIRECTIONAL CONTRACT IS EXEMPT BY RULING, NOT BY OVERSIGHT. Their
+     system is authored left-to-right: 268 physical directional properties against
+     6 logical across 351 files, no rtl variants, no direction provider, and no
+     mention of bidirectional text in any of their 105 documentation files. Half
+     of this product's collected data is Arabic, so on that axis there is nothing
+     of theirs to copy and matching them could only mean deleting what exists
+     here. 190 logical properties, 22 bidi-control declarations and an Arabic face
+     in both font stacks are kept deliberately.
+
 
 WHAT IS NOT COVERED BY THIS NOTICE
 
