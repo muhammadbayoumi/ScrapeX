@@ -1278,6 +1278,29 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("native-host",
                        help="serve the Chrome Native Messaging bridge on stdio (Chrome starts this)")
     p.add_argument("--db", help="harvest.db path")
+    # CHROME PASSES ARGUMENTS AND THIS COMMAND REFUSED THEM, so the bridge could
+    # never start. Chrome launches a native messaging host with the calling
+    # extension's origin as a positional argument -- and on Windows also
+    # `--parent-window=<handle>` -- neither of which this parser accepted.
+    #
+    # MEASURED 2026-09-03 by launching it exactly as Chrome does:
+    #
+    #     scrapex: error: unrecognized arguments:
+    #       chrome-extension://ekcgggphcfdbjgfkcmjagehfjhijeang/
+    #     exit: 2
+    #
+    # `argparse` exited before the host read one byte of stdin, so EVERY launch
+    # died instantly and the panel reported "Native helper unavailable" and fell
+    # back to HTTP. The registration was never the problem: the manifest, the
+    # registry pointer under HKCU and the `.bat` were all correct and verified.
+    #
+    # ACCEPTED AND IGNORED, not parsed. The origin is not how the host decides who
+    # may talk to it -- `allowed_origins` in the manifest is, and Chrome enforces
+    # that before the process starts. Reading it here would invite a second,
+    # weaker check in a place that cannot be trusted with one.
+    p.add_argument("chrome_argv", nargs="*",
+                   help=argparse.SUPPRESS)
+    p.add_argument("--parent-window", default=None, help=argparse.SUPPRESS)
     p.set_defaults(func=_cmd_native_host)
 
     p = sub.add_parser("install-native-host",
@@ -1305,9 +1328,32 @@ def _force_utf8_output() -> None:
             pass  # already UTF-8, or a stream that can't be reconfigured
 
 
+#: The one subcommand whose caller is a program rather than a person, and whose
+#: caller's argument list is not this project's to agree with.
+#:
+#: Chrome launches a native messaging host with the calling extension's origin as a
+#: positional argument and, on Windows, `--parent-window=<handle>`. It has added
+#: arguments before and will again, and the host is not free to refuse: it is
+#: started BY Chrome, so an argument it does not recognise is not a user error to
+#: report, it is a launch to survive. Measured 2026-09-03 — before this, every
+#: launch exited 2 with a usage message before reading one byte of stdin, and the
+#: panel showed "Native helper unavailable" for as long as the bridge had existed.
+#:
+#: EVERY OTHER SUBCOMMAND STAYS STRICT. A person who mistypes a flag on `scrapex
+#: crawl` must be told, and losing that is a worse trade than this tolerance is
+#: worth. So the leftovers are accepted for this command only, and named in the
+#: reason rather than swallowed everywhere.
+_TOLERATES_UNKNOWN_ARGUMENTS = frozenset({"native-host"})
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_output()
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args, unknown = parser.parse_known_args(argv)
+    if unknown and getattr(args, "command", None) not in _TOLERATES_UNKNOWN_ARGUMENTS:
+        # `parse_args` would have exited 2 here, and it still should: this restores
+        # the strictness for every command a PERSON types.
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
     try:
         return args.func(args)
     except Exception as exc:
