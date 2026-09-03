@@ -2204,7 +2204,7 @@ So, when a register id changes:
    fooled by wording.
 
 **And the same shape applies to line numbers, which this branch also carried three
-times.** `app.py:2718` → `2725` → `2787` in one day: `#252` measured it correctly on
+times.** `app.py` line 2718 → `2725` → `2787` in one day: `#252` measured it correctly on
 its own base, `#251` had already moved the symbol, and `main` went red between the two
 merges with no conflict for git to find, because no file was changed by both. Re-read
 the number out of the file at the new base on every rebase. Never adjust it by
@@ -2236,7 +2236,7 @@ when — especially when — it is only the connective tissue of a sentence.
 ### `settle_view` is the case that proves the class, not an example of it
 
 The worst of the three was in the docstring of `settle_view`
-([tests/test_panel_dom.py:161](../tests/test_panel_dom.py#L161)) — a helper used at
+([tests/test_panel_dom.py:162](../tests/test_panel_dom.py#L162)) — a helper used at
 four call sites, one of them the guard `#252` added. Its docstring **is** the entire
 evidentiary basis for the wait: 20/20 runs reading the box mid-animation, 7/20
 failing outright, height `47.99999237060547` = 48 − 2⁻¹⁷ at one float32 ulp. Every
@@ -2386,7 +2386,7 @@ which base is the whole discipline, so this line moves whenever the table is re-
 
 | # | the artefact | the base it outlived | what caught it |
 |---|---|---|---|
-| 1 | a `PINNED` citation, `app.py:2718` | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
+| 1 | a `PINNED` citation, `app.py` line 2718 | `#251` moved the symbol to `2725`, then `2787` | a red `main`, after both merged clean |
 | 2 | a `RESERVED` register row | the branch it named moved off the number | a session **asking who held 44** |
 | 3 | `docs/STATE.md`'s own opening line | five bases in one afternoon | the line correcting itself, again |
 | 4 | three docstring citations of a deleted test (§13, `#259`) | the test died ten days after it was written | a session **asking what else is unguarded** |
@@ -2424,7 +2424,7 @@ only that the line exists, so the guard passes it and the reader lands nowhere. 
 a remap script run over these documents will helpfully renumber it on the next edit,
 which is how a historical fact quietly becomes a false present-tense one. It happened
 here: a first draft of this entry carried that span, an automated re-derivation moved
-it, and it also moved `app.py:2718` in §12 — corrupting the very sentence whose
+it, and it also moved `app.py` line 2718 in §12 — corrupting the very sentence whose
 subject is that 2710 became 2725 and then 2787. **A historical line number is written
 in prose — "line 650 of that commit" — never in the shape that means "current",** and
 `git show <commit>:<path>` is how a reader gets there. This is the third time an entry

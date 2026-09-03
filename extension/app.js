@@ -4693,6 +4693,23 @@ function freshnessLine(s) {
 const RESOLVES_A_DATASET = "resolves-a-dataset-key";
 const MANIFEST_ONLY = "route-404-for-a-dataset-key";
 const NO_SECTION = "no-such-section-on-the-page";
+// A FOURTH PROOF, AND THE FACT BEHIND IT IS NEW RATHER THAN A RESHUFFLE.
+// ("PR 301", never the hash form. `301` is three valid hex digits, and
+// test_ui_colour_literals_live_only_in_the_canonical_colour_system reads a hash followed
+// by three of those as a colour literal -- it cannot tell a pull request from a short
+// hex colour, and it should not try: a lookbehind that exempted a backtick would exempt
+// a real literal written after one too. THE EXPLANATION ITSELF TRIPPED IT ONCE, one line
+// below the fix, which is the fifth time today that writing about a scanner has had to
+// avoid the scanner.) PR 301 / `R-78`
+// made `POST /api/jobs` resolve a source through `source_site` as well as through
+// `sources.yaml`, so it answers for `muqawil_org` where it used to 404. That is a
+// measured property of the route and this table records measured properties.
+//
+// IT IS NOT `RESOLVES_A_DATASET`, and the distinction is the whole of the defect below:
+// a dataset card's own `source_key` IS the dataset key (`contractors`), and the route
+// still 404s for that. What it resolves is the card's `site_key`. So an action carrying
+// this proof must carry the SITE key with it.
+const RESOLVES_A_SOURCE_KEY = "route-resolves-a-registry-source";
 
 const SOURCE_ACTIONS = [
   {action: "update", label: "Update now",
@@ -4774,7 +4791,36 @@ function sourceActions(source) {
     why: `The ${fmtCount(c.stored)} rows of ${c.label}, in the same page.`,
     route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET,
   }));
-  return [...base, ...covered];
+  // AND THE CRAWL, WHICH A DATASET CARD HAD NO WAY TO START. `MANIFEST_ONLY` filtered
+  // "Update now" out of `base` above, and that filter is CORRECT: this card's own
+  // `source_key` is the dataset key and `POST /api/jobs` does 404 for it. What the route
+  // resolves is the `site_key`.
+  //
+  // THE KEY DOES NOT TRAVEL WITH THE ACTION, and the first draft of this had it doing so
+  // -- `update:<site_key>`, copying `table:<dataset_key>` one block down. That was a
+  // second channel for a value that already arrives: the card renders
+  // `data-site="${s.site_key}"` and the menu hands `card.dataset.site` to
+  // `runSourceAction` as its third argument, which two enrichment branches already read.
+  // `table:` is not the precedent it looked like: a folded card stands for SEVERAL
+  // datasets, so which one an action means cannot be a property of the card. There is
+  // exactly one site behind a card.
+  //
+  // GUARDED ON `site_key` RATHER THAN ON THE KIND. A dataset with no registry source
+  // behind it has nothing to crawl, and offering a control that 404s is worse than
+  // offering none -- `R-71`, `OP-92`. The engine sends `site_key` on every dataset row it
+  // builds (`app.py`'s `_dataset_rows`), so its absence means there is no source.
+  //
+  // WITHOUT THIS, EVERYTHING ELSE IN THIS CHANGE IS UNREACHABLE: the route chooses the
+  // right collector, a runner exists and the migration lets the row be written, and he
+  // presses nothing. `R-81` -- if it has no control in the panel it does not exist for the
+  // one person the tool is for.
+  const crawlable = source.kind === "dataset" && source.site_key ? [{
+    action: "update",
+    label: "Update now",
+    why: "Crawl this source once, immediately.",
+    route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+  }] : [];
+  return [...base, ...crawlable, ...covered];
 }
 
 function sourceMenu(source) {
@@ -4830,8 +4876,22 @@ async function runSourceAction(action, key, siteKey = "") {
   if (action === "changes") return openTab(`/source/${key}#changes`);
   if (action === "settings") return openTab(`/sources/${key}`);
   if (action === "update") {
+    // THE SITE KEY WHERE THERE IS ONE, and the card's own key otherwise. A price card's
+    // key IS its source key; a dataset card's key is its DATASET key, which this route
+    // 404s for, and its site arrives as `siteKey` -- already, for the enrichment links
+    // above. `sourceActions` only offers this action when that value exists.
+    const crawlKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [key], run_mode: "current"});
+      // `update`, NOT `current`. `current` is not a `RunMode` -- the four are
+      // `initial_crawl`, `update`, `full_rebuild` and `history_backfill` -- so this
+      // request had been answered `400 run_mode must be [...]` since it was written,
+      // on every card that offered it, WITHOUT EVER REACHING THE SOURCE KEY. Measured
+      // against a real engine, not inferred. Three things hid it: on a dataset card the
+      // action was filtered out, so it was never pressed there; the panel harness answers
+      // `/api/jobs` with a canned success, so no DOM test validated a mode; and
+      // `test_an_action_withheld_for_its_route_really_is_refused` accepted any 4xx, so a
+      // 400 about the MODE read as the 404 about the KEY it claimed to be measuring.
+      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
       showView("run");
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");

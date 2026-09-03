@@ -225,12 +225,26 @@ and an unknown key.**
 
 ### OP-75 · `GET /api/fields` writes and commits on both branches, outside the write lock every `POST` pays for
 
-**Found 2026-08-26.** The GET commits at
-[app.py:2248](../scrapex/webui/app.py#L2248) — the dataset branch, seeding from the schema —
-and at [app.py:2299](../scrapex/webui/app.py#L2299) on the price branch. A grep over the
-whole `api_fields` region finds **two `conn.commit()` and zero `write_lock`**, while every
-`POST` goes through `_write` ([app.py:2186](../scrapex/webui/app.py#L2186)), which takes the
-lock for the reason it states: *"A crawl in progress holds that lock."*
+**Found 2026-08-26.** The GET commits inside `api_fields`
+([app.py:2340](../scrapex/webui/app.py#L2340)) while every `POST` goes through
+`_write` ([app.py:2224](../scrapex/webui/app.py#L2224)), which takes the lock for
+the reason it states: *"A crawl in progress holds that lock."*
+
+> **THREE CITATIONS RE-DERIVED 2026-09-02, AND ALL THREE WERE ALREADY WRONG.** This entry
+> cited `2248` for a dataset-branch commit, `2299` for a price-branch commit and `2186` for
+> `_write`. Measured on `origin/main` before this branch touched anything: `api_fields`
+> spans 2299–2348, so `2248` was outside the function altogether, `2299` was the `def`
+> line itself, and `_write` was at 2222. **The only reason any of it surfaced** is that a
+> two-line import insert here pushed `2299` onto a blank line, which is the one thing tier 1
+> of the citation guard can see. A drifted number that lands on real code is invisible to
+> the whole suite — measured the same afternoon in `OP-119`, where four of five citations
+> had drifted and one was caught, also by a blank line. That gap is `OP-123`.
+>
+> **And the count in the original sentence no longer holds:** the region has **one**
+> `conn.commit()` today, not two. Said here rather than quietly repointed, because a reader
+> sent hunting for a second commit that is not there would conclude the finding was
+> nonsense. Whether the second was removed deliberately is not established; the remaining
+> one is still a write on a GET outside the lock, so the finding stands on it.
 
 **The write-on-GET is deliberate, documented and tested** — that is not the finding. The
 finding is that it is **unlocked**, so the protection depends on the HTTP verb rather than
@@ -293,11 +307,18 @@ test.
 **Found 2026-08-26.** [fields.py:162](../scrapex/fields.py#L162) builds `current` from a bare
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
-price-path rows inert lives **only on the read path**, at
-[app.py:2261](../scrapex/webui/app.py#L2261). So the eleven are invisible in the chooser and
+price-path rows inert lives **only on the read path**, in `_dataset_fields`
+([app.py:2287](../scrapex/webui/app.py#L2287)). So the eleven are invisible in the
+chooser and still occupy `display_order` slots whenever anything is reordered.
 
-[app.py:2291](../scrapex/webui/app.py#L2291). So the eleven are invisible in the chooser and
-still occupy `display_order` slots whenever anything is reordered.
+> **This paragraph carried that sentence TWICE, with two different line numbers, until
+> 2026-09-02** — the first copy citing `2261` and ending mid-clause on a dangling *"and"*.
+> On `origin/main`, `2261` was `def _general_write(fn):`, an unrelated function, so that
+> copy was the false one and it is deleted. The survivor names `_dataset_fields` rather
+> than a line of its docstring, because a named subject can be re-derived after a rebase.
+> **Third document with a keep-both duplication found the same afternoon** — `LESSONS`
+> §29's headerless table stub and `REQUESTS.md`'s duplicated `REQ-45` evidence table are
+> the other two, and none of the three was visible to any gate. `OP-125`.
 
 Depends on `OP-58`: whether those rows are deleted at all is his gate, since
 `COMPATIBILITY.md` puts a destructive migration behind his review.
@@ -1305,7 +1326,7 @@ asked for the Engine to be started while a six-worker crawl was running. It refu
 
 ```
 sqlite3.OperationalError: database is locked
-  scrapex/jobs.py:932  record_worker_failure
+  scrapex/jobs.py:975  record_worker_failure
 ```
 
 Every connection sets `busy_timeout = 5000`, so a writer waits five seconds before
@@ -3548,7 +3569,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 `bundleBuild: 600000` ([extension/startup.js:33](../extension/startup.js#L33)) with a rule
 that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
-`threading.Lock` ([scrapex/webui/app.py:2926](../scrapex/webui/app.py#L2926)) refusing a
+`threading.Lock` ([scrapex/webui/app.py:2937](../scrapex/webui/app.py#L2937)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
 ([scrapex/webui/app.py:2907](../scrapex/webui/app.py#L2907)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep
@@ -4400,6 +4421,73 @@ was added on 2026-08-21 to stop a live `crawl_scope` change from breaking a runn
 and it fixed the walker. **Three checks above the walker were never revisited** — the scope
 refusal, and these two plan calls. A flag that narrows what a run DOES has to be carried to
 everything that reasons about what the run WILL do, and nothing enumerates those callers.
+
+---
+
+### OP-126 · «Update now» has never worked on any card, and three guards said it was fine
+
+**Found 2026-09-02, after `REQ-45`'s collector was built and before anything had pressed
+the button.** The engine chose the right collector, a runner existed, and the migration let
+the row be written — and there was still nothing to press, for three reasons stacked on one
+action.
+
+**1 · IT WAS FILTERED OFF EVERY DATASET CARD.** `sourceActions` keeps only actions whose
+proof is `RESOLVES_A_DATASET` for a `kind === "dataset"` card, and "Update now" carries
+`MANIFEST_ONLY`. **That proof is TRUE and was not stale**, which is why the first reading of
+this was wrong: a dataset card's own `source_key` IS its dataset key — `_dataset_rows`
+sets it that way and carries the site separately as `site_key` — and `POST /api/jobs` really
+does 404 for `contractors`. What it resolves since `#301`/`R-78` is `muqawil_org`.
+
+**2 · THE RUN MODE WAS NOT A `RunMode`.** The handler sent `run_mode: "current"`. The four
+are `initial_crawl`, `update`, `full_rebuild`, `history_backfill`. Measured against a real
+engine:
+
+```
+POST /api/jobs {"source_keys":["muqawil_org"],"run_mode":"current"}
+400 {"detail":"run_mode must be ['initial_crawl', 'update', 'full_rebuild', 'history_backfill']"}
+```
+
+**So the request was refused before the source key was ever read — on every card that
+offered it, since the handler was written.** The Resume action two thousand lines above gets
+it right (`source.observations > 0 ? "update" : "initial_crawl"`), which is where the fix
+came from.
+
+**3 · IT SENT THE CARD'S OWN KEY**, which for a dataset card is the dataset's. The site key
+was already arriving — the card renders `data-site` and the menu hands `card.dataset.site`
+to `runSourceAction` as its third argument, which two enrichment branches already read. A
+first draft of the repair encoded it into the action string as `update:<site_key>`, copying
+`table:<dataset_key>`; that was a **second channel for a value that already had one**, and
+`table:` is not the precedent it looks like — a folded card stands for several datasets, so
+which one an action means cannot be a property of the card, while there is exactly one site
+behind a card.
+
+---
+
+### Why every guard over it was green, which is the part worth keeping
+
+| the guard | why it passed |
+|---|---|
+| `test_a_dataset_card_offers_only_the_actions_that_work` | it **asserted "Update now" must be ABSENT**. Third guard today holding a limitation in place |
+| every panel DOM test | `tools/panel_harness.py` answers `/api/jobs` with a canned `{"job_ref":"job_stub","status":"queued"}`. **A stub that always succeeds cannot fail on a bad request** |
+| `test_an_action_withheld_for_its_route_really_is_refused` | it accepted `400 <= status < 500`. The 400 about the MODE satisfied a test whose stated claim is that the route refused the **KEY** |
+
+**The third is the sharpest.** Its recipe carried the same `run_mode: "current"` copied out
+of `app.js`, so the route never reached the key, and **the reason it recorded was not the
+reason it measured.** A status-code RANGE standing in for a reason cannot tell one refusal
+from another — the same shape as an assertion that cannot tell a claim from its denial.
+It asks for `404` now.
+
+**And `tools/panel_harness.py` was missing `site_key` entirely**, a field the engine sends on
+every dataset row, so any test written against that stub would have exercised a shape the
+product never produces. Same class as a partition fixture whose `detail_urls` returns `()`.
+
+**Fixed here**, with the assertion that would have caught all three and did not exist: press
+the action and read the recorded request. Mutation-tested both ways — sending the card's key
+and restoring `"current"` each redden it with the number in the message.
+
+**`R-81` is the ruling underneath.** *A capability with no control in the panel does not
+exist for the one person the tool is for* — and «Update now» was a control that could not
+work, on every card, which is the same thing wearing a label.
 
 ---
 

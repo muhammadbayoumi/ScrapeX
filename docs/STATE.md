@@ -624,7 +624,7 @@ defect the squash absorbs, and `R-84` for the two things it must carry: a check 
 refuses to delete a migration once a release marker exists, and the separation of
 tests that exercise a one-off migration from tests that assert a property of the
 resulting schema.
-### The listing phase has a door — 2026-09-02 · branch `fix/the-listing-phase-has-a-door`, **open**
+### The listing phase has a door — 2026-09-02 · **merged as `9bc4680d` (#304)**
 
 **`OP-118` corrected, `OP-121` filed.** His muqawil listing crawl has been blocked since
 2026-08-30 on one refusal, and the refusal's stated reason was **false when it was written
@@ -752,6 +752,79 @@ aborts the release when the migrations folder is empty. **Stage 1 unifies those 
 correct with or without the squash. Stage 2 is the squash, and it needs his word on the
 sentence "a database below v16 is not upgraded — it is carried over or rebuilt" before it
 merges.**
+
+> **That half is built, in the entry below** — a third job kind and its runner — **and the
+> last sentence turned out to be wrong about why he could not press a button.** The engine
+> was not the only thing in the way: the card offered no control at all, and the one it
+> would have offered sent a run mode the engine refuses. `OP-126`.
+### The crawl button drives the collector the source needs — 2026-09-02 · branch `feat/the-crawl-button-drives-the-collector-it-needs`, **open**
+
+**`REQ-45`'s second half.** `#301` taught `POST /api/jobs` to accept `muqawil_org` — it had
+been answering 404, which is why every muqawil crawl to date ran from a terminal. **The
+worker then handed it to `capture_source`.** That is the price collector, and its
+`CaptureResult` carries `observations`, `duplicates`, `products`, `variants` and
+`attributes`; a contractor listing crawl produces none of them. It produces stored pages, a
+per-cell completeness proof, arrivals and departures.
+
+**And every test written for `#301` asserted `status == "queued"`, which was true.** Nothing
+looked at the job **kind**, and the kind is the only field that says which collector runs.
+That assertion exists now and it is the one that would have caught this.
+
+**A third job kind, on the route the second one already took.** `directory_crawl`, runner
+`scrapex/directoryjob.py`, reached from `jobs.SPECIALISED_RUNNERS` — a table, because the
+`if job_kind == ... else` was two branches long and `JOB_KINDS` listed the same strings a
+thousand lines above it. `JOB_KINDS` is **derived** from the table now, so the set of kinds
+the route accepts cannot drift from the set a worker can run. «خلى الشغل dry».
+
+**Not one line of crawling was written.** `contractors.crawl` stays the single
+implementation both front doors call. What the runner adds is the three things a job needs
+and a command line does not: the crawl's own report goes to the job log through a sink on
+`say` (whose docstring has always claimed "one line to the console AND to the log"),
+progress is counted in **cells**, and a pause or cancel is applied at a **cell boundary** —
+the only safe place, because a cell's proof compares an id sequence against a witness read
+of page one, so a cell interrupted halfway has fetched pages and proved nothing.
+
+**`0017` widens one CHECK, and it is the safe direction.** `job_kind` arrived in `0011` with
+`CHECK (job_kind IN ('crawl','organization_enrichment'))`, and SQLite cannot alter a CHECK —
+it needs a table rebuild. Widening it means no row that satisfied the old constraint can
+fail the new one, which is worth saying because the last rebuild in that folder
+(`0014`, `source_site.base_url`) got the direction wrong and refuses a legal pre-v14 NULL.
+**`R-64`: it reaches his warehouse only after it is on `main`.**
+
+**A regression this nearly shipped, and it is the reason the sink has its own test.** The
+first draft put `if sink is None: return` in FRONT of `say`'s file write — so every
+command-line run, which is every run with no sink installed, would silently have stopped
+writing `~/.scrapex/trial/listing.log`. That file is what his own crawl of 2026-08-23 was
+read back from.
+
+**Three mutations, each restored:** the route dropping `job_kind`; the kind losing its
+runner; and `0017`'s CHECK reverted. Each reddened the guard written for it.
+
+**AND THE CARD HAD NOTHING TO PRESS EITHER — `OP-126`, found after the collector was
+built.** Three defects on one action: `sourceActions` filtered "Update now" off every
+dataset card (correctly, on the card's own key); the handler sent `run_mode: "current"`,
+which is not a `RunMode`, so the engine answered **400 about the mode and never read the
+key** — on every card, since it was written; and it sent the card's `source_key`, which
+for a dataset card is the DATASET key, where the route resolves the site key.
+
+**Every guard over it was green.** One asserted the action must be **absent** — the third
+guard today holding a limitation in place. `tools/panel_harness.py` answers `/api/jobs` with
+a canned success, so no DOM test could fail on a bad request, and it carried no `site_key`
+at all, a field the engine sends on every dataset row. And
+`test_an_action_withheld_for_its_route_really_is_refused` accepted any `4xx`, so the 400
+about the mode satisfied a test whose stated claim is that the route refused the **KEY**.
+The assertion that would have caught all three — press it and read the recorded request —
+did not exist and does now, mutation-tested both ways.
+
+**A first draft of the repair added a second channel for a value that already had one**:
+`update:<site_key>`, copying `table:<dataset_key>`. The site key already reaches
+`runSourceAction` as its third argument. `table:` is not that precedent — a folded card
+stands for several datasets, so which one an action means cannot be a property of the card;
+there is exactly one site behind a card.
+
+**VERSION 0.4.6 → 0.4.7**, because a migration moves the contract fingerprint and the gate's
+only sanctioned answer is a bump. The three generated homes were regenerated by
+`python -m scrapex.cli export-version` in the same commit.
 
 ## Track 1 · The Console migration
 

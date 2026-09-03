@@ -39,8 +39,9 @@ import re
 import sqlite3
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import catalog, runs, taxonomy
@@ -86,6 +87,47 @@ from .vocab import RunStatus
 LOG = Path.home() / ".scrapex" / "contractors.log"
 
 
+#: Seconds between requests, and THE ONLY PLACE THIS NUMBER IS WRITTEN. It was an
+#: argparse literal, so the panel had nowhere to read it from and would have carried its
+#: own copy -- and `R-21` and `SR-8` are about the RATE, so two front doors holding two
+#: opinions of it is two degrees of politeness toward one site.
+DEFAULT_PACE_S = 1.0
+
+#: Attempts per cell before it is reported unproven. Same reason as the pace: a second
+#: front door must not get a second answer.
+DEFAULT_MAX_ATTEMPTS = 2
+
+#: Where `say` also sends its lines, or `None` for the console alone. Installed by a
+#: caller that has somewhere better to put them -- see `lines_go_to`.
+_SINK: Callable[[str], None] | None = None
+
+
+@contextmanager
+def lines_go_to(sink: Callable[[str], None]):
+    """Send `say`'s lines to `sink` as well as to the console, for this block.
+
+    A MODULE-LEVEL SINK RATHER THAN A `say` PARAMETER, and the reason is that `say` is
+    called from thirty-odd places inside this module including the report callbacks the
+    crawl hands to `partitioncrawl`. Threading a logger through all of them would be a
+    change to every line of the report in order to add a second reader of it.
+
+    RESTORED IN A `finally`, because a sink that outlived its block would append a later
+    command's console output to a finished job's log -- and the panel would show a job
+    that kept talking after it ended.
+
+    IT MAY NOT RAISE, for `say`'s own reason one docstring down: a log that cannot
+    represent a line must lose the line, never the run. A sink that throws is dropped for
+    the rest of the block rather than allowed to kill hours of fetching.
+    """
+    global _SINK
+    previous = _SINK
+    _SINK = sink
+    try:
+        yield
+    finally:
+        _SINK = previous
+
+
 def say(line: str) -> None:
     """One line to the console and to the log, and IT MAY NOT RAISE.
 
@@ -101,6 +143,7 @@ def say(line: str) -> None:
     it cannot: a log that cannot represent a character must lose the character, never
     the run.
     """
+    global _SINK
     try:
         print(line, flush=True)
     except UnicodeEncodeError:
@@ -108,6 +151,21 @@ def say(line: str) -> None:
     LOG.parent.mkdir(parents=True, exist_ok=True)
     with LOG.open("a", encoding="utf-8") as handle:
         handle.write(line + "\n")
+    # LAST, AND WITHOUT AN EARLY RETURN ABOVE IT. The first draft of this put
+    # `if sink is None: return` in front of the file log, so every command-line run --
+    # every run with no sink installed, which is all of them until a job starts one --
+    # would have stopped writing `LOG` at all. That file is what the owner's own crawl
+    # of 2026-08-23 was read back from.
+    if _SINK is None:
+        return
+    try:
+        _SINK(line)
+    except Exception:
+        # THE SAME RULE AS THE PRINT ABOVE, one layer out. The sink writes to SQLite,
+        # which can be locked, and a locked log must not end a crawl. Dropped for the
+        # rest of the block rather than retried, because a retry loop here would hold
+        # hours of fetching on the one thing that is only a record of it.
+        _SINK = None
 
 
 def open_engine():
@@ -232,10 +290,31 @@ def _run_for(conn, directory: Directory, kind: str) -> int:
     return runs.open_run(conn, directory.key, kind=kind)
 
 
+class CrawlStopped(Exception):
+    """`on_cell` asked the crawl to stop, and it stopped between cells.
+
+    AN EXCEPTION RATHER THAN A RETURN VALUE, because the stop has to travel out of
+    `crawl_partition`'s own loop and past the report callback it calls -- and because
+    every closed cell's evidence is already committed, so unwinding loses nothing. The
+    caller that asked for the stop has already recorded WHY; this only carries the fact
+    that it happened, which is why nothing here writes a message.
+    """
+
+
 def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
           max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS,
-          workers: int = 1, connect=None) -> None:
+          workers: int = 1, connect=None, between_cells=None) -> None:
     """The partition, or NAMED CELLS OF IT.
+
+    `between_cells` IS CALLED AFTER EVERY CELL CLOSES and may ask the crawl to stop
+    by returning true, which raises `CrawlStopped`. NOT `on_cell`, which is what
+    `crawl_partition` already calls its per-cell REPORT hook: two different questions --
+    "here is what this cell did" and "may this run continue?" -- must not share a name
+    one call apart. Between cells is the only safe place:
+    a cell's proof compares an id sequence against a witness read of page one, so a
+    cell interrupted halfway has fetched pages and proved nothing. Stopping here keeps
+    every closed cell's proof and loses only the pages of the one in flight -- and those
+    are on disk, so a resume under the same `run_ref` skips them.
 
     `--only` is what makes the residual addressable on its own, which
     `R-26` requires: the first run proved 47 of 56 cells, and a crawl that can only
@@ -266,6 +345,11 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say(f"  [{done['cells']}/{total}] {outcome}")
         if not outcome.provably_complete:
             say(f"        {outcome.attempts[-1].note}")
+        # ASKED AFTER THE LINES ARE SAID, so a stop the owner requested still leaves the
+        # cell's own outcome in the log. Asking first would end the run one line short of
+        # the report for the cell that had already finished paying for itself.
+        if between_cells is not None and between_cells():
+            raise CrawlStopped
 
     # ITEM 2, AND THE CALLER THAT NEVER EXISTED. `HttpFetcher` has kept every
     # response's ETag and replayed it on the next visit since it was written — its
@@ -1531,9 +1615,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="required for --crawl and --approve. Reused, it "
                             "RESUMES: pages this ref already stored are not "
                             "fetched again")
-    parser.add_argument("--pace", type=float, default=1.0,
+    parser.add_argument("--pace", type=float, default=DEFAULT_PACE_S,
                        help="minimum seconds between requests, at the transport")
-    parser.add_argument("--max-attempts", type=int, default=2,
+    parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS,
                        help="reads of a cell before its witness is given up on")
     parser.add_argument("--only", default="",
                        help="crawl ONLY these cells, by label, comma-separated "

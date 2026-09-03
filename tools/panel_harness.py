@@ -55,6 +55,12 @@ STRESS_SOURCES = [
     # relationship and reports the child as coverage instead of as a second
     # population. The numbers are his warehouse's, measured read-only 2026-08-23.
     {"kind": "dataset", "source_key": "contractors",
+     # `site_key` IS WHAT THE ENGINE SENDS AND THIS FIXTURE DID NOT.
+     # `scrapex/webui/app.py`'s dataset rows set `source_key` to the DATASET key and
+     # carry the site separately, so a stub without it exercises a shape the product
+     # never produces -- and the crawl action needs exactly this field, because
+     # `POST /api/jobs` resolves a source key and 404s for a dataset key.
+     "site_key": "muqawil_org",
      "source_name": "muqawil.org contractors", "source_name_ar": "",
      "base_url": "https://muqawil.org", "family": "generic",
      "active": True, "implemented": True, "supports_history": False,
