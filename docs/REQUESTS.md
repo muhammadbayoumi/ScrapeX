@@ -104,6 +104,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-50](#req-50--the-engine-lives-on-the-engine-page-enough-warning-a-restart-to-press-and-one-home-for-every-engine-control) | The engine lives on the Engine page: enough warning, a restart to press, and one home for every engine control | **In flight** — ruled the same day as [R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy), branch `claude/scrapex-engine-consolidation-d69e0a`. The Build row said *Restart needed* and the page had nothing to press, while **four callers** of `POST /api/engine/restart` sat elsewhere — two in Settings, two on the engine's own web pages; measured across the product, **11 routes on both surfaces, 31 only on the engine's pages, 18 only in the panel, 8 settings changeable nowhere but the web UI**. Landed: the duplicate restart deleted and the survivor moved onto the Engine screen, its budget raised from 30 s to the engine's real 121.5 s, `schema_lag` carried so its banner can appear at all, and the spec-row grid repaired. **The power switch waits on `POST /api/engine/stop`**, which cannot land until `R-77`'s gate work or his word. Files [OP-112](BACKLOG.md)–[OP-114](BACKLOG.md) | 2026-08-30 |
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 | [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **Open, and his**: collapse the migration chain and regenerate the baseline, so the name goes as a side effect rather than by editing a checksummed file. Needs the second machine's pointer read, and a collapse verified by schema **equality** | 2026-08-30 |
+| [REQ-55](#req-55--build-a-caller-for-the-updater) | Build a caller for the updater | **In flight** — «ابن نادى للمحدش», said 2026-09-03 after being shown that `GET/POST /api/update` had been mounted, complete and tested since `#246` and **called by nothing in the whole history**. The panel now asks the engine about its own update, renders the REASON `can_self_update` is false rather than the boolean, and stops at `staged` — downloaded and digest-checked — because replacing a running executable is described in `plan_swap` and deliberately not done. Files [OP-124](BACKLOG.md) | 2026-09-03 |
 ---
 
 ## REQ-01 · One documentation system, in the repository
@@ -2923,3 +2924,80 @@ the person it cost.
 current baseline, **is not in the tree**. Collapsing the chain without the tool that generates
 baselines is exactly the file that looked unnecessary until it was needed.
 
+## REQ-55 · Build a caller for the updater
+**Captured 2026-09-03 · In flight.** His words: «ابن نادى للمحدش».
+
+He said it after a measurement rather than an opinion. `OP-124` had just recorded
+that the engine's updater is **built, mounted and doorless**:
+
+```
+create_update_router()          mounted unconditionally, GET and POST   nothing calls it
+fetch_and_verify, plan_swap     present, tested                         only update_api
+any "api/update" in extension/  NONE in the whole history -- git log -S returns no commit
+a timer or startup check        none; nothing imports update but the router
+```
+
+**That entry said the repair was either a caller or a deletion, and that the
+choice was his.** He chose the caller, and when asked where it should stop:
+«النادى أولاً» -- the caller first, without the swap.
+
+### What it does
+
+The panel asks `GET /api/update` whenever the engine is up, and the engine's
+answer is the one shown. **The reason is rendered, never the boolean.**
+`can_self_update` is false for causes that ask opposite things of him -- a source
+checkout has no executable to replace, a release with no digest will not be
+trusted, an engine already current needs nothing -- and `update_api` keeps that
+flag separate from `update_available` with a comment saying the panel *"must be
+able to say WHICH"*. A bare *"no update available"* is the same sentence for all
+three, so it is not used.
+
+**It stops at `staged`, and the screen says so.** The engine fetches the
+installer and checks it against the published digest; `plan_swap` describes
+replacing the running executable and deliberately does not. A panel that said
+*"updated"* here would re-earn the false promise `OP-124` removed.
+
+### Two things it does NOT do, and why
+
+**The panel's own manifest fetch stays.** `renderEngines` runs it with no engine
+at all -- the first-install case, where there is nothing to ask, and the reason
+`update_api` reports the installer URL *"so the panel can still hand the file to
+chrome.downloads for a FIRST install"*. So this is **one answer per state**, not
+two answers with a tiebreak: engine up, the engine decides and only it can say
+`can_self_update` or a phase; engine down, the panel's fetch is the whole answer.
+Deleting the panel's half would have removed the answer for the case that has no
+engine to ask.
+
+**The swap is not built.** `spawn_helper` in `relaunch.py` already does the
+detached wait it needs and `OP-36` was fixed on 2026-08-21, so it is measurable
+work rather than unknown -- and it is the one path that can destroy the engine it
+is updating. His order stands.
+
+### The poll's budget is the engine's own number
+
+`scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
+words -- *"~70 MB over somebody's home connection"*. At three seconds an attempt,
+310 attempts is 930 s: **above** the engine's 900, so the engine is always the
+side that gives up first and can say why (`R-48` rule 2, and the same arithmetic
+as `RESTART_CONFIRM_ATTEMPTS`, 125 over the engine's 122). **Running out is not a
+failure** -- the panel stops watching and the engine keeps downloading, so the
+sentence says where to look rather than announcing a failure that has not
+happened, which is precisely what `OP-116` was.
+
+### One defect in the wiring, found by the tests, in the wiring's own shape
+
+The report began as a parameter with a `null` default, and **`refreshEngines`
+called the renderer without it** -- so *"Check again"*, the one control named for
+re-checking, was the only path that never asked the engine. Two call sites, one
+wired. The default is what allowed it, so the decision moved inside the renderer
+and there is nowhere left to forget it.
+
+### And the measurement that nearly went in the entry wrong
+
+Checking the five new tests with the caller removed, three appeared to pass. An
+hour could have gone into "test pollution" on the strength of it. **`-k update`
+had selected a different set**: three of the five names do not contain the word,
+and three PRE-EXISTING tests do. Re-run by explicit node id, **all five fail with
+the caller removed and all five pass with it** -- so the tests were sound and the
+selector was the defect. `LESSONS` 29's family again: a true result about the
+wrong subject, this time chosen by a substring filter.

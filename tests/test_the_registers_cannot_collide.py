@@ -202,6 +202,20 @@ RESERVED: dict[str, dict[int, str]] = {
         # one has not got its entries -- exactly the state the gap check exists to
         # distinguish from a skipped number.
         34: "branch claude/drive-without-a-server",
+        # 53 AND 54 BECAME HOLES HERE the moment this branch declared `REQ-55`.
+        # Neither is on `main` -- I checked `origin/main` directly rather than
+        # accepting the message that told me they were already there, and they are
+        # not. Each is declared by two open branches, found by asking every local and
+        # remote ref for the heading:
+        #   for r in $(git for-each-ref --format='%(refname:short)' ...); do
+        #     git show "$r:docs/REQUESTS.md" | grep -q '^## REQ-53 ' && echo $r
+        # THE HOLDER NAMED IS THE ref/ ONE, not `op/132-...`, because the second is a
+        # working branch that carries the first's entries rather than owning them --
+        # and a row naming the wrong one of two refs sends the next session to a
+        # branch that will not explain the number.
+        53: "branch req/a-source-declares-what-it-can-be-asked-to-do",
+        54: "branch req/a-source-declares-what-it-can-be-asked-to-do",
+
         # 50 HAS NO ROW: it was reserved for `claude/scrapex-engine-consolidation-d69e0a`
         # while `REQ-51` was declared over the top of it, and the row said to delete it
         # the day #293 merged. It is deleted one step earlier instead -- as #293 rebases
