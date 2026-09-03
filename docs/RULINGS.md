@@ -3246,6 +3246,11 @@ all**. Whatever the panel offers must name the pass; *"Update now"* describes no
 ---
 
 ### R-79 · Device colours reach the user, and the ink is derived rather than trusted
+**§5's closing clause superseded-in-part 2026-08-31 by
+[R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice); the
+device colour mode this ruling repaired was itself deleted by R-85. The measurements stand
+and are the reason a future device mode must not repeat them — see the tombstone in
+`design/tokens.css`.**
 
 **2026-08-30 · design system · closes [OP-101](BACKLOG.md) and half of [OP-104](BACKLOG.md) ·
 first of [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases)'s twelve
@@ -3358,6 +3363,36 @@ coverage either.
 raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
 move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
 in the palette, never a reason to lower a threshold.**
+
+> **~~§5's closing clause~~ SUPERSEDED-IN-PART 2026-08-31 by
+> [R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice).**
+> *"Never a reason to lower a threshold"* no longer holds without exception, and the exception
+> is narrow: where a value is **Supabase's own** and «مطابق تماما» requires it, the threshold
+> yields to the value. Two positions do this and no others —
+> `--line-strong` at **1.542** light and **1.648** dark, and `--focus` at **1.466** light,
+> against floors of 3.0. Their `--border-stronger` and their `--ring` are genuinely below what
+> this repository asks, Supabase states no numeric contrast target anywhere in its 105
+> authored documents, and he ruled «عدل اى قرار يتعارض مع هذا النظام» after being shown 1.47:1
+> for the focus ring.
+>
+> **EVERYTHING ELSE IN §5 STANDS, AND THE REST OF THIS RULING IS UNTOUCHED.** A pair that fails
+> on a value THIS repository chose is still a defect in the palette — which is exactly what
+> the `brand` ink above was, and it stays fixed. And R-85 lowered nothing silently: both
+> assertions are **pinned at their measured ratio** rather than deleted, so drift in either
+> direction still fails and the number stays findable. A deleted assertion is a threshold
+> nobody can locate again.
+>
+> **Read this before repairing either ratio.** Seen from `tests/test_panel_dom.py` alone they
+> look like a regression against §5, and they are a ruling.
+
+**AND ONE MEASUREMENT IN §5 SUPPORTED A FALSE CONCLUSION**, found while building `R-85` and
+recorded here because this entry is where a reader looks for it. `--amber` was listed among
+the departures on the strength of **2.677:1 against `--amber-weak`**. The number is correct
+and the pairing is this repository's invention: **Supabase never puts warning text on its own
+warning-300 tint.** Its ink for a warning fill is `--warning-foreground`, and their value with
+their ink measures **6.923** light and **10.646** dark — so restoring their colour cost
+nothing and RAISED the ratio. A measurement of a pair nobody renders is not evidence about a
+palette.
 ---
 
 ### R-80 · One feature, one place — and a read-only second copy is still a second copy
@@ -3666,13 +3701,14 @@ an upgraded database equals a fresh build is the entire claim a new baseline mak
 
 ---
 
-### R-84 · The system is Supabase's exactly, and `supabase` is the only colour choice
+### R-85 · The system is Supabase's exactly, and `supabase` is the only colour choice
 
 **2026-08-31 · design system · GENERAL — «عدل اى قرار يتعارض مع هذا النظام» · supersedes
 [R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
 parts 2, 3 and 4, and discharges the palette registry
 [R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
-decisions 1 and 3 · TWO QUESTIONS INSIDE IT ARE OPEN AND NAMED BELOW**
+decisions 1 and 3 · supersedes-in-part
+[R-79](#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted) §5**
 
 > «انا اريد النظام مطابق تماما لنظام supbase عدل اى قرار يتعارض مع هذا النظام»
 >
@@ -3680,10 +3716,23 @@ decisions 1 and 3 · TWO QUESTIONS INSIDE IT ARE OPEN AND NAMED BELOW**
 >
 > «احذف الثلاثة وابق supabase وحده»
 
-**RECORDED THE SESSION HE GAVE IT, WITH THE WORK NOT YET STARTED.** `C3` does not wait for a
-plan and `C5` wants the open half visible rather than resolved by a session's judgement. Two
-questions inside this ruling change its cost by orders of magnitude and neither is answered;
-they are section 4.
+**RECORDED THE SESSION HE GAVE IT, WITH THE WORK NOT YET STARTED**, and amended in the same
+session when he answered the two questions it had left open. `C3` does not wait for a plan;
+`C5` wants an unresolved half visible rather than settled by a session's judgement.
+
+**WHY IT IS AMENDED IN PLACE RATHER THAN SUPERSEDED BY A SECOND ENTRY.** `C4` protects the
+history of a PUBLISHED decision — superseded text stays because citations to it exist and
+readers inherited it. This entry had never reached `main` when the answers arrived, so there
+is no inherited reading to protect, and publishing a document that says "open" about
+something already answered is a lie with a date on it. **What C4 does require, and what
+section 4 keeps, is that the questions were ASKED and ANSWERED rather than never in doubt:**
+the measurement that made them askable is what makes «القيم فقط» a decision instead of a
+default.
+
+**PROVENANCE, because a ruling rests on who heard it.** Both sentences quoted above, and both
+answers in section 4, reached THIS session directly in his own words. No part of this entry
+is a relay. *"A session was told he said this"* and *"the session he said it to wrote it
+down"* are different claims and only the second carries a ruling.
 
 #### 1 · What it replaces
 
@@ -3730,7 +3779,7 @@ virtual-focus engine. `form.tsx` **has no visual output at all** — it exists t
 react-hook-form to `aria-describedby` ids from `React.useId`. `calendar.tsx` is
 react-day-picker's locale and grid semantics; `drawer.tsx` is vaul's pointer-drag physics.
 
-#### 4 · THE TWO QUESTIONS THAT ARE OPEN
+#### 4 · THE TWO QUESTIONS THAT WERE PUT TO HIM, AND HIS ANSWERS
 
 **4a · Which layer does «مطابق تماما» mean?** Nothing can be planned before this. The
 recommendation put to him: the VALUE layer plus the token-vocabulary additions that cost
@@ -3762,6 +3811,24 @@ inside every English row. The affected screens are named: `source.html`, `offer.
 
 The recommendation put to him is to exempt it **in the ruling's own words**, the way `R-74`
 exempted three colour choices in its.
+
+**HIS ANSWER TO BOTH, IN ONE SENTENCE: «القيم فقط، والعربية استثناء».**
+
+**4a is answered THE VALUE LAYER.** Not the system layer, which would have been +124
+declarations, `THEME_PROPERTIES` 36 → 72, 144 hand-picked palette cells and a contrast matrix
+of 448 — *and* the subtraction of the bidi contract, four accessibility accommodations and 79
+`aria-live` sites. Not the implementation layer, which is React, Radix, Tailwind and a build
+step: 351 `.ts`/`.tsx` files and 26 npm dependencies against 20 authored stylesheets, inside
+an MV3 side panel and a Flask application with no `package.json` at the repository root, and
+13 components that are structurally impossible rather than merely expensive — `recharts`
+computes axis geometry by reconciling a React tree, `cmdk` is a scoring engine, and
+`form.tsx` has no visual output at all.
+
+**4b is answered EXEMPT.** The bidirectional contract stays: 22 declarations, 190 logical
+properties, 26 `dir="auto"` sites and `"Noto Sans Arabic"` in both stacks are untouched by
+this ruling. **The exemption is not a concession to difficulty.** On that axis Supabase
+publishes nothing to copy, so "exact match" could only mean deleting what this repository has
+— and half the crawled corpus is Arabic.
 
 #### 5 · Three departures this ruling would revert, and one that was never a departure
 
