@@ -200,7 +200,7 @@ fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
 
 ### OP-74 · `list(body["order"])` is unguarded: a 500 one way, a forged «this is your arrangement» the other
 
-**Found 2026-08-26.** [scrapex/webui/app.py:2414](../scrapex/webui/app.py#L2414) is
+**Found 2026-08-26.** [scrapex/webui/app.py:2447](../scrapex/webui/app.py#L2447) is
 `reorder(conn, source_key, list(body["order"]))` with no type check. Two failure modes,
 traced through [scrapex/fields.py:153](../scrapex/fields.py#L153):
 
@@ -3535,7 +3535,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 * **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
   Only Drive was pruned (`extension/drive.js:65`, `KEEP = 3`).
 * **A killed engine leaks its staging tree.** The `rmtree` is in a `finally`
-  ([scrapex/webui/app.py:3046](../scrapex/webui/app.py#L3046)), so a process that dies
+  ([scrapex/webui/app.py:3122](../scrapex/webui/app.py#L3122)), so a process that dies
   skips it and leaves the bundle expanded — 1.5 GB. This, not a second build, is what
   actually survives a crash: the build is a thread inside the engine and cannot outlive it.
 
