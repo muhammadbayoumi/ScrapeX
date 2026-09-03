@@ -315,14 +315,10 @@ RESERVED: dict[str, dict[int, str]] = {
         # own and is kept over mine -- it names the BRANCH rather than the session, and
         # carries the unverified half in the row instead of only in a comment.
         123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
-        # 127 IS A HOLE THIS BRANCH CREATES by declaring OP-128 over it. VERIFIED against
-        # the ref rather than taken from a message:
-        #   git show refs/remotes/origin/docs/the-anchor-is-unique-the-context-is-not:docs/BACKLOG.md         #     | grep "^### OP-127"
-        # That is PR #312, pushed and green at 14 of 14. This branch goes in FIRST because
-        # OP-128 is a live politeness breach on his warehouse and #312 is a documentation
-        # entry, so the hole exists for exactly as long as that ordering does. Delete this
-        # row the day #312 lands, which is expected to be minutes.
-        127: "branch docs/the-anchor-is-unique-the-context-is-not, PR #312",
+        # 127'S ROW STOOD HERE AND IS GONE. #313 reserved it to this branch while this
+        # branch declares it, so it became a number both reserved AND declared -- and its
+        # own row said to delete it the day #312 lands, which is this rebase. The guard
+        # named it before the session did, which is the fifth time today.
         # 124 IS CLAIMED BY MESSAGE ONLY, and this row says so because the rule above
         # requires it to: the primary session allocated it for the terminal command in
         # the schema-lag banner, and a search of every local and remote ref finds NO

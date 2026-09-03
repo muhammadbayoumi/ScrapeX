@@ -2886,6 +2886,38 @@ answer to the question I spent an afternoon measuring from scratch — then publ
 conclusion from, in `STATE.md`, the document every session reads second. Read the ruling
 that names the mechanism before designing the mechanism.
 
+## 21.1 · `s.count(old) == 1` proves the anchor is unique. It proves nothing else.
+
+**Every scripted document edit in this repository asserts it**, and it is the strongest
+guard any of them has. On 2026-09-02 two sessions walked through it from opposite ends
+within an hour, and it has two failure modes rather than one.
+
+**UNIQUENESS IS NOT CONTEXT.** `docs/REQUESTS.md` held `REQ-45`'s evidence table **twice**,
+rows 1–4 duplicated verbatim, and a session corrected a citation inside it with
+`assert s.count(old) == 1` passing — because only ONE of the two copies carried the line
+being changed. **So a duplicated block is invisible to the assertion exactly when the copies
+differ by the thing you are editing**, which is the common case: you are editing the part
+that drifted. One copy was repaired, the other left saying something `#301` had closed.
+
+**UNIQUENESS IS NOT LOCATION, and this half is worse.** Writing `OP-126` into
+`docs/STATE.md` I anchored on a paragraph that *reads* as if it belongs to the crawl button
+and *sits* inside the door branch's entry. The string occurred once. The assertion passed.
+**Three paragraphs landed under the wrong heading** — every word correct, every fact true,
+and the only thing wrong was the home. **No guard in this repository reads for that**, and
+prose in the wrong section is harder to see than prose that is wrong, because nothing about
+it looks like an error.
+
+**What to do instead, and it is cheap.** Anchor on something that carries its POSITION —
+the heading above the edit, or a line unique to that section — rather than on a sentence
+that could belong anywhere. When the anchor must be prose, assert the heading too. And for
+a table or a block, count the SHAPE before editing a row of it: a run of rows whose
+neighbours you did not read may be the second copy.
+
+**Both halves were found by the same shape of afternoon**: three documents carrying keep-both
+duplications, none visible to any gate, and each one edited at least once by someone who
+never learned it was a duplicate. The guard against the table form is `OP-125`; there is no
+guard for the located-prose form and this section is the whole of what stands in for one.
+
 ## 21 · Nine citations drifted at once and four tiers of guard said nothing
 
 `#281` added a 53-line function at `scrapex/extract/service.py:304`. Every citation below it

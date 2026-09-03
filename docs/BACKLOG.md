@@ -4500,6 +4500,61 @@ It is the second half of this entry and it is not built.
 Mutation-tested: dropping the admission at the dispatch, replacing the reservation with
 `nullcontext()`, and re-deriving the host inside the runner. Each reddens exactly the
 guard written for it.
+### OP-127 · The panel's «Upgrade database» button migrates his warehouse with no backup
+
+**Found 2026-09-02, looking for the safe way to apply `0017` to his 1.4 GB warehouse.**
+`registry.ensure_ready`'s own docstring states the rule and states its exception:
+
+> *"the protections spec 40 existed for are kept in the caller — a backup first without
+> exception, forward only, never over damage, and said out loud. **Nothing else in the
+> codebase may migrate an existing file.**"*
+
+**There are two doors to that operation and only one keeps them.**
+
+| | what it does |
+|---|---|
+| `cli._upgrade_what_is_only_behind`, reached by **every engine start** — `native.py`'s `_spawn_engine` runs `engine_argv("ui", ...)` | refuses unless the ONLY fault is `BEHIND` · backs up with `tag="pre-upgrade"` · **refuses to migrate if the backup fails** · prints the path · then migrates |
+| `native.upgrade_database` — the panel's **«Upgrade database»** button | `DatabaseRegistry.defaults().initialize()`. **None of the four.** |
+
+**And `EngineDatabase.initialize()` migrates BEFORE it verifies**, so a damaged file is
+migrated first — which is the third protection's exact stated hazard: *"migrating damage is
+how a small corruption becomes an unrecoverable one."*
+
+**`R-81` cuts the other way here.** The panel is the only door, and the door he uses is the
+one without the safety. He never sees the guarded path's protections because they live in a
+command he does not run.
+
+### Nothing tests the function
+
+Three tests mention `UPGRADE_DATABASE` and **all three check its NAME**:
+
+    test_native.py:635      the string is in STANDALONE_COMMANDS
+    test_native.py:653      startup_check returns action: "upgrade_database"   <- the ADVICE
+    test_panel_dom.py:2699  '"UPGRADE_DATABASE"' appears in transport.js       <- text in a file
+
+**No test asserts it backs up, or refuses on damage, or refuses a database written by a
+newer build.** That is why the protections could be absent without anything noticing — the
+same shape as `OP-126`'s `MANIFEST_ONLY`, where every guard over the action checked
+something true and adjacent.
+
+### Why the two paths diverged, which is the part that shapes the fix
+
+**The guarded path `print`s, and the native host owns stdout.** `serve()` writes framed
+messages to `sys.stdout.buffer` (`scrapex/native.py:352`), so a `print` reached from a
+native command injects unframed bytes into the protocol stream and Chrome reads the next
+length prefix wrong. **So the protections could not simply be called from there**, and
+whoever wrote the escape hatch wrote a second, bare path instead.
+
+**Which means the fix is not to move code.** The guarded function should **return** what it
+did — the refusal reason, the backups made with their paths, the versions applied — and
+each caller renders it: the CLI to stdout, the native host into its JSON reply. **That also
+gives the panel the fourth protection it has never had**: *said out loud*, naming the backup
+by path, on the surface he actually uses.
+
+**FILED, NOT FIXED.** Put to him on 2026-09-02 with this evidence; his standing rule is
+diagnose, confirm, then fix, and a repair landed before the cause is agreed destroys the
+evidence he judges it by. **Until he rules, the safe instruction is: restart the engine —
+the guarded path runs on every launch — and do not press the button.**
 
 ---
 
