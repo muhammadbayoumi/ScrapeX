@@ -1424,7 +1424,7 @@ installed. That half is `OP-38`.
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:992`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:988`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
@@ -4540,7 +4540,7 @@ something true and adjacent.
 ### Why the two paths diverged, which is the part that shapes the fix
 
 **The guarded path `print`s, and the native host owns stdout.** `serve()` writes framed
-messages to `sys.stdout.buffer` (`scrapex/native.py:352`), so a `print` reached from a
+messages to `sys.stdout.buffer` (`scrapex/native.py:375`), so a `print` reached from a
 native command injects unframed bytes into the protocol stream and Chrome reads the next
 length prefix wrong. **So the protections could not simply be called from there**, and
 whoever wrote the escape hatch wrote a second, bare path instead.
@@ -4551,10 +4551,37 @@ each caller renders it: the CLI to stdout, the native host into its JSON reply. 
 gives the panel the fourth protection it has never had**: *said out loud*, naming the backup
 by path, on the surface he actually uses.
 
-**FILED, NOT FIXED.** Put to him on 2026-09-02 with this evidence; his standing rule is
-diagnose, confirm, then fix, and a repair landed before the cause is agreed destroys the
-evidence he judges it by. **Until he rules, the safe instruction is: restart the engine —
-the guarded path runs on every launch — and do not press the button.**
+**FILED, NOT FIXED, ON 2026-09-02 — AND FIXED ON 2026-09-03.** It was put to him with this
+evidence and nothing was repaired first, because his standing rule is diagnose, confirm,
+then fix, and a repair landed before the cause is agreed destroys the evidence he judges it
+by. **He then ruled: «نفذ طبقا الأولوية»**, and option (a) is what he had been shown — the
+rule returns its outcome and each caller renders it.
+
+> **BUILT.** `scrapex/dbupgrade.py` holds the guarded upgrade; `cli._upgrade_what_is_only_behind`
+> prints its `Outcome.lines()`, which is the wording that function always had, and
+> `native.upgrade_database` puts it in its reply. **The reply names the backup by path** —
+> the fourth protection arriving on this surface for the first time, because a copy he
+> cannot find is not a copy he can restore. `BEHIND` has one home beside the only rule that
+> reads it, and is not re-exported: nothing outside imported it from `cli`, and a re-export
+> nobody reads is a claim that something does.
+>
+> **Six guards now drive the button** — backs up before it migrates, names the backup by
+> path, migrates nothing when the copy fails, never touches one that is not merely behind,
+> leaves a healthy warehouse alone, and, read as source, neither front door keeps a second
+> copy of the rule and `dbupgrade` never prints. **Every guard that existed drove the
+> command line**, which is how the two doors could differ for so long without anything
+> failing.
+>
+> **AND A FIXTURE BUG THE NEW TESTS FOUND.** `_FakeRegistry.ensure_ready` returned its
+> `after` states unconditionally, so a caller that READS the report first — as the button
+> must, since the rule is decided on it — saw a healthy database and did nothing. The eight
+> tests that predate this pass their report in explicitly and never noticed.
+>
+> **The safe instruction while he was deciding was: restart the engine, do not press the
+> button.** That instruction was also WRONG about his machine, and the correction is worth
+> keeping: his engine runs `0.4.6` from a checkout twelve commits behind `origin/main`, so
+> `0017` is not in that tree and a restart relaunches the same code. **Now the button is
+> the right door**, and it is the only one `R-81` says exists.
 
 ---
 

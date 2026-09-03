@@ -773,7 +773,10 @@ def _cmd_export(args: argparse.Namespace) -> int:
 # The one status that means "behind, and nothing else is wrong". Matched
 # exactly, so "Needs a newer ScrapeX" (a DOWNgrade, never) and "Integrity check
 # failed" (damage, never) both fall through to the refusal below.
-BEHIND = "Needs upgrade"
+# `BEHIND` LIVED HERE AND LIVES IN `scrapex/dbupgrade.py` NOW, beside the only rule that
+# reads it. Not re-exported: measured, nothing outside imported it from this module, and a
+# re-export nobody reads is a claim that something does. One spelling, one home -- two
+# would be a check that silently stops matching (`LESSONS` section 9).
 
 
 def _upgrade_what_is_only_behind(registry, report: dict) -> dict:
@@ -812,28 +815,21 @@ def _upgrade_what_is_only_behind(registry, report: dict) -> dict:
     Returns the report after the attempt — the caller re-reads `ok` and does
     not have to know whether anything happened.
     """
-    from .archive import backup_database
+    # THE RULE MOVED TO `scrapex/dbupgrade.py` AND THIS PRINTS ITS OUTCOME. It used to
+    # live here and print as it went, which is why the panel's own «Upgrade database»
+    # button could not use it: `native.serve` writes framed messages to
+    # `sys.stdout.buffer`, and a `print` reached from a native command corrupts the
+    # protocol stream. So the button called `registry.initialize()` bare, with none of the
+    # four protections, on the one surface the owner actually presses -- `OP-127`.
+    #
+    # NOTHING ABOUT WHAT THIS COMMAND SAYS HAS CHANGED. The same lines, in the same order,
+    # on the same streams: `Outcome.lines()` is the wording this function had.
+    from .dbupgrade import upgrade_what_is_only_behind
 
-    behind = [state for state in report["databases"].values()
-              if not state["ok"] and state["status"] == BEHIND]
-    if not behind or len(behind) != sum(1 for s in report["databases"].values() if not s["ok"]):
-        return report                      # something else is wrong; do not touch it
-
-    for state in behind:
-        path = Path(state["path"])
-        try:
-            made = backup_database(path, tag="pre-upgrade")
-        except Exception as exc:
-            print(f"error: the {state['kind']} database is behind but could not be "
-                  f"backed up, so it was not upgraded ({exc})", file=sys.stderr)
-            return report
-        print(f"backed up the {state['kind']} database to {made} before upgrading")
-
-    applied = registry.initialize()
-    for kind, versions in applied.items():
-        if versions:
-            print(f"upgraded the {kind} database: applied {versions}")
-    return registry.ensure_ready()
+    report, outcome = upgrade_what_is_only_behind(registry, report)
+    for line in outcome.lines():
+        print(line, file=sys.stderr if line.startswith("error: ") else sys.stdout)
+    return report
 
 
 def _cmd_ui(args: argparse.Namespace) -> int:

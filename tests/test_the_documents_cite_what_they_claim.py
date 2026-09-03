@@ -232,7 +232,7 @@ PINNED = (
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 992, "def _bind_log_streams("),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 988, "def _bind_log_streams("),
     # OP-49's evidence is a SENTENCE of prose, and it drifted twice inside one
     # branch: 611 -> 691 -> 755, each time landing on a real, non-blank line
     # that tier 1 and tier 2 both accepted. A citation of prose needs pinning more

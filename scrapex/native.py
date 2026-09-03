@@ -234,25 +234,48 @@ def startup_check() -> dict:
 
 
 def upgrade_database() -> dict:
-    """Apply forward migrations from the native host when HTTP is unavailable."""
+    """Apply forward migrations from the native host when HTTP is unavailable.
+
+    THROUGH THE GUARDED PATH SINCE `OP-127`. This called
+    `DatabaseRegistry.defaults().initialize()` directly, which migrates an existing file
+    with **none** of the four protections `registry.ensure_ready`'s docstring says are
+    kept in the caller: no backup, no BEHIND check, no refusal over damage, and nothing
+    said out loud. `EngineDatabase.initialize()` also migrates BEFORE it verifies, so a
+    damaged file was migrated first -- the third protection's exact stated hazard.
+
+    AND THIS IS THE DOOR THE OWNER USES. `R-81`: the panel is the only interface, so the
+    surface with no safety was the only one he could reach. The engine's own launch has
+    always gone through the guarded path -- `_spawn_engine` runs `engine_argv("ui", ...)`
+    -- which is why the two doors differed for so long without anything failing.
+
+    THE REPLY NOW NAMES THE BACKUP, which is the fourth protection arriving here for the
+    first time: *said out loud*. The old message could only say how many migrations were
+    applied, because there was no backup to name.
+    """
     try:
         from .databases import DatabaseRegistry
+        from .dbupgrade import upgrade_what_is_only_behind
 
-        applied = DatabaseRegistry.defaults().initialize()
+        registry = DatabaseRegistry.defaults()
+        # THE REPORT FIRST, BECAUSE THE RULE IS DECIDED ON IT. `ensure_ready` creates a
+        # database that does not exist -- which holds nothing to lose -- and REPORTS one
+        # that does, without touching it. That report is what says whether the only fault
+        # is the version.
+        report = registry.ensure_ready()
+        report, outcome = upgrade_what_is_only_behind(registry, report)
         states, failure = _database_report()
         if failure:
             return _error("database_upgrade_failed", failure, action="check_storage")
-        moved = {name: numbers for name, numbers in applied.items() if numbers}
-        message = (
-            "Both databases are already up to date."
-            if not moved else
-            "Applied " + ", ".join(
-                f"{len(numbers)} migration{'s' if len(numbers) != 1 else ''} to {name}"
-                for name, numbers in moved.items()
-            ) + "."
-        )
-        return {"ok": True, "applied": applied, "databases": states or {},
-                "message": message}
+        if outcome.refused:
+            # REFUSED IS NOT A CRASH AND IT IS NOT A SUCCESS. The panel gets the reason in
+            # words and the action it can take, because a button that reports nothing is
+            # the failure `R-81` names.
+            return _error("database_upgrade_failed", outcome.refused,
+                          action="check_storage")
+        return {"ok": True, "applied": outcome.applied, "databases": states or {},
+                "backups": [{"kind": kind, "path": where}
+                            for kind, where in outcome.backups],
+                "message": outcome.message()}
     except Exception as exc:
         return _error("database_upgrade_failed", str(exc), action="check_storage")
 
