@@ -3564,6 +3564,17 @@ which is *carry on*, not a choice among them. **So it is parked, visible, and un
 Nobody has quietly removed an accessibility constraint on his behalf, and nobody has
 overruled him either.
 
+> **~~PARKED~~ ANSWERED 2026-09-02 — «احذفها» — and built under
+> [R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice) §6.**
+> Asked once more with the reading spelled out, he chose to delete the floor. **This
+> paragraph stays exactly as written**, because `C4` keeps the history of a published
+> decision and the history here is the useful part: a session held a ruling unbuilt for
+> three days rather than pick between two readings of one word, and the holding was right —
+> **the measurement it eventually took contradicted the warning this paragraph carries.**
+> `tests/test_panel_dom.py`'s three appearance selectors do NOT depend on the override; they
+> measure 48, 115 and 48 with it and without it. The real cost was one icon button at 40px
+> and two rendering pins, not the accessibility constraint named above.
+
 #### Why they were taken in one pass rather than one at a time
 
 Nine of the ten are independent of each other and eight of them cost no new token. Asking
@@ -3830,7 +3841,37 @@ this ruling. **The exemption is not a concession to difficulty.** On that axis S
 publishes nothing to copy, so "exact match" could only mean deleting what this repository has
 — and half the crawled corpus is Arabic.
 
-#### 5 · Three departures this ruling would revert, and one that was never a departure
+#### 5 · The 48px touch floor, deleted — and it is this ruling rather than a separate one
+
+**«احذفها», 2026-09-02**, closing the last of `REQ-49`'s twelve and the one
+[R-82](#r-82--the-ten-remaining-decisions-of-req-49-taken-in-one-pass) had left parked.
+
+**IT BELONGS HERE BECAUSE IT IS EXACT MATCH, NOT A SEPARATE PREFERENCE.** Supabase's control
+scale is `SIZE_VARIANTS` — 26 / 34 / 38 / 42 / 50, default 34 — and it carries **no 48px
+floor anywhere**. The panel raised `--control-height` to 48px and `--control-height-sm` to
+40px over the baseline's 40 and 32, on the ground that the extension *"behaves like a compact
+Android app"*. An override that lifts two tokens above the baseline is a divergence from
+them, so «مطابق تماما» removes it.
+
+**AND THE WARNING THAT KEPT IT PARKED WAS WRONG, WHICH IS WHY IT WAS RIGHT TO MEASURE.**
+`R-82` records that deleting the override would remove a 48px bounding box asserted on
+three appearance selectors. Measured in Chromium: **those three are 48, 115 and 48 with the
+override and without it** — they take their height from padding and content, not from
+`--control-height`. The real cost is smaller and elsewhere: **one icon button drops from 48
+to 40**, and two rendering pins move — the Finance converter rows from 40 to 32, and the
+engine back button from 40×48 to 32×40.
+
+**The back button is the one to read.** Its test exists for an ASYMMETRY: the declared
+`--control-height-sm` reaches the width while the global `min-height` sets the height from
+`--control-height`. **That asymmetry survives intact** — both numbers now come from the
+baseline instead of the override, so the pair moved together. The assertion's subject never
+changed; its two values did.
+
+**`--touch-target` IS NOT DELETED**, and the distinction is the whole of what remains: it
+keeps **24 explicit reads** in `extension/app.css` where a specific element is sized for
+touch deliberately. What went is the blanket raise of every control.
+
+#### 6 · Three departures this ruling would revert, and one that was never a departure
 
 Measuring the ruling found the record of the departures itself partly wrong, and the
 correction stands whatever he answers.

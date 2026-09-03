@@ -1771,9 +1771,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
         separatorHeight: getComputedStyle(element, '::after').height,
       }))
     """)
+    # 40 UNTIL R-85/OD-09 DELETED THE PANEL'S 48px FLOOR. These rows are sized by
+    # `--control-height-sm`, which the panel raised to 2.5rem over the baseline's
+    # 2rem; with the override gone they follow the baseline at 32. The assertion's
+    # SUBJECT is that both rows agree and carry a 24px separator, and that is
+    # unchanged — what moved is the value the baseline supplies.
     assert converter_rows == [
-        {"height": 40, "separatorHeight": "24px"},
-        {"height": 40, "separatorHeight": "24px"},
+        {"height": 32, "separatorHeight": "24px"},
+        {"height": 32, "separatorHeight": "24px"},
     ]
     assert "Google Finance" in text_of(page, "#finance-converter-as-of")
     page.evaluate("() => window.ScrapeXTime.set('UTC')")
@@ -5331,7 +5336,14 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 40px pill with no resting border or background, muted until hovered.
+    a 32px-wide pill with no resting border or background, muted until hovered.
+
+    32 AND 40 SINCE R-85/OD-09, WAS 40 AND 48. The panel raised `--control-height`
+    to 48px and `--control-height-sm` to 40px over the baseline; «احذفها» removed
+    that override, because Supabase's control scale is 26/34/38/42/50 and has no
+    48px floor. THE ASYMMETRY THIS TEST IS ABOUT SURVIVES INTACT — the declared
+    width still reaches the width and the global `min-height` still clamps the
+    height — and only the two numbers the baseline supplies have moved.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
     than a remembered one: `button, .button { min-height: var(--control-height) }`
@@ -5357,13 +5369,15 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(40, abs=0.01), box["width"]
-    # 40 WIDE, 48 TALL, and the asymmetry is the point. `button, .button` in
-    # components.css carries `min-height: var(--control-height)` (48px) and
-    # nothing here overrides it, so the declared 2.5rem reaches the width and the
-    # global floor keeps the height. Measured, not assumed — and identical to
+    assert box["width"] == pytest.approx(32, abs=0.01), box["width"]
+    # 32 WIDE, 40 TALL, and the asymmetry is still the point. `button, .button` in
+    # components.css carries `min-height: var(--control-height)` and nothing here
+    # overrides it, so the declared `--control-height-sm` reaches the WIDTH while
+    # the global floor sets the HEIGHT from `--control-height`. Both now come from
+    # the baseline rather than the panel's deleted override, so the pair moved 40/48
+    # -> 32/40 together. Measured, not assumed — and identical to
     # `.manage-account-back`, the control this one is a copy of.
-    assert box["height"] == pytest.approx(48, abs=0.01), box["height"]
+    assert box["height"] == pytest.approx(40, abs=0.01), box["height"]
     twin = page.locator("#manage-account-back").evaluate(
         "el => getComputedStyle(el).minHeight")
     assert twin == btn.evaluate("el => getComputedStyle(el).minHeight"), (
