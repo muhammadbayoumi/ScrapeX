@@ -84,6 +84,15 @@ REFERENCE = re.compile(r"`(test_[A-Za-z0-9_]{6,})`")
 #: is the point; if a test was renamed and the new name says the same thing, cite
 #: the new name instead and add nothing here.
 HISTORICAL = {
+    "test_health_accepts_a_legacy_v1_scrapex_warehouse_for_migration": (
+        "f221abc3", "tests/test_storage.py",
+        "renamed 2026-09-03 to test_health_refuses_a_warehouse_older_than_the_"
+        "baseline_and_says_why, because `R-84` retires the promise it recorded for "
+        "the period before publication and restores it after: a warehouse below the "
+        "squashed baseline has no upgrade path, so `health()` reporting it as "
+        "upgradable was the thing that had to change. Its old body had also stopped "
+        "testing its own name -- it built a database by executing SCHEMA_FILE, which "
+        "was v1 while the baseline declared 1 and is the HEAD now"),
     "test_the_engine_overflow_trigger_has_no_visible_resting_container": (
         "8796fb5", "tests/test_panel_dom.py",
         "added by 8796fb5 (#151), removed by ce80886 (#217) with the Engine "

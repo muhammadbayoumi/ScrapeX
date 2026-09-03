@@ -103,7 +103,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-49](#req-49--review-the-design-system-against-supabases) | Review the design system against Supabase's | **In flight** — measured 2026-08-29; he set the scope first («اولا تحديد كل محاور المراجعة»), then pointed at the SOURCE rather than the site, then chose six axes of twenty-six («ابدأ بالستة»). `R-74` **holds in the built product** (8 states x 118 properties in Chromium 149: 62 move, all colour) **and is guarded by almost nothing** — mutation put the type scale into a palette with 91 static and 218 browser guards green. `device` does not reach the user in dark. 21 findings were refuted by the verify pass. Filed as [OP-101](BACKLOG.md)–[OP-110](BACKLOG.md); **twelve decisions open, all his** | 2026-08-29 |
 | [REQ-50](#req-50--the-engine-lives-on-the-engine-page-enough-warning-a-restart-to-press-and-one-home-for-every-engine-control) | The engine lives on the Engine page: enough warning, a restart to press, and one home for every engine control | **In flight** — ruled the same day as [R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy), branch `claude/scrapex-engine-consolidation-d69e0a`. The Build row said *Restart needed* and the page had nothing to press, while **four callers** of `POST /api/engine/restart` sat elsewhere — two in Settings, two on the engine's own web pages; measured across the product, **11 routes on both surfaces, 31 only on the engine's pages, 18 only in the panel, 8 settings changeable nowhere but the web UI**. Landed: the duplicate restart deleted and the survivor moved onto the Engine screen, its budget raised from 30 s to the engine's real 121.5 s, `schema_lag` carried so its banner can appear at all, and the spec-row grid repaired. **The power switch waits on `POST /api/engine/stop`**, which cannot land until `R-77`'s gate work or his word. Files [OP-112](BACKLOG.md)–[OP-114](BACKLOG.md) | 2026-08-30 |
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
-| [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **Open, and his**: collapse the migration chain and regenerate the baseline, so the name goes as a side effect rather than by editing a checksummed file. Needs the second machine's pointer read, and a collapse verified by schema **equality** | 2026-08-30 |
+| [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **In flight** — decided and built 2026-09-03 under [R-84](RULINGS.md) — the base may be collapsed before publication and after it no migration is ever deleted. The chain is one baseline at v17, `grep -ci marketlens db/engine/schema.sql` answers **0**, and the reconciliation was checked against his real 2.02 GB warehouse read-only. The waiver on the second machine is recorded as a waiver | 2026-08-30 |
 ---
 
 ## REQ-01 · One documentation system, in the repository
@@ -2863,8 +2863,24 @@ nobody can review, and a mutation that fails inside it cannot be attributed.
 
 ## REQ-52 · Delete everything MarketLens, a product that was abandoned
 
-**Captured 2026-08-30 · measured the same day · In flight — branch `claude/marketlens-is-gone`
-(`OP-117`). Most of it is done; the last of it waits on one decision of his**
+**Captured 2026-08-30 · measured the same day · `OP-117` merged as `2ce06b82` · In flight**
+— the last of it built 2026-09-03 under [`R-84`](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again).
+
+**HE HAS DECIDED THE OPEN QUESTION AND IT IS NO LONGER HIS TO TAKE.** The chain is collapsed
+into `db/engine/schema.sql` at schema version 17 — 179 objects and the three rows the
+chain seeded — and **MarketLens left the tree as a side effect of generation rather
+than by editing a checksummed file**, which is what he asked for: `grep -ci marketlens
+db/engine/schema.sql` answers **0**, and both `FROZEN` rows in `OP-117`'s own guard
+dissolved, found by its third clause.
+
+**The two things this entry said it needed are both answered.** *"Needs the second
+machine's pointer read"* — he waived it («لا اكترث لجهازى الثانى الان»), and `R-84`
+records the waiver as a waiver rather than as a measurement. *"A collapse verified by
+schema equality"* — `tools/squash_engine_baseline.py` refuses to write a baseline it
+cannot verify against a database built through the whole chain, comparing objects,
+columns with types and NOT NULL and DEFAULT, indexes, triggers, views **and every
+seeded row**; and the four conditions of the ledger reconciliation were evaluated
+against his real 2.02 GB warehouse read-only, all five passing.
 
 > «اى حاجة لها علاقة ب MarketLens احذفها تم التخلى عنها مسبقا»
 > — and, when told two files could not be edited without breaking his databases:

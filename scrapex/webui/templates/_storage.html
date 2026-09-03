@@ -34,7 +34,8 @@
         {{ {"healthy": "Healthy", "missing": "Not created yet",
              "empty": "Empty", "unreadable": "Unreadable",
              "damaged": "Damaged", "not_scrapex": "Not a ScrapeX database",
-             "incompatible": "Made by a newer ScrapeX"}
+             "incompatible": "Made by a newer ScrapeX",
+             "too_old": "Older than this engine's schema"}
             .get(storage.health.status, storage.health.status) }}</span>
         <div class="muted small">{{ storage.health.detail }}</div></td></tr>
   <tr><th>Backups</th>

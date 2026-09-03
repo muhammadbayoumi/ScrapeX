@@ -133,6 +133,10 @@ def test_initialising_twice_applies_nothing_the_second_time(tmp_path):
     """`init-db` is part of the merge procedure and gets run by hand, often
     twice. The second run must be a no-op, not a re-application."""
     db = EngineDatabase(tmp_path / "scrapex-engine.db")
-    assert db.initialize() == list(range(1, db.latest_schema_version + 1))
+    # THE PLAN'S OWN NUMBERS, not a range from 1. `range(1, latest + 1)` was true
+    # only while the baseline declared version 1; after `R-84`'s squash the plan is
+    # a single migration numbered at the head, and a range from 1 would demand
+    # fifteen numbers that no longer exist.
+    assert db.initialize() == [item.number for item in db._migrations]
     assert db.initialize() == [], "the second run re-applied migrations"
     assert db.health().ok

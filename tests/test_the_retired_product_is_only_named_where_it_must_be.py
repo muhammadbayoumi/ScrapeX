@@ -39,13 +39,20 @@ NAME = re.compile("marketlens", re.IGNORECASE)
 #:
 #: Deleting a row means deleting the thing it protects. Read the reason first.
 ALLOWED: dict[str, str] = {
-    "db/engine/schema.sql":
-        "FROZEN. This file IS migration 1: its sha256 is stamped in every "
-        "database's ledger and re-checked by `_verify` on every connect, so "
-        "editing one byte makes every existing database refuse to open.",
-    "db/engine/migrations/0002_the_price_source_key_is_named_for_what_it_is.sql":
-        "FROZEN. An APPLIED migration. It renames the column schema.sql "
-        "declares; editing it rewrites history and changes its checksum.",
+    # `db/engine/schema.sql` AND `0002_...` STOOD HERE AND BOTH ARE GONE, which is
+    # what this table is for and the first time it has happened by deletion rather
+    # than by rename.
+    #
+    # Both rows said FROZEN: the baseline created `site_profile.marketlens_source_key`
+    # and `0002` renamed it, and neither file could be edited because its digest is in
+    # every existing ledger. `R-84`'s squash did not edit them -- it REGENERATED the
+    # baseline from a database the chain built, so the column is created under its
+    # current name and the migration that renamed it no longer ships. Measured after
+    # the squash: `grep -ci marketlens db/engine/schema.sql` answers 0.
+    #
+    # This test's third clause is what found it: an allowed row whose file no longer
+    # names the retired product goes red, so the exceptions could not outlive the
+    # thing they protected.
     "scrapex/databases/carry_over.py":
         "CONTRACT. `marketlens_path` is a key inside ~/.scrapex/databases.json, "
         "written there by a shipped version. Rename it and carry-over silently "

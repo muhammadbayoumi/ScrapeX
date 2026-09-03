@@ -414,6 +414,34 @@ def _warehouse_identity(conn: sqlite3.Connection) -> tuple[str, str] | None:
             f"understands through v{latest}. Update ScrapeX before restoring it.",
         )
 
+    # THE FLOOR, AND IT HAD ONLY A CEILING. Anything between 1 and `latest` read as
+    # fine, because before `R-84` every version in that range could be migrated
+    # upwards. The squash collapsed the chain into the baseline, so versions below it
+    # have no upgrade path at all -- and this function went on answering
+    # "healthy / No problems found" about a database `EngineDatabase.initialize()`
+    # refuses to open. Measured before this check existed, on a warehouse rewound to
+    # v9 with a v16 baseline:
+    #
+    #     health()      status: healthy   ok: True   "No problems found."
+    #     initialize()  REFUSED -- no upgrade path between v9 and v16
+    #
+    # That is worse than advising a command that fails: it says nothing is wrong.
+    # `incompatible` was not reusable for it -- the interface renders that as "Made
+    # by a newer ScrapeX", and this file was made by an OLDER one.
+    baseline = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+    if version < baseline:
+        return (
+            "too_old",
+            f"The file uses ScrapeX schema v{version}, and this engine's schema "
+            f"starts at v{baseline}: the migrations that led there were collapsed "
+            "into the baseline before release (R-84), so this build has no upgrade "
+            f"path from v{version}. Nothing has been changed. Bring it to v{baseline} "
+            "with the last release that still carried those migrations, or start a "
+            "new warehouse and carry this one's rows into it. From publication "
+            "onwards every migration is kept, so this cannot happen to a released "
+            "build.",
+        )
+
     objects = {
         row[0]: row[1]
         for row in conn.execute(

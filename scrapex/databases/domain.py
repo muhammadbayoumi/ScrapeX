@@ -6,6 +6,7 @@ and restore path. Callers cannot accidentally pass one domain to the other.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from collections.abc import Callable
@@ -29,6 +30,16 @@ ROOT_DB_DIR = Path(__file__).resolve().parents[2] / "db"
 # The instant one is, this becomes as immovable as the price stream is now.
 ENGINE_SCHEMA = ROOT_DB_DIR / "engine" / "schema.sql"
 ENGINE_MIGRATIONS = ROOT_DB_DIR / "engine" / "migrations"
+
+#: What the baseline absorbed, if it was ever squashed -- name and digest for every
+#: migration collapsed into it, written by `tools/squash_engine_baseline.py` while
+#: the chain still existed. `R-84` allows that collapse before publication only.
+#:
+#: IT IS EVIDENCE, NOT CONFIGURATION. The runner reads it to tell a database that
+#: really went through the collapsed chain from one that merely claims the same
+#: version, and it can prove the difference only because these digests were computed
+#: from files that no longer exist.
+ENGINE_SQUASH_RECORD = ROOT_DB_DIR / "engine" / "squashed-from.json"
 
 T = TypeVar("T")
 
@@ -426,6 +437,28 @@ class DomainDatabase(Generic[T]):
                 f"{self.kind} database schema v{current} is newer than this engine's "
                 f"v{self.latest_schema_version}; upgrade ScrapeX and retry"
             )
+        # A SQUASHED BASELINE MUST NEVER REPLAY OVER A DATABASE THAT HAS ROWS.
+        # `db/engine/schema.sql` has 51 `CREATE TABLE` and no `IF NOT EXISTS`, and the
+        # loop below applies any migration numbered above the current version -- so a
+        # baseline at v16 met a database at v9 and ran the whole schema over it,
+        # dying on the first table. Measured: `table absence_period already exists`.
+        #
+        # AND THE DAMAGE WAS NOT THE CRASH. `cli.py` takes a `pre-upgrade` backup
+        # BEFORE calling initialize(), so every engine launch left another copy of the
+        # warehouse and then failed, while `health()` went on advising the one command
+        # that could not work. `R-84` is the ruling: below the baseline a database is
+        # not upgraded -- it is carried over or rebuilt -- and saying so is the whole
+        # difference between a refusal and a loop.
+        baseline = self._migrations[0]
+        if baseline.number > 1 and 0 < current < baseline.number:
+            raise DatabaseMigrationError(
+                f"this {self.kind} database is at schema v{current} and this build's "
+                f"baseline starts at v{baseline.number}, so there is no upgrade path "
+                f"between them -- the migrations that led to v{baseline.number} were "
+                "collapsed into the baseline (R-84). Nothing has been changed. Use "
+                "the last release that still carried the chain to bring this database "
+                f"to v{baseline.number} first, or start a new database and carry this "
+                "one's rows into it.")
         applied: list[int] = []
         for migration in self._migrations:
             if migration.number <= current:
@@ -531,11 +564,22 @@ class DomainDatabase(Generic[T]):
                 "SELECT sha256 FROM database_migration WHERE migration_name = ? LIMIT 1",
                 (migration.name,),
             ).fetchone()
-            if stored is not None and not migration.matches(stored[0]):
+            recognised = stored is not None and not migration.matches(stored[0]) and \
+                self._went_through_the_collapsed_chain(conn, migration, stored[0])
+            if stored is not None and not migration.matches(stored[0]) \
+                    and not recognised:
                 raise DatabaseMigrationError(
                     f"{self.kind} migration {migration.name} checksum changed; restore "
                     "the original migration file and retry"
                 )
+            if recognised:
+                # The collapse, recorded once so every later connect is ordinary.
+                # The absorbed rows are left where they are: the lookup is by name,
+                # so they are invisible to this stream, and they are the evidence
+                # that this database went through the chain.
+                conn.execute(
+                    "UPDATE database_migration SET sha256 = ? WHERE migration_name = ?",
+                    (migration.sha256, migration.name))
             if stored is not None and stored[0] != migration.sha256:
                 # A digest stamped from raw bytes, proven to be THIS file (see
                 # Migration.legacy_sha256). Upgraded once, here in the path that
@@ -573,6 +617,70 @@ class DomainDatabase(Generic[T]):
                 f"is {app_id}; select the correct database and retry"
             )
 
+    def _squash_record(self) -> dict | None:
+        """The record of the collapse, or None if this baseline was never squashed."""
+        if not ENGINE_SQUASH_RECORD.is_file():
+            return None
+        try:
+            return json.loads(ENGINE_SQUASH_RECORD.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # A record that cannot be read must not silently become "no squash":
+            # that would turn a recognisable database into a checksum failure with
+            # a message about restoring a file nobody edited.
+            raise DatabaseMigrationError(
+                f"{ENGINE_SQUASH_RECORD.name} is unreadable, so this build cannot "
+                "tell whether its baseline replaced a migration chain. Restore it "
+                "from the release this engine came from and retry.") from None
+
+    def _went_through_the_collapsed_chain(
+            self, conn: sqlite3.Connection, migration: Migration, stored: str) -> bool:
+        """Whether `stored` is the digest of the baseline THIS baseline replaced, on a
+        database that really applied the whole chain it absorbed.
+
+        WHY A DIGEST CHANGE IS NORMALLY FATAL, and why this one case is not. The
+        ledger holds each migration's digest so a file edited after it was applied
+        refuses to open -- a database and the code no longer agree about what was run.
+        A squash changes the baseline's content deliberately, so every database that
+        went through the old chain reports exactly that failure. Measured on a
+        warehouse built from the pre-squash tree: `connect()` raised "migration
+        schema.sql checksum changed; restore the original migration file and retry",
+        and `health()` answered "Integrity check failed" about a file with nothing
+        wrong with it.
+
+        FOUR CONDITIONS, AND EACH ONE REFUSES SOMETHING THE OTHERS ALLOW:
+
+          1. it is the BASELINE. No other migration's digest is ever excused.
+          2. the record describes THIS baseline -- its head equals the baseline's
+             number -- so a record left behind by a different collapse cannot vouch
+             for this one.
+          3. the stored digest is the one the record says the REPLACED baseline had.
+             Not "any unknown digest": this accepts a ledger stamped by that specific
+             file and nothing else, which is the difference between recognising a
+             squash and disabling the check.
+          4. every migration the baseline absorbed is in the ledger BY NAME AND
+             DIGEST, and the database is at the baseline's version. A database that
+             never applied the chain fails this even if it claims the version.
+
+        Accepted on READ and upgraded on STAMP, which is exactly the arrangement
+        `legacy_sha256` already has for pre-normalisation digests. Nothing here
+        widens what a mismatch means; it names one more thing a match can be.
+        """
+        record = self._squash_record()
+        if record is None or migration is not self._migrations[0]:
+            return False
+        absorbed = record.get("absorbed") or []
+        if record.get("head") != migration.number or len(absorbed) < 2:
+            return False
+        by_name = {name: digest for _number, name, digest in absorbed}
+        if by_name.get(migration.name) != stored:
+            return False
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) != migration.number:
+            return False
+        rows = dict(conn.execute(
+            "SELECT migration_name, sha256 FROM database_migration").fetchall())
+        return all(rows.get(name) == digest for name, digest in by_name.items()
+                   if name != migration.name)
+
     def _verify_checksums(self, conn: sqlite3.Connection) -> None:
         """The same lookup as the stamping path, and it has to be. `OP-30`: keyed on
         the number, this is what refused to open the owner's warehouse on every
@@ -587,7 +695,8 @@ class DomainDatabase(Generic[T]):
                     f"{self.kind} migration ledger is incomplete at {migration.name}; "
                     "run database initialization and retry"
                 )
-            if not migration.matches(stored[0]):
+            if not migration.matches(stored[0]) and not \
+                    self._went_through_the_collapsed_chain(conn, migration, stored[0]):
                 raise DatabaseMigrationError(
                     f"{self.kind} migration {migration.name} checksum changed; restore "
                     "the original migration file and retry"

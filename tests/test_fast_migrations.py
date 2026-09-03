@@ -138,8 +138,16 @@ def test_a_truncated_stream_is_never_served_the_template(schema_template, monkey
     try:
         assert schema_template.may_restore(conn) is True     # pristine: eligible
         every = dbmod._migration_files()
-        assert len(every) > 1, "a one-file stream cannot be truncated, so nothing is proved"
-        monkeypatch.setattr(dbmod, "_migration_files", lambda: every[:-1])
+        # A LONGER STREAM, NOT A TRUNCATED ONE, and the reason is `R-84`. Cutting the
+        # last file proved the fingerprint notices a DIFFERENT stream, and it worked
+        # only while there were two files to cut between. The squash made the chain
+        # one file, `every[:-1]` empty, and the assertion above it -- "a one-file
+        # stream cannot be truncated, so nothing is proved" -- fired exactly as its
+        # author intended. Adding a file tests the same property and cannot run out
+        # of stream: what is under test is that the template refuses a fingerprint
+        # it did not build, in either direction.
+        longer = [*every, (every[-1][0] + 1, every[-1][1].with_name("0099_probe.sql"))]
+        monkeypatch.setattr(dbmod, "_migration_files", lambda: longer)
         assert schema_template.may_restore(conn) is False    # ...but not this stream
     finally:
         conn.close()
