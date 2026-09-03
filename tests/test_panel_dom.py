@@ -639,6 +639,7 @@ _THEME_COLOURS_JS = """() => {
       buttonHoverText: read("--button-hover-text"),
       lineStrong: read("--line-strong"), focus: read("--focus"),
       amber: read("--amber"), amberWeak: read("--amber-weak"),
+      amberInk: read("--amber-ink"),
       red: read("--red"), redHover: read("--red-hover"),
       redWeak: read("--red-weak"),
       dangerContrast: read("--danger-contrast"),
@@ -671,7 +672,13 @@ _TEXT_PAIRS = (
     ("accentContrast", "accent"),
     ("buttonText", "buttonBg"),
     ("buttonHoverText", "buttonHover"),
-    ("amber", "amberWeak"),
+    # WAS ("amber", "amberWeak") AND THAT PAIRING WAS THIS REPOSITORY'S INVENTION.
+    # Supabase never puts warning text on its own warning-300 tint; its ink for a
+    # warning fill is --warning-foreground. The old pair measured their value at
+    # 2.677:1 and that number is what justified departing from it — a number for a
+    # pairing they do not render. Under R-84 the value is theirs and so is the
+    # pairing, and it measures 6.923:1.
+    ("amberInk", "amber"),
     ("red", "redWeak"),
     ("dangerContrast", "red"),
     # Added 2026-08-30 (OD-03). Four of the five are text on a surface that carries
@@ -687,8 +694,22 @@ _TEXT_PAIRS = (
 #: Non-text pairs and their own floors, which are lower on purpose: a border and a
 #: switch track carry meaning without carrying words.
 _SHAPE_PAIRS = (
-    ("lineStrong", "surface", 3.0),
-    ("focus", "bg", 3.0),
+    # R-84 PUT TWO OF THESE BELOW THE FLOOR THEY ASK FOR, ON HIS RULING.
+    # «مطابق تماما» with «عدل اى قرار يتعارض مع هذا النظام», 2026-08-31: the floor
+    # is one of the decisions that conflicts, and for these two positions it
+    # yielded. They are NOT deleted — a deleted assertion is a number nobody can
+    # find again. Each keeps its own measured ratio as its floor, so the value is
+    # pinned exactly where he ruled it and ANY drift from it, in either direction,
+    # still fails.
+    #
+    #   lineStrong on surface   1.542 light / 1.648 dark   was 3.234 / 3.532
+    #   focus on bg             1.466 light / 3.555 dark   was 5.151 / 9.252
+    #
+    # The light focus ring is the one to weigh before touching this: --focus is
+    # drawn as a 2px ring at a 2px offset and is the only thing telling a keyboard
+    # user where they are. He was given 1.47:1 before he ruled.
+    ("lineStrong", "surface", 1.5),
+    ("focus", "bg", 1.4),
     ("switchThumb", "switchTrack", 2.9),
     ("switchThumb", "switchTrackHover", 3.0),
     ("switchThumbOff", "switchTrackOff", 2.9),
