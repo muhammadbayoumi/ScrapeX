@@ -701,7 +701,7 @@ Nothing else rode along. `scrapex/webui/app.py:387` computes
 `Path(__file__).parent / "static"`, which in a one-file build is
 `_MEIPASS/scrapex/webui/static` — exactly the path in the owner's error —
 `StaticFiles(check_dir=True)` refuses to mount a directory that is not there, and
-`scrapex/cli.py:1318` prints the `RuntimeError` verbatim. There was no warning at
+`scrapex/cli.py:1360` prints the `RuntimeError` verbatim. There was no warning at
 build time worth reading and no failing test anywhere.
 
 **Three of the five had been missing since the first release, and only one crashes:**
