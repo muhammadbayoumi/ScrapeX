@@ -1790,8 +1790,22 @@ def _park_for_control(conn: sqlite3.Connection, job: dict) -> bool:
     return False
 
 
-def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
-    """Run one immutable input snapshot; failed items earn bounded retries."""
+def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
+                            admission=None) -> dict:
+    """Run one immutable input snapshot; failed items earn bounded retries.
+
+    `admission` IS ACCEPTED AND NOT USED, and that is a statement rather than an
+    oversight. `jobs.SPECIALISED_RUNNERS` hands the cross-job gate to every kind since
+    `OP-128`, because a runner that could not accept it made the omission invisible; what
+    it does with it is the runner's own question.
+
+    THE OPEN QUESTION, LEFT VISIBLE RATHER THAN ANSWERED HERE: this job's requests go to
+    third-party PROVIDERS, not to one site the owner registered, so there is no single
+    host to reserve and `_host_of`'s identity does not apply. Whether two concurrent
+    enrichment jobs should serialise per PROVIDER is a real question with the same shape
+    as `R-21` -- and it is not settled by this parameter arriving. Filed as the second
+    half of `OP-128`.
+    """
     from .. import jobs
 
     job = jobs.get_job(conn, job_ref)

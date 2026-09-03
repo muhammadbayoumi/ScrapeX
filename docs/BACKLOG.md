@@ -4424,6 +4424,85 @@ everything that reasons about what the run WILL do, and nothing enumerates those
 
 ---
 
+### OP-128 · A directory crawl bypassed the gate that stops two jobs crawling one site
+
+**Found 2026-09-03, an hour after `#310` merged it. This session wrote the defect and this
+session merged it**, which is why the entry leads with that rather than with the mechanism.
+
+`_CrawlAdmission`'s own docstring says what it is for:
+
+> *"**per-host reservation** — Two lanes on one host serialise, whichever JOB each belongs
+> to … **so a scheduled crawl and a hand-started one of the same site cannot double the
+> load it asked to be spared.** This is the safety property the task calls the whole risk."*
+
+**And the specialised-runner contract had nowhere to put it.** `SPECIALISED_RUNNERS` mapped
+a kind to a `(conn, job_ref)` callable, so `_start_job` chose the runner and handed the
+admission to `run_job_once` — the price path — and to nothing else.
+
+**Measured, not projected:**
+
+    job_capacity on his warehouse   3        (the shipped default is 1)
+    DEFAULT_PACE_S                  1.0 s
+    two muqawil_org jobs            two HttpFetchers, no reservation between them
+
+**So two presses of the panel's own button, or a schedule plus one press, doubled the
+request rate on muqawil.org.** `R-21`, `SR-8`.
+
+### The guard that pins the rule could not see it
+
+`test_two_jobs_never_crawl_one_host_at_the_same_time` (`tests/test_jobs.py:1190`) is real
+and correct, and its helper `_run_two_jobs` calls **`run_job_once(...)` directly** rather
+than coming through `_start_job`. So it pins the property for the price path and is blind
+to the dispatch — which is the only place a second job kind gets the gate or does not.
+
+**Second instance in two days of the same shape:** a guard asserting something true and
+**adjacent** to the thing that broke. `OP-126`'s was a test accepting any `4xx` while the
+refusal it recorded was about the run mode; this one drives the collector the dispatch was
+not asked about.
+
+### The fix, which is option (a) of the two put to him
+
+**The contract accepts the gate** — `(conn, job_ref, admission=None)` — and the runner
+holds the host reservation around its own crawl. **Not the dispatch**, because only the
+runner knows when its first request goes out and its last returns; a reservation taken
+around the whole job would hold a site against other jobs through the sizing, the
+validator replay and the coverage report, none of which asks the site for anything.
+
+**A runner may ignore the gate; it may not fail to accept it.** That is the half that makes
+the omission impossible to repeat: a runner with no such parameter gives the dispatch
+nowhere to hand it, so there is nothing to notice. `run_enrichment_job_once` accepts and
+does not use it.
+
+**AND THE HOST RULE IS EXTRACTED RATHER THAN COPIED.** `_host_of`'s docstring names the
+crack: *"ONE definition, used to bucket lanes AND to reserve a host across jobs — so a
+source cannot be filed under one host name for grouping and a different one for
+reservation, which is the crack two jobs would slip through to crawl a site together."*
+The directory runner reserves a **registry** source the manifest cannot resolve, so it
+needs the rule without the lookup: `jobs.host_of_url` now holds it, `_host_of` delegates,
+and a guard reads `scrapex/directoryjob.py` for `netloc` to prove the runner has no second
+derivation.
+
+### The open half, left visible rather than answered
+
+`run_enrichment_job_once`'s requests go to third-party **providers**, not to one site the
+owner registered, so there is no single host to reserve and `_host_of`'s identity does not
+apply. **Whether two concurrent enrichment jobs should serialise per PROVIDER is a real
+question with the same shape as `R-21`**, and it is not settled by the parameter arriving.
+It is the second half of this entry and it is not built.
+
+### Four guards, three mutations
+
+    every specialised runner ACCEPTS the gate        a signature, so a new kind cannot forget
+    the dispatch HANDS it over                       the omission itself
+    two directory crawls on one host SERIALISE       timed, non-overlap rather than order
+    the host rule has ONE definition                 including: the runner has no `netloc`
+
+Mutation-tested: dropping the admission at the dispatch, replacing the reservation with
+`nullcontext()`, and re-deriving the host inside the runner. Each reddens exactly the
+guard written for it.
+
+---
+
 ### OP-126 · «Update now» has never worked on any card, and three guards said it was fine
 
 **Found 2026-09-02, after `REQ-45`'s collector was built and before anything had pressed

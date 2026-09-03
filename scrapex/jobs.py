@@ -60,6 +60,18 @@ _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
 #: scope is a cycle -- which `_start_job` already worked around with a function-local
 #: import. Paths also keep `import scrapex.jobs` from pulling the enrichment providers
 #: and an HTTP fetcher into every process that only wants to read a job row.
+#:
+#: THE CONTRACT IS `(conn, job_ref, admission=None)` SINCE 2026-09-03, AND THE THIRD
+#: ARGUMENT IS NOT OPTIONAL IN SPIRIT. It was `(conn, job_ref)`, so `_start_job` handed
+#: the cross-job admission to `run_job_once` and to nothing else -- and `directory_crawl`
+#: is a job that fetches one site at a fixed pace, which is exactly what the per-host
+#: reservation exists for. Measured on his warehouse: `job_capacity` is 3, so two
+#: `muqawil_org` jobs would have run together at 1.0 s each and doubled the request rate.
+#: `OP-128`, `R-21`, `SR-8`.
+#:
+#: A RUNNER MAY IGNORE IT, and one does -- see `run_enrichment_job_once`. What it may not
+#: do is fail to ACCEPT it, because then the dispatch cannot offer it and the omission is
+#: invisible again.
 SPECIALISED_RUNNERS: dict[str, tuple[str, str]] = {
     "organization_enrichment": (".enrichment.service", "run_enrichment_job_once"),
     "directory_crawl": (".directoryjob", "run_directory_crawl_job_once"),
@@ -435,20 +447,31 @@ def job_capacity(conn: sqlite3.Connection) -> int:
 
 # ---- admission: the two rules that make concurrent JOBS safe ----------------
 
-def _host_of(manifest, key: str, fallback: str) -> str:
+def host_of_url(base_url: str, fallback: str) -> str:
     """The politeness identity of a source: its host, www-stripped, lowercased.
 
-    ONE definition, used to bucket lanes AND to reserve a host across jobs — so
-    a source cannot be filed under one host name for grouping and a different
-    one for reservation, which is the crack two jobs would slip through to crawl
-    a site together. A key the manifest cannot resolve gets `fallback`, and the
-    caller passes a value unique to that source so two unknowns never collide.
+    EXTRACTED FROM `_host_of` 2026-09-03 SO A SECOND CALLER CANNOT WRITE IT AGAIN, which
+    is the crack `_host_of`'s own docstring names: a source filed under one host name for
+    grouping and a different one for reservation is two jobs crawling a site together.
+    `scrapex/directoryjob.py` reserves its host from a registry source the manifest cannot
+    resolve, so it needs the RULE without needing the lookup -- and re-deriving
+    `urlsplit(...).netloc.lower()` there would have been the copy this prevents.
     """
     try:
-        host = urlsplit(manifest.get(key).base_url).netloc.lower()
+        host = urlsplit(base_url).netloc.lower()
     except Exception:
         return fallback
     return host.removeprefix("www.") or fallback
+
+
+def _host_of(manifest, key: str, fallback: str) -> str:
+    """The host of a manifest source. A key it cannot resolve gets `fallback`, and the
+    caller passes a value unique to that source so two unknowns never collide."""
+    try:
+        base_url = manifest.get(key).base_url
+    except Exception:
+        return fallback
+    return host_of_url(base_url, fallback)
 
 
 class _CrawlAdmission:
@@ -1506,7 +1529,12 @@ class JobRunner:
                 # `(conn, job_ref)` -- see `SPECIALISED_RUNNERS`.
                 runner = runner_for(job.get("job_kind", "crawl"))
                 if runner is not None:
-                    runner(conn, job_ref)
+                    # THE ADMISSION GOES TO EVERY KIND, NOT ONLY THE PRICE CRAWL. It used
+                    # to reach `run_job_once` alone, so a `directory_crawl` job crawled
+                    # outside the per-host reservation -- and `test_two_jobs_never_crawl_
+                    # one_host_at_the_same_time` could not see it, because its helper
+                    # drives `run_job_once` directly rather than coming through here.
+                    runner(conn, job_ref, admission=admission)
                 else:
                     run_job_once(conn, job_ref, self._manifest_provider(),
                                  capture=self._capture or self._locked_capture,
