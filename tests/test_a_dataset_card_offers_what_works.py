@@ -54,21 +54,37 @@ LISTING = (ROOT / "tests" / "fixtures" / "muqawil" / "listing-en.html").read_tex
 #: The dataset every request below is made against.
 KEY = "contractors"
 
-#: The three proofs `app.js` may declare, and what each one MEANS as a request.
-#: A fourth would have to be added here before it could be used there, which is
-#: deliberate: the set of ways an action can be justified is not open-ended.
+#: The proofs `app.js` may declare, and what each one MEANS as a request. A new one has
+#: to be added here before it can be used there, which is deliberate: the set of ways an
+#: action can be justified is not open-ended.
+#:
+#: `RESOLVES_SOURCE` ARRIVED 2026-09-02 and it is the first that is not about a dataset
+#: key at all. `#301`/`R-78` made `POST /api/jobs` resolve a source through `source_site`
+#: as well as through `sources.yaml`, so it answers for `muqawil_org` -- while still
+#: refusing `contractors`, which is what a dataset card carries as its own `source_key`.
+#: Both halves are measured below, because either alone justifies nothing.
 RESOLVES = "resolves-a-dataset-key"
 REFUSES = "route-404-for-a-dataset-key"
 NO_SECTION = "no-such-section-on-the-page"
-PROOFS = {RESOLVES, REFUSES, NO_SECTION}
+RESOLVES_SOURCE = "route-resolves-a-registry-source"
+PROOFS = {RESOLVES, REFUSES, NO_SECTION, RESOLVES_SOURCE}
+
+#: The site behind the dataset the `client` fixture approves. `POST /api/jobs` resolves
+#: THIS and not `KEY`, which is the whole reason the crawl action carries it.
+SITE_KEY = "muqawil_org"
 
 #: How to make each action's request. The `route` here is compared to the one
 #: `app.js` declares, so a recipe cannot quietly test a different endpoint from
 #: the one the panel drives — and an action with no recipe fails collection
 #: rather than passing unmeasured.
 RECIPES = {
+    # `update`, NOT `current`: this recipe carried `run_mode: "current"` copied out of
+    # `app.js`, and `current` is not a `RunMode`. So the route answered 400 for the run
+    # mode and never reached the key -- while `test_an_action_withheld_for_its_route_
+    # really_is_refused` accepted any 4xx and recorded the refusal as being about the
+    # KEY. A valid mode is what makes that test measure what it claims.
     "update": ("POST /api/jobs", "post", "/api/jobs",
-               {"source_keys": [KEY], "run_mode": "current"}),
+               {"source_keys": [KEY], "run_mode": "update"}),
     "table": ("GET /api/table/{key}", "get", f"/api/table/{KEY}", None),
     "enrich": ("GET /api/enrichment/sources/{key}", "get",
                f"/api/enrichment/sources/{KEY}", None),
@@ -105,7 +121,7 @@ def proof_values() -> dict[str, str]:
     """The three `const` lines, so the test compares values and not spellings."""
     source = APP_JS.read_text(encoding="utf-8")
     return dict(re.findall(
-        r"^const (RESOLVES_A_DATASET|MANIFEST_ONLY|NO_SECTION) = \"([^\"]+)\";",
+        r"^const (RESOLVES_A_DATASET|MANIFEST_ONLY|NO_SECTION|RESOLVES_A_SOURCE_KEY) = \"([^\"]+)\";",
         source, re.MULTILINE))
 
 
@@ -172,11 +188,12 @@ def test_every_action_declares_a_route_and_a_proof():
         assert entry["proof"], f"{entry['action']} declares no proof"
 
 
-def test_every_proof_is_one_of_the_three_and_they_say_what_they_mean():
+def test_every_proof_is_one_of_the_declared_set_and_they_say_what_they_mean():
     values = proof_values()
 
     assert values == {"RESOLVES_A_DATASET": RESOLVES,
                       "MANIFEST_ONLY": REFUSES,
+                      "RESOLVES_A_SOURCE_KEY": RESOLVES_SOURCE,
                       "NO_SECTION": NO_SECTION}, (
         "app.js and this file disagree about what a proof IS; the constants are "
         "the contract between them")
@@ -225,7 +242,18 @@ def test_an_action_offered_on_a_dataset_answers_and_carries_content(client):
 
 
 def test_an_action_withheld_for_its_route_really_is_refused(client):
-    """WITHHELD ⇒ PROVEN TOO, so the menu cannot hide an action that works."""
+    """WITHHELD ⇒ PROVEN TOO, so the menu cannot hide an action that works.
+
+    AND THE REFUSAL HAS TO BE ABOUT THE KEY, which this asked for as `400 <= status <
+    500` until 2026-09-02. Under that range the `update` action passed while its request
+    was malformed: the recipe carried `run_mode: "current"` copied out of `app.js`,
+    `current` is not a `RunMode`, and the route answered 400 about the mode without ever
+    looking at the key. **The reason recorded was not the reason measured.**
+
+    A status-code RANGE standing in for a reason cannot tell one refusal from another. So
+    it is `404` now -- the code a route uses for a key it does not know -- which is what
+    separates a refusal about the KEY from one about the REQUEST.
+    """
     values = proof_values()
     refused = [entry for entry in declared_actions()
                if values[entry["proof"]] == REFUSES]
@@ -233,10 +261,18 @@ def test_an_action_withheld_for_its_route_really_is_refused(client):
     assert refused, "nothing is withheld on route grounds; the split has collapsed"
     for entry in refused:
         response = call(client, entry["action"])
-        assert 400 <= response.status_code < 500, (
-            f"{entry['action']} is withheld from dataset cards because its route "
-            f"was said to refuse a dataset key, and {entry['route']} answered "
-            f"{response.status_code}. If it works now, offer it.")
+        assert response.status_code == 404, (
+            f"{entry['action']} is withheld from dataset cards because its route was "
+            f"said to refuse a dataset KEY, and {entry['route']} answered "
+            f"{response.status_code}: {response.text[:200]}. A 4xx that is not a 404 is "
+            f"a refusal about something else -- the request, not the key. If the route "
+            f"works now, offer the action.")
+        # AND NOT "THE BODY MUST NAME THE KEY", which the first draft asserted and
+        # measured wrong: `GET /sources/{key}` answers a bare `{"detail":"Not Found"}`,
+        # because a route that does not match says so without quoting what was asked.
+        # Naming the key is a property of some handlers, not of a 404. The code is the
+        # part that separates a refusal about the KEY from one about the REQUEST, and it
+        # is the part this can honestly hold every route to.
 
 
 def test_an_action_withheld_for_its_page_opens_a_page_without_that_section(client):
@@ -262,3 +298,41 @@ def test_an_action_withheld_for_its_page_opens_a_page_without_that_section(clien
             f"{entry['route']} now carries a changes section for a dataset, so "
             f"{entry['action']} can be offered")
         assert "Recent changes" not in response.text
+
+
+# ---- the fourth proof, measured on both sides -------------------------------
+
+def test_the_crawl_route_resolves_the_site_key_and_still_refuses_the_dataset_key(client):
+    """`RESOLVES_A_SOURCE_KEY`, AND BOTH HALVES ARE THE PROOF.
+
+    A dataset card's own `source_key` IS its dataset key -- `scrapex/webui/app.py`'s
+    dataset rows set it that way and carry the site separately as `site_key`. So
+    `MANIFEST_ONLY` was, and remains, a TRUE statement about the key the card carries:
+    `POST /api/jobs` really does refuse `contractors`.
+
+    What changed is that `#301`/`R-78` taught that route to resolve a source through
+    `source_site`, so it answers for `muqawil_org`. That is why `sourceActions` offers the
+    crawl as `update:<site_key>` -- the key travels with the action, the way
+    `table:<dataset_key>` already does -- rather than by relaxing the filter.
+
+    ONE SIDE ALONE WOULD JUSTIFY NOTHING. If the route had started accepting the dataset
+    key too, the honest fix would have been to change the base entry's proof and leave the
+    action where it was. So the refusal is asserted here as deliberately as the success.
+
+    THE PARSER CANNOT REACH THIS ACTION, said rather than left as a hole: `_declared()`
+    reads the `SOURCE_ACTIONS` array, and the crawl entry is built inside `sourceActions()`
+    from the card's `site_key`, exactly as `covered` is built from `coverage`. So the
+    recipe table above cannot describe it and this measures the route directly.
+    """
+    resolved = client.post("/api/jobs",
+                           json={"source_keys": [SITE_KEY], "run_mode": "update"})
+    assert resolved.status_code == 200, (
+        f"the site key {SITE_KEY!r} no longer resolves, so the crawl action on a dataset "
+        f"card offers a control that fails: {resolved.status_code} {resolved.text}")
+
+    refused = client.post("/api/jobs",
+                          json={"source_keys": [KEY], "run_mode": "update"})
+    assert refused.status_code == 404, (
+        f"the dataset key {KEY!r} is now accepted too, which removes the reason the crawl "
+        f"action carries the site key -- change the base entry's proof instead: "
+        f"{refused.status_code} {refused.text}")

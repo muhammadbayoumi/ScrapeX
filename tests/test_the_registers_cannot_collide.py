@@ -309,6 +309,11 @@ RESERVED: dict[str, dict[int, str]] = {
         # number is the contradiction `test_a_reserved_number_is_not_also_declared`
         # refuses. It caught the row on this rebase rather than a person doing so.
         # 121 and 122 went the same way earlier, for the same reason.
+        # THIS BRANCH RESERVED 120, 124 AND 125 AND TWO OF THEM DIED ON THIS REBASE:
+        # 120 landed with #307 (`27ed85f6`) and 125 with #311 (`e4996e42`), so each
+        # became a number both reserved AND declared. The 124 row below is the peer's
+        # own and is kept over mine -- it names the BRANCH rather than the session, and
+        # carries the unverified half in the row instead of only in a comment.
         123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
         # 124 IS CLAIMED BY MESSAGE ONLY, and this row says so because the rule above
         # requires it to: the primary session allocated it for the terminal command in

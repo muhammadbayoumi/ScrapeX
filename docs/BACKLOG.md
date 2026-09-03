@@ -4424,6 +4424,73 @@ everything that reasons about what the run WILL do, and nothing enumerates those
 
 ---
 
+### OP-126 · «Update now» has never worked on any card, and three guards said it was fine
+
+**Found 2026-09-02, after `REQ-45`'s collector was built and before anything had pressed
+the button.** The engine chose the right collector, a runner existed, and the migration let
+the row be written — and there was still nothing to press, for three reasons stacked on one
+action.
+
+**1 · IT WAS FILTERED OFF EVERY DATASET CARD.** `sourceActions` keeps only actions whose
+proof is `RESOLVES_A_DATASET` for a `kind === "dataset"` card, and "Update now" carries
+`MANIFEST_ONLY`. **That proof is TRUE and was not stale**, which is why the first reading of
+this was wrong: a dataset card's own `source_key` IS its dataset key — `_dataset_rows`
+sets it that way and carries the site separately as `site_key` — and `POST /api/jobs` really
+does 404 for `contractors`. What it resolves since `#301`/`R-78` is `muqawil_org`.
+
+**2 · THE RUN MODE WAS NOT A `RunMode`.** The handler sent `run_mode: "current"`. The four
+are `initial_crawl`, `update`, `full_rebuild`, `history_backfill`. Measured against a real
+engine:
+
+```
+POST /api/jobs {"source_keys":["muqawil_org"],"run_mode":"current"}
+400 {"detail":"run_mode must be ['initial_crawl', 'update', 'full_rebuild', 'history_backfill']"}
+```
+
+**So the request was refused before the source key was ever read — on every card that
+offered it, since the handler was written.** The Resume action two thousand lines above gets
+it right (`source.observations > 0 ? "update" : "initial_crawl"`), which is where the fix
+came from.
+
+**3 · IT SENT THE CARD'S OWN KEY**, which for a dataset card is the dataset's. The site key
+was already arriving — the card renders `data-site` and the menu hands `card.dataset.site`
+to `runSourceAction` as its third argument, which two enrichment branches already read. A
+first draft of the repair encoded it into the action string as `update:<site_key>`, copying
+`table:<dataset_key>`; that was a **second channel for a value that already had one**, and
+`table:` is not the precedent it looks like — a folded card stands for several datasets, so
+which one an action means cannot be a property of the card, while there is exactly one site
+behind a card.
+
+---
+
+### Why every guard over it was green, which is the part worth keeping
+
+| the guard | why it passed |
+|---|---|
+| `test_a_dataset_card_offers_only_the_actions_that_work` | it **asserted "Update now" must be ABSENT**. Third guard today holding a limitation in place |
+| every panel DOM test | `tools/panel_harness.py` answers `/api/jobs` with a canned `{"job_ref":"job_stub","status":"queued"}`. **A stub that always succeeds cannot fail on a bad request** |
+| `test_an_action_withheld_for_its_route_really_is_refused` | it accepted `400 <= status < 500`. The 400 about the MODE satisfied a test whose stated claim is that the route refused the **KEY** |
+
+**The third is the sharpest.** Its recipe carried the same `run_mode: "current"` copied out
+of `app.js`, so the route never reached the key, and **the reason it recorded was not the
+reason it measured.** A status-code RANGE standing in for a reason cannot tell one refusal
+from another — the same shape as an assertion that cannot tell a claim from its denial.
+It asks for `404` now.
+
+**And `tools/panel_harness.py` was missing `site_key` entirely**, a field the engine sends on
+every dataset row, so any test written against that stub would have exercised a shape the
+product never produces. Same class as a partition fixture whose `detail_urls` returns `()`.
+
+**Fixed here**, with the assertion that would have caught all three and did not exist: press
+the action and read the recorded request. Mutation-tested both ways — sending the card's key
+and restoring `"current"` each redden it with the number in the message.
+
+**`R-81` is the ruling underneath.** *A capability with no control in the panel does not
+exist for the one person the tool is for* — and «Update now» was a control that could not
+work, on every card, which is the same thing wearing a label.
+
+---
+
 ### OP-119 · The restart-poll guard builds the app in the one configuration where its route exists
 
 **Found 2026-09-02**, while rebasing the engine-page branch onto `bf033ca` and hitting a

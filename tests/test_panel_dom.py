@@ -112,6 +112,7 @@ ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
 
 # The engine's half of the handshake, read from the engine rather than typed.
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
+from scrapex.vocab import RunMode  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -1291,12 +1292,70 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
     assert card.locator("[data-split-action][disabled]").count() == 0, (
         "a dataset card is offering an action it cannot run")
 
-    # And the five that cannot work are absent rather than present-and-dead.
-    for label in ("Update now", "Recent changes", "Source settings",
+    # UPDATE NOW IS OFFERED, AND THIS LOOP USED TO ASSERT IT MUST NOT BE.
+    #
+    # Its reason -- "its route refuses a dataset key" -- is still true of the DATASET
+    # key, and that is precisely why the action carries the SITE key instead: the card
+    # renders `data-site` and the menu hands it to `runSourceAction`. So the assertion
+    # was right about the route and wrong about the conclusion, and it forbade the repair.
+    # Third guard today that held a limitation in place -- `#297`'s `/api/engine/health`
+    # assertion required the defect its own fix removed, and `MANIFEST_ONLY` one level up
+    # is the same rule written as a filter.
+    assert card.locator('[data-split-action]:has-text("Update now")').count() == 1, (
+        "a contractor card cannot start its own crawl, so every muqawil step still runs "
+        "from a terminal -- `R-81`, and `REQ-45`'s whole subject")
+
+    # And the four that genuinely cannot work stay absent rather than present-and-dead.
+    for label in ("Recent changes", "Source settings",
                   "Pause collecting", "Export to Google Sheets"):
         assert card.locator(f'[data-split-action]:has-text("{label}")').count() == 0, (
             f"{label} is offered on a dataset card and its route refuses a "
             f"dataset key")
+
+
+def test_the_crawl_a_dataset_card_starts_names_the_site_and_not_the_dataset(open_panel):
+    """PRESS IT AND READ WHAT WAS POSTED, which no test did on this path.
+
+    THREE DEFECTS WERE LIVE ON ONE ACTION and none of them needed anything cleverer than
+    this to find:
+
+      1 `sourceActions` filtered it off every dataset card, so it could not be pressed
+        there at all -- `MANIFEST_ONLY`, true of the card's key and taken as final;
+      2 the handler sent `run_mode: "current"`, which is not a `RunMode`. The engine
+        answered `400 run_mode must be [...]` WITHOUT EVER READING THE SOURCE KEY -- on
+        every card that offered it, since it was written;
+      3 it sent the card's own `source_key`, which for a dataset card is the DATASET key
+        (`contractors`) rather than the site (`muqawil_org`), and `POST /api/jobs` 404s
+        for that.
+
+    The harness answers `/api/jobs` with a canned `{"job_ref":"job_stub"}`, so a test that
+    only checked the view changed would pass through all three. This reads the recorded
+    request instead: the key must be the site's, and the mode must be one the engine
+    accepts.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    card = page.locator('[data-open="contractors"]')
+    card.locator(".split-button-trigger").click()
+    card.locator('[data-split-action]:has-text("Update now")').click()
+    page.wait_for_function("() => window.__writes.some(w => w.path === '/api/jobs')",
+                          timeout=10_000)
+
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(queued) == 1, f"one press, {len(queued)} jobs queued: {queued}"
+    body = queued[0]["body"]
+
+    assert body["source_keys"] == ["muqawil_org"], (
+        "the crawl was queued for the DATASET key, which `POST /api/jobs` 404s for. The "
+        f"site key travels on the card as `data-site`: {body}")
+    # THE FOUR THE ENGINE ACCEPTS, read from the enum rather than spelled here, so a
+    # fifth mode or a renamed one cannot leave this test asserting a stale set.
+    assert body["run_mode"] in {mode.value for mode in RunMode}, (
+        f"`{body['run_mode']}` is not a RunMode, so the engine answers 400 about the mode "
+        f"and never reads the key: {body}")
 
 
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
