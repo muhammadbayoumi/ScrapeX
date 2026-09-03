@@ -139,6 +139,90 @@ answers to a question nobody asked again. That setting is `REQ-11` and it is **h
 Until it is on, the primary carries the rule by hand: **after every merge, every
 remaining PR must rebase and re-run before it is eligible.**
 
+### 2026-09-03: the same failure a third time, and the reader was the stale part
+
+**I was one command from merging `#309`.** It reported `MERGEABLE`, fourteen of fourteen
+checks passing, two identical settled reads, the head matching the branch ref. **And its CI
+had run before `#314` landed.** The rule above says in those words that such a pull request
+is not eligible; I read `MERGEABLE` plus a green check set as eligibility instead.
+
+**The document was not stale. The reader was.** That is worth more than another paragraph
+about `#252`.
+
+What the merge would have produced, measured rather than feared:
+
+```
+git merge-tree --write-tree origin/main origin/claude/a-citation-nothing-reads
+  -> f84ebfee            git finds NOTHING to conflict on
+
+FAILED test_a_citation_that_quotes_its_subject_still_points_at_it
+docs/BACKLOG.md:4669 cites scrapex/cli.py:856 and says it holds
+'registry = None if args.db else DatabaseRegistry.defaults()', which is at [852]
+```
+
+`#314` had shortened `cli.py` by four lines. **Disjoint regions of the same two files, so
+git reports a clean merge** — and neither pull request's CI could have seen it: `#309`'s ran
+while `cli.py` was still four lines longer, and `#314`'s ran before `#309`'s new tier
+existed at all.
+
+### The check that makes the rule cheap enough to obey
+
+**Rebase-and-re-run is twenty minutes and needs the other branch's owner.** This is one
+minute and needs nobody:
+
+```bash
+TREE=$(git merge-tree --write-tree origin/main <their head>)
+# in a scratch worktree:
+git read-tree "$TREE" && git checkout-index -a -f --prefix=""
+python -m pytest -q -m docs        # and any suite the two branches share
+```
+
+**It answers the question the branch checks cannot ask** — *what will exist after this
+merge?* — and it works when the other session is busy, asleep or gone, which on
+2026-09-03 was true of one of four peers.
+
+**IT MUST BE THE LAST THING BEFORE THE MERGE, NOT PART OF PREPARING THE BRANCH.** The
+result is only meaningful against the head that is actually about to merge, and ours were
+hours apart. **That gap is where this defect lived.**
+
+**AND IT IS A CHECK RATHER THAN A RITUAL, WHICH IS THE PART WORTH TRUSTING.** It was run
+before `#307` the same afternoon and paid nothing — the failure it produced there was an
+artefact of testing the BRANCH tree instead of the merge tree, and the merge tree was
+clean. **A check that has fired once and stayed quiet otherwise is the profile of a real
+guard**; the ones that never fire are what this repository spent that day finding.
+
+**Two things it does not replace.** It cannot see a defect that needs the full suite on
+real fixtures — run the shared suites, not only the fast ones. And it is not a substitute
+for `REQ-11`: `require branches up to date` makes CI recompute for everyone, and this makes
+one person able to check. **His setting is still the fix.**
+
+---
+
+## 12 · An unowned branch does not hold still; it gets further away
+
+**2026-09-03.** A session ended holding `claude/the-command-that-outlived-its-removal` —
+287 insertions across 11 files, **on no remote at all**, reachable only from one machine's
+git index. That is the failure [CLAUDE.md](../CLAUDE.md) opens on, and it was pushed to
+`origin` to preserve it and deliberately **not merged**: work no session can answer for
+does not get merged, which is the same line held on `#299` that morning when its author
+had dropped out of the session list.
+
+**Preserving it is not the end of the cost, and this is the part that was not obvious.**
+Two of the merges that followed — `#309` and `#314` — both moved
+`tests/test_the_documents_cite_what_they_claim.py`, which that branch also changes. **Its
+conflict is now strictly larger than when it was pushed, and it grows with every merge.**
+
+That is a different thing from ordinary staleness: **nobody is paying the interest.** A
+live branch's owner rebases and re-runs; an unowned one accumulates, and whoever eventually
+adopts it inherits every merge since the day it stopped having a session.
+
+**So the rule is: adopt it or close it, quickly.** Preserving an unowned branch and moving
+on looks like the careful option and is the one that makes it most expensive. The register
+row for its `OP-124` is the same shape — the number is claimed, the entry was never
+written, and `test_a_reserved_number_is_not_also_declared` cannot help because the heading
+it would collide with does not exist. **A hole with an owner is a reservation. A hole
+without one is a hole.**
+
 ---
 
 ## 3 · Register numbers: the rules that stopped four collisions
