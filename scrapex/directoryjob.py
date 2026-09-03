@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from contextlib import nullcontext
 
 from . import contractors, directories
 from .payload import utc_now_iso
@@ -55,11 +56,28 @@ class NotADirectory(LookupError):
     """
 
 
-def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str) -> dict:
+def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
+                                 admission=None) -> dict:
     """Execute one directory listing crawl to completion, or to a control boundary.
 
     Synchronous and connection-injected, exactly like `jobs.run_job_once`, so the
     thread loop in `JobRunner` is the only thing that needs a thread.
+
+    `admission` IS THE CROSS-JOB POLITENESS GATE AND IT IS HELD AROUND THE CRAWL. Without
+    it this runner crawled outside the per-host reservation, so two jobs for one directory
+    -- a scheduled one and a hand-started one, or two presses of the panel's button -- ran
+    concurrently with their own fetcher at `DEFAULT_PACE_S` each and doubled the request
+    rate on that site. His `job_capacity` is 3, so it was live rather than theoretical.
+    `OP-128`, and `_CrawlAdmission`'s own docstring calls this "the safety property the
+    task calls the whole risk".
+
+    HELD HERE RATHER THAN AT THE DISPATCH, deliberately: only this function knows when the
+    first request goes out and when the last one returns, and a reservation taken around
+    the whole job would hold a site against other jobs through the sizing, the validator
+    replay and the coverage report -- none of which asks the site for anything.
+
+    `None` ADMITS ITSELF, which is the same default `run_job_once` has: the CLI, every
+    test and the sequential path are unchanged.
     """
     from . import jobs
 
@@ -159,8 +177,15 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str) -> dict
 
     started = time.monotonic()
     fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
+    # ONE DEFINITION OF A HOST, taken from `jobs` rather than written again here.
+    # `_host_of`'s docstring names the crack a second derivation would open: a source
+    # filed under one host name for grouping and another for reservation is two jobs
+    # crawling a site together. The fallback is the source key, which is unique to this
+    # source, so two unresolvable sources can never share a reservation.
+    host = jobs.host_of_url(directory.base_url, source_key)
+    admit = admission.lane(host) if admission is not None else nullcontext()
     try:
-        with contractors.lines_go_to(note):
+        with admit, contractors.lines_go_to(note):
             contractors.crawl(conn, directory, fetch, fetcher, run_ref,
                               contractors.DEFAULT_MAX_ATTEMPTS,
                               between_cells=cell_closed)

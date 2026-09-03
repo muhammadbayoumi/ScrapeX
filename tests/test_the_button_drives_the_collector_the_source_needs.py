@@ -25,7 +25,9 @@ impossible to hide: a kind the database refuses, and a kind no runner claims.
 from __future__ import annotations
 
 import json
+import pathlib
 import sqlite3
+import time
 
 import pytest
 
@@ -409,7 +411,7 @@ def test_a_pause_stops_at_a_cell_boundary_and_says_where(conn, monkeypatch):
 
 
 def test_a_cancel_stops_at_a_cell_boundary(conn, monkeypatch):
-    job_ref, found, partition = _run_the_job(
+    _job_ref, found, partition = _run_the_job(
         conn, monkeypatch, cells=4, control=JobControl.CANCEL.value)
 
     assert found["status"] == JobStatus.CANCELLED.value
@@ -559,3 +561,185 @@ def test_two_directories_in_one_request_are_refused_at_the_door(tmp_path):
 
     assert refused.status_code == 400, refused.text
     assert "one directory at a time" in refused.json()["detail"]
+
+
+# ---- OP-128: the cross-job politeness gate reaches this kind too -------------
+
+def test_every_specialised_runner_accepts_the_admission():
+    """THE CHEAPEST OF THE FOUR, AND THE ONE A NEW KIND CANNOT FORGET.
+
+    The contract was `(conn, job_ref)`, so `_start_job` handed the cross-job admission to
+    `run_job_once` and to nothing else -- and a runner that could not ACCEPT the gate made
+    the omission invisible: the dispatch had nowhere to put it, so there was nothing to
+    notice. A signature check is what stops the third kind repeating it.
+
+    What a runner DOES with the gate is its own question -- `run_enrichment_job_once`
+    accepts and does not use it, and says why. Accepting is the contract.
+    """
+    import inspect
+
+    for kind in sorted(jobs.SPECIALISED_RUNNERS):
+        runner = jobs.runner_for(kind)
+        parameters = inspect.signature(runner).parameters
+        assert "admission" in parameters, (
+            f"{kind!r}'s runner cannot accept the cross-job admission, so the dispatch "
+            f"has nowhere to hand it and the omission is invisible: {list(parameters)}")
+
+
+def test_the_dispatch_hands_the_admission_to_a_specialised_runner(conn, tmp_path,
+                                                                 monkeypatch):
+    """THE OMISSION ITSELF, asserted where it lived.
+
+    `_start_job` chose a runner and called `runner(conn, job_ref)`. Everything about the
+    admission was correct on either side of that line -- the worker built it, the price
+    path used it -- and the line itself dropped it. Nothing looked at this call.
+    """
+    seen: dict = {}
+
+    def spy(connection, job_ref, admission=None):
+        seen["job_ref"] = job_ref
+        seen["admission"] = admission
+        return jobs.get_job(connection, job_ref)
+
+    # THE REAL KIND, WITH THE RUNNER REPLACED. An invented `job_kind` is refused by the
+    # CHECK `0017` widened -- which is that constraint working, and the reason this test
+    # goes through `directory_crawl` instead of a fictional row.
+    monkeypatch.setattr(jobs, "runner_for",
+                        lambda kind: spy if kind == directoryjob.JOB_KIND else None)
+
+    worker = jobs.JobRunner(str(tmp_path / "scrapex-engine.db"), lambda: None)
+    admission = jobs._CrawlAdmission(2)
+    job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                              job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+
+    worker._db_path = tmp_path / "scrapex-engine.db"
+    worker._start_job(job_ref, admission)
+    for _ in range(200):
+        if "admission" in seen:
+            break
+        time.sleep(0.02)
+
+    assert seen.get("job_ref") == job_ref, (
+        "the dispatch never reached the runner at all: " + str(seen))
+    assert seen["admission"] is admission, (
+        "the dispatch chose the runner and dropped the cross-job admission, so this kind "
+        f"crawls outside the per-host reservation: {seen['admission']!r}")
+
+
+def test_two_directory_crawls_on_one_host_do_not_run_together(tmp_path, monkeypatch):
+    """THE PROPERTY, TIMED, and it is the one his warehouse could actually hit.
+
+    `job_capacity` on his warehouse is **3**, not the shipped 1, so two `muqawil_org`
+    jobs -- a scheduled one and a hand-started one, or two presses of the panel's button
+    -- would have run concurrently with their own `HttpFetcher` at `DEFAULT_PACE_S` each
+    and doubled the request rate on that site. `R-21`, `SR-8`.
+
+    ASSERTED AS NON-OVERLAP RATHER THAN AS AN ORDER, because which of the two goes first
+    is not a property: only that the second does not start before the first has finished.
+    """
+    import threading
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (_QuietFetcher(), lambda url: ""))
+
+    spans: list[tuple[str, float]] = []
+    lock = threading.Lock()
+
+    class _Slow:
+        """One cell, held long enough that an overlap could not be a timing artefact."""
+
+        def __call__(self, *args, **kwargs):
+            from scrapex.partitioncrawl import (
+                WHOLE,
+                Attempt,
+                CellOutcome,
+                CellSize,
+                PartitionOutcome,
+            )
+            with lock:
+                spans.append(("in", time.monotonic()))
+            time.sleep(0.35)
+            with lock:
+                spans.append(("out", time.monotonic()))
+            size = CellSize(cell=WHOLE, last_page=1, cards_per_page=1, tail_cards=1,
+                            requests=1)
+            kwargs["on_cell"](CellOutcome(size=size, attempts=(
+                Attempt(ids=(), pages_read=1, witnessed=True, note="fake",
+                        run_ref="fake-a1"),)))
+            return PartitionOutcome(whole=size, cells=(), whole_at_end=None, parent=WHOLE)
+
+    monkeypatch.setattr(contractors, "crawl_partition", _Slow())
+    admission = jobs._CrawlAdmission(2)          # budget of two, ONE host
+
+    refs = []
+    for _ in range(2):
+        one = registry.engine.connect()
+        try:
+            refs.append(jobs.create_job(one, ["muqawil_org"], RunMode.UPDATE,
+                                        job_kind=directoryjob.JOB_KIND))
+            one.commit()
+        finally:
+            one.close()
+
+    def run(job_ref: str) -> None:
+        own = registry.engine.connect()
+        try:
+            directoryjob.run_directory_crawl_job_once(own, job_ref, admission=admission)
+        finally:
+            own.close()
+
+    threads = [threading.Thread(target=run, args=(ref,)) for ref in refs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(spans) == 4, f"both crawls did not run: {spans}"
+    # in, out, in, out -- never in, in, out, out
+    assert [kind for kind, _ in spans] == ["in", "out", "in", "out"], (
+        "two directory crawls of ONE host overlapped, so the request rate on that site "
+        f"doubled: {spans}")
+
+
+def test_the_host_rule_has_one_definition():
+    """THE CRACK `_host_of`'S OWN DOCSTRING NAMES, guarded.
+
+    *"ONE definition, used to bucket lanes AND to reserve a host across jobs -- so a
+    source cannot be filed under one host name for grouping and a different one for
+    reservation, which is the crack two jobs would slip through to crawl a site
+    together."*
+
+    The registry source the directory runner reserves is one the MANIFEST cannot resolve,
+    so it needs the rule without the lookup. `host_of_url` is that rule and `_host_of`
+    delegates to it; a second `urlsplit(...).netloc.lower()` in the runner would have been
+    the copy. This asserts they agree, including on the fallback.
+    """
+    assert jobs.host_of_url("https://www.Muqawil.org/", "fallback") == "muqawil.org"
+    assert jobs.host_of_url("https://muqawil.org", "fallback") == "muqawil.org"
+    assert jobs.host_of_url("", "fallback") == "fallback", (
+        "an unresolvable base_url must fall back to something unique to the source, or "
+        "two unknowns share a reservation")
+
+    class _One:
+        base_url = "https://WWW.Muqawil.org/en"
+
+    class _Manifest:
+        def get(self, key):
+            return _One()
+
+    assert (jobs._host_of(_Manifest(), "muqawil_org", "fallback")
+            == jobs.host_of_url(_One.base_url, "fallback")), (
+        "the manifest path and the url path disagree about a host, which is exactly the "
+        "crack the docstring names")
+
+    # AND THE RUNNER MUST NOT HAVE ITS OWN COPY. Read as source, because a second
+    # derivation that happened to agree today would pass every assertion above.
+    runner_source = pathlib.Path(directoryjob.__file__).read_text(encoding="utf-8")
+    assert "netloc" not in runner_source, (
+        "scrapex/directoryjob.py derives a host itself instead of calling "
+        "`jobs.host_of_url`, which is the second definition `_host_of` warns about")
