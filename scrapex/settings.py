@@ -87,6 +87,23 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # in the order the job listed them. Raising it crawls that many SITES at
     # once — never two sources of one site, whatever the number says.
     Setting("crawl_parallel_sources", "1", label="Sources crawled at the same time"),
+    # SIX, AND IT IS A DEFAULT WITH A MEASUREMENT BEHIND IT. This is how many CELLS of
+    # one directory a crawl reads at once -- a different axis from the line above, which
+    # is how many SITES. His 2026-09-03 listing run measured 7 cells of 56 in 198
+    # minutes at 6.6 requests a minute, which is 14.6 hours for the listing alone; the
+    # same crawl with six workers is about 2.4.
+    #
+    # THE REQUEST RATE DOES NOT RISE. `HttpFetcher._throttle` holds its lock across its
+    # sleep -- measured 2026-08-21, four workers made 20 requests in 1.02 s where 3.80 s
+    # was owed -- so a pool buys OVERLAP on a multi-second latency and never a higher
+    # rate. `R-21` and `SR-8` govern the rate and the rate is untouched, which is why
+    # this can ship as a default rather than as an opt-in.
+    #
+    # WHY IT IS NOT 1. `--workers` has existed on `scrapex contractors` since
+    # 2026-08-22 and `R-81` says the panel is his only interface, so a default of 1 left
+    # the capability reachable only from a command line he does not use.
+    Setting("directory_crawl_workers", "6",
+            label="Cells of one directory read at the same time"),
     # --- Google Finance exchange rates ---
     # Six hours remains the shipped default, but is no longer hidden policy.
     # Manual refresh remains available even when automatic refresh is off.
