@@ -35,7 +35,7 @@ import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
 // flattens modules by stripping imports and relies on the names matching.
 import {
   abortBackend, activateBackend, api, backendBase, backendGeneration,
-  backendSignal, del, pageController, post, whenBackendChanges,
+  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw,
 } from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
@@ -5634,8 +5634,7 @@ async function startEngineFromPanel() {
       // and is usually open when this fault happens.
       note.textContent = "The helper does not recognise this extension yet — re-linking…";
       try {
-        const backend = await backendBase();
-        const r = await fetch(`${backend}/api/native-host/register`, {
+        const r = await raw("/api/native-host/register", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({extension_id: chrome.runtime.id}),
@@ -5861,8 +5860,8 @@ async function upgradeDatabaseFromPanel() {
     let result;
     let httpAnswered = false;
     try {
-      const response = await fetch((await backendBase()) + "/api/databases/upgrade",
-                                   {method: "POST"});
+      // `raw`, so the 404 below is still readable AND the request is bounded.
+      const response = await raw("/api/databases/upgrade", {method: "POST"});
       if (response.status !== 404) httpAnswered = true;
       if (response.status === 404) throw Object.assign(new Error("old engine"), {kind: "old_engine"});
       if (!response.ok) {
@@ -5961,8 +5960,9 @@ function wireRuntimeRepair() {
     // threw it away.
     let refused = null;
     try {
-      const asked = await fetch((await backendBase()) + "/api/engine/restart",
-                                {method: "POST"});
+      // `raw`: a 404 here means an engine too old to know the route, which is a
+      // different answer from a failure and must stay distinguishable.
+      const asked = await raw("/api/engine/restart", {method: "POST"});
       if (asked.status === 404) refused = ENGINE_TOO_OLD;
       else if (!asked.ok) {
         let detail = `The engine refused (HTTP ${asked.status}).`;
@@ -5990,8 +5990,10 @@ function wireRuntimeRepair() {
         // explicit database path it does not exist, and this poll would 404 its
         // whole budget and report a restart failure that did not happen
         // (`OP-119`). `/api/health` is a plain route on the app, every start.
-        const probe = await fetch((await backendBase()) + "/api/health",
-                                  {cache: "no-store"});
+        // `raw`: a refusal is ORDINARY here -- the engine is restarting and this
+        // asks until it answers -- so the status must not throw. What it gains is
+        // a deadline it never had, on the one screen where a person is waiting.
+        const probe = await raw("/api/health", {cache: "no-store"});
         if (probe.ok) {
           clearInterval(timer);
           [restart, upgrade, $("runtime-check-action")].filter(Boolean)
@@ -6253,14 +6255,17 @@ async function backUpToDrive(token) {
   // database.
   out("drive-msg", "Building the bundle…", "");
   const built = await api("/api/bundle", { method: "POST" });
-  const base = await backendBase();
-  const archive = await (await fetch(base + "/api/bundle/archive")).blob();
+  // `bytes`, not a bare fetch: it carries the status check, the deadline from
+  // startup.js's table and the page's abort signal. Without it a 404, a timeout
+  // and a browser refusing to hold the zip all arrived as the same thing — an
+  // empty blob — and the guard below could only report the symptom.
+  const archive = await bytes("/api/bundle/archive");
   // The 4 MB a browser can read on its own, carried beside the 36 MB archive
   // only an engine can open. Fetched here rather than inside drive.js: that
   // module talks to Google and nothing else, and giving it a second opinion
   // about the engine's address is how one boundary becomes two.
   const panelPack = built.panel_pack
-    ? await (await fetch(base + "/api/bundle/panel-pack")).blob()
+    ? await bytes("/api/bundle/panel-pack")
     : null;
 
   // `manifest: built` is not decoration. WHAT THE ENGINE DESCRIBED AND WHAT
