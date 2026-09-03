@@ -1362,7 +1362,7 @@ install page beside the first:
 | an action whose label says what it will do | **built** — the button reads `Update to 1.0.2` when a version is installed |
 | what it will refuse to talk to | **built** — `protocol_version` and `minimum_extension_version` are published beside the release and read *before* installing |
 | release-feed polling that survives a CDN and a rate limit | **built** — `extension/releases.js`, minute-bucket cache key, own timeout, four named states |
-| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3621`) |
+| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3629`) |
 | diagnostics, a setup guide, copyable technical details | **built and wired** |
 | **download progress** | **CANNOT BE BUILT AS IT STANDS** — see below |
 | **verifying the checksum it displays** | **never checked — the SHA-256 on screen is decorative** — nothing compares anything to it |
@@ -1378,7 +1378,7 @@ installer does:
     manifest.json permissions: activeTab, identity, nativeMessaging,
                                sidePanel, storage, tabs        <- no `downloads`
 
-    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3620
+    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3628
 
 It hands a URL to the browser and lets go. It cannot show progress, it cannot read
 the file off disk to hash it, and it can never launch a process. **So the panel can
@@ -1673,7 +1673,7 @@ in `/api/health` reports **how** this engine is running.
 
 **So the shape is: the engine reports its own run mode, and the panel has a third
 word.** Not the panel guessing from an empty version string, which is what it does
-now (`extension/app.js:3502` on empty `state.engineVersion`) — a guess is how
+now (`extension/app.js:3510` on empty `state.engineVersion`) — a guess is how
 "running from source" became "not detected" in the first place.
 
 **And it is not cosmetic.** He works from two machines and the update path is real:
@@ -2087,14 +2087,14 @@ them on this exact point. The corrected finding is better news than the error wa
 changes the request from *build this* to **finish and re-document this**.
 
 **THE DATA PAGE ALREADY READS HIS DATA WITH NO ENGINE. It has since 2026-08-12.**
-`extension/app.js:4394-4429` is the `catch` around `loadDatasets`, and its own comment says
+`extension/app.js:4402-4429` is the `catch` around `loadDatasets`, and its own comment says
 what it is for:
 
 > *"NOT A DEAD END ANY MORE. This is the machine with no engine on it — the case the whole
 > bundle format was designed for — and until now the panel said "couldn't reach the engine"
 > and stopped, while a complete copy of the owner's data sat in their Drive."*
 
-It offers a **Read my Drive backup** button wired to `browseFromDrive` (`app.js:4440`), which
+It offers a **Read my Drive backup** button wired to `browseFromDrive` (`app.js:4448`), which
 reaches `fetchPanelPack` (`extension/drive.js:508`) and `readPanelPack`
 (`extension/bundleview.js:28`). Landed in `fc8525f`, *"Carry the panel pack beside the
 archive, and let the Data page read it"* (#167), **2026-08-12 09:18** — the same week
@@ -2117,7 +2117,7 @@ Not "the data page has not moved". Three specific, countable gaps:
 | hole | measured |
 |---|---|
 | **The pack carries no contractors at all** | `scrapex/bundle.py:140` sources the bundle from `list_sources`, which is `SELECT source_key FROM source_site` (`scrapex/reports.py:104`). `source_site` holds the **12 price shops**; muqawil lives in `site_profile`. So **0 of 18,008** contractor records — 17,304 + 704 — are in the one artefact an engine-less panel can read |
-| **The offline view shows counts, never rows** | `extension/app.js:4451-4477` renders only the dataset key, `N rows`, and *"with change history"* / *"current prices only"*. No click handler, no grid |
+| **The offline view shows counts, never rows** | `extension/app.js:4459-4477` renders only the dataset key, `N rows`, and *"with change history"* / *"current prices only"*. No click handler, no grid |
 | **And it cannot export** | `bundleview.js` exports `rowsOf` (`:82`) and `toCsv` (`:94`) **for exactly this purpose** and nothing imports them: `extension/app.js:23` takes only `readPanelPack, datasetSummaries` |
 
 **Against Decision 8 — *"the owner sees his data and exports it"* — he measurably sees
@@ -2159,7 +2159,7 @@ the decision.
 
 Measured above the transport, so the step is **parameterising what works, not inventing it**:
 a live backend address field (`extension/app.html:1772`), a switch that re-activates and
-re-adopts appearance, timezone and the UI contract (`extension/app.js:6362-6334`),
+re-adopts appearance, timezone and the UI contract (`extension/app.js:6370-6334`),
 abort-and-generation-bump on change (`extension/backend.js:68-77`), and a repaint guard
 whose own comment already names the multi-app hazard (`extension/data.js:74-76`):
 
@@ -2168,7 +2168,7 @@ whose own comment already names the multi-app hazard (`extension/data.js:74-76`)
 
 Installedness is measured **twice** — Chrome's `absent` verdict on the native host
 (`extension/transport.js:51-52`) and a six-rung health ladder that already includes
-*"Installed, not running"* (`extension/app.js:3384`). **There is one slot, not a list**:
+*"Installed, not running"* (`extension/app.js:3392`). **There is one slot, not a list**:
 `activeBackend` in `extension/backend.js:38`, from a single `chrome.storage.local` key
 (`extension/engine.js:11`), prefixing all 40 `/api/…` calls. Sixteen constants across the two
 products name exactly one product and **none is parameterised by app**.
@@ -2466,7 +2466,7 @@ reason is four links long, every one measured on the live engine rather than arg
 
 | link | evidence |
 |---|---|
-| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4044` |
+| 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4052` |
 | 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3570`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, and moved a fourth time when `#302` landed 7,242 insertions and a FIFTH when `#301` landed on top of it -- 4064 to 4044, found by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
 | 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** **This row was true when written and half of it is not now**: `0014` merged `site_profile` into `source_site` on 2026-08-29, which is what made a resolver possible rather than a third registry |
 | 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` — **and this turned out to be the DESIGN rather than the defect.** It asks a source for three things and none is price-specific, so the fix was a resolver and `jobs.py` is unchanged. **What remains is the collector**: the route now queues `muqawil_org`, and the worker still hands it to `capture_source` |

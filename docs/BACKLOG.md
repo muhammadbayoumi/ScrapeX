@@ -1415,7 +1415,7 @@ exactly one place — an unmerged worktree branch that had already been run agai
 warehouse — and `R-24` forbids the obvious shortcut of replacing the database.
 
 **What is NOT closed is the panel's sentence.** An engine that refuses to start never binds a
-port, so `extension/app.js:3400` reports **"Not detected"** for a schema fault, a permissions
+port, so `extension/app.js:3408` reports **"Not detected"** for a schema fault, a permissions
 fault and an absent engine alike — false, and it sends the reader to reinstall what is already
 installed. That half is `OP-38`.
 
@@ -1510,7 +1510,7 @@ is not filed as fixed with it.
 
 An engine that refuses to start never binds a port. So `checkEngine` in
 `extension/engine.js` gets a connection error, and
-`extension/app.js:3400` reports:
+`extension/app.js:3408` reports:
 
     text: "Not detected"      detail: "The panel could not reach the Engine."
 
@@ -1633,7 +1633,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:940](../extension/app.js#L940)) | `setupRunModeSelect` ([extension/app.js:1992](../extension/app.js#L1992)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:948](../extension/app.js#L948)) | `setupRunModeSelect` ([extension/app.js:2000](../extension/app.js#L2000)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -1674,11 +1674,11 @@ accessibility. They have not, and the difference is requirement-driven:
 
 * Run mode disables options **individually**, because which run modes are on offer
   depends on the selection — `for (const option of select.options) option.disabled =
-  !allow[option.value]` ([extension/app.js:2157](../extension/app.js#L2157)). Its
+  !allow[option.value]` ([extension/app.js:2165](../extension/app.js#L2165)). Its
   `focusOption` filters disabled candidates because it genuinely has some.
 * The finance converter disables **the whole control** when there are no stored
   rates — `select.disabled = !state.financeRates.length`
-  ([extension/app.js:1125](../extension/app.js#L1125)) — and mirrors that onto the
+  ([extension/app.js:1133](../extension/app.js#L1133)) — and mirrors that onto the
   trigger inside `sync()`. It never has a disabled option, so it has nothing to
   filter.
 * Type-ahead exists only on the finance side, and a currency list needs it where
@@ -3555,7 +3555,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 **Three consequences outlived the deadline itself**, all now fixed:
 
 * **The double click.** The panel re-enables its button the moment a request fails
-  (`extension/app.js:6122`), so a failure at ten seconds invited a second click while the
+  (`extension/app.js:6130`), so a failure at ten seconds invited a second click while the
   first build was still packing — two warehouse copies, two staging trees, and `_newest`
   free to hand the panel an archive from one build beside the manifest of the other.
 * **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
@@ -4426,6 +4426,12 @@ everything that reasons about what the run WILL do, and nothing enumerates those
 
 ### OP-132 · The button's crawl runs one worker where the terminal's runs six
 
+> **BUILT 2026-09-03**, on his instruction — «ابدا اوقف الزحفة ونفذ التطوير ثم قم باعادة
+> تشغيلها ومن المترض ان النظام قابل لاعادة الاستكمال». The crawl was paused at a cell
+> boundary at 3/56, the pool was wired in, and the job was resumed under the same job ref
+> so the pages already stored were skipped. The width is a registered setting with a panel
+> field beside `crawl_parallel_sources`, defaulting to six.
+
 **Measured on his live crawl, 2026-09-03, while he asked when it would finish.** Seven of
 fifty-six cells closed in 198 minutes:
 
@@ -4456,6 +4462,17 @@ threads, so above one worker each needs its own — `jobs.run_job_once` already 
 exactly that to the price path (*"only the worker knows a real path to reopen, so only the
 worker can offer concurrency"*), and the directory runner can derive it the same way it
 derives its heartbeat connection.
+
+> **THAT ESTIMATE WAS WRONG, AND THE CORRECTION IS THE USEFUL PART OF THIS ENTRY.** The
+> factory was one line of the change. Three defects sat behind it, none visible in a
+> reading of the diff, and every one of them was found by a test rather than by review:
+> the runner's callbacks write the log, the progress and the control read on the job's
+> connection and `on_cell` arrives in a **worker's** thread; a second connection to the
+> same file **deadlocks against the job's own uncommitted write** and shows it only as a
+> five-second stall; a pause put `running` back over `paused` from the cells still in
+> flight; and `ThreadPoolExecutor` finishes its whole queue after a worker raises, so a
+> pause at cell 3 of 56 would have crawled the remaining 53. `LESSONS.md` §31 carries
+> them, because none is specific to this runner.
 
 **And it matters far more for the half that is not built.** The profile crawl is 34,834
 pages: **87 hours single-threaded against about 14 with six**, which is `R-39`'s own
@@ -5948,7 +5965,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:848` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:853` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.

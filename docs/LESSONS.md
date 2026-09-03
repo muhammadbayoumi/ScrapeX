@@ -2986,6 +2986,42 @@ because trailing context and edited content look identical inside it. **After an
 keep-both resolution, read the seam**, not just the ends: the duplicate is at the join, and
 nothing in the register or citation guards will catch a heading that merely repeats.
 
+### 21.2 · A positional remap is not idempotent, and content-equality cannot see the second one
+
+**2026-09-03, `OP-132`.** Six lines added to `extension/app.js` slid every citation into it
+below them. Ten `PINNED` rows failed and were repaired. **Tier 1 said nothing about the other
+forty-two**, because a citation that has moved eight lines still names a line that EXISTS --
+which is the only question Tier 1 asks. They were found by the blank-line guard catching one
+of them, by accident.
+
+So a second, wider pass remapped every `app.js` citation in `docs/` -- and it remapped the ten
+that had just been repaired **a second time**, turning `848 -> 853` into `848 -> 853 -> 861`.
+
+**The check that was supposed to prevent exactly this could not see it.** Each rewrite was
+verified as `origin/main[old] == finished[new]`, which is the right check and passes at BOTH
+hops: the shift is uniform, so the content at `853` in the old file equals the content at
+`861` in the new one just as truly as it did one hop earlier. **Content-equality proves a
+mapping is consistent; it cannot prove it was applied once.**
+
+Two things follow, and the second is the general one:
+
+**A remap must be computed against a FIXED base and applied to a tree that has not already
+been remapped** -- or it must be idempotent by construction, which a positional shift never
+is. The reliable form is to derive every number from `origin/main` in ONE pass, over a
+document set none of which has been touched yet.
+
+**And the check that catches it is a pairing, not a comparison.** Read the citation lists of
+the old document and the new one, zip them, and demand `moved[old] == new` for every pair
+that changed. That is one hop by construction, so a double application fails. It found
+nothing wrong the second time -- 52 citations paired and checked -- which is what makes it
+worth keeping rather than a one-off repair.
+
+**This is `21.1`'s point in another costume.** There, `s.count(old) == 1` proved the anchor
+was unique and was read as proving the location. Here, content-equality proved the mapping
+was right and was read as proving it had been applied once. **In both, a true assertion was
+mistaken for a stronger one -- and in both, the stronger claim needed a different kind of
+check, not a stricter version of the same one.**
+
 ## 22 · Rebuilding a table drops every trigger on it, and only a count says so
 
 Migration `0014` rebuilds five tables. Its first draft dropped the four triggers that name the
@@ -3601,3 +3637,77 @@ of the thing it measures is a constant that has quietly encoded a machine.**
 Windows and CI cannot see it at all; this one passed on Windows and only CI could see it. The
 pair is the argument: a measurement taken on one platform is evidence about that platform, and
 the guard has to say which -- or, better, stop depending on it.
+
+---
+
+## 31 · Handing a callback to a worker breaks four things, and only one of them is the obvious one
+
+**2026-09-03, `OP-132`.** `contractors.crawl` has taken `workers` and a `connect` factory
+since 2026-08-22 and `scrapex/directoryjob.py` — the runner behind the panel's button —
+never passed them, so the crawl he can start was single-threaded while the one a terminal
+starts could be six. The register entry estimated the repair as *"the factory, not the
+flag"*. **The factory was one line. Four defects sat behind it, all found by tests, none
+visible in a reading of the diff.**
+
+### 1 · The refusal is not where you look for it
+
+`crawl_partition` calls `on_cell` in the thread that closed the cell, and
+`contractors.crawl` asks `between_cells` from inside `on_cell`. So a runner whose
+callbacks write the job log, the progress figure, the request count and the control read
+on the job's own connection raises `ProgrammingError` **from inside its log writer**, on
+the first cell to close in a worker — hours into a real crawl, and reported as a logging
+failure rather than as a threading one.
+
+### 2 · A second connection deadlocks against its own sibling, and the only symptom is a stall
+
+**This is the one worth the space.** The obvious fix — a fresh connection whenever the
+pool is wide — made two directory jobs take **11.75 s to do 0.7 s of work**. A thread dump
+two seconds in showed the crawl blocked inside its own `jobs.append_log` while the other
+job waited correctly on the host lane:
+
+```
+--- job-0 ---   contractors.py:386 crawl -> say -> directoryjob note -> jobs.append_log
+--- job-1 ---   jobs.py:528 lane                     (waiting, correctly)
+```
+
+`contractors.crawl` writes `validator_store.save(conn, ...)` on the job's connection and
+commits only after its closing report. A log line written on a **second** connection to
+the same file therefore waited out the whole `busy_timeout` against an uncommitted write
+of its own making. **It reads as contention with another process and there is no other
+process.**
+
+Two things make this expensive to find. `busy_timeout` turns it into a five-second stall
+rather than an error, so a short test passes and a real run just gets slow; and whether it
+ends in `database is locked` depends on how long the sibling holds its write, so the same
+tree passes and fails on the same machine. **Three wrong hypotheses were tried before the
+thread dump** — a WAL snapshot pinned by an unexhausted `fetchone`, a mismatched journal
+mode, a missing `busy_timeout` — and all three were disproved by measurement in less time
+than the first one took to argue.
+
+**So the rule: choose the connection by THREAD, not by concurrency setting.** The thread
+that owns a connection keeps using it and shares its transaction; only a foreign thread
+opens its own. That also makes the sequential path identical *by construction* rather than
+by argument, which is what lets an existing suite keep its meaning through the change.
+
+### 3 · `shutdown(wait=True)` finishes the queue, so a stop does not stop
+
+`ThreadPoolExecutor.__exit__` calls `shutdown(wait=True)` **without `cancel_futures`**, so
+every task already submitted runs even after a worker raises. When the callback is where a
+pause is asked, that is a pause that crawls the rest of the site: measured on the shape of
+his job, a pause requested at cell 3 of 56 would have fetched the remaining 53 before the
+`CrawlStopped` from cell 3 was re-raised by `future.result()`. **The sequential path never
+had this — `raise` from the callback leaves the `for` loop — which is exactly why nobody
+looked.** A `threading.Event` checked at the top of the task is the whole fix.
+
+### 4 · The cells still in flight overwrite the status the stop just wrote
+
+A pause is honoured by one cell; the others were already fetching, and their progress
+write put `running` back over `paused`. **A job that says it is running with nothing
+running** is the state `test_a_killed_engine_does_not_leave_a_job_claiming_to_run` exists
+for, and from the panel it is a crawl he cannot resume because it never stopped. Any
+callback that can end a run has to refuse to write after it has ended one.
+
+**The shape all four share, and it is `§24`'s and `§29`'s shape again:** the code was
+correct in the mode it had always run in, and every one of these appears only in the mode
+nobody had varied. **Concurrency is a configuration, and a guard that never runs at more
+than one worker is a guard blind to a configuration.**

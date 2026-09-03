@@ -104,14 +104,14 @@ are invisible to the test written to forbid exactly this. `POST
 /api/retention/policy` is the clearest violation — a stored policy, not a runtime
 repair, and `RUNTIME_REPAIR_IDS` exempts only `runtime-restart`/`runtime-upgrade`.
 
-The extension corroborates it: `app.js:6003` is `openTab("/settings#s-storage")`
+The extension corroborates it: `app.js:6011` is `openTab("/settings#s-storage")`
 — the panel deliberately hands storage control to the web page.
 
 **Fix the guard first**, so the migration is measured against a test that works:
 expand includes before scanning, then let it fail, and let that failing list be
 the migration's own checklist.
 
-*Also found, unrelated and free:* `app.js:4299` opens `` `/sources/${key}` `` —
+*Also found, unrelated and free:* `app.js:4307` opens `` `/sources/${key}` `` —
 plural. No such route exists; that menu item 404s today.
 
 ---

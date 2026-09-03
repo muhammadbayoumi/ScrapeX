@@ -129,7 +129,7 @@ order, and the order is reasoned:
 
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`.** **Do not write a second
    one.** The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1555`) and `saveSourceColumns` (`:1618`), speaking the same
+   (`extension/app.js:1563`) and `saveSourceColumns` (`:1618`), speaking the same
    bodies — `{field_key, hidden}`, `{order}`, `{reset: true}`. EXTRACT it into a
    shared module the way `backend.js` was extracted, or the two surfaces will
    disagree about how a column is saved. It touches the panel, which is why it

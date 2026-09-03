@@ -474,6 +474,19 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ---
 
+### The panel's crawl reads six cells at once — 2026-09-03 · branch `op/132-workers-for-the-panels-crawl`
+
+**His instruction, while the crawl was running:** «ابدا اوقف الزحفة ونفذ التطوير ثم قم
+باعادة تشغيلها ومن المترض ان النظام قابل لاعادة الاستكمال». Paused at 3/56, `OP-132`
+built, resumed under the same job ref so the stored pages were skipped.
+
+**The width is `directory_crawl_workers`, a registered setting with a panel field beside
+`crawl_parallel_sources`, default six** — the request RATE is unchanged, because
+`HttpFetcher._throttle` holds its lock across its sleep. Four defects behind the one-line
+factory, all found by tests: `LESSONS.md` §31.
+
+---
+
 ## Open pull requests
 
 **Everything this section listed on 2026-08-30 has merged.** It said *"no PR yet"* for three
@@ -896,7 +909,7 @@ test (#200) · sign-out (#201, ruling [R-13](RULINGS.md#r-13--sign-out-of-all-ac
    source's answers 404 **without confirming the id exists at all**.
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`. Do not write a second one.**
    The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1578`) and `saveSourceColumns` (`:1641`), speaking the same
+   (`extension/app.js:1586`) and `saveSourceColumns` (`:1641`), speaking the same
    bodies. **Extract** it into a shared module the way `backend.js` was, or the
    two surfaces will disagree about how a column is saved.
 3. **Saved views — `POST /api/views/{key}`, `DELETE /api/views/{id}`.**
