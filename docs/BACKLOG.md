@@ -1424,7 +1424,7 @@ installed. That half is `OP-38`.
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:992`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:988`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
