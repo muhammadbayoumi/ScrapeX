@@ -12,10 +12,18 @@
      places, the 340px query moved only `main`'s and both of them pulled
      4px too far. */
   --panel-pad: var(--sp-4);
-  /* The extension behaves like a compact Android app: every primary touch
-     target remains at least 48px even when the visual icon is smaller. */
-  --control-height: var(--touch-target);
-  --control-height-sm: 2.5rem;
+  /* THE 48px FLOOR STOOD HERE AND R-85/OD-09 DELETED IT — «احذفها», 2026-09-02.
+     It read `--control-height: var(--touch-target)` and `--control-height-sm:
+     2.5rem`, raising the panel's controls to 48px and 40px above the baseline's
+     40px and 32px, on the ground that the extension "behaves like a compact
+     Android app".
+     IT IS A DELETION FOR THE SAME REASON R-85 EXISTS: Supabase's own control
+     scale is 26/34/38/42/50 with a default of 34, and it has no 48px floor
+     anywhere. An override that raises two tokens above the baseline is a
+     divergence from them, so «مطابق تماما» removes it.
+     `--touch-target` IS NOT DELETED and this is the distinction that matters:
+     it keeps 24 explicit reads in this file, where a specific element is sized
+     for touch on purpose. What went is the blanket raise of every control. */
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
