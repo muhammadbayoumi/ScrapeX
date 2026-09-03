@@ -189,6 +189,81 @@ export async function raw(path, options = {}) {
   return request(path, {...options, throwOnHttpError: false});
 }
 
+/**
+ * Bytes `[start, end)` of a path the engine serves, and never more than that.
+ *
+ * WHY THIS EXISTS. `bytes()` reads a whole body into memory, which is fine for a
+ * 4 MB panel-pack and is what failed on a 541,531,989-byte archive: a Chrome side
+ * panel asked to hold half a gigabyte in one Blob, and the read came back empty.
+ * Measured on his machine 2026-09-03 — the file was complete on disk and the panel
+ * read 0. A 378 MB build had worked four days earlier, so the ceiling was somewhere
+ * between them and moves with the browser rather than with this code.
+ *
+ * So the archive is never held whole. `drive.js` already uploads in 4 MB chunks
+ * with a resumable session; it was slicing them out of a fully-buffered Blob. Now
+ * each chunk is fetched as it is sent, so the panel holds ONE chunk however large
+ * the warehouse grows.
+ *
+ * A SHORT CHUNK IS A FAILURE AND SAYS SO. The engine answers `206` with a
+ * `Content-Range`, and a body shorter than asked for means the file changed under
+ * the upload or the connection truncated — either way the archive being assembled
+ * in Drive would be wrong, and wrong quietly. That is the shape the 2026-08-30
+ * guard was added for, one level down.
+ */
+/**
+ * A path the engine serves, expressed as something uploadable without holding it.
+ *
+ * THE SIZE COMES FROM THE ENGINE AND NOT FROM THE MANIFEST, and that is the whole
+ * care in this function. `drive.js` `expectSize` exists to compare what the engine
+ * DESCRIBED in its POST reply against what ARRIVED — on 2026-08-30 those resolved
+ * to different builds and a 0-byte archive went to Drive. Sizing a source from the
+ * manifest would make both sides of that comparison the same number and the guard
+ * would pass on anything.
+ *
+ * So the length is read from the `Content-Range` of a one-byte request: `bytes
+ * 0-0/541531989`. That is the file the engine will actually serve chunks from,
+ * measured by the engine, which is the fact the manifest is being checked against.
+ */
+export async function sourceFor(path) {
+  const res = await request(path, {
+    headers: {Range: "bytes=0-0"}, throwOnHttpError: false,
+  });
+  if (res.status !== 206) {
+    throw Object.assign(new Error(
+      `The engine answered ${res.status} instead of serving a byte range, so the `
+      + "archive cannot be uploaded a chunk at a time."), {status: res.status});
+  }
+  const stated = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
+  if (!stated) {
+    throw new Error(
+      "The engine served a byte range without saying how long the file is, so "
+      + "there is nothing to check the manifest against.");
+  }
+  return {size: Number(stated[1]), chunk: (start, end) => range(path, start, end)};
+}
+
+
+export async function range(path, start, end) {
+  const wanted = end - start;
+  const res = await request(path, {
+    headers: {Range: `bytes=${start}-${end - 1}`},
+    throwOnHttpError: false,
+  });
+  if (res.status !== 206 && res.status !== 200) {
+    throw Object.assign(
+      new Error(`The engine answered ${res.status} for bytes ${start}-${end - 1}.`),
+      {status: res.status, kind: "http"});
+  }
+  const chunk = await res.blob();
+  if (chunk.size !== wanted) {
+    throw Object.assign(new Error(
+      `Asked the engine for ${wanted} bytes at ${start} and read ${chunk.size}. `
+      + "The file changed under the upload or the read was cut short; what is in "
+      + "Drive would be wrong."), {kind: "short-read"});
+  }
+  return chunk;
+}
+
 export const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),

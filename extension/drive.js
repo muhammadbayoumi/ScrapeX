@@ -240,12 +240,28 @@ export function prunable(files, keep = KEEP) {
  * {sent: 0} before the first byte so a bar can appear at once rather than after
  * the first four megabytes.
  */
+/**
+ * A blob, expressed as the thing `upload` actually needs.
+ *
+ * `upload` never wanted a Blob — it wanted a size and a way to get bytes
+ * `[a, b)`. Saying so lets the same loop upload something that is never held
+ * whole, and keeps every existing caller and test working unchanged.
+ */
+export function blobSource(blob) {
+  return {size: blob.size, chunk: (start, end) => blob.slice(start, end)};
+}
+
 export async function upload(token, {
-  blob, name, parent, mime = "application/zip", onProgress = null,
+  blob, source = null, name, parent, mime = "application/zip", onProgress = null,
   fetchImpl = fetch,
 } = {}) {
-  if (!blob) throw new DriveError("Nothing was given to upload.", null, "empty");
-  const total = blob.size;
+  // A SOURCE OR A BLOB, and a blob is just the simplest source. The archive is
+  // uploaded from a source that fetches each chunk as it is sent, because holding
+  // 541 MB in a side panel is what broke on 2026-09-03; the 4 MB panel-pack is
+  // still a blob, because for that size the extra requests buy nothing.
+  const from = source || (blob ? blobSource(blob) : null);
+  if (!from) throw new DriveError("Nothing was given to upload.", null, "empty");
+  const total = from.size;
 
   // STEP 1 — the handshake. Drive answers with a one-use session URI in the
   // Location header, and everything after this goes there rather than to the
@@ -283,7 +299,10 @@ export async function upload(token, {
   let sent = 0;
   for (;;) {
     const end = Math.min(sent + CHUNK_BYTES, total);
-    const chunk = blob.slice(sent, end);
+    // `await`, because a chunk may be fetched rather than sliced. A source that
+    // reads from the engine raises on a short read rather than uploading fewer
+    // bytes than it promised.
+    const chunk = await from.chunk(sent, end);
     const range = total === 0
       ? "bytes */0"
       : `bytes ${sent}-${end - 1}/${total}`;
@@ -443,8 +462,13 @@ export async function backUp(token, {
   }
   const parent = await folderId(token, {fetchImpl});
 
+  // A SOURCE OR A BLOB, whichever the caller had. The panel hands a source that
+  // fetches each chunk as it is sent; the tests hand a blob. `upload` treats a
+  // blob as the simplest kind of source, so both take the same path through the
+  // resumable session and neither is a second implementation.
   const stored = await upload(token, {
-    blob: archive, name, parent, onProgress, fetchImpl,
+    ...(typeof archive?.chunk === "function" ? {source: archive} : {blob: archive}),
+    name, parent, onProgress, fetchImpl,
   });
 
   // THE PANEL PACK, BEFORE THE POINTER AND AFTER THE ARCHIVE. Its place in the

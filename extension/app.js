@@ -35,7 +35,7 @@ import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
 // flattens modules by stripping imports and relies on the names matching.
 import {
   abortBackend, activateBackend, api, backendBase, backendGeneration,
-  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw,
+  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw, sourceFor,
 } from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
@@ -6255,11 +6255,12 @@ async function backUpToDrive(token) {
   // database.
   out("drive-msg", "Building the bundle…", "");
   const built = await api("/api/bundle", { method: "POST" });
-  // `bytes`, not a bare fetch: it carries the status check, the deadline from
-  // startup.js's table and the page's abort signal. Without it a 404, a timeout
-  // and a browser refusing to hold the zip all arrived as the same thing — an
-  // empty blob — and the guard below could only report the symptom.
-  const archive = await bytes("/api/bundle/archive");
+  // A SOURCE, NOT THE BYTES. The archive is uploaded one 4 MB chunk at a time,
+  // fetched as it is sent, so the panel never holds it: 541,531,989 bytes in one
+  // Blob is what came back empty on 2026-09-03. Its size is read from the
+  // engine's own Content-Range rather than from the manifest, so the guard that
+  // compares the two still has two different facts to compare.
+  const archive = await sourceFor("/api/bundle/archive");
   // The 4 MB a browser can read on its own, carried beside the 36 MB archive
   // only an engine can open. Fetched here rather than inside drive.js: that
   // module talks to Google and nothing else, and giving it a second opinion

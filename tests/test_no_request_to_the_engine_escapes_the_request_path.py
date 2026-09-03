@@ -117,14 +117,17 @@ def test_the_request_path_still_carries_all_three_guarantees():
                    "export async function raw("):
         assert parser in text, f"{parser} is gone, so a caller has no way to ask"
 
-    # THE OPT-OUT HAS EXACTLY ONE USER. `throwOnHttpError: false` is how a caller
-    # says "I read the status myself", and it is worth nothing if any call site can
-    # pass it: the point of `raw()` is that a reader sees in ONE line which callers
-    # own their own status handling.
-    assert text.count("throwOnHttpError: false") == 1, (
-        f"the status opt-out is passed in {text.count('throwOnHttpError: false')} "
-        "places. It belongs to `raw()` alone, or the request path has no single "
-        "answer to what a failure means.")
+    # THE OPT-OUT LIVES ONLY IN THIS FILE. `throwOnHttpError: false` is how a
+    # caller says "I read the status myself", and it is worth nothing if a call
+    # site elsewhere can pass it.
+    #
+    # It was "exactly once" when `raw()` was the only user, and that broke the
+    # moment `range()` and `sourceFor()` arrived — both of which read the status
+    # for a real reason: a 206 is the SUCCESS case for a byte range, and `api()`
+    # would have to be told that. The rule was pinned to a count when what it
+    # means is a location, and the count is what changed.
+    assert text.count("throwOnHttpError: false") >= 1, (
+        "the status opt-out is gone, so `range()` cannot treat a 206 as success")
     for source in _sources():
         assert "throwOnHttpError" not in source.read_text(encoding="utf-8"), (
             f"{source.name} passes the status opt-out directly instead of calling "
@@ -135,8 +138,12 @@ def test_the_archive_is_read_through_it():
     """The specific call that failed on his machine, named so a rewrite that
     reintroduces the bare fetch fails here rather than in Drive."""
     app = (EXTENSION / "app.js").read_text(encoding="utf-8")
-    assert 'await bytes("/api/bundle/archive")' in app, (
-        "the Drive backup no longer reads the archive through the request path")
+    assert 'await sourceFor("/api/bundle/archive")' in app, (
+        "the Drive backup no longer reads the archive through the request path. It "
+        "must be a SOURCE and not `bytes()`: holding 541,531,989 bytes in one Blob "
+        "is what came back empty on his machine, and `bytes()` holds a whole body")
+    assert 'await bytes("/api/bundle/archive")' not in app, (
+        "the archive is buffered whole again")
     assert 'await bytes("/api/bundle/panel-pack")' in app, (
         "the panel-pack no longer reads through the request path")
     assert "fetch(base + " not in app, (
