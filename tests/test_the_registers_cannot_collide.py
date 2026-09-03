@@ -318,6 +318,22 @@ RESERVED: dict[str, dict[int, str]] = {
         # `claude/a-citation-nothing-reads`, so OP-123 is a heading in
         # docs/BACKLOG.md here, and a number both reserved and declared is
         # what `test_a_reserved_number_is_not_also_declared` refuses.
+        # 129 AND 131 ARE HOLES, and both are claims by ALLOCATION rather than by a
+        # heading. This session allocated them to `eager-robinson-1d8a3a`:
+        #   129  the pinned-subject uniqueness guard, after that session measured 13 of 66
+        #        pinned subjects matching more than one line -- two of them pinned to the
+        #        literal `True`, which matches four lines of `features.py`, so tier 2
+        #        passed whenever ANY `True` sat within three lines of the number
+        #   131  `storage.health()`'s missing floor: it reported "healthy, no problems
+        #        found" about a database `initialize()` refuses to open
+        # WHAT IS AND IS NOT VERIFIED:
+        #   verified     -- the allocations, which are this session's own acts
+        #   NOT verified -- neither is a heading on any ref. Swept every local and remote
+        #                   ref on 2026-09-03: 127 and 128 on `main`, 130 declared by THIS
+        #                   branch, nothing at 129 or 131
+        # Delete each row the day its pull request lands.
+        129: "allocated to eager-robinson-1d8a3a for the pinned-subject guard",
+        131: "allocated to eager-robinson-1d8a3a for storage.health()'s floor",
         # 127'S ROW STOOD HERE AND IS GONE. #313 reserved it to this branch while this
         # branch declares it, so it became a number both reserved AND declared -- and its
         # own row said to delete it the day #312 lands, which is this rebase. The guard

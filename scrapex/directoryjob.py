@@ -45,6 +45,17 @@ JOB_KIND = "directory_crawl"
 #: to different degrees.
 DEFAULT_PACE_S = contractors.DEFAULT_PACE_S
 
+#: Seconds between heartbeats while a cell is being fetched. A request takes about a
+#: second at `DEFAULT_PACE_S`, so this is roughly one small write every twenty pages --
+#: often enough that the job card is never more than twenty seconds behind, rare enough
+#: that it is not a write per request.
+#:
+#: AT MODULE SCOPE BECAUSE IT WAS A LOCAL AND THAT HID IT. A tuning number inside the
+#: function cannot be varied by a test or seen by anyone reading the module, and the guard
+#: for the beat found exactly that: it set the interval to zero, nothing changed, and five
+#: of six fetches were silently throttled.
+BEAT_EVERY_S = 20.0
+
 
 class NotADirectory(LookupError):
     """This job names a source that is not a directory this build can crawl.
@@ -127,6 +138,61 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
 
     done = {"cells": 0}
     stopped: list[str] = []
+    # BUILT BEFORE THE CLOSURES THAT READ IT. `cell_closed` reports this fetcher's request
+    # count, and a closure resolves its names at CALL time -- so building the fetcher
+    # further down worked, and worked BY ORDERING. Moving `make_fetch` below the crawl
+    # would then be a `NameError` on the first cell, hours into a run that had already
+    # fetched real pages. Structural beats incidental.
+    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
+
+    def beating(url: str) -> str:
+        """One page, and a heartbeat if one is due.
+
+        THE JOB'S HEARTBEAT WAS WRITTEN AT CELL BOUNDARIES ONLY, and a cell can be long:
+        the fourth cell of his 2026-09-03 run fetched for over forty minutes, so the job
+        card read "reported 40 min ago" while it was storing hundreds of pages.
+        `jobs.py`'s own comment above `JOB_HEARTBEAT_MAX_AGE_S` names this defect at a
+        narrower window -- *"judging a job by the loop's 30s window is what made a working
+        crawl look dead"* -- and a boundary-only beat reintroduced it at fifteen minutes.
+        `OP-130`.
+
+        AFTER THE FETCH, NOT BEFORE, because the claim is that a request COMPLETED. A beat
+        written before would keep a hung request looking healthy, which is the one state
+        worth seeing.
+
+        ON ITS OWN CONNECTION, for `record_worker_failure`'s stated reason one file over:
+        a heartbeat written inside the crawl's transaction is a heartbeat that can be
+        rolled away with whatever the crawl was doing -- and it would commit the crawl's
+        pending work on a schedule the crawl did not choose.
+        """
+        text = fetch(url)
+        now = time.monotonic()
+        if now - beat_at[0] < globals()["BEAT_EVERY_S"]:
+            return text
+        beat_at[0] = now
+        try:
+            own = sqlite3.connect(db_file, timeout=5.0)
+            try:
+                own.execute("PRAGMA busy_timeout = 5000")
+                own.execute(
+                    "UPDATE crawl_job SET last_heartbeat_at = ? WHERE job_id = ?",
+                    (utc_now_iso(), job["job_id"]))
+                own.commit()
+            finally:
+                own.close()
+        except sqlite3.Error:
+            # A HEARTBEAT MAY NOT END A CRAWL. It is a record OF the work, not the work,
+            # and the same rule `contractors.say` states about a log line: lose the beat,
+            # never the run.
+            pass
+        return text
+
+    beat_at = [0.0]
+    #: The warehouse this job's connection is open on, asked of the connection itself
+    #: rather than threaded in as a parameter -- the runner contract is
+    #: `(conn, job_ref, admission)` and a fourth argument for a path the connection
+    #: already knows would be a second place for it to be wrong.
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
 
     def note(line: str) -> None:
         """One line of the crawl's own report, into the job log.
@@ -152,6 +218,18 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
                      stage=JobStage.FETCHING.value, progress_done=done["cells"],
                      last_heartbeat_at=utc_now_iso())
+        # AND THE REQUEST COUNT, HERE RATHER THAN ONLY AT THE END. It was written once in
+        # `finally`, so the panel showed `requests: 0` beside `cells 2/56` for hours --
+        # two numbers on one card contradicting each other, on the surface he watches.
+        # `OP-130`. The price path updates as it goes and its vocabulary is already
+        # `waiting` / `fetching` / `done`.
+        #
+        # AT THE BOUNDARY, because mid-cell `requests_count` is a number in motion and
+        # this is the one point where every figure on that card agrees with the others.
+        jobs.record_source_fetch(
+            conn, job["job_id"], source_key,
+            requests=int(getattr(fetcher, "requests_count", 0) or 0),
+            state="fetching")
         conn.commit()
         current = jobs.get_job(conn, job_ref)
         control = jobs._control_of(conn, job["job_id"])
@@ -176,7 +254,6 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         return bool(current is None)
 
     started = time.monotonic()
-    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
     # ONE DEFINITION OF A HOST, taken from `jobs` rather than written again here.
     # `_host_of`'s docstring names the crack a second derivation would open: a source
     # filed under one host name for grouping and another for reservation is two jobs
@@ -186,7 +263,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     admit = admission.lane(host) if admission is not None else nullcontext()
     try:
         with admit, contractors.lines_go_to(note):
-            contractors.crawl(conn, directory, fetch, fetcher, run_ref,
+            contractors.crawl(conn, directory, beating, fetcher, run_ref,
                               contractors.DEFAULT_MAX_ATTEMPTS,
                               between_cells=cell_closed)
     except contractors.CrawlStopped:
