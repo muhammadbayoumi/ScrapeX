@@ -31,6 +31,15 @@ export const STARTUP_DEADLINES = Object.freeze({
   // DERIVATION IS ALSO ITS EXPIRY DATE: the warehouse grew 13x in 17 days, and the
   // real fix is to stop making a browser wait for a synchronous build (R-76).
   bundleBuild: 600000,
+  //: A restore moves a multi-gigabyte file aside and another into its place, and
+  //: it is bounded by the SAME argument as bundleBuild rather than by a guess:
+  //: `POST /api/storage/restore` does not stream, so the deadline has to cover
+  //: the whole operation and not just time-to-first-byte. The first defect the
+  //: owner reported on 2026-09-02 was exactly this shape -- "The request exceeded
+  //: its 10000 ms deadline" on a backup of a 1,490 MB warehouse -- so shipping a
+  //: restore under the generic bound would have reproduced it on the one action
+  //: that must not be interrupted halfway.
+  storageRestore: 600000,
 });
 
 // A new Side Panel document can exist before Chrome considers it active enough
@@ -50,6 +59,7 @@ const LOCAL_POLICIES = [
   // FileResponse streams whose headers arrive immediately, and they must keep the
   // fast generic bound. Only the build is slow, so only the build is matched.
   [/^\/api\/bundle(?:\?|$)/, STARTUP_DEADLINES.bundleBuild],
+  [/^\/api\/storage\/restore(?:[/?]|$)/, STARTUP_DEADLINES.storageRestore],
   [/^\/api\/(?:sources|outputs|jobs|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/,
     STARTUP_DEADLINES.destinationData],
 ];

@@ -156,6 +156,7 @@ from ..storage import (
     wipe_source,
 )
 from ..storage import compact as storage_compact
+from ..storage import list_backups as storage_list_backups
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..vocab import (
     TERMINAL_JOB_STATUSES,
@@ -2902,6 +2903,40 @@ def create_app(
     @app.post("/api/storage/backup")
     def api_storage_backup():
         return _storage_action(lambda conn: backup_now(conn, app.state.db_path))
+
+    @app.get("/api/storage/backups")
+    def api_storage_backups():
+        """The snapshots on this machine, newest first.
+
+        WHY A ROUTE FOR SOMETHING THAT ALREADY EXISTED. `storage.list_backups` has
+        worked for weeks and had no caller outside the engine's own page, so the panel
+        could not offer a RESTORE: `/api/storage/restore` needs a `backup_path`, and
+        the only place that knew the paths was a page the owner does not open.
+        Measured 2026-09-02: the panel calls **none** of the nine `/api/storage/*`
+        controls, and `bundle.py` `unpack` has no caller at all — so he had a backup
+        button in his only interface and **not one restore control anywhere in it**
+        (`R-81`).
+
+        READ-ONLY AND NOT THROUGH `_storage_action`. That helper opens a write
+        connection for actions that change something; this changes nothing, and a
+        listing that took the writer's connection would contend with a crawl for no
+        reason. `list_backups` only stats files.
+
+        EVERY FIELD IS ONE THE PANEL NEEDS TO ASK ITS QUESTION. A restore is
+        destructive, so the confirmation has to name WHICH snapshot: `name` to show,
+        `modified_at` to order and date it, `bytes` so a truncated one is obvious
+        before it is made live, `tag` because `pre-upgrade` and `reset` are different
+        events, and `path` because that is what the restore route takes. Nothing else
+        is returned — a panel that could be handed an arbitrary path is the shape
+        `open-folder` deliberately refuses.
+        """
+        conn = read_conn()
+        try:
+            folder = backup_folder(conn, app.state.db_path)
+        finally:
+            conn.close()
+        return {"folder": str(folder),
+                "backups": storage_list_backups(app.state.db_path, folder)}
 
     # ---- the bundle the panel puts in Drive --------------------------------
     #

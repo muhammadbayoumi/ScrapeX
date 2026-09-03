@@ -1333,6 +1333,21 @@
         <section class="card manage-account-rows" aria-labelledby="manage-backups-title"
                  id="drive-backups"></section>
 
+        <!-- ON THIS PC, and it is here because a backup with no restore is not a
+             backup. Measured 2026-09-02: the panel called NONE of the engine's nine
+             /api/storage/* controls, and the only restore in the product lived on a
+             page the owner does not open (R-81). So he had a backup button in his
+             only interface and not one way to put a copy back.
+
+             A peer of "In your Drive" rather than a row inside it, because the two
+             answer different questions: that one survives this disk dying, this one
+             is the fast way back after a change goes wrong. Naming them apart is
+             half of what he asked for -- "no feature offered two ways" was about
+             one feature in two places, not two features sharing a word. -->
+        <h2 class="manage-account-section" id="manage-snapshots-title">On this PC</h2>
+        <section class="card manage-account-rows" aria-labelledby="manage-snapshots-title"
+                 id="local-snapshots"></section>
+
         <!-- The one destructive card. Its copy says what the code does, which is
              not what the handoff drafted: revoking at Google ends the WHOLE
              grant, identity scopes included, so this signs the account out. -->
@@ -2260,6 +2275,25 @@
        Not a native <dialog>: a document-level keydown handler in app.js calls
        preventDefault() on every Escape, which would stop the browser's own
        close. This one is a plain element and owns its Escape. -->
+  <!-- RESTORE ASKS BEFORE IT ACTS, and the question names WHICH snapshot: the
+       action replaces a live warehouse, and "are you sure?" without the date and
+       the size is a question nobody can answer. Markup contract copied from the
+       disconnect dialog below so the panel has one modal and not two. -->
+  <div id="restore-veil" class="modal-veil hidden">
+    <div class="modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="restore-dialog-title" tabindex="-1"
+         id="restore-dialog">
+      <h2 class="modal-title" id="restore-dialog-title">Make this snapshot live?</h2>
+      <div class="modal-copy" id="restore-dialog-copy"></div>
+      <div class="modal-actions">
+        <button class="ghost" type="button" id="restore-cancel">Cancel</button>
+        <button class="danger" type="button" id="restore-confirm">
+          Restore this snapshot
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="disconnect-veil" class="modal-veil hidden">
     <div class="modal-card" role="dialog" aria-modal="true"
          aria-labelledby="disconnect-dialog-title" tabindex="-1"

@@ -3184,9 +3184,153 @@ function renderManageAccountIdentity() {
   }
 }
 
+// ---- snapshots on this PC, and the restore he never had ------------------
+//
+// WHY THIS IS HERE AT ALL. Measured 2026-09-02: the panel called NONE of the
+// engine's nine /api/storage/* controls, and `bundle.py` `unpack` had no caller,
+// so the only restore in the product lived on a page the owner does not open.
+// `R-81` says a capability with no panel control has no control — so he had a
+// backup button in his only interface and no way to put a copy back.
+//
+// A SNAPSHOT IS NOT A DRIVE BACKUP and the two sections say so by standing
+// apart. The Drive copy survives this disk dying; a snapshot is the fast way
+// back after a change goes wrong. Sharing the word "backup" was the confusion —
+// not the existence of both.
+
+//: The engine prunes per tag, so the count here is what is on disk right now.
+//: The policy sentence belongs beside the number rather than inside it — the
+//: Drive card learnt that the hard way by reporting 3 while 4 sat there.
+let snapshotGeneration = 0;
+let pendingRestore = null;
+
+function snapshotLabel(snapshot) {
+  // The tag is the EVENT, and the events are not interchangeable: `pre-upgrade`
+  // was taken by the engine before it migrated, `reset` before a source was
+  // wiped, `manual` because somebody asked. A restore is a choice between
+  // moments, so the moment has to be named.
+  const named = { "pre-upgrade": "Before an upgrade", reset: "Before a reset",
+                  manual: "Taken by hand" };
+  return named[snapshot.tag] || (snapshot.tag ? `Tagged ${snapshot.tag}` : "Snapshot");
+}
+
+function renderLocalSnapshots({ state: phase, backups = [], folder = "", detail = "" } = {}) {
+  const card = $("local-snapshots");
+  if (!card) return;
+  card.textContent = "";
+
+  if (phase === "loading") {
+    card.append(manageRow("Reading this machine…"));
+    return;
+  }
+  if (phase === "error") {
+    card.append(manageRow("Could not read the snapshots on this machine",
+                          { sub: detail }));
+    return;
+  }
+
+  if (!backups.length) {
+    // The card STAYS when there is nothing in it, for the reason the Drive card
+    // gives: hiding it leaves the person with no way to learn what a snapshot is
+    // before making one.
+    card.append(manageRow("No snapshots on this machine yet.", {
+      sub: "A snapshot is a copy of the database on this disk. It is the fast way "
+           + "back after a change goes wrong — it does not survive losing the disk, "
+           + "which is what a Drive backup is for.",
+    }));
+    return;
+  }
+
+  for (const snapshot of backups) {
+    card.append(manageRow(snapshotLabel(snapshot), {
+      // financeDateTime and fmtMegabytes despite their names: they are the
+      // panel's ONE instant and size formatters, so this screen cannot invent a
+      // second format for either.
+      sub: financeDateTime(snapshot.modified_at, "Time not recorded"),
+      figure: fmtMegabytes(snapshot.bytes),
+      lead: "history",
+      onClick: () => openRestoreDialog(snapshot),
+    }));
+  }
+  if (folder) {
+    card.append(manageRow("Where they are kept", { sub: folder, lead: "storage" }));
+  }
+}
+
+async function loadLocalSnapshots() {
+  // The same generation guard the Drive read uses: leaving and returning starts
+  // a second read, and the slower answer must not paint over the newer.
+  const generation = ++snapshotGeneration;
+  const current = () => generation === snapshotGeneration
+    && !pageController.signal.aborted;
+  renderLocalSnapshots({ state: "loading" });
+  try {
+    const answer = await api("/api/storage/backups");
+    if (!current()) return;
+    renderLocalSnapshots({ state: "ready", backups: answer.backups || [],
+                           folder: answer.folder || "" });
+  } catch (error) {
+    if (!current()) return;
+    renderLocalSnapshots({ state: "error", detail: String(error && error.message || error) });
+  }
+}
+
+function closeRestoreDialog({ restoreFocus = false } = {}) {
+  pendingRestore = null;
+  $("restore-veil").classList.add("hidden");
+  if (restoreFocus) $("local-snapshots").querySelector("button")?.focus();
+}
+
+function openRestoreDialog(snapshot) {
+  pendingRestore = snapshot;
+  // THE QUESTION NAMES THE SNAPSHOT. "Are you sure?" without the moment and the
+  // size is a question nobody can answer, and this replaces a live warehouse.
+  $("restore-dialog-copy").textContent =
+    `${snapshotLabel(snapshot)} — ${financeDateTime(snapshot.modified_at, "time not recorded")}`
+    + `, ${fmtMegabytes(snapshot.bytes)}. The database in use now is moved aside, not `
+    + "deleted, and this copy takes its place. Anything collected since this snapshot "
+    + "was taken is not in it.";
+  $("restore-veil").classList.remove("hidden");
+  $("restore-confirm").focus();
+}
+
+async function restoreSnapshot() {
+  const snapshot = pendingRestore;
+  if (!snapshot) return;
+  const confirm = $("restore-confirm");
+  confirm.disabled = true;
+  confirm.textContent = "Restoring…";
+  try {
+    // `post`, so the deadline table in startup.js applies: a restore moves a
+    // multi-gigabyte file and is bounded like the bundle build rather than by
+    // the generic 10 s, which is the first defect he reported on 2026-09-02.
+    const result = await post("/api/storage/restore", { backup_path: snapshot.path });
+    closeRestoreDialog();
+    renderLocalSnapshots({ state: "loading" });
+    await loadLocalSnapshots();
+    setDisconnectStatus(result && result.detail
+      ? String(result.detail)
+      : "The snapshot is live. The database that was in use has been moved aside.");
+  } catch (error) {
+    // The dialog STAYS OPEN on failure, showing what went wrong: closing it
+    // would leave a person who pressed a destructive button with no idea whether
+    // it happened.
+    $("restore-dialog-copy").textContent =
+      `The restore did not happen: ${String(error && error.message || error)}. `
+      + "Nothing has been changed.";
+  } finally {
+    confirm.disabled = false;
+    confirm.textContent = "Restore this snapshot";
+  }
+}
+
 async function loadManageAccount() {
   renderManageAccountIdentity();
   setDisconnectStatus("");
+  // BEFORE the token check, deliberately: a snapshot is on this disk and has
+  // nothing to do with Google. Putting this after the early return below would
+  // have hidden every local snapshot from a signed-out person who still owns the
+  // database — which is the state he is in whenever Drive is disconnected.
+  loadLocalSnapshots();
   if (!state.token) {
     renderDriveFacts({ state: "signed-out" });
     return;
@@ -6097,6 +6241,14 @@ function wireStartupShell() {
   // re-rendered node would leak a document listener.
   window.ScrapeXSplitButton?.wire($("drive-disconnect"), (action) => {
     if (action === "disconnect-drive") openDisconnectDialog();
+  });
+  $("restore-cancel").addEventListener("click",
+    () => closeRestoreDialog({ restoreFocus: true }));
+  $("restore-confirm").addEventListener("click", () => { restoreSnapshot(); });
+  // The veil, not the card: a click that lands on the card must not dismiss the
+  // question the card is asking.
+  $("restore-veil").addEventListener("click", (event) => {
+    if (event.target === $("restore-veil")) closeRestoreDialog({ restoreFocus: true });
   });
   $("disconnect-cancel").addEventListener("click", () => closeDisconnectDialog());
   $("disconnect-confirm").addEventListener("click", () => { disconnectDrive(); });

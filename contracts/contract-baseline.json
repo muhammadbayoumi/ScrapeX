@@ -1,5 +1,5 @@
 {
-  "version": "0.4.7",
+  "version": "0.4.9",
   "schema": [
     "0002_the_price_source_key_is_named_for_what_it_is.sql",
     "0003_a_source_says_how_deep_its_crawl_goes.sql",
@@ -54,6 +54,7 @@
     "GET /api/sources/{source_key}",
     "GET /api/sources/{source_key}/robots",
     "GET /api/storage",
+    "GET /api/storage/backups",
     "GET /api/table/{source_key}",
     "GET /api/timezone",
     "GET /api/ui",
