@@ -313,6 +313,18 @@ RESERVED: dict[str, dict[int, str]] = {
         # declared -- the contradiction the neighbouring test refuses.
         120: "branch claude/the-drift-check-that-was-off, PR #307, at c6bdf813",
         123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
+        # 124 IS CLAIMED BY MESSAGE ONLY, and this row says so because the rule above
+        # requires it to: the primary session allocated it for the terminal command in
+        # the schema-lag banner, and a search of every local and remote ref finds NO
+        # `### OP-124` heading -- checked with
+        #   git show <ref>:docs/BACKLOG.md | grep "^### OP-124 "
+        # over refs/heads and refs/remotes. The work exists on
+        # `claude/the-command-that-outlived-its-removal`; the ENTRY does not yet, and
+        # that branch cites `OP-124` from a `LESSONS` 29 row, so it must declare the
+        # heading before it merges or the row points at nothing. RE-CHECK THIS ROW
+        # rather than trusting it -- a holder with no ref is the orphan this table warns
+        # about, one step before becoming one.
+        124: "branch claude/the-command-that-outlived-its-removal (no heading on any ref yet)",
         45: "branch claude/drive-without-a-server",
         # 112 THROUGH 114 became holes when this branch declared OP-117.
         # 116's row was here and is GONE: #297 merged, so it is declared on
