@@ -4693,7 +4693,14 @@ function freshnessLine(s) {
 const RESOLVES_A_DATASET = "resolves-a-dataset-key";
 const MANIFEST_ONLY = "route-404-for-a-dataset-key";
 const NO_SECTION = "no-such-section-on-the-page";
-// A FOURTH PROOF, AND THE FACT BEHIND IT IS NEW RATHER THAN A RESHUFFLE. `#301`/`R-78`
+// A FOURTH PROOF, AND THE FACT BEHIND IT IS NEW RATHER THAN A RESHUFFLE.
+// ("PR 301", never the hash form. `301` is three valid hex digits, and
+// test_ui_colour_literals_live_only_in_the_canonical_colour_system reads a hash followed
+// by three of those as a colour literal -- it cannot tell a pull request from a short
+// hex colour, and it should not try: a lookbehind that exempted a backtick would exempt
+// a real literal written after one too. THE EXPLANATION ITSELF TRIPPED IT ONCE, one line
+// below the fix, which is the fifth time today that writing about a scanner has had to
+// avoid the scanner.) PR 301 / `R-78`
 // made `POST /api/jobs` resolve a source through `source_site` as well as through
 // `sources.yaml`, so it answers for `muqawil_org` where it used to 404. That is a
 // measured property of the route and this table records measured properties.
