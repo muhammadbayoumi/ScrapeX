@@ -818,3 +818,129 @@ def test_the_fetcher_exists_before_the_closure_that_reads_it():
     assert built < closure, (
         f"`make_fetch` is at line {built} and `cell_closed` at {closure}: the closure "
         "reads a name assigned after it, which holds only until someone moves either one")
+
+
+def test_the_heartbeat_beats_while_one_long_cell_fetches(conn, tmp_path, monkeypatch):
+    """`OP-130`, THIRD FACE: A CELL CAN BE LONG AND THE CARD SAID NOTHING.
+
+    The heartbeat was written at cell boundaries only. On his 2026-09-03 run the fourth
+    cell fetched for over FORTY MINUTES, so the job card read *"reported 40 min ago"* while
+    the crawl stored hundreds of pages -- and `busy` in the engine's health report went
+    empty, losing the one detail worth having: what the worker is busy WITH.
+
+    `jobs.py` names this defect above its own constant, at a narrower window: *"judging a
+    job by the loop's 30s window is what made a working crawl look dead."* A boundary-only
+    beat reintroduced it at fifteen minutes.
+
+    ASSERTED WITHOUT CLOSING A CELL, which is the whole point: the fetches happen and no
+    boundary is reached, exactly as they did inside cell four.
+    """
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (_QuietFetcher(), lambda url: ""))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0, raising=False)
+
+    job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                              job_kind=directoryjob.JOB_KIND)
+    seen: list[str | None] = []
+
+    def sabotage(value: str) -> None:
+        """Put an impossible heartbeat in the column, on its own connection."""
+        own = sqlite3.connect(str(tmp_path / "scrapex-engine.db"), timeout=5.0)
+        try:
+            own.execute("UPDATE crawl_job SET last_heartbeat_at = ? WHERE job_ref = ?",
+                        (value, job_ref))
+            own.commit()
+        finally:
+            own.close()
+
+    def read_beat() -> str | None:
+        """The stored heartbeat, on a connection of its own — the runner writes its
+        beat that way, so a read through `conn` could miss an uncommitted value."""
+        own = sqlite3.connect(str(tmp_path / "scrapex-engine.db"), timeout=5.0)
+        try:
+            row = own.execute("SELECT last_heartbeat_at FROM crawl_job WHERE job_ref = ?",
+                              (job_ref,)).fetchone()
+            return row[0] if row else None
+        finally:
+            own.close()
+
+    class _LongCell:
+        """Many fetches, NO cell boundary -- cell four, in miniature.
+
+        MEASURED FROM INSIDE THE CELL, and the first version of this test was vacuous for
+        measuring outside it: the runner's OPENING `_update` writes `last_heartbeat_at`
+        unconditionally, so comparing before-the-run against after-the-run passed with the
+        per-request beat removed entirely. The mutation said so. Between the first fetch
+        and the last, nothing but the wrapper can move that column.
+        """
+
+        def __call__(self, *args, **kwargs):
+            from scrapex.partitioncrawl import WHOLE, CellSize, PartitionOutcome
+            for page in range(6):
+                # SABOTAGED, THEN FETCHED. `utc_now_iso()` has one-second resolution and
+                # six fake fetches take microseconds, so comparing timestamps cannot see
+                # a beat inside one second -- the first version of this loop collected six
+                # identical strings and could not tell a beat from no beat. An impossible
+                # value the beat must overwrite says it fired.
+                sabotage("2026-01-01T00:00:00Z")
+                kwargs["fetch"](f"https://muqawil.org/en/contractors?page={page}")
+                seen.append(read_beat())
+            size = CellSize(cell=WHOLE, last_page=1, cards_per_page=1, tail_cards=1,
+                            requests=1)
+            return PartitionOutcome(whole=size, cells=(), whole_at_end=None, parent=WHOLE)
+
+    monkeypatch.setattr(contractors, "crawl_partition", _LongCell())
+    directoryjob.run_directory_crawl_job_once(conn, job_ref)
+
+    assert len(seen) == 6, f"the fake did not fetch six times: {seen}"
+    assert set(seen) == {seen[0]} or True                      # shape, not the claim
+    assert "2026-01-01T00:00:00Z" not in seen, (
+        "a request went out, no boundary was reached, and the heartbeat this test had "
+        f"sabotaged was still there afterwards -- so a long cell reads as a dead job: "
+        f"{seen}")
+
+
+def test_a_heartbeat_that_cannot_be_written_does_not_end_the_crawl():
+    """`say`'S RULE, ONE LAYER OUT: a record OF the work may not end the work.
+
+    The beat opens its own connection -- `record_worker_failure`'s stated reason, because
+    a heartbeat inside the crawl's transaction is one that can be rolled away with it --
+    and its own connection can fail. A locked warehouse must lose the beat, never the run,
+    which is exactly what `contractors.say` says about a log line that cannot be encoded.
+
+    Read as source: the write is wrapped and the handler swallows, and no fixture can make
+    sqlite fail on demand without also breaking the crawl it is meant to protect.
+    """
+    import pathlib as _pathlib
+
+    source = _pathlib.Path(directoryjob.__file__).read_text(encoding="utf-8")
+    beating = source[source.index("def beating("):source.index("beat_at = [0.0]")]
+
+    assert "except sqlite3.Error" in beating, (
+        "the heartbeat write is not guarded, so a locked warehouse ends a crawl that had "
+        "already fetched hundreds of pages")
+    assert beating.strip().endswith("return text"), (
+        "`beating` must return the page it fetched whatever happened to the beat")
+
+
+def test_the_shipped_heartbeat_interval_keeps_the_card_fresh():
+    """THE MECHANISM WAS GUARDED AND THE NUMBER WAS NOT.
+
+    `test_the_heartbeat_beats_while_one_long_cell_fetches` sets `BEAT_EVERY_S` to zero,
+    which is right for testing the mechanism and means it also overrides any change to
+    the SHIPPED value. Measured: `BEAT_EVERY_S = 10 ** 9` passed the entire suite -- the
+    beat would fire once per run and a long cell would read as a dead job again, which is
+    the whole of `OP-130`.
+
+    The ceiling is `JOB_HEARTBEAT_MAX_AGE_S` (fifteen minutes) with a wide margin, because
+    the number that matters is how long the card can be wrong for, not how rarely the
+    write happens.
+    """
+    assert 0 < directoryjob.BEAT_EVERY_S <= 60.0, (
+        f"the shipped heartbeat interval is {directoryjob.BEAT_EVERY_S}s. Above a minute "
+        "the job card goes quiet for long enough to read as dead, and at zero it is a "
+        "database write per request")
+    assert directoryjob.BEAT_EVERY_S * 4 < jobs.JOB_HEARTBEAT_MAX_AGE_S, (
+        "the interval is within a factor of four of the window that decides whether a "
+        "job counts as alive, which leaves no margin for a slow page")

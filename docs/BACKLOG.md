@@ -4445,6 +4445,49 @@ only point at which every number on that card agrees with the others. Mid-cell,
 `requests_count` is a number in motion. The state vocabulary is the price path's own:
 `waiting` / `fetching` / `done`.
 
+### And a third face, found by watching the card during a long cell
+
+**The heartbeat was written at cell boundaries too.** Cell four of his run fetched for
+**over forty minutes**, so `crawl_job.last_heartbeat_at` sat forty minutes stale while 740
+pages were being stored — and `busy` in the engine's health report went empty, losing the
+one detail worth having: *what* the worker is busy with. The report still said
+`worker_alive: True`, because the worker LOOP beats separately, so the damage was confined
+to the job's own card.
+
+**`jobs.py` names this defect above its own constant, at a narrower window:**
+
+> *"A JOB may go quiet for far longer than a loop pass and still be healthy … Judging a
+> job by the loop's 30s window is what made a working crawl look dead."*
+
+**A boundary-only beat reintroduced it at fifteen minutes.** The beat now fires after every
+request — `fetch` is wrapped — **on its own connection**, for `record_worker_failure`'s
+stated reason: a heartbeat inside the crawl's transaction can be rolled away with whatever
+the crawl was doing, and it would commit the crawl's pending work on a schedule the crawl
+did not choose. **After the fetch, not before**, because the claim is that a request
+COMPLETED; a beat written first keeps a hung request looking healthy.
+
+### And my own guard for it was vacuous, which the mutation said and I did not
+
+**Three times, each one narrower than the last:**
+
+1. It compared the heartbeat **before the run** against the value **after** — and the
+   runner's opening `_update` writes that column unconditionally, so it passed with the
+   per-request beat removed entirely.
+2. Measuring inside the cell, it collected six identical timestamps: `utc_now_iso()` has
+   one-second resolution and six fake fetches take microseconds. **It could not tell a
+   beat from no beat.** So the column is sabotaged before each fetch and the beat has to
+   overwrite it.
+3. `BEAT_EVERY_S` was a **local**, so setting it to zero from the test did nothing and
+   five of six fetches were silently throttled. **A tuning number inside a function is one
+   no test can vary and no reader can see** — it is a module constant now, beside
+   `DEFAULT_PACE_S`.
+
+**And the mechanism was guarded while the shipped NUMBER was not.** Because the beat test
+sets the interval to zero, it also overrode any change to the default: measured,
+`BEAT_EVERY_S = 10 ** 9` passed the entire suite. There is a ceiling on it now, tied to
+`JOB_HEARTBEAT_MAX_AGE_S` with a margin — **the number that matters is how long the card
+can be wrong for, not how rarely the write happens.**
+
 ### And a second, structural, found on the way
 
 `cell_closed` reports the fetcher's request count, and `make_fetch` was **forty-nine lines
