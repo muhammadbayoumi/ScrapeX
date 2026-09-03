@@ -127,6 +127,12 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
 
     done = {"cells": 0}
     stopped: list[str] = []
+    # BUILT BEFORE THE CLOSURES THAT READ IT. `cell_closed` reports this fetcher's request
+    # count, and a closure resolves its names at CALL time -- so building the fetcher
+    # further down worked, and worked BY ORDERING. Moving `make_fetch` below the crawl
+    # would then be a `NameError` on the first cell, hours into a run that had already
+    # fetched real pages. Structural beats incidental.
+    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
 
     def note(line: str) -> None:
         """One line of the crawl's own report, into the job log.
@@ -152,6 +158,18 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
                      stage=JobStage.FETCHING.value, progress_done=done["cells"],
                      last_heartbeat_at=utc_now_iso())
+        # AND THE REQUEST COUNT, HERE RATHER THAN ONLY AT THE END. It was written once in
+        # `finally`, so the panel showed `requests: 0` beside `cells 2/56` for hours --
+        # two numbers on one card contradicting each other, on the surface he watches.
+        # `OP-130`. The price path updates as it goes and its vocabulary is already
+        # `waiting` / `fetching` / `done`.
+        #
+        # AT THE BOUNDARY, because mid-cell `requests_count` is a number in motion and
+        # this is the one point where every figure on that card agrees with the others.
+        jobs.record_source_fetch(
+            conn, job["job_id"], source_key,
+            requests=int(getattr(fetcher, "requests_count", 0) or 0),
+            state="fetching")
         conn.commit()
         current = jobs.get_job(conn, job_ref)
         control = jobs._control_of(conn, job["job_id"])
@@ -176,7 +194,6 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         return bool(current is None)
 
     started = time.monotonic()
-    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
     # ONE DEFINITION OF A HOST, taken from `jobs` rather than written again here.
     # `_host_of`'s docstring names the crack a second derivation would open: a source
     # filed under one host name for grouping and another for reservation is two jobs

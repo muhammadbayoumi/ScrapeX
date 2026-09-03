@@ -743,3 +743,78 @@ def test_the_host_rule_has_one_definition():
     assert "netloc" not in runner_source, (
         "scrapex/directoryjob.py derives a host itself instead of calling "
         "`jobs.host_of_url`, which is the second definition `_host_of` warns about")
+
+
+def test_the_request_count_is_visible_before_the_job_ends(conn, monkeypatch):
+    """`OP-130`: TWO NUMBERS ON ONE CARD THAT CONTRADICTED EACH OTHER.
+
+    `record_source_fetch` was called once, in `finally`, so the panel showed
+    `requests: 0` beside `cells 2/56` for as long as the crawl ran -- and the crawl he
+    started ran for hours. A progress figure that says nothing while work happens is the
+    same defect as a silent resume, one card over.
+
+    ASSERTED AT A CELL BOUNDARY, not at the end, because at the end the old code was
+    already right. The count is read from inside `between_cells`, which is the only point
+    where every figure on that card agrees with the others.
+    """
+    seen: list[int | None] = []
+    partition = _CellByCell(cells=3)
+
+    def watch() -> bool:
+        counters = jobs.get_job(conn, job_ref)["counters"]
+        slot = (counters.get("sources") or {}).get("muqawil_org") or {}
+        seen.append(slot.get("requests"))
+        return False
+
+    monkeypatch.setattr(contractors, "crawl_partition", partition)
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (_QuietFetcher(), lambda url: ""))
+    job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                              job_kind=directoryjob.JOB_KIND)
+
+    real = contractors.crawl
+
+    def crawl_and_watch(*args, **kwargs):
+        # THE RUNNER'S OWN `between_cells` RUNS FIRST, then this reads what it wrote --
+        # so the assertion is about what a poll from the panel would have seen mid-run.
+        inner = kwargs.pop("between_cells", None)
+
+        def both() -> bool:
+            stop = bool(inner()) if inner is not None else False
+            watch()
+            return stop
+
+        return real(*args, between_cells=both, **kwargs)
+
+    monkeypatch.setattr(contractors, "crawl", crawl_and_watch)
+    directoryjob.run_directory_crawl_job_once(conn, job_ref)
+
+    assert seen, "no cell boundary was reached, so this proves nothing"
+    assert seen[0] == _QuietFetcher.requests_count, (
+        "the panel would have shown `requests: 0` while cells were closing -- two figures "
+        f"on one card contradicting each other: {seen}")
+
+    counters = jobs.get_job(conn, job_ref)["counters"]
+    slot = (counters.get("sources") or {}).get("muqawil_org") or {}
+    assert slot.get("state") == "done", (
+        f"the final state is not `done`, so the card never settles: {slot}")
+
+
+def test_the_fetcher_exists_before_the_closure_that_reads_it():
+    """STRUCTURAL, NOT INCIDENTAL. `cell_closed` reports the fetcher's request count, and
+    a closure resolves its names at CALL time -- so building the fetcher below the closure
+    worked, and worked by ordering. Moving `make_fetch` under the crawl call would then be
+    a `NameError` on the FIRST CELL, hours into a run that had already fetched real pages.
+
+    Read as source, because the ordering is the property and no behaviour distinguishes it
+    until the day someone reorders the function."""
+    import pathlib as _pathlib
+
+    lines = _pathlib.Path(directoryjob.__file__).read_text(encoding="utf-8").split(chr(10))
+    built = next(n for n, line in enumerate(lines, 1) if "make_fetch(" in line)
+    closure = next(n for n, line in enumerate(lines, 1) if "def cell_closed(" in line)
+
+    assert built < closure, (
+        f"`make_fetch` is at line {built} and `cell_closed` at {closure}: the closure "
+        "reads a name assigned after it, which holds only until someone moves either one")
