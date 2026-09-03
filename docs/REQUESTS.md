@@ -104,6 +104,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-50](#req-50--the-engine-lives-on-the-engine-page-enough-warning-a-restart-to-press-and-one-home-for-every-engine-control) | The engine lives on the Engine page: enough warning, a restart to press, and one home for every engine control | **In flight** — ruled the same day as [R-80](RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy), branch `claude/scrapex-engine-consolidation-d69e0a`. The Build row said *Restart needed* and the page had nothing to press, while **four callers** of `POST /api/engine/restart` sat elsewhere — two in Settings, two on the engine's own web pages; measured across the product, **11 routes on both surfaces, 31 only on the engine's pages, 18 only in the panel, 8 settings changeable nowhere but the web UI**. Landed: the duplicate restart deleted and the survivor moved onto the Engine screen, its budget raised from 30 s to the engine's real 121.5 s, `schema_lag` carried so its banner can appear at all, and the spec-row grid repaired. **The power switch waits on `POST /api/engine/stop`**, which cannot land until `R-77`'s gate work or his word. Files [OP-112](BACKLOG.md)–[OP-114](BACKLOG.md) | 2026-08-30 |
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 | [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **In flight** — decided and built 2026-09-03 under [R-84](RULINGS.md) — the base may be collapsed before publication and after it no migration is ever deleted. The chain is one baseline at v17, `grep -ci marketlens db/engine/schema.sql` answers **0**, and the reconciliation was checked against his real 2.02 GB warehouse read-only. The waiver on the second machine is recorded as a waiver | 2026-08-30 |
+| [REQ-53](#req-53--everything-about-backup-lives-on-manage-account-and-the-panel-is-what-holds-the-permission) | Everything about backup on one page, and the panel is what may do it | **Captured** — he said it 2026-09-02 and it reached the board a day later. Measured: the local snapshot is built by `/api/storage/backup`, called ONLY from the engine's `_storage.html`; the Drive bundle by `/api/bundle`, called ONLY from the panel; and **restore has no control in the panel at all** — `/api/storage/restore` is engine-page-only and `bundle.unpack()` has no caller outside tests. So he has a backup button in his only interface and no way to restore from it | 2026-09-03 |
+| [REQ-54](#req-54--a-source-declares-what-it-can-be-asked-to-do-and-the-panel-draws-its-controls-from-that) | A source declares what it can be asked to do | **Captured** — the crawl button starts ONE thing with fixed defaults. `run_mode`'s four values are price vocabulary and none of them means anything for a directory, while muqawil's seven real options are unreachable from the panel. He named the generalisation himself: this repeats with every source added | 2026-09-03 |
 ---
 
 ## REQ-01 · One documentation system, in the repository
@@ -2938,4 +2940,110 @@ the person it cost.
 **Also missing and worth naming here:** `tools/derive_engine_schema.py`, which generated the
 current baseline, **is not in the tree**. Collapsing the chain without the tool that generates
 baselines is exactly the file that looked unnecessary until it was needed.
+---
 
+## REQ-53 · Everything about backup lives on Manage account, and the panel is what holds the permission
+
+**Captured 2026-09-03 · he said it on 2026-09-02**, to another session, twice — the
+second time to correct its reading of the scope:
+
+> «اى حاجة ليها علاقة ب backup احصرها فى الكود وانقلها الى صفحة Manage account فى extension
+> · مع العلم تحديد من لديه القدرة على عمل backup هل هى الextension ام المحرك · لان
+> extension هى الاساس والمحرك فرعى داخل extension وايضا extension هى ما لديها الصلاحيات»
+
+> «اقصد بصفحة Manage account الصفحة بالصورة حيث لا اريد اجد ما يقدم نفس الميزة بطرق مختلفة
+> فى الاداة مثل ما هو موجود فى setting extension او صفحة الويب الخاصة بالمحرك · هذا لمزيد
+> من الفهم لا اقصد بالطبع ملف فى الكود · بحيث الكود يكون نظيف ومرتب»
+
+**A DAY LATE, AND THAT IS THE DEFECT `C7` NAMES.** It was measured in detail the day he
+said it, reported to him, and then carried in a conversation — which is worse than an
+unresearched request nobody looked at, because the work was done and still invisible on the
+board that tracks what he asked for. `REQ-04` is why the rule says *in the session he said
+it* rather than *soon*.
+
+### What is measured, and it is the part that decides the shape
+
+| | local snapshot | Drive bundle |
+|---|---|---|
+| built by | `/api/storage/backup` | `/api/bundle` |
+| called from | `_storage.html` — **the engine's page only** | `extension/app.js` — **the panel only** |
+| restored by | `/api/storage/restore` — engine page only | **nothing.** `bundle.unpack()` has no caller outside tests |
+
+**So he has a backup button in his only interface and not one restore control anywhere in
+it**, and the only door to restore is a page he does not use
+([R-81](RULINGS.md#r-81--a-command-line-answer-is-not-an-answer-the-panel-is-the-only-door)).
+That is also why *"no feature offered two ways"* cannot be satisfied by deleting the engine
+page: it is currently the only place one of the two halves exists at all.
+
+**And his second question — who may take a backup — is answered by measurement rather than
+by preference:** both routes are the ENGINE's, because only the engine has the file. What
+moves to the panel is the decision and the control; what stays in the engine is the hand on
+the disk. That is [R-50](RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+applied to this feature, not a new rule.
+
+### One hazard that arrives WITH the restore control and did not exist before
+
+**A restore can put the warehouse BELOW the baseline**, and since
+[R-84](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again)
+a database below the baseline has no upgrade path. So a control that simply replaces the
+file can leave him with a warehouse the engine refuses to open — the state `OP-131` is
+about, arriving as a consequence of a new button rather than of a squash. **The control has
+to name the snapshot's version and refuse, or warn, when it is older than the baseline.**
+Part of the request, not a follow-up.
+
+---
+
+## REQ-54 · A source declares what it can be asked to do, and the panel draws its controls from that
+
+**Captured 2026-09-03, in the session he said it**, while he was watching the first crawl
+the button ever started:
+
+> «هل الزحف اصبح متصلا بالواجهة حيث يمكن للمستخدم تحديد زحف مقاول ويحدد بالتحديد ماذا يفعل
+> · يعنى فى طرق زحف مخصصة لمقاول اعتقد غير مرطبة باى مصدر اخر وفى المستقببل مع اضافة مصادر
+> اخرى ربما تنشى طرق زحف مخصصة اخرى ولكن زر run به اختيارات محدودة حتى اصلا مع تحديد عدد من
+> المصادر المختلفة يصعب تحديد للاداة ماذا يزحف او يفعل فى كل مصدر»
+
+**The answer to his question is no**, and `REQ-45` closing does not change it: the button
+is *connected* and it is not *controllable*. It starts the listing phase with fixed
+defaults and there is no second thing it can be asked to do.
+
+### Measured against the code rather than argued
+
+**`run_mode` is price vocabulary.** Its four values — `initial_crawl`, `update`,
+`full_rebuild`, `history_backfill` — describe how a job treats existing PRICE data. Not one
+of them means anything for a contractor directory, and the panel offers nothing else.
+
+**What muqawil can actually be asked to do, and none of it is reachable from the panel:**
+
+| | |
+|---|---|
+| `--details` | the profile pages — a **separate collector**, 34,834 pages |
+| `--only <cells>` | the unproven cells alone, without re-reading the proven ones (`R-26`) |
+| `--workers N` | **the difference between 14.6 hours and 2.4** — measured on his running crawl, `OP-132` |
+| `--ceiling N` | a bounded trial instead of the whole frontier |
+| `--ids <numbers>` | one named contractor, which is `OP-64`'s documented remediation |
+| `--approve` | interpret stored evidence with no network at all |
+| `--coverage` | who arrived and who left, against a sightings window |
+
+### His generalisation is the request, and it is right
+
+> *"with other sources added, perhaps other custom crawl methods get created — but the Run
+> button has limited choices, and even selecting several different sources it is hard to
+> tell the tool what to crawl or do for each one."*
+
+**A wider Run dialog is the wrong answer**, and it is the answer this repository would reach
+for. Every option above is a fact about ONE SOURCE, and a dialog that enumerates them is a
+second place those facts live — the drift `SourceResolver` and `directories.BUILDERS` were
+built to stop, one surface further out.
+
+**So: a source declares its capabilities and the panel renders that declaration.** The
+precedent is in the tree and already load-bearing — `directories.BUILDERS` says which
+collector reads a source and the route asks it rather than carrying a condition (`REQ-45`),
+and `SOURCE_ACTIONS`'s `proof` field says which actions a card may offer and is **measured
+against real routes** rather than asserted. **This request is that pattern applied to what
+a crawl can be asked to do**, and the declaration is what makes a second directory cost a
+registry entry instead of a dialog.
+
+**Not designed here.** It needs his ruling on how much a declaration may say — a list of
+flags is not the same thing as a set of named operations — and the answer decides whether
+the panel renders controls or offers a menu of prepared runs.
