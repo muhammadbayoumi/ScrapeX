@@ -4601,6 +4601,59 @@ rather than deleted, because deleting rows is precisely what that floor refuses.
 shape as everything else found this week: a guard comparing one side of a pair whose
 other side had quietly left.**
 
+### OP-125 · A run of table rows with no header renders as a table and is not one
+
+**Found 2026-09-02**, while measuring whether a check for this would be noisy enough to be
+switched off. It was not: it found two more instances the same minute, in a document nobody
+had suspected, and both had survived every gate since they were made.
+
+**THE CAUSE IS THE FORMAT, NOT THE READER, AND THAT DISTINCTION IS THE WHOLE ENTRY.**
+A markdown table has no closing marker. A row is a line beginning with a pipe; a header is a
+separator line; **and a run of rows with neither, a hundred lines below the table it came
+from, is indistinguishable from a table by looking** -- to a person scanning for *"the
+table"*, and to every tool that reads these documents as prose. So a merge resolution that
+keeps both sides of a table's tail leaves something that renders, passes every check, and
+reads as deliberate.
+
+The first account of the `LESSONS` §29 instance said the resolution was made by someone who had
+not read what the other side's rows were for. True, and useless: **the remedy it implies is
+*read harder*, and two sessions spent that day doing exactly that**, one of them having written
+the rule down. `LESSONS` §29 now carries the corrected form.
+
+**THE THREE REAL INSTANCES.**
+
+| where | what | why it mattered |
+|---|---|---|
+| `LESSONS` §29 | a three-row stub a hundred lines below its table, two rows duplicated and one existing nowhere else | the table read eight rows while the prose above counted nine; **the arithmetic was the only symptom** |
+| `REQUESTS.md`, the board | `REQ-51` and `REQ-52` separated from the board by blank lines, so each rendered as its own one-row table | **the request board ended at `REQ-50`** -- the two newest requests were not in it |
+| `REQUESTS.md`, `REQ-45` | the four-row evidence table duplicated verbatim, the stale copy first and headerless second | the stale copy asserts that `POST /api/jobs` *"validates the key against `app.state.manifest`"* -- **a defect `#301` closed.** A reader of `REQ-45` concluded the button was still broken at the door |
+
+**The third is worse than a wrong line number**, which is the usual failure in these documents:
+a stale citation sends a reader to the wrong place, while a stale row tells them a fixed defect
+is live. The primary session wrote the current copy and confirmed which of the two is false.
+
+**AND IT DEFEATED THE STRONGEST GUARD USED ON DOCUMENT EDITS.** Every scripted edit in this
+repository asserts `s.count(old) == 1` before replacing. That passed while editing a citation
+inside the duplicated table, **because only one of the two copies carried the line being
+changed** -- so one copy was corrected and the duplicate was never discovered. The assertion
+proves the ANCHOR is unique. It does not prove the CONTEXT is, and those are different claims.
+
+**Fixed here.** `test_no_document_holds_a_table_with_no_header` in
+`tests/test_the_documents_cite_what_they_claim.py`, parametrized over the same `DOCUMENTS` the
+rest of that guard reads; the board is one table again; the stale `REQ-45` copy is deleted.
+
+**THE FENCE EXEMPTION IS STRUCTURAL, AND IT WAS NAMED BEFORE IT WAS BUILT RATHER THAN AFTER.**
+The scan skips fenced blocks by counting fences, never by matching their contents -- so a
+document that QUOTES a broken table to explain this defect is invisible to it **by structure
+rather than by spelling**. Content matching is exactly how `OP-116`'s widened route guard came
+to fail any file that merely NAMED the route it protected (`LESSONS` §28, and three scanners
+reddened one comment over it). Two blockquote levels are also handled: a table inside a `>`
+quote is still a table.
+
+**Mutation-checked both ways**, and the second direction is what makes it usable: appending two
+pipe-prefixed lines with no separator turns it red naming the file and the line range, and
+appending the same two lines inside a fenced block leaves it green.
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.

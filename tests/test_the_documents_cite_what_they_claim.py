@@ -667,6 +667,82 @@ def test_every_pinned_document_is_one_this_guard_reads():
     assert not stray, f"pinned citations in documents outside the map: {stray}"
 
 
+@pytest.mark.parametrize("document", DOCUMENTS)
+def test_no_document_holds_a_table_with_no_header(document):
+    """A RUN OF TABLE ROWS WITH NO SEPARATOR ABOVE IT IS NOT A TABLE, and the
+    only thing that can tell is a check like this one.
+
+    `OP-125`. A markdown table has no closing marker. A row is a line beginning
+    with a pipe; a header is a separator line; and a run of rows with neither,
+    a hundred lines below the table it came from, is indistinguishable from a
+    table by looking -- to a reader scanning for "the table", and to every tool
+    that reads these documents as prose. So a merge resolution that keeps both
+    sides of a table's tail leaves something that RENDERS, passes every gate,
+    and reads as deliberate.
+
+    MEASURED BEFORE IT WAS WRITTEN, because a check that cries wolf gets
+    switched off and this file has been bitten by that four times. The scan
+    returned five hits across the guarded documents: two inside fenced code
+    blocks -- shell pipelines whose lines begin with a pipe -- and THREE REAL
+    ONES. One was `LESSONS` 29's own stub, the defect this rule came out of.
+    The other two were in `REQUESTS.md` and nobody had suspected either:
+    `REQ-51` and `REQ-52` separated from the board table by blank lines, so the
+    board ended at `REQ-50`; and `REQ-45`'s evidence table duplicated verbatim,
+    the stale copy still asserting a defect `#301` had closed.
+
+    THE FENCE EXEMPTION IS STRUCTURAL AND THAT IS DELIBERATE. It skips fenced
+    blocks by counting fences, never by matching what is inside them -- so a
+    document that QUOTES a broken table to explain this defect is invisible to
+    the scanner by structure rather than by spelling. Matching on content is how
+    `OP-116`'s widened guard came to fail any file that merely NAMED the route
+    it was protecting (`LESSONS` 28); the constraint was named before this was
+    written rather than discovered after.
+    """
+    text = _read(document)
+    fenced = False
+    run: list[tuple[int, str]] = []
+    orphans = []
+
+    def close(run):
+        if not run:
+            return
+        # A separator anywhere in the run makes it a table. `|---|`, `|:--|`,
+        # `| --- | ---: |` all count: strip pipes and spaces, and what is left
+        # of a separator is only dashes and colons.
+        for _, line in run:
+            bare = line.replace("|", "").replace(" ", "")
+            if bare and set(bare) <= set("-:"):
+                return
+        orphans.append((run[0][0], run[-1][0], len(run), run[0][1][:60]))
+
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            fenced = not fenced
+            close(run)
+            run = []
+            continue
+        if fenced:
+            continue
+        # A blockquote's own table is still a table; strip one level of `> `.
+        body = stripped[2:].strip() if stripped.startswith("> ") else stripped
+        if body.startswith("|"):
+            run.append((number, body))
+        else:
+            close(run)
+            run = []
+    close(run)
+
+    assert not orphans, (
+        f"{document} holds table rows with no header above them: "
+        + "; ".join(f"lines {a}-{b} ({n} row(s)): {first!r}"
+                    for a, b, n, first in orphans)
+        + ". A run of rows with no separator renders as a table and is not one "
+        "-- it is what a keep-both merge resolution leaves behind, and the rows "
+        "in it belong to a table somewhere above. Join them to it, or give this "
+        "one a header. (OP-125)")
+
+
 def test_the_frozen_plans_are_excluded_on_purpose():
     """The exclusion is a ruling (R-15), not a gap. If someone adds docs/plans to
     DOCUMENTS this fails and points them at why -- and if plans/README.md ever

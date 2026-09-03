@@ -3499,8 +3499,25 @@ its assertion.
 > -- once in place and once as an orphan. **The stub's third row existed nowhere else**, so the
 > real table was one row short while the prose above it counted nine, and the numbers were the
 > only symptom. **A dangling half-sentence and an unheaded table are what a keep-both looks
-> like a day later**, which is the argument for resolving by numeric order AND re-reading the
-> prose across the seam. Resolving by order alone is what produced this.)*
+> like a day later.**
+>
+> **AND THE FORMAT MADE THE MISTAKE AVAILABLE, WHICH MATTERS MORE THAN THE READER WHO TOOK IT.**
+> The first account of this, written the same day, said the resolution was made by someone who
+> had not read what the other side's rows were for. True, and useless as a lesson: the remedy it
+> implies is *read harder*, and both sessions involved spent that day doing exactly that,
+> unsuccessfully. The real cause is one sentence. **A markdown table has no closing marker.** A
+> row is a line beginning with a pipe; a header is a separator line; and a run of rows with
+> neither, a hundred lines below the table it came from, **is not distinguishable from a table
+> by looking** -- not to a reader scanning for *"the table"*, and not to any tool that reads the
+> document as prose. So keeping both sides of a table's tail produces something that renders,
+> passes every gate, and reads as deliberate. **The reader is not the mechanism; the absence of
+> a closing marker is.**
+>
+> The operational form is therefore not an instruction to concentrate. Resolve by numeric order,
+> re-read the prose across the seam, **and let a check ask whether any run of table rows in the
+> documents has no separator above it** -- which is mechanical, and which is `OP-125`: written
+> to measure whether it would be noisy, it found two more on `main` in a document nobody
+> suspected.)*
 
 **The sixth was found the same day, in the Drive incident, and it is the sharpest of them because it names the VALUE at which a guard switches off.** A size, a count, a duration and a checksum all share one property: **zero is the least interesting number and the most alarming one**, and a truthiness test discards exactly it. Ask for PRESENCE — `typeof x === "number"` — which forgives an absent field and refuses a zero one.
 
