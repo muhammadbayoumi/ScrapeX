@@ -3878,3 +3878,58 @@ correction stands whatever he answers.
 
 So the real departures are three positions, not five values: `--line-strong` in both schemes,
 `--amber` in light, `--focus` in light.
+---
+
+### R-86 · A session announces itself to the queue before it is ready, not when it is done
+
+**2026-09-02 · orchestration · imposes an obligation that
+[R-42](#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks) only
+granted a permission for**
+
+> «دائما بلغ الرئيسى بحجز مكان تجنبا لاعادة base عدة مرات»
+
+**He gave this after watching it cost an afternoon**, and the cost is the argument rather
+than an illustration of it.
+
+#### Why it is a ruling and not prose under R-42
+
+`R-42` grants a PERMISSION — exactly one session merges, every other asks. This imposes an
+OBLIGATION on every session: tell the primary before you are ready. That changes what
+everyone must do rather than describing what the primary may do, which is what makes it its
+own entry.
+
+#### What it cost not to do it, measured on one branch
+
+`claude/the-system-is-supabases-exactly` was rebased **three times**. Finish, discover `main`
+had moved, rebase, discover it had moved again. **Not one of the three was a merge conflict
+in the ordinary sense:**
+
+- The first re-derived nine citations, and **three of them had been stale before the branch
+  touched the file** — by 21, 36 and 59 lines. They pointed at wrong NON-BLANK lines, so they
+  had passed for as long as they existed; a 14-line insertion pushed them onto blank ones and
+  only then were they visible.
+- The second proved that **taking a side in a citation conflict is not an answer.** Both
+  branches had edited `scrapex/webui/app.py`, so each side was right about its own tree and
+  wrong about the merged one. Five pinned rows resolved to numbers **neither side held**.
+- The third lost the session's uncommitted work: a stash pushed into a rebase that was always
+  going to conflict, applied on top of the conflicted state, then dropped. It was recovered
+  from unreachable objects. **The error was the order, not the command** — a commit is a ref
+  and a stash is not.
+
+#### What a slot is, and what it is not
+
+**It is not a promise about time.** `main` moves regardless and the primary says when. What
+the slot buys is **rebasing once, on the primary's word, instead of speculatively** — and
+being told before starting rather than discovering afterwards.
+
+It also pairs with what `docs/ORCHESTRATION.md` §2 gained the same day: the merge-tree check
+is *when to verify*; **a reserved slot is when to start.** A session that has both rebases
+once and verifies once.
+
+#### And the order in the queue is a measurement, not a courtesy
+
+Slot 1 went to this branch over a squash that regenerates `db/engine/schema.sql`, deletes
+fifteen migration files and bumps `VERSION`. **A rebase across that is far worse than a
+rebase across a positional conflict in `docs/RULINGS.md`**, and this branch adds no migration
+so it cannot invalidate the squash's baseline either way. Both orders were safe; one was
+cheaper. **The primary is expected to say which and why, not merely to say who is next.**
