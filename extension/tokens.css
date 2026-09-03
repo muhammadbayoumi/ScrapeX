@@ -53,15 +53,17 @@
   --surface-subtle: #f6f6f6;  /* --muted */
   --surface-raised: #ffffff;  /* --popover */
   --line: #e9e9e9;            /* --border */
-  /* Their --border-stronger is an alpha overlay, so it has no single value: it
-     composites to #cecece over --background and #d0d0d0 over --card. The 1.57:1
-     recorded here was the --background composite measured against --card, so the
-     plate and the value did not match; on its own plate it is 1.574:1. Both are
-     under the panel guard's 3:1, so the substitution stands and only the
-     arithmetic behind it was wrong. What replaces it is not derived: #8f8f8f is
-     Supabase's own gray-light-900 (hsl 0 0% 56.1%, in their build css source),
-     and it clears the floor at 3.23:1. PUBLISHED. */
-  --line-strong: #8f8f8f;
+  /* R-84: THEIRS, AND IT DOES NOT CLEAR THIS REPOSITORY'S OWN FLOOR.
+     Their --border-stronger is an alpha overlay of --foreground, so it has no
+     single value -- it composites to #cecece over --background and #d0d0d0 over
+     --card. This token is flat and is paired with --surface, which IS their
+     --card, so the --card composite is the honest transcription.
+     MEASURED: 1.542:1 on --surface, against the 3:1 this repository asks of a
+     border. It was #8f8f8f (their own gray-light-900) at 3.234:1 until
+     2026-08-31, when he ruled «مطابق تماما» and «عدل اى قرار يتعارض مع هذا
+     النظام». The floor is one of the decisions that conflicts, and it yielded.
+     The number is written here so that nobody rediscovers it as a defect. */
+  --line-strong: #d0d0d0;
   --text: #030303;            /* --foreground */
   --muted: #464646;           /* --muted-foreground */
   --text-subtle: #696969;     /* --tertiary-foreground */
@@ -79,26 +81,36 @@
      1.99:1 on white. Anything light on this fill fails AA outright. */
   --accent-contrast: #030303;
   --accent-weak: #d3f8e4;     /* brand-200 light       PUBLISHED */
-  /* Their --warning is oklch(0.68 0.14 75) = #ca8a10, which is 2.68:1 on their
-     own published warning-300 tint below where the guard needs 4.5:1, so it had
-     to move. WHAT MOVED IS NOT WHAT THIS COMMENT USED TO SAY. The target
-     oklch(0.52 0.14 75) does not exist in sRGB -- maximum in-gamut chroma at that
-     lightness and hue is 0.1097, so it sat 27.6% past the boundary -- and the
-     value below is a naive per-channel clip of it. Measured back out of the hex:
-     LIGHTNESS held (0.5218), chroma fell 16.7%, and hue moved 75 -> 65.53
-     degrees. So the shipped warning sits 9.5 degrees off Supabase's warning hue.
-     It clears the guard at 5.14:1, and it is not the colour the old comment
-     described. The gamut-mapped value that would hold hue 75 is #8d5e00;
-     switching to it is the owner's call and until he rules this stands. */
-  --amber: #965900;
+  /* R-84: THEIRS EXACTLY, AND THIS ONE COST NOTHING.
+     oklch(0.68 0.14 75) = #ca8a10, their --warning.
+     THE DEPARTURE HERE WAS NEVER REALLY A DEPARTURE FROM THEM. It was justified
+     by 2.68:1 against --amber-weak -- but Supabase never puts warning text on its
+     own warning-300 tint. That pairing is this repository's invention. Their ink
+     on their amber is --warning-foreground, and it measures 6.923:1, which clears
+     the 4.5 floor with room. So restoring their value and adding the ink they
+     actually use matches them AND raises the ratio; the old #965900 (a naive
+     per-channel clip of an out-of-gamut target, 9.5 degrees off their hue) was
+     answering a question they do not ask. */
+  --amber: #ca8a10;
+  /* Their --warning-foreground, the ink that belongs on --amber. Added by R-84
+     because matching their VALUE without their PAIRING is what made the old
+     departure look necessary. */
+  --amber-ink: #080503;
   --amber-weak: #fff4d5;      /* warning-300 light     PUBLISHED */
   --red: #ab413e;             /* --destructive light   derived */
   --red-hover: #8e332f;
   --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
   --danger-contrast: #fff9f8; /* --destructive-fg      derived */
-  /* Their focus ring is --primary at 55% alpha, which flattens to #98e3c0 and is
-     1.47:1 on their own background against a 3:1 floor. brand-600 instead. */
-  --focus: #097c4f;
+  /* R-84: THEIRS, AND IT IS THE COSTLIEST OF THE THREE.
+     Their --ring is --primary at 55% alpha; flattened over --bg it is #98e3c0 and
+     measures 1.466:1 where this repository asks 3:1 of a focus indicator. It was
+     #097c4f (their own brand-600) at 5.151:1 until 2026-08-31.
+     THIS IS A KEYBOARD-NAVIGATION NUMBER, NOT A DECORATIVE ONE. --focus is drawn
+     as a 2px ring at a 2px offset and is the only thing telling a keyboard user
+     where they are. He was given 1.47:1 before he ruled and ruled anyway; it is
+     recorded at the value rather than argued, and this comment is what a future
+     session needs to find before it "fixes" the ring back. */
+  --focus: #98e3c0;
   --selection: color-mix(in srgb, var(--accent) 20%, transparent);
   --diagram-source: var(--accent);
   --diagram-general: color-mix(in srgb, var(--accent) 64%, var(--muted));
@@ -330,7 +342,7 @@
   --line: #232423;            /* --border */
   /* Their --border-stronger is #393a39 = 1.53:1 on their own --card. This is
      scale-900 dark, PUBLISHED, and 3.53:1. */
-  --line-strong: #707070;
+  --line-strong: #3d3f3e;
   --text: #edefee;            /* --foreground */
   --muted: #bcbdbc;           /* --muted-foreground */
   --text-subtle: #989a99;     /* --tertiary-foreground */
@@ -344,9 +356,15 @@
   --accent-ink: #3ecf8e;      /* brand-default dark    PUBLISHED */
   --accent-contrast: #131413; /* --primary-foreground  derived */
   --accent-weak: #002918;     /* brand-300 dark        PUBLISHED */
-  --focus: #3ecf8e;           /* brand-default dark    PUBLISHED */
+  /* R-84. THEIR RING SURVIVES THE FLOOR IN DARK AND NOT IN LIGHT, which matters
+     before anyone reads the light comment and assumes the departure was
+     symmetrical. Their --ring is --primary at 55% alpha; flattened over the dark
+     --bg it is 3.555:1 and clears the 3:1 asked of it. The same ring over the
+     light --bg is 1.466:1. It was #3ecf8e (brand-default) at 9.252:1. */
+  --focus: #2f7a57;           /* --ring dark           PUBLISHED */
 
   --amber: #f2af48;           /* --warning dark        derived */
+  --amber-ink: #080503;       /* --warning-foreground  PUBLISHED */
   --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
@@ -393,7 +411,7 @@
     --surface-subtle: #1a1b1a;
     --surface-raised: #1b1d1c;
     --line: #232423;
-    --line-strong: #707070;
+    --line-strong: #3d3f3e;
     --text: #edefee;
     --muted: #bcbdbc;
     --text-subtle: #989a99;
@@ -405,9 +423,10 @@
     --accent-ink: #3ecf8e;
     --accent-contrast: #131413;
     --accent-weak: #002918;
-    --focus: #3ecf8e;
+    --focus: #2f7a57;
 
     --amber: #f2af48;
+    --amber-ink: #080503;
     --amber-weak: #341c00;
     --red: #fa8880;
     --red-hover: #fda49d;
