@@ -303,15 +303,12 @@ RESERVED: dict[str, dict[int, str]] = {
         # 121 IS THIS BRANCH'S OWN and is a heading in docs/BACKLOG.md, not a row here.
         # DELETE EACH ROW THE DAY ITS PULL REQUEST LANDS -- a reservation left behind is a
         # permanent hole nobody owns, which is the rule this table states about itself.
-        # 120 SURVIVES AS ONE ROW CARRYING BOTH SIDES' EVIDENCE. Two sessions
-        # reserved it and keep-both left two rows; the guard below reported
-        # `OP[120]` and the copy Python keeps is the lower one. Verified with
-        #   git show refs/remotes/origin/claude/the-drift-check-that-was-off:docs/BACKLOG.md | grep "### OP-120"
-        # at c6bdf813, and it now has PR #307 open, which the earlier row could
-        # not know. 121 and 122 are GONE: 121 is declared by this branch and 122
-        # landed with #306 (`3c2aaa0d`), so each was a number reserved AND
-        # declared -- the contradiction the neighbouring test refuses.
-        120: "branch claude/the-drift-check-that-was-off, PR #307, at c6bdf813",
+        # 120'S ROW STOOD HERE AND IS GONE, on the rule this table states about
+        # itself: THIS branch is `claude/the-drift-check-that-was-off`, so OP-120
+        # is a heading in `docs/BACKLOG.md` here and a reservation for a declared
+        # number is the contradiction `test_a_reserved_number_is_not_also_declared`
+        # refuses. It caught the row on this rebase rather than a person doing so.
+        # 121 and 122 went the same way earlier, for the same reason.
         123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
         # 124 IS CLAIMED BY MESSAGE ONLY, and this row says so because the rule above
         # requires it to: the primary session allocated it for the terminal command in

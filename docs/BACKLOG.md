@@ -4512,6 +4512,75 @@ instance in this branch, the first found by a guard written in the same commit. 
 now name that route by description and never by path, and say why in one line so the next
 writer does not spend the minute.
 
+### OP-120 · The two-way drift check `ENGINEERING.md` T5 mandates had been off for a month, and its first run found a shipped defect
+
+**Found 2026-09-02**, while pricing the baseline squash (`REQ-52`) — the drift check is what
+would PROVE that squash, so it was run before anything was deleted, and it turned out not to
+be running at all.
+
+**A constant left behind by a deletion, and a skip that was the only thing watching.**
+`tests/test_migration_drift.py` held `PREVIOUS_RELEASE = 30` — the **deleted** price stream's
+number — and gated both tests on `len(db._migrations) <= PREVIOUS_RELEASE`:
+
+```
+PREVIOUS_RELEASE = 30                                          -- the deleted stream's number
+if len(db._migrations) <= PREVIOUS_RELEASE: pytest.skip(...)   -- the only thing watching
+```
+
+**Deliberately quoted without line numbers.** This commit replaces both lines, so a citation
+to them would be repointed by the next rebase at whatever now sits there — which is how two
+`LESSONS` entries lost the numbers they existed to record.
+
+The engine stream is **16**, so `16 <= 30` skipped both tests. Measured:
+`ss  SKIPPED [2] the engine stream is 16 migration(s)`. And the file's own docstring promised
+*"The moment engine migration 0002 exists, this runs again"* — 0002 through 0016 all exist and
+it never did. **The promise was in prose and the mechanism was a number nobody re-derived.**
+
+**ITS FIRST REAL RUN FOUND A DEFECT IN A MIGRATION THAT HAS ALREADY SHIPPED.**
+`0014_one_source_registry.sql:88` rebuilds `source_site` with `base_url TEXT NOT NULL
+DEFAULT ''`, and line 108 copies the old column through by name in an `INSERT ... SELECT`.
+**A DEFAULT applies only to a column the INSERT omits**, so the NULL is carried into a NOT NULL
+column. `source_site.base_url` was nullable through v13 — measured, `notnull=0` — so the row
+that triggers it is legal, not corrupt. Reproduced at every stop point from v2 to v13:
+
+```
+stop v2 .. v13  ->  IntegrityError: NOT NULL constraint failed: source_site_rebuilt.base_url
+stop v14, v15   ->  OK, and 0 drift: no table, column, index, trigger or view differs
+```
+
+**The migration's own comment shows it was reasoned about and the mechanism mistaken**
+(`0014:80`): *"on his warehouse zero rows of either table hold a NULL -- 0 of 12 and 0 of 2 --
+so the stronger constraint costs nothing."* True of that data. The constraint is free **only**
+on that data, and the `DEFAULT` that was supposed to be the second half of the protection is
+not protection at all here.
+
+**IT CANNOT BE FIXED IN PLACE.** `0014` is applied and its digest is in the ledger of every
+existing warehouse, so editing one character makes those databases refuse to open
+(`scrapex/databases/domain.py` `_verify_checksums`). The pending squash absorbs the file and
+removes the wall with it — at a cost priced separately in `REQ-52`.
+
+**AND THE TEST'S OWN SEED PRODUCED A SECOND DEFECT THAT WAS NOT REAL.** Every crude row said
+`"x"`, so the moment `0014` MERGED two source registries the two rows collided:
+`UNIQUE constraint failed: source_site.source_key`. **Turning this file on reported two
+defects and only one of them existed.** Values are now distinct per `(table, column)`
+(`tests/test_migration_drift.py:122`).
+
+**Fixed here:**
+
+| | |
+|---|---|
+| `PREVIOUS_RELEASE` 30 → **14** (`tests/test_migration_drift.py:59`) | and the reason for 14 rather than the midpoint is written into the constant: v2..v13 are walled off by `0014`, so the span exercised over real rows is v15 and v16 — two migrations, not eight. Weaker than the file wants, said out loud rather than hidden behind a number chosen to make the suite green |
+| `test_the_stop_point_is_a_version_this_stream_actually_has` (`tests/test_migration_drift.py:152`) | asserts `2 <= PREVIOUS_RELEASE < len(stream)` and **fails rather than skips**. A skip is what hid this for a month |
+| `test_a_null_base_url_still_stops_the_registry_merge` (`tests/test_migration_drift.py:250`) | records the wall with the **exact** error text, so it fails if the wall moves to another column or another migration instead of quietly continuing to pass |
+
+**WHY THIS IS A NUMBER AND NOT A ONE-LINE CONSTANT CHANGE.** The gate compared
+`PREVIOUS_RELEASE` against the stream and nothing compared `PREVIOUS_RELEASE` against
+**reality** — every other test in the file READS that constant and therefore agrees with
+whatever it says. The new assertion is the only one that holds two independently-maintained
+things against each other, which is the shape that has caught every silent guard found this
+week. **A skip must never be the only reporter**: it costs one character of output in a run
+nobody reads, and here it bought a month.
+
 ### OP-122 · Two builders resolved the migration plan, and the baseline's version was a literal in both
 
 **Found 2026-09-02**, pricing `REQ-52`'s baseline squash. The squash is not what

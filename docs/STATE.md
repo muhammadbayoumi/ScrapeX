@@ -727,6 +727,32 @@ field to it. So:
 **The decision stands and the order was the wrong part**, which is what `#293` recorded. Two
 of the four steps are now behind us.
 
+### The drift check that was off — 2026-09-02 · branch `claude/the-drift-check-that-was-off`, no PR yet
+
+**`OP-120`.** Branched from `main` at `1d8816d8`. Secondary session;
+`recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+Fourth in a queue the primary fixed: `#299`, `#300`, its own branch, this, then the squash.
+
+The two-way drift check `ENGINEERING.md` T5 mandates had been skipping since the M5 collapse,
+because its stop point was the deleted price stream's version number. Turned on, its first run
+found `0014_one_source_registry.sql` cannot upgrade a row whose `base_url` is NULL. **Read
+`OP-120` in [BACKLOG.md](BACKLOG.md) before touching the migration framework**, and read it
+before the squash: this check is what proves that squash, and it was not running.
+
+**`REQ-52`'s squash is priced and NOT built.** Measured cost, in one line each so the next
+session does not re-derive it: two independent migration-plan builders carry the same
+gapless-from-1 rule ([`scrapex/databases/domain.py:191`](../scrapex/databases/domain.py#L191)
+and [`scrapex/db.py:140`](../scrapex/db.py#L140)); `latest_schema_version()` hardcodes the
+baseline as 1 ([`scrapex/db.py:125`](../scrapex/db.py#L125)) and that 1 reaches the Storage
+page through `storage.py` `health()`; the baseline has 51 `CREATE TABLE` and no
+`IF NOT EXISTS`, so replaying it over a populated database fails on the first table; and
+[`.github/workflows/release-engine.yml:154`](../.github/workflows/release-engine.yml#L154)
+aborts the release when the migrations folder is empty. **Stage 1 unifies those four and is
+correct with or without the squash. Stage 2 is the squash, and it needs his word on the
+sentence "a database below v16 is not upgraded — it is carried over or rebuilt" before it
+merges.**
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**
