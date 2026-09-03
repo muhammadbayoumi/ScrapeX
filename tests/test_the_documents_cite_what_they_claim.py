@@ -496,13 +496,64 @@ def _resolve(raw: str, index) -> pathlib.Path | None:
     return hits[0] if len(hits) == 1 else None
 
 
+#: An exception header or a `Traceback` line turns the rest of a fenced block into
+#: QUOTED OUTPUT, and a `file:line` inside quoted output is not a citation -- it is
+#: part of the quotation. `docs/BACKLOG.md`'s `--workers` entry reproduces a real
+#: `sqlite3.OperationalError: database is locked` traceback naming
+#: `scrapex/jobs.py:932 record_worker_failure`; that function now begins at 943, and
+#: "correcting" the number would rewrite what the traceback said. `LESSONS` 21 is the
+#: same rule from the other end: a number that RECORDS something must leave the
+#: `file:line` form rather than be repointed.
+_QUOTED_OUTPUT = re.compile(
+    r"^(?:Traceback \(most recent call last\)|"
+    r"[A-Za-z_][\w.]*(?:Error|Exception|Warning)\b.*:)")
+
+#: How much stated subject is worth checking. Below this a "subject" is punctuation
+#: or a fragment that would match half the file.
+MIN_SUBJECT = 6
+
+
+def _quoted_output_lines(text: str) -> set[int]:
+    """Line numbers inside a fenced block that is QUOTED OUTPUT rather than prose.
+
+    A `file:line` in a traceback is part of the quotation, not a citation, and it is
+    one for NO tier -- not the content check, not the blank-line check, not the
+    file-exists check. That distinction was applied to the content check first and
+    only there, and the tree moving found the gap within the hour: `docs/BACKLOG.md`
+    quotes a real `database is locked` traceback naming `scrapex/jobs.py:932`, that
+    line has since become blank, and `test_no_citation_lands_on_a_blank_line`
+    reported a quotation as a broken citation.
+
+    THE ALTERNATIVE WAS WORSE. Repointing it means editing what the traceback said,
+    and taking it out of `path:line` form means editing a verbatim quotation. Neither
+    is available, because the number is not wrong -- it was right when the traceback
+    was produced, which is what a quotation is for.
+    """
+    inside: set[int] = set()
+    in_fence = quoted = False
+    for where, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("```"):
+            in_fence, quoted = not in_fence, False
+            continue
+        if not in_fence:
+            continue
+        if _QUOTED_OUTPUT.match(line.strip()):
+            quoted = True
+        if quoted:
+            inside.add(where)
+    return inside
+
+
 def _citations():
     for document in DOCUMENTS:
         text = _read(document)
+        quoted = _quoted_output_lines(text)
         for match in CITATION.finditer(text):
             line = int(match.group(2))
             end = int(match.group(3)) if match.group(3) else line
             where = text.count("\n", 0, match.start()) + 1
+            if where in quoted:
+                continue
             yield document, where, match.group(1), line, end
 
 
@@ -648,6 +699,267 @@ def test_a_pinned_citation_still_points_at_its_subject(document, path, line, exp
         f"{document} cites {path}:{line} for {expected!r}, which is not within "
         f"{WINDOW} lines of there. It is at {actually or 'nowhere in the file'}. "
         f"The document is sending the next session to the wrong line.")
+
+
+
+
+
+#: The fence info string that says "the lines in here are citations, and each states
+#: its own subject". The tier below reads ONLY these blocks.
+#:
+#: A DECLARATION, NOT A GUESS, and the difference is what makes it hold. The first
+#: version read every fenced block and skipped the ones that looked like a traceback.
+#: Then `ORCHESTRATION.md` landed a section about citation drift whose evidence is a
+#: VERBATIM COPY of this guard's own failure message -- and the tier read that message
+#: as two citations whose "subjects" were fragments of its own words. A traceback shape
+#: cannot see quoted pytest output, quoted shell output, or a document quoting a
+#: citation in order to explain citations, and there will be a fourth kind.
+#:
+#: The suggestion that came first was to skip fenced blocks entirely. That would have
+#: given this tier ZERO input -- it only ever looks inside fences, because that is
+#: where this repository writes `path:line   <the code>` and prose never does. A guard
+#: that cannot fail, added by the change whose subject is guards that cannot fail.
+#:
+#: THE COST IS REAL AND IS NOT HIDDEN: a new evidence block is unchecked until somebody
+#: labels it. `FENCE_FLOOR` below is what keeps that from being invisible.
+FENCE_LABEL = "cited"
+
+#: Labelled citation lines the tier can CHECK, measured 2026-09-03: seven. Not the
+#: eleven lines inside the three labelled blocks -- four are skipped because their
+#: stated subject is an ellipsis (a paraphrase) or too short to identify a line. The
+#: floor counts what is actually checked, because that is the number that means
+#: something. Set from the measurement after writing 9 from memory and being wrong.
+#:
+#: The floor may only be RAISED.
+#:
+#: It fails when the count drops, so a labelled block cannot be quietly unlabelled to
+#: silence a red; it does NOT fail when a new unlabelled block appears, because
+#: reddening a correct record is the direction this design refuses to be wrong in.
+#: That turns "somebody forgot to label" from invisible into merely known, which is the
+#: most a declaration can offer.
+FENCE_FLOOR = 7
+
+
+def _quoted_subjects():
+    """Citations that STATE what they point at, so the document can be held to it.
+
+    This repository's evidence blocks are written `path:line   <the code>`, and that
+    means the document has already said what it expects -- no hand-maintained table
+    needed, unlike `PINNED`. Measured across all nine documents: 296 citations, of
+    which 8 are in this form, and 2 of those 8 were wrong.
+
+    THAT RATIO IS THE ARGUMENT AND SO IS THAT COUNT. Eight is not most citations, and
+    this is not the general fix; the general problem is recorded in `OP-123` and left
+    open on purpose, because the only mechanism that would cover all 296 -- repointing
+    a citation to wherever its subject now sits -- would silently rewrite every number
+    that is a RECORD rather than a pointer. What this does cover, it covers with no
+    list for anyone to forget to update.
+
+    An ELLIPSIS disqualifies a subject. `include_router(create_domain_health_router(...))`
+    is a paraphrase of a real line, and demanding it appear verbatim reported a correct
+    citation as broken -- measured, on the very citation this file's author had just
+    repaired by hand.
+    """
+    for document in DOCUMENTS:
+        text = _read(document)
+        in_fence = False
+        for where, line in enumerate(text.splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("```"):
+                in_fence = (not in_fence) and stripped[3:].strip() == FENCE_LABEL
+                continue
+            if not in_fence:
+                continue
+            for match in CITATION.finditer(line):
+                stated = re.split(r"\s+--\s+|\s{2,}#\s", line[match.end():])[0].strip()
+                if len(stated) < MIN_SUBJECT or "..." in stated or "\u2026" in stated:
+                    continue
+                yield document, where, match.group(1), int(match.group(2)), stated
+
+
+def test_the_labelled_evidence_blocks_have_not_quietly_shrunk():
+    """The mitigation for the one cost of a declaration-based tier.
+
+    A new evidence block is unchecked until somebody labels it, and nothing can see
+    that without guessing what an unlabelled fence means -- which is the guess this
+    design exists to refuse. So the count is ratcheted instead:
+
+      * it FAILS when the number of checked lines drops, so a labelled block cannot
+        be unlabelled to silence a red;
+      * it does NOT fail when a new unlabelled block appears, because reddening a
+        correct record is the direction this refuses to be wrong in.
+
+    That turns "somebody forgot to label" from invisible into merely known, which is
+    the most a declaration can offer.
+    """
+    checked = len(list(_quoted_subjects()))
+
+    assert checked >= FENCE_FLOOR, (
+        f"the tier checks {checked} labelled citation lines and the floor is "
+        f"{FENCE_FLOOR}. A block was unlabelled or a subject stopped being "
+        f"checkable. Raise the floor only when the count genuinely rises -- lowering "
+        f"it is how a guard is talked out of its own subject.")
+
+
+def test_a_citation_that_quotes_its_subject_still_points_at_it(index):
+    """Tier 2 WITHOUT A HAND-MAINTAINED LIST, for every citation that quotes itself.
+
+    `PINNED` does this for the rows somebody remembered to add. This does it for
+    every citation written in the repository's own evidence-block form, and it needs
+    no maintenance: the document states the subject, the subject is looked up.
+
+    WHAT IT FOUND WHEN IT WAS WRITTEN, in a three-day-old entry: `OP-119`'s block
+    held five citations, FOUR had drifted, and exactly one had been caught -- by
+    `test_no_citation_lands_on_a_blank_line`, and only because it happened to land on
+    a blank line. The other three pointed at a middleware call, a closing parenthesis
+    and an unrelated comment, which no existing check can tell from a correct line.
+
+    IT REPORTS, IT DOES NOT REPOINT. The failure names where the subject actually is
+    and leaves the decision to a person, because a number can be a POINTER or a
+    RECORD and only a reader knows which. An automatic repointer would turn every
+    recorded number into a lie -- see `_QUOTED_OUTPUT` for the instance that proves
+    it is not hypothetical.
+    """
+    wrong = []
+    for doc, where, raw, line, stated in _quoted_subjects():
+        target = _resolve(raw, index)
+        if target is None:
+            continue                      # tier 1's first test owns that
+        lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+        if line > len(lines):
+            continue                      # tier 1's second test owns that
+        low, high = max(0, line - 1 - WINDOW), min(len(lines), line + WINDOW)
+        if stated in "\n".join(lines[low:high]):
+            continue
+        actually = [i + 1 for i, t in enumerate(lines) if stated in t]
+        wrong.append(
+            f"{doc}:{where} cites {raw}:{line} and says it holds {stated!r}, "
+            f"which is at {actually or 'no line in that file'}")
+
+    assert not wrong, "\n  ".join([
+        "these citations quote a subject that is not where they point. Move the "
+        "number to where the subject IS -- unless the number is a RECORD of where "
+        "something used to be, in which case take it out of the `file:line` form and "
+        "put the reason in the sentence (`LESSONS` 21), because repointing it would "
+        "rewrite what it records:", *wrong])
+
+
+#: `PINNED` rows whose document does not cite them, WITH the cause of each, and this
+#: set may only ever SHRINK -- see the test below.
+#:
+#: 30 OF 68 ROWS, re-measured 2026-09-03 on the rebase onto `bc06101e`. It was
+#: 26 of 66 a day earlier -- four of those rows were repointed on `main` by other
+#: sessions and eight new ones arrived with their entries, which is the count
+#: doing exactly what the ratchet is for: it moves with the tree instead of
+#: standing still while the tree moves under it. `PINNED_FLOOR` exists so rows cannot be
+#: deleted to make a red build green, and 26 rows that hold no citation up are 26
+#: free units of that floor. Three distinct causes, and none of them is "the row is
+#: wrong":
+#:
+#:   1. THE DOCUMENT USES A SHORTHAND NO REGEX SEES. `docs/STATE.md` writes
+#:      "[scrapex/features.py:54](...) and `:65`" -- the second line is cited in
+#:      prose as a bare `:65`, so the row for 65 guards something real that this
+#:      guard cannot match.
+#:   2. THE ROW AND THE DOCUMENT NAME DIFFERENT LINES. The row for
+#:      `scrapex/warehousemerge.py:269` is pinned while `docs/BACKLOG.md` cites
+#:      `:198` -- so the pinned line is unguarded-by-any-reader and the cited line is
+#:      unpinned. That is the worst of the three and the only one that is a defect in
+#:      the row itself.
+#:   3. THE CITATION IS SIMPLY GONE, its entry rewritten or its evidence moved into
+#:      prose, leaving the row behind. `.github/workflows/release-engine.yml:540` is
+#:      this: no document names that file at any line.
+#:
+#: NOT FIXED HERE, and the reason is `R-01`. Each row needs a person to decide which
+#: line the document actually means, 24 of the 26 belong to entries written by other
+#: sessions, and a sweep that guessed would produce 26 confident wrong numbers in the
+#: one file whose subject is confident wrong numbers.
+PINNED_WITHOUT_A_CITATION = frozenset((
+    ("docs/APPROACHES.md", "extension/app.js", 1617),
+    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 553),
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 122),
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 843),
+    ("docs/BACKLOG.md", "extension/app.js", 3546),
+    ("docs/BACKLOG.md", "extension/app.js", 4642),
+    ("docs/BACKLOG.md", "extension/app.js", 4770),
+    ("docs/BACKLOG.md", "extension/releases.js", 32),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1003),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1065),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1177),
+    ("docs/BACKLOG.md", "scrapex/extract/service.py", 978),
+    ("docs/BACKLOG.md", "scrapex/version.py", 76),
+    ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1745),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2815),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3185),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 701),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 742),
+    ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276),
+    ("docs/LESSONS.md", "design/components.css", 380),
+    ("docs/LESSONS.md", "scrapex/extract/service.py", 978),
+    ("docs/LESSONS.md", "tests/test_panel_dom.py", 160),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1734),
+    ("docs/RULINGS.md", "tests/test_version.py", 536),
+    ("docs/RULINGS.md", "tests/test_version.py", 79),
+    ("docs/STATE.md", "scrapex/extract/service.py", 927),
+    ("docs/STATE.md", "scrapex/features.py", 65),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1734),
+))
+
+
+def _pinned_orphans(index) -> list[tuple[str, str, int]]:
+    """`PINNED` rows whose document does not cite them at that line."""
+    cited = set()
+    for document, _where, raw, line, _end in _citations():
+        target = _resolve(raw, index)
+        if target is not None:
+            cited.add((document, str(target.resolve()), line))
+    return [(document, path, line) for document, path, line, _expected in PINNED
+            if (document, str((ROOT / path).resolve()), line) not in cited]
+
+
+def test_no_new_pinned_row_guards_a_citation_no_document_makes(index):
+    """The other side of every `PINNED` row, which nothing checked.
+
+    Tier 2 asserts that a cited line still holds its subject. It never asked whether
+    the DOCUMENT still cites it -- so a row outlives the citation it was written for,
+    goes on asserting something true about a source file, and **keeps counting toward
+    `PINNED_FLOOR`**. The floor exists so rows cannot be deleted to turn a red build
+    green; a row that holds no citation up is a free unit of it.
+
+    Found while repointing `.github/workflows/release-engine.yml:540`: the row was
+    real, the subject was real, and `grep` for that file across all nine documents
+    returned nothing at all.
+    """
+    fresh = [row for row in _pinned_orphans(index)
+             if row not in PINNED_WITHOUT_A_CITATION]
+
+    assert not fresh, "\n  ".join([
+        "these PINNED rows guard a citation no document makes. Either the document "
+        "should cite the line -- which is usually the real answer, because the row "
+        "was written when it did -- or the row belongs to a citation that has since "
+        "moved and should name the line the document now uses. Do not add it to "
+        "PINNED_WITHOUT_A_CITATION to get past this: that set may only shrink.",
+        *(f'    ("{d}", "{p}", {n}),' for d, p, n in sorted(fresh))])
+
+
+def test_the_orphan_set_only_ever_shrinks(index):
+    """A ratchet, not an exemption list.
+
+    Every row named there must STILL be an orphan. When somebody repairs one -- by
+    citing the line, or by pinning the line the document actually cites -- this fails
+    and makes them delete the row, so the set cannot quietly become a place where
+    fixed things are still excused. That is the failure `PINNED_FLOOR` itself was
+    written against, one level up.
+    """
+    orphans = set(_pinned_orphans(index))
+    repaired = sorted(set(PINNED_WITHOUT_A_CITATION) - orphans)
+
+    assert not repaired, "\n  ".join([
+        "these rows are named as having no citation, and they have one now. Delete "
+        "them from PINNED_WITHOUT_A_CITATION -- the set is a count coming down, and "
+        "a stale entry in it is one more row that guards nothing while looking "
+        "accounted for:", *(f"    {row}" for row in repaired)])
 
 
 def test_the_pinned_list_cannot_be_quietly_emptied():

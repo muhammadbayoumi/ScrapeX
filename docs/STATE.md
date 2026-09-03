@@ -852,6 +852,26 @@ crack `_host_of`'s docstring names. Four guards, three mutations.
 serialise per PROVIDER. Its requests go to third parties rather than to one registered
 site, so there is no host to reserve, and the parameter arriving does not settle it.
 
+### A citation nothing reads — 2026-09-02 · branch `claude/a-citation-nothing-reads`, no PR yet
+
+**`OP-123`.** Branched from `main` at `80659faa`. Secondary session;
+`recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+The citation guard checks that a cited line EXISTS, and that it still holds its
+subject **for the 66 rows in `PINNED`**. Measured: 296 citations across the nine
+documents, and **30 of the 68 pinned rows are not held against any citation at all** —
+free units of the floor that exists to stop rows being deleted. One three-day-old
+evidence blocks, measured independently by two sessions, held eight citations of
+which **seven were wrong and two were detected** — and both detections were accidents,
+each one a citation pushed onto a blank line by an unrelated change.
+
+Adds an automatic content check for every citation written in the repository's own
+`path:line   <the code>` form, a guard over `PINNED`'s document side, and a ratchet on
+the 26. **The general fix is deliberately refused** — an automatic repointer would
+rewrite every number that is a record rather than a pointer. Read `OP-123` before
+touching the citation guard.
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**

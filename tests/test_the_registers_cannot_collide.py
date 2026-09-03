@@ -314,7 +314,10 @@ RESERVED: dict[str, dict[int, str]] = {
         # became a number both reserved AND declared. The 124 row below is the peer's
         # own and is kept over mine -- it names the BRANCH rather than the session, and
         # carries the unverified half in the row instead of only in a comment.
-        123: "branch claude/a-citation-nothing-reads, at a0c6e8c2",
+        # 123'S ROW STOOD HERE AND IS GONE: this branch IS
+        # `claude/a-citation-nothing-reads`, so OP-123 is a heading in
+        # docs/BACKLOG.md here, and a number both reserved and declared is
+        # what `test_a_reserved_number_is_not_also_declared` refuses.
         # 127'S ROW STOOD HERE AND IS GONE. #313 reserved it to this branch while this
         # branch declares it, so it became a number both reserved AND declared -- and its
         # own row said to delete it the day #312 lands, which is this rebase. The guard

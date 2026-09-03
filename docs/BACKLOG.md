@@ -727,8 +727,8 @@ The module's own docstring gives the reason it exists in requests —
 to re-learn what was already on disk. Keeping the evidence and re-fetching it
 anyway is not a resume."* The implementation checks the resume in the wrong place:
 
-```
-scrapex/snapshotcrawl.py:154   def store(page: FetchedPage) -> None:
+```cited
+scrapex/snapshotcrawl.py:178   def store(page: FetchedPage) -> None:
 scrapex/snapshotcrawl.py:180       if page.url in seen:
 ```
 
@@ -4390,7 +4390,7 @@ compares the two.
 replacement guard over all three scopes turned one of them red for a reason that had nothing
 to do with the scope gate:
 
-```
+```cited
 scrapex/crawlscope.py:97       raise SliceRequired(...)                              -- the refusal, unchanged
 scrapex/snapshotcrawl.py:164   phase_scope = CrawlScope.LISTING_ONLY if listing_phase_only else scope
 scrapex/snapshotcrawl.py:165   intended = plan(phase_scope, ...)                     -- was plan(scope, ...)
@@ -4661,12 +4661,12 @@ fixed the same defect and chosen different routes.
 **`OP-116` repointed the restart poll at `/api/engine/health`, which is mounted
 conditionally.** Four legs, each re-read rather than argued:
 
-```
+```cited
 scrapex/webui/database_api.py:80   @router.get("/api/engine/health")   -- in create_domain_health_router
 scrapex/webui/app.py:613           include_router(create_domain_health_router(...))
 scrapex/webui/app.py:611           if databases is not None:          -- the gate above it
 scrapex/webui/app.py:1615          @app.get("/api/health")            -- a plain route, every start
-scrapex/cli.py:856                 registry = None if args.db else DatabaseRegistry.defaults()
+scrapex/cli.py:852                 registry = None if args.db else DatabaseRegistry.defaults()
 ```
 
 So `scrapex ui --db <path>` starts an engine that does not serve `/api/engine/health` at all,
@@ -4971,6 +4971,192 @@ quote is still a table.
 **Mutation-checked both ways**, and the second direction is what makes it usable: appending two
 pipe-prefixed lines with no separator turns it red naming the file and the line range, and
 appending the same two lines inside a fenced block leaves it green.
+
+### OP-123 · A pinned citation guards one side of a pair, and most citations have no content check at all
+
+**Found 2026-09-02**, repointing a citation that `OP-122` had pushed thirteen lines
+down. The repoint was routine; what it exposed was not.
+
+**TIER 1 ASKS WHETHER A LINE EXISTS. TIER 2 ASKS WHETHER IT HOLDS ITS SUBJECT — for
+the rows somebody remembered to add.** Everything else can point at real, non-blank,
+completely unrelated code forever, and nothing in the suite can tell that from a
+correct citation.
+
+**TWO ENTRIES MEASURED, INDEPENDENTLY, BY TWO SESSIONS:**
+
+```
+OP-119   3 days old    5 citations · 4 wrong · 1 detected
+OP-75    older         3 citations · 3 wrong · 1 detected
+OP-53    older         1 sentence duplicated, BOTH numbers wrong · 0 detected
+                       -------------------------------------------------------
+                       9 citations · 8 wrong · 2 detected
+```
+
+**`OP-53`'s is the sharpest of the three and the only one decidable from the text
+alone.** One sentence appeared **twice** with two different line numbers, the first
+copy ending mid-clause on a dangling *"and"*. One number pointed at an unrelated
+function; the other sat inside the function the sentence is actually about. So a
+reader could tell which copy was false **without reading any code** — and no guard
+did, because both numbers resolved to real, non-blank lines. Found and repaired by the
+primary session; the repair cites the function **by name**, which is the durable form:
+a named subject re-derives after a rebase and a line number does not.
+
+**Both detections were accidents.** Each happened only because an unrelated change
+pushed one citation onto a **blank line**, which is the single content-shaped thing
+the guard could already see. `OP-119`'s other three landed on a middleware call, a
+closing parenthesis and an unrelated comment; `OP-75`'s three, re-read on `2ce06b82`
+rather than taken from the session that reported them, land on a bare `finally:`, on a
+`with dbmod.write_lock(...)` inside a **different function** from the one the sentence
+is about, and on a line of prose from a comment. **Nothing in the suite can tell any of
+those from a correct citation.**
+
+Deliberately described rather than numbered: those positions are a record of one
+commit, and writing them as `path:line` would make seven fresh citations to seven
+stale lines inside the entry about stale lines. `OP-75`'s own count had also stopped
+being true — it argues about two `conn.commit()` calls in a region that has one — so a
+reader sent hunting for the second would conclude the finding was nonsense. **A wrong
+citation does not merely waste a minute; it discredits a correct finding.**
+
+Across all nine documents there are **296 citations**, of which `PINNED` covers 68.
+
+**AND 30 OF THE 68 PINNED ROWS ARE NOT HELD AGAINST ANY CITATION AT ALL.**
+`PINNED_FLOOR` exists so rows cannot be deleted to turn a red build green — and 26
+rows that hold no citation up are 26 free units of that floor. Three distinct causes,
+and only one of them is a defect in the row:
+
+| cause | instance |
+|---|---|
+| the document cites in a shorthand no regex sees | `docs/STATE.md` writes ``[scrapex/features.py:54](...) and `:65` `` — the second line is a bare `` `:65` `` in prose |
+| **the row and the document name different lines** | one row pins line 269 of `scrapex/warehousemerge.py` while `docs/BACKLOG.md` cites line 198 of it, so the pinned line is unread and the cited line is unpinned |
+| the citation is simply gone | the row over `release-engine.yml`'s `"version": VERSION` line — no document names that file at any line |
+
+**Fixed here:**
+
+| | |
+|---|---|
+| `test_a_citation_that_quotes_its_subject_still_points_at_it` | Tier 2 **with no hand-maintained list**. This repository's evidence blocks are written `path:line   <the code>`, so the document has already said what it expects. It found three drifted citations on `main` the day it was written |
+| `test_no_new_pinned_row_guards_a_citation_no_document_makes` | the other side of every `PINNED` row, which nothing checked |
+| `test_the_orphan_set_only_ever_shrinks` | a **ratchet**, not an exemption list: a row named as orphaned that has since been cited must be deleted from the set, so it cannot become a place where fixed things stay excused |
+
+**AND THE TIER'S INPUT IS A DECLARATION, NOT A GUESS — because a document explaining
+citation drift tripped it.** `ORCHESTRATION.md` landed a section whose evidence is a
+**verbatim copy of this guard's own failure message**, and the tier read that message as
+two citations whose "subjects" were fragments of its own words. A traceback shape cannot
+see quoted pytest output, quoted shell output, or a document quoting a citation in order
+to explain citations — **and there will be a fourth kind.**
+
+**The first suggested fix was to skip fenced blocks. That would have given this tier
+zero input** — it only ever looks inside fences, because that is where this repository
+writes `path:line   <the code>` and prose never does. A guard that cannot fail, added by
+the change whose subject is guards that cannot fail. **The boundary needed is the
+opposite one: which fences are EVIDENCE, not which are output.** So a fence declares it:
+
+````
+```cited
+scrapex/webui/app.py:611   if databases is not None:
+```
+````
+
+**The cost is real and is not hidden: a new evidence block is unchecked until somebody
+labels it.** Nothing can see that without guessing what an unlabelled fence means, which
+is the guess this refuses. So the count is ratcheted — `FENCE_FLOOR = 7`, measured, and
+it **fails when the number drops** so a block cannot be unlabelled to silence a red, and
+**does not fail when a new unlabelled block appears**, because reddening a correct record
+is the direction this design refuses to be wrong in. *Somebody forgot to label* becomes
+merely known instead of invisible, which is the most a declaration can offer.
+
+**And the floor was set from a measurement after being written from memory and being
+wrong** — 9 typed, 7 measured. Eleven lines sit inside the three labelled blocks and
+four are skipped: their stated subject is an ellipsis, which is a paraphrase, or too
+short to identify a line. **The floor counts what is actually checked**, because that is
+the number that means anything.
+
+**Two exemptions, both load-bearing, both proved by removing them:**
+
+**1 · A `file:line` inside a quoted traceback is not a citation.** `docs/BACKLOG.md`'s
+`--workers` entry reproduces a real `sqlite3.OperationalError: database is locked`
+naming line 932 of `scrapex/jobs.py` and `record_worker_failure`. That function begins
+at 943 now, so a content check would demand a repoint — and repointing it would
+**rewrite what the traceback said**. `LESSONS` 21 is the same rule from the other end.
+
+**And this paragraph caught its own author a second time.** The sentence above first
+wrote that number in `path:line` form, which made it a citation — to a line that has
+since gone blank, in the entry about citations to lines that have gone blank. It is a
+RECORD of what a traceback said, so it is out of that form now. **The exemption is
+also wider than it was:** a `file:line` inside quoted output is not a citation for ANY
+tier, and it had been applied to the content check alone until a merge moved line 932
+and the blank-line check reported a quotation as broken.
+
+**2 · An ellipsis disqualifies a stated subject.**
+`include_router(create_domain_health_router(...))` paraphrases a real line, and
+demanding it verbatim reported a **correct** citation as broken — measured, on the
+very citation this change's author had just repaired by hand.
+
+**AND A CLASS NEITHER TIER CAN SEE AT ALL: A PINNED SUBJECT THAT STOPPED IDENTIFYING
+ANYTHING.** Tier 2 asks whether a row's subject sits within three lines of its number.
+It never asks whether that subject identifies **one** line. Measured over all 66 rows:
+
+```
+rows whose subject matches exactly one line   53
+rows whose subject matches several            13
+```
+
+**Two of the thirteen are pinned to the subject `'True'`**, which matches four lines of
+`scrapex/features.py` — so tier 2 passes as long as *any* `True` is within three lines
+of the number, which is vacuity in its purest form. Others are `'pyproject'` (five
+matches), `'latest.version'` (three), `'min-height: var(--control-height)'` (four).
+
+**Nothing anyone edited was wrong.** A subject is unique when it is written and stops
+being unique when the FILE changes — so this is a guard going vacuous by someone else's
+correct work, with no edit to blame and no failure to notice. One of the thirteen was
+found the hard way: `REFERENCES source_site(source_id)` matched one line before `R-84`'s
+squash regenerated the baseline and seven after, and tier 2 kept passing while it could
+no longer say which line it meant.
+
+**THE RULE IS ALREADY THE METHOD.** Every re-derivation done by hand today — six by the
+primary session, five here — asserted the subject matched exactly one line before moving
+a number. **So it is not a new discipline to adopt, it is an existing one that is not
+checked**, and lifting it into `PINNED` is a loop over the table. It is **not done here**:
+thirteen rows need a person to choose which line each means, most belong to other
+sessions' entries, and a sweep that guessed would produce thirteen confident wrong
+subjects in the one file whose subject is confident wrong citations. Recorded for its own
+number.
+
+**THE GENERAL FIX IS REFUSED, and this is the part worth keeping.** The obvious
+mechanism — find each cited subject and repoint the number to wherever it now sits —
+would cover all 296 and is **wrong**, because a number can be a POINTER or a RECORD
+and only a reader knows which. The primary session hit exactly this today: `OP-121`'s
+evidence block cites the **repair's** lines, re-derived after it landed, because the
+lines the defect sat on now hold comments. An automatic repointer would have
+"corrected" that into a lie, and `LESSONS` 21 already records two numbers destroyed
+that way. So this change covers what the documents themselves make checkable, reports
+the rest, and reports the count.
+
+**Not fixed here, per `R-01`:** the 30 orphaned rows. It was 26 of 66 when this was
+written and is 30 of 68 one rebase later — four rows repointed on `main` by other
+sessions, eight new ones arriving with their entries. **The ratchet moving with the
+tree is the point**; a fixed number would have gone stale in a day. Each row needs a
+person to decide which line its document actually means, most of them belong to entries
+written by other sessions, and a sweep that guessed would produce 26 confident wrong numbers in
+the one file whose subject is confident wrong numbers.
+
+**Five citations repointed**, every one re-derived by locating the subject's text
+rather than by arithmetic — in `scrapex/snapshotcrawl.py` 154 to 167, in
+`scrapex/webui/database_api.py` 78 to 80, and in `scrapex/webui/app.py` 604 to 613,
+602 to 611, and 1587 to 1596.
+
+**AND THIS PARAGRAPH IS WRITTEN THAT WAY ON PURPOSE, which is the rule of this entry
+turned on itself.** Every number above is a RECORD of where something used to be, not
+a pointer for anyone to follow, so none of them is in `path:line` form -- `LESSONS` 21.
+Written the obvious way, the list would have created five fresh citations to five
+stale lines, inside the entry whose subject is citations to stale lines. The new
+ratchet caught it: describing two of the orphaned rows in `path:line` form CITED them,
+which un-orphaned them without fixing anything, and the guard said so.
+
+**One repoint had a neighbour that was right by accident.** In
+`scrapex/snapshotcrawl.py`, line 169 still holds `if page.url in seen:` while the
+`def store` two lines above it had moved thirteen lines. The block cited both. Only a
+content check can tell a correct number from a coincidence.
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
