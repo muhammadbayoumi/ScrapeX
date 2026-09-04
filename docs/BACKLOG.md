@@ -5707,6 +5707,16 @@ declares `PRAGMA user_version = 1`:
 | `main` before the squash (`9cbc6f0`) — 16 files, `0002…0017` | `0017_a_job_may_be_a_directory_crawl` | v17 |
 | `main` today — one baseline file, no migrations | — | v17, and no path up from below |
 
+**AND THE WAY BACK NOW EXISTS, which this entry could not offer when it was written.**
+`tools/carry_a_warehouse_to_the_baseline.py` walks a v1..v16 warehouse up to the baseline
+using the absorbed chain recovered from history and **verified against
+`squashed-from.json`'s digests** — 17 of 17 on this repository — applied by the engine's
+own runner rather than a second one. Rehearsed on a synthetic v13 warehouse carrying a
+`muqawil_org` row: `applied [14, 15, 16, 17]`, the shipped baseline reconciled the ledger,
+`health()` answered **Healthy at v17**, and the row survived `0014`'s rebuild of that very
+table. It is an operator tool, not a control he has (`R-81`), which is why it changes
+nothing about this entry's own remedy.
+
 Each tag's baseline declares `PRAGMA user_version = 1`, so the ceiling is the last
 numbered migration it ships. **The three published ceilings are v3, v9 and v10** — an
 earlier correction of this table read "every published engine: v10", which flattened
