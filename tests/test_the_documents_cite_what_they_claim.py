@@ -158,12 +158,12 @@ PINNED = (
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
-    ("docs/STATE.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 607, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
     ("docs/RULINGS.md", "scrapex/webui/app.py", 1734, '"latest_extension_version": VERSION'),
-    ("docs/RULINGS.md", "scrapex/version.py", 494, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
     ("docs/STATE.md", "scrapex/features.py", 65, "True"),
@@ -297,11 +297,17 @@ PINNED = (
     ("docs/BACKLOG.md", "extension/app.js", 4642, "const last = s.last_success;"),
     # Why the row could not honestly be written: the column is NOT NULL into
     # source_site, and muqawil is in source_site.
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 122,
-     "REFERENCES source_site(source_id)"),
+    # 122 -> 91 WITH THE SUBJECT MADE UNIQUE. `REFERENCES source_site(source_id)`
+    # matched one line when this row was written and matches SEVEN in the squashed
+    # baseline, so tier 2 could no longer tell which line it meant -- a pinned
+    # subject has to be as unique as the line it guards. Recovered from the
+    # pre-squash file rather than guessed: it is `crawl_run`'s NOT NULL foreign
+    # key, which is `OP-44`'s argument.
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 91,
+     "source_id           INTEGER NOT NULL REFERENCES source_site(source_id)"),
     # The index that is worth 390x and had no reader. The entry's claim is about
     # its COLUMN ORDER, so it has to be read where the order is written.
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 843,
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 1191,
      "CREATE INDEX ix_generic_page_snapshot_page"),
     # And the reason `max(page_snapshot_id)` is not a cheaper spelling: the merge
     # carries the other machine's captured_at under fresh local ids. LESSONS §2
@@ -363,7 +369,7 @@ PINNED = (
     ("docs/LESSONS.md", "tests/test_panel_dom.py", 160, "def settle_view("),
     ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
      "HISTORICAL = {"),
-    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 151,
+    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 160,
      "def test_a_historical_test_is_still_readable_where_the_row_says("),
     # OP-46 · THE CONDITION BELOW FIRED, AND THESE TWO ROWS ARE ITS DISCHARGE.
     #
@@ -876,8 +882,8 @@ def test_a_citation_that_quotes_its_subject_still_points_at_it(index):
 PINNED_WITHOUT_A_CITATION = frozenset((
     ("docs/APPROACHES.md", "extension/app.js", 1617),
     ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 553),
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 122),
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 843),
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 1191),
+    ("docs/BACKLOG.md", "db/engine/schema.sql", 91),
     ("docs/BACKLOG.md", "extension/app.js", 3546),
     ("docs/BACKLOG.md", "extension/app.js", 4642),
     ("docs/BACKLOG.md", "extension/app.js", 4770),

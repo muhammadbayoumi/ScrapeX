@@ -12,6 +12,7 @@ import pytest
 
 from scrapex import db as dbmod
 from scrapex import settings, storage
+from scrapex.databases.domain import EngineDatabase
 from scrapex.ingest import ingest_payloads
 from tests.test_ingest import make_entry, make_payload, one_row
 
@@ -136,16 +137,50 @@ def test_repair_refuses_a_foreign_sqlite_database(tmp_path):
         check.close()
 
 
-def test_health_accepts_a_legacy_v1_scrapex_warehouse_for_migration(tmp_path):
-    legacy = tmp_path / "legacy.db"
-    conn = sqlite3.connect(str(legacy))
+def test_health_refuses_a_warehouse_older_than_the_baseline_and_says_why(tmp_path):
+    """THIS TEST RECORDED A PROMISE AND `R-84` RETIRES IT FOR ONE PERIOD.
+
+    It was `test_health_accepts_a_legacy_v1_scrapex_warehouse_for_migration`, and it
+    asserted that a warehouse behind this code is reported as upgradable rather than
+    as damaged. That promise held while every version below the head had a migration
+    leading upwards. The squash collapsed those migrations into the baseline, so
+    before publication there is no path from below it -- «قبل الاصدار لا اريد اراكم
+    الكود باختبارات وترحيلات لن تستخدم سوى مرة واحدة وهى لى».
+
+    IT IS NOT DELETED AND IT IS NOT A PERMANENT REFUSAL. `R-84` restores the promise
+    at the other end -- «عند نشر الاداة ساريد الحفاظ على كافة الترحيلات» -- so the
+    refusal has to SAY that, or the next reader takes it for a capability the squash
+    quietly dropped.
+
+    AND THE OLD BODY HAD STOPPED TESTING ITS OWN NAME. It built a database by
+    executing `SCHEMA_FILE`, which was a v1 database while the baseline declared 1
+    and is a HEAD database now. Measured: it reached `health()` at v16 with an empty
+    ledger and no contract marker, and failed as `not_scrapex` -- a third thing,
+    neither the promise nor its retirement.
+    """
+    old = tmp_path / "older.db"
+    EngineDatabase(old).initialize()
+    conn = sqlite3.connect(str(old))
     try:
-        conn.executescript(dbmod.SCHEMA_FILE.read_text(encoding="utf-8"))
+        conn.execute("PRAGMA user_version = 1")
         conn.commit()
     finally:
         conn.close()
-    verdict = storage.health(legacy)
-    assert verdict["ok"] is True and verdict["status"] == "healthy"
+
+    verdict = storage.health(old)
+
+    assert verdict["ok"] is False
+    assert verdict["status"] == "too_old", (
+        f"reported {verdict['status']!r}. `incompatible` renders as \"Made by a newer "
+        "ScrapeX\" and this file was made by an older one.")
+    assert "R-84" in verdict["detail"]
+    assert "Nothing has been changed" in verdict["detail"]
+    assert "From publication onwards" in verdict["detail"], (
+        "the refusal does not say the promise returns, so it reads as a capability "
+        "the squash dropped")
+    for command in ("scrapex ", "python -m", "init-db"):
+        assert command not in verdict["detail"], (
+            f"the detail names {command!r}, a command line -- R-81")
 
 
 def test_health_refuses_a_warehouse_from_a_newer_engine(db_path):

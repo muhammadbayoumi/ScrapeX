@@ -1,22 +1,7 @@
 {
-  "version": "0.4.7",
+  "version": "0.4.8",
   "schema": [
-    "0002_the_price_source_key_is_named_for_what_it_is.sql",
-    "0003_a_source_says_how_deep_its_crawl_goes.sql",
-    "0004_a_crawl_says_what_it_saw_and_where_it_stopped.sql",
-    "0005_a_snapshot_says_how_it_is_encoded.sql",
-    "0006_a_row_says_when_it_was_last_proved_absent.sql",
-    "0007_a_taxonomy_says_which_site_it_belongs_to.sql",
-    "0008_a_page_remembers_how_to_ask_whether_it_changed.sql",
-    "0009_a_contractor_points_at_a_taxonomy_instead_of_repeating_it.sql",
-    "0010_a_membership_carries_what_the_site_said_about_it.sql",
-    "0011_an_organization_can_accumulate_verified_facts.sql",
-    "0012_enrichment_runs_observe_before_they_replace.sql",
-    "0013_two_versions_may_share_a_shape_across_time.sql",
-    "0014_one_source_registry.sql",
-    "0015_the_shipped_retention_default.sql",
-    "0016_a_snapshot_names_the_run_that_fetched_it.sql",
-    "0017_a_job_may_be_a_directory_crawl.sql"
+    "schema.sql v17"
   ],
   "protocol": "1",
   "endpoints": [

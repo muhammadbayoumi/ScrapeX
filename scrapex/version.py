@@ -73,7 +73,30 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.7"
+VERSION = "0.4.8"
+
+#: Whether ScrapeX has been published to anybody but its owner.
+#:
+#: `R-84` turns on this one fact: *«اكيد عند نشر الاداة ساريد الحفاظ على كافة
+#: الترحيلات لانها ستكون مهمة للمستخدمين حيث غير محدد اى مستخدم توقف عنده هذه
+#: النسخة ولكن قبل الاصدار لا اريد اراكم الكود باختبارات وترحيلات لن تستخدم سوى مرة
+#: واحدة وهى لى»*. Before publication the migration chain may be collapsed into
+#: `db/engine/schema.sql`; from publication on, **no migration is ever deleted**,
+#: because nobody can say which version a user stopped at.
+#:
+#: A GIT TAG IS NOT THIS MARKER, and that was measured rather than assumed:
+#: `engine-v0.2.1`, `engine-v0.3.0` and `engine-v0.3.1` already exist and are the
+#: owner's own installs on his own two machines. A guard keyed on tags would have
+#: refused the squash he authorised on 2026-09-02 -- so the tags say a build was
+#: cut, and nothing in this repository can say a stranger installed one.
+#:
+#: SO IT IS DECLARED, AND THE WEAKNESS IS THAT SOMEBODY HAS TO SET IT. That is
+#: stated rather than hidden: it is ONE line, it is the line `R-84` exists to make
+#: unforgettable, and `tools/squash_engine_baseline.py` refuses to collapse anything
+#: while it is True. The alternative -- inferring publication from tags -- is not
+#: safer, it is wrong in the direction that forbids correct work today and stays
+#: wrong silently.
+PUBLISHED_TO_OTHERS = False
 
 
 class Surface(StrEnum):

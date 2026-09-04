@@ -872,6 +872,33 @@ the 26. **The general fix is deliberately refused** — an automatic repointer w
 rewrite every number that is a record rather than a pointer. Read `OP-123` before
 touching the citation guard.
 
+### The base changes now — 2026-09-03 · branch `claude/the-base-changes-now`, no PR yet
+
+**`REQ-52`'s last half, `OP-131`, under [`R-84`](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again).**
+Secondary session; `recursing-shannon-068e63` merges
+([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+Sixteen migrations collapsed into `db/engine/schema.sql` at schema version **17** — 179
+objects and the three rows the chain seeded, including `0015`'s shipped retention
+default, **which a schema-only dump would have lost in silence**.
+`tools/squash_engine_baseline.py` generates it and refuses to write a baseline it
+cannot verify against a database built through the whole chain.
+
+**Read `R-84` before touching the migration framework, and know two things about this
+change specifically.**
+
+**A generated baseline is a claim about a chain that any merge can invalidate.** One
+landed while this branch was being written and the suite said *"at schema v17, expected
+v16"* — not a test bug. **So the squash cannot hold a queue position: it is either the
+last thing to land, or it is regenerated on every rebase.** `--check` compares every
+absorbed digest against the ref it will merge into and says **REGENERATE** when they
+differ.
+
+**And a database below the baseline is refused, not replayed.** The baseline has 51
+`CREATE TABLE` and no `IF NOT EXISTS`; before this, `_migrate` would have run the whole
+schema over a populated database. The refusal names `R-84`, says nothing has been
+changed, and offers the two actions `R-84` allows.
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**
@@ -1460,7 +1487,7 @@ written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
-[scrapex/version.py:494](../scrapex/version.py) and
+[scrapex/version.py:517](../scrapex/version.py) and
 [scrapex/webui/app.py:1715](../scrapex/webui/app.py), drawn by
 [extension/app.js:607](../extension/app.js) and `:641`.
 

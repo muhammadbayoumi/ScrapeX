@@ -3148,7 +3148,7 @@ SHA, both facts rather than judgements.
 **`R-07` ORDERED THE ADVERT REMOVED ON 2026-08-16 AND IT WAS NEVER BUILT.** Measured
 2026-08-30, thirteen days later, still live in three places:
 
-    scrapex/version.py:494      "latest_extension_version": VERSION
+    scrapex/version.py:517      "latest_extension_version": VERSION
     scrapex/webui/app.py:1715   "latest_extension_version": VERSION
     extension/app.js:607, :641  drawn to the user as "Latest available extension"
 

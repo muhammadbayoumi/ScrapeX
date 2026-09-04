@@ -71,11 +71,19 @@ def test_the_engine_plan_follows_the_one_builder(monkeypatch):
     plan has to change with it. A `domain` that walks the folder itself again passes
     every other test in the suite and fails this one.
     """
+    # PATCHED LONGER, NOT SHORTER. Slicing to `whole[:3]` proved the plan follows
+    # the builder only while the builder had more than three entries to slice; after
+    # `R-84`'s squash the shipped plan is one migration and the slice became the
+    # whole list, turning this into a tautology and then an IndexError. Appending
+    # cannot run out of stream, and it still fails on a `domain` that walks the
+    # folder itself -- which is the whole point of the assertion.
     whole = dbmod._migration_files()
-    monkeypatch.setattr(dbmod, "_migration_files", lambda: whole[:3])
+    invented = (whole[-1][0] + 1, whole[-1][1].with_name("0099_invented.sql"))
+    monkeypatch.setattr(dbmod, "_migration_files", lambda: [*whole, invented])
 
-    assert [item.number for item in _engine_plan()] == [n for n, _ in whole[:3]]
-    assert EngineDatabase("unused.db").latest_schema_version == whole[2][0]
+    assert [item.number for item in _engine_plan()] == [
+        *(n for n, _ in whole), invented[0]]
+    assert EngineDatabase("unused.db").latest_schema_version == invented[0]
 
 
 def test_the_baseline_number_comes_from_the_file_that_declares_it():

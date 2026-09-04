@@ -140,7 +140,7 @@ of the three available answers: explicit refusal, a composite key, or silent omi
 runs `(SELECT MAX(v.observed_at) FROM generic_record_revision AS v WHERE
 v.generic_record_id = r.generic_record_id)` — once per row.
 
-The only index available is [db/engine/schema.sql:849](../db/engine/schema.sql#L849),
+The only index available is [db/engine/schema.sql:1197](../db/engine/schema.sql#L1197),
 `ix_generic_record_revision_record ON generic_record_revision(generic_record_id,
 record_revision_id)`. **Its second column is `record_revision_id`, not `observed_at`**, so
 SQLite can seek a record's revisions from the index and must then read the table for each
@@ -2238,7 +2238,7 @@ diagnosis:** every step the engine announced succeeded, and then it could not re
 
 | the runtime opens | at | bundled before |
 |---|---|---|
-| `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:20](../scrapex/databases/domain.py#L20) | **yes** |
+| `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:21](../scrapex/databases/domain.py#L21) | **yes** |
 | `sources.yaml` | [scrapex/config.py:55](../scrapex/config.py#L55) | **yes** |
 | `scrapex/webui/templates` | [scrapex/webui/app.py:302](../scrapex/webui/app.py#L302), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
 | `scrapex/webui/static` | [scrapex/webui/app.py:372](../scrapex/webui/app.py#L372) | **no** |
@@ -4877,8 +4877,11 @@ The engine stream is **16**, so `16 <= 30` skipped both tests. Measured:
 it never did. **The promise was in prose and the mechanism was a number nobody re-derived.**
 
 **ITS FIRST REAL RUN FOUND A DEFECT IN A MIGRATION THAT HAS ALREADY SHIPPED.**
-`0014_one_source_registry.sql:88` rebuilds `source_site` with `base_url TEXT NOT NULL
-DEFAULT ''`, and line 108 copies the old column through by name in an `INSERT ... SELECT`.
+Migration `0014_one_source_registry` rebuilt `source_site` with `base_url TEXT NOT
+NULL DEFAULT ''` at its line 88, and its line 108 copied the old column through by name
+in an `INSERT ... SELECT`. **Those numbers are a record and not a pointer** — `R-84`'s
+squash absorbed that file, so there is nothing left to follow them to, and writing them
+in `path:line` form would be a citation to a deleted file (`LESSONS` 21).
 **A DEFAULT applies only to a column the INSERT omits**, so the NULL is carried into a NOT NULL
 column. `source_site.base_url` was nullable through v13 — measured, `notnull=0` — so the row
 that triggers it is legal, not corrupt. Reproduced at every stop point from v2 to v13:
@@ -5248,6 +5251,46 @@ which un-orphaned them without fixing anything, and the guard said so.
 `scrapex/snapshotcrawl.py`, line 169 still holds `if page.url in seen:` while the
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
+
+### OP-131 · `health()` said "No problems found" about a database the engine refuses to open
+
+**Found 2026-09-03**, building `R-84`'s squash. **The squash EXPOSES this rather than
+causing it, and a reader who thinks otherwise will look for the wrong fix:** before
+`R-84`, every version between 1 and the head could be migrated upwards, so a ceiling
+with no floor was **correct**.
+
+`storage.py` `_warehouse_identity` refused a database from a newer engine and accepted
+everything below the head. Measured on a warehouse rewound below the baseline:
+
+```cited
+scrapex/storage.py:409     latest = dbmod.latest_schema_version()
+scrapex/storage.py:411     if version > latest:
+```
+
+    health()      status: healthy   ok: True   "No problems found."
+    initialize()  REFUSED -- no upgrade path between v9 and the baseline
+
+**Worse than advising a command that fails.** A surface reporting the wrong remedy
+sends a person somewhere; one reporting *nothing wrong* sends them nowhere. It is
+`OP-127`'s sibling — that was a button with none of the four protections; this is a
+page with none of the alarm.
+
+**Fixed with its own status, because `incompatible` was not reusable.** The interface
+renders that as *"Made by a newer ScrapeX"* and this file was made by an **older** one,
+so `too_old` exists and `_storage.html` has a word for it. Its detail names `R-84`,
+says **"Nothing has been changed"**, gives the two actions, and says the promise
+returns at publication — because `R-84` retires it for one period and restores it at
+the other end, and a refusal that omits that reads as a capability the squash dropped.
+**And it contains no command line, asserted** (`R-81`).
+
+**AND THE TEST THAT RECORDED THE PROMISE HAD STOPPED TESTING ITS OWN NAME.**
+`test_health_accepts_a_legacy_v1_scrapex_warehouse_for_migration` built its database by
+executing `SCHEMA_FILE` — which was a v1 database while the baseline declared 1 and is
+a HEAD database now. Measured: it reached `health()` at the head with an empty ledger
+and no contract marker, and failed as `not_scrapex`. **Neither the promise nor its
+retirement, but a third thing** — so the failure that led here was not even about the
+subject. Renamed, with a `HISTORICAL` row naming the commit that still holds the
+original.
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was

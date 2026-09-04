@@ -136,7 +136,17 @@ def test_the_three_parts_are_all_read_from_the_repository():
     """A part that silently reads empty would make the gate blind to it."""
     seen = contractstamp.fingerprint()
 
-    assert len(seen["schema"]) >= 7, "the engine migration stream"
+    # ONE ENTRY IS ENOUGH AND SEVEN WAS NEVER THE PROPERTY. This read `>= 7` when
+    # the schema part was a list of migration FILENAMES; `R-84` collapsed the chain
+    # into the baseline, so the part is now `["schema.sql v16"]` and a floor of seven
+    # would demand fifteen files the ruling deleted. What this test is for is stated
+    # in its own docstring -- a part that reads EMPTY makes the gate blind to it --
+    # and the baseline entry is what keeps it from ever being empty again, which is
+    # the hole `OP-122` recorded and this change closes.
+    assert seen["schema"], "the engine schema contract"
+    assert any(entry.startswith("schema.sql v") for entry in seen["schema"]), (
+        "the schema part does not name the baseline, so a change to the file that "
+        "defines the whole shape would move nothing this gate can see")
     assert seen["protocol"], "the native-messaging protocol version"
     assert len(seen["endpoints"]) >= 50, "the routes the panel calls"
 

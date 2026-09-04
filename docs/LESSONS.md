@@ -2278,7 +2278,7 @@ deliberate exception is DECLARED, not inferred.** A historical name goes in
 `HISTORICAL` ([tests/test_the_tests_name_tests_that_exist.py:86](../tests/test_the_tests_name_tests_that_exist.py#L86))
 with the ref to read it at, and every row is **verified** rather than trusted —
 `git show <ref>:<path>` must still produce the test
-([tests/test_the_tests_name_tests_that_exist.py:151](../tests/test_the_tests_name_tests_that_exist.py#L151)).
+([tests/test_the_tests_name_tests_that_exist.py:160](../tests/test_the_tests_name_tests_that_exist.py#L160)).
 
 That verification caught its own author on its first run: the row for the
 native-host test named `6ccdd3c`, which does not contain it. The commit that does

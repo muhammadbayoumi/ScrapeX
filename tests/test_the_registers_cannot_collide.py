@@ -286,6 +286,24 @@ RESERVED: dict[str, dict[int, str]] = {
     # that is reserved AND declared fails test_a_reserved_number_is_not_also_declared.
     # Nothing else was touched.
     "OP": {
+        # 129 AND 130 became holes when this branch declared OP-131, and the two rows
+        # rest on different evidence, which is why they are annotated separately.
+        #
+        # 130 is VERIFIED against the ref: a sweep of every local and remote ref found
+        # it declared on `fix/the-request-count-speaks-while-it-works` and nowhere else.
+        #
+        # 129 IS NOT, AND CANNOT BE. It was allocated to this session for the
+        # pinned-subject uniqueness guard and is declared on NO ref anywhere -- the
+        # entry is not written yet. So this row rests on the ALLOCATION and not on a
+        # heading anybody can read, which is exactly the case this table's own comment
+        # says such a row must state, and it must be re-checked rather than trusted.
+        129: "allocated to this session for the pinned-subject guard "
+             "(declared on no ref yet -- rests on the allocation, re-check it)",
+        # 130'S ROW STOOD HERE AND IS GONE: `#317` landed, so it is a heading
+        # on `main` and a number both reserved and declared is what
+        # `test_a_reserved_number_is_not_also_declared` refuses. Caught by the
+        # MERGE TREE rather than by this branch -- it was correct here and
+        # wrong in the tree the merge would make.
         # 117'S ROW WAS HERE AND THIS BRANCH DECLARES IT, so it is gone -- the
         # sixth reservation retired that way, across six merges.
         #
@@ -332,8 +350,18 @@ RESERVED: dict[str, dict[int, str]] = {
         #                   ref on 2026-09-03: 127 and 128 on `main`, 130 declared by THIS
         #                   branch, nothing at 129 or 131
         # Delete each row the day its pull request lands.
-        129: "allocated to eager-robinson-1d8a3a for the pinned-subject guard",
-        131: "allocated to eager-robinson-1d8a3a for storage.health()'s floor",
+        # 129 AND 131 STOOD HERE AND BOTH ARE GONE, for two different reasons.
+        #
+        # 131 is DECLARED BY THIS BRANCH, so reserving it here is the contradiction
+        # `test_a_reserved_number_is_not_also_declared` refuses.
+        #
+        # 129 WAS THE SECOND COPY OF A ROW THIS BRANCH ALREADY HAD, and Python keeps
+        # the LAST -- so one of the two was being discarded with no error. Merged
+        # upward into the single 129 row above, which carries what both sides said:
+        # the allocation, and that it rests on the allocation rather than on a
+        # heading anybody can read. `test_the_reservation_table_has_no_shadowed_rows`
+        # is what found it, and only the MERGE TREE could -- each side was correct
+        # alone.
         # 127'S ROW STOOD HERE AND IS GONE. #313 reserved it to this branch while this
         # branch declares it, so it became a number both reserved AND declared -- and its
         # own row said to delete it the day #312 lands, which is this rebase. The guard

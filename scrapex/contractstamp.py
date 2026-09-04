@@ -41,6 +41,7 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "db" / "engine" / "migrations"
+BASELINE = ROOT / "db" / "engine" / "schema.sql"
 APP = ROOT / "scrapex" / "webui" / "app.py"
 
 #: Every decorator that mounts a route the panel or extension may call.
@@ -49,10 +50,46 @@ _ROUTE = re.compile(
 
 
 def schema_stream() -> list[str]:
-    """The engine's migrations, by name. Sorted, so order of arrival cannot matter."""
-    if not MIGRATIONS.is_dir():
-        return []
-    return sorted(p.name for p in MIGRATIONS.glob("*.sql"))
+    """The engine's schema contract: the baseline's VERSION, then its migrations by name.
+
+    THE BASELINE WAS NOT IN HERE, and it is the file that defines the entire shape
+    every fresh install gets. So a change to `db/engine/schema.sql` moved the schema
+    another program can observe and moved nothing this gate could see -- while a gate
+    whose whole subject is "did the schema change" reported no.
+
+    `R-84`'S SQUASH IS WHY IT MATTERS NOW rather than in the abstract. Collapsing the
+    chain deletes fifteen entries from this list and says nothing about what replaced
+    them; with the baseline in, the diff reads `removed: schema.sql v1` /
+    `added: schema.sql v16`, which is the actual event. And once the folder is empty
+    this function returned `[]` -- a gate blind to the only schema file left.
+
+    IT IS THE DECLARED VERSION AND DELIBERATELY NOT A DIGEST, in both directions:
+
+      * a digest would fire on a comment. This file's own rule is that the
+        fingerprint holds what another program can observe, and a gate that reddens
+        on prose is a gate people learn to silence.
+      * the version is enough because editing the baseline's CONTENT without moving
+        its version cannot ship quietly: every existing warehouse holds that file's
+        digest in its ledger and refuses to open when it moves
+        (`databases/domain.py` `_verify_checksums`), and
+        `tests/test_the_squashed_baseline_carries_the_chain.py` holds it against a
+        frozen record of everything the collapsed chain produced.
+
+    So the version says WHAT the baseline is, the ledger says it has not been
+    tampered with, and the frozen record says nothing was dropped from it. Three
+    questions, three guards, and this was the missing one.
+    """
+    parts: list[str] = []
+    if BASELINE.is_file():
+        # The same reader the migration plan uses. A second parse here is the shape
+        # `OP-122` removed.
+        from .db import declared_schema_version
+
+        parts.append(f"{BASELINE.name} v{declared_schema_version(BASELINE)}")
+    if MIGRATIONS.is_dir():
+        # Sorted, so order of arrival cannot matter.
+        parts.extend(sorted(p.name for p in MIGRATIONS.glob("*.sql")))
+    return parts
 
 
 def protocol_version() -> str:

@@ -350,18 +350,20 @@ def test_the_lag_guard_reports_every_migration_this_database_is_missing(tmp_path
         assert dbmod.pending_migrations(conn) == [], (
             "a database built from every migration must be behind nothing")
 
-        # Forget three, one of them on each side of the old filter's blind spot:
-        # 0013 and 0014 were the suppressed pair, 0016 was always reportable.
-        forgotten = []
-        for prefix in ("0013", "0014", "0016"):
-            row = conn.execute(
-                "SELECT migration_name FROM database_migration "
-                "WHERE migration_name LIKE ?", (f"{prefix}%",)).fetchone()
-            assert row, f"no {prefix} migration in the ledger to forget"
-            forgotten.append(row[0])
+        # FORGET EVERY MIGRATION THE PLAN HOLDS, whatever the plan is. This used
+        # to name 0013, 0014 and 0016 -- the pair the old filter suppressed and one
+        # it always reported -- and those three filenames stopped existing when
+        # `R-84`'s squash absorbed the chain. Naming them was never the property:
+        # the property is that a migration this database has not applied is one the
+        # banner NAMES, and asking the plan for its own members tests that at any
+        # chain length, including one.
+        forgotten = [path.name for _n, path in dbmod._migration_files()]
+        for name in forgotten:
             conn.execute("DELETE FROM database_migration WHERE migration_name = ?",
-                         (row[0],))
+                         (name,))
         conn.commit()
+        assert forgotten, "the plan is empty, so there is nothing to forget"
+
 
         reported = {name for _n, name in dbmod.pending_migrations(conn)}
         missing = [name for name in forgotten if name not in reported]

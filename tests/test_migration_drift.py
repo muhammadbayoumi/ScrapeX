@@ -36,6 +36,8 @@ cannot be the only thing standing between a mandate and nothing.
 """
 from __future__ import annotations
 
+import json
+import pathlib
 import sqlite3
 
 import pytest
@@ -47,20 +49,17 @@ from scrapex.databases.domain import EngineDatabase
 #: `test_the_stop_point_is_a_version_this_stream_actually_has` enforces that --
 #: see this file's header for what one unenforced constant cost.
 #:
-#: WHY 14 AND NOT THE MIDPOINT, which is the honest answer rather than the
-#: flattering one: every stop point from v2 to v13 currently fails, because
-#: migration 0014 cannot upgrade a row whose base_url is NULL. So the span
-#: actually exercised over real rows is v15 and v16 -- two migrations, not eight.
-#: That is weaker than this file wants to be, and it is written down rather than
-#: hidden, because the alternative is a number chosen to make the suite green and
-#: a reader who cannot tell that from a number chosen on evidence. It rises the
-#: moment 0014 stops being a wall, which the pending baseline squash does by
-#: absorbing it.
+#: WHAT THIS NUMBER MEANS NOW THAT THE CHAIN IS ONE FILE: nothing, until a
+#: migration lands after the squashed baseline. It is kept at the value it had --
+#: 14, chosen because migration 0014 walled off every stop point below it -- so
+#: that the first person to add 0017 finds a number and a reason rather than a
+#: blank, and `test_the_stop_point_is_a_version_this_stream_actually_has` tells
+#: them it needs re-choosing. It is NOT lowered to 1 to make the suite green: that
+#: is the move this file's own history is a warning about.
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
 PREVIOUS_RELEASE = 14
 
-#: The deepest stop point migration 0014 refuses, kept as a test rather than as a
-#: sentence -- see `test_a_null_base_url_still_stops_the_registry_merge`.
-BLOCKED_BY_0014 = 13
 
 
 def _fingerprint(conn: sqlite3.Connection) -> dict:
@@ -162,16 +161,42 @@ def test_the_stop_point_is_a_version_this_stream_actually_has():
     that is a decision someone has to take and write down, not a line of `ss` in
     a run nobody reads.
     """
-    count = len(EngineDatabase("unused.db")._migrations)
-    assert _stop_point_is_valid(count), (
-        f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a version the shipped "
-        f"engine stream has: it holds {count} migration(s), so a stop point must "
-        f"be at least 2 and at most {count - 1}. This exact mismatch turned the "
-        f"two-way drift check ENGINEERING.md T5 mandates off for a month -- 30 "
-        f"was the deleted price stream's number. If the stream is now too short "
-        f"to measure drift inside, say what replaces this check before lowering "
-        f"the bar: a frozen fingerprint of the shape the chain produced is the "
-        f"pattern this repository already uses (db/engine/derived-from.json).")
+    db = EngineDatabase("unused.db")
+    count = len(db._migrations)
+    if _stop_point_is_valid(count):
+        return
+
+    # A ONE-MIGRATION STREAM IS ALLOWED, AND ONLY AGAINST A RECORD WITH CONTENT IN
+    # IT. `R-84` collapsed the chain into the baseline, so there is no longer a
+    # version to stop inside -- and that is exactly the moment this guard existed
+    # to make somebody answer rather than lower the bar. The answer is the frozen
+    # record: `db/engine/squashed-from.json` holds every object and every seeded row
+    # the collapsed chain produced, and
+    # `tests/test_the_squashed_baseline_carries_the_chain.py` holds the baseline
+    # against it. Checked HERE rather than taken on trust, because a file that
+    # merely exists is the weakest possible replacement for a check.
+    record = ROOT / "db" / "engine" / "squashed-from.json"
+    assert count == 1, (
+        f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a version the shipped engine "
+        f"stream has: it holds {count} migration(s), so a stop point must be at "
+        f"least 2 and at most {count - 1}. This exact mismatch turned the two-way "
+        f"drift check ENGINEERING.md T5 mandates off for a month -- 30 was the "
+        f"deleted price stream's number. Choose a real stop point; do not lower "
+        f"this to make the suite green.")
+    assert record.is_file(), (
+        "the engine stream is one migration, so drift cannot be measured inside it, "
+        f"and {record.name} is not there to replace the measurement. A squashed "
+        "baseline with no record of what it absorbed is a claim with no evidence.")
+    frozen = json.loads(record.read_text(encoding="utf-8"))
+    assert frozen.get("head") == db.latest_schema_version, (
+        f"{record.name} records a chain ending at v{frozen.get('head')} and the "
+        f"baseline is at v{db.latest_schema_version}. One of them is wrong, and a "
+        "record that does not describe the file beside it proves nothing.")
+    assert len(frozen.get("absorbed") or []) > 1, (
+        f"{record.name} says the baseline absorbed "
+        f"{len(frozen.get('absorbed') or [])} migration(s), which is not a collapse. "
+        "If the chain was never collapsed, this stream is simply too short and "
+        "PREVIOUS_RELEASE needs a real value.")
 
 
 def _requires_a_stream_it_can_stop_inside(db) -> None:
@@ -183,9 +208,14 @@ def _requires_a_stream_it_can_stop_inside(db) -> None:
     """
     if not _stop_point_is_valid(len(db._migrations)):
         pytest.skip(
-            f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a stop point in a "
-            f"stream of {len(db._migrations)}; see the failure in "
-            "test_the_stop_point_is_a_version_this_stream_actually_has")
+            f"the engine stream is {len(db._migrations)} migration(s), so a fresh "
+            "build and an upgraded one are the same object and this comparison "
+            "asserts nothing. `R-84` collapsed the chain into the baseline; what "
+            "replaces the measurement is db/engine/squashed-from.json, checked by "
+            "test_the_stop_point_is_a_version_this_stream_actually_has above and "
+            "held against the baseline by "
+            "tests/test_the_squashed_baseline_carries_the_chain.py. This skip is "
+            "live again the moment a migration lands after the baseline.")
 
 
 def _upgraded_from_previous_release(path, monkeypatch) -> EngineDatabase:
@@ -246,57 +276,3 @@ def test_the_whole_stream_survives_migrating_over_real_rows(tmp_path, monkeypatc
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     assert db.health().ok, db.health().action
 
-
-def test_a_null_base_url_still_stops_the_registry_merge(tmp_path):
-    """The wall that holds PREVIOUS_RELEASE at 14, as a test rather than a note.
-
-    `0014_one_source_registry.sql` rebuilds `source_site` with
-    `base_url TEXT NOT NULL DEFAULT ''` and then copies the old column through by
-    name:
-
-        INSERT INTO source_site_rebuilt (... base_url ...)
-        SELECT                            ... base_url ...
-
-    A DEFAULT applies only to a column an INSERT OMITS, so the NULL is carried
-    into a NOT NULL column and the migration fails. `source_site.base_url` was
-    nullable through v13 -- measured, `notnull=0` -- so the row that triggers it
-    is legal, not corrupt.
-
-    THE MIGRATION'S OWN COMMENT SHOWS IT WAS REASONED ABOUT AND THE MECHANISM
-    MISTAKEN: "on his warehouse zero rows of either table hold a NULL -- 0 of 12
-    and 0 of 2 -- so the stronger constraint costs nothing". True of that data,
-    and the constraint is free only on that data.
-
-    IT ASSERTS THE EXACT MESSAGE, NOT MERELY THAT SOMETHING RAISED. A bare
-    `pytest.raises` here would keep passing if the wall moved to a different
-    column or a different migration, and would then be recording a defect that no
-    longer exists while hiding the one that does.
-
-    WHY THIS IS NOT FIXED IN PLACE: `0014` is applied and its digest is in the
-    ledger of every existing warehouse, so editing one character of it makes those
-    databases refuse to open (`domain.py` `_verify_checksums`). The pending
-    baseline squash absorbs it, which removes the file and the wall together --
-    and this test must be DELETED in that change, because the stop point it
-    explains stops existing with it.
-    """
-    db = EngineDatabase(tmp_path / "at_the_wall.db")
-    whole = db._migrations
-    assert len(whole) > BLOCKED_BY_0014, (
-        "the stream no longer reaches past the wall this test describes; if "
-        "0014 has been absorbed, delete this test with it")
-    db._migrations = whole[:BLOCKED_BY_0014]
-    db.initialize()
-    with db.connect() as conn:
-        columns = {r[1]: r[3] for r in conn.execute("PRAGMA table_info(source_site)")}
-        assert columns["base_url"] == 0, (
-            "base_url is no longer nullable at this version, so the row below "
-            "is not the legal row this test is about")
-        conn.execute(
-            "INSERT INTO source_site (source_key, source_name_ar, base_url) "
-            "VALUES ('a-shop-with-no-known-url', 'متجر', NULL)")
-        conn.commit()
-
-    db._migrations = whole
-    with pytest.raises(sqlite3.IntegrityError, match=
-            r"NOT NULL constraint failed: source_site_rebuilt\.base_url"):
-        db.initialize()
