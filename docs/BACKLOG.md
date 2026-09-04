@@ -5317,6 +5317,79 @@ which un-orphaned them without fixing anything, and the guard said so.
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
 
+### OP-145 · The panel's source list is the PRICE manifest, so the contractor category cannot appear in it
+
+**Asked by him 2026-09-04** — *«لماذا مصدرمقاول لا يظهر ضمن المصادر المتاح زحفها!»* — half
+an hour after a fresh warehouse was created on his machine.
+
+**THE FIRST ANSWER WAS WRONG AND THE MEASUREMENT CORRECTED IT.** It read as a consequence
+of the new database: the row would have been in the old one. It is not that. `muqawil_org`
+**cannot appear in that list on any warehouse, new or old**, because the list is not built
+from the warehouse at all:
+
+```cited
+scrapex/webui/app.py:1836           for entry in app.state.manifest.sources:
+```
+
+`/api/sources` iterates the MANIFEST and uses the database only to decorate those rows
+(`summaries.get(entry.source_key)`). `sources.yaml` declares **twelve** sources — `MADAR`,
+`ALSWEED`, `ELBUROJ`, `ADVANCEDCASTLE`, `ELSEWEDYSHOP`, `MASDAR`, `SIKAEGSHOP`,
+`HEIDELBERG_EG`, `SAMEHGABRIEL`, `GPP_ENERGY`, `ARAMCO_FUEL_SA`, `SPARK_ESHOP` — and
+muqawil is not one of them. The code already says so:
+
+```cited
+scrapex/sourceboard.py:13       source_site, declared nowhere else       muqawil_org   <- not in sources.yaml at all
+```
+
+Measured against his running engine: `/api/sources` answers **12** rows and
+`muqawil in the list: False`.
+
+**AND THE MODULE WRITTEN FOR EXACTLY THIS QUESTION HAS NO ROUTE.** `sourceboard` opens by
+saying it exists because he asked *«اى الجديد واى الى خلص»* and no command could answer;
+it spans both registries, carries the four-state vocabulary (`registered`, `built`,
+`active`, `paused`), and works with no database at all. Its callers:
+
+```cited
+scrapex/cli.py:527       from . import sourceboard
+```
+
+**One, and it is the CLI.** Nothing in `webui/app.py` mentions it, so the panel cannot ask
+the question the module answers — and `R-81` says a capability with no control in the
+panel has no control. This is the day's fourth instance of one shape: a policy with no
+caller (`OP-136`), an updater with no door (`OP-124`), a remedy behind an unserved page
+(`OP-144`, on the branch that carries the release mechanism), and now **an answer with no
+route**.
+
+**THE ROW IS A SECOND, INDEPENDENT GAP.** Even with a route, a fresh installation has
+nothing to show: the squashed baseline's seed carries `retention_policy` (1 row) and
+`scrapex_meta` (2) and **no sources at all**, and the muqawil row is created by
+`catalog.register_site` from inside the collector's own first run —
+
+```cited
+scrapex/contractors.py:287           catalog.register_site(conn, SiteCreate(
+```
+
+— so the source comes into existence as a by-product of `scrapex contractors`, a command
+he does not use. Measured on the warehouse created at 12:30 today: `source_site` holds
+**one** row, `ARAMCO_FUEL_SA`, and `dataset_definition` and `generic_record` hold none.
+
+**This is `R-32` at the level of the interface.** He ruled that price is one **category**
+and filing the tool under it was a mistake; the panel's own source list is still that
+filing — one category, drawn from the price manifest, with no way for another to appear.
+
+**What it would take, and the shape is not a guess**: a route over `sourceboard` and the
+panel's list drawn from it. The module exists, is tested
+(`tests/test_every_source_appears_on_one_board.py`) and needs no schema change; declaring
+muqawil in `sources.yaml` is the wrong half of the fork, because that manifest is a price
+declaration (family, currency, tax mode) and a contractor directory has none of those —
+which is why validation would refuse it. It composes with `REQ-54`, where the controls a
+source offers are drawn from what the source declares rather than from `run_mode`'s price
+vocabulary.
+
+**Not built here**: it changes what his only interface lists, which is his to approve.
+
+---
+
 ### OP-144 · The refusal is correct and there is nothing he can press: the remedy is behind a page the engine cannot serve
 
 **Found 2026-09-04 by him, within the hour of installing `engine-v0.4.8`**, which is the

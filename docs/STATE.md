@@ -1118,6 +1118,24 @@ spellings `_STAMP` admits, and breaks ties by name descending. Three new guards,
 proved by mutation; the containment `OP-136` added stays, because narrowing what a caller
 may delete is right even once the ordering under it is right.
 
+### The panel's source list is one category — 2026-09-04, `OP-145`
+
+He asked why muqawil is not among the sources he can crawl. **It never could be, and the
+first answer to him was wrong**: `/api/sources` iterates `sources.yaml` and uses the
+warehouse only to decorate those twelve rows, so a source declared in no manifest — which
+muqawil is, and `sourceboard.py:13` says so — cannot appear on any warehouse.
+
+`sourceboard` was written for that exact question and has **one caller, the CLI**. The
+panel cannot ask it. That is the day's fourth instance of one shape, after `OP-124`,
+`OP-136` and `OP-144`.
+
+Second, independent gap: the row itself is created by the collector's first run
+(`catalog.register_site`), so a fresh installation has no muqawil even with a route — the
+baseline's seed carries three rows and none of them is a source.
+
+`R-32` at the level of the interface, and the fix is a route over a module that already
+exists. **His to approve.**
+
 ## Track 1 · The Console migration
 
 **Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**
