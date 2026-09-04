@@ -1031,7 +1031,7 @@ for `^#{2,4} +OP-13[3-9]` and `OP-140`..`OP-142` (nothing declared them anywhere
 | `OP-138` | the five tests that prove `R-84`'s refusal are skipped on `main` and in CI | open, with its reason |
 | `OP-139` | `OP-127` closed the unprotected upgrade on one of the two doors | open, with its reason |
 | `OP-140` | the panel prints the raw key `too_old`; the vocabulary for it exists only on the engine's page | open, with its reason |
-| `OP-141` | the backup prune orders a deletion by mtime, and a reset-backup carries the warehouse's — measured deleting TODAY's copy | **open — data loss, reachable from a button** |
+| `OP-141` | the backup prune orders a deletion by mtime, and a reset-backup carries the warehouse's — measured deleting TODAY's copy | **closed** on `claude/a-deletion-ordered-by-the-wrong-clock`, on his instruction |
 | `OP-142` | four pointer messages name commands on the panel, and two cannot be reworded because the control does not exist | open — needs a control, so his call |
 
 **THE PATTERN IS WORTH MORE THAN ANY ONE OF THEM, and it is now three instances.**
@@ -1056,6 +1056,24 @@ Measured after, on a copy of his warehouse and on his real registry read-only: t
 told `check_storage` with no command in the detail, a refusal makes **no copy at all**, and
 a real in-chain upgrade to v18 applies, backs up once and bounds the copies at three with
 `pre-ledger-repair` and `rebuild` untouched.
+
+### A deletion ordered by the wrong clock — 2026-09-04, `OP-141`
+
+**On `claude/a-deletion-ordered-by-the-wrong-clock`, stacked on the branch above** because
+it edits the same file and closes the entry that branch records. He asked for it separately
+— *«واصلح OP-141 فى فرع مستقل»*.
+
+`storage.start_fresh` does not copy the warehouse aside, it **renames** it, and a rename
+carries the warehouse's own last-write time; `restore` copies that time back with
+`shutil.copy2`. So a reset / undo / reset cycle leaves several `reset-backup` files sharing
+**one** mtime — and the prune, ordered by mtime at one-second resolution, kept whichever
+three the glob returned first. Measured: **the file it deleted was today's**, the only copy
+of everything the reset had just wiped.
+
+Ordering now reads the stamp out of the name (`backup_taken_at`), normalises the three
+spellings `_STAMP` admits, and breaks ties by name descending. Three new guards, all
+proved by mutation; the containment `OP-136` added stays, because narrowing what a caller
+may delete is right even once the ordering under it is right.
 
 ## Track 1 · The Console migration
 

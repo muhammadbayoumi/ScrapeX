@@ -152,17 +152,20 @@ def test_the_warehouse_says_what_the_policy_would_free(warehouse):
 # ---- the entry point for a caller with no database open ----------------------
 
 def test_the_policy_runs_with_no_database_open(warehouse):
-    """WHY A SECOND ENTRY POINT EXISTS AT ALL. The path that reliably makes copies
-    is the guarded upgrade, and it runs while the database is at a schema this build
-    does not read — below the baseline (`R-84`) it cannot be opened at all, which is
-    the state that was making one full copy per engine launch. `prune_backups(conn,
-    ...)` cannot be called from there, and that is the whole reason 963,768,320 bytes
-    of pre-upgrade copies accumulated beside a 316 MB warehouse while a policy that
+    """WHY A SECOND ENTRY POINT EXISTS AT ALL. The path that reliably makes copies is
+    the guarded upgrade, and it runs while the database is at a schema this build does
+    not read — below the baseline (`R-84`) it cannot be opened at all, which is the
+    state that was making one full copy per engine launch. `prune_backups(conn, ...)`
+    cannot be called from there, and that is the whole reason 963,768,320 bytes of
+    pre-upgrade copies accumulated beside a 316 MB warehouse while a policy that
     already recognised them sat one caller away.
     """
     _conn, db = warehouse
-    for i in range(5):
-        _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i + 1)
+    # REAL DATES. `20260100` is not one, and now that the order is read from the NAME
+    # (`OP-141`) an unparseable stamp falls back to the file clock and sorts as the
+    # NEWEST -- the fallback working correctly, and the old fixture being wrong.
+    for i in range(1, 6):
+        _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i)
     assert storage.backup_tag(
         db.with_name("scrapex-engine.pre-upgrade-20260101T000000Z.backup.db"),
         db) == "pre-upgrade", "the policy does not recognise its own file name"
@@ -172,28 +175,28 @@ def test_the_policy_runs_with_no_database_open(warehouse):
     assert len(removed) == 3, removed
     assert freed > 0
     left = sorted(p.name for p in db.parent.glob("*pre-upgrade*"))
-    assert left == ["scrapex-engine.pre-upgrade-20260103T000000Z.backup.db",
-                    "scrapex-engine.pre-upgrade-20260104T000000Z.backup.db"], left
+    assert left == ["scrapex-engine.pre-upgrade-20260104T000000Z.backup.db",
+                    "scrapex-engine.pre-upgrade-20260105T000000Z.backup.db"], left
     assert db.is_file(), "the live database was removed"
 
 
 def test_a_pruned_copy_takes_its_journal_files_with_it(warehouse):
     """A `-wal` without the file it journalled is meaningless, and `list_backups`
     already refuses to offer one as restorable. Three orphan pairs sit beside the
-    owner's warehouse today, left where a copy's `.db` went and its sidecars did
-    not."""
+    owner's warehouse today, left where a copy's `.db` went and its sidecars did not."""
     _conn, db = warehouse
-    for i in range(2):
-        copy = _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i + 1)
+    for i in range(1, 3):
+        copy = _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i)
         for suffix in ("-wal", "-shm"):
             pathlib.Path(f"{copy}{suffix}").write_bytes(b"journal")
 
     storage.prune_backups_at(db, keep=1)
 
-    assert not list(db.parent.glob("*20260100*")), \
+    assert not list(db.parent.glob("*20260101*")), \
         "the pruned copy left its journal files behind"
-    assert pathlib.Path(f"{db.with_name('scrapex-engine.pre-upgrade-20260101T000000Z.backup.db')}-wal") \
-        .is_file(), "the surviving copy lost its journal"
+    survivor = db.with_name("scrapex-engine.pre-upgrade-20260102T000000Z.backup.db")
+    assert pathlib.Path(f"{survivor}-wal").is_file(), \
+        "the surviving copy lost its journal"
 
 
 def test_a_partial_copy_is_not_a_backup_the_policy_can_see(warehouse):
@@ -216,3 +219,119 @@ def test_a_partial_copy_is_not_a_backup_the_policy_can_see(warehouse):
     left = sorted(p.name for p in db.parent.glob("*.backup.db"))
     assert left == ["scrapex-engine.pre-upgrade-20260102T000000Z.backup.db",
                     "scrapex-engine.pre-upgrade-20260103T000000Z.backup.db"], left
+
+
+# ---- OP-141: the deletion is ordered by the clock that wrote the name --------
+
+def _at(db, name: str, mtime: int) -> pathlib.Path:
+    """A backup with a chosen modification time, which is the whole subject here."""
+    import os
+
+    path = db.with_name(name)
+    path.write_bytes(b"x" * 1024)
+    os.utime(path, (mtime, mtime))
+    return path
+
+
+def test_a_reset_undo_reset_cycle_does_not_lose_todays_copy(warehouse):
+    """THE MEASURED FAILURE. `start_fresh` does not copy the warehouse aside, it
+    RENAMES it — and `os.replace` preserves the last-write time, so a `reset-backup`
+    carries the WAREHOUSE's clock, not the reset's. `restore` then copies that same
+    time back onto the live file with `shutil.copy2`. So every reset in a
+    reset / undo / reset cycle produces a file with ONE shared mtime.
+
+    Ordered by mtime, `sorted` is merely stable, so "the newest three" was whichever
+    three the glob returned first: measured on four such files with names spanning
+    2026-01-01 to 2026-09-04 and `keep=3`, the file deleted was **today's** — the only
+    copy of everything the reset had just wiped — and the three kept were the oldest.
+    """
+    _conn, db = warehouse
+    shared = 1_740_000_000                      # one warehouse last-write time
+    for stamp in ("20260101T090000Z", "20260401T090000Z",
+                  "20260701T090000Z", "20260904T090000Z"):
+        _at(db, f"scrapex-engine.reset-backup-{stamp}.db", shared)
+
+    freed, removed = storage.prune_backups_at(db, keep=3)
+
+    assert removed == ["scrapex-engine.reset-backup-20260101T090000Z.db"], removed
+    assert (db.parent / "scrapex-engine.reset-backup-20260904T090000Z.db").is_file(), \
+        "the newest reset copy was deleted and older ones were kept"
+    assert freed > 0
+
+
+def test_a_copy_carried_in_with_an_older_clock_is_not_treated_as_older(warehouse):
+    """`shutil.copy2` preserves the last-write time, so a backup restored from
+    another disk arrives with a clock older than the day the product wrote its name.
+    The name is the record of when the product acted; the file's clock is not."""
+    _conn, db = warehouse
+    old_clock = 1_600_000_000
+    new_clock = 1_780_000_000
+    _at(db, "scrapex-engine.rebuild-20260901T090000Z.backup.db", old_clock)
+    _at(db, "scrapex-engine.rebuild-20260101T090000Z.backup.db", new_clock)
+
+    _freed, removed = storage.prune_backups_at(db, keep=1)
+
+    assert removed == ["scrapex-engine.rebuild-20260101T090000Z.backup.db"], removed
+
+
+def test_the_three_stamp_spellings_order_against_each_other(warehouse):
+    """`_STAMP` admits three forms and they do NOT sort as text: `-` is 0x2D and `T` is
+    0x54, so `20260601-020000` sorts BELOW `20260101T010000Z`. Parsed and re-formatted,
+    they order by the moment they name.
+
+    THE THIRD SPELLING CANNOT BE A FILE ON THIS PLATFORM — NTFS refuses `:` in a name
+    (`OSError: [Errno 22] Invalid argument`, measured while writing this) — so it is
+    parsed as a string and the two writable ones are ordered as files. That is all the
+    platform allows either half of this to be, and saying so is better than a test that
+    silently only ever ran on POSIX.
+    """
+    _conn, db = warehouse
+    assert storage.backup_taken_at(
+        "scrapex-engine.reset-backup-2026-09-04T03:00:00Z.db", db) == "2026-09-04T03:00:00Z"
+
+    shared = 1_740_000_000
+    names = ["scrapex-engine.reset-backup-20260101T010000Z.db",
+             "scrapex-engine.reset-backup-20260601-020000.db"]
+    for name in names:
+        _at(db, name, shared)
+
+    order = [b["name"] for b in storage.list_backups(db)]
+
+    assert order == list(reversed(names)), order
+    assert [storage.backup_taken_at(n, db) for n in names] == [
+        "2026-01-01T01:00:00Z", "2026-06-01T02:00:00Z"]
+
+
+def test_a_hand_named_copy_still_falls_back_to_the_file_clock(warehouse):
+    """No stamp, no lineage, never pruned — and it still has to take a place in the
+    order, because `list_backups` is what the Restore picker renders."""
+    _conn, db = warehouse
+    _at(db, "scrapex-engine.pre0056.backup.db", 1_600_000_000)
+    _at(db, "scrapex-engine.rebuild-20260101T090000Z.backup.db", 1_780_000_000)
+
+    listed = storage.list_backups(db)
+
+    assert [b["name"] for b in listed] == [
+        "scrapex-engine.rebuild-20260101T090000Z.backup.db",
+        "scrapex-engine.pre0056.backup.db"], [b["name"] for b in listed]
+    assert storage.backup_taken_at("scrapex-engine.pre0056.backup.db", db) == ""
+    assert storage.prunable_backups(db) == []
+
+
+def test_the_restore_picker_names_when_the_copy_was_taken(warehouse):
+    """The label says "Stored as", and for a `reset-backup` the file's clock is the
+    WAREHOUSE's last-write time — a moment that can be months before the reset the file
+    is a copy of. It shows `taken_at`, read from the stamp the product wrote."""
+    from fastapi.testclient import TestClient
+
+    from scrapex.webui.app import create_app
+
+    conn, db = warehouse
+    _at(db, "scrapex-engine.reset-backup-20260904T090000Z.db", 1_600_000_000)
+
+    body = TestClient(create_app(db)).get("/settings").text
+
+    assert "2026-09-04T09:00:00Z" in body, \
+        "the picker does not name the moment the copy was taken"
+    assert "2020-09-13" not in body, \
+        "the picker still shows the file's own clock, which is the warehouse's"
