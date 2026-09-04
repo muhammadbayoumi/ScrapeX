@@ -726,13 +726,24 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
     if not where.is_dir():
         return []
     found = [{"path": str(p), "name": p.name, "bytes": _size(p),
-              "modified_at": _mtime_iso(p), "tag": backup_tag(p, path)}
+              "modified_at": _mtime_iso(p),
+              # WHEN THE PRODUCT ACTED, falling back to the file's clock only for a
+              # name that carries no stamp — the hand-named copies, which are never
+              # grouped and never pruned anyway. `backup_taken_at` returns
+              # `_mtime_iso`'s own format, so one comparison orders both kinds.
+              "taken_at": backup_taken_at(p, path) or _mtime_iso(p),
+              "tag": backup_tag(p, path)}
              # SQLite leaves `-shm` and `-wal` beside a database it has opened,
              # and the glob was matching them: the Restore list offered a
              # write-ahead log as something you could make live again.
              for p in where.glob(f"{base_stem(path)}.*backup*")
              if p.suffix == Path(path).suffix or p.suffix == ".db"]
-    return sorted(found, key=lambda b: b["modified_at"], reverse=True)
+    # ORDERED BY WHEN IT WAS TAKEN, AND TIES BROKEN BY NAME (`OP-141`). This decides a
+    # DELETION: `prunable_backups` keeps the first N of each lineage, so an order that
+    # is merely stable — which is what `sorted` gives equal keys — kept whichever file
+    # the glob happened to return first. With the name descending as the second key, a
+    # tie keeps the newest, which is the answer that is right when both keys are.
+    return sorted(found, key=lambda b: (b["taken_at"], b["name"]), reverse=True)
 
 
 # What backup_database writes: <stem>.<tag>-<stamp>.backup<suffix>. Reset writes
@@ -744,14 +755,65 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
 _STAMP = r"(?:\d{8}T\d{6}Z|\d{8}-\d{6}|[\d-]{10}T[\d:]{8}Z)"
 
 
+def _named_backup(backup_path: Path | str, db_path: Path | str) -> re.Match | None:
+    """The match this product's own naming makes on a file, or None.
+
+    ONE MATCHER, because there are now two questions to ask of a name — which lineage
+    it belongs to, and WHEN it was taken — and the answer to both is in the same
+    string. Two regexes over one naming rule is the shape where a name the product
+    writes stops being recognised by half the code that reads it.
+    """
+    stem = re.escape(base_stem(db_path))
+    return re.match(
+        rf"^{stem}\.(?:(?P<tag>.+?)-(?P<stamp>{_STAMP})\.backup"
+        rf"|reset-backup-(?P<reset>{_STAMP}))$",
+        Path(backup_path).stem)
+
+
 def backup_tag(backup_path: Path | str, db_path: Path | str) -> str:
     """Which lineage this backup belongs to, or "" if this product did not name it."""
-    stem = re.escape(base_stem(db_path))
-    match = re.match(rf"^{stem}\.(?:(?P<tag>.+?)-{_STAMP}\.backup|reset-backup-{_STAMP})$",
-                     Path(backup_path).stem)
+    match = _named_backup(backup_path, db_path)
     if match is None:
         return ""
     return match.group("tag") or "reset"
+
+
+#: The three spellings `_STAMP` admits, in the order they are tried. They do NOT sort
+#: against each other as text — `20260904-101112` < `20260904T101112Z` because `-` is
+#: 0x2D and `T` is 0x54 — so a stamp is parsed and re-formatted rather than compared
+#: raw. The output format is `_mtime_iso`'s exactly, which is what lets one comparison
+#: order stamped and unstamped files together.
+_STAMP_FORMATS = ("%Y%m%dT%H%M%SZ", "%Y%m%d-%H%M%S", "%Y-%m-%dT%H:%M:%SZ")
+
+
+def backup_taken_at(backup_path: Path | str, db_path: Path | str) -> str:
+    """When the product MADE this copy, read out of the name it wrote, or "".
+
+    WHY NOT THE FILE'S OWN CLOCK, which is what this used to be ordered by. A backup's
+    mtime is not the backup's: `start_fresh` does not copy the warehouse aside, it
+    RENAMES it (`os.replace` preserves the last-write time), so a `reset-backup`
+    carries the warehouse's own last-write time — and `restore` copies that same time
+    back onto the live file with `shutil.copy2`. A reset / undo / reset cycle therefore
+    produces several reset-backups sharing ONE mtime, at one-second resolution.
+
+    MEASURED, and it is why this function exists: four reset-backups sharing an mtime,
+    names spanning 2026-01-01 to 2026-09-04, `keep=3` — the file the policy deleted was
+    **today's**, the only copy of everything the reset had just wiped, and the three it
+    kept were the oldest. The name is the only record of when the product acted.
+    """
+    from datetime import datetime
+
+    match = _named_backup(backup_path, db_path)
+    if match is None:
+        return ""
+    raw = match.group("stamp") or match.group("reset")
+    for form in _STAMP_FORMATS:
+        try:
+            parsed = datetime.strptime(raw, form)
+        except ValueError:
+            continue
+        return parsed.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return ""
 
 
 BACKUPS_KEPT_PER_TAG = 3

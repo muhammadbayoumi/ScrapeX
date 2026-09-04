@@ -5343,12 +5343,14 @@ whole branch came from.
 
 ---
 
-### OP-141 · The backup prune orders a DELETION by mtime, and a reset-backup's mtime is the warehouse's
+### OP-141 · ~~The backup prune orders a DELETION by mtime, and a reset-backup's mtime is the warehouse's~~ — CLOSED 2026-09-04
 
-**Found 2026-09-04** by an adversarial read of `OP-136`'s new caller — the caller is
-contained rather than shipped over this, so what is recorded here is the defect it would
-have inherited. **It is reachable today from a button he has**, «Back up now» on the
-Storage page, which prunes after every copy it makes.
+**Found 2026-09-04** by an adversarial read of `OP-136`'s new caller, and **closed the
+same day on his instruction**
+([REQ-56](REQUESTS.md#req-56--fix-the-three-that-are-mine-record-the-two-that-are-his-and-take-the-data-loss-on-its-own-branch))
+— *«واصلح OP-141 فى فرع مستقل»* — in its own branch,
+`claude/a-deletion-ordered-by-the-wrong-clock`. It was reachable from a button he has,
+«Back up now» on the Storage page, which prunes after every copy it makes.
 
 **Three measured facts, on this Windows box (Python 3.12, NTFS):**
 
@@ -5357,40 +5359,60 @@ Storage page, which prunes after every copy it makes.
 2. `storage.start_fresh` does not copy the warehouse aside, it **renames** it —
 
 ```cited
-scrapex/storage.py:1042             os.replace(path, displaced)
+scrapex/storage.py:1104             os.replace(path, displaced)
 ```
 
    so `…reset-backup-<stamp>.db` carries **the warehouse's** last-write time, not the
    reset's. Undoing a reset runs `storage.restore`, which `shutil.copy2`s that file back
-   (`scrapex/storage.py:958`), so the same mtime returns to the live file — and a
+   (`scrapex/storage.py:1020`), so the same mtime returns to the live file — and a
    reset / undo / reset cycle produces several reset-backups sharing **one** mtime.
-3. The prune orders by that mtime, at one-second resolution —
-
-```cited
-scrapex/storage.py:735       return sorted(found, key=lambda b: b["modified_at"], reverse=True)
-```
-
-   so among equal mtimes the order is whatever the glob returned, and `prunable_backups`
+3. The prune ordered by that mtime, at one-second resolution. The line was
+   `return sorted(found, key=lambda b: b["modified_at"], reverse=True)` in
+   `list_backups`, and **it is deliberately quoted here without a `file:line`**: the fix
+   below replaced it, so a number would be a record of where something used to be rather
+   than a pointer, and repointing it would rewrite what it records (`LESSONS` 21).
+   Among equal mtimes the order was whatever the glob returned, and `prunable_backups`
    keeps "the first N of each lineage".
 
 **Measured outcome: four reset-backups sharing one mtime, names spanning 2026-01-01 to
 2026-09-04, `keep=3` — the file deleted was TODAY's**, the only copy of everything a
 "Start fresh" had just wiped, and the three kept were the oldest.
 
-**Why this branch does not fix it.** The obvious repair — order by the stamp the name
-already carries, which `backup_tag` already parses — changes what the Restore picker
-shows, and `_STAMP` admits **three spellings that do not sort against each other**
-(`20260904-101112` < `20260904T101112Z`, because `-` is 0x2D and `T` is 0x54), so it needs
-normalising to one form or comparing as parsed datetimes. The cheaper repair — make the
-tie deterministic with the name as a secondary key, descending — is smaller but leaves
-the mtime primary and so leaves a copied-in backup mis-ordered. Both are decisions about a
-shared reader, and neither belongs inside a change about a schema refusal.
+**WHAT LANDED: the name is the record of when the product acted, and the file's clock is
+not.**
 
-**What this branch did instead**: `dbupgrade._bounded` passes `only="pre-upgrade"`, so the
-upgrade path judges the one lineage it writes and never a `reset-backup`. Proved by
-mutation — removing the argument makes
-`test_the_prune_never_reaches_another_tags_copies` delete a `reset-backup` and a
-`rebuild` copy, and it says so by name.
+```cited
+scrapex/storage.py:789   def backup_taken_at(backup_path: Path | str, db_path: Path | str) -> str:
+scrapex/storage.py:746       return sorted(found, key=lambda b: (b["taken_at"], b["name"]), reverse=True)
+```
+
+`backup_taken_at` parses the stamp `backup_database` wrote and re-formats it into
+`_mtime_iso`'s own format, so one comparison orders stamped and unstamped files together;
+`list_backups` sorts on `(taken_at, name)` descending, which also makes the tie
+deterministic in the direction that keeps the newest. Both readers of the naming rule now
+go through one matcher, `_named_backup`, because there are two questions to ask of a name
+and two regexes over one rule is how half the code stops recognising it.
+
+**The three spellings are parsed, never compared raw** — `%Y%m%dT%H%M%SZ`,
+`%Y%m%d-%H%M%S`, `%Y-%m-%dT%H:%M:%SZ` — since `20260601-020000` sorts BELOW
+`20260101T010000Z` as text. **And the third cannot exist as a file on Windows**: NTFS
+refuses `:` in a name (`OSError: [Errno 22]`, measured), so its guard parses a string
+while the other two are ordered as real files, and the test says why rather than quietly
+only ever running on POSIX.
+
+**AND THE PICKER SHOWED THE SAME WRONG CLOCK, which is the half he would have read.**
+`_storage.html`'s Restore list said *"Stored as {modified_at}"* — for a `reset-backup`
+that is the warehouse's own last-write time, a moment that can be months before the reset
+the file is a copy of. It renders `taken_at` now; `modified_at` stays in the payload for
+anything that wants the file's own clock. Guarded, and the guard fails when the template
+is put back.
+
+**Proved by mutation, three times over.** Restoring the mtime ordering fails all three new
+guards, the reset-cycle one included — it is the measured data-loss case, four copies
+sharing one mtime and names spanning nine months, and it asserts that the file removed is
+the OLDEST rather than today's. `OP-136`'s containment (`only="pre-upgrade"`) stays: the
+upgrade path still judges the one lineage it writes, because narrowing what a caller may
+delete is right even when the ordering underneath it is correct.
 
 ---
 
@@ -5642,7 +5664,7 @@ would have been the duplication this repository keeps finding.
 **What landed** is a caller, not a policy:
 
 ```cited
-scrapex/storage.py:813   def prune_backups_at(db_path: Path | str, folder: Path | None = None,
+scrapex/storage.py:875   def prune_backups_at(db_path: Path | str, folder: Path | None = None,
 scrapex/dbupgrade.py:255         pruned += _bounded(path)
 ```
 

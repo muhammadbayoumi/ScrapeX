@@ -91,11 +91,19 @@
         {% for b in storage.backups %}
           {# An <option> cannot hold a child element, so the label rides in
              data-utc-prefix and timezone.js writes the whole text. Same one
-             formatter as everywhere else — see _time.html. #}
-          <option value="{{ b.path }}" data-utc="{{ b.modified_at }}"
+             formatter as everywhere else — see _time.html.
+
+             `taken_at`, NOT `modified_at`, and for the reason `OP-141` records: a
+             backup's mtime is not the backup's. `start_fresh` RENAMES the warehouse
+             aside, so a `reset-backup` carries the warehouse's own last-write time —
+             the label said "Stored as" and named a moment that could be months before
+             the reset the file is a copy of. `taken_at` is read from the stamp the
+             product wrote into the name, and falls back to the file's clock only for a
+             hand-named copy that carries no stamp. #}
+          <option value="{{ b.path }}" data-utc="{{ b.taken_at }}"
                   data-utc-prefix="{{ b.name }} — {{ '{:,}'.format(b.bytes) }} bytes, "
-                  title="Stored as {{ b.modified_at }} (UTC)">{{ b.name }} — {{ "{:,}".format(b.bytes) }} bytes,
-            {{ b.modified_at }}</option>
+                  title="Stored as {{ b.taken_at }} (UTC)">{{ b.name }} — {{ "{:,}".format(b.bytes) }} bytes,
+            {{ b.taken_at }}</option>
         {% endfor %}
       </select>
     </div>
