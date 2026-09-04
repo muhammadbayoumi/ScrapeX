@@ -6,7 +6,7 @@ sparse-checked-out to `apps/design-system`, `packages/ui` and `packages/ui-patte
 source, not the website, because the website publishes token names without values and the
 source publishes both.
 
-He asked for it as [REQ-49](../REQUESTS.md#req-49--review-the-design-system-against-supabases),
+He asked for it as [REQ-49](../archive/REQUESTS.md#req-49--review-the-design-system-against-supabases),
 and approved six of the twenty-six axes the scoping pass produced. This reports those six.
 
 | axis | what it measured |

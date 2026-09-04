@@ -3,13 +3,13 @@
 **QUEUED FOURTH, NOT STARTED.**
 
 > «المزيد من المصادر ضفها الى القائمة»
-> — 2026-08-20, [REQ-16](REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue)
+> — 2026-08-20, [REQ-16](archive/REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue)
 
 He said *add them to the list*, without naming a position, so it is **appended in
 the order received** — after muqawil, [Balady](BALADY-ENG-OFFICES.md) and the
 [UAE](UAE-SOURCES.md). Nothing has started on any of the three queued surveys, so
 the order costs nothing to change; it is written down so there is one and not so it
-is fixed. [STATE.md](STATE.md) Track 5 carries the queue.
+is fixed. [STATE.md](archive/STATE.md) Track 5 carries the queue.
 
 **The survey below is his, stored verbatim**, for the same reason as the other two.
 
@@ -48,7 +48,7 @@ views joined by a stable identifier — PTLC/CR for Oman, the profile file numbe
 Qatar. On muqawil the Arabic half costs a **second full crawl** (871 listing pages
 and 17,403 profiles again) and is matched **by page-order index, never by label**,
 because one field is spelled `رقم العضويه` with `ه`
-([LESSONS.md](LESSONS.md)). **A stable identifier joining two language views is
+([LESSONS.md](archive/LESSONS.md)). **A stable identifier joining two language views is
 strictly better than both** — half the requests of muqawil, and no index-matching
 risk at all. His §38.4 and §38.5 already require exactly that join.
 
@@ -57,7 +57,7 @@ before using browser automation — should gate every one of the 32 sources.** I
 the cheapest question available and it can delete a crawl outright. muqawil's
 equivalent was answered late and the answer was no: the sitemap holds **20 static
 pages**, the map page carries **zero** contractor markers, and no sort parameter
-exists — three dead ends recorded in [DEC-11](BACKLOG.md) precisely so nobody spends
+exists — three dead ends recorded in [DEC-11](archive/BACKLOG.md) precisely so nobody spends
 those requests again.
 
 **3 · His §38.8 — "do not merge firms merely because their Arabic or English names

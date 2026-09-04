@@ -3,7 +3,7 @@
 > «انا لم استقر على طريقة خفض حجم المخزن … **ليست الفكرة ضغط الملفات** بل دراسة نشوف
 > احنا بنسحب اى ولية وبنحتفظ باية ولية وما الفائدة — دراسة تبرر الحجم الذى قيل انه
 > سيصل الى 5 جيجا من مصدر مقاول فقط»
-> — the owner, 2026-08-20 ([REQ-12](REQUESTS.md#req-12--justify-the-volume-not-compress-it))
+> — the owner, 2026-08-20 ([REQ-12](archive/REQUESTS.md#req-12--justify-the-volume-not-compress-it))
 
 He asked a question this project had not been asked before. `DEC-9` measured **how to
 store 6.4 GB more cheaply** and answered it well. He is asking **why we are storing 6.4
@@ -23,7 +23,7 @@ None is quoted from a document, including this project's own.
 
 ## 1 · What we fetch, and why each fetch is necessary
 
-Four classes. The count of each is fixed by [DEC-11](BACKLOG.md)'s partition, not
+Four classes. The count of each is fixed by [DEC-11](archive/BACKLOG.md)'s partition, not
 estimated.
 
 | class | pages | why it is fetched |

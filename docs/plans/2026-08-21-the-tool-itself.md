@@ -24,10 +24,10 @@ Tick a box only when it is MERGED. `⚡` marks a quick win. `🚫` marks a relea
       caller: the manual `scrapex carry-over`. A user starting the engine from the panel
       gets `ok: false`, `action: "check_storage"` — a dead engine — and the panel's own
       repair button **cannot fix this transition at all**. Under
-      [R-24](../RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+      [R-24](../archive/RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
       that is a release blocker. **The missing piece is a test that a split
       installation STARTS**; every carry-over test calls the function directly, which is
-      exactly why a manual-only remedy looked finished. [OP-24](../BACKLOG.md).
+      exactly why a manual-only remedy looked finished. [OP-24](../archive/BACKLOG.md).
 - [ ] **`R-21` · one source owns every outbound request** — «مصدر واحد يدير اى استعلام
       او اتصال بالانترنت»، adapting to what each site tolerates AND what the local
       connection carries. **The ruling says half of it is built and none of it is
@@ -36,12 +36,12 @@ Tick a box only when it is MERGED. `⚡` marks a quick win. `🚫` marks a relea
       (`HttpFetcher.min_interval_s`) and passes `pace_s=0` to the walker — so there are
       now two pacing mechanisms in the tree, and R-21 is where they get reconciled.
 - [ ] **`REQ-04` · every setting moves into the extension.** Ruled 2026-08-01
-      ([R-04](../RULINGS.md), `SR-10`), he chose the most thorough option, and nothing
+      ([R-04](../archive/RULINGS.md), `SR-10`), he chose the most thorough option, and nothing
       has been built. **The entry that justifies the whole request board.**
 - [ ] **`REQ-07` · the Data page carries everything the engine's page carries.**
       Planned. Track 1's B2 is the work.
 - [ ] **`REQ-11` · branch protection for `main`.** The API answers 404 — there is none,
-      so [R-18](../RULINGS.md#r-18--merge-it-when-it-is-green) is the entire gate,
+      so [R-18](../archive/RULINGS.md#r-18--merge-it-when-it-is-green) is the entire gate,
       enforced by discipline. He deferred it to its own session. **The trap that stopped
       it:** `test` and `migration-authority` are gated on `needs: scope`, a docs-only
       change makes them `SKIPPED`, and a required check that is skipped can leave a pull
@@ -88,9 +88,9 @@ Tick a box only when it is MERGED. `⚡` marks a quick win. `🚫` marks a relea
 - [ ] **Track 1 · the Console migration.** B2's remaining four endpoints, then B1, B3–B6.
       `O-5` is explicitly held by him — do not start saved views.
 - [ ] **Track 3 · the version debt.** `VERSION` is `0.2.2` and last moved 2026-08-10;
-      [R-06](../RULINGS.md#r-06--version-moves-with-every-merged-pull-request) says it
+      [R-06](../archive/RULINGS.md#r-06--version-moves-with-every-merged-pull-request) says it
       moves with every merged pull request. Blocked by
-      [R-07](../RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert).
+      [R-07](../archive/RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert).
       **The count grows every time this is deferred** — it was 48, then 58, then 62.
 - [ ] **Phase C** · `127.0.0.1` cannot go until the extension can read SQLite itself
       (**DEC-1**, wa-sqlite + OPFS), and jobs cannot move while the heartbeat is broken
@@ -102,14 +102,14 @@ Tick a box only when it is MERGED. `⚡` marks a quick win. `🚫` marks a relea
       reference to `generic_record`, `partitioncrawl` or `snapshotcrawl`, so every
       generic dataset is terminal-only. This will be true of Balady, the UAE sources and
       every source in the queue — which is why it is here and not in muqawil's plan.
-      [OP-26](../BACKLOG.md) item 3.
+      [OP-26](../archive/BACKLOG.md) item 3.
 - [ ] **`DEC-10` · a row-aware idempotency key**, so "fix the parser and re-run over the
       stored snapshots" actually works. Today `approve_candidate` short-circuits on
       `(snapshot, locator)` plus `schema_hash` and returns `recovered=True` while writing
       nothing. Every future source inherits this.
 - [ ] **Schema drift has a data model and no code.** `dataset_schema_version` carries
       `version_number` and `valid_to`; `approve_candidate` never writes a second version.
-      It is [OP-25](../BACKLOG.md)'s route (c) and it would answer DEC-10 too.
+      It is [OP-25](../archive/BACKLOG.md)'s route (c) and it would answer DEC-10 too.
 - [ ] **`DEC-12` · the append gate's key is not the number.** Three of his price briefs
       prove it separately — diesel says the **period**, bitumen the **commercial basis**,
       concrete the **source type**. Not needed for muqawil; needed before the first price

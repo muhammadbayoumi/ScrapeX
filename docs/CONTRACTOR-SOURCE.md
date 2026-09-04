@@ -131,7 +131,7 @@ challenge.
 
 | what | shape |
 |---|---|
-| listing | `https://muqawil.org/{en\|ar}/contractors?page=N` — **871 pages** as of 2026-08-20, 20 rows each and the last one **2**. Both numbers are READ, never assumed: 865 was true on 2026-08-16 and the page count moves as contractors register. See [DEC-11](BACKLOG.md) |
+| listing | `https://muqawil.org/{en\|ar}/contractors?page=N` — **871 pages** as of 2026-08-20, 20 rows each and the last one **2**. Both numbers are READ, never assumed: 865 was true on 2026-08-16 and the page count moves as contractors register. See [DEC-11](archive/BACKLOG.md) |
 | profile | `https://muqawil.org/{en\|ar}/contractors/{contractor_id}/{143}` |
 | logo | `https://muqawil.org/public/contractor/companyLogo/CompanyLogo-{unix_ts}_{name}.{ext}` |
 | map page | `https://muqawil.org/{en\|ar}/contractors/map` |
@@ -251,7 +251,7 @@ against `?page=2`. All six returned **exactly 20 rows**. So the bound is fixed:
 > afternoon.** Multiplying by 20 throughout overcounts by however few rows the final
 > page carries: 15 on 2026-08-16, 2 that morning, 3 that afternoon. The owner said
 > the data is live before any of this was measured, and the tail count is where it
-> shows. [DEC-11](BACKLOG.md).
+> shows. [DEC-11](archive/BACKLOG.md).
 
 Not the 122,785 the site's own counter shows — that is total membership, and the owner was
 right to call those counters statistics rather than columns.
@@ -271,7 +271,7 @@ href are load-bearing:
   query string and calls a 322-page region complete after one page;
 - it is written **`&amp;page=`**, so the character before `page=` is a **semicolon**.
   Matching `[?&]page=` finds nothing on any filtered listing. That was a live defect
-  here, not a site quirk. [DEC-11](BACKLOG.md).
+  here, not a site quirk. [DEC-11](archive/BACKLOG.md).
 
 The listing's ten filter parameters, all GET on `/{lang}/contractors`:
 
@@ -309,7 +309,7 @@ every card blank. Independently: **960 of 11,059 stored records (8.7%)** have a 
 
 > **`region_id` × `company_size` is therefore an exhaustive 56-cell partition of the
 > directory, verified to the unit** — the basis of the crawl method in
-> [DEC-11](BACKLOG.md), and the reason a completeness claim about this site can be a
+> [DEC-11](archive/BACKLOG.md), and the reason a completeness claim about this site can be a
 > proof rather than a hope.
 
 ### 5. Found while measuring: the email is obfuscated, and a naive scrape never gets it
@@ -519,7 +519,7 @@ this source only**, sharing nothing with `price_observation`.
 
 **The five hierarchical groups go in CHILD TABLES.** Ruled by the owner on 2026-08-20 —
 «جداول أبناء للخمس كلّها» — and recorded as
-[R-19](RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json).
+[R-19](archive/RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json).
 
 > **This paragraph used to say the opposite, and the superseded reasoning is kept
 > rather than deleted, per C4.** It read: *"The five hierarchical groups go in JSON
@@ -627,7 +627,7 @@ transition, 1,500 of 1,500.
 
 So it is neither one JSON field nor two columns. It is a **taxonomy** — 1,685 rows over
 228 pages, drawn from a closed vocabulary of **22 distinct activities** — which is what
-[R-19](RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)
+[R-19](archive/RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)
 ruled and `R-38` shaped. `contractors.write_groups` writes it as of 2026-08-22.
 
 **And the site's own English is wrong on 100 of those 1,685 rows** — 30 truncated to

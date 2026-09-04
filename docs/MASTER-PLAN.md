@@ -4,11 +4,11 @@
 >
 > This file was a 523-line plan titled *"From Owner Tool to Public, Decentralized Price
 > Tracker"*. `BACKLOG`'s Appendix B called it **stale and misleading**, and
-> [R-32](RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake)
+> [R-32](archive/RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake)
 > calls that title a mistake in full: ScrapeX collects in categories and price is one of
 > them. Its **Topology A** decision is answered by
-> [R-48](RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
-> and [R-50](RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it),
+> [R-48](archive/RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
+> and [R-50](archive/RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it),
 > not by it.
 >
 > **It could not simply be deleted:** §8.3 is cited by name from `extension/app.html`,

@@ -1,9 +1,21 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Lessons — what the code cannot tell you
 
 Hard-won knowledge from working on ScrapeX: the traps that cost real time, the
 failures that are **silent**, and the beliefs that measurement overturned.
 
-This is not [ENGINEERING.md](../ENGINEERING.md), which says how to write code,
+This is not [ENGINEERING.md](ENGINEERING.md), which says how to write code,
 and not [RULINGS.md](RULINGS.md), which records what the owner decided. This file
 holds what was learned the expensive way.
 
@@ -810,7 +822,7 @@ up. The kit has `split-button` (action **and** menu) and `icon-button compact` (
 menu) and **nothing for a bare overflow menu** — so the honest options are to compose
 the trigger's dress locally, as `.dataset-card` now does against
 `.account-menu-button`'s treatment, or to promote a real component. See
-[UI-KIT.md](UI-KIT.md) §UI-4.
+[UI-KIT.md](../UI-KIT.md) §UI-4.
 
 **And measure the SHELL, not the element, when comparing two controls.** The border,
 the fill and the shadow were never on `.split-button-trigger` — they are on the
