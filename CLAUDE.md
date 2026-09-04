@@ -52,8 +52,9 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
   reads them: `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
 - **The host is never one of the apps.** The engine cannot be dropped the way an app can:
   nothing executes without it and nothing writes the warehouse but it. Measured in
-  `spikes/opfs-sqlite/FINDINGS.md` — an MV3 service worker can read the warehouse and never
-  write it, and wa-sqlite ran 70-208x slower than Python on the Data page's own query.
+  `spikes/opfs-sqlite/FINDINGS.md` — an MV3 service worker cannot write the warehouse, OPFS
+  loses WAL, and its access handle is exclusive with no queue, so nothing else may hold the
+  file while the engine has it. **Reading is a different question and it passes.**
 - **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
   reviews it and says what he wants.
 - **A button that cannot work is worse than no button.** If the route 404s, do not draw
