@@ -105,6 +105,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 | [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **In flight** — decided and built 2026-09-03 under [R-84](RULINGS.md) — the base may be collapsed before publication and after it no migration is ever deleted. The chain is one baseline at v17, `grep -ci marketlens db/engine/schema.sql` answers **0**, and the reconciliation was checked against his real 2.02 GB warehouse read-only. The waiver on the second machine is recorded as a waiver | 2026-08-30 |
 | [REQ-53](#req-53--everything-about-backup-lives-on-manage-account-and-the-panel-is-what-holds-the-permission) | Everything about backup on one page, and the panel is what may do it | **Captured** — he said it 2026-09-02 and it reached the board a day later. Measured: the local snapshot is built by `/api/storage/backup`, called ONLY from the engine's `_storage.html`; the Drive bundle by `/api/bundle`, called ONLY from the panel; and **restore has no control in the panel at all** — `/api/storage/restore` is engine-page-only and `bundle.unpack()` has no caller outside tests. So he has a backup button in his only interface and no way to restore from it | 2026-09-03 |
+| [REQ-57](#req-57--cut-the-tag-at-the-current-baseline-and-make-it-a-rule) | Cut the tag at the current baseline, and make it a rule | **Done** — `engine-v0.4.8` cut 2026-09-04 on `9b5d920`, the first release since 2026-08-23 and the first that carries the squashed baseline at **schema v17**, so a released engine can reach v17 for the first time. The standing rule he gave with it is [R-87](RULINGS.md#r-87--no-version-sits-unreleased--the-published-engine-follows-the-code-and-the-lag-is-the-defect), whose mechanism is still his to choose. Closed `OP-134`; found `OP-143` and corrected `OP-98` | 2026-09-04 |
 | [REQ-55](#req-55--why-does-the-engine-not-work-and-will-it-happen-again-from-the-current-baseline) | Why the engine does not work, and whether it recurs from the current baseline | **Done** — reviewed 2026-09-04 and answered with measurements. His warehouse reads `user_version = 10` against a baseline of v17 with no migrations, so `R-84`'s refusal is correct and total; the engine's own code is healthy. He ruled the data away and narrowed the question to recurrence, which is [OP-133](BACKLOG.md) (the squash gate cannot see the condition that matters) and [OP-134](BACKLOG.md) (no release ever carried the chain past v10, so a machine on a release is behind by construction). Both wait on him | 2026-09-04 |
 | [REQ-56](#req-56--fix-the-three-that-are-mine-record-the-two-that-are-his-and-take-the-data-loss-on-its-own-branch) | Fix «ج», record «أ» and «ب», then take `OP-141` on its own branch | **Done** — built 2026-09-04 across two branches. `OP-135`, `OP-136`, `OP-137` closed on `claude/engine-failure-review-4287b1` ([#323](https://github.com/muhammadbayoumi/ScrapeX/pull/323)); `OP-141` closed on `claude/a-deletion-ordered-by-the-wrong-clock`, which he asked for separately once he read that it could delete today's copy of a wiped warehouse. `OP-138`, `OP-139`, `OP-140`, `OP-142` recorded with their reasons | 2026-09-04 |
 | [REQ-54](#req-54--a-source-declares-what-it-can-be-asked-to-do-and-the-panel-draws-its-controls-from-that) | A source declares what it can be asked to do | **Captured** — the crawl button starts ONE thing with fixed defaults. `run_mode`'s four values are price vocabulary and none of them means anything for a directory, while muqawil's seven real options are unreachable from the panel. He named the generalisation himself: this repeats with every source added | 2026-09-03 |
@@ -3001,6 +3002,38 @@ to name the snapshot's version and refuse, or warn, when it is older than the ba
 Part of the request, not a follow-up.
 
 ---
+
+## REQ-57 · Cut the tag at the current baseline, and make it a rule
+
+**Captured 2026-09-04, in the session he said it, and Done the same day.** He said it
+twice — once as an instruction, once with the rule that outlives it:
+
+> «اقطع الوسم عند baseline الحالى»
+
+then, after reading what the gap had cost:
+
+> «ادمج #323 ثم #324 ثم اقطع الوسم وضع قاعدة ان الوسم طالما تغير اذا يجب قطعه دائما حتى لا
+> يكون هناك تاخير بين الكود والمنشور»
+
+**`engine-v0.4.8` is cut**, annotated, on `9b5d920` — after `#323` and `#324` merged, in
+the order he gave. It is the first release since **2026-08-23** and the first that carries
+`R-84`'s squashed baseline, so **v17 is a ceiling a released engine can reach for the
+first time** — which is what `OP-134` was about and what closes it.
+
+**THE BLOCKER I PREDICTED DID NOT EXIST, and the way that was settled is the point.** The
+release build runs the whole suite on `windows-latest`, and `OP-98`'s chaos test fails on
+his machine every time it is run there — so I said a tag would be refused. Rather than
+spend a tag to find out, the workflow's own `dry_run` was dispatched: **success, zero
+failed steps**, with *"The engine must pass its own tests before it is shipped"* passing
+on GitHub's Windows runner. `OP-98` is corrected accordingly — it is not a Windows red
+that CI cannot see; it is a red on **his machine**, and the release gate is Windows and
+green.
+
+**The rule he gave with it is [R-87](RULINGS.md#r-87--no-version-sits-unreleased--the-published-engine-follows-the-code-and-the-lag-is-the-defect)**,
+which reverses an expectation `STATE.md` stated in capitals and keeps it marked under
+`C4`. Its mechanism — a guard that cannot forget, or a workflow that cuts the tag itself —
+is recorded as his decision, because it changes who publishes.
+
 
 ## REQ-55 · Why does the engine not work, and will it happen again from the current baseline
 

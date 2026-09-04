@@ -156,7 +156,7 @@ git merge-tree --write-tree origin/main origin/claude/a-citation-nothing-reads
   -> f84ebfee            git finds NOTHING to conflict on
 
 FAILED test_a_citation_that_quotes_its_subject_still_points_at_it
-docs/BACKLOG.md:4669 cites scrapex/cli.py:856 and says it holds
+docs/BACKLOG.md:4681 cites scrapex/cli.py:856 and says it holds
 'registry = None if args.db else DatabaseRegistry.defaults()', which is at [852]
 ```
 

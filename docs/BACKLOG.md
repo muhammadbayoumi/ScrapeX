@@ -3476,6 +3476,18 @@ failure, same assertion, same value.** `main`'s CI is green, and
 [the CI workflow](../.github/workflows/ci.yml) runs on ubuntu only — so this is a
 **Windows-only red that CI is structurally unable to report.**
 
+> **CORRECTED 2026-09-04, and the correction narrows it to this machine.** The sentence
+> above is half wrong: `release-engine.yml` builds on **`windows-latest`** and runs this
+> very suite (`SCRAPEX_FULL_MIGRATIONS=1`, `python -m pytest -q`), so a Windows
+> environment DOES report on it — it had simply not been exercised since this entry was
+> written, the last tag predating it by five days. Measured today, twice: the test fails
+> on **his** machine run exactly that way, and the step *"The engine must pass its own
+> tests before it is shipped"* **passed** on GitHub's Windows runner in a `dry_run` of the
+> release. So it is a **machine-specific timing red, not a Windows-generic one**, and it
+> does not gate a release. A prediction that it would refuse `engine-v0.4.8` was made from
+> the old sentence and was wrong — which is why the dry run was spent before the tag was
+> ([REQ-57](REQUESTS.md#req-57--cut-the-tag-at-the-current-baseline-and-make-it-a-rule)).
+
 **Why it matters more than a flaky test.** The test's own failure message states the
 consequence: `_source_is_busy` reads that status, so the source is *"blocked from every
 future crawl and nothing anywhere says why"*. If the sweep really does not run on Windows,
@@ -5304,6 +5316,41 @@ which un-orphaned them without fixing anything, and the guard said so.
 `scrapex/snapshotcrawl.py`, line 169 still holds `if page.url in seen:` while the
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
+
+### OP-143 · The pre-push hook refuses an engine tag for the right reason and names the wrong one
+
+**Found 2026-09-04** while measuring whether `engine-v0.4.8` could be cut
+([REQ-57](REQUESTS.md#req-57--cut-the-tag-at-the-current-baseline-and-make-it-a-rule)).
+
+`.githooks/pre-push` is `R-64`'s local half: it asks `scrapex database-status` and refuses
+an `engine-v*` push when the answer is not ok. Measured on his warehouse today:
+
+    "ok": false,  "status": "Older than the schema baseline",  "schema_version": 10
+
+So it would refuse — **and its refusal says**:
+
+> *"REFUSED: … would ship an engine this machine's warehouse cannot open. … This is OP-33
+> and OP-84. Land the missing migrations on main first."*
+
+**Both named entries are the opposite state.** `OP-33` and `OP-84` are a warehouse
+**ahead** of the code, with migrations living on an unmerged branch; landing them on
+`main` is the remedy for that. His warehouse is **below the baseline** — a state `R-84`
+created after this hook was written — and no migration on `main` can help it, because the
+migrations that would have are the ones the squash absorbed.
+
+**Why it is worth a number rather than a word change.** `R-64` asked for a refusal that
+can be argued with, and the hook keys on `ok: false`, which now conflates two states with
+opposite remedies. A person who reads it will go looking for an unmerged migration that
+does not exist. The repair is either a status check narrow enough to tell them apart —
+`database-status` already reports `Older than the schema baseline` distinctly — or a
+message that names both possibilities and lets the reader pick.
+
+**It did not block this release**: `git config core.hooksPath` is empty on this machine, so
+the hook is inert here (its own docstring says so: *"a hook is inert until somebody runs
+`git config core.hooksPath .githooks`"*). It will fire on any machine that has run the
+README's setup step.
+
+---
 
 ### OP-142 · Four pointer messages name commands on the panel, and two of them cannot be reworded because the control does not exist
 
