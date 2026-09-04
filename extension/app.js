@@ -4771,9 +4771,17 @@ const SOURCE_ACTIONS = [
  * has a menu and pass.
  */
 function sourceActions(source) {
-  const base = source.kind === "dataset"
-    ? SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)
-    : SOURCE_ACTIONS;
+  // A REGISTERED DIRECTORY HAS NEITHER SET. `kind: "directory"` is a source this
+  // build can crawl and has not crawled yet (`app.py` `_registered_directories`,
+  // his «المفروض المصادر تظهر بدون بيانات فهى مسجلة ومحفوظة فى الكود»): the
+  // manifest-only actions would 400 on it and the dataset-resolving ones would 404,
+  // because `/api/table/{key}` has no dataset to resolve. So it starts with none and
+  // gains exactly one below -- the crawl, which is the only thing it can do.
+  const base = source.kind === "directory"
+    ? []
+    : source.kind === "dataset"
+      ? SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)
+      : SOURCE_ACTIONS;
   // ONE ROW PER TABLE THE CARD STANDS FOR, and the fold is why this exists.
   //
   // `R-47` collapsed muqawil's two datasets into one card. The menu kept ONE
@@ -4819,7 +4827,12 @@ function sourceActions(source) {
   // right collector, a runner exists and the migration lets the row be written, and he
   // presses nothing. `R-81` -- if it has no control in the panel it does not exist for the
   // one person the tool is for.
-  const crawlable = source.kind === "dataset" && source.site_key ? [{
+  // ON `site_key`, WHICH IS WHAT THE COMMENT ABOVE ALREADY SAID. It read "GUARDED ON
+  // `site_key` RATHER THAN ON THE KIND" while the code also demanded one exact kind --
+  // so a registered directory, which carries a `site_key` and can be crawled today,
+  // was refused the control by the half of the condition the comment disowned.
+  const crawlable = source.site_key
+      && (source.kind === "dataset" || source.kind === "directory") ? [{
     action: "update",
     label: "Update now",
     why: "Crawl this source once, immediately.",

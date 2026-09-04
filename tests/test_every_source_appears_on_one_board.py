@@ -56,22 +56,53 @@ def site(conn, key: str, *, lifecycle: str = "active",
 # ---- it works before there is anything to report ----------------------------
 
 def test_the_board_reads_without_a_database(conn):
-    """`conn=None` is the new user's first run, and the products half is a file."""
+    """`conn=None` is the new user's first run, and NEITHER half needs a database.
+
+    THE CODE REGISTRY IS THE HALF HE ASKED FOR — *«المفروض المصادر تظهر بدون بيانات فهى
+    مسجلة ومحفوظة فى الكود»*. A directory this build can crawl is a fact about the
+    build, so it is listed before any warehouse exists, exactly as the manifest is.
+    """
     found = sourceboard.board(None, manifest_file=MANIFEST)
 
     assert found, "the manifest's own sources should be listed with no warehouse"
-    assert {one.registry for one in found} == {"manifest"}
+    assert {one.registry for one in found} == {"manifest", "code"}
+    assert [one.key for one in found if one.registry == "code"] == ["muqawil_org"]
 
 
 def test_a_warehouse_adds_to_the_list_rather_than_replacing_it(conn):
-    """Both registries, one list — which is the whole point of the module."""
+    """Every registry, one list — which is the whole point of the module.
+
+    IT USED TO ADD `muqawil_org` AND THAT STOPPED BEING AN ADDITION. The code registry
+    lists that key before any crawl, so inserting it now REPLACES rather than adds —
+    which is the next test. A key the code does not register is what still measures
+    addition.
+    """
     before = sourceboard.board(None, manifest_file=MANIFEST)
-    site(conn, "muqawil_org")
+    site(conn, "some_other_directory")
 
     after = sourceboard.board(conn, manifest_file=MANIFEST)
 
     assert len(after) == len(before) + 1
-    assert {one.registry for one in after} == {"manifest", "warehouse"}
+    assert {one.registry for one in after} == {"manifest", "warehouse", "code"}
+
+
+def test_a_crawled_directory_is_listed_once_by_the_warehouse_and_not_twice(conn):
+    """`REQ-37` and `R-47` in the list instead of on the screen.
+
+    Once a directory has been crawled it has a `source_site` row carrying its real
+    lifecycle and dataset count. The code registry's entry for the same key must step
+    aside: two rows for one source is the twice-drawn card he complained about, and a
+    board that reported it would send the panel the same defect.
+    """
+    site(conn, "muqawil_org", lifecycle="paused")
+
+    found = [one for one in sourceboard.board(conn, manifest_file=MANIFEST)
+             if one.key == "muqawil_org"]
+
+    assert len(found) == 1, [(one.registry, one.state) for one in found]
+    assert found[0].registry == "warehouse", "the placeholder beat the real row"
+    assert found[0].state == "paused", (
+        "the code registry's `built` overwrote a decision someone took")
 
 
 # ---- the state vocabulary ---------------------------------------------------
@@ -110,7 +141,16 @@ def test_a_source_with_no_collector_reads_as_registered(tmp_path):
 
     found = sourceboard.board(None, manifest_file=manifest)
 
-    assert [(one.key, one.state) for one in found] == [("NEWTHING", "registered")]
+    # THE MANIFEST HALF, NAMED. This asserted on the whole board, which measured the
+    # manifest only while the manifest was the only registry that needs no database.
+    # `registered` still comes from exactly one place and this still proves it.
+    from_manifest = [(one.key, one.state) for one in found
+                     if one.registry == "manifest"]
+    assert from_manifest == [("NEWTHING", "registered")]
+    assert not [one for one in found
+                if one.state == "registered" and one.registry != "manifest"], (
+        "a second registry started claiming `registered`, which only the manifest can "
+        "say: a source on the list with no collector at all")
 
 
 def test_a_paused_site_is_not_reported_as_built(conn):
@@ -154,9 +194,13 @@ def test_the_summary_counts_by_category_and_state(conn):
     counted = sourceboard.summary(
         sourceboard.board(conn, manifest_file=MANIFEST))
 
-    assert counted["contractors"] == {"active": 1}
+    assert counted["contractors"] == {"active": 1}, (
+        "the crawled row and the code registry's placeholder were both counted")
+    # THE PRODUCTS CELL IS THE MANIFEST, and it used to be compared against the whole
+    # database-less board — which was the same number only while the manifest was the
+    # only registry that needs no database. `from_manifest` names what it means.
     assert sum(counted["products"].values()) == len(
-        sourceboard.board(None, manifest_file=MANIFEST))
+        sourceboard.from_manifest(MANIFEST))
 
 
 # ---- the split stays visible ------------------------------------------------
