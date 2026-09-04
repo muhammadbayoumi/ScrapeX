@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Many sessions, one `main` — how the primary session runs the queue
 
 **Read this before spawning a session, before claiming a register number, and before
@@ -202,7 +214,7 @@ one person able to check. **His setting is still the fix.**
 
 **2026-09-03.** A session ended holding `claude/the-command-that-outlived-its-removal` —
 287 insertions across 11 files, **on no remote at all**, reachable only from one machine's
-git index. That is the failure [CLAUDE.md](../CLAUDE.md) opens on, and it was pushed to
+git index. That is the failure [CLAUDE.md](../../CLAUDE.md) opens on, and it was pushed to
 `origin` to preserve it and deliberately **not merged**: work no session can answer for
 does not get merged, which is the same line held on `#299` that morning when its author
 had dropped out of the session list.

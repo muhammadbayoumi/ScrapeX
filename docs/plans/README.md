@@ -1,7 +1,7 @@
 # Plans
 
 Every plan that governs or has governed work on ScrapeX. Read the relevant one
-before picking up a track — [../STATE.md](../STATE.md) says which track is live.
+before picking up a track — [../STATE.md](../archive/STATE.md) says which track is live.
 
 **These seven were rescued on 2026-08-17.** They had been written into
 `~/.claude/plans/` — one machine, one user account — and were invisible on the
@@ -9,49 +9,49 @@ owner's second machine. One of them was the plan for a pull request that was ope
 at that moment. They are copied here **verbatim**, original codenames and all;
 nothing was rewritten, because a plan edited after the fact stops being evidence
 of what was decided when. See
-[R-09](../RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english).
+[R-09](../archive/RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english).
 
 > Some are written in Arabic. They are kept in their original language for the
 > same reason — the system's own documents are English
-> ([R-09](../RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)),
+> ([R-09](../archive/RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)),
 > but a historical record is not rewritten.
 
 ---
 
 ## Current
 
-**ONE plan is live** ([R-58](../RULINGS.md#r-58--drive-is-the-second-plan-muqawil-finishes-first-and-its-problems-with-it)).
+**ONE plan is live** ([R-58](../archive/RULINGS.md#r-58--drive-is-the-second-plan-muqawil-finishes-first-and-its-problems-with-it)).
 **A row below the live one is QUEUED whatever its own file says about itself** — eight rows
 here carried `LIVE` at once on 2026-08-26, which meant none of them was the plan.
-One sentence per row on purpose ([R-57](../RULINGS.md#r-57--a-document-carries-what-is-needed-and-consequential-and-nothing-else)):
+One sentence per row on purpose ([R-57](../archive/RULINGS.md#r-57--a-document-carries-what-is-needed-and-consequential-and-nothing-else)):
 what the plan is for goes in the plan.
 
 | # | plan | what it is |
 |---|---|---|
 | **1 · LIVE** | [2026-08-26-what-remains-of-muqawil.md](2026-08-26-what-remains-of-muqawil.md) | Ten steps in the order he asked for. **Five are blocked on him, and they are every defect that publishes a false value** — so the route to a correct dataset runs through five decisions, not through more crawling. Evidence: [MUQAWIL-AUDIT-2026-08-26.md](../MUQAWIL-AUDIT-2026-08-26.md) |
-| **1a** | [2026-08-24-a-generic-crawl-is-a-run.md](2026-08-24-a-generic-crawl-is-a-run.md) | Step 2 of the above in detail — `R-52` / `OP-68`, and the `C5` disagreement that became [R-54](../RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at). Step 1 of it needs no ruling |
+| **1a** | [2026-08-24-a-generic-crawl-is-a-run.md](2026-08-24-a-generic-crawl-is-a-run.md) | Step 2 of the above in detail — `R-52` / `OP-68`, and the `C5` disagreement that became [R-54](../archive/RULINGS.md#r-54--the-state-column-is-fixed-at-its-root-first-a-confirmation-moves-last_seen_at). Step 1 of it needs no ruling |
 | 1b | [2026-08-30-the-engine-lives-on-the-engine-page.md](2026-08-30-the-engine-lives-on-the-engine-page.md) | `REQ-50` / `R-80` -- one feature, one place, starting with the engine. Batch 1 is built; **batch 2 (the power switch) is blocked on `R-77`'s gate**, and the blocker is written down rather than worked around |
 | **2** | Drive | Branch `claude/drive-without-a-server` at `e00711d` — pushed, **no PR since 2026-08-22**. Second by his ruling |
 | 3 | [2026-08-22-the-source-page-moves-into-the-extension.md](2026-08-22-the-source-page-moves-into-the-extension.md) | `REQ-07` — the engine's `/source/{key}` becomes the panel's. Step 0 is done; the gate on steps 3 and 5 was lifted 2026-08-26 |
 | 4 | [2026-08-21-the-tool-itself.md](2026-08-21-the-tool-itself.md) | Everything tool-wide, opened so general work stops competing with muqawil. Holds `REQ-20`, `R-21`, `REQ-04`, `REQ-11` |
-| 5 | [../MIGRATION-PLAN.md](../MIGRATION-PLAN.md) | The base plan ([R-49](../RULINGS.md#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test)). Its living state is [HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md) |
+| 5 | [../MIGRATION-PLAN.md](../MIGRATION-PLAN.md) | The base plan ([R-49](../archive/RULINGS.md#r-49--migration-planmd-is-the-base-plan-and-its-date-is-the-test)). Its living state is [HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md) |
 
 ## Historical
 
 Kept because they record decisions, measurements and reasoning that nothing else
 holds. Do not follow them as instructions without checking
-[../STATE.md](../STATE.md) first.
+[../STATE.md](../archive/STATE.md) first.
 
-**Folded 2026-08-27, not archived** ([R-60](../RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive)) —
+**Folded 2026-08-27, not archived** ([R-60](../archive/RULINGS.md#r-60--a-finished-document-leaves-the-tree-and-git-is-the-archive)) —
 `git show d6f4967:docs/plans/<name>` returns either in full:
 
 - **`2026-08-20-finish-muqawil-then-the-source-queue.md`** (671 lines) — its checklist was
   the tracking surface, and every open item on it is now on a register: `REQ-45` (no path
-  from the panel), `O-2`, [Q-25](../BACKLOG.md#q-25--is-a-stored-page-evidence-or-only-a-parse-cache)
+  from the panel), `O-2`, [Q-25](../archive/BACKLOG.md#q-25--is-a-stored-page-evidence-or-only-a-parse-cache)
   (lifted off its §E, where it had no entry), and its three unrecorded engineering findings
-  are [LESSONS §17](../LESSONS.md#17--three-findings-that-only-a-caller-a-mutation-or-a-count-could-have-produced).
+  are [LESSONS §17](../archive/LESSONS.md#17--three-findings-that-only-a-caller-a-mutation-or-a-count-could-have-produced).
   Its §D measurement of `STORAGE.md`'s ratio is what produced
-  [OP-83](../BACKLOG.md#op-83--1728-snapshots-were-never-compressed--69-of-the-stored-bytes-623-mb-recoverable).
+  [OP-83](../archive/BACKLOG.md#op-83--1728-snapshots-were-never-compressed--69-of-the-stored-bytes-623-mb-recoverable).
 - **`2026-08-16-muqawil-contractor-source.md`** (170 lines) — all six build steps shipped in
   #202-#209 and #211. Its measured site facts are in
   [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) — `data-cfemail`, the `143` segment, 20
@@ -68,7 +68,7 @@ holds. Do not follow them as instructions without checking
 | [2026-07-29-sync-green-main-and-merge.md](2026-07-29-sync-green-main-and-merge.md) | 2026-07-29 | Arabic. Sync, get `main` green, merge the scattered branches, then resume. **Contains a diagnosed open item** — "Tier 02's price disappeared and will not come back on its own". Was `vast-strolling-raccoon.md` |
 | [2026-07-21-data-page-design.md](2026-07-21-data-page-design.md) | 2026-07-21 | **The Data Page build document** — the design B2 is migrating. The owner's eight questions answered by name, the judges' `must_fix` ledger, and a build order where each slice is useful alone. Relevant to Track 1 right now. Was `scrapex-data-page-design.md` |
 | [2026-07-20-review-implementation-plan.md](2026-07-20-review-implementation-plan.md) | 2026-07-20 | Prioritised plan from 78 surviving findings, each verified by direct read before writing. Includes what is genuinely done — "do not rebuild, prove it instead" — and a section of owner decisions that are not code choices. Was `scrapex-review-notes-plan.md` |
-| [2026-07-20-review-findings.json](2026-07-20-review-findings.json) | 2026-07-20 | The raw findings behind that plan — 1,015 lines, each with `file:line` evidence and a state. Produced by the audit described in [APPROACHES.md A5](../APPROACHES.md) |
+| [2026-07-20-review-findings.json](2026-07-20-review-findings.json) | 2026-07-20 | The raw findings behind that plan — 1,015 lines, each with `file:line` evidence and a state. Produced by the audit described in [APPROACHES.md A5](../archive/APPROACHES.md) |
 | [2026-07-19-completion-plan.md](2026-07-19-completion-plan.md) | 2026-07-19 | Arabic. The completion plan built on an audit of 76 agents against every section of the specification. Has a "three barriers before any new work" section and a deliberately-deferred list that is declared in the UI. Was `scrapex-completion-plan.md` |
 
 ---
@@ -78,7 +78,7 @@ holds. Do not follow them as instructions without checking
 **Here, in this repository, at the moment it is written** — not in `~/.claude/`,
 not in a scratchpad, not in the conversation. Name it `YYYY-MM-DD-<subject>.md`
 and add a row above. If it governs live work, add it to the **Current** table and
-link it from [../STATE.md](../STATE.md).
+link it from [../STATE.md](../archive/STATE.md).
 
 A plan the other machine cannot open does not exist.
 - [2026-08-21 · the platform, not a price tracker](2026-08-21-the-platform-not-a-price-tracker.md) — `R-32`: categories (`products`, `contractors`), one source registry, a database per account. **Nothing built; `Q-14` is his.**
