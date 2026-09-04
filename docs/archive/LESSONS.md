@@ -697,7 +697,7 @@ data entries and the runtime opens five.
     --add-data db;db
     --add-data sources.yaml;.
 
-Nothing else rode along. `scrapex/webui/app.py:386` computes
+Nothing else rode along. `scrapex/webui/app.py:387` computes
 `Path(__file__).parent / "static"`, which in a one-file build is
 `_MEIPASS/scrapex/webui/static` — exactly the path in the owner's error —
 `StaticFiles(check_dir=True)` refuses to mount a directory that is not there, and

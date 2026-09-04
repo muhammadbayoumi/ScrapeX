@@ -142,6 +142,48 @@ def from_warehouse(conn: sqlite3.Connection) -> tuple[Source, ...]:
     return tuple(found)
 
 
+def from_code() -> tuple[Source, ...]:
+    """The directories this BUILD can crawl, whether or not the warehouse knows them.
+
+    THE HALF `_LIFECYCLE` ABOVE SAYS IS MISSING, from the other side. That note records
+    that the generic side cannot say a site is *listed with no collector*; the gap that
+    actually bit him is its mirror — a site **with** a collector and no `source_site`
+    row at all, because that row is written by `catalog.register_site` from inside the
+    collector's own first run. On a warehouse created an hour earlier `muqawil_org` was
+    therefore in no list on any surface, while `directories.BUILDERS` had known how to
+    crawl it the whole time. He said what the rule should be:
+
+        «المفروض المصادر تظهر بدون بيانات فهى مسجلة ومحفوظة فى الكود»
+
+    `built`, NOT `registered`, and the vocabulary at the top of this module is why: a
+    collector exists for it in this build and nothing is scheduled, which is exactly
+    what `built` means here. `registered` is reserved for a source on the list with no
+    collector yet, which is a different thing and still only the manifest can say it.
+
+    THIS FUNCTION IS THE SINGLE ANSWER TO "WHICH DIRECTORIES DOES THE CODE REGISTER"
+    (`ENGINEERING` P1/Q1). `webui/app.py` had its own copy of that knowledge for a few
+    hours — the panel then listed muqawil and `scrapex sources` did not, which is the
+    split this module was written to end.
+    """
+    from . import directories
+
+    found = []
+    for key in sorted(directories.BUILDERS):
+        directory = directories.BUILDERS[key]()
+        found.append(Source(
+            key=key,
+            category=SourceCategory.CONTRACTORS,
+            name=directory.display_name,
+            base_url=directory.base_url,
+            # What collects it, which is the question `collector` answers. The
+            # warehouse side prints scope and dataset counts; before the first crawl
+            # there are neither, and naming the registry is the honest answer.
+            collector="directory · registered in the code",
+            state="built",
+            registry="code"))
+    return tuple(found)
+
+
 def board(conn: sqlite3.Connection | None = None,
           manifest_file: Path | str = MANIFEST_FILE,
           category: SourceCategory | None = None) -> tuple[Source, ...]:
@@ -153,6 +195,12 @@ def board(conn: sqlite3.Connection | None = None,
     found = list(from_manifest(manifest_file))
     if conn is not None:
         found.extend(from_warehouse(conn))
+    # THE CODE REGISTRY LAST, AND ONLY FOR WHAT THE WAREHOUSE HAS NOT SEEN. Once a
+    # directory has been crawled it has a `source_site` row, and that row carries its
+    # real lifecycle and dataset count — a second entry beside it would be the
+    # twice-drawn card `REQ-37` and `R-47` are about, in this list instead of on screen.
+    known = {one.key for one in found}
+    found.extend(one for one in from_code() if one.key not in known)
     if category is not None:
         found = [one for one in found if one.category == category]
     return tuple(sorted(found, key=lambda one: (one.category.value, one.key)))
