@@ -3407,7 +3407,7 @@ at all. A mechanism that is correct, visible, and load-bearing on nothing:
 
 | found | the mechanism | what it actually held |
 |---|---|---|
-| design review | `assert "THEME_PROPERTIES.forEach" in appearance` | the string occurs TWICE, so deleting `apply()`'s loop leaves it green on `clearTheme` |
+| design review | `assert "THEME_PROPERTIES.forEach" in appearance` | the string occurred TWICE, so deleting `apply()`'s loop left it green on `clearTheme` — **that half closed 2026-09-04**, `R-85` deleted `deviceColors` and `clearTheme` with it, so the string occurs once. The assertion is still a substring and still cannot tell the loop from `Object.keys(theme).forEach` (`OP-102`) |
 | Drive incident | the panel's *"3 loaded module(s) changed"* row | displayed correctly, gated nothing; the backup ran on stale code |
 | engine page | `schema_lag` published and rendered | `engine.js` never carries the field, so the banner cannot appear in any state |
 | engine page | a guard slicing `app.js` between two markers | the window is ~2,800 lines and `detail` appears ~71 times in unrelated code |
