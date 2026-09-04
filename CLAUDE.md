@@ -5,13 +5,9 @@ One live document. The retired ones are frozen in `docs/archive/`.
 ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to
 the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](README.md).
 
-**It collects in categories; price is one of them, not the whole tool.**
-
-| category | collects | state |
-|---|---|---|
-| `products` | shops and price sources | 12 registered, 7 active, 5 built |
-| `contractors` | the muqawil.org directory | works |
-| `vacancies`, `tenders` | — | not started |
+**It collects in categories; price is one of them, not the whole tool.** `products`
+(12 sources registered, 7 active) and `contractors` (muqawil.org) work; `vacancies` and
+`tenders` are named and unbuilt.
 
 ## The loop
 
@@ -25,8 +21,17 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 
 ## Preferences that decide close calls
 
-- **DRY.** Flag repetition aggressively. One source of truth per concept; anything
-  needed twice is generated from that one source.
+- **DRY = one source of truth per piece of knowledge**, not fewer repeated lines.
+  Merge two things only if they hold the same knowledge **and would change for the
+  same reason**; otherwise leave them apart, however alike they look. Judge it by
+  change amplification — how many places one conceptual change must touch, and what
+  breaks if one is missed. Scrutinise rules, validation, permissions, mappings, state
+  transitions, config values, API paths and status names; repeated CSS and
+  similar-looking components usually are not duplication. Name both locations with
+  `file:line` before calling it duplication, and prefer duplication to the wrong
+  abstraction: no helper with one caller, no generic wrapper, nothing that makes the
+  control flow harder to read. Put a shared thing where the repo already puts shared
+  things.
 - **Tests are non-negotiable** — too many beats too few.
 - **Engineered enough**: not fragile or hacky, not premature abstraction.
 - **More edge cases, not fewer.** Thoughtfulness over speed.
@@ -78,6 +83,10 @@ Four dimensions, one at a time, stopping after each for his word:
 Per issue: the problem with `file:line` · two or three options **including "do
 nothing"** · per option the effort, risk, blast radius and maintenance burden · the
 recommendation mapped to the preferences · then ask before proceeding.
+
+Rank each finding: **must fix** (a realistic path to wrong behaviour) · **should fix**
+(costly to maintain, no correctness risk) · **optional** · **not an issue** (tempting to
+change, better left alone — say why). Report nothing rather than pad the list.
 
 ## The tools, not the files
 
