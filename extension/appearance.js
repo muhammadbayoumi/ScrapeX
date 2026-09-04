@@ -210,10 +210,6 @@
     return dashed(Object.entries(palette.themes[scheme]));
   }
 
-  function clearTheme(root) {
-    THEME_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
-  }
-
   function paletteFor(id) {
     // resolvePalette already guarantees a registry key, and normalize() runs on
     // every path into `current`. The `||` is kept because this is the line that

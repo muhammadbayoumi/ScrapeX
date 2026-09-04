@@ -1792,7 +1792,7 @@ supplies the second, because only one is *repeated*:
 |---|---|---|
 | dataset cards | `querySelectorAll(".dataset-card .split-button")` in `extension/app.js` | **yes — the broken one** |
 | Activity log | `$("activity").querySelector(".split-button")` in `extension/app.js` | no, singular |
-| Manage account danger menu | `$("drive-disconnect")`, markup at [extension/app.html:1347](../extension/app.html#L1347) | no, singular |
+| Manage account danger menu | `$("drive-disconnect")`, markup at [extension/app.html:1336](../extension/app.html#L1336) | no, singular |
 | source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)), wired by [scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118) | no, singular |
 | gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | not a product surface |
 | grid harness fixture | [tools/grid_harness.py:68](../tools/grid_harness.py#L68) | not a product surface |
@@ -3647,9 +3647,20 @@ passes 21 of 21 in both schemes.
 
 The allowlist loop at `design/appearance.js:347` is what makes *"a palette may change
 nothing but colour"* true at runtime. Its only guard is the substring assertion at
-`tests/test_vendor.py:289` — and `clearTheme` at `design/appearance.js:310` contains the
+`tests/test_vendor.py:289` — and `clearTheme` contains the
 same substring, so **the assertion is satisfied whether or not the loop in `apply()`
 exists.**
+
+> **HALF OF THIS CLOSED ON 2026-09-04, AND NOT BY A BETTER ASSERTION.** `R-85` deleted
+> `deviceColors`, which was `clearTheme`'s only caller, so the function became dead code
+> and went — **caught by the eslint gate, on this branch's first CI run ever.** The
+> substring now occurs **once**, so `assert "THEME_PROPERTIES.forEach" in appearance` does
+> bite on `apply()`'s loop after all. The duplicate-subject escape is gone as a side
+> effect of a colour ruling, which is worth saying plainly: nobody set out to fix it.
+>
+> **What is NOT closed is the finding itself.** A substring is still not the loop, and the
+> mutation results below stand: the assertion cannot tell `THEME_PROPERTIES.forEach` from
+> `Object.keys(theme).forEach`. `OP-102` stays open on that.
 
 Mutation testing on a byte-verified mirror, restored and `git status` asserted clean after
 each: replacing the loop with `Object.keys(theme).forEach` put `--fs`, `--font-body` and

@@ -302,9 +302,17 @@ def test_the_design_system_is_the_baseline_and_not_a_palette():
     assert "R-74" in tokens
     assert "THIS FILE IS THE SUPABASE DESIGN SYSTEM" in tokens
 
-    # apply() still writes the 36 colours, and clearTheme still removes exactly
-    # those -- symmetry that matters because `supabase` declares no colours, so
-    # REMOVAL is what makes the baseline show through for it.
+    # apply() still writes the 36 colours. THE REMOVAL HALF IS GONE WITH `R-85`:
+    # `clearTheme` existed for the `deviceColors` early return, that branch is
+    # deleted, and a function with no caller is dead code -- so it went, and the
+    # eslint gate is what said so. `supabase` declaring no colours no longer needs
+    # removal to show the baseline through, because there is no second palette to
+    # leave properties behind.
+    #
+    # AND THE STRING BELOW NOW OCCURS ONCE, WHICH IS THE POINT. `LESSONS` 29
+    # records this assertion as weak precisely because the string occurred TWICE,
+    # so deleting apply()'s loop would have stayed green on `clearTheme`'s. That
+    # escape is closed by the deletion rather than by a better assertion.
     assert "THEME_PROPERTIES.forEach" in appearance
     assert "DESIGN_PROPERTIES.forEach" not in appearance
 
