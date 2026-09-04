@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # ScrapeX — what we found: open problems, debt, and decisions not yet built
 
 Written **2026-07-29**. This file exists because decisions kept getting lost between
@@ -13,7 +25,7 @@ warehouse, or the owner's own words. Anything I inferred rather than verified is
 > ### ⚠ It is no longer the ONLY tracking document — read this before adding an entry
 >
 > A documentation system was built on **2026-08-17** ([R-09](RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)),
-> and it starts at [../CLAUDE.md](../CLAUDE.md). Three registers now exist, and the
+> and it starts at [../CLAUDE.md](../../CLAUDE.md). Three registers now exist, and the
 > test for where a thing belongs is **where it came from**:
 >
 > | it came from | it belongs in |
@@ -1776,7 +1788,7 @@ defect rather than the consumers"*
 **And the prose now tells the next consumer to write the selector again.**
 `docs/UI-KIT.md` records the trap as placement guidance — *"where a layer really is
 needed, raise it to `var(--z-overlay)` **only while the menu is open**
-(`:has(.split-button-menu[open])`)"* ([docs/UI-KIT.md:202](UI-KIT.md#L202)). That is a
+(`:has(.split-button-menu[open])`)"* ([docs/UI-KIT.md:202](../UI-KIT.md#L202)). That is a
 documented invitation to a second copy, and `webui.css` is already the first:
 `.source-filter-menu[open]{z-index:var(--z-overlay)}`
 ([scrapex/webui/static/webui.css:142](../scrapex/webui/static/webui.css#L142)),
@@ -3309,7 +3321,7 @@ and `report_coverage`'s printer, which prints the count beside the fraction so a
 **These are the first listing crawl's 864 pages in both locales.** Compression landed after
 them and nothing went back. `scrapex/snapshotbody.py:193` reads either codec, so they are
 correct today — just large. The measurement that replaced the projection is in
-[STORAGE.md](STORAGE.md#measured-on-the-finished-warehouse--2026-08-27-and-the-headline-was-4x-optimistic).
+[STORAGE.md](../STORAGE.md#measured-on-the-finished-warehouse--2026-08-27-and-the-headline-was-4x-optimistic).
 
 **Why this is an `OP` and not a plan.** Re-encoding a stored row rewrites evidence, and
 `generic_page_snapshot` is the table this repository treats as immutable. The `content_hash`
@@ -3599,7 +3611,7 @@ staging tree it finds.
 1. **Disk.** 7.9 GB free while a build needs ~3 GB of transient peak. Bounded retention was
    housekeeping when it was written and is closer to urgent now.
 2. **The retention gap is already recorded — this only prices it.** It is
-   [docs/plans/2026-08-21-the-platform-not-a-price-tracker.md:159](plans/2026-08-21-the-platform-not-a-price-tracker.md#L159)
+   [docs/plans/2026-08-21-the-platform-not-a-price-tracker.md:159](../plans/2026-08-21-the-platform-not-a-price-tracker.md#L159)
    §4, out of `R-32`, and `CLAUDE.md` states it in its opening. **Nothing new is claimed
    here.** What is new is the SHARE, measured 2026-08-29: `generic_page_snapshot` is
    **932.9 MB** of row payload, **75.8%** of the database, against **25.6 MB / 2.1%** for
@@ -5668,7 +5680,7 @@ corrected quietly — it is written into its own docstring:
 > keyed on tags would have refused the squash he authorised."*
 
 That reasoning is sound about tags and it leaves the owner unprotected, on the
-two-machine setup [../CLAUDE.md](../CLAUDE.md) opens by describing. `R-84`'s own
+two-machine setup [../CLAUDE.md](../../CLAUDE.md) opens by describing. `R-84`'s own
 measurement — *"His warehouse was measured read-only at `PRAGMA user_version = 16` — the
 head of the chain"* — was true of ONE of the two. **The other was measured on 2026-09-04
 at `user_version = 10`** and is the warehouse that stopped opening: 16,411
@@ -6274,9 +6286,9 @@ warehouse is not full of identical rows.
 
 | the brief | what carries the new fact | what `SR-6` sees |
 |---|---|---|
-| [DIESEL-PRICES.md](DIESEL-PRICES.md) §3 — *"never overwrite a previous price when a new month or quarter begins"* | **the period.** Oman published `0.258 OMR/litre` for August. If July was also `0.258`, the ministry setting it again for a named month **is** the fact | no change → writes nothing → **the August period never exists** |
-| [BITUMEN-PRICES.md](BITUMEN-PRICES.md) | **the commercial basis.** Two observations can be ex-refinery and delivered, taxed and untaxed, 25-tonne truck and sea — different facts at equal values | no change → collapses them → destroys the only thing that made either usable |
-| [CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md) §3 | **the source type.** Its table has a column headed *"Can it populate `price_amount`?"* and the answer is **No** for `official_price_index`, `official_approved_source` and `official_specification`. An index point and an absolute price are not comparable quantities | no change → treats an index value and a price as the same observation |
+| [DIESEL-PRICES.md](../DIESEL-PRICES.md) §3 — *"never overwrite a previous price when a new month or quarter begins"* | **the period.** Oman published `0.258 OMR/litre` for August. If July was also `0.258`, the ministry setting it again for a named month **is** the fact | no change → writes nothing → **the August period never exists** |
+| [BITUMEN-PRICES.md](../BITUMEN-PRICES.md) | **the commercial basis.** Two observations can be ex-refinery and delivered, taxed and untaxed, 25-tonne truck and sea — different facts at equal values | no change → collapses them → destroys the only thing that made either usable |
+| [CONCRETE-MATERIALS.md](../CONCRETE-MATERIALS.md) §3 | **the source type.** Its table has a column headed *"Can it populate `price_amount`?"* and the answer is **No** for `official_price_index`, `official_approved_source` and `official_specification`. An index point and an absolute price are not comparable quantities | no change → treats an index value and a price as the same observation |
 
 > **So the key is not `(product, price)`. It is at least
 > `(product identity, period, commercial basis, source type)`** — and the concrete
@@ -6557,7 +6569,7 @@ and each of these looked promising enough to chase:
 
 ### DEC-9 · Snapshots are stored uncompressed, and the full crawl is 6.4 GB of it
 
-> **SUPERSEDED 2026-08-20 by [STORAGE.md](STORAGE.md), and kept in full per C4.**
+> **SUPERSEDED 2026-08-20 by [STORAGE.md](../STORAGE.md), and kept in full per C4.**
 > It asked *how to store 6.4 GB more cheaply* and answered that well. The owner
 > asked *why we are storing 6.4 GB at all*, and five of the numbers below do not
 > survive being measured properly: a listing page is **17.8%** cards, not 21%; a
@@ -7058,7 +7070,7 @@ He asked for his own ruling to be tested before it was built — *«ادرس ح�
 صحيح ام هناك الافضل»*, captured as
 [REQ-23](REQUESTS.md#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria)
 — against strict criteria. Measured in
-[R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md): 11 criteria, 5 shapes,
+[R19-CHILD-TABLES-MEASURED.md](../R19-CHILD-TABLES-MEASURED.md): 11 criteria, 5 shapes,
 518,490 rows.
 
 **The ruling's substance is upheld.** JSON costs **1,168 ms** on the query R-19 names

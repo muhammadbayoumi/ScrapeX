@@ -17,7 +17,7 @@ correction that is not written down is one the next session will build against.
 > «علشان لما اديك مصدر لمقاولين تانى فى المستقبل منخترعش الذرة نكمل على الى موجود
 > بالمثل كالمنتجات اعتقد انها مستقرة الى حد ما»
 
-Ruled as [R-32](../RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake).
+Ruled as [R-32](../archive/RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake).
 Requests: `REQ-25` (one registry, with a category), `REQ-26` (a database per
 account), `REQ-27` (a second source of a category reuses the first's machinery).
 

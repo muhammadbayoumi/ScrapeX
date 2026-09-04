@@ -3,7 +3,7 @@
 **QUEUED, NOT STARTED.**
 
 > «مصادر اخرى»
-> — 2026-08-20, [REQ-18](REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled)
+> — 2026-08-20, [REQ-18](archive/REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled)
 
 **The brief below is his, stored verbatim.**
 

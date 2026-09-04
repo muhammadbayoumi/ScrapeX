@@ -3,7 +3,7 @@
 **QUEUED, NOT STARTED — and he said so himself:**
 
 > «مصادر جديدة ضيفها للقائمة **سياتى دورها يوما ما**»
-> — 2026-08-20, [REQ-19](REQUESTS.md#req-19--reinforced-concrete-material-prices-its-turn-will-come)
+> — 2026-08-20, [REQ-19](archive/REQUESTS.md#req-19--reinforced-concrete-material-prices-its-turn-will-come)
 
 Cement, reinforcing steel, structural steel sections, sand, coarse aggregate and
 water, across Saudi Arabia, the UAE, Egypt, Oman, Qatar, Bahrain and Kuwait.
@@ -53,7 +53,7 @@ not appended* — keys on the wrong thing:
 | bitumen | the **commercial basis** |
 | **this one** | the **source type** |
 
-Three products, three axes, three briefs written separately. [DEC-12](BACKLOG.md) is
+Three products, three axes, three briefs written separately. [DEC-12](archive/BACKLOG.md) is
 that finding, and it is recorded **before** any of these collections is scheduled,
 because the failure it describes is silent and the data is not re-fetchable: dated
 bulletins expire, and the Qatar bitumen figure had already expired when he sent it.

@@ -8,7 +8,7 @@ something better; set strict review criteria.
 **The verdict in one line: his ruling is right about the thing it decided, and it
 decided only half the question.**
 
-[R-19](RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)
+[R-19](archive/RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)
 chose child tables over JSON. Measured, JSON loses by 47× on the query he named. But
 "child tables" read literally means five bespoke SQL tables, and the measurements say
 the same intent is better served by machinery this warehouse **already contains and
@@ -206,7 +206,7 @@ on the parent repeating, which one profile already proves three times over — b
 storage figures will move when they arrive.
 
 **Not built. Awaiting his ruling**, recorded as a question in
-[BACKLOG.md](BACKLOG.md).
+[BACKLOG.md](archive/BACKLOG.md).
 
 ---
 

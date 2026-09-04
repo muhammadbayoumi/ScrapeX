@@ -18,14 +18,14 @@ repository has a documented habit of plans «توضع ولا تستكمل الى
 not carried to the end. **The status table is the answer to that**, and it is the first
 thing in this file so it cannot be missed.
 
-Lives here per [R-08](../RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository).
+Lives here per [R-08](../archive/RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository).
 
 ---
 
 ## Status of the seven steps
 
 **`who` says which category a step actually serves.** His stated reason for
-[R-45](../RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)
+[R-45](../archive/RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)
 was contractors — «لان المقاولون سيكون هناك عدة مصادر له فى المستقبل» — while
 `REQ-07`'s four capabilities are all products-shaped. This column is so he can see, at
 any moment, how much of what is built serves the category he asked about.
@@ -39,7 +39,7 @@ any moment, how much of what is built serves the category he asked about.
 | 4 · filters, column menus, export | **both** | **not started.** The bulk of the chrome — ~1,400 lines and the least inventive |
 | 5 · promotion | **products** | **not started, and worth the least.** `source_attribute_promotion` has never carried a row on any source. **UNGATED 2026-08-26** by `R-48`: a write that decides which fields are columns is control, and control is the extension's with the engine executing. Still last — `source_attribute_promotion` has never carried a row |
 | 6 · the workbook link comes off the source card | — | **terminal gate.** Only when 1–5 are in |
-| — · saved views | products | **BLOCKED on [O-5](../RULINGS.md#open--awaiting-the-owners-ruling).** Do not start |
+| — · saved views | products | **BLOCKED on [O-5](../archive/RULINGS.md#open--awaiting-the-owners-ruling).** Do not start |
 
 ---
 
@@ -53,10 +53,10 @@ author.
 
 **What he ruled**, both on `main`:
 
-- **[R-50](../RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)**
+- **[R-50](../archive/RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)**
   — *the engine is a helper to the extension, and any task the extension CAN perform moves
   to it.* **The test is capability, not category.**
-- **[R-48](../RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)**
+- **[R-48](../archive/RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)**
   — the extension is the control room; the engine executes and reports.
 
 **So «fetch only» was never the answer, and the table below was asking the wrong question.**
@@ -108,7 +108,7 @@ table it already owned. That is why it was safe to build before this question re
 ## What `DEC-8` got right, re-verified at `4522158`
 
 Every load-bearing number in
-[`DEC-8`](../BACKLOG.md#dec-8--the-engines-data-page-is-a-port-not-a-rebuild--measured-2026-08-16)
+[`DEC-8`](../archive/BACKLOG.md#dec-8--the-engines-data-page-is-a-port-not-a-rebuild--measured-2026-08-16)
 still holds, which is why this is a plan to port rather than a plan to design:
 
 | claim | re-measured |
@@ -429,7 +429,7 @@ Tabulator's own structures. Nobody has measured several open at once.
 ## Findings this plan rests on
 
 Seven, `OP-53`…`OP-59`, assigned by the primary session. Recorded in
-[BACKLOG.md](../BACKLOG.md) — where they came from *us*, not from him.
+[BACKLOG.md](../archive/BACKLOG.md) — where they came from *us*, not from him.
 
 | # | finding |
 |---|---|

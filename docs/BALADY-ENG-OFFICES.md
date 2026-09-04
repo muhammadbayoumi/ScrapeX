@@ -3,11 +3,11 @@
 **QUEUED, NOT STARTED. Its own precondition is his:**
 
 > «ضيف هذا الملف ليكون المصدر التالى **بعد الانتهاء الكامل من مصدر مقاول**»
-> — 2026-08-20, [REQ-14](REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil)
+> — 2026-08-20, [REQ-14](archive/REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil)
 
 So nothing here is worked on until muqawil is finished, and "finished" is his
 definition: **«كلّ ما ينشره الموقع»** — every field the site publishes, both
-languages, detail pages included. [STATE.md](STATE.md) Track 2 carries where that
+languages, detail pages included. [STATE.md](archive/STATE.md) Track 2 carries where that
 stands.
 
 **The brief below is his, stored verbatim.** It is kept in the repository for one
@@ -42,8 +42,8 @@ the lessons transfer directly:
 
 | the brief asks | what muqawil already proved |
 |---|---|
-| *"Count total records and confirm how pagination affects the count"* | Read the paginator's own last-page link; never assume a page size. The count is live — muqawil's tail page held 15 cards, then 2, then 3 within four days. [DEC-11](BACKLOG.md) |
-| *"Do not treat an English interface label as proof that the underlying record is available in English"* | Exactly right, and stronger than it sounds: on muqawil the Arabic values are matched **by page-order index and never by label**, because the same label is spelled `رقم العضويه` with `ه` in one place. [LESSONS.md](LESSONS.md) |
+| *"Count total records and confirm how pagination affects the count"* | Read the paginator's own last-page link; never assume a page size. The count is live — muqawil's tail page held 15 cards, then 2, then 3 within four days. [DEC-11](archive/BACKLOG.md) |
+| *"Do not treat an English interface label as proof that the underlying record is available in English"* | Exactly right, and stronger than it sounds: on muqawil the Arabic values are matched **by page-order index and never by label**, because the same label is spelled `رقم العضويه` with `ه` in one place. [LESSONS.md](archive/LESSONS.md) |
 
 **And its bilingual rule is already this project's rule**, which is worth stating so
 nobody re-litigates it: base column English, `_ar` suffix for Arabic, no `_ar`

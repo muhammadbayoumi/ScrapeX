@@ -197,8 +197,8 @@ def test_a_historical_row_is_not_orphaned():
 
 def test_the_guard_reads_something():
     """A parameterised sweep that matched nothing would pass every case, which is
-    how a guard becomes decoration -- the lesson `test_the_registers_cannot_collide`
-    records for the same shape."""
+    how a guard becomes decoration. The floor is what makes the sweep a claim: a
+    pattern that silently stops matching fails here instead of going green."""
     total = sum(1 for _ in _references())
     assert total >= REFERENCE_FLOOR, (
         f"only {total} backticked test references found across "
