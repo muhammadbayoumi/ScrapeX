@@ -556,8 +556,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1726` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2796` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1737` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2807` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -565,7 +565,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2796`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2807`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1415,7 +1415,7 @@ exactly one place — an unmerged worktree branch that had already been run agai
 warehouse — and `R-24` forbids the obvious shortcut of replacing the database.
 
 **What is NOT closed is the panel's sentence.** An engine that refuses to start never binds a
-port, so `extension/app.js:3400` reports **"Not detected"** for a schema fault, a permissions
+port, so `extension/app.js:3405` reports **"Not detected"** for a schema fault, a permissions
 fault and an absent engine alike — false, and it sends the reader to reinstall what is already
 installed. That half is `OP-38`.
 
@@ -1510,7 +1510,7 @@ is not filed as fixed with it.
 
 An engine that refuses to start never binds a port. So `checkEngine` in
 `extension/engine.js` gets a connection error, and
-`extension/app.js:3400` reports:
+`extension/app.js:3405` reports:
 
     text: "Not detected"      detail: "The panel could not reach the Engine."
 
@@ -1633,7 +1633,7 @@ popup:
 
 | | finance converter | run mode |
 |---|---|---|
-| entry point | `setupFinanceConverterSelect` ([extension/app.js:940](../extension/app.js#L940)) | `setupRunModeSelect` ([extension/app.js:1992](../extension/app.js#L1992)) |
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:945](../extension/app.js#L945)) | `setupRunModeSelect` ([extension/app.js:1997](../extension/app.js#L1997)) |
 | `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
 | `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
 | `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
@@ -2302,7 +2302,7 @@ reader is the whole of this change and the writer is the next one.
 **Status: OPEN. Measured 2026-08-23, re-measured at `f1844af`. A latent structural gap, not a live
 defect — that distinction is the whole entry.**
 
-A citation written as `` (`extension/app.js:1578`, `:1641`) `` carries two references
+A citation written as `` (`extension/app.js:1583`, `:1641`) `` carries two references
 and the guard sees one. `CITATION` in
 `tests/test_the_documents_cite_what_they_claim.py` requires a path before the colon, so
 it matches `app.js:1641` and does not match a bare `:1641`. Measured directly: the
@@ -3571,9 +3571,9 @@ that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
 `threading.Lock` ([scrapex/webui/app.py:2937](../scrapex/webui/app.py#L2937)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
-([scrapex/webui/app.py:2907](../scrapex/webui/app.py#L2907)) pruning **by stamp** so the
+([scrapex/webui/app.py:2918](../scrapex/webui/app.py#L2918)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep
-([scrapex/webui/app.py:2982](../scrapex/webui/app.py#L2982)) for orphaned staging.
+([scrapex/webui/app.py:2955](../scrapex/webui/app.py#L2955)) for orphaned staging.
 
 **Residual, named rather than closed.** The lock is in-process, which is correct here —
 `start_engine` refuses to spawn a second engine on a held port
@@ -3990,7 +3990,7 @@ local disk, so nothing was lost — but nothing on either side said so.
 2. **`zipfile.ZipFile(archive, "w")` created the file under its FINAL name immediately**,
    at zero bytes, and filled it over the ~33 s of the deflate.
 3. **`GET /api/bundle/archive` answers with the newest `.zip` by mtime**
-   ([scrapex/webui/app.py:2942](../scrapex/webui/app.py#L2942)), so it handed the panel the
+   ([scrapex/webui/app.py:2950](../scrapex/webui/app.py#L2950)), so it handed the panel the
 
    ([scrapex/webui/app.py:2932](../scrapex/webui/app.py#L2932)), so it handed the panel the
    second build's empty, in-progress file.
@@ -5292,6 +5292,75 @@ retirement, but a third thing** — so the failure that led here was not even ab
 subject. Renamed, with a `HISTORICAL` row naming the commit that still holds the
 original.
 
+### OP-124 · The panel tells him to open a terminal, and promises an updater that nothing starts
+
+**Found 2026-09-02**, in the banner this branch had just made visible for the first time.
+Two sentences on his only interface, both against `R-81`, and the second is worse than the
+first because it describes a capability rather than a chore.
+
+**1 · THE BANNER NAMES A TERMINAL COMMAND, AND IT IS WRITTEN TWICE.**
+
+```
+scrapex/webui/app.py   "fix": "python -m scrapex.cli init-db"      the engine sends it
+extension/app.js       "Fix: " + (lag.fix || "python -m ...")      the panel hardcodes it
+                                                                     AGAIN, as a fallback
+extension/app.js       POST /api/databases/upgrade                   the button that works
+```
+
+**He does not use a terminal** ([R-81](RULINGS.md)), so this is not an instruction, it is a
+dead end printed inside a live failure. **And a button that performs it already exists on the
+Settings screen.** The duplication is the part worth a number rather than a one-line fix: one
+string in two files with nothing comparing them, so correcting the engine alone would have
+left the panel printing it from its own copy.
+
+**This banner had never appeared before this branch.** `OP-113` is why -- `schema_lag` was
+published and rendered and never carried -- so the first thing the repair did was put a
+terminal command in front of him. **A fix that makes a surface visible inherits everything
+wrong with it**, and nothing in the change that carried the field would have said so.
+
+**Checked before pointing the banner anywhere:** `POST /api/databases/upgrade` is mounted only
+`if databases is not None`, so the remedy is itself absent on a `--db` start. The banner names
+the screen and the button rather than a route, which is true on every start. **That check is
+`OP-119` applied inside the fix for something else**, which is the only reason it was made.
+
+**2 · AND THE INSTALLER NOTE PROMISES AN UPDATER THAT NOTHING HAS EVER STARTED.**
+
+The note beside the download's SHA-256 read, in `#246`'s words and still on `main`:
+
+> *"From here on the Engine downloads and checks its own updates against this number before
+> installing."*
+
+**It is false, and it was false the day it was written.** Measured across `origin/main`:
+
+| what exists | what calls it |
+|---|---|
+| `create_update_router()` -- mounted unconditionally, `GET` and `POST` handlers | **nothing** |
+| `update.fetch_and_verify()`, `plan_swap()`, `staging_dir()`, `swap_is_possible()` | only `update_api` |
+| any `api/update` string in `extension/**/*.js`, `extension/**/*.html`, or the engine's own templates | **none, in the whole history** -- `git log -S` over those paths returns no commit |
+| a timer or startup task in the engine that checks by itself | **none** -- nothing imports `update` except the router |
+
+**So the updater is built, mounted, and doorless**, and the only sentence describing it to him
+claims it is running. `R-81` says a capability with no control in the panel has no control;
+this is the same defect one step further on, because a screen asserts the control exists.
+**That is a bigger finding than either sentence and it needs its own number** -- recorded here
+rather than folded in, because the repair is either a caller or a deletion and that is not a
+session's call.
+
+**AND THE GUARD OVER THAT SENTENCE COULD NOT TELL A PROMISE FROM ITS DENIAL.**
+`test_the_checksum_on_screen_says_who_checks_it` asserted `"Engine" in text`. Its docstring
+states the rule exactly right -- *"a number nothing verifies is worse than none, it reads as a
+promise"* -- and then checked for a **word**. *"The Engine checks its own updates"* and *"the
+Engine does not fetch or install its own updates"* both contain it. **It stayed green across
+the entire period its subject was false, and it would have gone red on the honest sentence had
+the honest sentence omitted the word.**
+
+**Fixed here.** The claim is tied to the code instead of to a word: the note may say the engine
+verifies updates **only while something actually calls `/api/update`**, and the assertion fails
+in **both** directions -- restoring the promise reddens it, and building the caller reddens it
+too, demanding the sentence be updated. Mutation-checked both ways. `LESSONS` §29 rows 10 and 11
+are this and the terminal blocklist, and the rule they produced is that **a guard which can only
+fail in one direction is half a guard.**
+
 ### DEC-1 · Topology A — the TypeScript extension as the public product
 **Approved 2026-07-18. Zero commits since.** This is the largest gap between what was
 decided and what exists.
@@ -5946,7 +6015,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:848` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:853` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:560` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.

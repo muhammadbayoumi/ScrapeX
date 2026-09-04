@@ -1641,9 +1641,21 @@
                  yours to compare if you want to. Every update after this one
                  is fetched and verified by the engine itself before anything
                  is replaced (R-36). -->
+            <!-- WHAT THIS SAID WAS FALSE, and measurably: `GET /api/update`
+                 has ZERO callers in `extension/`, and `scrapex/update.py`'s own
+                 module docstring says it "deliberately does not" replace the
+                 running executable -- `plan_swap` names the steps as data
+                 rather than performing them. So the engine does not download,
+                 verify or install anything today. `R-36` permits the updater;
+                 nothing has built it. Promising it here is the same defect as
+                 a terminal instruction, one layer up: a sentence the product
+                 cannot honour. -->
             <p class="text-sm" id="engine-checksum-note">
-              Compare this if you wish. From here on the Engine downloads and
-              checks its own updates against this number before installing.
+              This is the SHA-256 of the file you just downloaded. Nothing
+              checks it for you yet, so if you want it checked, compare it
+              against the number on the release page before you run the
+              installer. Updates are not fetched or installed for you: an
+              update means downloading the new engine here, the same way.
             </p>
           </div>
         </details>
