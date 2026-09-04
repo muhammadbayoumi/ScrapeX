@@ -105,6 +105,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-51](#req-51--jobspy-is-the-scheduler-and-should-be-named-for-what-it-does) | `scrapex/jobs.py` is the scheduler and should be named for it | **Ruled** · Captured 2026-08-30 · he approved the rename and the split into its own request | 2026-08-30 |
 | [REQ-52](#req-52--delete-everything-marketlens-a-product-that-was-abandoned) | Delete everything MarketLens, a product that was abandoned | **In flight** — captured and measured 2026-08-30 on `claude/marketlens-is-gone`. **189 references became 17**, and the defect they were hiding is [OP-117](BACKLOG.md): `/data-model` reported **134 tables where 67 exist**, one of them labelled *MarketLens*. What stays names something that still exists — a key in his own `databases.json` whose rename fails **silently**, and two checksummed files naming a column **no database contains**. He reframed the constraint himself («احنا فى مرحلة التطوير … مفيش غيرى») and he is right: there is no installed base. **In flight** — decided and built 2026-09-03 under [R-84](RULINGS.md) — the base may be collapsed before publication and after it no migration is ever deleted. The chain is one baseline at v17, `grep -ci marketlens db/engine/schema.sql` answers **0**, and the reconciliation was checked against his real 2.02 GB warehouse read-only. The waiver on the second machine is recorded as a waiver | 2026-08-30 |
 | [REQ-53](#req-53--everything-about-backup-lives-on-manage-account-and-the-panel-is-what-holds-the-permission) | Everything about backup on one page, and the panel is what may do it | **Captured** — he said it 2026-09-02 and it reached the board a day later. Measured: the local snapshot is built by `/api/storage/backup`, called ONLY from the engine's `_storage.html`; the Drive bundle by `/api/bundle`, called ONLY from the panel; and **restore has no control in the panel at all** — `/api/storage/restore` is engine-page-only and `bundle.unpack()` has no caller outside tests. So he has a backup button in his only interface and no way to restore from it | 2026-09-03 |
+| [REQ-55](#req-55--why-does-the-engine-not-work-and-will-it-happen-again-from-the-current-baseline) | Why the engine does not work, and whether it recurs from the current baseline | **Done** — reviewed 2026-09-04 and answered with measurements. His warehouse reads `user_version = 10` against a baseline of v17 with no migrations, so `R-84`'s refusal is correct and total; the engine's own code is healthy. He ruled the data away and narrowed the question to recurrence, which is [OP-133](BACKLOG.md) (the squash gate cannot see the condition that matters) and [OP-134](BACKLOG.md) (no release ever carried the chain past v10, so a machine on a release is behind by construction). Both wait on him | 2026-09-04 |
+| [REQ-56](#req-56--fix-the-three-that-are-mine-record-the-two-that-are-his-and-take-the-data-loss-on-its-own-branch) | Fix «ج», record «أ» and «ب», then take `OP-141` on its own branch | **Done** — built 2026-09-04 across two branches. `OP-135`, `OP-136`, `OP-137` closed on `claude/engine-failure-review-4287b1` ([#323](https://github.com/muhammadbayoumi/ScrapeX/pull/323)); `OP-141` closed on `claude/a-deletion-ordered-by-the-wrong-clock`, which he asked for separately once he read that it could delete today's copy of a wiped warehouse. `OP-138`, `OP-139`, `OP-140`, `OP-142` recorded with their reasons | 2026-09-04 |
 | [REQ-54](#req-54--a-source-declares-what-it-can-be-asked-to-do-and-the-panel-draws-its-controls-from-that) | A source declares what it can be asked to do | **Captured** — the crawl button starts ONE thing with fixed defaults. `run_mode`'s four values are price vocabulary and none of them means anything for a directory, while muqawil's seven real options are unreachable from the panel. He named the generalisation himself: this repeats with every source added | 2026-09-03 |
 ---
 
@@ -2999,6 +3001,71 @@ to name the snapshot's version and refuse, or warn, when it is older than the ba
 Part of the request, not a follow-up.
 
 ---
+
+## REQ-55 · Why does the engine not work, and will it happen again from the current baseline
+
+**Captured 2026-09-04, in the session he said it.** It arrived as a review and became a
+question about recurrence, which is the part that outlives the day:
+
+> «اريد مراجعة لماذا لا يعمل المحرك ؟»
+
+then, after the answer:
+
+> «لا ترقى القاعدة لا مشكلة فانا لا احتاج الداتا عليها ولكن اريد معرفة هل المشاكل التى
+> ذكرتها ستحدث مرة اخرى فى حالت اردت تحديث القاعدة من الوضع الحالى»
+
+and, narrowing it himself:
+
+> «انا بتكلم من اول baseline الحالى»
+
+**THE ANSWER WAS NOT THE ENGINE.** Measured read-only on his warehouse: `PRAGMA
+user_version = 10` against a baseline of **v17 with no migrations at all**, so `R-84`'s
+refusal is correct and total. The engine's own code is healthy — booted from source on a
+fresh v17 database it answers `ok: true` and serves `GET /` **200**. What was broken was
+everything the product then SAID about it, which is `OP-135`.
+
+**And the recurrence question has an exact answer**, both halves of it already tested: a
+squash strands a warehouse **if and only if that warehouse is behind the head when it
+happens**. What nothing establishes is the condition — the gate reads a manual publication
+flag whose own docstring excludes his two machines on purpose ([OP-133](BACKLOG.md)) — and
+what makes the condition reliably true is that no release ever carried the chain past
+**v10**, so a machine on a release can never be at the head ([OP-134](BACKLOG.md)).
+
+**He ruled the data away** rather than have it upgraded, which is why the work carries no
+migration and touches no row. Both open items are his: one amends a guard he set, the
+other is a tag.
+
+
+## REQ-56 · Fix the three that are mine, record the two that are his, and take the data loss on its own branch
+
+**Captured 2026-09-04, in the session he said it**, after reading the three options the
+recurrence answer produced:
+
+> «نفذ ج وسجل أ و ب فى BACKLOG»
+
+then, once the work was reported:
+
+> «نعم اعمل commit وافتح PR، واصلح OP-141 فى فرع مستقل»
+
+**«ج» was the small, independent half**: the status that stops the panel offering a repair
+that cannot exist, the sentence with no command in it, and the retention policy finally
+called on the path that makes the copies — `OP-135`, `OP-136`, `OP-137`, closed on
+`claude/engine-failure-review-4287b1`.
+
+**«أ» and «ب» are the two he kept for himself** and they are recorded rather than built:
+`OP-133` (the squash gate) and `OP-134` (a release at the current baseline).
+
+**AND HE SPLIT THE DATA LOSS OFF HIMSELF.** `OP-141` was found by an adversarial read of
+this very change — a prune ordered by mtime, where a `reset-backup` carries the
+warehouse's last-write time, measured deleting **today's** copy of a warehouse a "Start
+fresh" had just wiped. It is closed on `claude/a-deletion-ordered-by-the-wrong-clock`,
+stacked on the first branch because it edits the same file.
+
+**What is recorded and not built, each with its reason in the entry**: `OP-138` (five
+tests that prove `R-84`'s refusal skip on `main` and in CI), `OP-139` (`OP-127` closed on
+one of two doors), `OP-140` (the panel prints a raw status key), `OP-142` (four pointer
+messages name commands, and two cannot be reworded because the control does not exist).
+
 
 ## REQ-54 · A source declares what it can be asked to do, and the panel draws its controls from that
 

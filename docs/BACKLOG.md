@@ -5423,10 +5423,12 @@ vocabulary is how the last three of these began.
 
 ### OP-133 · The squash gate asks whether the tool is published; what decides the outcome is whether HIS warehouses are at the head
 
-**Found 2026-09-04**, answering his own question about recurrence — *«اريد معرفة هل
-المشاكل التى ذكرتها ستحدث مرة اخرى فى حالت اردت تحديث القاعدة من الوضع الحالى»* — and
-then narrowed by him to *«انا بتكلم من اول baseline الحالى»*: from the current baseline
-onwards, will this happen again. **It can, and this entry is the mechanism.**
+**Found 2026-09-04**, answering his own question about recurrence
+([REQ-55](REQUESTS.md#req-55--why-does-the-engine-not-work-and-will-it-happen-again-from-the-current-baseline)) —
+*«اريد معرفة هل المشاكل التى ذكرتها ستحدث مرة اخرى فى حالت اردت تحديث القاعدة من الوضع
+الحالى»* — and then narrowed by him to *«انا بتكلم من اول baseline الحالى»*: from the
+current baseline onwards, will this happen again. **It can, and this entry is the
+mechanism.**
 
 **THE CONDITION IS EXACT AND BOTH SIDES OF IT ARE ALREADY TESTED.** A squash strands a
 database if and only if that database is BEHIND THE HEAD at the moment of the squash:
