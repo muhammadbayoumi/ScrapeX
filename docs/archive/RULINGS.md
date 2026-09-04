@@ -1,8 +1,20 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Rulings — what the owner has decided
 
 Every decision the owner has made about ScrapeX, with the date, the reason, and
 the evidence that produced it. Governed by **C3** and **C4** in
-[../CLAUDE.md](../CLAUDE.md):
+[../CLAUDE.md](../../CLAUDE.md):
 
 - A ruling is recorded here, not left in a commit message or a conversation.
 - **A superseded ruling stays.** It is marked, it points to what replaced it, and
@@ -118,7 +130,7 @@ fresh session there had no pointer to the good documents that *were* committed.
 
 **The system:** `CLAUDE.md` → `docs/STATE.md` → `docs/RULINGS.md` →
 `docs/LESSONS.md` → `docs/plans/`. Its five governing rules are **C1–C5** in
-[../CLAUDE.md](../CLAUDE.md).
+[../CLAUDE.md](../../CLAUDE.md).
 
 ---
 
@@ -130,7 +142,7 @@ fresh session there had no pointer to the good documents that *were* committed.
 3. **The missing bilingual toggle belongs to the paused B1 work**, not to this
    source: «اشياء كثيرة مفقودة لذلك توقفت عند b1 … ومنها ايضا هذه المشكلة».
 
-Recorded in [plans/2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`).
+Recorded in [plans/2026-08-26-what-remains-of-muqawil.md](../plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`).
 
 ---
 
@@ -235,10 +247,10 @@ been at 282 and 285 all along, in a file no commit had touched. A citation that
 silently moves is worse than no citation: it sends the next session to the wrong
 line with full confidence.
 
-**The scope is the map in [../CLAUDE.md](../CLAUDE.md), and the exclusion is
+**The scope is the map in [../CLAUDE.md](../../CLAUDE.md), and the exclusion is
 deliberate.** The guard reads the documents C1 tells every session to read.
 `docs/plans/` is **excluded**: those are verbatim historical records, and
-[plans/README.md](plans/README.md) says nothing in them was rewritten, *"because a
+[plans/README.md](../plans/README.md) says nothing in them was rewritten, *"because a
 plan edited after the fact stops being evidence of what was decided when"*. A plan
 from 2026-07-20 citing `reports.py:176` described that day's code correctly.
 Forcing it to match today's would be falsifying a record to make a test pass.
@@ -446,7 +458,7 @@ contractor relations each get a real child table. Not a JSON blob inside
 `data_json`.
 
 **AND THIS OVERRULES THE DESIGN DOCUMENT, which is why it is written here rather
-than quietly applied.** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) states flatly
+than quietly applied.** [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) states flatly
 that the five hierarchical groups go in JSON inside `data_json`. He was offered
 that, with JSON as the recommendation, and chose child tables. The document is
 corrected in the same pull request as this ruling — **C2** — and its previous
@@ -480,7 +492,7 @@ handful more profiles, which the crawl study will produce. But the direction is
 unambiguous and nothing in it favours JSON.
 
 > **MEASURED 2026-08-21, at his instruction to test this ruling before building it.**
-> [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md) puts 5 shapes against
+> [R19-CHILD-TABLES-MEASURED.md](../R19-CHILD-TABLES-MEASURED.md) puts 5 shapes against
 > 11 criteria at 518,490 rows. **This ruling is upheld and by a wider margin than it
 > claimed** — JSON costs 1,168 ms on the query named above against 0.6 ms for the
 > best shape.
@@ -877,7 +889,7 @@ particular part 3, which is the only one with a security consequence.
 > «شكل تخزين مجموعات R-19 الخمس … أيّها؟» → **«D — تصنيف خالص + جدول ربط مخصَّص»**
 
 `R-19` ruled child tables over JSON and every measurement upheld it. What it did not
-settle was *how* — [the study](R19-CHILD-TABLES-MEASURED.md) put five shapes side by side
+settle was *how* — [the study](../R19-CHILD-TABLES-MEASURED.md) put five shapes side by side
 and recommended **F**, a child dataset per group inside `generic_record` whose value
 references `classification_node`. **He chose D**: the taxonomy plus a bespoke link table.
 
@@ -1303,7 +1315,7 @@ twice — and a branch is inside `sourceMenu` as this is written.
 > التوثيق»
 
 **He is right on every count and the review found the gap is not the decision — it is
-where the decision lives.** [PLATFORM-PLAN.md](PLATFORM-PLAN.md) states it plainly and has
+where the decision lives.** [PLATFORM-PLAN.md](../PLATFORM-PLAN.md) states it plainly and has
 since it was written:
 
 > *ScrapeX (extension) — the control room, and the only interface*
@@ -1383,7 +1395,7 @@ not told about.
 
 **The rule, stated so a session can apply it without him:**
 
-[MIGRATION-PLAN.md](MIGRATION-PLAN.md) is **the base plan**. Its date is
+[MIGRATION-PLAN.md](../MIGRATION-PLAN.md) is **the base plan**. Its date is
 **2026-08-12** — *"Drafted 2026-08-12. Every number here was measured today, not
 recalled."* (`MIGRATION-PLAN.md:22`; it reached the repository on 2026-08-15, and the
 drafting date is the one that counts).
@@ -1847,7 +1859,7 @@ wrong comment is not — which is why correcting it is first in the plan and not
 names its category, and the platform's own documents say so. **Not** settled: whether
 `source_site` and `site_profile` merge, whether `ConnectorFamily` grows or splits, and
 what identifies an account (`Q-14`). Those are
-[the plan](plans/2026-08-21-the-platform-not-a-price-tracker.md), and none of it is
+[the plan](../plans/2026-08-21-the-platform-not-a-price-tracker.md), and none of it is
 built.
 ### R-31 · The warehouse records WHICH field changed, and a new field is a version, not a refusal
 
@@ -1964,7 +1976,7 @@ not a detail of it.
 declared 22 is refused. The `contractors` dataset is **wiped and re-approved from the
 stored snapshots**, which costs ~20 minutes and **not one network request** — the
 snapshots are on disk, and that is the entire economics of
-[GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md).
+[GENERIC-FETCH-SEAM.md](../GENERIC-FETCH-SEAM.md).
 
 **It destroys 1,172 rows, and that is the reason it is cheap rather than a cost.**
 Those rows are rebuilt from the same disk immediately, and the alternative kept them
@@ -2060,8 +2072,8 @@ Recorded rather than defaulted, per **R-02**.
 
 | # | question | context |
 |---|---|---|
-| **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? **HELD 2026-08-21:** put to him with a recommendation and he answered «اترك هذا الامر الان» — leave it for now. Do not define a workbook table for contractors, and do not re-ask until `Q-13` is settled: `R-19` changes how many tabs the export has, which is the shape the workbook would be committing to. | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
-| **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md) |
+| **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? **HELD 2026-08-21:** put to him with a recommendation and he answered «اترك هذا الامر الان» — leave it for now. Do not define a workbook table for contractors, and do not re-ask until `Q-13` is settled: `R-19` changes how many tabs the export has, which is the shape the workbook would be committing to. | [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) |
+| **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md) |
 | ~~**O-6**~~ | **ANSWERED 2026-08-20, and none of the three options was the answer.** I asked which machine holds the warehouse, given the home machine has none. He ruled that the premise was wrong: ScrapeX is a tool many people install, so an empty installation is the product's normal first-run state and a warehouse is **per installation**. Create one here and crawl into it; comparing two machines is development, not collection. → **[R-23](#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)** | [OP-22](BACKLOG.md) |
 
 > **O-3 and O-4 may already be answered in practice** by what PR #211 implemented
@@ -2394,7 +2406,7 @@ finishes when the problems the audit found are solved. Then Drive.
 
 | # | plan |
 |---|---|
-| **1 · LIVE** | muqawil — [2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md), whose steps 1–5 are his rulings and 6–10 are not |
+| **1 · LIVE** | muqawil — [2026-08-26-what-remains-of-muqawil.md](../plans/2026-08-26-what-remains-of-muqawil.md), whose steps 1–5 are his rulings and 6–10 are not |
 | **2** | Drive — branch `claude/drive-without-a-server` at `e00711d`, pushed, **no PR since 2026-08-22** |
 | 3+ | the rest, ordered rather than all marked `LIVE`. Seven were `LIVE` at once when he ruled, which meant none of them was the plan |
 

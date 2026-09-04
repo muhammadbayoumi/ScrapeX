@@ -5,18 +5,18 @@ data to the Google Sheet the mbiX Excel add-in reads.
 **The add-in is never touched** — the two systems meet only at the sheets.
 
 It collects in **categories** — `products` (shops and price sources) and
-`contractors` (directories) today, with `jobs` and `tenders` to come. Price tracking
+`contractors` (directories) today, with `vacancies` and `tenders` to come. Price tracking
 was the first category, not the category: see
-[R-32](docs/RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake).
+[CLAUDE.md](CLAUDE.md).
 
 > **Working on this project? Start at [CLAUDE.md](CLAUDE.md)** — the entry point
 > for where the work stands, what the owner has ruled, and the lessons that are
 > not visible in the code.
 
-Rules: [ENGINEERING.md](ENGINEERING.md) ·
+Rules: [CLAUDE.md](CLAUDE.md) ·
 Compatibility contract: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) ·
 Generic catalogue: [docs/GENERIC_CATALOG.md](docs/GENERIC_CATALOG.md) ·
-Current state: [docs/STATE.md](docs/STATE.md) ·
+Open work: `gh issue list` · In flight: `gh pr list` ·
 Plans: [docs/plans/](docs/plans/README.md)
 
 ```
@@ -83,9 +83,9 @@ and the extension's chrome.storage (later). Never in code or the repo (A4).
 
 | Path | Role |
 |---|---|
-| `ENGINEERING.md` | The build rules (derived from the owner's review protocol) |
+| `CLAUDE.md` | How we change this code — the one live document |
 | `sources.yaml` | The Harvest Manifest — per-source extraction contracts |
-| `db/schema.sql` | Warehouse DDL (migration 0001) — the only DDL truth |
+| `db/engine/schema.sql` | Warehouse DDL — the squashed baseline, the only DDL truth |
 | `scrapex/` | `vocab` · `payload` (T8 contract) · `db` · `config` · `normalize` · `funnel` · `connectors/` · `cli` |
 | `contracts/` | Exported payload JSON schema + golden fixtures (shared with the extension & GAS) |
 | `apps_script/StagingAppScript.txt` | The funnel (S1: token + LockService + append + ack) |

@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # State — where the work stands
 
 **Last updated: 2026-09-04.** `main` is at `ef3121d` (#320), and **there are ZERO open
@@ -133,7 +145,7 @@ head. Both are his calls — a guard he set, and a tag.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
-the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
+the work it describes (**C2**, [../CLAUDE.md](../../CLAUDE.md)).
 
 **AND THE OPENING LINE ABOVE IS NOW ITSELF A CASE STUDY, filed as instance 3 in
 [LESSONS §14](LESSONS.md).** It read `31c369e` while `main` was `d10e974`, and
@@ -725,7 +737,7 @@ touching the migration framework.
 
 **`R-83`.** 691 insertions across 19 files that existed only as three commits on one
 machine's local `main` for a day, unpushed and unreachable from anywhere else — which is the
-exact failure [CLAUDE.md](../CLAUDE.md) opens with. The branch is those three rebased onto
+exact failure [CLAUDE.md](../../CLAUDE.md) opens with. The branch is those three rebased onto
 `main` at `1d8816d`, plus what the rebase found.
 
 **What it carries.** The eight profiles whose Arabic page omits `Address` are recoverable and
@@ -1161,8 +1173,8 @@ exists. **His to approve.**
 
 ## Track 1 · The Console migration
 
-**Plan:** [MIGRATION-PLAN.md](MIGRATION-PLAN.md) · **Detailed state:**
-[HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md)
+**Plan:** [MIGRATION-PLAN.md](../MIGRATION-PLAN.md) · **Detailed state:**
+[HANDOFF-resume-the-migration.md](../HANDOFF-resume-the-migration.md)
 
 > ⚠️ That handoff was last updated at #201 and **does not record #202–#209**, which
 > are all Track 2. Read it for Phase A/B detail; read this file for the whole
@@ -1208,17 +1220,17 @@ broken under load (**T2**).
 
 ## Track 2 · The muqawil.org contractor directory
 
-> **The R-19 data-model study is [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md)**
+> **The R-19 data-model study is [R19-CHILD-TABLES-MEASURED.md](../R19-CHILD-TABLES-MEASURED.md)**
 > — 11 criteria against 5 shapes at 518,490 rows, written because the owner asked for
 > his own ruling to be tested before it was built. It upholds the ruling against JSON
 > (47x) and recommends a refinement of how it is implemented. **Not built — his call,
 > recorded as `Q-13` in [BACKLOG.md](BACKLOG.md).**
 
-**Design:** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) · **Storage:**
-[STORAGE.md](STORAGE.md) — **the mechanism is built** (`scrapex/snapshotbody.py`,
+**Design:** [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) · **Storage:**
+[STORAGE.md](../STORAGE.md) — **the mechanism is built** (`scrapex/snapshotbody.py`,
 engine migration 0005), so nothing gates the crawl any more · **Seam:**
-[GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) · **Plan:**
-[plans/2026-08-26-what-remains-of-muqawil.md](plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`)
+[GENERIC-FETCH-SEAM.md](../GENERIC-FETCH-SEAM.md) · **Plan:**
+[plans/2026-08-26-what-remains-of-muqawil.md](../plans/2026-08-26-what-remains-of-muqawil.md) (the 2026-08-16 build plan it replaced was folded 2026-08-27 — `git show d6f4967:docs/plans/2026-08-16-muqawil-contractor-source.md`)
 · **Rulings:** [R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings),
 [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other),
 [R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)
@@ -1530,7 +1542,7 @@ Five are done. The sixth is built as far as a ruling of his allows.
 | 6 | `R-19` child tables | **the reader only** — the write is his to rule |
 
 **Item 6's two blockers are not engineering.**
-[R19-CHILD-TABLES-MEASURED](R19-CHILD-TABLES-MEASURED.md) recommends shape F and its own
+[R19-CHILD-TABLES-MEASURED](../R19-CHILD-TABLES-MEASURED.md) recommends shape F and its own
 last line says *"Not built. Awaiting his ruling"*; and the content comes from profile
 pages, of which **none is stored**, because the registration is `listing_only`.
 
@@ -1584,13 +1596,13 @@ so it is appended in the order received.
 
 | # | source | where the brief is | state |
 |---|---|---|---|
-| 1 | **muqawil.org** | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) | Track 2 above — 11,059 of 17,403 rows, listing pages only, profiles never crawled |
-| 2 | **Balady engineering offices** | [BALADY-ENG-OFFICES.md](BALADY-ENG-OFFICES.md) | **Queued.** [REQ-14](REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) |
-| 3 | **UAE contractors and consultants** | [UAE-SOURCES.md](UAE-SOURCES.md) | **Queued.** [REQ-15](REQUESTS.md#req-15--the-uae-sources-third-in-the-queue) |
-| 4 | **Egypt, Oman, Qatar, Bahrain, Kuwait** | [GULF-EGYPT-SOURCES.md](GULF-EGYPT-SOURCES.md) | **Queued.** [REQ-16](REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) |
-| — | **Official diesel prices, 7 countries** — a PRODUCT source, not a firm directory | [DIESEL-PRICES.md](DIESEL-PRICES.md) | **Queued.** [REQ-17](REQUESTS.md#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) |
-| — | **Bitumen 60/70 prices, 7 countries** — a product source that **cannot be crawled** | [BITUMEN-PRICES.md](BITUMEN-PRICES.md) | **Queued.** [REQ-18](REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) |
-| — | **Reinforced-concrete materials, 7 countries** — cement, rebar, aggregate, water | [CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md) | **Queued.** [REQ-19](REQUESTS.md#req-19--reinforced-concrete-material-prices--its-turn-will-come) |
+| 1 | **muqawil.org** | [CONTRACTOR-SOURCE.md](../CONTRACTOR-SOURCE.md) | Track 2 above — 11,059 of 17,403 rows, listing pages only, profiles never crawled |
+| 2 | **Balady engineering offices** | [BALADY-ENG-OFFICES.md](../BALADY-ENG-OFFICES.md) | **Queued.** [REQ-14](REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) |
+| 3 | **UAE contractors and consultants** | [UAE-SOURCES.md](../UAE-SOURCES.md) | **Queued.** [REQ-15](REQUESTS.md#req-15--the-uae-sources-third-in-the-queue) |
+| 4 | **Egypt, Oman, Qatar, Bahrain, Kuwait** | [GULF-EGYPT-SOURCES.md](../GULF-EGYPT-SOURCES.md) | **Queued.** [REQ-16](REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) |
+| — | **Official diesel prices, 7 countries** — a PRODUCT source, not a firm directory | [DIESEL-PRICES.md](../DIESEL-PRICES.md) | **Queued.** [REQ-17](REQUESTS.md#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) |
+| — | **Bitumen 60/70 prices, 7 countries** — a product source that **cannot be crawled** | [BITUMEN-PRICES.md](../BITUMEN-PRICES.md) | **Queued.** [REQ-18](REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) |
+| — | **Reinforced-concrete materials, 7 countries** — cement, rebar, aggregate, water | [CONCRETE-MATERIALS.md](../CONCRETE-MATERIALS.md) | **Queued.** [REQ-19](REQUESTS.md#req-19--reinforced-concrete-material-prices--its-turn-will-come) |
 
 > **Four briefs, 8 countries, and not one of them started.** Saudi Arabia twice
 > (muqawil and Balady), the seven emirates, then Egypt, Oman, Qatar, Bahrain and
@@ -1609,7 +1621,7 @@ project, which muqawil never touched. It is also **7 pages against muqawil's
 > overwrite a previous price when a new month begins. If Oman's July price equalled
 > August's, the gate writes nothing and the August **period** never exists. A
 > period-keyed price has to key the gate on the PERIOD, not only the value.
-> [DIESEL-PRICES.md](DIESEL-PRICES.md) carries the reasoning.
+> [DIESEL-PRICES.md](../DIESEL-PRICES.md) carries the reasoning.
 
 **And the bitumen brief cannot be crawled at all** — by its own conclusion, five of
 its seven countries have no public official price, so its acquisition mode is a
@@ -1617,7 +1629,7 @@ written quotation to a producer. What this project can do for it is store a date
 caveated observation that is never mistaken for a live market price. It is also the
 **second** independent case against `SR-6`'s key: for diesel the key is the period,
 for bitumen the commercial basis, because two observations can carry the same number
-and different bases. [BITUMEN-PRICES.md](BITUMEN-PRICES.md).
+and different bases. [BITUMEN-PRICES.md](../BITUMEN-PRICES.md).
 
 **A third price brief makes it a finding rather than an observation.** The
 reinforced-concrete materials brief types its sources explicitly and answers **No** to
@@ -1773,7 +1785,7 @@ mechanical.
 - `robots_per_source` is dated 0.2.2 and cites no commit; the ledger's own guard
   fires, correctly. Read out of `git log`, both `-S"crawl_obey_disallow"` and
   `-S"source-edit-robots"` name `adf31b2` alone — write `commit="adf31b2"`.
-- ~~[ENGINEERING.md](../ENGINEERING.md) **W4** states the superseded
+- ~~[ENGINEERING.md](ENGINEERING.md) **W4** states the superseded
   per-capability rule.~~ **FIXED 2026-08-17.** It was stale twice: the trigger,
   and a claim that `extension/manifest.json` is an enforced mirror — which PR
   #112 undid and `tests/test_version.py:536` now actively guards against. W4
@@ -1785,7 +1797,7 @@ mechanical.
 
 - **`behaviourVersion` is ScrapeX's own bookkeeping, not a signal.** mbiXaddin has
   no such field; both numbers live here and one commit raises both. The real fix
-  is [HANDOFF-mbiXaddin-contract-producer.md](HANDOFF-mbiXaddin-contract-producer.md).
+  is [HANDOFF-mbiXaddin-contract-producer.md](../HANDOFF-mbiXaddin-contract-producer.md).
   What *does* look upstream is
   `test_no_cited_addin_file_has_moved_since_the_reading`, which watches the `.cs`
   files the reading cites and has already found three moved.
@@ -1817,4 +1829,4 @@ mechanical.
 
 Seven plans and a 1,015-line findings file lived in `~/.claude/plans/` — on one
 machine, under one account — until 2026-08-17. They are now in
-[plans/](plans/README.md). Read that index before assuming a track has no plan.
+[plans/](../plans/README.md). Read that index before assuming a track has no plan.

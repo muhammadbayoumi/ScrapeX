@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Requests — what the owner asked for, and where each one is
 
 Every request the owner makes is captured here the moment he makes it, and it
@@ -27,7 +39,7 @@ recording a state the work has not reached.
 |---|---|---|
 | **Captured** | He asked. Written down. Nothing decided yet | this file only |
 | **Ruled** | *How* it should be is decided | a ruling in [RULINGS.md](RULINGS.md) |
-| **Planned** | There is a plan someone else could execute | a file in [plans/](plans/README.md) |
+| **Planned** | There is a plan someone else could execute | a file in [plans/](../plans/README.md) |
 | **In flight** | Being built; a PR is open | the PR |
 | **Done** | Merged | recorded here with the PR number, and kept |
 | **Dropped** | Decided against | **kept**, with the reason — per **C4** |
@@ -62,7 +74,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-04](#req-04--every-setting-moves-into-the-extension) | Every setting moves into the extension | **Ruled** — not built | 2026-08-01 |
 | [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **Done** | 2026-08-16 |
 | [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **Done** | 2026-08-17 |
-| [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **In flight** — he raised it again 2026-08-22 and ruled «كلها»; [the plan](plans/2026-08-22-the-source-page-moves-into-the-extension.md) has seven steps and step 0 is done | 2026-08-12 |
+| [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **In flight** — he raised it again 2026-08-22 and ruled «كلها»; [the plan](../plans/2026-08-22-the-source-page-moves-into-the-extension.md) has seven steps and step 0 is done | 2026-08-12 |
 | [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Done** | 2026-08-17 |
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
 | [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
@@ -78,7 +90,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
 | [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **In flight** — the audit is built and guarded; no subdivision is wired to a site yet | 2026-08-21 |
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
-| [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
+| [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](../R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
 | [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — ruled 2026-08-27 as [R-62](RULINGS.md#r-62--one-source-registry-site_profile-merges-into-source_site--and-q-24-is-answered-by-that-migration): he chose the migration, `site_profile` into `source_site`. Measured: **2 rows to move, 2 tables to repoint, `price_observation` untouched**. Answers `Q-24` inside it and unblocks the crawl button | 2026-08-21 |
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
@@ -171,7 +183,7 @@ editing.
 ---
 
 ## REQ-05 · A contractor directory, in a table of its own
-**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan folded 2026-08-27](plans/README.md#historical)) · Done — #202–#212**
+**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan folded 2026-08-27](../plans/README.md#historical)) · Done — #202–#212**
 
 > «جدول منفصل تماما عن جداول المنتجات» · «صفحة المقاولين هى جدول سيظهر كاى جدول
 > لدينا»
@@ -233,7 +245,7 @@ stated reason was contractors:
 *All of it, and track the execution so we do not lose it.* So it is an order and
 not a choice, and **the tracking is part of what he asked for** — the plan carries
 a status table with a gate per step, and each step says which category it serves:
-[plans/2026-08-22-the-source-page-moves-into-the-extension.md](plans/2026-08-22-the-source-page-moves-into-the-extension.md).
+[plans/2026-08-22-the-source-page-moves-into-the-extension.md](../plans/2026-08-22-the-source-page-moves-into-the-extension.md).
 
 **And he asked for the payload cost to be measured rather than argued** —
 «قِسْ أوّلاً ثمّ قُل لى» — after this session flagged the panel's 5,000 ms deadline
@@ -466,7 +478,7 @@ is what was missing.
 
 ### Where it went
 
-[STORAGE.md](STORAGE.md), and the answer is that the volume he asked us to justify
+[STORAGE.md](../STORAGE.md), and the answer is that the volume he asked us to justify
 does not exist:
 
 - The 6.4 GB was projected from **one** profile page at 168 KB. Thirteen real
@@ -489,7 +501,7 @@ does not exist:
 of truth, so a stored page is a record of what it published on a date. If that
 matters to him, profiles may never be dropped for a re-fetch; if it does not, 87 MB
 is recoverable at the price of 17.4 hours. The study refuses to assume this
-([STORAGE.md §5](STORAGE.md)).
+([STORAGE.md §5](../STORAGE.md)).
 
 **And the migration is not written.** He asked for the measurement first; this is
 the measurement.
@@ -573,7 +585,7 @@ the specific thing he asked not to recur has a one-request answer, and
 ### What is not done
 
 The crawl itself. The method is measured and proven on one slice; nothing runs it
-yet, and [STORAGE.md](STORAGE.md) was deliberately settled first so that 36,548
+yet, and [STORAGE.md](../STORAGE.md) was deliberately settled first so that 36,548
 pages are not written under a retention policy that a later decision would rewrite.
 
 Five city×size cells stay above the safe slice size, worst ~212 pages, and no
@@ -596,7 +608,7 @@ own definition, «كلّ ما ينشره الموقع».
 
 ### Where it went
 
-[BALADY-ENG-OFFICES.md](BALADY-ENG-OFFICES.md), his brief stored **verbatim** under
+[BALADY-ENG-OFFICES.md](../BALADY-ENG-OFFICES.md), his brief stored **verbatim** under
 a preamble that records what this project already knows that bears on it. It is in
 the repository rather than in a conversation because he had to re-send the muqawil
 column specification once already, not knowing whether it had survived
@@ -637,7 +649,7 @@ contractors and consultancy firms, with his own recommended priority order.
 
 ### Where it went
 
-[UAE-SOURCES.md](UAE-SOURCES.md), verbatim under a preamble.
+[UAE-SOURCES.md](../UAE-SOURCES.md), verbatim under a preamble.
 
 ### Why it is a different shape of work, and it matters for planning
 
@@ -679,7 +691,7 @@ nothing to change — it is written down so there **is** one, not so it is fixed
 
 ### Where it went
 
-[GULF-EGYPT-SOURCES.md](GULF-EGYPT-SOURCES.md), verbatim under a preamble.
+[GULF-EGYPT-SOURCES.md](../GULF-EGYPT-SOURCES.md), verbatim under a preamble.
 
 ### The scale, and where its value actually is
 
@@ -738,7 +750,7 @@ Bahrain and Kuwait, with the publisher and the dated announcement for each.
 
 ### Where it went
 
-[DIESEL-PRICES.md](DIESEL-PRICES.md), verbatim under a preamble.
+[DIESEL-PRICES.md](../DIESEL-PRICES.md), verbatim under a preamble.
 
 ### He classified it himself, and the classification matters
 
@@ -804,7 +816,7 @@ fetch.**
 
 ### Where it went
 
-[BITUMEN-PRICES.md](BITUMEN-PRICES.md), verbatim under a preamble.
+[BITUMEN-PRICES.md](../BITUMEN-PRICES.md), verbatim under a preamble.
 
 ### Why it is unlike every other source in the queue
 
@@ -865,7 +877,7 @@ water, across the same seven countries.
 
 ### Where it went
 
-[CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md), verbatim under a preamble.
+[CONCRETE-MATERIALS.md](../CONCRETE-MATERIALS.md), verbatim under a preamble.
 
 ### It is the most carefully-typed of his briefs, and that is its contribution
 
@@ -1083,7 +1095,7 @@ one-off: **a ruling is a decision, not an instruction to stop measuring.**
 "Strict criteria" was taken literally: eleven of them, **set before any shape was
 measured** so that no shape could be judged on whichever number happened to flatter
 it. Five shapes, 518,490 rows.
-[R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md) is the study.
+[R19-CHILD-TABLES-MEASURED.md](../R19-CHILD-TABLES-MEASURED.md) is the study.
 
 | | |
 |---|---|
@@ -1163,7 +1175,7 @@ pipeline collected it, so nothing answers *"what sources does this installation 
 and what state is each in"* — which is the question he asked.
 
 Categories, in his words: **`products`** and **`contractors`**, with `jobs` and
-`tenders` named as coming. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
+`tenders` named as coming. Planned in [the platform plan](../plans/2026-08-21-the-platform-not-a-price-tracker.md).
 
 **Open for him:** whether `site_profile` merges into `source_site`, or both become
 views over one table. Merging is correct and is a migration over live rows.
@@ -1239,7 +1251,7 @@ docstrings citing where a number was measured, not code. So what is missing is t
 **registry entry and the factory**, not the crawler.
 
 **Open for him:** whether `ConnectorFamily` grows contractor families or the category
-gets its own enum. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
+gets its own enum. Planned in [the platform plan](../plans/2026-08-21-the-platform-not-a-price-tracker.md).
 
 ---
 
@@ -1641,7 +1653,7 @@ to settle.
 **So the date is read off the evidence the crawl already stored** —
 `max(generic_page_snapshot.captured_at)` over the pages `generic_ingestion` says the
 dataset was built from. Nothing new is recorded, and
-[`GENERIC-FETCH-SEAM.md`](GENERIC-FETCH-SEAM.md) had already asked for exactly that:
+[`GENERIC-FETCH-SEAM.md`](../GENERIC-FETCH-SEAM.md) had already asked for exactly that:
 *"It may be enough to ask `generic_ingestion`; check before adding a column."*
 
 **What this did NOT do, and it is his:** merge the two registries. A dataset still
@@ -2191,7 +2203,7 @@ his to rule on once the numbers are in front of him, per `R-02`.
 settle and what they do not:
 
 **Settled.** The prior discussion he thought was lost is **recorded** —
-[MIGRATION-PLAN.md](MIGRATION-PLAN.md)`:38-45`, drafted 2026-08-12, quotes him directly
+[MIGRATION-PLAN.md](../MIGRATION-PLAN.md)`:38-45`, drafted 2026-08-12, quotes him directly
 (*"leave the engine only fetch + SQLite"*) and **already names today's question as an
 accepted tension**: that sentence and *"remove the 127.0.0.1 service"* cannot both hold
 *"until the extension can read SQLite itself, because nothing else reaches a 119 MB local
@@ -2216,7 +2228,7 @@ second pass **could not reproduce it** and re-measured 164,771 rows into 161,459
 bytes of JSON Lines, 16,151,610 gzipped, built in 3.4 seconds against the live file while
 a crawl was writing. **The conclusion survives at 59% of the strength first claimed** —
 which is why the weaker number is the one recorded. The full study is
-[ENGINE-ROLE-MEASURED.md](ENGINE-ROLE-MEASURED.md).
+[ENGINE-ROLE-MEASURED.md](../ENGINE-ROLE-MEASURED.md).
 
 **Not settled, and his to rule.** Eleven questions, the first of which governs the rest:
 **"only" in «المحرك له مهام محددة فقط» — on which axis?** The *interface* axis, where the
@@ -2674,7 +2686,7 @@ He asked for the axes **before** any finding, which is what made the review scop
 scoping pass produced twenty-six, a completeness critic found seven that were missing and
 refused eleven measurement steps as unexecutable, and he chose the six that the rest stand
 on. The report is
-[docs/reviews/2026-08-29-the-design-system-against-supabase.md](reviews/2026-08-29-the-design-system-against-supabase.md).
+[docs/reviews/2026-08-29-the-design-system-against-supabase.md](../reviews/2026-08-29-the-design-system-against-supabase.md).
 
 **His second message changed the review's foundation.** `docs/STATE.md` recorded that
 *"Supabase publishes token names with no values"*, and the whole palette had therefore been

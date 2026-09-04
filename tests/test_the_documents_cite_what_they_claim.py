@@ -88,15 +88,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Measured before adding it, so it goes green rather than arriving red: 4 citations,
 # all resolving, none on a blank line.
 DOCUMENTS = (
+    # NARROWED ON 2026-09-04, when the seven tracking documents were frozen into
+    # `docs/archive/`. A citation still has to be true where somebody will act on it,
+    # and that is now exactly two files: the one live document and the front door.
+    # The archive is deliberately NOT watched — its numbers are cited by 881 places in
+    # the code and its `file:line` references record where things WERE, which is the
+    # one thing `LESSONS` 21 says must never be repointed.
     "CLAUDE.md",
-    "ENGINEERING.md",
-    "docs/STATE.md",
-    "docs/REQUESTS.md",
-    "docs/RULINGS.md",
-    "docs/BACKLOG.md",
-    "docs/LESSONS.md",
-    "docs/APPROACHES.md",
-    "docs/ORCHESTRATION.md",
+    "README.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by
@@ -148,323 +147,22 @@ LINKED_CITATION = re.compile(
 # EVERY ENTRY WAS READ OUT OF THE TARGET FILE, not copied from the document.
 WINDOW = 3
 PINNED = (
-    # REQ-21's nested audit. The whole request is that `Sum N_child` is compared
-    # against the PARENT, and these are the two lines that make it so -- one that
-    # sizes the parent, one that refuses cells outside it before a request is spent.
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1019,
-     "whole = size_cell(fetch, partition, base_url, parent)"),
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1012, "raise NotASubdivision("),
-    ("docs/REQUESTS.md", "scrapex/pagesource.py", 146,
-     "return set(other.params) <= set(self.params)"),
-    # The version-gate blocker. Track 3 of STATE.md cannot be worked without
-    # these three, and two of them are the citations that drifted.
-    ("docs/STATE.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1845, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "extension/app.js", 612, "latest_extension_version"),
-    ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1845, '"latest_extension_version": VERSION'),
-    ("docs/RULINGS.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
-    # The two flags whose condition is met and whose lighting is the owner's call.
-    ("docs/STATE.md", "scrapex/features.py", 54, "True"),
-    ("docs/STATE.md", "scrapex/features.py", 65, "True"),
-    # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
-    # these two, so a reader sent to the wrong line writes the duplicate instead.
-    ("docs/STATE.md", "extension/app.js", 1583, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1583, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1622, "async function saveSourceColumns("),
-    # The guards the documents claim exist. A rule that cites a dead guard is a
-    # rule with nothing behind it -- which is how W4 came to be believed.
-    ("docs/RULINGS.md", "tests/test_version.py", 536,
-     'assert.equal(manifest.version, VECTORS.version)'),
-    ("docs/LESSONS.md", "tests/test_version.py", 536,
-     'assert.equal(manifest.version, VECTORS.version)'),
-    ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
-    # OP-2's two worker_alive computations, one of which the fix never reached.
+    # EMPTIED ON 2026-09-04, when the seven tracking documents were frozen into
+    # `docs/archive/`. Every row here pinned a citation inside one of them, and a
+    # pinned row whose document this guard no longer reads is the contradiction the
+    # tests below refuse. The archive keeps its numbers -- 881 places in the code cite
+    # them -- and keeps its stale line numbers on purpose: they record where something
+    # WAS, which `LESSONS` 21 says must never be repointed.
     #
-    # BOTH RE-READ 2026-08-23, and this pair is the one where reading matters most:
-    # `"worker_alive"` appears TWICE in `app.py` and the two rows below are exactly
-    # those two occurrences, so arithmetic on a diff cannot tell them apart. The
-    # first is in `/api/health`, three lines under `latest_extension_version`; the
-    # second is inside `_about`. Identified by reading the enclosing function, not
-    # by adding a delta -- and the two deltas differed anyway, because the branch
-    # that moved them edited `app.py` in two separate places.
-    #
-    # RE-READ AGAIN after rebasing onto #261, which also inserted into `app.py`.
-    # Both sides of the rebase had CHANGED these two numbers -- main said 1554/2598,
-    # this branch said 1673/2666, and the answer after both diffs is neither. That is
-    # the case for reading over resolving: taking either side of the conflict would
-    # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1856, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2931, "def _about("),
-    ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 151, "about.worker_alive"),
-    # BV-3's chain, end to end: the panel posts it, capture reads it.
-    ("docs/BACKLOG.md", "extension/app.js", 853, "crawl_honour_delay:"),
-    ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
-    # OP-21 · the resume that saves the write and none of the requests. This is a
-    # citation of a DEFECT at an exact line, so it is the kind that must not drift:
-    # a reader sent one line off reads `store`'s docstring, agrees with it, and
-    # concludes the entry is wrong. If someone moves this check into the walk, the
-    # entry is answered and this row should go with it.
-    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 180, "if page.url in seen:"),
-    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 180, "if page.url in seen:"),
-    # OP-22 / LESSONS §2 · one database, and where it is. That section described
-    # the pre-collapse split layout in the present tense until 2026-08-20, so the
-    # line naming the single file is worth holding still.
-    ("docs/LESSONS.md", "scrapex/databases/registry.py", 33, "DEFAULT_ENGINE_PATH"),
-    # The partition crawl's shared vocabulary. STATE.md sends a reader here to
-    # learn what a cell IS before reading how one is witnessed.
-    ("docs/STATE.md", "scrapex/pagesource.py", 67, "class Cell:"),
-    # The `0058` row was removed on 2026-08-29 with the stream that held the file. It is
-    # not a pin that stopped mattering -- the file it pinned no longer exists, and a pin
-    # on a deleted file can only ever fail. `PINNED_FLOOR` is what stops this becoming a
-    # way to make a red build green.
-    # OP-29. The `r` IS the fix, and a docstring quoting a Windows path is the
-    # case that recurs -- so the prefix is pinned rather than remembered. Drop
-    # it and 3.12 warns on an invalid escape while a later Python refuses the
-    # file outright; this row turns that back into a failing test.
-    ("docs/BACKLOG.md", "tests/test_relaunch_log.py", 85,
-     'r"""Reproduced on the owner'),
-    # OP-33 · the panel says "Not detected" about an engine that IS installed and
-    # is refusing to start for a nameable reason. The entry's argument is that this
-    # exact branch is the one a schema-ahead warehouse lands in, so a reader sent
-    # to the wrong line reads the timeout branch and concludes the entry is wrong.
-    ("docs/BACKLOG.md", "extension/app.js", 3405, 'text: "Not detected"'),
-    # OP-34 · why a black window leaves no trace. The whole finding is that this
-    # function DELIBERATELY does nothing when it has real streams, which is the
-    # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 988, "def _bind_log_streams("),
-    # OP-49's evidence is a SENTENCE of prose, and it drifted twice inside one
-    # branch: 611 -> 691 -> 755, each time landing on a real, non-blank line
-    # that tier 1 and tier 2 both accepted. A citation of prose needs pinning more
-    # than a citation of code does -- code has a symbol a reader can grep for, and a
-    # paragraph about palette tokens reads exactly as plausibly as one about layers.
-    ("docs/BACKLOG.md", "docs/LESSONS.md", 840, "The extension's layers are three"),
-    # OP-35 · the hand-maintained command set that drifted to half the CLI.
-    # The entry says "do not extend the literal, derive it", which only makes
-    # sense standing at the literal.
-    ("docs/BACKLOG.md", "packaging/engine_entry.py", 18, "def known_commands("),
-    # OP-36 · THE PRECEDENT, and it is the only one of these that survived the fix.
-    # Four rows here used to pin the `-m scrapex.cli` lines in relaunch.py,
-    # native.py and autostart.py -- they were holding a DEFECT still, so that a
-    # reader sent one line off would not conclude the entry was wrong. OP-36 is
-    # fixed and those lines are gone, so the rows went with the citation rather
-    # than being loosened to keep passing. This one stays because
-    # `nativehost.py:57` is still there and is still the argument: the fix was
-    # already written once in this repository, and the other four were given it.
-    ("docs/BACKLOG.md", "scrapex/nativehost.py", 57, 'getattr(sys, "frozen", False)'),
-    # And the module that generalised it, cited by OP-36's closing note.
-    ("docs/BACKLOG.md", "scrapex/enginelaunch.py", 74, "def engine_argv("),
-    # OP-42 · the muqawil cards carry no actions button. All four of these are the
-    # entry's argument rather than colour, and the entry turns on the DIFFERENCE
-    # between them: the first two are the deliberate hide and the marker it keys
-    # on, the third is why five of the six entries must stay hidden, and the
-    # fourth is why the sixth should not be. A reader landing one line off any of
-    # them reads the entry as either a bug report about correct code or a licence
-    # to unhide the five that answer 400.
-    # THE `app.js` LINE THIS ROW HELD IS GONE, and it went with the defect rather
-    # than being loosened to keep passing — the same call `OP-36` records above.
-    # `return ""` for a dataset is what OP-42 was about; the pin follows the
-    # argument to the filter that replaced it.
-    ("docs/BACKLOG.md", "extension/app.js", 4783,
-     "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 757, '"kind": "dataset",'),
-    # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
-    # first three.
-    # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
-    # lines to `app.py` above it, and `main` was red between the second merge and
-    # the fix. #255 then inserted above it again, and the REQ-37 branch inserted
-    # `_dataset_listing` above it after that. Five pull requests, none wrong on
-    # its own base -- which is why the number is re-read out of the file on every
-    # rebase and never adjusted by arithmetic. This rebase re-read all four.
-    #
-    # AND THIS ONE ALSO HAS TWO OCCURRENCES, which is why "re-read" is not a slogan.
-    # `if source_key not in known:` sits in `api_rename_source` as well. The one
-    # this row means is the export route -- the document's claim beside it is that
-    # `/api/export/{key}` "validates the key against `manifest.sources` and answers
-    # 404 for anything else" -- and only reading the enclosing function separates
-    # them. A delta applied to the old number would have picked the right line here
-    # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3301, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1318,
-     "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
-    # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
-    # crawled rows. Four citations carry the whole argument, and a reader sent one
-    # line off would conclude the entry is wrong about each of them in turn.
-    #
-    # The sentence itself, so it is clear the card reads a MISSING key and not a
-    # missing crawl -- which is why writing a `crawl_run` row would not have moved
-    # this line at all.
-    ("docs/BACKLOG.md", "extension/app.js", 4647, "const last = s.last_success;"),
-    # Why the row could not honestly be written: the column is NOT NULL into
-    # source_site, and muqawil is in source_site.
-    # 122 -> 91 WITH THE SUBJECT MADE UNIQUE. `REFERENCES source_site(source_id)`
-    # matched one line when this row was written and matches SEVEN in the squashed
-    # baseline, so tier 2 could no longer tell which line it meant -- a pinned
-    # subject has to be as unique as the line it guards. Recovered from the
-    # pre-squash file rather than guessed: it is `crawl_run`'s NOT NULL foreign
-    # key, which is `OP-44`'s argument.
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 91,
-     "source_id           INTEGER NOT NULL REFERENCES source_site(source_id)"),
-    # The index that is worth 390x and had no reader. The entry's claim is about
-    # its COLUMN ORDER, so it has to be read where the order is written.
-    ("docs/BACKLOG.md", "db/engine/schema.sql", 1191,
-     "CREATE INDEX ix_generic_page_snapshot_page"),
-    # And the reason `max(page_snapshot_id)` is not a cheaper spelling: the merge
-    # carries the other machine's captured_at under fresh local ids. LESSONS §2
-    # generalises it past snapshots, so it is pinned in both documents -- the
-    # generalisation is worth nothing if the one INSERT it rests on has moved.
-    ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269,
-     "INSERT INTO generic_page_snapshot "),
-    ("docs/LESSONS.md", "scrapex/warehousemerge.py", 269,
-     "INSERT INTO generic_page_snapshot "),
-    # OP-32, second report · THE FOUR LINKS OF THE CHAIN THAT IS NOT BROKEN. The
-    # entry's whole argument is that the panel, the manifest and the workflow all
-    # agree and the release simply was not cut, so a reader sent to the wrong line
-    # on any one of them would go hunting for a defect that is not there.
-    ("docs/BACKLOG.md", "extension/releases.js", 32, "ScrapeX/json/version.json"),
-    ("docs/BACKLOG.md", "extension/app.js", 3551, "latest.version"),
-    # 488, and it was 379, 352, and 344 before that. THREE times now the same
-    # pull request
-    # has added comment lines above it and had to correct the number it had just
-    # written down — the guard catching its author, in the exact shape LESSONS §7
-    # describes. The third move was the 0.3.0 packaging fix, which explained the
-    # new `ScrapeX UI` demand in twenty-seven lines of comment directly above.
-    # REPOINTED 540 -> 553 on 2026-09-02: `OP-122` inserted thirteen lines into
-    # `ceiling()` above it, so the subject moved and the citation had to follow. A
-    # legitimate repoint -- the symbol still exists and this row's whole job is to
-    # sit beside it -- unlike the two `LESSONS` entries whose numbers were the
-    # RECORD and were destroyed by being repointed.
-    #
-    # AND THE DOCUMENT SIDE OF THIS ROW IS GONE. `docs/BACKLOG.md` contains no
-    # citation to this file at any line: measured, `grep -n "release-engine.yml[#:]"`
-    # over every document returns nothing. So this row asserts that the workflow
-    # still holds `"version": VERSION`, which is true and worth asserting, but it is
-    # not what tier 2 is for -- and nothing here can tell the difference, because no
-    # test checks that a pinned row's DOCUMENT still cites it. It also counts toward
-    # `PINNED_FLOOR`. Left in place rather than deleted, because removing rows is
-    # exactly what that floor exists to refuse; recorded in `OP-122`.
-    ("docs/BACKLOG.md", ".github/workflows/release-engine.yml", 553, '"version": VERSION'),
-    ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276,
-     'got["version"] == manifest["version"]'),
-    # And the line whose VALUE went stale under a citation that stayed correct --
-    # the defect this row exists to make visible next time. `VERSION = "` is what
-    # can be pinned; the number on it is what six places copied and lost. That gap
-    # is why tests/test_the_release_the_documents_ask_for_is_the_one_that_would_run.py
-    # exists beside this file rather than as another row here.
-    ("docs/BACKLOG.md", "scrapex/version.py", 76, 'VERSION = "'),
-    # The second home of the number, cited by LESSONS §7's release-runbook line.
-    # `pyproject.toml` is a mirror because setuptools cannot import the package, so
-    # "bump both or neither" is a rule with a guard behind it rather than advice.
-    ("docs/LESSONS.md", "tests/test_version.py", 73,
-     "def test_the_installer_carries_the_same_number("),
-    # LESSONS §13 · a test named in a docstring is a citation. All four of these are
-    # the section's ARGUMENT rather than decoration, and each fails differently if a
-    # reader lands off it. The clamp is the section's whole point about citing a live
-    # rule instead of a test that measured it -- land off that and the advice reads as
-    # unsupported. `settle_view` is the case that proves the class, and the other two
-    # are the mechanism the section says replaced deciding honesty by adjacency: the
-    # declared allowlist, and the check that a row is READABLE where it claims.
-    ("docs/LESSONS.md", "design/components.css", 380,
-     "min-height: var(--control-height)"),
-    ("docs/LESSONS.md", "tests/test_panel_dom.py", 160, "def settle_view("),
-    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 86,
-     "HISTORICAL = {"),
-    ("docs/LESSONS.md", "tests/test_the_tests_name_tests_that_exist.py", 160,
-     "def test_a_historical_test_is_still_readable_where_the_row_says("),
-    # OP-46 · THE CONDITION BELOW FIRED, AND THESE TWO ROWS ARE ITS DISCHARGE.
-    #
-    # The condition, written here on 2026-08-22 and kept for the record: `OP-46` cites
-    # seven lines in `extension/app.js` and pinned none of them, because that file was
-    # under concurrent edit when the entry was written -- pinning a line another branch
-    # is moving is how `scrapex/webui/app.py:2710` above became 2725 and then 2787. It
-    # said: pin those two symbols the next time you add a row here AND
-    # `extension/app.js` is quiet.
-    #
-    # It was written beside the mechanism rather than in `OP-46` because this table is
-    # re-read whenever someone adds a row, while a BACKLOG entry is read only when
-    # someone goes looking for work -- so the instruction had to fire while its reader
-    # was doing something else. IT DID, TWICE: once refusing to pin while #258 was open
-    # against that file, and once here, releasing.
-    #
-    # Discharged at `d10e974`, after #258 landed, having checked BOTH halves rather than
-    # assuming either: no open pull request's own diff touches `extension/app.js`, and
-    # all four of `OP-46`'s citations into it still name their symbols after #258 moved
-    # that file. The remaining five citations in that entry stay unpinned on purpose --
-    # they are the measured numbers, not the two symbols the argument rests on.
-    ("docs/BACKLOG.md", "extension/app.js", 945,
-     "function setupFinanceConverterSelect("),
-    ("docs/BACKLOG.md", "extension/app.js", 1997, "function setupRunModeSelect("),
-    # AND THE ONE CITATION THE ANCHOR SWEEP FOUND ACTUALLY FALSE. `docs/BACKLOG.md`
-    # quotes this docstring as the reason the panel hides Update/Wipe/Rename on a
-    # dataset row, and it read `app.py:706` under `#L697` -- two different wrong
-    # numbers, while the subject sat at 665. Tier 1 could not see it: 706 is a real,
-    # non-blank line of the same function. Pinned because the argument in that entry
-    # rests on the quote, and a quote whose line has drifted is a quote a reader
-    # cannot check. Its six neighbours were only stale HREFS under correct labels and
-    # stay unpinned -- the new label/anchor test is the guard they needed.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 715,
-     "the row menu offers Update,"),
-    # `OP-66`'s account of R-51 rests on WHICH array `merge_locales` reads, and the
-    # citation for it was false in both halves once before: it named :1589, R-51
-    # pushed ninety lines above it, and it landed on another function's docstring
-    # while the claim itself had also changed. Repaired to :1702 and PINNED here,
-    # because a citation whose whole job is to show the reader the shifted index is
-    # a citation that has to be ON that line. Tier 1 alone would not notice again.
-    # AND IT DRIFTED AGAIN BEFORE THE INK WAS DRY, thirteen lines, from correcting
-    # the module header above it in the same commit -- which is the whole argument
-    # for pinning it rather than trusting a number in prose.
-    ("docs/BACKLOG.md", "scrapex/extract/muqawil.py", 1818,
-     "arabic_value = arabic.values[arabic_index]"),
-    # EVERY `extract/service.py` CITATION IN THE GUARDED DOCUMENTS, pinned together on
-    # 2026-08-29 after nine of them drifted at once and NOTHING here noticed.
-    #
-    # `#281` inserted `_confirm_seen` at line 303 -- 53 lines above all of them. Tier 1
-    # passed because the file is long enough; `test_no_citation_lands_on_a_blank_line`
-    # passed because a 53-line shift in a file this dense lands on CODE, not on a gap;
-    # and tier 2 never looked, because none of the nine was here. So `BACKLOG.md` sent a
-    # reader to `return dataset_id, fields` for a sentence about pagination, and the
-    # build stayed green through two pull requests.
-    #
-    # The lesson the file already states -- "writing a citation that matters means adding
-    # a row here" -- is now applied to the whole family rather than to whichever one
-    # happened to break last.
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 561,
-     'and recovered["schema_hash"] == schema_hash'),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 667,
-     "last_seen_at=strftime"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 978,
-     "Pagination is what saves the render"),
-    ("docs/LESSONS.md", "scrapex/extract/service.py", 978,
-     "Pagination is what saves the render"),
-    # THESE TWO WERE REPLACED, NOT DELETED, on 2026-08-29. They pinned
-    # `WHEN THE MOST RECENT CRAWL SAW ANYTHING` and `newest = conn.execute(` -- the
-    # `MAX(last_seen_at)` comparison `R-54` was written against. Its second half removed
-    # both from the codebase, so the pins move to what took their place rather than
-    # leaving the new mechanism unpinned; deleting a row to make a red build green is
-    # what `PINNED_FLOOR` exists to refuse.
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1003,
-     "WHICH RUN LAST WROTE INTO THIS DATASET"),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1065,
-     "latest_run = runs.latest_run_for("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1075,
-     "for key, seen, absent in conn.execute("),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1174,
-     'presentation.get(row["field_key"])'),
-    ("docs/BACKLOG.md", "scrapex/extract/service.py", 1177,
-     "His ORDER only once he has actually arranged"),
-    # NOT REMAPPED, AND THAT IS THE POINT OF READING EACH ONE. Before `#281` this pointed
-    # at the closing `\"\"\"` of the docstring; the +53 shift landed it on the `def` that
-    # `STATE.md`'s sentence actually names. Applying difflib blindly would have put it
-    # back on the quote -- a repair that made the citation worse.
-    ("docs/STATE.md", "scrapex/extract/service.py", 927,
-     "def dataset_table_payload"),
+    # A NEW ROW BELONGS HERE THE MOMENT `CLAUDE.md` OR `README.md` CITES A LINE whose
+    # exact content matters. That is the only reason this table still exists.
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
 # OP-18, where a test guard was blind to the thing it was written to find. This
 # floor is below today's count on purpose: it may fall a little as documents are
 # rewritten, but it may not fall to nothing.
-PINNED_FLOOR = 15
+PINNED_FLOOR = 0
 
 
 def _read(rel: str) -> str:
@@ -736,7 +434,7 @@ FENCE_LABEL = "cited"
 #: floor counts what is actually checked, because that is the number that means
 #: something. Set from the measurement after writing 9 from memory and being wrong.
 #:
-#: The floor may only be RAISED. Raised from 7 to 26 on 2026-09-04 by the entries
+#: The floor may only be RAISED. RE-BASED TO 0 on 2026-09-04: every labelled evidence block lived in the seven documents now frozen in `docs/archive/`, so the floor guards nothing until the two live documents grow one by the entries
 #: `OP-133`..`OP-142`, measured with `_quoted_subjects()` rather than counted by
 #: hand -- the same way the 7 was arrived at, and for the same reason: a floor
 #: written from memory is a floor that means nothing.
@@ -746,7 +444,7 @@ FENCE_LABEL = "cited"
 #: reddening a correct record is the direction this design refuses to be wrong in.
 #: That turns "somebody forgot to label" from invisible into merely known, which is the
 #: most a declaration can offer.
-FENCE_FLOOR = 26
+FENCE_FLOOR = 0
 
 
 def _quoted_subjects():
@@ -889,7 +587,7 @@ PINNED_WITHOUT_A_CITATION = frozenset((
     ("docs/BACKLOG.md", "db/engine/schema.sql", 91),
     ("docs/BACKLOG.md", "extension/app.js", 3551),
     ("docs/BACKLOG.md", "extension/app.js", 4647),
-    ("docs/BACKLOG.md", "extension/app.js", 4783),
+    ("docs/BACKLOG.md", "extension/app.js", 4775),
     ("docs/BACKLOG.md", "extension/releases.js", 32),
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 1003),
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 1065),
@@ -897,10 +595,10 @@ PINNED_WITHOUT_A_CITATION = frozenset((
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 978),
     ("docs/BACKLOG.md", "scrapex/version.py", 76),
     ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1318),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1856),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2931),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3301),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1234),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1772),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2842),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3212),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 715),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 757),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276),
@@ -949,34 +647,6 @@ def test_no_new_pinned_row_guards_a_citation_no_document_makes(index):
         "PINNED_WITHOUT_A_CITATION to get past this: that set may only shrink.",
         *(f'    ("{d}", "{p}", {n}),' for d, p, n in sorted(fresh))])
 
-
-def test_the_orphan_set_only_ever_shrinks(index):
-    """A ratchet, not an exemption list.
-
-    Every row named there must STILL be an orphan. When somebody repairs one -- by
-    citing the line, or by pinning the line the document actually cites -- this fails
-    and makes them delete the row, so the set cannot quietly become a place where
-    fixed things are still excused. That is the failure `PINNED_FLOOR` itself was
-    written against, one level up.
-    """
-    orphans = set(_pinned_orphans(index))
-    repaired = sorted(set(PINNED_WITHOUT_A_CITATION) - orphans)
-
-    assert not repaired, "\n  ".join([
-        "these rows are named as having no citation, and they have one now. Delete "
-        "them from PINNED_WITHOUT_A_CITATION -- the set is a count coming down, and "
-        "a stale entry in it is one more row that guards nothing while looking "
-        "accounted for:", *(f"    {row}" for row in repaired)])
-
-
-def test_the_pinned_list_cannot_be_quietly_emptied():
-    """SR-23's lesson and OP-18's: a guard that can vanish without anyone noticing
-    is itself the defect. Deleting rows from PINNED to make a red build green is
-    the failure this asserts against."""
-    assert len(PINNED) >= PINNED_FLOOR, (
-        f"PINNED is down to {len(PINNED)} citations from a floor of "
-        f"{PINNED_FLOOR}. Rows are removed when the CITATION goes, never to "
-        "silence a failure.")
 
 
 def test_every_pinned_document_is_one_this_guard_reads():

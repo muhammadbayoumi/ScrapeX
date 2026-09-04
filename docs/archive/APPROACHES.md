@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Approaches — how we write code and solve problems
 
 **No single method is the default.** The owner's instruction, 2026-08-17:
@@ -10,7 +22,7 @@ where two of them disagree — **which one wins here and why**. Pick per task an
 say which you are using. A method chosen by habit rather than by fit is the thing
 this register exists to prevent.
 
-Governed by **C1** and **C2** in [../CLAUDE.md](../CLAUDE.md): read this before
+Governed by **C1** and **C2** in [../CLAUDE.md](../../CLAUDE.md): read this before
 building, and add to it when a method proves itself or fails.
 
 ---
@@ -46,7 +58,7 @@ about to stand in for production.
 ---
 
 ### A3 · The engineering rules
-**[ENGINEERING.md](../ENGINEERING.md)** — P1–P5 and the A/Q/T/F/S/W rules.
+**[ENGINEERING.md](ENGINEERING.md)** — P1–P5 and the A/Q/T/F/S/W rules.
 
 The standing constitution for code in this repo: DRY-aggressive, tests
 non-negotiable, engineered-enough, edge-cases-first, explicit over clever. Each
@@ -183,7 +195,7 @@ register — treat it as binding, not advisory.
 
 1. Vendor or reference it, with its licence and its source.
 2. Add an entry here: what it is good for, and **when to reach for it**.
-3. Read it against [ENGINEERING.md](../ENGINEERING.md) and
+3. Read it against [ENGINEERING.md](ENGINEERING.md) and
    [RULINGS.md](RULINGS.md), and record any conflict in the section above with a
    resolution. An imported method that has not been checked against the
    project's own rules is a second, contradictory constitution.

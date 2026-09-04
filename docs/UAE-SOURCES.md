@@ -4,7 +4,7 @@
 
 > «ضيف هذا الملف ليكون المصادر التالية **بعد الانتهاء الكامل من مصدر مقاول ومصدر
 > بلدية**»
-> — 2026-08-20, [REQ-15](REQUESTS.md#req-15--the-uae-sources-third-in-the-queue)
+> — 2026-08-20, [REQ-15](archive/REQUESTS.md#req-15--the-uae-sources-third-in-the-queue)
 
 So: muqawil, then [Balady](BALADY-ENG-OFFICES.md), then this. **The survey below is
 his, stored verbatim**, for the same reason as Balady's — a specification that lives
@@ -38,7 +38,7 @@ worth naming exactly how much of one. On muqawil the Arabic half costs a **secon
 full crawl** — 871 listing pages and 17,403 profiles again — and the values are
 matched **by page-order index, never by label**, because the same field is spelled
 `رقم العضويه` with `ه` in one place and a label-matched extractor breaks on it
-([LESSONS.md](LESSONS.md)). A record that carries `firm_name` and `firm_name_ar`
+([LESSONS.md](archive/LESSONS.md)). A record that carries `firm_name` and `firm_name_ar`
 together costs **half the requests and removes the index-matching risk entirely.**
 If DMT holds up, it is the best-shaped source this project has seen.
 
@@ -47,7 +47,7 @@ JSON source before using browser automation" — should gate everything else.** 
 the cheapest question available and it can delete the crawl. On muqawil the
 equivalent question was answered late and the answer was no: `/sitemap.xml` holds
 **20 static pages**, the map page carries **zero** contractor markers, and no sort
-parameter exists — three dead ends recorded in [DEC-11](BACKLOG.md) so nobody spends
+parameter exists — three dead ends recorded in [DEC-11](archive/BACKLOG.md) so nobody spends
 the requests twice. These are government portals; here the answer may be yes.
 
 **3 · His §11.7 — "treat grades, ratings, classification categories and evaluation

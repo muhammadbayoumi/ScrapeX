@@ -78,12 +78,12 @@ copy map — **nine sources into eighteen destinations**. Read the tool rather t
 restated here; a restated list goes stale, and this one had.
 
 **The two copies this sentence used to omit are the ones that matter most.**
-`design/tokens.css` is the file [R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+`design/tokens.css` is the file [R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
 rules on, and it is published to `extension/tokens.css` and
 `scrapex/webui/static/tokens.css`; neither was named. `appearance.js`, `split-button.js`
 and `timezone.js` are copied too. All are asserted byte-equal by `tests/test_vendor.py`
 and `tests/test_design_system.py`. Corrected 2026-08-29 by
-[REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases).
+[REQ-49](archive/REQUESTS.md#req-49--review-the-design-system-against-supabases).
 
 **Editing a copy is the second mistake I made on 2026-08-05.** Edit `design/`,
 then run:
@@ -181,7 +181,7 @@ live example with its markup, both themes, and a guard that fails when a
 component is in the sheet and not on the page.
 
 > **"Cannot go stale" is stronger than the mechanism.** Measured 2026-08-29 by
-> [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases): the sprite half
+> [REQ-49](archive/REQUESTS.md#req-49--review-the-design-system-against-supabases): the sprite half
 > of it is a **gate, not an assertion** — `tools/sync_design_assets.py` regenerates the
 > block only `if` its marker comment is present, so tampering with the block is caught and
 > tampering with the block *and* renaming the marker passes, after which the tool reports

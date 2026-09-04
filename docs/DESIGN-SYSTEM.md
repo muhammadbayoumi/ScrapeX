@@ -5,9 +5,9 @@
 **This is the first thing to read here, and this document did not say it for 37 days.**
 It was last edited on 2026-07-23; `R-73` and `R-74` were ruled on 2026-08-28 and shipped in
 `208d829`, and the word "Supabase" appeared nowhere below. Corrected 2026-08-29 by
-[REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases).
+[REQ-49](archive/REQUESTS.md#req-49--review-the-design-system-against-supabases).
 
-[R-74](RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+[R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
 — *«design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان»*, and *«واى تعارض
 معاها يلغى»*:
 
@@ -19,7 +19,7 @@ It was last edited on 2026-07-23; `R-73` and `R-74` were ruled on 2026-08-28 and
 3. **A palette entry may contain nothing but colour**, enforced by
    `tests/test_a_palette_may_change_nothing_but_colour.py`. `whatsapp` and `github` do not
    represent the brand — they are colour exceptions on top of the system.
-4. [R-59](RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+4. [R-59](archive/RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
    decision 4 still governs: components consume semantic roles, **never** a palette
    identifier.
 

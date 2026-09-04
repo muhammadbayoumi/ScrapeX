@@ -71,15 +71,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `docs/plans/` is OUT of scope for the reason the citation guard gives for
 #: excluding it: those files are verbatim historical records, and a plan edited
 #: after the fact stops being evidence of what was decided when.
+# NARROWED ON 2026-09-04. The rule is unchanged and still earns its place -- a
+# document must never tell him to cut a tag the workflow would refuse -- but its
+# subject was "the registers a session reads before it decides what to do", and those
+# were frozen into `docs/archive/` that day. The archive RECORDS a stale
+# `git tag engine-v0.2.2` from August; repointing it would rewrite what it records,
+# which is the one thing a historical citation must not do. What a session reads now
+# is these two files and the workflow itself.
 INSTRUCTIONS_LIVE_IN = (
     "CLAUDE.md",
-    "ENGINEERING.md",
-    "docs/STATE.md",
-    "docs/REQUESTS.md",
-    "docs/RULINGS.md",
-    "docs/BACKLOG.md",
-    "docs/LESSONS.md",
-    "docs/APPROACHES.md",
+    "README.md",
     ".github/workflows/release-engine.yml",
 )
 
@@ -130,7 +131,7 @@ def test_the_places_a_release_instruction_actually_lives_cannot_leave_the_scope(
     rather than counted — a floor would have to be lowered every time an entry is
     struck, and the number is not what makes this guard work.
     """
-    for required in ("docs/STATE.md", "docs/BACKLOG.md", "docs/REQUESTS.md",
+    for required in ("CLAUDE.md", "README.md",
                      ".github/workflows/release-engine.yml"):
         assert required in INSTRUCTIONS_LIVE_IN, (
             f"{required} is out of scope, and it is one of the places a release "
