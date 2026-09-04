@@ -302,16 +302,22 @@ def test_manifest_path_is_per_platform(monkeypatch, tmp_path):
 # honesty: probe-based idempotence, and a reply that never claims more than a
 # probe confirmed.
 
-def test_start_engine_does_not_spawn_when_the_port_already_answers(conn, monkeypatch):
+def test_start_engine_does_not_spawn_when_the_engine_itself_answers(conn, monkeypatch):
+    """RENAMED FROM `..._when_the_port_already_answers`, and the old name was the
+    defect stated as a requirement: a port answering is not an engine answering. The
+    reply also NAMES the engine that answered now, because a confirmation that cannot
+    say what it confirmed is what let a dying instance pass for a live one."""
     from scrapex import native
 
     spawned = []
-    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda port, timeout=1.5: {"app": "scrapex", "version": "9.9.9"})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
     r = handle(conn, {"command": "START_ENGINE", "request_id": "s1"})
 
     assert r["ok"] and r["already_running"] and r["confirmed"]
+    assert r["version"] == "9.9.9", "the reply does not say which engine answered"
     assert spawned == [], "a second engine was spawned onto an occupied port"
     assert r["request_id"] == "s1"
 
@@ -320,8 +326,10 @@ def test_start_engine_spawns_and_confirms_when_the_port_comes_up(conn, monkeypat
     from scrapex import native
 
     spawned = []
-    answers = iter([False, True])          # down at the probe, up after the spawn
-    monkeypatch.setattr(native, "_engine_listening", lambda port: next(answers))
+    # down at the probe, the engine itself up after the spawn
+    answers = iter([None, {"app": "scrapex", "version": "9.9.9"}])
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda port, timeout=1.5: next(answers))
     monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
@@ -378,7 +386,8 @@ def test_start_engine_honours_a_requested_port(conn, monkeypatch):
     from scrapex import native
 
     seen = []
-    monkeypatch.setattr(native, "_engine_listening", lambda port: (seen.append(port), True)[1])
+    monkeypatch.setattr(native, "_engine_answering", lambda port, timeout=1.5: (
+        seen.append(port), {"app": "scrapex", "version": "9.9.9"})[1])
     monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
 
     r = handle(conn, {"command": "START_ENGINE", "port": 8077})
@@ -450,7 +459,8 @@ def test_an_unreadable_warehouse_does_not_take_start_engine_down(tmp_path, monke
 
     broken = tmp_path / "scrapex-engine.db"
     broken.write_bytes(b"this file is not a database at all")
-    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda port, timeout=1.5: {"app": "scrapex", "version": "9.9.9"})
 
     reply = io.BytesIO()
     code = native.serve(broken, stdin=_framed(
@@ -736,3 +746,46 @@ def test_the_two_protocol_constants_cannot_drift(conn):
     assert int(found.group(1)) == PROTOCOL_VERSION, (
         f"the extension speaks protocol {found.group(1)} and the engine speaks "
         f"{PROTOCOL_VERSION}; bump both or neither")
+
+
+def test_a_stranger_on_the_port_is_not_mistaken_for_the_engine(conn, monkeypatch):
+    """THE MEASURED FAILURE OF 2026-09-04, and the one the old tests could not see.
+
+    `START_ENGINE` answered `{"already_running": true, "confirmed": true}` while
+    NOTHING was serving: a previous instance was dying and still held 8000, the bare
+    `connect_ex` succeeded, and the host reported the engine as already up. Because
+    that branch returns without spawning, it also declined to start the engine it had
+    just decided was running — so the one command that could have fixed it refused, and
+    the panel rendered "Not detected" a beat after being told all was well.
+
+    A REAL LISTENER, and deliberately not a stub of the probe. Every existing test
+    stubbed the seam with `True`, which is exactly why a product that believed a socket
+    kept a green suite: the stub asserted the belief instead of testing it.
+    """
+    import socket
+
+    from scrapex import native
+
+    stranger = socket.socket()
+    stranger.bind(("127.0.0.1", 0))
+    stranger.listen(1)
+    port = stranger.getsockname()[1]
+
+    spawned = []
+    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
+    monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
+    try:
+        assert native._engine_listening(port), "the fixture's own listener is not up"
+        assert native._engine_answering(port, timeout=0.4) is None, (
+            "a socket that never speaks HTTP was accepted as the engine")
+
+        reply = handle(conn, {"command": "START_ENGINE", "port": port})
+    finally:
+        stranger.close()
+
+    assert not reply.get("already_running"), (
+        "a stranger holding the port passed for a running engine")
+    assert reply["started"] and reply["confirmed"] is False
+    assert spawned == [port], (
+        "it declined to start the engine because something else answered the port")
