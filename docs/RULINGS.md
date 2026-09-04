@@ -1436,7 +1436,7 @@ Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
 > *"Export stays in the engine — it is SQL over SQLite, not a file move."*
 
 **Export is a user-facing capability that exists only in the engine today**
-(`scrapex/webui/app.py:1329`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+(`scrapex/webui/app.py:1343`, `@app.get("/export/{source_key}.xlsx")`). Both statements
 are his, the newer one contradicts the older, and **the rule says a newer conflict is
 his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
 engine` (`:61`) is the same shape and rides with it.
@@ -3149,7 +3149,7 @@ SHA, both facts rather than judgements.
 2026-08-30, thirteen days later, still live in three places:
 
     scrapex/version.py:517      "latest_extension_version": VERSION
-    scrapex/webui/app.py:1747   "latest_extension_version": VERSION
+    scrapex/webui/app.py:1761   "latest_extension_version": VERSION
     extension/app.js:612, :646  drawn to the user as "Latest available extension"
 
 The engine answers *"what is the newest extension available"* with **its own number**, which
@@ -3246,6 +3246,11 @@ all**. Whatever the panel offers must name the pass; *"Update now"* describes no
 ---
 
 ### R-79 · Device colours reach the user, and the ink is derived rather than trusted
+**§5's closing clause superseded-in-part 2026-08-31 by
+[R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice); the
+device colour mode this ruling repaired was itself deleted by R-85. The measurements stand
+and are the reason a future device mode must not repeat them — see the tombstone in
+`design/tokens.css`.**
 
 **2026-08-30 · design system · closes [OP-101](BACKLOG.md) and half of [OP-104](BACKLOG.md) ·
 first of [REQ-49](REQUESTS.md#req-49--review-the-design-system-against-supabases)'s twelve
@@ -3358,6 +3363,36 @@ coverage either.
 raised to meet it: even `#F0FEEE` only reaches 4.421, so the ink was the only side that could
 move. It is `#147742` now, at 5.077 and 5.604. **Per this ruling a failing pair is a defect
 in the palette, never a reason to lower a threshold.**
+
+> **~~§5's closing clause~~ SUPERSEDED-IN-PART 2026-08-31 by
+> [R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice).**
+> *"Never a reason to lower a threshold"* no longer holds without exception, and the exception
+> is narrow: where a value is **Supabase's own** and «مطابق تماما» requires it, the threshold
+> yields to the value. Two positions do this and no others —
+> `--line-strong` at **1.542** light and **1.648** dark, and `--focus` at **1.466** light,
+> against floors of 3.0. Their `--border-stronger` and their `--ring` are genuinely below what
+> this repository asks, Supabase states no numeric contrast target anywhere in its 105
+> authored documents, and he ruled «عدل اى قرار يتعارض مع هذا النظام» after being shown 1.47:1
+> for the focus ring.
+>
+> **EVERYTHING ELSE IN §5 STANDS, AND THE REST OF THIS RULING IS UNTOUCHED.** A pair that fails
+> on a value THIS repository chose is still a defect in the palette — which is exactly what
+> the `brand` ink above was, and it stays fixed. And R-85 lowered nothing silently: both
+> assertions are **pinned at their measured ratio** rather than deleted, so drift in either
+> direction still fails and the number stays findable. A deleted assertion is a threshold
+> nobody can locate again.
+>
+> **Read this before repairing either ratio.** Seen from `tests/test_panel_dom.py` alone they
+> look like a regression against §5, and they are a ruling.
+
+**AND ONE MEASUREMENT IN §5 SUPPORTED A FALSE CONCLUSION**, found while building `R-85` and
+recorded here because this entry is where a reader looks for it. `--amber` was listed among
+the departures on the strength of **2.677:1 against `--amber-weak`**. The number is correct
+and the pairing is this repository's invention: **Supabase never puts warning text on its own
+warning-300 tint.** Its ink for a warning fill is `--warning-foreground`, and their value with
+their ink measures **6.923** light and **10.646** dark — so restoring their colour cost
+nothing and RAISED the ratio. A measurement of a pair nobody renders is not evidence about a
+palette.
 ---
 
 ### R-80 · One feature, one place — and a read-only second copy is still a second copy
@@ -3551,13 +3586,24 @@ way a reader sees them. He chose conversion.
 **OD-09 · "reject it", and IT IS NOT BUILT.** He was asked whether to sanction the panel's
 control-height override, raise the 48px touch floor to the baseline, or reject the override.
 He chose reject. **Measured, that reading deletes a live accessibility constraint**:
-`tests/test_panel_dom.py:443-448` asserts a 48px bounding box on three selectors, so
+`tests/test_panel_dom.py:462-467` asserts a 48px bounding box on two selectors, so
 "reject the override" is either "delete the floor with it" or "delete it and raise the
 baseline for both surfaces" — materially different work, one of which removes an Android
 touch floor. The three readings were put to him with the numbers and he replied *«كمل»*,
 which is *carry on*, not a choice among them. **So it is parked, visible, and unbuilt.**
 Nobody has quietly removed an accessibility constraint on his behalf, and nobody has
 overruled him either.
+
+> **~~PARKED~~ ANSWERED 2026-09-02 — «احذفها» — and built under
+> [R-85](#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice) §6.**
+> Asked once more with the reading spelled out, he chose to delete the floor. **This
+> paragraph stays exactly as written**, because `C4` keeps the history of a published
+> decision and the history here is the useful part: a session held a ruling unbuilt for
+> three days rather than pick between two readings of one word, and the holding was right —
+> **the measurement it eventually took contradicted the warning this paragraph carries.**
+> `tests/test_panel_dom.py`'s three appearance selectors do NOT depend on the override; they
+> measure 48, 115 and 48 with it and without it. The real cost was one icon button at 40px
+> and two rendering pins, not the accessibility constraint named above.
 
 #### Why they were taken in one pass rather than one at a time
 
@@ -3694,3 +3740,237 @@ often asserts a PROPERTY of the resulting schema and is then the only thing chec
 it; and `tests/test_migration_drift.py` must survive regardless, because proving that
 an upgraded database equals a fresh build is the entire claim a new baseline makes.
 
+---
+
+### R-85 · The system is Supabase's exactly, and `supabase` is the only colour choice
+
+**2026-08-31 · design system · GENERAL — «عدل اى قرار يتعارض مع هذا النظام» · supersedes
+[R-74](#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+parts 2, 3 and 4, and discharges the palette registry
+[R-59](#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+decisions 1 and 3 · supersedes-in-part
+[R-79](#r-79--device-colours-reach-the-user-and-the-ink-is-derived-rather-than-trusted) §5**
+
+> «انا اريد النظام مطابق تماما لنظام supbase عدل اى قرار يتعارض مع هذا النظام»
+>
+> then, asked which of R-74's four colour choices survive:
+>
+> «احذف الثلاثة وابق supabase وحده»
+
+**RECORDED THE SESSION HE GAVE IT, WITH THE WORK NOT YET STARTED**, and amended in the same
+session when he answered the two questions it had left open. `C3` does not wait for a plan;
+`C5` wants an unresolved half visible rather than settled by a session's judgement.
+
+**WHY IT IS AMENDED IN PLACE RATHER THAN SUPERSEDED BY A SECOND ENTRY.** `C4` protects the
+history of a PUBLISHED decision — superseded text stays because citations to it exist and
+readers inherited it. This entry had never reached `main` when the answers arrived, so there
+is no inherited reading to protect, and publishing a document that says "open" about
+something already answered is a lie with a date on it. **What C4 does require, and what
+section 4 keeps, is that the questions were ASKED and ANSWERED rather than never in doubt:**
+the measurement that made them askable is what makes «القيم فقط» a decision instead of a
+default.
+
+**PROVENANCE, because a ruling rests on who heard it.** Both sentences quoted above, and both
+answers in section 4, reached THIS session directly in his own words. No part of this entry
+is a relay. *"A session was told he said this"* and *"the session he said it to wrote it
+down"* are different claims and only the second carries a ruling.
+
+#### 1 · What it replaces
+
+`R-74` made Supabase's design system the baseline and then **named three exceptions on top of
+it** — *«قد ضفنا له استثناء 3 palette الوان واتساب وجت هب و device»*. This ruling deletes those
+three. `supabase` is not the default among four; it is the only one.
+
+**Both rulings are general and each cancels what conflicts with it.** `R-74` said *«واى تعارض
+معاها يلغى»* about itself; this one says *«عدل اى قرار يتعارض مع هذا النظام»* about Supabase.
+Put to him as a direct question — do the three exceptions survive — and he answered by
+deleting them. So the later ruling wins on the point it was asked about, and `R-74`'s first
+part is untouched: the design system is still Supabase's.
+
+#### 2 · What deleting the three costs, measured before it is built
+
+| | |
+|---|---|
+| filled palette cells removed | **134** — `brand` 36+36, `blue` 31+31 (`blue` is five short of `THEME_PROPERTIES` in each scheme) |
+| registry lines removed | **120** of `design/appearance.js` |
+| device declarations removed | **20** across three blocks of `design/tokens.css` |
+| stored-preference migration needed | **none** — `resolvePalette` already returns `DEFAULTS.palette` for an id it does not know, so a stored `whatsapp`, `github`, `brand` or `blue` resolves to `supabase` on its own |
+| contrast matrix | **168 executions over 8 states → 21 over 2** |
+
+**And it deletes work that landed hours earlier.** `R-79` was entirely about device colours —
+the cascade fix that made *"Device colours"* reach the user in dark (`OP-101`), the discovery
+that the operating system's own ink scores 4.21:1 on its own accent, the per-surface derived
+ink, and two new tests. All of it goes with `device`. That was correct work under the ruling
+standing at the time, and `C4` requires the history to be visible rather than tidied away.
+
+#### 3 · What "exactly" costs, measured — three readings, orders of magnitude apart
+
+**The ruling does not say which layer it means, and this is not a quibble.**
+
+| reading | what it costs |
+|---|---|
+| **VALUES** — restore their colour values | **14 of 168 contrast assertions go red**, 18 once their white switch thumb is counted; all concentrated in the two states a fresh install paints |
+| **SYSTEM** — also adopt what they have and delete what they do not | **+124 declarations**, `THEME_PROPERTIES` **36 → 72**, **144 hand-picked palette cells**, matrix **168 → 448** — *and the subtraction of* the bidirectional contract, `forced-colors`, `prefers-contrast`, seven of nine `reduced-motion` blocks, **79 `aria-live` sites**, the 48px touch floor and the Google button |
+| **IMPLEMENTATION** — React, Tailwind, Radix, a build step | **351 `.ts/.tsx` files and 26 npm dependencies** against 20 authored stylesheets, inside an MV3 side panel and a pip-installed Flask app with no `package.json` at the repository root |
+
+**THIRTEEN COMPONENTS ARE STRUCTURALLY IMPOSSIBLE, NOT MERELY EXPENSIVE**, and the reason is
+the same each time: the thing being copied is a *runtime*, not a style. `chart.tsx` is
+recharts reconciling a React tree to place axis ticks. `command.tsx` is cmdk's scoring and
+virtual-focus engine. `form.tsx` **has no visual output at all** — it exists to wire
+react-hook-form to `aria-describedby` ids from `React.useId`. `calendar.tsx` is
+react-day-picker's locale and grid semantics; `drawer.tsx` is vaul's pointer-drag physics.
+
+#### 4 · THE TWO QUESTIONS THAT WERE PUT TO HIM, AND HIS ANSWERS
+
+**4a · Which layer does «مطابق تماما» mean?** Nothing can be planned before this. The
+recommendation put to him: the VALUE layer plus the token-vocabulary additions that cost
+nothing, with the implementation layer excluded **in the ruling's own text** — because
+[R-48](#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports),
+[R-50](#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it)
+and [R-77](#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
+all assume an engine with no framework.
+
+**4b · Is the Arabic axis exempt?** **This is the only item whose cost is not counted in
+assertions.** Supabase is LTR-authored and the lock is explicit, not an omission: **268
+physical directional properties against 6 logical** across 351 files, zero `rtl:` variants,
+zero `DirectionProvider`, zero `unicode-bidi`, and no mention of rtl, bidi, Arabic or i18n in
+any of its 105 documentation files.
+
+This repository is the inverse **because its data is Arabic**: 22 bidi-control declarations,
+190 logical inline-axis properties against 20 physical, 26 `dir="auto"` render sites, 55
+`*_ar` field names, 11 `*_ar` schema columns, and `"Noto Sans Arabic"` inside both font stacks
+because Inter and Manrope do not cover Arabic.
+
+**17,417 of 34,834 crawled pages are Arabic — exactly half** — and `contractors`, one of the
+four categories `CLAUDE.md` names, is Arabic throughout.
+
+**So on this axis there is nothing to copy. Exact match can only mean subtraction**: delete 22
+declarations and flip 190 properties, after which Arabic company names, activities, regions
+and addresses render with their digits, punctuation and Latin fragments in the wrong order
+inside every English row. The affected screens are named: `source.html`, `offer.html`,
+`changes.html`, `review.html`, `overview.html`, `manage.html`, `excel.html`.
+
+The recommendation put to him is to exempt it **in the ruling's own words**, the way `R-74`
+exempted three colour choices in its.
+
+**HIS ANSWER TO BOTH, IN ONE SENTENCE: «القيم فقط، والعربية استثناء».**
+
+**4a is answered THE VALUE LAYER.** Not the system layer, which would have been +124
+declarations, `THEME_PROPERTIES` 36 → 72, 144 hand-picked palette cells and a contrast matrix
+of 448 — *and* the subtraction of the bidi contract, four accessibility accommodations and 79
+`aria-live` sites. Not the implementation layer, which is React, Radix, Tailwind and a build
+step: 351 `.ts`/`.tsx` files and 26 npm dependencies against 20 authored stylesheets, inside
+an MV3 side panel and a Flask application with no `package.json` at the repository root, and
+13 components that are structurally impossible rather than merely expensive — `recharts`
+computes axis geometry by reconciling a React tree, `cmdk` is a scoring engine, and
+`form.tsx` has no visual output at all.
+
+**4b is answered EXEMPT.** The bidirectional contract stays: 22 declarations, 190 logical
+properties, 26 `dir="auto"` sites and `"Noto Sans Arabic"` in both stacks are untouched by
+this ruling. **The exemption is not a concession to difficulty.** On that axis Supabase
+publishes nothing to copy, so "exact match" could only mean deleting what this repository has
+— and half the crawled corpus is Arabic.
+
+#### 5 · The 48px touch floor, deleted — and it is this ruling rather than a separate one
+
+**«احذفها», 2026-09-02**, closing the last of `REQ-49`'s twelve and the one
+[R-82](#r-82--the-ten-remaining-decisions-of-req-49-taken-in-one-pass) had left parked.
+
+**IT BELONGS HERE BECAUSE IT IS EXACT MATCH, NOT A SEPARATE PREFERENCE.** Supabase's control
+scale is `SIZE_VARIANTS` — 26 / 34 / 38 / 42 / 50, default 34 — and it carries **no 48px
+floor anywhere**. The panel raised `--control-height` to 48px and `--control-height-sm` to
+40px over the baseline's 40 and 32, on the ground that the extension *"behaves like a compact
+Android app"*. An override that lifts two tokens above the baseline is a divergence from
+them, so «مطابق تماما» removes it.
+
+**AND THE WARNING THAT KEPT IT PARKED WAS WRONG, WHICH IS WHY IT WAS RIGHT TO MEASURE.**
+`R-82` records that deleting the override would remove a 48px bounding box asserted on
+three appearance selectors. Measured in Chromium: **those three are 48, 115 and 48 with the
+override and without it** — they take their height from padding and content, not from
+`--control-height`. The real cost is smaller and elsewhere: **one icon button drops from 48
+to 40**, and two rendering pins move — the Finance converter rows from 40 to 32, and the
+engine back button from 40×48 to 32×40.
+
+**The back button is the one to read.** Its test exists for an ASYMMETRY: the declared
+`--control-height-sm` reaches the width while the global `min-height` sets the height from
+`--control-height`. **That asymmetry survives intact** — both numbers now come from the
+baseline instead of the override, so the pair moved together. The assertion's subject never
+changed; its two values did.
+
+**`--touch-target` IS NOT DELETED**, and the distinction is the whole of what remains: it
+keeps **24 explicit reads** in `extension/app.css` where a specific element is sized for
+touch deliberately. What went is the blanket raise of every control.
+
+#### 6 · Three departures this ruling would revert, and one that was never a departure
+
+Measuring the ruling found the record of the departures itself partly wrong, and the
+correction stands whatever he answers.
+
+- **`--accent-contrast` was never a departure.** It is byte-exact to their
+  `--primary-foreground` in both schemes — `#030303` light and `#131413` dark. The comment
+  calling it a deliberate move away from their brand green describes a colour **Supabase does
+  not use there either**.
+- **`--amber`'s pair is this repository's invention.** Supabase never puts warning text on
+  its own `warning-300` tint; its on-amber ink is `--warning-foreground`, which scores
+  **6.92:1**. The 2.68:1 that justified the departure is a number for a pairing they do not
+  render.
+- **`--focus` fails in one scheme, not two.** Restoring their ring gives 1.47:1 in light and
+  **3.56:1 in dark**, which clears the floor.
+
+So the real departures are three positions, not five values: `--line-strong` in both schemes,
+`--amber` in light, `--focus` in light.
+---
+
+### R-86 · A session announces itself to the queue before it is ready, not when it is done
+
+**2026-09-02 · orchestration · imposes an obligation that
+[R-42](#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks) only
+granted a permission for**
+
+> «دائما بلغ الرئيسى بحجز مكان تجنبا لاعادة base عدة مرات»
+
+**He gave this after watching it cost an afternoon**, and the cost is the argument rather
+than an illustration of it.
+
+#### Why it is a ruling and not prose under R-42
+
+`R-42` grants a PERMISSION — exactly one session merges, every other asks. This imposes an
+OBLIGATION on every session: tell the primary before you are ready. That changes what
+everyone must do rather than describing what the primary may do, which is what makes it its
+own entry.
+
+#### What it cost not to do it, measured on one branch
+
+`claude/the-system-is-supabases-exactly` was rebased **three times**. Finish, discover `main`
+had moved, rebase, discover it had moved again. **Not one of the three was a merge conflict
+in the ordinary sense:**
+
+- The first re-derived nine citations, and **three of them had been stale before the branch
+  touched the file** — by 21, 36 and 59 lines. They pointed at wrong NON-BLANK lines, so they
+  had passed for as long as they existed; a 14-line insertion pushed them onto blank ones and
+  only then were they visible.
+- The second proved that **taking a side in a citation conflict is not an answer.** Both
+  branches had edited `scrapex/webui/app.py`, so each side was right about its own tree and
+  wrong about the merged one. Five pinned rows resolved to numbers **neither side held**.
+- The third lost the session's uncommitted work: a stash pushed into a rebase that was always
+  going to conflict, applied on top of the conflicted state, then dropped. It was recovered
+  from unreachable objects. **The error was the order, not the command** — a commit is a ref
+  and a stash is not.
+
+#### What a slot is, and what it is not
+
+**It is not a promise about time.** `main` moves regardless and the primary says when. What
+the slot buys is **rebasing once, on the primary's word, instead of speculatively** — and
+being told before starting rather than discovering afterwards.
+
+It also pairs with what `docs/ORCHESTRATION.md` §2 gained the same day: the merge-tree check
+is *when to verify*; **a reserved slot is when to start.** A session that has both rebases
+once and verifies once.
+
+#### And the order in the queue is a measurement, not a courtesy
+
+Slot 1 went to this branch over a squash that regenerates `db/engine/schema.sql`, deletes
+fifteen migration files and bumps `VERSION`. **A rebase across that is far worse than a
+rebase across a positional conflict in `docs/RULINGS.md`**, and this branch adds no migration
+so it cannot invalidate the squash's baseline either way. Both orders were safe; one was
+cheaper. **The primary is expected to say which and why, not merely to say who is next.**

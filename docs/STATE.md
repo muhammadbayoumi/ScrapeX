@@ -476,6 +476,42 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+### The system is Supabase's exactly — 2026-08-31 · branch `claude/the-system-is-supabases-exactly`, stacked on #299
+
+**`R-84`, recorded before the work starts because `C3` says so.** Two questions inside it are
+OPEN and named in the ruling; nothing is built until he answers.
+
+> «انا اريد النظام مطابق تماما لنظام supbase عدل اى قرار يتعارض مع هذا النظام»
+> · «احذف الثلاثة وابق supabase وحده»
+
+**IT SUPERSEDES `R-74` PARTS 2, 3 AND 4.** `R-74` made Supabase the baseline and named three
+exceptions on it — `whatsapp`, `github`, `device`. Asked directly whether they survive, he
+deleted them. `supabase` is now the only colour choice.
+
+**Measured before building:** 134 filled palette cells, 120 registry lines, 20 device
+declarations, and the contrast matrix goes **168 executions over 8 states to 21 over 2**. The
+stored-preference migration is **free** — `resolvePalette` already returns the default for an
+id it does not know. And it deletes `R-79` entirely, which was all device: the cascade fix,
+`contrast-color()`, the per-surface ink, two tests. Correct work under the then-standing
+ruling, and `C4` keeps that visible.
+
+**THE TWO OPEN QUESTIONS, because their answers differ by orders of magnitude:**
+
+| | |
+|---|---|
+| **which layer** | VALUES = 14 of 168 assertions red · SYSTEM = +124 declarations, `THEME_PROPERTIES` 36→72, 144 cells, matrix 168→448, **minus** the bidi contract, four accessibility accommodations, 79 `aria-live` sites, the 48px floor · IMPLEMENTATION = 351 `.tsx` files and 26 npm deps against 20 stylesheets, inside an MV3 panel and a Flask app with no root `package.json` |
+| **is Arabic exempt** | Supabase: **268 physical directional properties against 6 logical**, zero `rtl:`, zero `unicode-bidi`, no mention of rtl in 105 docs. Here: 190 logical against 20, 22 bidi declarations, 55 `*_ar` fields, `"Noto Sans Arabic"` in both stacks. **17,417 of 34,834 crawled pages are Arabic.** There is nothing to copy, so exact match is subtraction only |
+
+**Thirteen components are structurally impossible rather than expensive**, and each for the
+same reason: what is being copied is a runtime. `form.tsx` has **no visual output at all** —
+it wires react-hook-form to `aria-describedby` ids from `React.useId`.
+
+**And measuring the ruling corrected the record of the departures.** `--accent-contrast` was
+**never** a departure — byte-exact both schemes. `--amber`'s justifying pair is this
+repository's invention; Supabase never renders it. `--focus` fails in **one** scheme, not two.
+Three positions, not five values.
+
+
 **Everything this section listed on 2026-08-30 has merged.** It said *"no PR yet"* for three
 branches that are now on `main`, which would send the other machine to refs that are gone --
 so the entries are replaced by the record of where they landed, and the one branch still open
@@ -492,7 +528,7 @@ is described in full.
 
 **`#297` LANDED WITH A DEFECT AND IT IS ON `main` NOW -- read `OP-119` before touching that
 guard.** Its fix repointed `settings.html` at `/api/engine/health`, which
-[`scrapex/webui/app.py:602`](../scrapex/webui/app.py#L602) mounts only `if databases is not
+[`scrapex/webui/app.py:616`](../scrapex/webui/app.py#L616) mounts only `if databases is not
 None`, and [`scrapex/cli.py:856`](../scrapex/cli.py#L856) sets `registry = None` for
 `scrapex ui --db <path>`. On that start the restart poll 404s its whole sixty-attempt budget
 and reports a failure that did not happen -- **the defect `OP-116` set out to fix, reproduced
@@ -1488,7 +1524,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:517](../scrapex/version.py) and
-[scrapex/webui/app.py:1747](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1761](../scrapex/webui/app.py), drawn by
 [extension/app.js:612](../extension/app.js) and `:646`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

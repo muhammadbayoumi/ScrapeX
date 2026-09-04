@@ -159,10 +159,10 @@ PINNED = (
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1747, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1761, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 612, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1747, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1761, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 517, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -194,9 +194,9 @@ PINNED = (
     # this branch said 1673/2666, and the answer after both diffs is neither. That is
     # the case for reading over resolving: taking either side of the conflict would
     # have produced a confidently wrong pin.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1758, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2828, "def _about("),
-    ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1772, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2842, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 151, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 853, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
@@ -267,7 +267,7 @@ PINNED = (
     # argument to the filter that replaced it.
     ("docs/BACKLOG.md", "extension/app.js", 4775,
      "SOURCE_ACTIONS.filter((item) => item.proof === RESOLVES_A_DATASET)"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 742, '"kind": "dataset",'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 757, '"kind": "dataset",'),
     # 2710 -> 2725 -> 2787 -> 2911, and the fourth move is the same story as the
     # first three.
     # #252 measured this line on `main` at 4615a14, #251 landed first and added 15
@@ -284,8 +284,8 @@ PINNED = (
     # 404 for anything else" -- and only reading the enclosing function separates
     # them. A delta applied to the old number would have picked the right line here
     # by luck and the wrong one the first time the two moved apart.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3198, "if source_key not in known:"),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3212, "if source_key not in known:"),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1234,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
     # OP-44 · the dataset card that said "no successful crawl yet" over 17,304
     # crawled rows. Four citations carry the whole argument, and a reader sent one
@@ -402,7 +402,7 @@ PINNED = (
     # rests on the quote, and a quote whose line has drifted is a quote a reader
     # cannot check. Its six neighbours were only stale HREFS under correct labels and
     # stay unpinned -- the new label/anchor test is the guard they needed.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 701,
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 715,
      "the row menu offers Update,"),
     # `OP-66`'s account of R-51 rests on WHICH array `merge_locales` reads, and the
     # citation for it was false in both halves once before: it named :1589, R-51
@@ -894,12 +894,12 @@ PINNED_WITHOUT_A_CITATION = frozenset((
     ("docs/BACKLOG.md", "scrapex/extract/service.py", 978),
     ("docs/BACKLOG.md", "scrapex/version.py", 76),
     ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 269),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1218),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1758),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2828),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3198),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 701),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 742),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1234),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1772),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2842),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 3212),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 715),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 757),
     ("docs/BACKLOG.md", "tests/test_the_two_release_paths.py", 276),
     ("docs/LESSONS.md", "design/components.css", 380),
     ("docs/LESSONS.md", "scrapex/extract/service.py", 978),

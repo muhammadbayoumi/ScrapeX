@@ -20,127 +20,17 @@
   const LEGACY_STORAGE_KEY = "scrapex-appearance-v1";
   const SYNC_PATH = "/api/appearance";
   const SCHEMES = new Set(["light", "dark"]);
+  // R-84: ONE COLOUR CHOICE. `brand` (WhatsApp) and `blue` (GitHub) were deleted on
+  // 2026-08-31 -- «احذف الثلاثة وابق supabase وحده» -- together with device colours.
+  // R-74 had made Supabase the baseline and named those three as exceptions ON it;
+  // asked directly whether the exceptions survive, he removed them.
+  //
+  // A STORED CHOICE NEEDS NO MIGRATION, and that is why none was written.
+  // `resolvePalette` already returns `DEFAULTS.palette` for an id it does not know,
+  // so every appearance stored before today -- `whatsapp`, `github`, `brand`, `blue`
+  // -- resolves to `supabase` on its own. The aliases below are kept for the same
+  // reason they were built: they are what a stored record actually contains.
   const PALETTES = new Map([
-    ["brand", {
-      id: "brand",
-      label: "WhatsApp",
-      description: "WhatsApp application green",
-      colors: ["#121B21", "#35AA65", "#43D36D", "#F7F5F3"],
-      themes: {
-        light: {
-          bg: "#F7F5F3", surface: "#FFFFFF", surfaceSubtle: "#F7F5F3",
-          surfaceRaised: "#FFFFFF", line: "#E5E5E5", lineStrong: "#959393",
-          text: "#0A0A0A", muted: "#666666", textSubtle: "#707070",
-          chip: "#F7F5F3", accent: "#35AA65", accentHover: "#2E9D5B",
-          // #18864B until 2026-08-30, when OD-03's new pair measured it at
-          // 4.180:1 on this palette's own accentWeak (#DBFDD5) against a 4.5
-          // floor -- the one failure the five added pairs found across all eight
-          // shipped states. It was marginal on --surface too, at 4.615. Darkened
-          // until both clear with headroom: 5.077 on accentWeak, 5.604 on white.
-          // accentWeak cannot be raised to meet it -- even #F0FEEE only reaches
-          // 4.421 -- so the ink is the only side that can move.
-          accentActive: "#278F52", accentInk: "#147742",
-          accentContrast: "#0A0A0A", accentWeak: "#DBFDD5",
-          focus: "#278F52", controlHover: "#F0EEEC",
-          buttonBg: "#43D36D", buttonHover: "#1C1E21",
-          buttonActive: "#121B21", buttonText: "#0A0A0A",
-          buttonHoverText: "#FFFFFF",
-          amber: "#8A5A00", amberWeak: "#FFF2C2",
-          red: "#B3002F", redHover: "#970028", redWeak: "#FCE5EA",
-          dangerContrast: "#FFFFFF",
-          switchTrack: "#35AA65", switchTrackHover: "#2E9D5B",
-          switchTrackOff: "#FFFFFF", switchThumb: "#FFFFFF",
-          switchThumbOff: "#959393",
-          shadowColor: "rgb(11 20 26 / 0.12)",
-          overlay: "rgb(11 20 26 / 0.42)",
-        },
-        dark: {
-          bg: "#121B21", surface: "#182229", surfaceSubtle: "#20272B",
-          surfaceRaised: "#202C33", line: "#2A3942", lineStrong: "#667781",
-          text: "#FFFFFF", muted: "#AEBAC1", textSubtle: "#8696A0",
-          chip: "#202C33", accent: "#43D36D", accentHover: "#52DC79",
-          accentActive: "#35AA65", accentInk: "#43D36D",
-          accentContrast: "#0B141A", accentWeak: "#103B2A",
-          focus: "#43D36D", controlHover: "#2A3942",
-          buttonBg: "#43D36D", buttonHover: "#FFFFFF",
-          buttonActive: "#F7F5F3", buttonText: "#0A0A0A",
-          buttonHoverText: "#0A0A0A",
-          amber: "#FFD279", amberWeak: "#3A2D13",
-          red: "#FF7892", redHover: "#FF91A6", redWeak: "#3A1722",
-          dangerContrast: "#121B21",
-          switchTrack: "#35AA65", switchTrackHover: "#2E9D5B",
-          switchTrackOff: "#182229", switchThumb: "#FFFFFF",
-          switchThumbOff: "#959393",
-          shadowColor: "rgb(0 0 0 / 0.42)",
-          overlay: "rgb(0 0 0 / 0.68)",
-        },
-      },
-    }],
-    ["blue", {
-      id: "blue",
-      label: "GitHub",
-      description: "Focused developer neutral",
-      colors: ["#0D1117", "#0969DA", "#4493F8", "#F0F6FC"],
-      themes: {
-        light: {
-          bg: "#FFFFFF", surface: "#FFFFFF", surfaceSubtle: "#F6F8FA",
-          surfaceRaised: "#FFFFFF", line: "#D1D9E0", lineStrong: "#818B98",
-          text: "#1F2328", muted: "#59636E", textSubtle: "#656D76",
-          chip: "#EFF2F5", accent: "#0969DA", accentHover: "#0860CA",
-          accentActive: "#0757BA", accentInk: "#0969DA",
-          accentContrast: "#FFFFFF", accentWeak: "#DDF4FF",
-          focus: "#0969DA", controlHover: "#EFF2F5",
-          amber: "#9A6700", amberWeak: "#FFF8C5",
-          red: "#CF222E", redHover: "#A40E26", redWeak: "#FFEBE9",
-          dangerContrast: "#FFFFFF",
-          switchTrack: "#0969DA", switchTrackHover: "#0860CA",
-          switchTrackOff: "#FFFFFF", switchThumb: "#FFFFFF",
-          switchThumbOff: "#818B98",
-          shadowColor: "rgb(31 35 40 / 0.12)",
-          overlay: "rgb(31 35 40 / 0.42)",
-        },
-        dark: {
-          bg: "#0D1117", surface: "#151B23", surfaceSubtle: "#212830",
-          surfaceRaised: "#262C36", line: "#3D444D", lineStrong: "#6E7781",
-          text: "#F0F6FC", muted: "#9198A1", textSubtle: "#7D8590",
-          chip: "#212830", accent: "#4493F8", accentHover: "#58A6FF",
-          accentActive: "#1F6FEB", accentInk: "#58A6FF",
-          accentContrast: "#0D1117", accentWeak: "#1B3A5D",
-          focus: "#4493F8", controlHover: "#262C36",
-          amber: "#D29922", amberWeak: "#3B2E0B",
-          red: "#F85149", redHover: "#FF7B72", redWeak: "#3C1618",
-          dangerContrast: "#0D1117",
-          switchTrack: "#4493F8", switchTrackHover: "#1F6FEB",
-          switchTrackOff: "#151B23", switchThumb: "#FFFFFF",
-          switchThumbOff: "#818B98",
-          shadowColor: "rgb(0 0 0 / 0.42)",
-          overlay: "rgb(0 0 0 / 0.68)",
-        },
-      },
-    }],
-    // R-74 · SUPABASE IS THE BASELINE, SO THIS ENTRY DECLARES NO COLOURS.
-    //
-    // «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب
-    // وجت هب و device» -- the design system IS Supabase, and WhatsApp, GitHub and
-    // device are three COLOUR exceptions on top of it. So Supabase is not one
-    // option among three: it is what design/tokens.css declares, and every other
-    // choice is an override of its colours only.
-    //
-    // WHICH MEANS THERE IS NOTHING TO PUT HERE. Its colours are the `:root` and
-    // dark-block colours in tokens.css. Repeating them would be the same values
-    // in two files with nothing keeping them equal -- and the entry above exists
-    // precisely because `brand` DOES differ from the baseline.
-    //
-    // The entry is not empty of purpose. It makes Supabase SELECTABLE, so a user
-    // who tried WhatsApp can come back; it gives the tile its label and swatches;
-    // and it puts `supabase` in `data-palette`, so the DOM says which of the four
-    // colour choices is in force. apply() removes all 36 colour properties for
-    // it, and removal is exactly what "fall through to the baseline" means.
-    //
-    // R-73 built the opposite and it was wrong: a `design` block here gave the
-    // design system to this palette and to NOBODY ELSE. Measured on the built
-    // engine -- `brand`, `blue` and device colours all fell back to the
-    // pre-Supabase 9px radius, 14px body and Segoe UI. Three of four.
     ["supabase", {
       id: "supabase",
       label: "Supabase",
@@ -159,9 +49,14 @@
   // these two ids, in localStorage and in the engine's `ui_appearance` setting.
   // Resolving them in normalize() is what stops an existing user's choice from
   // silently reverting to the default.
+  // The four ids a stored record can carry, all resolving to the one that remains.
+  // Naming them explicitly rather than letting resolvePalette's fallback swallow
+  // them keeps the intent readable: these are not unknown ids, they are RETIRED ones.
   const PALETTE_ALIASES = new Map([
-    ["whatsapp", "brand"],
-    ["github", "blue"],
+    ["whatsapp", "supabase"],
+    ["github", "supabase"],
+    ["brand", "supabase"],
+    ["blue", "supabase"],
   ]);
   const DEFAULTS = Object.freeze({
     mode: "device",
@@ -193,9 +88,12 @@
     // ... migration debt" -- or the OS AccentColor where the browser exposes one.
     // The deprecated colour was the shipped default, not a leftover.
     //
-    // "Device colours" REMAINS AVAILABLE and is one click away in the panel; this
-    // changes which way the switch starts, not whether it exists.
-    deviceColors: false,
+    // AND R-84 DELETED IT ON 2026-08-31. The paragraph above is kept because C4
+    // wants the history of a decision rather than its last state: the flip he
+    // asked for the numbers on is what made `supabase` the colour a fresh install
+    // actually painted, and four weeks later he removed the switch it flipped.
+    // There is no `deviceColors` key any more -- normalize() below still READS a
+    // stored one and discards it, which is what makes the removal migration-free.
     updatedAt: 0,
   });
   const THEME_PROPERTIES = Object.freeze([
@@ -257,11 +155,10 @@
       // preference stored before today -- arrives here and comes out as `brand`
       // or `blue` instead of being dropped on the floor for the default.
       palette: resolvePalette(candidate.palette),
-      deviceColors: typeof candidate.deviceColors === "boolean"
-        ? candidate.deviceColors
-        : (typeof candidate.followColors === "boolean"
-          ? candidate.followColors
-          : candidate.mode !== "manual"),
+      // `deviceColors` and its v1 name `followColors` are READ AND DISCARDED. Every
+      // appearance stored before 2026-08-31 carries one of them, and R-84 removed
+      // the mode they selected; dropping the key here rather than rejecting the
+      // record is the whole of the migration, and it is why there is no other.
       updatedAt: Number.isFinite(Number(candidate.updatedAt))
         ? Math.max(0, Number(candidate.updatedAt))
         : 0,
@@ -313,10 +210,6 @@
     return dashed(Object.entries(palette.themes[scheme]));
   }
 
-  function clearTheme(root) {
-    THEME_PROPERTIES.forEach((property) => root.style.removeProperty(`--${property}`));
-  }
-
   function paletteFor(id) {
     // resolvePalette already guarantees a registry key, and normalize() runs on
     // every path into `current`. The `||` is kept because this is the line that
@@ -329,20 +222,13 @@
   function apply(value) {
     const root = document.documentElement;
     root.dataset.appearance = value.mode;
-    root.dataset.colorMode = value.deviceColors ? "device" : "manual";
+    // R-84 deleted device colours, so there is one colour mode and no attribute
+    // to carry a second. `data-color-mode` is removed rather than pinned to
+    // "manual": a stylesheet that still selects on it should stop matching, loudly.
+    root.removeAttribute("data-color-mode");
     if (value.mode === "manual") root.dataset.theme = value.scheme;
     else root.removeAttribute("data-theme");
 
-    // Device colours: no palette, so every colour override is removed and the
-    // page falls through to design/tokens.css. Under R-74 that is not a
-    // degraded state -- tokens.css IS the Supabase design system, so shape,
-    // typography, elevation and motion are exactly what they are under every
-    // other choice, and only the colours come from the operating system.
-    if (value.deviceColors) {
-      root.removeAttribute("data-palette");
-      clearTheme(root);
-      return;
-    }
 
     root.dataset.palette = value.palette;
     const palette = paletteFor(value.palette);
@@ -361,9 +247,7 @@
     const scheme = value.mode === "device"
       ? `Device ${effectiveScheme(value)}`
       : value.scheme;
-    const color = value.deviceColors
-      ? "Device colours"
-      : paletteFor(value.palette).label;
+    const color = paletteFor(value.palette).label;
     return `${scheme} \u00B7 ${color}`;
   }
 
@@ -423,14 +307,13 @@
       if (button.dataset.appearanceBound === "true") return;
       button.dataset.appearanceBound = "true";
       button.addEventListener("click", () =>
-        set({deviceColors: false, palette: button.dataset.appearancePalette}));
+        set({palette: button.dataset.appearancePalette}));
     });
   }
 
   function syncControls() {
     document.querySelectorAll("[data-appearance-control]").forEach((control) => {
       control.classList.toggle("is-device", current.mode === "device");
-      control.classList.toggle("is-device-colors", current.deviceColors);
       control.querySelectorAll("[data-appearance-scheme-mode]").forEach((button) => {
         const choice = button.dataset.appearanceSchemeMode;
         const active = choice === "device"
@@ -440,13 +323,9 @@
         button.setAttribute("aria-pressed", String(active));
       });
       control.querySelectorAll("[data-appearance-palette]").forEach((button) => {
-        const active = button.dataset.appearancePalette === current.palette
-          && !current.deviceColors;
+        const active = button.dataset.appearancePalette === current.palette;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-checked", String(active));
-      });
-      control.querySelectorAll("[data-appearance-device-colors]").forEach((input) => {
-        input.checked = current.deviceColors;
       });
       control.querySelectorAll("[data-appearance-status]").forEach((status) => {
         status.textContent = statusText();
@@ -566,9 +445,6 @@
         if (choice === "device") set({mode: "device"});
         else set({mode: "manual", scheme: choice});
       });
-    });
-    document.querySelectorAll("[data-appearance-device-colors]").forEach((input) => {
-      input.addEventListener("change", () => set({deviceColors: input.checked}));
     });
     bindPaletteActions();
     syncControls();

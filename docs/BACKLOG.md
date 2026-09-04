@@ -173,11 +173,8 @@ Related and separate: `fields.delete_view` is `DELETE FROM saved_view WHERE save
 ### OP-73 · `POST /api/fields` has no catalogue branch, so hiding a contractor column returns 404
 
 **Found 2026-08-26.** Step 0 of the plan gave `GET /api/fields` a dataset branch
-([scrapex/webui/app.py:2296](../scrapex/webui/app.py#L2296)) and **the POST at
-[:2335](../scrapex/webui/app.py#L2335) never got one.** It runs the price machinery
-
-([scrapex/webui/app.py:2277](../scrapex/webui/app.py#L2277)) and **the POST at
-[:2335](../scrapex/webui/app.py#L2343) never got one.** It runs the price machinery
+([scrapex/webui/app.py:2310](../scrapex/webui/app.py#L2310)) and **the POST at
+[:2349](../scrapex/webui/app.py#L2396) never got one.** It runs the price machinery
 unconditionally, and its seeding is keyed on `BROWSE_COLUMNS`: `wanted = [key for key, _ in
 BROWSE_COLUMNS if key in present or key == body.get("field_key")]`.
 
@@ -203,7 +200,7 @@ fixed** — the fix is `BROWSE_COLUMNS`-shaped, so it is products-only.
 
 ### OP-74 · `list(body["order"])` is unguarded: a 500 one way, a forged «this is your arrangement» the other
 
-**Found 2026-08-26.** [scrapex/webui/app.py:2414](../scrapex/webui/app.py#L2414) is
+**Found 2026-08-26.** [scrapex/webui/app.py:2460](../scrapex/webui/app.py#L2460) is
 `reorder(conn, source_key, list(body["order"]))` with no type check. Two failure modes,
 traced through [scrapex/fields.py:153](../scrapex/fields.py#L153):
 
@@ -226,8 +223,8 @@ and an unknown key.**
 ### OP-75 · `GET /api/fields` writes and commits on both branches, outside the write lock every `POST` pays for
 
 **Found 2026-08-26.** The GET commits inside `api_fields`
-([app.py:2340](../scrapex/webui/app.py#L2340)) while every `POST` goes through
-`_write` ([app.py:2224](../scrapex/webui/app.py#L2224)), which takes the lock for
+([app.py:2354](../scrapex/webui/app.py#L2354)) while every `POST` goes through
+`_write` ([app.py:2238](../scrapex/webui/app.py#L2238)), which takes the lock for
 the reason it states: *"A crawl in progress holds that lock."*
 
 > **THREE CITATIONS RE-DERIVED 2026-09-02, AND ALL THREE WERE ALREADY WRONG.** This entry
@@ -308,7 +305,7 @@ test.
 `list_fields`, which is `SELECT ... FROM dataset_field WHERE source_key = ?` with no
 intersection against the dataset's real schema. The intersection that makes `OP-53`'s eleven
 price-path rows inert lives **only on the read path**, in `_dataset_fields`
-([app.py:2287](../scrapex/webui/app.py#L2287)). So the eleven are invisible in the
+([app.py:2301](../scrapex/webui/app.py#L2301)). So the eleven are invisible in the
 chooser and still occupy `display_order` slots whenever anything is reordered.
 
 > **This paragraph carried that sentence TWICE, with two different line numbers, until
@@ -556,16 +553,16 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1737` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2807` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1751` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2821` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
-(`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
+(`scrapex/webui/templates/settings.html:151-160`), so **the engine still shows
 "Not running" while it is crawling**, and advises the owner to check whether the
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2807`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2821`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1795,7 +1792,7 @@ supplies the second, because only one is *repeated*:
 |---|---|---|
 | dataset cards | `querySelectorAll(".dataset-card .split-button")` in `extension/app.js` | **yes — the broken one** |
 | Activity log | `$("activity").querySelector(".split-button")` in `extension/app.js` | no, singular |
-| Manage account danger menu | `$("drive-disconnect")`, markup at [extension/app.html:1347](../extension/app.html#L1347) | no, singular |
+| Manage account danger menu | `$("drive-disconnect")`, markup at [extension/app.html:1336](../extension/app.html#L1336) | no, singular |
 | source page export | one control in `#grid-toolbar` ([scrapex/webui/templates/source.html:291](../scrapex/webui/templates/source.html#L291)), wired by [scrapex/webui/static/grid.js:3118](../scrapex/webui/static/grid.js#L3118) | no, singular |
 | gallery example | one control ([design/gallery.html:379](../design/gallery.html#L379)) | not a product surface |
 | grid harness fixture | [tools/grid_harness.py:68](../tools/grid_harness.py#L68) | not a product surface |
@@ -2154,7 +2151,7 @@ Two do not, and neither failure has anything to do with datasets:
 is a real route (`scrapex/webui/app.py` line 1294 **at `31c369e`**, which is what it
 was re-derived against and is not a pointer into HEAD; #257 moved
 
-is a real route (`scrapex/webui/app.py:1302`, re-derived at `31c369e`; #257 moved
+is a real route (`scrapex/webui/app.py:1316`, re-derived at `31c369e`; #257 moved
 it from 1223) and answers 200. So this is a wrong
 URL rather than a missing feature — one line, but it changes what a card does on
 his screen, which is why it was recorded instead of fixed inside a PR about the
@@ -2240,8 +2237,8 @@ diagnosis:** every step the engine announced succeeded, and then it could not re
 |---|---|---|
 | `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:21](../scrapex/databases/domain.py#L21) | **yes** |
 | `sources.yaml` | [scrapex/config.py:55](../scrapex/config.py#L55) | **yes** |
-| `scrapex/webui/templates` | [scrapex/webui/app.py:302](../scrapex/webui/app.py#L302), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
-| `scrapex/webui/static` | [scrapex/webui/app.py:372](../scrapex/webui/app.py#L372) | **no** |
+| `scrapex/webui/templates` | [scrapex/webui/app.py:316](../scrapex/webui/app.py#L316), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
+| `scrapex/webui/static` | [scrapex/webui/app.py:386](../scrapex/webui/app.py#L386) | **no** |
 | `apps_script/StagingAppScript.txt` | [scrapex/outputs.py:214](../scrapex/outputs.py#L214) | **no** |
 
 **Only one of the three missing ones crashes, and that is the luck in it.**
@@ -3561,7 +3558,7 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 * **Nothing pruned local bundles, ever.** 372.6 MB per successful backup, kept for good.
   Only Drive was pruned (`extension/drive.js:65`, `KEEP = 3`).
 * **A killed engine leaks its staging tree.** The `rmtree` is in a `finally`
-  ([scrapex/webui/app.py:3046](../scrapex/webui/app.py#L3046)), so a process that dies
+  ([scrapex/webui/app.py:3135](../scrapex/webui/app.py#L3135)), so a process that dies
   skips it and leaves the bundle expanded — 1.5 GB. This, not a second build, is what
   actually survives a crash: the build is a thread inside the engine and cannot outlive it.
 
@@ -3569,20 +3566,20 @@ deadline, and nothing was watching the two numbers together. Its baseline is als
 `bundleBuild: 600000` ([extension/startup.js:33](../extension/startup.js#L33)) with a rule
 that deliberately excludes the two streaming sub-paths
 ([extension/startup.js:52](../extension/startup.js#L52)); a non-blocking
-`threading.Lock` ([scrapex/webui/app.py:2937](../scrapex/webui/app.py#L2937)) refusing a
+`threading.Lock` ([scrapex/webui/app.py:2951](../scrapex/webui/app.py#L2951)) refusing a
 concurrent build with the house 409; `BUNDLE_KEEP = 2`
-([scrapex/webui/app.py:2918](../scrapex/webui/app.py#L2918)) pruning **by stamp** so the
+([scrapex/webui/app.py:2932](../scrapex/webui/app.py#L2932)) pruning **by stamp** so the
 two files of one backup cannot be split; and an age-guarded sweep
-([scrapex/webui/app.py:2955](../scrapex/webui/app.py#L2955)) for orphaned staging.
+([scrapex/webui/app.py:2969](../scrapex/webui/app.py#L2969)) for orphaned staging.
 
 **Residual, named rather than closed.** The lock is in-process, which is correct here —
 `start_engine` refuses to spawn a second engine on a held port
 ([scrapex/native.py:297](../scrapex/native.py#L297)), and a crashed build leaves no
 survivor to race. An engine started by hand on another port would share the folder and
 defeat it; that is why the sweep keeps a 6-hour age guard
-([scrapex/webui/app.py:2921](../scrapex/webui/app.py#L2921)) rather than deleting any
+([scrapex/webui/app.py:2935](../scrapex/webui/app.py#L2935)) rather than deleting any
 
-([scrapex/webui/app.py:2911](../scrapex/webui/app.py#L2911)) rather than deleting any
+([scrapex/webui/app.py:2925](../scrapex/webui/app.py#L2925)) rather than deleting any
 staging tree it finds.
 
 **Two things this measurement exposed that belong to other tracks.**
@@ -3650,9 +3647,20 @@ passes 21 of 21 in both schemes.
 
 The allowlist loop at `design/appearance.js:347` is what makes *"a palette may change
 nothing but colour"* true at runtime. Its only guard is the substring assertion at
-`tests/test_vendor.py:289` — and `clearTheme` at `design/appearance.js:310` contains the
+`tests/test_vendor.py:289` — and `clearTheme` contains the
 same substring, so **the assertion is satisfied whether or not the loop in `apply()`
 exists.**
+
+> **HALF OF THIS CLOSED ON 2026-09-04, AND NOT BY A BETTER ASSERTION.** `R-85` deleted
+> `deviceColors`, which was `clearTheme`'s only caller, so the function became dead code
+> and went — **caught by the eslint gate, on this branch's first CI run ever.** The
+> substring now occurs **once**, so `assert "THEME_PROPERTIES.forEach" in appearance` does
+> bite on `apply()`'s loop after all. The duplicate-subject escape is gone as a side
+> effect of a colour ruling, which is worth saying plainly: nobody set out to fix it.
+>
+> **What is NOT closed is the finding itself.** A substring is still not the loop, and the
+> mutation results below stand: the assertion cannot tell `THEME_PROPERTIES.forEach` from
+> `Object.keys(theme).forEach`. `OP-102` stays open on that.
 
 Mutation testing on a byte-verified mirror, restored and `git status` asserted clean after
 each: replacing the loop with `Object.keys(theme).forEach` put `--fs`, `--font-body` and
@@ -3660,7 +3668,7 @@ each: replacing the loop with `Object.keys(theme).forEach` put `--fs`, `--font-b
 surface stylesheet. **91 static guards and all 218 browser tests stayed green for both.**
 The architecture `R-74` abolished is reachable today and no gate would say a word.
 
-`--radius` and `--fw-regular` *are* pinned, at `tests/test_panel_dom.py:468` and `:471` —
+`--radius` and `--fw-regular` *are* pinned, at `tests/test_panel_dom.py:480` and `:483` —
 two values, hand-written, which is why the gap is 11 families and not 13.
 
 **Entangled with a false docstring.** `tests/test_a_palette_may_change_nothing_but_colour.py:10`
@@ -3990,9 +3998,9 @@ local disk, so nothing was lost — but nothing on either side said so.
 2. **`zipfile.ZipFile(archive, "w")` created the file under its FINAL name immediately**,
    at zero bytes, and filled it over the ~33 s of the deflate.
 3. **`GET /api/bundle/archive` answers with the newest `.zip` by mtime**
-   ([scrapex/webui/app.py:2950](../scrapex/webui/app.py#L2950)), so it handed the panel the
+   ([scrapex/webui/app.py:2964](../scrapex/webui/app.py#L2964)), so it handed the panel the
 
-   ([scrapex/webui/app.py:2932](../scrapex/webui/app.py#L2932)), so it handed the panel the
+   ([scrapex/webui/app.py:2946](../scrapex/webui/app.py#L2946)), so it handed the panel the
    second build's empty, in-progress file.
 4. **Nothing compared what arrived with what the engine had described.** The pointer took
    `bytes` from the uploaded blob (0) and `sha256` from the manifest of the *complete*
@@ -4146,7 +4154,7 @@ after:   reports pending = [13, 14, 16]
 
 **`0014` is `one_source_registry`** — the merge of `site_profile` into `source_site`. A
 warehouse that never received it cannot resolve a dataset source at all, and the banner
-([scrapex/webui/app.py:1618](../scrapex/webui/app.py#L1618)) told its owner nothing was
+([scrapex/webui/app.py:1632](../scrapex/webui/app.py#L1632)) told its owner nothing was
 pending. That is the exact silence `pending_migrations`' own docstring says it exists to
 break: *"nothing said 'the database is one migration behind'; the product simply broke and
 the raw SQLite text was the only clue."*
@@ -4799,9 +4807,9 @@ conditionally.** Four legs, each re-read rather than argued:
 
 ```cited
 scrapex/webui/database_api.py:80   @router.get("/api/engine/health")   -- in create_domain_health_router
-scrapex/webui/app.py:613           include_router(create_domain_health_router(...))
-scrapex/webui/app.py:611           if databases is not None:          -- the gate above it
-scrapex/webui/app.py:1615          @app.get("/api/health")            -- a plain route, every start
+scrapex/webui/app.py:627           include_router(create_domain_health_router(...))
+scrapex/webui/app.py:625           if databases is not None:          -- the gate above it
+scrapex/webui/app.py:1629          @app.get("/api/health")            -- a plain route, every start
 scrapex/cli.py:852                 registry = None if args.db else DatabaseRegistry.defaults()
 ```
 
@@ -5192,7 +5200,7 @@ opposite one: which fences are EVIDENCE, not which are output.** So a fence decl
 
 ````
 ```cited
-scrapex/webui/app.py:611   if databases is not None:
+scrapex/webui/app.py:625   if databases is not None:
 ```
 ````
 
