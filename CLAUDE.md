@@ -41,8 +41,16 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 ## Rules
 
 - **He works only from the extension panel — never a terminal.** A `scrapex ...` command
-  is not an answer to him. A capability with no control in the panel has no control; say
-  that instead of offering a command line.
+  is not an answer to him, and a capability with no control in the panel has no control.
+- **A capability is a contract; apps implement it.** Our engines — the crawler,
+  `scrapex/enrichment/` — are apps under the contract, not the contract itself. An
+  open-source project that does the same job its own way is installed **beside** ours,
+  never instead of it, and installing one never pauses ours: ours grows where the
+  external ones do not serve. Choose per run by measured performance, not by who wrote
+  it. Dropping an app must cost no more than adding one. The registries to extend are
+  `scrapex/connectors/factory.py` and `scrapex/enrichment/providers/__init__.py`.
+- **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
+  reviews it and says what he wants.
 - **A button that cannot work is worse than no button.** If the route 404s, do not draw
   the control.
 - **Diagnose, confirm, then fix.** Prove the cause with evidence, ask before editing.
