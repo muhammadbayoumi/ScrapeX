@@ -498,10 +498,30 @@ def test_a_price_source_still_carries_no_kind(tmp_path):
     client = TestClient(create_app(databases=registry))
 
     rows = client.get("/api/sources").json()["sources"]
-    priced = [row for row in rows if row.get("kind") != "dataset"]
+
+    # PRICE SOURCES ARE IDENTIFIED BY THE MANIFEST, not by the absence of the key
+    # this test is about. Filtering on `kind != "dataset"` was true while there were
+    # exactly two shapes; `kind: "directory"` is a third, so that filter swept a
+    # directory row into the price list and the assertion below failed for the one
+    # reason it must never fail — the marker doing its job.
+    from scrapex.config import MANIFEST_FILE, load_manifest
+    declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
+    priced = [row for row in rows if row["source_key"] in declared]
 
     assert priced, "the manifest's own sources vanished from the list"
-    assert all("kind" not in row for row in priced)
+    assert all("kind" not in row for row in priced), (
+        "a manifest source carries the marker: "
+        f"{[row['source_key'] for row in priced if 'kind' in row]}")
+
+    # AND THE OTHER HALF, which the old filter could not state: every row that is NOT
+    # a price source declares which shape it is, out of a vocabulary that is closed.
+    # Without this, a new shape could arrive carrying no marker at all and the panel
+    # would draw it a price menu.
+    others = [row for row in rows if row["source_key"] not in declared]
+    assert others, "the code-registered sources vanished from the list"
+    assert all(row.get("kind") in {"dataset", "directory"} for row in others), (
+        "a non-price row carries no known kind: "
+        f"{[(row['source_key'], row.get('kind')) for row in others]}")
 
 
 # ---- what the owner reported on 2026-08-20 -----------------------------------
