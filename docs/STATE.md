@@ -1120,10 +1120,13 @@ may delete is right even once the ordering under it is right.
 
 ### The panel's source list is one category — 2026-09-04, `OP-145`
 
-He asked why muqawil is not among the sources he can crawl. **It never could be, and the
-first answer to him was wrong**: `/api/sources` iterates `sources.yaml` and uses the
-warehouse only to decorate those twelve rows, so a source declared in no manifest — which
-muqawil is, and `sourceboard.py:13` says so — cannot appear on any warehouse.
+He asked why muqawil is not among the sources he can crawl. **The answer is the empty
+warehouse, and the entry says so only after correcting itself**: it first claimed
+`/api/sources` walks the manifest alone, and the route's last statement is
+`out.extend(_dataset_listing())`, which appends dataset-backed sites. His fresh warehouse
+holds **zero** `dataset_definition` rows, so there is nothing to append; the old one held
+two and drew one folded card. The false claim and the reason it was made are kept at the
+top of `OP-145` (`C5`).
 
 `sourceboard` was written for that exact question and has **one caller, the CLI**. The
 panel cannot ask it. That is the day's fourth instance of one shape, after `OP-124`,

@@ -5317,32 +5317,51 @@ which un-orphaned them without fixing anything, and the guard said so.
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
 
-### OP-145 · The panel's source list is the PRICE manifest, so the contractor category cannot appear in it
+### OP-145 · A source with no dataset is invisible to the panel, and the answer that spans both registries has no route — **CORRECTED 2026-09-04, see the top of this entry**
 
 **Asked by him 2026-09-04** — *«لماذا مصدرمقاول لا يظهر ضمن المصادر المتاح زحفها!»* — half
 an hour after a fresh warehouse was created on his machine.
 
-**THE FIRST ANSWER WAS WRONG AND THE MEASUREMENT CORRECTED IT.** It read as a consequence
-of the new database: the row would have been in the old one. It is not that. `muqawil_org`
-**cannot appear in that list on any warehouse, new or old**, because the list is not built
-from the warehouse at all:
+> ### ⚠ CORRECTED THE SAME DAY, AND THE ERROR WAS MINE, NOT THE PRODUCT'S
+>
+> **This entry was written claiming `/api/sources` walks the price manifest alone, so a
+> warehouse-only source could never appear. That is false**, and one line of the route
+> says so:
+>
+> ```cited
+> scrapex/webui/app.py:1890           out.extend(_dataset_listing())
+> ```
+>
+> The route appends dataset-backed sites AFTER the manifest loop, and the comment beside
+> that line is explicit that this was built because *"a `source_site` row could never
+> reach the panel however much data it held"*. **His own history proves it**: he
+> complained twice, with screenshots, that `muqawil.org` appeared **twice** on that
+> screen (`REQ-37`, `R-47`) — a source that cannot appear cannot appear twice.
+>
+> **THE ANSWER I GAVE HIM FIRST WAS THE RIGHT ONE AND I TALKED MYSELF OUT OF IT.** It is
+> the new warehouse: `_dataset_listing()` groups `dataset_definition` rows, and the
+> warehouse created at 12:30 today holds **zero** of them (measured: `dataset_definition`
+> 0, `generic_record` 0, `source_site` 1 — `ARAMCO_FUEL_SA` alone). On the old warehouse
+> muqawil had **two** dataset rows and one folded card.
+>
+> **Why it went wrong is worth more than the fact.** I measured `/api/sources` at the
+> loop it opens with and stopped there — twelve rows out, no muqawil, and the reading
+> fitted. The route is 60 lines long and its last statement is the one that mattered. A
+> partial read that agrees with a hypothesis is the most expensive kind, and `LESSONS` §9
+> already names the shape: *a search for one spelling of a feature is not a measurement
+> of the feature*.
+>
+> **What survives, and it is why this entry keeps its number**: the two paragraphs below
+> on `sourceboard` having no route, and on the ROW itself existing only after the
+> collector runs. Neither depended on the false claim.
 
-```cited
-scrapex/webui/app.py:1836           for entry in app.state.manifest.sources:
-```
-
-`/api/sources` iterates the MANIFEST and uses the database only to decorate those rows
-(`summaries.get(entry.source_key)`). `sources.yaml` declares **twelve** sources — `MADAR`,
-`ALSWEED`, `ELBUROJ`, `ADVANCEDCASTLE`, `ELSEWEDYSHOP`, `MASDAR`, `SIKAEGSHOP`,
-`HEIDELBERG_EG`, `SAMEHGABRIEL`, `GPP_ENERGY`, `ARAMCO_FUEL_SA`, `SPARK_ESHOP` — and
-muqawil is not one of them. The code already says so:
-
-```cited
-scrapex/sourceboard.py:13       source_site, declared nowhere else       muqawil_org   <- not in sources.yaml at all
-```
-
-Measured against his running engine: `/api/sources` answers **12** rows and
-`muqawil in the list: False`.
+**WHAT IS ACTUALLY TRUE OF THE LIST.** `/api/sources` answers the twelve manifest rows
+**plus** `_dataset_listing()` — one card per site that has `dataset_definition` rows,
+marked with `kind` so the panel hides the price-path actions that would fail on a dataset.
+So a warehouse source appears **once it has a dataset**, and `muqawil_org` sitting in
+`source_site` with none of its own is not enough. Measured on his engine today: **12** rows
+and `muqawil in the list: False`, with `dataset_definition` empty — which is the empty
+warehouse, not the route.
 
 **AND THE MODULE WRITTEN FOR EXACTLY THIS QUESTION HAS NO ROUTE.** `sourceboard` opens by
 saying it exists because he asked *«اى الجديد واى الى خلص»* and no command could answer;
@@ -5360,7 +5379,7 @@ caller (`OP-136`), an updater with no door (`OP-124`), a remedy behind an unserv
 (`OP-144`, on the branch that carries the release mechanism), and now **an answer with no
 route**.
 
-**THE ROW IS A SECOND, INDEPENDENT GAP.** Even with a route, a fresh installation has
+**AND THE ROW IS A GAP OF ITS OWN.** Even with a route, a fresh installation has
 nothing to show: the squashed baseline's seed carries `retention_policy` (1 row) and
 `scrapex_meta` (2) and **no sources at all**, and the muqawil row is created by
 `catalog.register_site` from inside the collector's own first run —
@@ -5373,9 +5392,12 @@ scrapex/contractors.py:287           catalog.register_site(conn, SiteCreate(
 he does not use. Measured on the warehouse created at 12:30 today: `source_site` holds
 **one** row, `ARAMCO_FUEL_SA`, and `dataset_definition` and `generic_record` hold none.
 
-**This is `R-32` at the level of the interface.** He ruled that price is one **category**
-and filing the tool under it was a mistake; the panel's own source list is still that
-filing — one category, drawn from the price manifest, with no way for another to appear.
+**`R-32` IS STILL THE FRAME, at one remove from where this entry first put it.** He ruled
+that price is one **category** and filing the tool under it was a mistake. The list is not
+price-only — it does show a dataset-backed site — but what it can show is *a source that
+has already collected something*. A source that is registered and waiting its turn, which
+is his own «يحفظ فقط فى قائمة مصادر حتى ياتى دوره», has no place in it at all, and that
+state is exactly what `sourceboard` reports and nothing serves.
 
 **What it would take, and the shape is not a guess**: a route over `sourceboard` and the
 panel's list drawn from it. The module exists, is tested
