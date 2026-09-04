@@ -42,13 +42,18 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 
 - **He works only from the extension panel — never a terminal.** A `scrapex ...` command
   is not an answer to him, and a capability with no control in the panel has no control.
-- **A capability is a contract; apps implement it.** Our engines — the crawler,
-  `scrapex/enrichment/` — are apps under the contract, not the contract itself. An
+- **A capability is a contract; apps implement it.** The panel is the operating system —
+  the only surface, and the one that chooses. The engine is the **host** where apps
+  execute, and ours — the crawler, `scrapex/enrichment/` — is the first app in it. An
   open-source project that does the same job its own way is installed **beside** ours,
-  never instead of it, and installing one never pauses ours: ours grows where the
-  external ones do not serve. Choose per run by measured performance, not by who wrote
-  it. Dropping an app must cost no more than adding one. The registries to extend are
-  `scrapex/connectors/factory.py` and `scrapex/enrichment/providers/__init__.py`.
+  never instead of it, and installing one never pauses ours: ours grows where the external
+  ones do not serve. Choose per run by measured performance, not by who wrote it. Dropping
+  an app must cost no more than adding one. The registries live in the engine and the panel
+  reads them: `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
+- **The host is never one of the apps.** The engine cannot be dropped the way an app can:
+  nothing executes without it and nothing writes the warehouse but it. Measured in
+  `spikes/opfs-sqlite/FINDINGS.md` — an MV3 service worker can read the warehouse and never
+  write it, and wa-sqlite ran 70-208x slower than Python on the Data page's own query.
 - **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
   reviews it and says what he wants.
 - **A button that cannot work is worse than no button.** If the route 404s, do not draw
