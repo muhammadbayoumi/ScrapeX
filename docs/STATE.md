@@ -1,17 +1,27 @@
 # State — where the work stands
 
-**Last updated: 2026-08-29.** `main` is at `ef86a19` (#287). **Twenty-three merges**
-landed after this line last said `759a9df` (#264), and the count was measured with
-`git log --oneline 759a9df..origin/main` rather than carried. **And this conflict is
-the argument itself:** resolving it, one side said `f1844af` (#261) with "fifteen"
+**Last updated: 2026-09-04.** `main` is at `ef3121d` (#320), and **there are ZERO open
+pull requests** — checked against GitHub, not inferred from this file. **Thirty-four merges**
+landed after this line last said `ef86a19` (#287), measured with
+`git rev-list --count ef86a19..origin/main` rather than carried, and every one of the
+thirty-four is a squash commit naming its PR. **And this conflict is
+the argument itself:** resolving it once, one side said `f1844af` (#261) with "fifteen"
 and the other `d10e974` (#258) with "thirteen", and both were already wrong before
 either could be read. A commit pointer written into prose is stale by the time it is
 read: `git log --oneline -1 origin/main` is the answer that cannot be — **and this
-very line has now proved it eight times**, reading `4615a14` with #251 and #252
+very line has now proved it nine times**, reading `4615a14` with #251 and #252
 already in, then `5f63bb0` with #254 in, then `451468d` with #255 in, then
 `31c369e` with #258 in, then `f1844af`, then `467a3ac` with #265 in, then `759a9df`
-with #287 in, and now this. Each correction is the argument for the sentence rather
-than a counter-example to it.
+with #287 in, then `ef86a19` **six days and thirty-four merges stale**, and now this.
+Each correction is the argument for the sentence rather than a counter-example to it.
+
+> **THE NINTH CORRECTION IS THE LOUDEST ONE, AND IT WAS NOT FOUND BY READING THIS FILE.**
+> It was found by auditing **228 branches against `main`** on 2026-09-04, which is also how
+> `R-85`, `R-86` and two of his requests were discovered sitting on branches with **no pull
+> request at all** — see the section below. This file said "open PR" about six things that
+> had merged and said nothing about four that had not been proposed. **A status document
+> that is only corrected when somebody happens to edit it is not a status document**, and
+> the audit that fixed it is the kind of thing `C2` means by a stale document being a bug.
 
 **THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
 directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
@@ -71,7 +81,7 @@ the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
 chase the pointer — the sentence it already carries is the right answer, and
 `git log --oneline -1 origin/main` remains the only one that cannot rot.
 
-### The engine can now say which code it is running (open PR)
+### The engine can now say which code it is running — **merged as `4868f91` (#266)**
 
 **The incident, 2026-08-23.** His panel said *"no successful crawl yet"* over **17,304
 rows**. #255 had fixed exactly that two days earlier and the fix was on `main`. The
@@ -91,7 +101,7 @@ and `OP-61` (continuation citations are invisible to the citation guard).
 
 ---
 
-### The engine's page is where the engine lives now (2026-08-30, `REQ-50`, open PR)
+### The engine's page is where the engine lives now (2026-08-30, `REQ-50`) — **merged as `1d8816d` (#293)**
 
 **The incident.** His engine was running code older than the code on disk. The panel
 detected it and said so — the Build row rendered `Restart needed` with the engine's own
@@ -474,12 +484,25 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ---
 
-## Open pull requests
+## Pull requests — where each one landed
 
-### The system is Supabase's exactly — 2026-08-31 · branch `claude/the-system-is-supabases-exactly`, stacked on #299
+**THERE ARE ZERO OPEN PULL REQUESTS as of 2026-09-04**, checked against GitHub. This section
+keeps its name's promise by recording where each one went instead: an entry saying *"open"*
+about something merged sends the other machine to a ref that no longer exists, which is the
+failure the 2026-08-30 rewrite below already recorded once — and it had happened again to
+**six** of the entries here before this update.
 
-**`R-84`, recorded before the work starts because `C3` says so.** Two questions inside it are
-OPEN and named in the ruling; nothing is built until he answers.
+### The system is Supabase's exactly — **merged as `ef3121d` (#320)** on 2026-09-04
+
+**It is `R-85`, not `R-84`** — the number moved when `R-84` was taken by the migration
+baseline, and the ruling was renumbered on its own branch before either landed. **Both
+questions below were answered by him and the work is built**; they are kept because `C4`
+wants the questions visible as having been ASKED, not settled by a session's default.
+
+**It sat on a branch with no pull request for four days.** Found by auditing 228 branches
+against `main`, not by anything pointing at it — and `R-86`, a standing instruction to every
+session, was on that same branch. **`main` ended at `R-84` while two of his rulings existed
+only on a ref nobody was reading.**
 
 > «انا اريد النظام مطابق تماما لنظام supbase عدل اى قرار يتعارض مع هذا النظام»
 > · «احذف الثلاثة وابق supabase وحده»
@@ -495,7 +518,9 @@ id it does not know. And it deletes `R-79` entirely, which was all device: the c
 `contrast-color()`, the per-surface ink, two tests. Correct work under the then-standing
 ruling, and `C4` keeps that visible.
 
-**THE TWO OPEN QUESTIONS, because their answers differ by orders of magnitude:**
+**THE TWO QUESTIONS HE WAS ASKED, because their answers differ by orders of magnitude.**
+Both are answered in `R-85` §4; the measurement is what made them askable rather than
+defaulted:
 
 | | |
 |---|---|
@@ -525,6 +550,39 @@ is described in full.
 | (design review) | **#298** (`69ce391`) | `OP-103` -- every custom property a stylesheet reads is one something defines |
 | `codex/organization-enrichment-main` | **#302** (`bf033ca`) | organization enrichment, +7,242/-99 across 36 files, **merged by the owner himself on 2026-08-31** |
 | `claude/scrapex-engine-consolidation-d69e0a` | **#293** (`1d8816d`) | `REQ-50`, `R-80`, `OP-112`-`OP-114`, `OP-119` -- the engine page consolidated, and the Restart button the warning had nothing to press |
+
+**AND IT HAPPENED AGAIN, TO SIX MORE.** Everything below this line was written as *"no PR
+yet"* or *"open"* and every one of them has merged. The sub-sections are kept in full —
+their measurements are what the next question gets answered from — but each heading now
+says where it landed. Added 2026-09-04, from `gh pr list --state merged`, not from memory:
+
+| landed | as | when |
+|---|---|---|
+| `fix/a-known-omission-loses-one-value-not-the-profile` | **#303** (`43f6ae5`) | 2026-09-02 |
+| `fix/the-engine-reports-the-commit-it-was-built-from` | **#305** (`bc06101`) | 2026-09-02 |
+| `claude/one-migration-plan-not-two` | **#306** (`3c2aaa0`) | 2026-09-02 |
+| `claude/the-drift-check-that-was-off` | **#307** (`27ed85f`) | 2026-09-03 |
+| `claude/a-citation-nothing-reads` | **#309** (`8a3592d`) | 2026-09-03 |
+| `feat/the-crawl-button-drives-the-collector-it-needs` | **#310** (`588f904`) | 2026-09-03 |
+| `fix/a-directory-crawl-passes-the-admission-too` | **#313** (`f221abc`) | 2026-09-03 |
+| `claude/the-base-changes-now` | **#318** (`9a34a01`) | 2026-09-04 · `REQ-52`, `OP-131`, under `R-84` |
+| `claude/the-command-that-outlived-its-removal` | **#319** (`c233a21`) | 2026-09-04 · `OP-124`, `R-81` |
+| `claude/the-system-is-supabases-exactly` | **#320** (`ef3121d`) | 2026-09-04 · `R-85`, `R-86`, `OD-09` — **had no PR** |
+| `req/a-source-declares-what-it-can-be-asked-to-do` | **#321** (`28144ae`) | 2026-09-04 · `REQ-53`, `REQ-54`, `OP-132` — **had no PR** |
+
+**THE LAST TWO ROWS ARE THE ONES TO READ.** Neither had a pull request; both were found by
+auditing every branch against `main`. Between them they carried **two rulings** (`R-85`,
+`R-86` — one of them a standing instruction to every session) and **two of his requests**
+(`REQ-53`, `REQ-54`). `C7` exists because `REQ-04` was ruled, never built, and dropped out of
+sight; this is the same failure caught one step earlier — recorded, but not where anyone reads.
+
+**WHAT THE AUDIT COST TO GET RIGHT, because the next one will pay it too.** `#319` and `#320`
+each needed a rebase after the merge before them, and the rebases were not textual. `#318`
+changed **one line region** of `scrapex/webui/app.py` (+14 lines at line 202) and that moved
+**26 citations across four documents** — of which the guards could see **four**. The other
+twenty-two would have landed on real, non-blank, wrong lines. `OP-123`'s subject, measured
+again. And one pinned row on `main` had been **two lines stale inside the ±3 window** the
+whole time, so it had always passed.
 
 **`#297` LANDED WITH A DEFECT AND IT IS ON `main` NOW -- read `OP-119` before touching that
 guard.** Its fix repointed `settings.html` at `/api/engine/health`, which
@@ -603,7 +661,7 @@ the squash itself. His ruling is recorded as `R-84` **on the `OP-122` branch, no
 deliberately, because a ruling recorded only on the branch it authorises is unrecorded until
 that branch merges, and the squash is the slowest thing in the queue. Read all four before
 touching the migration framework.
-### A known omission loses one value, not the profile — 2026-09-02 · branch `fix/a-known-omission-loses-one-value-not-the-profile`, **open**
+### A known omission loses one value, not the profile — **merged as `43f6ae5` (#303)**
 
 **`R-83`.** 691 insertions across 19 files that existed only as three commits on one
 machine's local `main` for a day, unpushed and unreachable from anywhere else — which is the
@@ -631,7 +689,7 @@ advice: `test_the_reservation_table_has_no_shadowed_rows` reads the source with 
 monkeypatches `_pairs` and its stub predated the `ids` keyword, so `approve` raised
 `TypeError` — the first thing to exercise the keyword at all. The stub records what it was
 handed rather than swallowing it, and the test now asserts the forward.
-### One migration plan, not two — 2026-09-02 · branch `claude/one-migration-plan-not-two`, no PR yet
+### One migration plan, not two — **merged as `3c2aaa0` (#306)**
 
 **`OP-122` and [`R-84`](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again).**
 Rebased onto `main` at `43f6ae50`. Secondary session;
@@ -707,7 +765,7 @@ every source to `capture_source` — the price path. The route to follow is the 
 counters are price-shaped. That chain is two kinds today and a third makes it a registry,
 which is what «خلى الشغل dry» asks for. **Until that lands he still cannot press a button;
 what changed is that the engine no longer refuses the run when something does press it.**
-### The engine reports the commit it was built from — 2026-09-02 · branch `fix/the-engine-reports-the-commit-it-was-built-from`, **open**
+### The engine reports the commit it was built from — **merged as `bc06101` (#305)**
 
 **`R-77`'s first two clauses, built. The third leaves this repository, and that is why it
 stops here.**
@@ -763,7 +821,7 @@ field to it. So:
 **The decision stands and the order was the wrong part**, which is what `#293` recorded. Two
 of the four steps are now behind us.
 
-### The drift check that was off — 2026-09-02 · branch `claude/the-drift-check-that-was-off`, no PR yet
+### The drift check that was off — **merged as `27ed85f` (#307)**
 
 **`OP-120`.** Branched from `main` at `1d8816d8`. Secondary session;
 `recursing-shannon-068e63` merges
@@ -793,7 +851,7 @@ merges.**
 > last sentence turned out to be wrong about why he could not press a button.** The engine
 > was not the only thing in the way: the card offered no control at all, and the one it
 > would have offered sent a run mode the engine refuses. `OP-126`.
-### The crawl button drives the collector the source needs — 2026-09-02 · branch `feat/the-crawl-button-drives-the-collector-it-needs`, **open**
+### The crawl button drives the collector the source needs — **merged as `588f904` (#310)**
 
 **`REQ-45`'s second half.** `#301` taught `POST /api/jobs` to accept `muqawil_org` — it had
 been answering 404, which is why every muqawil crawl to date ran from a terminal. **The
@@ -862,7 +920,7 @@ there is exactly one site behind a card.
 only sanctioned answer is a bump. The three generated homes were regenerated by
 `python -m scrapex.cli export-version` in the same commit.
 
-### A directory crawl bypassed the politeness gate — 2026-09-03 · branch `fix/a-directory-crawl-passes-the-admission-too`, **open**
+### A directory crawl bypassed the politeness gate — **merged as `f221abc` (#313)**
 
 **`OP-128`, and this session wrote it and merged it an hour earlier in `#310`.**
 
@@ -888,7 +946,7 @@ crack `_host_of`'s docstring names. Four guards, three mutations.
 serialise per PROVIDER. Its requests go to third parties rather than to one registered
 site, so there is no host to reserve, and the parameter arriving does not settle it.
 
-### A citation nothing reads — 2026-09-02 · branch `claude/a-citation-nothing-reads`, no PR yet
+### A citation nothing reads — **merged as `8a3592d` (#309)**
 
 **`OP-123`.** Branched from `main` at `80659faa`. Secondary session;
 `recursing-shannon-068e63` merges
@@ -908,7 +966,7 @@ the 26. **The general fix is deliberately refused** — an automatic repointer w
 rewrite every number that is a record rather than a pointer. Read `OP-123` before
 touching the citation guard.
 
-### The base changes now — 2026-09-03 · branch `claude/the-base-changes-now`, no PR yet
+### The base changes now — **merged as `9a34a01` (#318)**
 
 **`REQ-52`'s last half, `OP-131`, under [`R-84`](RULINGS.md#r-84--the-base-changes-now--and-at-publication-no-migration-is-ever-deleted-again).**
 Secondary session; `recursing-shannon-068e63` merges
