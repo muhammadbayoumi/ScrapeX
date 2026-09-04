@@ -4424,6 +4424,51 @@ everything that reasons about what the run WILL do, and nothing enumerates those
 
 ---
 
+### OP-132 · The button's crawl runs one worker where the terminal's runs six
+
+**Measured on his live crawl, 2026-09-03, while he asked when it would finish.** Seven of
+fifty-six cells closed in 198 minutes:
+
+```
+closed 7/56       3,216 contractors · 1,299 listing requests · 198 min
+per contractor    0.404 requests
+projected total   7,035 requests for 17,417 contractors   ->  5,736 remaining
+measured rate     6.6 requests/min          SINGLE WORKER
+                  14.6 h left
+at six workers    2.4 h left
+```
+
+**`contractors.crawl` takes `workers: int = 1` and `scrapex/directoryjob.py` never passes
+it**, so the crawl the panel starts is one worker and the crawl `scrapex contractors
+--crawl` starts can be six. **`R-39`'s 52.5 pages a minute was measured at six workers**,
+which is 8.75 per worker and consistent with the 6.6 measured here including re-sizing and
+retries.
+
+**AND THE POLITENESS IS NOT THE OBSTACLE**, which is the reason this is a gap rather than a
+trade-off. `HttpFetcher._throttle` holds its lock across its own sleep, so *measured
+2026-08-21* four workers made 20 requests in 1.02 s where 3.80 s was owed
+(`partitioncrawl.py`'s own note). **The concurrency buys overlap on latency and never a
+higher request rate**, which is why `R-21` and `SR-8` survive it and why
+`crawl_partition` already carries `workers` and a `connect` factory.
+
+**What it needs is the factory, not the flag.** `sqlite3` refuses a connection across
+threads, so above one worker each needs its own — `jobs.run_job_once` already offers
+exactly that to the price path (*"only the worker knows a real path to reopen, so only the
+worker can offer concurrency"*), and the directory runner can derive it the same way it
+derives its heartbeat connection.
+
+**And it matters far more for the half that is not built.** The profile crawl is 34,834
+pages: **87 hours single-threaded against about 14 with six**, which is `R-39`'s own
+amended arithmetic. The same one-line omission would make that the difference between four
+days and half a day.
+
+**Not fixed while his crawl runs.** Pausing is safe at a cell boundary and a resume under
+the same run ref skips the pages already stored, so the repair costs no fetch — but it is
+his call whether to stop a run at 7/56 to make it six times faster, and the numbers above
+are what that call needs. Put to him 2026-09-03.
+
+---
+
 ### OP-130 · The crawl's request count said 0 for hours while its cell count moved
 
 **Found 2026-09-03, watching the crawl he had been waiting for since 2026-08-30 actually
