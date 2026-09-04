@@ -1436,7 +1436,7 @@ Against the base plan's own decision table (`MIGRATION-PLAN.md:60`):
 > *"Export stays in the engine — it is SQL over SQLite, not a file move."*
 
 **Export is a user-facing capability that exists only in the engine today**
-(`scrapex/webui/app.py:1329`, `@app.get("/export/{source_key}.xlsx")`). Both statements
+(`scrapex/webui/app.py:1343`, `@app.get("/export/{source_key}.xlsx")`). Both statements
 are his, the newer one contradicts the older, and **the rule says a newer conflict is
 his to settle.** So it goes to him rather than being resolved here. `Jobs stay in the
 engine` (`:61`) is the same shape and rides with it.
@@ -3149,7 +3149,7 @@ SHA, both facts rather than judgements.
 2026-08-30, thirteen days later, still live in three places:
 
     scrapex/version.py:517      "latest_extension_version": VERSION
-    scrapex/webui/app.py:1747   "latest_extension_version": VERSION
+    scrapex/webui/app.py:1761   "latest_extension_version": VERSION
     extension/app.js:612, :646  drawn to the user as "Latest available extension"
 
 The engine answers *"what is the newest extension available"* with **its own number**, which
