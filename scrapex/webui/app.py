@@ -40,6 +40,7 @@ from .. import (
     provenance,
     rates,
     retention,
+    sourceboard,
 )
 from .. import db as dbmod
 from .. import version as engine_version
@@ -796,6 +797,89 @@ def create_app(
             } for row in catalogue]
         finally:
             general.close()
+
+    def _registered_directories(shown: list[dict]) -> list[dict]:
+        """Directories this BUILD can crawl, listed before they hold a single row.
+
+        HIS REQUIREMENT, in his words, after muqawil was missing from `Choose sites`
+        on a warehouse created an hour earlier: *«المفروض المصادر تظهر بدون بيانات فهى
+        مسجلة ومحفوظة فى الكود»* — a source registered in the code should appear
+        without data. It is the state `sourceboard` already names, from his own
+        earlier sentence: `registered`, *"on the list and waiting its turn"*.
+
+        WHY IT WAS MISSING, measured. `/api/sources` was the manifest plus
+        `_dataset_listing()`, and `_dataset_listing` groups `dataset_definition` rows —
+        so a directory appeared only AFTER its first crawl had stored something. On a
+        fresh warehouse (`dataset_definition` 0, `generic_record` 0) muqawil was in no
+        list at all, on either screen, while `directories.BUILDERS` had known how to
+        crawl it the whole time.
+
+        AND THE ENGINE WAS ALREADY READY FOR IT, which is what makes this a listing
+        gap and not a feature: `POST /api/jobs` resolves keys through
+        `SourceResolver` — *"asked of the registry, not the file"*, `R-78` — so
+        `muqawil_org` is accepted there today, and `directory_keys` already routes it
+        to the directory collector rather than the price one. The button had a target
+        and the panel drew no row for it.
+
+        `source_key` IS THE SITE KEY, deliberately, and this is the half that makes
+        the row pressable. A dataset card carries `dataset_key` (`contractors`), which
+        `POST /api/jobs` refuses; `BUILDERS` is keyed by `site_key`, which it accepts.
+        So a registered row names the thing that can actually be run.
+
+        IT IS SUPPRESSED ONCE THE SITE HAS A CARD. `REQ-37` and `R-47` are about
+        muqawil being drawn TWICE on one screen; a registered row beside its own
+        dataset card would be that defect again, so anything already listed — by
+        `source_key` or by `site_key` — wins.
+        """
+        listed = {row.get("source_key") for row in shown}
+        listed |= {row.get("site_key") for row in shown if row.get("site_key")}
+        rows = []
+        # ASKED OF `sourceboard`, NOT OF `directories` DIRECTLY (`ENGINEERING` P1/Q1).
+        # This function knew `BUILDERS` for a few hours and the cost was immediate: the
+        # panel listed muqawil and `scrapex sources` did not, so the product had two
+        # answers to "which sources exist". `sourceboard.from_code()` is the one answer;
+        # this route decorates it with the per-row facts the cards draw.
+        for source in sourceboard.from_code():
+            key = source.key
+            if key in listed:
+                continue
+            rows.append({
+                # `directory`, NOT `dataset`, and the difference is a dead button.
+                # The panel gates "Open the data table" on `kind == "dataset"`
+                # (`app.js` `sourceActions`), and that action reaches
+                # `/api/table/{key}` -- which 404s for a site holding no dataset yet.
+                # Borrowing the dataset marker to get the crawl control would have
+                # brought a dead one with it, which is the rule this codebase states
+                # as "a button that cannot work is worse than no button". The panel
+                # admits this kind to the crawl and to nothing else.
+                "kind": "directory",
+                "site_key": key,
+                "source_key": key,
+                "source_name": source.name,
+                "source_name_ar": "",
+                "base_url": source.base_url,
+                # `generic` is the marker the panel reads to hide the price-path row
+                # actions (Update, Wipe, Rename) that answer 400 for anything but a
+                # price source. Same value a dataset card carries, for the same
+                # reason, rather than a second word meaning the same thing.
+                "family": "generic",
+                # NOT active: nothing is scheduled for it. `implemented` is True and
+                # that is the point of the row — a collector exists in this build, so
+                # the source is runnable by hand today.
+                "active": False,
+                "implemented": True,
+                "supports_history": False,
+                # Zero, and zero is the honest number. `_dataset_rows` carries the row
+                # count into both of these; there are no rows yet.
+                "observations": 0,
+                "products": 0,
+                # Never crawled, which the panel renders in words rather than as a
+                # blank or a nought (`freshnessLine`).
+                "last_success": None,
+                "kept_pages": 0,
+                "kept_at": None,
+            })
+        return rows
 
     def _dataset_listing():
         """The same datasets, as ONE CARD PER SITE. `R-47`, and `REQ-37` before it.
@@ -1888,6 +1972,11 @@ def create_app(
         # where the two stored datasets stay two. The same function serving both is
         # what drew `muqawil.org` twice on his Data screen (`REQ-37`).
         out.extend(_dataset_listing())
+        # REGISTERED IN THE CODE, LISTED WITHOUT DATA. His requirement, and the reason
+        # `Choose sites` had no muqawil row on a warehouse an hour old. Appended after
+        # the dataset listing so a site that already has a card keeps it and is not
+        # drawn twice (`REQ-37`).
+        out.extend(_registered_directories(out))
         return {"sources": out}
 
     @app.get("/api/resolve")
@@ -3616,6 +3705,25 @@ def create_app(
         sources = SourceResolver(app.state.manifest,
                                  lambda: dbmod.connect(app.state.db_path))
         for key in source_keys:  # fail before queueing, not mid-crawl
+            # A DIRECTORY THIS BUILD CAN CRAWL IS KNOWN BEFORE ITS ROW EXISTS, and
+            # that is not a hole in the check -- it is where the row comes from.
+            # `SourceResolver` asks the manifest and `source_site`; a directory's
+            # `source_site` row is written by `catalog.register_site` from inside the
+            # collector's own first run (`contractors._run_for`, "registering the site
+            # first if it is not there"), because approval happens after pages are
+            # stored and the first crawl of a new source necessarily precedes it.
+            #
+            # SO ON A FRESH WAREHOUSE THIS ROUTE ANSWERED 404 FOR THE ONE KEY IT WAS
+            # TAUGHT TO ACCEPT. Measured 2026-09-04 on a warehouse an hour old:
+            # `{"detail": "unknown source_key 'muqawil_org'"}` -- while
+            # `directories.BUILDERS` held a collector for it and `directory_keys`
+            # below was ready to route it. His requirement is that a source
+            # registered in the code is listed («المفروض المصادر تظهر بدون بيانات فهى
+            # مسجلة ومحفوظة فى الكود»), and a listed source that 404s on the one
+            # action it offers is the "button that cannot work" this file rejects
+            # everywhere else.
+            if key in directories.BUILDERS:
+                continue
             try:
                 sources.get(key)
             except LookupError:
