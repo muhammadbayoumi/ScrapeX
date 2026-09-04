@@ -321,7 +321,7 @@
           <p>${esc(table.purpose || "Live system table.")}</p>
           <div class="model-inspector-meta">
             <span><strong>${Number(table.rows).toLocaleString()}</strong><small>Rows</small></span>
-            <span><strong>${table.column_count}</strong><small>Columns</small></span>
+            <span><strong>${Number(table.column_count) || 0}</strong><small>Columns</small></span>
           </div>
         </header>
         <section class="model-inspector-section">

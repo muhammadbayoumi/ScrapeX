@@ -436,7 +436,7 @@ def test_a_dataset_appears_among_the_sources_the_panel_lists(tmp_path):
         "the Data screen filters on `observations > 0`; a zero here hides it")
     assert row["implemented"] is True, (
         "the panel disables a source it thinks has no connector")
-    assert "muqawil.org" in row["base_url"]
+    assert row["base_url"].startswith("https://muqawil.org/")
 
 
 def test_the_source_page_renders_a_dataset_instead_of_answering_404(tmp_path):

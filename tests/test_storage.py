@@ -232,7 +232,10 @@ def test_a_restore_moves_the_current_database_aside_rather_than_overwriting(conn
 
 
 def test_an_unhealthy_backup_is_never_put_in_place(db_path, tmp_path):
-    junk = tmp_path / "bad.backup.db"
+    # In the backups folder under a name `list_backups` matches, so the list rule
+    # lets it through and the health check is what has to refuse it.
+    junk = db_path.with_name(
+        f"{storage.base_stem(db_path)}.bad-20260904T101010Z.backup.db")
     junk.write_bytes(b"corrupt" * 100)
     with pytest.raises(storage.StorageRefused, match="health check"):
         storage.restore(db_path, junk)
@@ -240,7 +243,16 @@ def test_an_unhealthy_backup_is_never_put_in_place(db_path, tmp_path):
 
 
 def test_a_foreign_but_healthy_sqlite_file_is_never_restored(db_path, tmp_path):
-    foreign = tmp_path / "someone-elses.db"
+    """The health check, tested on a file that gets PAST the list rule.
+
+    `restore` now asks first whether the file is one the product listed, so a
+    foreign database dropped anywhere else is refused before health is consulted
+    — which would leave this guard passing for the wrong reason. The decoy is
+    therefore written into the backups folder under a name `list_backups`
+    matches, so the only thing left to refuse it is what this test is named for.
+    """
+    foreign = db_path.with_name(
+        f"{storage.base_stem(db_path)}.decoy-20260904T101010Z.backup.db")
     conn = sqlite3.connect(str(foreign))
     try:
         conn.execute("CREATE TABLE contacts(name TEXT)")
@@ -259,6 +271,50 @@ def test_a_foreign_but_healthy_sqlite_file_is_never_restored(db_path, tmp_path):
     finally:
         conn.close()
     assert "trg_price_obs_no_update" in triggers
+
+
+def test_only_a_backup_the_product_listed_can_be_restored(conn, db_path, tmp_path):
+    """A healthy backup of THIS warehouse, moved out of the folder, is refused.
+
+    `backup_path` reaches `restore` from the network — the Storage page posts what
+    its select holds, and the engine listens on localhost, which any page in the
+    browser can reach. Every other guard asks whether the file is a healthy
+    ScrapeX warehouse; this is the one that asks whether it is one of ours.
+    """
+    backup = Path(storage.backup_now(conn, db_path).location)
+    conn.close()
+    assert storage.health(backup)["ok"], "the decoy has to be a GOOD backup"
+    moved = tmp_path / "elsewhere" / backup.name
+    moved.parent.mkdir()
+    backup.replace(moved)
+
+    with pytest.raises(storage.StorageRefused, match="only a backup it listed"):
+        storage.restore(db_path, moved)
+
+    assert storage.health(db_path)["ok"], "the live warehouse must remain in place"
+    assert not db_path.with_name(db_path.name + ".restore-incoming").exists(), (
+        "refused before anything was copied")
+
+
+def test_a_refused_restore_says_nothing_about_whether_the_path_exists(db_path, tmp_path):
+    """One answer for both, so the refusal is not a way to read the filesystem.
+
+    A caller who can name paths could otherwise map the disk by the difference
+    between "no longer at" and "does not pass a health check". Both cases are the
+    same sentence now, and it is the sentence that tells a real user what to do.
+    """
+    real = tmp_path / "real-but-not-listed.db"
+    real.write_bytes(b"not a database")
+    missing = tmp_path / "no-such-file-at-all.db"
+
+    answers = set()
+    for candidate in (real, missing):
+        with pytest.raises(storage.StorageRefused) as raised:
+            storage.restore(db_path, candidate)
+        answers.add(str(raised.value))
+
+    assert len(answers) == 1, f"the refusals differ and can be told apart: {answers}"
+    assert "only a backup it listed" in answers.pop()
 
 
 def test_restore_validates_the_copy_before_moving_the_live_database(conn, db_path,

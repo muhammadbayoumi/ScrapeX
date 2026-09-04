@@ -5562,12 +5562,12 @@ same day on his instruction**
 2. `storage.start_fresh` does not copy the warehouse aside, it **renames** it —
 
 ```cited
-scrapex/storage.py:1104             os.replace(path, displaced)
+scrapex/storage.py:1126             os.replace(path, displaced)
 ```
 
    so `…reset-backup-<stamp>.db` carries **the warehouse's** last-write time, not the
    reset's. Undoing a reset runs `storage.restore`, which `shutil.copy2`s that file back
-   (`scrapex/storage.py:1020`), so the same mtime returns to the live file — and a
+   (`scrapex/storage.py:1042`), so the same mtime returns to the live file — and a
    reset / undo / reset cycle produces several reset-backups sharing **one** mtime.
 3. The prune ordered by that mtime, at one-second resolution. The line was
    `return sorted(found, key=lambda b: b["modified_at"], reverse=True)` in

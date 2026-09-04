@@ -199,9 +199,16 @@ def test_every_storage_control_the_spec_names_is_offered(client):
 
 
 def test_restore_api_refuses_a_foreign_sqlite_file(client, db_path, tmp_path):
+    """The health check, reached through the route.
+
+    The decoy sits in the backups folder under a name the Restore list matches,
+    because the route now refuses an unlisted path first — dropped in `tmp_path`
+    it would never reach the check this test is named for.
+    """
     import sqlite3
 
-    foreign = tmp_path / "foreign.db"
+    foreign = db_path.with_name(
+        f"{storage.base_stem(db_path)}.foreign-20260904T101010Z.backup.db")
     conn = sqlite3.connect(str(foreign))
     try:
         conn.execute("CREATE TABLE notes(body TEXT)")
@@ -212,6 +219,29 @@ def test_restore_api_refuses_a_foreign_sqlite_file(client, db_path, tmp_path):
     response = client.post("/api/storage/restore", json={"backup_path": str(foreign)})
     assert response.status_code == 400
     assert "health check" in response.json()["detail"]
+    assert storage.health(db_path)["ok"], "the live warehouse must remain untouched"
+
+
+def test_restore_api_refuses_a_path_it_never_offered(client, db_path, tmp_path):
+    """The route is reachable from any page in the browser, so it names the list.
+
+    `backup_path` is whatever the caller posts. A path outside the Restore list is
+    refused with the same sentence whether or not it exists, so the refusal cannot
+    be used to find out what is on the disk.
+    """
+    outside = tmp_path / "somewhere-else" / "harvest.mine-20260904T101010Z.backup.db"
+    outside.parent.mkdir()
+    outside.write_bytes(b"never read")
+
+    answers = set()
+    for candidate in (outside, tmp_path / "no-such-file.db"):
+        response = client.post("/api/storage/restore",
+                               json={"backup_path": str(candidate)})
+        assert response.status_code == 400
+        answers.add(response.json()["detail"])
+
+    assert len(answers) == 1, f"the two refusals can be told apart: {answers}"
+    assert "only a backup it listed" in answers.pop()
     assert storage.health(db_path)["ok"], "the live warehouse must remain untouched"
 
 

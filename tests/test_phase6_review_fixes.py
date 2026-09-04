@@ -146,7 +146,11 @@ def test_the_job_worker_reopens_when_the_database_moves(db_path, tmp_path):
 # ---- CRITICAL: restore must not install just any database -------------------
 
 def test_restore_refuses_a_database_that_is_not_a_warehouse(db_path, tmp_path):
-    stranger = tmp_path / "stranger.backup.db"
+    # In the backups folder under a name the Restore list matches: `restore` asks
+    # first whether the file is one it offered, so a stranger dropped anywhere else
+    # is refused before the identity check this test is named for.
+    stranger = db_path.with_name(
+        f"{storage.base_stem(db_path)}.stranger-20260904T101010Z.backup.db")
     other = sqlite3.connect(str(stranger))
     other.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT)")
     other.commit()
@@ -158,7 +162,8 @@ def test_restore_refuses_a_database_that_is_not_a_warehouse(db_path, tmp_path):
 def test_restore_refuses_a_warehouse_without_the_append_only_triggers(db_path, tmp_path):
     """A database whose price history can be edited would silently end the one
     guarantee the product rests on."""
-    tampered = tmp_path / "tampered.backup.db"
+    tampered = db_path.with_name(
+        f"{storage.base_stem(db_path)}.tampered-20260904T101010Z.backup.db")
     shutil.copy(db_path, tampered)
     conn = sqlite3.connect(str(tampered))
     conn.execute("DROP TRIGGER trg_price_obs_no_delete")

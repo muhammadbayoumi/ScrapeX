@@ -299,7 +299,10 @@ def test_gpp_records_the_real_statement_and_claims_no_rate():
     for rule in rules:
         assert rule.evidence == "general"
         assert rule.rate_pct is None, "a rate was invented for 169 countries"
-        assert rule.statement_url.startswith("https://www.globalpetrolprices.com")
+        # With no trailing slash the prefix also matches
+        # https://www.globalpetrolprices.com.evil.test/ — a real hole in a real
+        # check, even though this one reads a value we wrote ourselves.
+        assert rule.statement_url.startswith("https://www.globalpetrolprices.com/")
         assert rule.statement_text
     # Each fuel's link is ITS page, not diesel's — the owner's exact report.
     by_material = {r.material: r.statement_url for r in rules}
