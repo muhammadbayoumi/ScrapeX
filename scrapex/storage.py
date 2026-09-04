@@ -430,16 +430,17 @@ def _warehouse_identity(conn: sqlite3.Connection) -> tuple[str, str] | None:
     # by a newer ScrapeX", and this file was made by an OLDER one.
     baseline = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
     if version < baseline:
+        # THE SENTENCE IS SHARED WITH THE TWO SURFACES THAT TELL THE SAME FACT --
+        # `EngineDatabase.health()` and the exception `_migrate` raises. It was
+        # written here first and copied by hand into one of them; the copy that was
+        # never written is the one that answered with a terminal command instead.
+        from .dbupgrade import no_upgrade_path
+
         return (
             "too_old",
-            f"The file uses ScrapeX schema v{version}, and this engine's schema "
-            f"starts at v{baseline}: the migrations that led there were collapsed "
-            "into the baseline before release (R-84), so this build has no upgrade "
-            f"path from v{version}. Nothing has been changed. Bring it to v{baseline} "
-            "with the last release that still carried those migrations, or start a "
-            "new warehouse and carry this one's rows into it. From publication "
-            "onwards every migration is kept, so this cannot happen to a released "
-            "build.",
+            no_upgrade_path(version, baseline, "The file")
+            + " From publication onwards every migration is kept, so this cannot "
+              "happen to a released build.",
         )
 
     objects = {
@@ -772,7 +773,8 @@ def backups_kept(conn: sqlite3.Connection) -> int:
 
 
 def prunable_backups(db_path: Path | str, folder: Path | None = None,
-                     keep: int = BACKUPS_KEPT_PER_TAG) -> list[dict]:
+                     keep: int = BACKUPS_KEPT_PER_TAG,
+                     only: str | None = None) -> list[dict]:
     """The backups a keep-N-per-lineage policy would remove, newest kept.
 
     Untagged files are absent by construction — see backup_tag. Grouping by
@@ -780,10 +782,16 @@ def prunable_backups(db_path: Path | str, folder: Path | None = None,
     the one pre-wipe copy of a source that was erased months ago: measured on
     the owner's warehouse, `rebuild` alone held 10 files and 491 MB while
     `pre-wipe-SIKAEGSHOP` held the only copy of 13.7 MB nothing else has.
+
+    `only` NARROWS IT TO ONE LINEAGE, for a caller that made one copy and has no
+    business judging the others. The upgrade path is that caller: it writes a
+    `pre-upgrade` copy and must not decide the fate of a `reset-backup`, whose
+    ordering is not even reliable (`OP-141`). The Storage button passes nothing and
+    keeps governing everything, as it always has.
     """
     by_tag: dict[str, list[dict]] = {}
     for backup in list_backups(db_path, folder):
-        if backup.get("tag"):
+        if backup.get("tag") and (only is None or backup["tag"] == only):
             by_tag.setdefault(backup["tag"], []).append(backup)
     drop: list[dict] = []
     for entries in by_tag.values():
@@ -802,6 +810,57 @@ def _mtime_iso(path: Path) -> str:
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def prune_backups_at(db_path: Path | str, folder: Path | None = None,
+                     keep: int = BACKUPS_KEPT_PER_TAG,
+                     only: str | None = None) -> tuple[int, list[str]]:
+    """The removal itself, WITH NO DATABASE OPEN. Returns (bytes freed, names).
+
+    THE ENTRY POINT WITHOUT A CONNECTION, and it exists because the one path that
+    reliably produces copies could not use the entry point with one. Every guarded
+    upgrade takes a full copy of the warehouse before migrating it
+    (`dbupgrade.upgrade_what_is_only_behind`) and nothing removed those: measured on
+    the owner's machine 2026-09-04, five copies totalling **963,768,320 bytes**
+    beside a 316 MB warehouse.
+
+    AND THE POLICY WAS ALREADY HERE. `backup_tag` already classifies a
+    `pre-upgrade-<stamp>` file, so this rule already governed them — it simply had
+    ONE caller, `backup_now`, which the upgrade path never reaches. The gap was
+    never a missing policy; it was a policy with no caller on the path that makes
+    the copies, which is not a thing a search for the word "prune" can show you.
+
+    A CONNECTION IS EXACTLY WHAT THAT PATH CANNOT OFFER. The database is still at
+    its old schema while the copy is being taken, and below the baseline (`R-84`) it
+    cannot be opened at all — which is the state that was making a copy per launch.
+
+    `only` is passed by that caller and is not optional politeness: see
+    `prunable_backups` and `OP-141`.
+    """
+    doomed = prunable_backups(db_path, folder, keep, only=only)
+    freed, removed = 0, []
+    for backup in doomed:
+        target = Path(backup["path"])
+        try:
+            size = _size(target)
+            target.unlink()
+        except OSError:
+            # A backup held open by another process is not an error worth
+            # failing a crawl — or an upgrade — over: it is simply still there
+            # next time. Housekeeping never fails the work it is tidying after.
+            continue
+        # AND ITS SIDECARS. `list_backups` deliberately never offers a `-wal` as
+        # something restorable, and a journal without the file it journalled is
+        # meaningless: three orphan pairs sit beside the owner's warehouse now,
+        # left by copies whose `.db` was removed by hand.
+        for sidecar in (Path(f"{target}-wal"), Path(f"{target}-shm")):
+            try:
+                sidecar.unlink(missing_ok=True)
+            except OSError:
+                pass
+        freed += size
+        removed.append(target.name)
+    return freed, removed
+
+
 def prune_backups(conn: sqlite3.Connection, db_path: Path | str,
                   keep: int | None = None) -> RunResult:
     """Remove the backups the policy no longer keeps. Returns what it freed.
@@ -814,22 +873,14 @@ def prune_backups(conn: sqlite3.Connection, db_path: Path | str,
     Deliberately NOT a sweep of everything old. It only ever removes files this
     product named (backup_tag), it keeps the newest of every lineage, and it
     never touches the live database or its sidecars.
+
+    This is the entry point that reads the owner's number and his backup folder;
+    `prune_backups_at` above is the same removal for a caller that has no database
+    open to read them from.
     """
     keep = backups_kept(conn) if keep is None else keep
     folder = backup_folder(conn, db_path)
-    doomed = prunable_backups(db_path, folder, keep)
-    freed, removed = 0, []
-    for backup in doomed:
-        target = Path(backup["path"])
-        try:
-            size = _size(target)
-            target.unlink()
-        except OSError:
-            # A backup held open by another process is not an error worth
-            # failing a crawl over — it is simply still there next time.
-            continue
-        freed += size
-        removed.append(target.name)
+    freed, removed = prune_backups_at(db_path, folder, keep)
     return RunResult(
         ok=True, rows=len(removed), location=str(folder),
         detail=(f"Removed {len(removed)} superseded backup(s), freeing "

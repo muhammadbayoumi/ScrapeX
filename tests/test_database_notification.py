@@ -63,8 +63,15 @@ def test_a_database_that_degrades_while_running_is_announced_with_its_fix(tmp_pa
     body = client.get("/").text
     assert "Databases need attention" in body, "the status went stale"
     assert "Database attention needed" in body, "the banner must name the problem"
-    assert "Needs upgrade" in body
-    assert "init-db" in body, "a warning without the fix leaves the owner stuck"
+    assert "Older than the schema baseline" in body
+
+    # THE ENGINE'S OWN PAGE IS THE THIRD SURFACE THAT PRINTED A COMMAND, and this
+    # test DEMANDED it: "a warning without the fix leaves the owner stuck". That was
+    # true of the sentence and false of the fix — he has no terminal (`R-81`), so
+    # what was stuck was a person told to type something he cannot type. One line in
+    # `EngineDatabase.health()` fed the panel, this page and `/api/health` alike.
+    assert "init-db" not in body, \
+        "the page names a command line — R-81, and this page is not a terminal"
 
 
 def test_the_status_is_words_not_only_a_colour(tmp_path):
@@ -118,7 +125,9 @@ def test_a_reachable_engine_on_an_unusable_database_does_not_report_ok(tmp_path)
 
     assert body["databases"]["ok"] is False
     assert "engine" in body["databases"]["detail"]
-    assert "needs upgrade" in body["databases"]["detail"]
+    # Composed as `f"{kind} {status.lower()}"`, which is why the status carries no
+    # possessive: "engine older than the schema baseline" is a sentence.
+    assert "older than the schema baseline" in body["databases"]["detail"]
 
 
 # ---- before the engine can start ---------------------------------------------

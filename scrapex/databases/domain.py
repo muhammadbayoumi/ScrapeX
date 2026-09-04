@@ -18,6 +18,11 @@ from typing import Any, Generic, TypeVar
 from .. import db as legacy_db
 from ..database_ids import ENGINE_APPLICATION_ID, ENGINE_DATABASE_KIND
 
+# The status vocabulary and the one sentence for a below-baseline database. Both
+# live in `dbupgrade` because the guarded upgrade and the panel's button decide on
+# them, and a second spelling is a check that silently stops matching.
+from ..dbupgrade import BEHIND, TOO_OLD, no_upgrade_path
+
 ROOT_DB_DIR = Path(__file__).resolve().parents[2] / "db"
 
 # ONE FILE, AND ITS STREAM STARTS AGAIN AT 1. The whole warehouse — priced
@@ -348,11 +353,33 @@ class DomainDatabase(Generic[T]):
                     f"upgrade: {exc}",
                     version, None,
                 )
+            # BELOW THE BASELINE IS NOT "BEHIND", AND THE DIFFERENCE IS THE ENTIRE
+            # REMEDY. `R-84` collapsed the chain into the baseline, so a database
+            # under it has no upgrade path at all -- and this branch used to answer
+            # it with "Needs upgrade. Run 'python -m scrapex.cli init-db'": a command
+            # the owner has no terminal for (`R-81`) and one that raises the very
+            # error being reported. It is also read by `native.startup_check` to
+            # decide whether to offer "Upgrade database", so the wrong status here is
+            # a button that copies the whole warehouse and then changes nothing --
+            # measured at 316,760,064 bytes per press.
+            #
+            # AND IT IS NOT AN EDGE CASE TODAY. With the chain squashed the plan is
+            # one file, so `baseline == latest` and EVERY version below the head is
+            # below the baseline: until a migration lands above it, the branch below
+            # this one cannot be reached by a real engine database at all. Three
+            # tests that believed they were exercising it were exercising this.
+            baseline = self._migrations[0].number
+            if version is not None and baseline > 1 and 0 < version < baseline:
+                return DatabaseHealth(
+                    self.kind, str(self.path), False, TOO_OLD,
+                    no_upgrade_path(version, baseline, f"This {self.kind} database"),
+                    version, None,
+                )
             return DatabaseHealth(
-                self.kind, str(self.path), False, "Needs upgrade",
+                self.kind, str(self.path), False, BEHIND,
                 f"This database is at schema v{version} and this build expects "
-                f"v{self.latest_schema_version}. Run 'python -m scrapex.cli init-db' "
-                "to upgrade it, then retry.",
+                f"v{self.latest_schema_version}. Use the Upgrade database button on "
+                "the Settings screen, then retry.",
                 version, None,
             )
         except (sqlite3.DatabaseError, DatabaseUnavailableError,
@@ -451,14 +478,13 @@ class DomainDatabase(Generic[T]):
         # difference between a refusal and a loop.
         baseline = self._migrations[0]
         if baseline.number > 1 and 0 < current < baseline.number:
+            # ONE SENTENCE, READ FROM ONE PLACE. This message, `health()`'s action
+            # above and `storage.py`'s `too_old` detail are the same fact told to
+            # three different readers, and they were three separately written
+            # paragraphs -- which is how one of them came to name a command.
             raise DatabaseMigrationError(
-                f"this {self.kind} database is at schema v{current} and this build's "
-                f"baseline starts at v{baseline.number}, so there is no upgrade path "
-                f"between them -- the migrations that led to v{baseline.number} were "
-                "collapsed into the baseline (R-84). Nothing has been changed. Use "
-                "the last release that still carried the chain to bring this database "
-                f"to v{baseline.number} first, or start a new database and carry this "
-                "one's rows into it.")
+                no_upgrade_path(current, baseline.number,
+                                f"This {self.kind} database"))
         applied: list[int] = []
         for migration in self._migrations:
             if migration.number <= current:
@@ -786,10 +812,17 @@ class EngineDatabase(DomainDatabase[T]):
 
         stored = stored_contract_version(conn)
         if stored != CONTRACT_VERSION:
+            # THE SECOND WAY A COMMAND REACHED `DatabaseHealth.action`, and the first
+            # one's fix did not touch it. `health()` interpolates this exception
+            # verbatim into the "Integrity check failed" branch, so `run 'scrapex
+            # init-db'` went on reaching the panel, every engine page and the
+            # first-run console from here after the version branch had stopped
+            # saying it (`R-81`). Found by asking which OTHER exceptions land in
+            # that branch rather than by re-reading the one that was wrong.
             raise DatabaseMigrationError(
                 f"the engine database's contract marker is {stored!r}, expected "
-                f"{CONTRACT_VERSION}; run 'scrapex init-db' or restore a "
-                "compatible backup and retry"
+                f"{CONTRACT_VERSION}. Use the Upgrade database button on the "
+                "Settings screen, or restore a compatible backup, then retry"
             )
 
 

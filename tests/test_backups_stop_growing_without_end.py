@@ -147,3 +147,72 @@ def test_the_warehouse_says_what_the_policy_would_free(warehouse):
     verdict = storage.health(db)
 
     assert verdict["prunable_backup_bytes"] > 0
+
+
+# ---- the entry point for a caller with no database open ----------------------
+
+def test_the_policy_runs_with_no_database_open(warehouse):
+    """WHY A SECOND ENTRY POINT EXISTS AT ALL. The path that reliably makes copies
+    is the guarded upgrade, and it runs while the database is at a schema this build
+    does not read — below the baseline (`R-84`) it cannot be opened at all, which is
+    the state that was making one full copy per engine launch. `prune_backups(conn,
+    ...)` cannot be called from there, and that is the whole reason 963,768,320 bytes
+    of pre-upgrade copies accumulated beside a 316 MB warehouse while a policy that
+    already recognised them sat one caller away.
+    """
+    _conn, db = warehouse
+    for i in range(5):
+        _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i + 1)
+    assert storage.backup_tag(
+        db.with_name("scrapex-engine.pre-upgrade-20260101T000000Z.backup.db"),
+        db) == "pre-upgrade", "the policy does not recognise its own file name"
+
+    freed, removed = storage.prune_backups_at(db, keep=2)
+
+    assert len(removed) == 3, removed
+    assert freed > 0
+    left = sorted(p.name for p in db.parent.glob("*pre-upgrade*"))
+    assert left == ["scrapex-engine.pre-upgrade-20260103T000000Z.backup.db",
+                    "scrapex-engine.pre-upgrade-20260104T000000Z.backup.db"], left
+    assert db.is_file(), "the live database was removed"
+
+
+def test_a_pruned_copy_takes_its_journal_files_with_it(warehouse):
+    """A `-wal` without the file it journalled is meaningless, and `list_backups`
+    already refuses to offer one as restorable. Three orphan pairs sit beside the
+    owner's warehouse today, left where a copy's `.db` went and its sidecars did
+    not."""
+    _conn, db = warehouse
+    for i in range(2):
+        copy = _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i + 1)
+        for suffix in ("-wal", "-shm"):
+            pathlib.Path(f"{copy}{suffix}").write_bytes(b"journal")
+
+    storage.prune_backups_at(db, keep=1)
+
+    assert not list(db.parent.glob("*20260100*")), \
+        "the pruned copy left its journal files behind"
+    assert pathlib.Path(f"{db.with_name('scrapex-engine.pre-upgrade-20260101T000000Z.backup.db')}-wal") \
+        .is_file(), "the surviving copy lost its journal"
+
+
+def test_a_partial_copy_is_not_a_backup_the_policy_can_see(warehouse):
+    """The other half of the atomicity fix, stated from the policy's side: a `.part`
+    file is not a lineage member, is never offered for restore, is never pruned, and
+    — the part that matters — does not occupy one of the kept slots."""
+    _conn, db = warehouse
+    for i in range(1, 4):
+        _make(db, f"scrapex-engine.pre-upgrade-2026010{i}T000000Z.backup.db", i)
+    torn = _make(db, "scrapex-engine.pre-upgrade-20260109T000000Z.backup.db.part", 9)
+
+    assert storage.backup_tag(torn, db) == "", \
+        "a partial file was classified as a member of a lineage"
+    assert torn.name not in {b["name"] for b in storage.list_backups(db)}
+
+    freed, removed = storage.prune_backups_at(db, keep=2)
+
+    assert torn.is_file(), "the policy deleted a file it does not understand"
+    assert len(removed) == 1 and "20260101" in removed[0], removed
+    left = sorted(p.name for p in db.parent.glob("*.backup.db"))
+    assert left == ["scrapex-engine.pre-upgrade-20260102T000000Z.backup.db",
+                    "scrapex-engine.pre-upgrade-20260103T000000Z.backup.db"], left

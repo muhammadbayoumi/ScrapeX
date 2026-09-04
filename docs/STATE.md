@@ -71,6 +71,23 @@ published `0.3.0`, so `engine-v0.3.1` ships the fix and no bump is needed
 [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)). **Cutting the tag is his call**, and until he does
 there is nothing installable that serves a page.
 
+**AND ON 2026-09-04 HE ASKED WHY THE ENGINE DOES NOT WORK, AND THE ANSWER WAS NOT THE
+ENGINE.** *«اريد مراجعة لماذا لا يعمل المحرك ؟»* — measured read-only on his warehouse on
+this machine: **`PRAGMA user_version = 10` against a baseline of v17 with no migrations at
+all**, so `R-84`'s refusal is correct and total, and every start printed one line and made
+a **316,760,064-byte** copy first. The engine's own code is healthy — booted from source on
+a fresh v17 database, `/api/health` answers `ok: true` and `GET /` returns **200**.
+
+**He ruled the data away rather than have it upgraded**: *«لا ترقى القاعدة لا مشكلة فانا لا
+احتاج الداتا عليها»*. What he asked for instead was whether the failures recur *«من اول
+baseline الحالى»* — from the current baseline onwards — and the answer is measured in
+`OP-133` and `OP-134`: **a squash strands a warehouse if and only if that warehouse is
+behind the head when it happens**, both sides of which are already tested, and **the gate
+cannot see the condition** because it reads a manual publication flag whose own docstring
+excludes his two machines. `OP-134` is why one of them is reliably behind: **every
+published engine tops out at schema v10**, so a machine on a release can never be at the
+head. Both are his calls — a guard he set, and a tag.
+
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
@@ -836,7 +853,7 @@ before the squash: this check is what proves that squash, and it was not running
 
 **`REQ-52`'s squash is priced and NOT built.** Measured cost, in one line each so the next
 session does not re-derive it: two independent migration-plan builders carry the same
-gapless-from-1 rule ([`scrapex/databases/domain.py:191`](../scrapex/databases/domain.py#L191)
+gapless-from-1 rule ([`scrapex/databases/domain.py:196`](../scrapex/databases/domain.py#L196)
 and [`scrapex/db.py:140`](../scrapex/db.py#L140)); `latest_schema_version()` hardcodes the
 baseline as 1 ([`scrapex/db.py:125`](../scrapex/db.py#L125)) and that 1 reaches the Storage
 page through `storage.py` `health()`; the baseline has 51 `CREATE TABLE` and no
@@ -992,6 +1009,53 @@ differ.
 `CREATE TABLE` and no `IF NOT EXISTS`; before this, `_migrate` would have run the whole
 schema over a populated database. The refusal names `R-84`, says nothing has been
 changed, and offers the two actions `R-84` allows.
+
+### Why the engine would not start, and the four fixes it earned — 2026-09-04
+
+**On the branch `claude/engine-failure-review-4287b1`, base `3c45086`, not yet proposed.**
+It began as a review — *«اريد مراجعة لماذا لا يعمل المحرك ؟»* — and what it found is at the
+top of this file. He then narrowed the question to recurrence and ruled that the v10
+warehouse is not to be upgraded, so the branch carries no migration and touches no data.
+
+**Register numbers `OP-133`..`OP-142` claimed** after sweeping every local and remote ref
+for `^#{2,4} +OP-13[3-9]` and `OP-140`..`OP-142` (nothing declared them anywhere) — §3 of
+[ORCHESTRATION.md](ORCHESTRATION.md). Contiguous, so no `RESERVED` row was needed.
+
+| number | what it is | state |
+|---|---|---|
+| `OP-133` | the squash gate asks whether the tool is published, not whether his warehouses are at the head | **open — his ruling** |
+| `OP-134` | no release ever carried the chain past v10, so a machine on a release is behind by construction | **open — his call to cut a tag** |
+| `OP-135` | `health()` answered "Needs upgrade. Run 'python -m …init-db'" about a database no command can upgrade | closed here |
+| `OP-136` | nothing removed a pre-upgrade copy: 963,768,320 bytes, and the policy that would have had no caller on this path | closed here |
+| `OP-137` | "The database is already up to date" about a database the engine refuses to open | closed here |
+| `OP-138` | the five tests that prove `R-84`'s refusal are skipped on `main` and in CI | open, with its reason |
+| `OP-139` | `OP-127` closed the unprotected upgrade on one of the two doors | open, with its reason |
+| `OP-140` | the panel prints the raw key `too_old`; the vocabulary for it exists only on the engine's page | open, with its reason |
+| `OP-141` | the backup prune orders a deletion by mtime, and a reset-backup carries the warehouse's — measured deleting TODAY's copy | **open — data loss, reachable from a button** |
+| `OP-142` | four pointer messages name commands on the panel, and two cannot be reworded because the control does not exist | open — needs a control, so his call |
+
+**THE PATTERN IS WORTH MORE THAN ANY ONE OF THEM, and it is now three instances.**
+`OP-131`, `OP-135` and `OP-139` are each **a repair applied to one of two surfaces that
+tell the same thing** — two `health()` implementations, two upgrade doors — where the fixed
+one was the one being read at the time and the other went on being wrong. `OP-138` is the
+same shape one level up: the change that made the refusal necessary also turned off the
+tests that prove the refusal is right.
+
+**What landed, all of it behind guards that do not depend on `origin/main`'s deleted
+chain:** a status of its own for a below-baseline database, so the panel stops offering
+«Upgrade database» for a repair that cannot exist; `no_upgrade_path`, one sentence read by
+the three places that tell that fact, none of them naming a command (`R-81`); the owner's
+own `backups_kept_per_tag` policy called on the path that makes the copies, rather than a
+second prune written beside it; a refusal that names the fault instead of reporting
+success; and `test_no_database_status_ever_answers_with_a_command_line`, which sweeps every
+state that carries an action — the guard whose absence let one sentence reach the panel, the
+engine's every page, `database_unavailable.html` and the first-run console at once, with
+**three tests demanding it**.
+
+Measured after, on a copy of his warehouse and on his real registry read-only: the panel is
+told `check_storage` with no command in the detail, a refusal makes **no copy at all**, and
+a real in-chain upgrade to v18 applies, backs up once and bounds the copies at three with
+`pre-ledger-repair` and `rebuild` untouched.
 
 ## Track 1 · The Console migration
 

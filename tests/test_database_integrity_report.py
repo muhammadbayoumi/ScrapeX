@@ -49,14 +49,25 @@ def test_an_edited_applied_migration_is_reported_as_what_it_is(tmp_path, monkeyp
         "the report still names a command that raises this very error"
 
 
-def test_a_genuinely_behind_database_still_says_upgrade(tmp_path):
-    """The guard must narrow to the equal-version case, not swallow the real one."""
-    db = _db_at_head(tmp_path)
+def test_a_genuinely_behind_database_still_says_upgrade(
+        tmp_path, one_migration_above_the_baseline):
+    """The guard must narrow to the equal-version case, not swallow the real one.
+
+    AND "GENUINELY BEHIND" NEEDED A REAL MIGRATION TO STILL EXIST. `R-84`'s squash
+    made `latest - 1` a version BELOW the baseline, so this test was reaching the
+    no-upgrade-path branch while asserting the upgrade one — and asserting that its
+    action named `init-db`, a command the owner has no terminal for (`R-81`).
+    """
+    db = EngineDatabase(tmp_path / "scrapex-engine.db")
+    db.initialize()
     with db.connect() as conn:
-        conn.execute(f"PRAGMA user_version = {db.latest_schema_version - 1}")
+        conn.execute(f"PRAGMA user_version = {one_migration_above_the_baseline - 1}")
         conn.commit()
 
     report = db.health()
     assert report.ok is False
     assert report.status == "Needs upgrade", report.status
-    assert "init-db" in report.action
+    assert "Upgrade database" in report.action, \
+        "the fix must be named as the button it is"
+    assert "init-db" not in report.action, \
+        "the report names a command the owner cannot run — R-81"
