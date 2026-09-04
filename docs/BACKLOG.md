@@ -5317,6 +5317,101 @@ which un-orphaned them without fixing anything, and the guard said so.
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
 
+### OP-145 · A source with no dataset is invisible to the panel, and the answer that spans both registries has no route — **CORRECTED 2026-09-04, see the top of this entry**
+
+**Asked by him 2026-09-04** — *«لماذا مصدرمقاول لا يظهر ضمن المصادر المتاح زحفها!»* — half
+an hour after a fresh warehouse was created on his machine.
+
+> ### ⚠ CORRECTED THE SAME DAY, AND THE ERROR WAS MINE, NOT THE PRODUCT'S
+>
+> **This entry was written claiming `/api/sources` walks the price manifest alone, so a
+> warehouse-only source could never appear. That is false**, and one line of the route
+> says so:
+>
+> ```cited
+> scrapex/webui/app.py:1890           out.extend(_dataset_listing())
+> ```
+>
+> The route appends dataset-backed sites AFTER the manifest loop, and the comment beside
+> that line is explicit that this was built because *"a `source_site` row could never
+> reach the panel however much data it held"*. **His own history proves it**: he
+> complained twice, with screenshots, that `muqawil.org` appeared **twice** on that
+> screen (`REQ-37`, `R-47`) — a source that cannot appear cannot appear twice.
+>
+> **THE ANSWER I GAVE HIM FIRST WAS THE RIGHT ONE AND I TALKED MYSELF OUT OF IT.** It is
+> the new warehouse: `_dataset_listing()` groups `dataset_definition` rows, and the
+> warehouse created at 12:30 today holds **zero** of them (measured: `dataset_definition`
+> 0, `generic_record` 0, `source_site` 1 — `ARAMCO_FUEL_SA` alone). On the old warehouse
+> muqawil had **two** dataset rows and one folded card.
+>
+> **Why it went wrong is worth more than the fact.** I measured `/api/sources` at the
+> loop it opens with and stopped there — twelve rows out, no muqawil, and the reading
+> fitted. The route is 60 lines long and its last statement is the one that mattered. A
+> partial read that agrees with a hypothesis is the most expensive kind, and `LESSONS` §9
+> already names the shape: *a search for one spelling of a feature is not a measurement
+> of the feature*.
+>
+> **What survives, and it is why this entry keeps its number**: the two paragraphs below
+> on `sourceboard` having no route, and on the ROW itself existing only after the
+> collector runs. Neither depended on the false claim.
+
+**WHAT IS ACTUALLY TRUE OF THE LIST.** `/api/sources` answers the twelve manifest rows
+**plus** `_dataset_listing()` — one card per site that has `dataset_definition` rows,
+marked with `kind` so the panel hides the price-path actions that would fail on a dataset.
+So a warehouse source appears **once it has a dataset**, and `muqawil_org` sitting in
+`source_site` with none of its own is not enough. Measured on his engine today: **12** rows
+and `muqawil in the list: False`, with `dataset_definition` empty — which is the empty
+warehouse, not the route.
+
+**AND THE MODULE WRITTEN FOR EXACTLY THIS QUESTION HAS NO ROUTE.** `sourceboard` opens by
+saying it exists because he asked *«اى الجديد واى الى خلص»* and no command could answer;
+it spans both registries, carries the four-state vocabulary (`registered`, `built`,
+`active`, `paused`), and works with no database at all. Its callers:
+
+```cited
+scrapex/cli.py:527       from . import sourceboard
+```
+
+**One, and it is the CLI.** Nothing in `webui/app.py` mentions it, so the panel cannot ask
+the question the module answers — and `R-81` says a capability with no control in the
+panel has no control. This is the day's fourth instance of one shape: a policy with no
+caller (`OP-136`), an updater with no door (`OP-124`), a remedy behind an unserved page
+(`OP-144`, on the branch that carries the release mechanism), and now **an answer with no
+route**.
+
+**AND THE ROW IS A GAP OF ITS OWN.** Even with a route, a fresh installation has
+nothing to show: the squashed baseline's seed carries `retention_policy` (1 row) and
+`scrapex_meta` (2) and **no sources at all**, and the muqawil row is created by
+`catalog.register_site` from inside the collector's own first run —
+
+```cited
+scrapex/contractors.py:287           catalog.register_site(conn, SiteCreate(
+```
+
+— so the source comes into existence as a by-product of `scrapex contractors`, a command
+he does not use. Measured on the warehouse created at 12:30 today: `source_site` holds
+**one** row, `ARAMCO_FUEL_SA`, and `dataset_definition` and `generic_record` hold none.
+
+**`R-32` IS STILL THE FRAME, at one remove from where this entry first put it.** He ruled
+that price is one **category** and filing the tool under it was a mistake. The list is not
+price-only — it does show a dataset-backed site — but what it can show is *a source that
+has already collected something*. A source that is registered and waiting its turn, which
+is his own «يحفظ فقط فى قائمة مصادر حتى ياتى دوره», has no place in it at all, and that
+state is exactly what `sourceboard` reports and nothing serves.
+
+**What it would take, and the shape is not a guess**: a route over `sourceboard` and the
+panel's list drawn from it. The module exists, is tested
+(`tests/test_every_source_appears_on_one_board.py`) and needs no schema change; declaring
+muqawil in `sources.yaml` is the wrong half of the fork, because that manifest is a price
+declaration (family, currency, tax mode) and a contractor directory has none of those —
+which is why validation would refuse it. It composes with `REQ-54`, where the controls a
+source offers are drawn from what the source declares rather than from `run_mode`'s price
+vocabulary.
+
+**Not built here**: it changes what his only interface lists, which is his to approve.
+
+---
+
 ### OP-144 · The refusal is correct and there is nothing he can press: the remedy is behind a page the engine cannot serve
 
 **Found 2026-09-04 by him, within the hour of installing `engine-v0.4.8`**, which is the
