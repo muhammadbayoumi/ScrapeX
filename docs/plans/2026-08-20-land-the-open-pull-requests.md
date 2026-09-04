@@ -3,7 +3,7 @@
 > **Every step of this plan was executed.** It is archived here so its state is
 > legible without reading it, and so it is visible from both of the owner's machines
 > — `~/.claude/plans/` is one machine and one account, which is what
-> [R-08](../RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository) exists to
+> [R-08](../archive/RULINGS.md#r-08--the-plan-and-the-state-live-in-the-repository) exists to
 > prevent.
 >
 > **What it delivered — nine pull requests merged, in this order:**
@@ -14,7 +14,7 @@
 > | `bf2ae66` | **#220** the Arabic half was a column and not a value, and `/source/{key}` answered 404 for a dataset |
 > | `a1d077f` | **#213** DEC-8: the engine's Data page is a port, not a rebuild |
 > | `3d265cd` | **#216** the CI tiers, the docs gate, and two guards that had become silent skips |
-> | `cb869f9` | **#222** [R-18](../RULINGS.md) — merge it when it is green |
+> | `cb869f9` | **#222** [R-18](../archive/RULINGS.md) — merge it when it is green |
 > | `785533c` | **#221** the two generic flags lit, at `PARTIAL` |
 > | `ce80886` | **#217** the Engine page is two screens, plus three defects an adversarial review confirmed |
 > | `42dbf23` | **#223** a dataset exports a workbook and loads whole |

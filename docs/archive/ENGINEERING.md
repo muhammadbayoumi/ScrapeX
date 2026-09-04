@@ -1,3 +1,15 @@
+> # ⚠ FROZEN HISTORY — NOT A LIVE RULE
+>
+> This document was retired on **2026-09-04** on the owner's instruction. It is kept for
+> one reason only: **881 references in the code cite the numbers below** (`R-84`,
+> `REQ-57`, `OP-145` and their kin), and a comment whose reason cannot be looked up is
+> worse than no comment.
+>
+> **Nothing here is maintained, and no new number is ever issued from it.**
+> How we work now is [CLAUDE.md](../../CLAUDE.md); open work is `gh issue list`; what is
+> in flight is `gh pr list`; why a line exists is the comment beside it and
+> `git log --grep`.
+
 # Engineering Rules — ScrapeX Ecosystem (v1)
 
 > Derived from the owner's review protocol and adversarially verified (traceability critic + project-fit critic, 29 findings incorporated). Every rule exists so the code **passes the corresponding review section by construction**. Rules marked *(operational)* are owner-approved additions beyond the protocol. Code/comments/docs language: English (repo convention).

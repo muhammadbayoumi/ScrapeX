@@ -1,10 +1,10 @@
 # The engine lives on the Engine page — `REQ-50`
 
 **Written 2026-08-30, on branch `claude/scrapex-engine-consolidation-d69e0a`.** Governed by
-[R-80](../RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy)
+[R-80](../archive/RULINGS.md#r-80--one-feature-one-place-and-a-read-only-second-copy-is-still-a-second-copy)
 (one feature, one place — display is not an exemption),
-[R-48](../RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
-and [R-50](../RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it).
+[R-48](../archive/RULINGS.md#r-48--the-extension-is-the-control-room-and-the-only-interface-the-engine-executes-and-reports)
+and [R-50](../archive/RULINGS.md#r-50--the-engine-is-a-helper-to-the-extension-and-any-task-the-extension-can-do-moves-to-it).
 
 **Batch 1 is built on this branch. This plan exists for batch 2**, which is blocked on a
 decision, and for whoever picks the rest up — the owner approved the split in his own words:
@@ -47,7 +47,7 @@ down cannot serve the request to start itself.
 
 `POST /api/engine/stop` moves the endpoint fingerprint, and
 `tests/test_the_version_moves_when_the_contract_does.py` fails when that moves while
-`VERSION` stays. [R-77](../RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
+`VERSION` stays. [R-77](../archive/RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build)
 — merged the same day — says the engine has no marketing version and that `VERSION` stops
 being hand-edited. **The ruling is in force; the gate has not been rebuilt.** So the route
 lands only after either that work or his word. Do not bump to get past it: that is exactly the

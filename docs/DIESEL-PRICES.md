@@ -3,7 +3,7 @@
 **QUEUED, NOT STARTED.**
 
 > «مصادر اخرى لاسعار الديزل فقط مصادر منتجات ضيفها لقائمة المصادر»
-> — 2026-08-20, [REQ-17](REQUESTS.md#req-17--official-diesel-prices-a-product-source-not-a-firm-directory)
+> — 2026-08-20, [REQ-17](archive/REQUESTS.md#req-17--official-diesel-prices-a-product-source-not-a-firm-directory)
 
 **The list below is his, stored verbatim.**
 
