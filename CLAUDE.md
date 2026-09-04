@@ -82,25 +82,26 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
 - **Respect the politeness budget.** A crawl that hammers a site is a defect.
 
-## When he asks for a review
+## Review
 
-Four dimensions, one at a time, stopping after each for his word:
+Four dimensions: **architecture** (boundaries, coupling, data flow, bottlenecks, single
+points of failure, the security surface) · **code quality** (module structure, DRY, error
+handling and the edge cases it misses, over- and under-engineering) · **tests** (coverage
+gaps, assertion strength, missing edge cases, untested failure paths) · **performance**
+(N+1 and query patterns, memory, caching, slow paths). Rank every finding **must fix** ·
+**should fix** · **optional** · **not an issue**, and report nothing rather than pad it.
 
-1. **Architecture** — component boundaries, coupling, data flow, bottlenecks, single
-   points of failure, security surface (auth, data access, API).
-2. **Code quality** — module structure, DRY violations, error handling and the edge
-   cases it misses, debt hotspots, anything over- or under-engineered.
-3. **Tests** — coverage gaps (unit, integration, end-to-end), assertion strength,
-   missing edge cases, untested failure paths.
-4. **Performance** — N+1 and query patterns, memory, caching, slow paths.
+**When he asks for one**: one dimension at a time, stopping after each for his word. Per
+issue: the problem with `file:line` · two or three options **including "do nothing"** ·
+per option the effort, risk, blast radius and maintenance burden · the recommendation
+mapped to the preferences.
 
-Per issue: the problem with `file:line` · two or three options **including "do
-nothing"** · per option the effort, risk, blast radius and maintenance burden · the
-recommendation mapped to the preferences · then ask before proceeding.
-
-Rank each finding: **must fix** (a realistic path to wrong behaviour) · **should fix**
-(costly to maintain, no correctness risk) · **optional** · **not an issue** (tempting to
-change, better left alone — say why). Report nothing rather than pad the list.
+**Before every merge — green is not mergeable.** A code change merges only when a critical
+review returns nothing. On green: run a panel over all four dimensions, let an adversary
+attack what it found, fix what survives, push, review again. Clean means no *must fix* and
+no *should fix*; *optional* becomes an issue, never a fix in the same PR. The biggest
+finding here arrived on the fifth pass — and if five passes do not converge the change is
+too big to review, so split it. Documentation-only changes are exempt.
 
 ## The tools, not the files
 
