@@ -646,7 +646,7 @@ whole time, so it had always passed.
 
 **`#297` LANDED WITH A DEFECT AND IT IS ON `main` NOW -- read `OP-119` before touching that
 guard.** Its fix repointed `settings.html` at `/api/engine/health`, which
-[`scrapex/webui/app.py:616`](../scrapex/webui/app.py#L616) mounts only `if databases is not
+[`scrapex/webui/app.py:617`](../scrapex/webui/app.py#L617) mounts only `if databases is not
 None`, and [`scrapex/cli.py:856`](../scrapex/cli.py#L856) sets `registry = None` for
 `scrapex ui --db <path>`. On that start the restart poll 404s its whole sixty-attempt budget
 and reports a failure that did not happen -- **the defect `OP-116` set out to fix, reproduced
@@ -1748,7 +1748,7 @@ written and 58 two days ago. It grows every time this is deferred.
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:517](../scrapex/version.py) and
-[scrapex/webui/app.py:1761](../scrapex/webui/app.py), drawn by
+[scrapex/webui/app.py:1845](../scrapex/webui/app.py), drawn by
 [extension/app.js:612](../extension/app.js) and `:646`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**

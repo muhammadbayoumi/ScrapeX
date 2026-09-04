@@ -2162,7 +2162,7 @@ the decision.
 
 Measured above the transport, so the step is **parameterising what works, not inventing it**:
 a live backend address field (`extension/app.html:1772`), a switch that re-activates and
-re-adopts appearance, timezone and the UI contract (`extension/app.js:6367-6339`),
+re-adopts appearance, timezone and the UI contract (`extension/app.js:6380-6339`),
 abort-and-generation-bump on change (`extension/backend.js:68-77`), and a repaint guard
 whose own comment already names the multi-app hazard (`extension/data.js:74-76`):
 
@@ -2470,7 +2470,7 @@ reason is four links long, every one measured on the live engine rather than arg
 | link | evidence |
 |---|---|
 | 1 | the panel's crawl action sends `POST /api/jobs` with `source_keys` — `extension/app.js:4044` |
-| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3618`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, moved a fourth time when `#302` landed 7,242 insertions, a FIFTH when `#301` landed on top of it -- 4064 to 4044 -- and a SIXTH here, found every time by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
+| 2 | **CLOSED.** That route validated the key against `app.state.manifest` — a FILE — and now resolves it through `SourceResolver`, which asks the manifest first and `source_site` second: `scrapex/webui/app.py:3707`, beside the comment that has outlived four line numbers, *"fail before queueing, not mid-crawl"*. **That comment is why this row survived at all**: the number moved 43 lines in `#274`, again for the bundle-build lock, was 27 lines stale in between, moved a fourth time when `#302` landed 7,242 insertions, a FIFTH when `#301` landed on top of it -- 4064 to 4044 -- and a SIXTH here, found every time by the quoted call and not by any delta. Tier 1 only asks that a cited line EXIST, and a stale line that is not blank still exists — so the quoted text, not the number, is what kept finding it |
 | 3 | the manifest is `sources.yaml` — **12 price sources, and neither `muqawil` nor `contractors` is in it.** **This row was true when written and half of it is not now**: `0014` merged `site_profile` into `source_site` on 2026-08-29, which is what made a resolver possible rather than a third registry |
 | 4 | `scrapex/jobs.py`, which is what the button drives, contains **zero** references to `muqawil`, `generic_record`, `partitioncrawl`, `snapshotcrawl`, `contractors` or `dataset` — **and this turned out to be the DESIGN rather than the defect.** It asks a source for three things and none is price-specific, so the fix was a resolver and `jobs.py` is unchanged. **What remains is the collector**: the route now queues `muqawil_org`, and the worker still hands it to `capture_source` |
 
