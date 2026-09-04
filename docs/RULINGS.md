@@ -4014,15 +4014,30 @@ together give one release per real change, and **a bump without a tag becomes a
 checkable defect** rather than a habit. Measured, that habit is the whole problem: only
 **2 of the last 20 merges** moved `VERSION` at all.
 
-**THE MECHANISM IS HIS AND IS NOT YET CHOSEN**, and the difference matters:
+**THE MECHANISM WAS HIS TO CHOOSE AND HE CHOSE THE SECOND, the same day:**
 
-- **A guard** — a test that fails when `VERSION` on `main` has no matching `engine-v*`
-  tag. It cannot forget; it also cannot act, so the release stays a thing he does.
-- **An automatic tag** — a workflow on `main` that cuts `engine-v<VERSION>` the moment
-  `VERSION` changes. It removes the human step that produced the twelve days, which is
-  what a rule about lag is for.
+> «واعمل workflow يقطع الوسم تلقائيا»
 
-Recorded as an open decision rather than picked, because it changes who publishes.
+- ~~**A guard** — a test that fails when `VERSION` on `main` has no matching `engine-v*`
+  tag. It cannot forget; it also cannot act, so the release stays a thing he does.~~
+  **Not taken**, and the reason is the ruling's own subject: a guard reports a lag it
+  cannot close.
+- **An automatic tag** — **BUILT** as `.github/workflows/tag-the-release.yml`. It hangs
+  off `workflow_run` after CI concludes on `main` and tags **the SHA CI passed**, not
+  whatever `main` is by then; it asks the remote whether the version is already released,
+  so it is a cheap no-op on every other merge; and it dispatches `release-engine.yml`
+  explicitly with `dry_run=false`, **then checks that a run actually started**. A tag
+  pushed by `GITHUB_TOKEN` starts nothing — GitHub suppresses event-triggered runs from
+  that token — so without the dispatch the mechanism would be `OP-124`'s defect again:
+  built, mounted, doorless. Guarded by
+  `tests/test_the_tag_follows_the_version.py`, whose last test RUNS the workflow's own
+  version-extraction expression against `scrapex/version.py` rather than looking for a
+  string in a YAML file.
+
+**One thing it cannot grant itself, measured 2026-09-04**: this repository's
+`default_workflow_permissions` is **read**. The workflow's `permissions:` block is what
+grants the write, and if a policy ever caps it lower the tag push fails — so that failure
+names the setting and the alternative instead of showing a raw 403.
 
 **AND THE GAP BEHIND THIS GAP IS NOT CLOSED BY EITHER.** `PLATFORM-PLAN §5c` says nothing
 reviews an engine release — *"the EXTENSION notices, tells the owner, and installs on

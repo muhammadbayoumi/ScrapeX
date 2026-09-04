@@ -3031,8 +3031,19 @@ green.
 
 **The rule he gave with it is [R-87](RULINGS.md#r-87--no-version-sits-unreleased--the-published-engine-follows-the-code-and-the-lag-is-the-defect)**,
 which reverses an expectation `STATE.md` stated in capitals and keeps it marked under
-`C4`. Its mechanism — a guard that cannot forget, or a workflow that cuts the tag itself —
-is recorded as his decision, because it changes who publishes.
+`C4`.
+
+**AND HE CHOSE ITS MECHANISM THE SAME DAY** — *«ادمج #325 واعمل workflow يقطع الوسم
+تلقائيا»* — the workflow rather than the guard, because a guard reports a lag it cannot
+close. `.github/workflows/tag-the-release.yml` tags the SHA CI passed and starts the
+release itself.
+
+**AND THE FIRST THING THE RELEASE TAUGHT, within the hour, is `OP-144`.** He downloaded
+0.4.8, ran it, and got the refusal this branch shipped — correct, naming `R-84`, saying
+nothing was changed, **and with no command line in it**, which is `OP-135` working. What
+he then had was a black window and no door: the remedy exists (`storage.start_fresh`) and
+is reachable only through a page the engine cannot serve while the warehouse is below the
+baseline.
 
 
 ## REQ-55 · Why does the engine not work, and will it happen again from the current baseline

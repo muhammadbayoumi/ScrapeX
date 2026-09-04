@@ -1,0 +1,155 @@
+# R-87's MECHANISM, and he chose it over a guard: «واعمل workflow يقطع الوسم تلقائيا».
+#
+# The rule is that no `VERSION` sits unreleased. A guard could only have said so after
+# the fact; this removes the step that produced the gap it was ruled over — measured at
+# 60 commits and five unreleased bumps across twelve days, `engine-v0.3.1` (2026-08-23)
+# against a source at 0.4.8.
+#
+# IT TAGS WHAT PASSED, NOT WHAT IS NEWEST, and that is the whole reason it hangs off
+# `workflow_run` rather than `push`. A push trigger would tag the commit that had just
+# landed, before anything had run against it; this waits for CI to conclude on `main`
+# and tags the exact SHA that CI ran on. A tag on a red commit is a lie a release then
+# repeats.
+#
+# WHY IT DISPATCHES INSTEAD OF RELYING ON THE TAG PUSH. A tag pushed with the automatic
+# `GITHUB_TOKEN` does not start another workflow — GitHub suppresses event-triggered runs
+# from that token so a workflow cannot recurse into itself. `release-engine.yml` listens
+# on `push: tags`, so it would never wake. `workflow_dispatch` is the documented way
+# through, and the step after it CHECKS that a run actually appeared: a mechanism whose
+# failure mode is silence would be exactly `OP-124`'s defect — built, mounted, doorless.
+name: Tag the release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # For a version already sitting unreleased when this landed, and for re-running after
+  # a release build was fixed. It takes no input: what to tag is never a choice, it is
+  # whatever `scrapex/version.py` says.
+  workflow_dispatch:
+
+permissions:
+  contents: write        # the tag
+  actions: write         # the dispatch
+
+concurrency:
+  # Two green CI runs on `main` minutes apart must not both try to create the same tag.
+  # The loser would fail on a tag that already exists, which reads as a broken mechanism
+  # rather than as the no-op it is.
+  group: tag-the-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    # A red `main` publishes nothing. `workflow_dispatch` carries no conclusion, so it is
+    # admitted explicitly rather than by the absence of a failure.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: The commit CI actually passed, with every tag fetched
+        uses: actions/checkout@v4
+        with:
+          # `head_sha` on a `workflow_run`, `main` on a manual dispatch. Tagging
+          # `github.sha` would tag whatever `main` is NOW, which on a busy afternoon is
+          # not the commit that was tested.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: What version is this, and is it already released
+        id: read
+        run: |
+          set -euo pipefail
+          version=$(python -c "import re,pathlib;print(re.search(r'^VERSION = \"([^\"]+)\"', pathlib.Path('scrapex/version.py').read_text(encoding='utf-8'), re.M).group(1))")
+          tag="engine-v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          # Asked of the REMOTE, not of the local tag list: the checkout above fetched
+          # tags, but a tag created by a run that started seconds earlier would not be
+          # in it, and `concurrency` serialises those runs rather than preventing them.
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "released=yes" >> "$GITHUB_OUTPUT"
+            echo "${tag} already exists — nothing to do. R-87 is satisfied."
+          else
+            echo "released=no" >> "$GITHUB_OUTPUT"
+            echo "${version} has no tag yet; cutting ${tag} on $(git rev-parse --short HEAD)."
+          fi
+
+      - name: Cut the tag on the commit that passed
+        if: steps.read.outputs.released == 'no'
+        env:
+          TAG: ${{ steps.read.outputs.tag }}
+          VERSION: ${{ steps.read.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # ANNOTATED, because a release marker that cannot say why it exists is the
+          # thing `R-87` was ruled against. The message names the rule and the commit.
+          git tag -a "$TAG" -m "$TAG
+
+          Cut automatically by .github/workflows/tag-the-release.yml under R-87: no
+          version sits unreleased, so the tag follows VERSION rather than waiting for
+          somebody to remember.
+
+          VERSION  $VERSION
+          commit   $(git rev-parse HEAD)
+          CI       ${{ github.event.workflow_run.html_url || 'manual dispatch' }}"
+          # THE ONE FAILURE THIS CANNOT FIX FOR ITSELF, stated rather than shown as a
+          # raw 403. Measured on 2026-09-04: this repository's
+          # `default_workflow_permissions` is **read**, so the `permissions:` block above
+          # is what grants the write — and if an organisation policy ever caps it below
+          # that, the block is silently insufficient and this is where it shows.
+          if ! git push origin "$TAG"; then
+            echo "::error::could not push $TAG."
+            echo "The token could not write to this repository. Either:" >&2
+            echo "  - Settings > Actions > General > Workflow permissions:" >&2
+            echo "    allow read and write, which is what the permissions block needs;" >&2
+            echo "  - or store a fine-grained PAT with Contents: write as a secret and" >&2
+            echo "    use it here, the way release-engine.yml uses PUBLIC_SITE_TOKEN." >&2
+            echo "Nothing was published and VERSION $VERSION is still unreleased." >&2
+            exit 1
+          fi
+
+      - name: Start the release, because a tag this token pushed will not
+        id: dispatch
+        if: steps.read.outputs.released == 'no'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.read.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # `dry_run=false`, said out loud: the default on that workflow's input is
+          # `true`, so omitting it would build a release and publish nothing — a
+          # mechanism that appears to work and ships nothing.
+          gh workflow run release-engine.yml --ref "$TAG" -f dry_run=false
+          echo "dispatched release-engine.yml on ${TAG}"
+
+      - name: And it must actually have started
+        if: steps.read.outputs.released == 'no'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.read.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # THE STEP THAT STOPS THIS BEING A PROMISE. If `workflow_dispatch` from
+          # GITHUB_TOKEN is ever restricted the way `push` is, the dispatch above
+          # succeeds and nothing runs — and `R-87` would be satisfied on paper by a tag
+          # nobody built. Twelve attempts over a minute, then red.
+          for _ in $(seq 1 12); do
+            if [ "$(gh run list --workflow=release-engine.yml --branch "$TAG" \
+                      --limit 1 --json databaseId --jq 'length')" = "1" ]; then
+              gh run list --workflow=release-engine.yml --branch "$TAG" --limit 1
+              echo "the release is building on ${TAG}."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::${TAG} was pushed and release-engine.yml never started." >&2
+          echo "The tag exists and nothing is published, which is OP-32's shape." >&2
+          echo "Dispatch it by hand on ${TAG} with dry_run=false, and treat the" >&2
+          echo "dispatch-from-GITHUB_TOKEN assumption in this file as disproved." >&2
+          exit 1

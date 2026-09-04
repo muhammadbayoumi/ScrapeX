@@ -5317,6 +5317,55 @@ which un-orphaned them without fixing anything, and the guard said so.
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
 
+### OP-144 · The refusal is correct and there is nothing he can press: the remedy is behind a page the engine cannot serve
+
+**Found 2026-09-04 by him, within the hour of installing `engine-v0.4.8`**, which is the
+first build that carries the refusal `OP-135` shipped. What he saw:
+
+```
+  [2/3] Preparing your database...
+        already there: C:\Users\Muhammad\.scrapex\engine\scrapex-engine.db
+  [3/3] Starting the engine...
+
+error: the database was not upgraded because its fault is not a pending migration:
+       engine: Older than the schema baseline. … (R-84) … Nothing has been changed.
+error: the engine database is older than the schema baseline — …
+
+  Open ScrapeX in Chrome; the Engine page says what is missing.
+  Press Enter to close this window.
+```
+
+**EVERY WORD OF THAT IS THE FIX WORKING.** It refuses instead of copying 302 MB and
+crashing, it names `R-84`, it says nothing was changed, and it contains no command line
+(`R-81`). `OP-135`, `OP-136` and `OP-137` are all visible in those two lines.
+
+**AND THEN IT DEAD-ENDS**, which is the entry. Traced:
+
+| the door | why it is shut |
+|---|---|
+| the engine's own Engine/Storage page — *"Open ScrapeX in Chrome; the Engine page says what is missing"* | `cli._cmd_ui` returns before `create_app`, so **no page is served at all**. The sentence points at a page that cannot exist in this state |
+| the panel's «Upgrade database» | correctly refuses — there is no upgrade path (`R-84`) |
+| anything else over the native pipe | `native.STANDALONE_COMMANDS` is `PING`, `START_ENGINE`, `AUTOSTART_STATUS`, `SET_AUTOSTART`, `CHECK_STARTUP`, `UPGRADE_DATABASE`. **No start-fresh, no carry-over, no restore** |
+| `storage.start_fresh`, which does EXACTLY what is needed — renames the warehouse aside as `…reset-backup-<stamp>.db` and creates a fresh one | reachable only from `_storage.html` (`data-storage="start-fresh"`), i.e. from the page above |
+
+**So the capability exists and its only door is inside the thing that will not start.**
+That is `OP-124`'s shape — *"the remedy is itself absent on a `--db` start"* — and
+`R-81`'s subject exactly: a capability with no control in the panel has no control. The
+remaining action is a rename in File Explorer, which is not a terminal and is therefore
+not forbidden, but it is not the product either.
+
+**The console sentence is also now wrong**, and it is one line: it sends him to a page
+that is not being served. It should say what the panel can actually do about it — which
+today is nothing, so saying nothing true is possible until the control exists.
+
+**Not fixed here.** The repair is a native command (`START_FRESH`, guarded like
+`UPGRADE_DATABASE` and going through `storage.start_fresh`, which already backs the
+warehouse up by renaming rather than deleting it) plus a control on the panel's engine
+screen — and it is destructive-adjacent enough that it is his call how it asks. Recorded
+the hour it was found, with his own transcript above.
+
+---
+
 ### OP-143 · The pre-push hook refuses an engine tag for the right reason and names the wrong one
 
 **Found 2026-09-04** while measuring whether `engine-v0.4.8` could be cut

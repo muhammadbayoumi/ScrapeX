@@ -37,6 +37,20 @@ exist — the release build runs the suite on `windows-latest`, `OP-98` fails th
 machine, and a `dry_run` of the workflow proved that same step **green on GitHub's Windows
 runner**. `OP-98` is corrected in place rather than left as written.
 
+**AND THE MECHANISM FOR `R-87` IS BUILT, not promised**:
+`.github/workflows/tag-the-release.yml` tags the SHA CI passed and starts the release
+itself, so the next `VERSION` bump publishes without anybody remembering. He chose it over
+a guard — *«واعمل workflow يقطع الوسم تلقائيا»*. One precondition is his:
+`default_workflow_permissions` on this repository is **read**, so if the workflow's own
+`permissions:` block is ever capped by policy the tag push fails and says which setting.
+
+**AND WITHIN THE HOUR HE INSTALLED IT AND FOUND `OP-144`.** The refusal works exactly as
+shipped — it names `R-84`, changes nothing, and prints no command — **and there is nothing
+he can press**: the console sends him to the engine's page, which is not served because
+the engine did not start, and the panel's only database command is the upgrade that
+correctly refuses. `storage.start_fresh` is the remedy and its only door is inside the
+thing that will not start.
+
 **What a person installing 0.4.8 gets that 0.3.1 did not**: a below-baseline warehouse
 refused with the reason and no command line (`OP-135`), no full copy of the warehouse per
 launch and the copies bounded by his own policy (`OP-136`), an atomically written backup,
