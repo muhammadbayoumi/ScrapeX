@@ -171,7 +171,9 @@ def test_the_site_and_the_dataset_are_registered_by_the_same_act(conn):
 
     site = conn.execute("SELECT source_key, base_url FROM source_site").fetchone()
     assert site["source_key"] == "muqawil_org"
-    assert "muqawil.org" in site["base_url"]
+    # The HOST, not a substring: `in` also accepts https://muqawil.org.evil.test/,
+    # and the trailing slash is what makes the host the host.
+    assert site["base_url"].startswith("https://muqawil.org/")
 
     dataset = conn.execute(
         "SELECT dataset_key, dataset_kind FROM dataset_definition").fetchone()

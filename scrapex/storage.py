@@ -994,10 +994,32 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     mistake is undone by moving one file back.
     """
     path, source = Path(db_path), Path(backup_path)
-    if not source.exists():
-        raise StorageRefused(f"That backup is no longer at {source}.")
+
+    # ONLY A BACKUP THIS PRODUCT LISTED, and this is the first thing asked.
+    #
+    # `backup_path` arrives from the network: the Storage page posts whatever its
+    # select holds, and the engine listens on localhost, which any page in the
+    # browser can reach. Every other guard below asks whether the file is a
+    # HEALTHY ScrapeX warehouse — none of them asks whether it is one of OURS, so
+    # without this an arbitrary path could be named, and the refusals told the
+    # caller whether it existed.
+    #
+    # The permitted set comes from `list_backups`, which is also what fills the
+    # select, so the rule cannot drift away from the offer: one function decides
+    # what a backup is. A file that vanished between the listing and the click
+    # lands here too, and gets the same answer, which is the right one for both —
+    # refresh the list and pick again.
     try:
-        if source.resolve() == path.resolve():
+        offered = {Path(entry["path"]).resolve() for entry in list_backups(path)}
+        chosen = source.resolve()
+    except OSError:
+        offered, chosen = set(), None
+    if chosen is None or chosen not in offered:
+        raise StorageRefused(
+            "ScrapeX restores only a backup it listed for this database. Reopen "
+            "the Storage page to refresh the list, then pick the backup again.")
+    try:
+        if chosen == path.resolve():
             raise StorageRefused("The selected backup is already the live database.")
     except OSError:
         pass

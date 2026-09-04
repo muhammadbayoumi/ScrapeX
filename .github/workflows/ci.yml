@@ -4,6 +4,15 @@ on:
   push:
   pull_request:
 
+# THE TOKEN IS READ-ONLY HERE, said out loud rather than inherited. Nothing in
+# this workflow writes to the repository — `upload-artifact` needs no token
+# permission at all — and the repository default can be widened by a settings
+# change nobody reviews. The four workflows that DO write already declare theirs
+# (`tag-the-release.yml` needs `contents: write` and `actions: write`), so this
+# is the same discipline applied to the file that runs on every push.
+permissions:
+  contents: read
+
 jobs:
   # ITS OWN JOB, and deliberately not a step inside `test`. A style failure that
   # aborts the suite hides every real failure behind it, and the one thing a
