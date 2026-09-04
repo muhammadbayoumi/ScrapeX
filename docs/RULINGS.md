@@ -3974,3 +3974,64 @@ fifteen migration files and bumps `VERSION`. **A rebase across that is far worse
 rebase across a positional conflict in `docs/RULINGS.md`**, and this branch adds no migration
 so it cannot invalidate the squash's baseline either way. Both orders were safe; one was
 cheaper. **The primary is expected to say which and why, not merely to say who is next.**
+
+---
+
+### R-87 · No version sits unreleased — the published engine follows the code, and the lag is the defect
+
+**2026-09-04 · release procedure. It reverses an expectation this system had written in
+capitals, and the old text stays marked rather than deleted (`C4`).**
+
+> «وضع قاعدة ان الوسم طالما تغير اذا يجب قطعه دائما حتى لا يكون هناك تاخير بين الكود
+> والمنشور»
+
+He gave it in the same message that asked for `engine-v0.4.8`, having just read what the
+gap had cost.
+
+**WHAT IT REPLACES.** `docs/STATE.md` said, in capitals: *"AND THE NORMAL STATE FROM HERE
+IS SOURCE AHEAD OF PUBLISHED, WHICH IS NOT `OP-32` RETURNING … releases are cut by hand,
+so the two are **expected** to differ between releases."* That sentence is now wrong at
+its centre: the difference is no longer expected, it is the thing to prevent. It stays in
+place, marked, because it is the reasoning a reader will otherwise reconstruct and act on.
+
+**THE MEASUREMENT THAT MADE HIM SAY IT**, taken the same hour:
+
+| | |
+|---|---|
+| the published engine | `engine-v0.3.1`, tagged **2026-08-23** at `467a3ac` |
+| the source | `main` at **2026-09-04** |
+| between them | **60 commits, 38 of which touched `scrapex/` or `packaging/`** |
+| `VERSION` | 0.3.1 → **0.4.8** — five bumps, none of them released |
+
+**AND HIS WORDS HAVE TWO READINGS THAT PRODUCE DIFFERENT WORK, so the one in force is
+stated rather than assumed.** Read literally — a tag per change to shipped code — it is
+38 releases in twelve days, each a ~20-minute Windows build, and it needs a version per
+commit, which `engine-v<VERSION>` cannot express. **The reading in force is the other
+one: no `VERSION` bump may sit unreleased.** It reaches the same end at the granularity
+the repository already has, because `scrapex/version.py` already says `VERSION` *"moves
+whenever a functional, architectural or behavioural change lands"* — so the two rules
+together give one release per real change, and **a bump without a tag becomes a
+checkable defect** rather than a habit. Measured, that habit is the whole problem: only
+**2 of the last 20 merges** moved `VERSION` at all.
+
+**THE MECHANISM IS HIS AND IS NOT YET CHOSEN**, and the difference matters:
+
+- **A guard** — a test that fails when `VERSION` on `main` has no matching `engine-v*`
+  tag. It cannot forget; it also cannot act, so the release stays a thing he does.
+- **An automatic tag** — a workflow on `main` that cuts `engine-v<VERSION>` the moment
+  `VERSION` changes. It removes the human step that produced the twelve days, which is
+  what a rule about lag is for.
+
+Recorded as an open decision rather than picked, because it changes who publishes.
+
+**AND THE GAP BEHIND THIS GAP IS NOT CLOSED BY EITHER.** `PLATFORM-PLAN §5c` says nothing
+reviews an engine release — *"the EXTENSION notices, tells the owner, and installs on
+acceptance"*. `OP-124` measured that updater as **built, mounted and doorless**: nothing
+calls it, and no `api/update` string has ever existed in `extension/`. So this ruling
+closes *code → published* and leaves *published → installed* exactly where it was, which
+is the half he actually double-clicks. A rule about lag has to name both, and this one
+names the second as unbuilt.
+
+**IT BINDS THE ENGINE PATH, NOT THE STORE PATH.** `scrapex-v*` goes through Google's
+review — *"a day or three"* — so a lag there is imposed from outside and no procedure of
+ours removes it.

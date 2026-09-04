@@ -23,7 +23,29 @@ Each correction is the argument for the sentence rather than a counter-example t
 > that is only corrected when somebody happens to edit it is not a status document**, and
 > the audit that fixed it is the kind of thing `C2` means by a stale document being a bug.
 
-**THE ENGINE ON GITHUB IS `engine-v0.3.0`, AND IT WAS CUT TODAY.** He asked for it
+**THE ENGINE ON GITHUB IS `engine-v0.4.8`, CUT 2026-09-04 ON `9b5d920`.** The first
+release since 2026-08-23, and **the first that carries `R-84`'s squashed baseline**, so
+**v17 is a ceiling a released engine can reach for the first time** — which is what
+`OP-134` asked for and what closes it. He asked for it directly — *«اقطع الوسم عند
+baseline الحالى»* — and gave the standing rule with it
+([R-87](RULINGS.md#r-87--no-version-sits-unreleased--the-published-engine-follows-the-code-and-the-lag-is-the-defect)):
+**no version sits unreleased.** `REQ-57`.
+
+The gap it closed, measured: **60 commits and five unreleased `VERSION` bumps over twelve
+days**, 38 of those commits in shipped code. And the blocker predicted for it did not
+exist — the release build runs the suite on `windows-latest`, `OP-98` fails there on HIS
+machine, and a `dry_run` of the workflow proved that same step **green on GitHub's Windows
+runner**. `OP-98` is corrected in place rather than left as written.
+
+**What a person installing 0.4.8 gets that 0.3.1 did not**: a below-baseline warehouse
+refused with the reason and no command line (`OP-135`), no full copy of the warehouse per
+launch and the copies bounded by his own policy (`OP-136`), an atomically written backup,
+and a deletion ordered by the stamp rather than the file clock (`OP-141`).
+
+> **The paragraph that follows is the record of the PREVIOUS release** and is kept for its
+> reasoning about `OP-32`, not as the current state.
+
+**THE ENGINE ON GITHUB WAS `engine-v0.3.0`, AND IT WAS CUT ON 2026-08-22.** He asked for it
 directly — *«اقطع الوسم»* — after reading the finding that the panel was offering
 `0.2.1`, the build whose bare invocation printed nothing. The tag sits on `451468d`,
 which is this `main`; `scrapex/version.py:76` and the `pyproject.toml` mirror both
@@ -31,6 +53,13 @@ read `0.3.0` there. **Thirteen days and two `VERSION` bumps of unreleased engine
 closed.** `OP-32` · `REQ-28` · guarded by
 [#253](https://github.com/muhammadbayoumi/ScrapeX/pull/253) — **open, not merged**
 ([R-42](RULINGS.md#r-42--one-primary-session-merges-every-other-session-is-secondary-and-asks)).
+
+> **SUPERSEDED 2026-09-04 BY [R-87](RULINGS.md#r-87--no-version-sits-unreleased--the-published-engine-follows-the-code-and-the-lag-is-the-defect),
+> AND KEPT UNDER `C4`.** He ruled that no version may sit unreleased — *«حتى لا يكون هناك
+> تاخير بين الكود والمنشور»* — so the paragraph below is no longer the standing
+> expectation. What it says about `OP-32` remains true and is why the distinction was
+> drawn; what it says about a gap being *normal* is what he reversed, having measured
+> this one at **60 commits and five unreleased bumps over twelve days**.
 
 **AND THE NORMAL STATE FROM HERE IS SOURCE AHEAD OF PUBLISHED, WHICH IS NOT `OP-32`
 RETURNING.** `VERSION` moved on a contract change under the rule in force then (now replaced by [R-77](RULINGS.md#r-77--one-number-one-question-the-extension-carries-the-version-the-engine-carries-a-protocol-and-a-build), which removes the engine's version entirely))
