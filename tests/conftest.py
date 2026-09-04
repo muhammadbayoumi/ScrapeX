@@ -292,3 +292,31 @@ def pytest_unconfigure(config: pytest.Config) -> None:
         import shutil
 
         shutil.rmtree(_TEMPLATE_DIR, ignore_errors=True)
+
+
+@pytest.fixture()
+def one_migration_above_the_baseline(tmp_path_factory, monkeypatch):
+    """Make "behind, but ABOVE the baseline" reachable at all.
+
+    `R-84`'s squash collapsed the chain into `db/engine/schema.sql`, so the plan is a
+    single file and `baseline == latest`. Every version below the head is therefore
+    also below the BASELINE, and `EngineDatabase.health()`'s "Needs upgrade" branch
+    cannot be reached by rewinding a version: three tests that rewound by one
+    believed they were exercising it and were exercising the refusal instead. One
+    real migration above the baseline makes both branches exist.
+
+    `conftest`'s schema template steps aside on its own here -- `_may_restore`
+    refuses when `_stream_fingerprint()` no longer matches the stock stream, which
+    is exactly what monkeypatching the migrations folder changes.
+
+    Yields the version the extra migration takes a database to.
+    """
+    from scrapex import db as dbmod
+
+    folder = tmp_path_factory.mktemp("above-the-baseline")
+    head = dbmod.declared_schema_version(dbmod.SCHEMA_FILE) + 1
+    (folder / f"{head:04d}_a_column_lands_above_the_baseline.sql").write_text(
+        "ALTER TABLE crawl_job ADD COLUMN a_column_above_the_baseline INTEGER;\n"
+        f"PRAGMA user_version = {head};\n", encoding="utf-8")
+    monkeypatch.setattr(dbmod, "MIGRATIONS_DIR", folder)
+    yield head

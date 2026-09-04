@@ -222,8 +222,15 @@ def startup_check() -> dict:
         f"{name}: {state['status']}. {state['action']}"
         for name, state in blocked
     )
+    # THE CONSTANT, NOT A FOURTH COPY OF THE WORDS. `dbupgrade.BEHIND` documents
+    # itself as "spelled once here and imported by both callers" and this was the
+    # second spelling the whole time: the button offered here is the one
+    # `upgrade_what_is_only_behind` decides to act on, and the two decided it by
+    # comparing against strings that nothing held together.
+    from .dbupgrade import BEHIND
+
     action = "upgrade_database" if any(
-        state["status"] == "Needs upgrade" for _, state in blocked
+        state["status"] == BEHIND for _, state in blocked
     ) else "check_storage"
     return _error(
         "startup_blocked",

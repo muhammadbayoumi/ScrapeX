@@ -654,6 +654,75 @@ def test_startup_check_names_the_database_action(monkeypatch):
     assert "marketlens: Needs upgrade. Run init-db" == answer["detail"]
 
 
+def test_a_database_below_the_baseline_is_not_offered_a_button_that_cannot_work(
+        monkeypatch):
+    """THE ONLY ASSERTION THAT PROVES THE DEAD BUTTON IS GONE.
+
+    `action` is what the panel keys «Upgrade database» off (`extension/app.js`
+    `issueCopy`), and below the baseline there is no upgrade path to offer (`R-84`).
+    While this answered `upgrade_database`, every press copied the whole warehouse
+    and then refused: 316,760,064 bytes, measured on his.
+    """
+    from scrapex import native
+    from scrapex.dbupgrade import TOO_OLD
+
+    monkeypatch.setattr(native, "_database_report", lambda: ({
+        "engine": {"ok": False, "status": TOO_OLD,
+                   "action": "There is no upgrade path from v10 (R-84)."},
+    }, None))
+
+    answer = native.startup_check()
+
+    assert answer["ok"] is False
+    assert answer["error"] == "startup_blocked"
+    assert answer["action"] == "check_storage", (
+        "the panel is still offered the upgrade button for a database no upgrade "
+        "can repair")
+
+
+def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
+    """The other direction, because a fix that suppressed both would take away the
+    working repair. `BEHIND` is the status an upgrade genuinely fixes."""
+    from scrapex import native
+    from scrapex.dbupgrade import BEHIND, TOO_OLD
+
+    monkeypatch.setattr(native, "_database_report", lambda: ({
+        "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
+    }, None))
+    assert native.startup_check()["action"] == "upgrade_database"
+
+    # AND A MIXED REPORT KEEPS IT, deliberately: the guarded upgrade refuses and
+    # NAMES the other fault (`OP-137`), which is more useful than a button that
+    # vanishes without saying why. Unreachable with one database in the registry,
+    # asserted because `any()` is a choice and not an accident.
+    monkeypatch.setattr(native, "_database_report", lambda: ({
+        "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
+        "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
+    }, None))
+    assert native.startup_check()["action"] == "upgrade_database"
+
+
+def test_the_two_surfaces_describe_the_below_baseline_state_with_one_vocabulary():
+    """`storage.py` reports the machine key `too_old` and the engine's own page has a
+    word for it; `EngineDatabase.health()` reports a human status. They are the same
+    fact, and the pair is pinned so a later edit to one is a decision rather than a
+    drift.
+
+    THE ONE WORD OF DIFFERENCE IS DELIBERATE and its reason is mechanical, not
+    aesthetic — `/api/health` composes `f"{kind} {status.lower()}"`, so a possessive
+    would read as "engine older than this engine's schema". See the constant.
+    """
+    from scrapex.dbupgrade import TOO_OLD
+
+    page = (ROOT / "scrapex" / "webui" / "templates" / "_storage.html").read_text(
+        encoding="utf-8")
+
+    assert TOO_OLD == "Older than the schema baseline"
+    assert '"too_old": "Older than this engine\'s schema"' in page, (
+        "the engine's page no longer carries the word this status mirrors; if that "
+        "was intended, move both together")
+
+
 def test_the_two_protocol_constants_cannot_drift(conn):
     """PROTOCOL_VERSION is written twice — once in Python, once in JavaScript —
     because the extension cannot import Python. Two constants that must agree

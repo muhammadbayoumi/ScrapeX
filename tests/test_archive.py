@@ -65,3 +65,56 @@ def test_backup_database_makes_a_readable_copy(tmp_path: Path):
         assert restored.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
     finally:
         restored.close()
+
+
+# ---- the copy is atomic, because the policy now deletes ----------------------
+
+def test_a_failure_after_the_copy_leaves_nothing_at_the_final_name(tmp_path, monkeypatch):
+    """THE HAZARD THE RETENTION POLICY CREATED FOR ITSELF.
+
+    `source.backup(target)` fills its destination page by page. While nothing pruned
+    the pre-upgrade lineage, a copy interrupted halfway was clutter; once the upgrade
+    path started applying the keep-N policy (`OP-136`), a partial file carrying the
+    NEWEST stamp of its lineage could be kept while a complete older copy was
+    deleted — the one moment a backup is needed being the one where it had been
+    replaced by a fragment.
+    """
+    import os as _os
+
+    live = tmp_path / "scrapex-engine.db"
+    conn = sqlite3.connect(str(live))
+    conn.execute("CREATE TABLE t (x)")
+    conn.execute("INSERT INTO t VALUES (1)")
+    conn.commit()
+    conn.close()
+
+    def refuse(src, dst):
+        raise OSError("the disk filled while the copy was being renamed")
+
+    monkeypatch.setattr(_os, "replace", refuse)
+
+    with pytest.raises(OSError):
+        backup_database(live, tag="pre-upgrade")
+
+    assert not list(tmp_path.glob("*.backup.db")), \
+        "a copy that never completed took the name of a finished one"
+    assert not list(tmp_path.glob("*.part")), "the partial file was left behind"
+    assert live.is_file(), "the live database was disturbed by a failed backup"
+
+
+def test_a_completed_copy_leaves_no_partial_beside_it(tmp_path):
+    live = tmp_path / "scrapex-engine.db"
+    conn = sqlite3.connect(str(live))
+    conn.execute("CREATE TABLE t (x)")
+    conn.commit()
+    conn.close()
+
+    made = backup_database(live, tag="pre-upgrade")
+
+    assert made.is_file() and made.name.endswith(".backup.db")
+    assert not list(tmp_path.glob("*.part"))
+    restored = sqlite3.connect(str(made))
+    try:
+        assert restored.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()[0] >= 1
+    finally:
+        restored.close()

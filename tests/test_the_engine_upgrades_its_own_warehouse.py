@@ -19,6 +19,7 @@ said out loud.
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import pytest
@@ -323,3 +324,134 @@ def test_both_front_doors_hold_ONE_copy_of_the_rule():
     assert "print(" not in rule, (
         "`dbupgrade` prints, so the native host cannot call it without corrupting its "
         "own stdout -- which is the divergence this module exists to end")
+
+
+# ---- and the copies are bounded ---------------------------------------------
+
+_OLD_STAMPS = ("20250101T000000Z", "20250102T000000Z",
+               "20250103T000000Z", "20250104T000000Z")
+
+
+def _older_copies(warehouse) -> list[pathlib.Path]:
+    """Older copies, oldest first — and their MODIFICATION TIMES are set, not left
+    to the clock.
+
+    `storage.prunable_backups` orders by `modified_at`, which `list_backups` reads
+    from the filesystem at one-second resolution. Four files written in a loop share
+    a second, and a tie decides by glob order — so a test that asserted WHICH copies
+    survived while leaving the mtimes to chance would be asserting something the
+    policy does not promise. The stamps in the names and the mtimes agree here, the
+    way they agree on a real machine.
+    """
+    made = []
+    for order, stamp in enumerate(_OLD_STAMPS, 1):
+        path = warehouse.parent / f"marketlens.pre-upgrade-{stamp}.backup.db"
+        path.write_bytes(b"an older copy")
+        os.utime(path, (1_740_000_000 + order * 3600, 1_740_000_000 + order * 3600))
+        made.append(path)
+    return made
+
+
+def _behind(warehouse):
+    states = {"marketlens": _state("marketlens", warehouse, False, "Needs upgrade")}
+    healthy = {k: dict(v, ok=True, status="Healthy") for k, v in states.items()}
+    return states, _FakeRegistry(states, after=healthy)
+
+
+def test_older_pre_upgrade_copies_are_removed_once_the_new_one_exists(
+        warehouse, capsys):
+    """MEASURED ON HIS MACHINE: five copies, 963,768,320 bytes, beside a 316 MB
+    warehouse — and nothing had ever removed one. While the below-baseline refusal
+    was live it made one MORE on every launch and every press, each changing nothing.
+
+    THE POLICY WAS ALREADY THERE. `storage`'s keep-N-per-lineage rule already
+    classified these files; it had one caller, the Storage page's button, which this
+    path never reaches. What is new here is the CALLER, which is why the assertion
+    below is about this path and the policy's own behaviour is guarded in
+    `tests/test_backups_stop_growing_without_end.py`.
+    """
+    _older_copies(warehouse)
+    states, registry = _behind(warehouse)
+
+    cli._upgrade_what_is_only_behind(registry, _report(states))
+
+    left = sorted(p.name for p in
+                  warehouse.parent.glob("marketlens.pre-upgrade-*.backup.db"))
+    assert len(left) == 3, left
+    assert not [name for name in left if "20250101" in name or "20250102" in name], \
+        f"the two oldest copies survived: {left}"
+    assert "removed 2 superseded backup(s)" in capsys.readouterr().out, \
+        "copies were deleted in silence, and a deletion is the half he cannot see"
+
+
+def test_the_prune_never_reaches_another_tags_copies(warehouse):
+    """The other tags are not hypothetical: `pre-ledger-repair` and `pre-reapprove`
+    copies sit in this exact folder on the owner's machine, and one of them is the
+    rollback for a repair that moved 17,000 rows."""
+    others = [warehouse.parent / "marketlens.pre-ledger-repair.backup.db",
+              warehouse.parent / "marketlens.pre-reapprove.backup.db",
+              warehouse.parent / "marketlens.bundle-20250101T000000Z.backup.db"]
+    # AND A LINEAGE OVER ITS OWN LIMIT, which is the case that separates "the newest
+    # of each lineage survives" from "this caller judges only its own lineage". Four
+    # `rebuild` copies against a keep of three: the Storage button would remove one,
+    # and an upgrade must remove none. `reset-backup` is the real stake -- it is the
+    # only copy of everything a "Start fresh" wiped, and its ordering is not even
+    # reliable (`OP-141`).
+    others += [warehouse.parent / f"marketlens.rebuild-2025010{n}T000000Z.backup.db"
+               for n in (1, 2, 3, 4)]
+    others += [warehouse.parent / f"marketlens.reset-backup-2025010{n}T000000Z.db"
+               for n in (1, 2, 3, 4)]
+    for order, path in enumerate(others, 1):
+        path.write_bytes(b"not mine to delete")
+        os.utime(path, (1_730_000_000 + order * 3600,) * 2)
+    _older_copies(warehouse)
+    states, registry = _behind(warehouse)
+
+    cli._upgrade_what_is_only_behind(registry, _report(states))
+
+    for path in others:
+        assert path.is_file(), f"the pre-upgrade prune deleted {path.name}"
+    assert warehouse.is_file(), "the prune deleted the live database"
+
+
+def test_a_copy_that_cannot_be_removed_does_not_fail_the_upgrade(warehouse):
+    """HOUSEKEEPING NEVER FAILS THE WORK. On Windows an open handle refuses the
+    unlink outright; the upgrade is the thing being done and it must not be lost to
+    a backup viewer left open on last week's copy."""
+    victims = _older_copies(warehouse)
+    states, registry = _behind(warehouse)
+
+    held = open(victims[0], "rb")
+    try:
+        result = cli._upgrade_what_is_only_behind(registry, _report(states))
+    finally:
+        held.close()
+
+    assert registry.initialized, "a copy it could not delete stopped the upgrade"
+    assert result["ok"]
+
+
+def test_a_fault_an_upgrade_cannot_fix_is_never_reported_as_up_to_date(warehouse):
+    """`OP-131`'s defect on a third surface, and the worst one to read.
+
+    `behind` is empty for two completely different reasons — nothing is wrong, or
+    something is wrong that an upgrade cannot fix — and both returned a bare
+    `Outcome()`. With no refusal to render, `native.upgrade_database` answered
+    `ok: True` with "The database is already up to date." about a database the
+    engine refuses to open. A surface that reports the wrong remedy sends a person
+    somewhere; one that reports nothing wrong sends them nowhere.
+    """
+    from scrapex.dbupgrade import TOO_OLD, upgrade_what_is_only_behind
+
+    states = {"marketlens": _state("marketlens", warehouse, False, TOO_OLD)}
+    registry = _FakeRegistry(states)
+
+    _, outcome = upgrade_what_is_only_behind(registry, _report(states))
+
+    assert not registry.initialized, "it migrated below the baseline"
+    assert outcome.refused, "the refusal said nothing at all"
+    assert outcome.message() != "The database is already up to date."
+    assert TOO_OLD in outcome.message(), \
+        "the reason the panel renders does not name the actual fault"
+    assert not list(warehouse.parent.glob("*pre-upgrade*")), \
+        "a refusal copied the whole warehouse — the loop R-84 exists to stop"

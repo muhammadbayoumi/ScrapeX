@@ -250,7 +250,7 @@ on what the code does, and a GET can write while a crawl holds the lock.
 **This is also what makes read-only connections more than a one-line change.** Neither
 `read_conn` nor `general_read_conn` opens read-only: both reach plain
 `sqlite3.connect(str(path))`
-([databases/domain.py:144](../scrapex/databases/domain.py#L144)), and the only `?mode=ro` in
+([databases/domain.py:149](../scrapex/databases/domain.py#L149)), and the only `?mode=ro` in
 the package is in `bundle.py` and `carry_over.py`. Making the read paths read-only breaks
 this GET **immediately**, so every endpoint must first be classified "reads" against "reads
 and seeds". **His direction: put the lock where the write already is, and move the seeding
@@ -2235,7 +2235,7 @@ diagnosis:** every step the engine announced succeeded, and then it could not re
 
 | the runtime opens | at | bundled before |
 |---|---|---|
-| `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:21](../scrapex/databases/domain.py#L21) | **yes** |
+| `db/` | [scrapex/db.py:22](../scrapex/db.py#L22), [scrapex/databases/domain.py:26](../scrapex/databases/domain.py#L26) | **yes** |
 | `sources.yaml` | [scrapex/config.py:55](../scrapex/config.py#L55) | **yes** |
 | `scrapex/webui/templates` | [scrapex/webui/app.py:316](../scrapex/webui/app.py#L316), [scrapex/extract/api.py:33](../scrapex/extract/api.py#L33) | **no** |
 | `scrapex/webui/static` | [scrapex/webui/app.py:386](../scrapex/webui/app.py#L386) | **no** |
@@ -3574,7 +3574,7 @@ two files of one backup cannot be split; and an age-guarded sweep
 
 **Residual, named rather than closed.** The lock is in-process, which is correct here —
 `start_engine` refuses to spawn a second engine on a held port
-([scrapex/native.py:297](../scrapex/native.py#L297)), and a crashed build leaves no
+([scrapex/native.py:304](../scrapex/native.py#L304)), and a crashed build leaves no
 survivor to race. An engine started by hand on another port would share the folder and
 defeat it; that is why the sweep keeps a 6-hour age guard
 ([scrapex/webui/app.py:2935](../scrapex/webui/app.py#L2935)) rather than deleting any
@@ -4180,7 +4180,7 @@ any amount of hiding. It stayed green for as long as the defect existed. Its doc
 stated the dead premise as present fact: *"The migrations directory holds BOTH streams."*
 
 **Fixed here.** The tuple and the filter are gone
-([scrapex/databases/domain.py:164](../scrapex/databases/domain.py#L164) records what stood
+([scrapex/databases/domain.py:169](../scrapex/databases/domain.py#L169) records what stood
 there and why); the ledger is now the whole answer
 ([scrapex/db.py:198](../scrapex/db.py#L198)), which is safe because `schema.sql` is recorded
 in the ledger like any other migration and so still excludes itself without being named. The
@@ -4684,7 +4684,7 @@ something true and adjacent.
 ### Why the two paths diverged, which is the part that shapes the fix
 
 **The guarded path `print`s, and the native host owns stdout.** `serve()` writes framed
-messages to `sys.stdout.buffer` (`scrapex/native.py:375`), so a `print` reached from a
+messages to `sys.stdout.buffer` (`scrapex/native.py:382`), so a `print` reached from a
 native command injects unframed bytes into the protocol stream and Chrome reads the next
 length prefix wrong. **So the protections could not simply be called from there**, and
 whoever wrote the escape hatch wrote a second, bare path instead.
@@ -5304,6 +5304,471 @@ which un-orphaned them without fixing anything, and the guard said so.
 `scrapex/snapshotcrawl.py`, line 169 still holds `if page.url in seen:` while the
 `def store` two lines above it had moved thirteen lines. The block cited both. Only a
 content check can tell a correct number from a coincidence.
+
+### OP-142 · Four pointer messages name commands on the panel, and two of them cannot be reworded because the control does not exist
+
+**Found 2026-09-04** by sweeping every string in the product that names a runnable
+command and tracing each to a surface, rather than by re-reading the one that was wrong.
+`OP-135` closed the `health()` path; **this is the pointer path, and it is untouched.**
+
+`DatabaseRegistry.read()` raises `DatabasePointerError` with instructions, and every one
+of them reaches his panel: `defaults()` → `native._database_report`, whose
+`except Exception as exc: return None, str(exc)` (`scrapex/native.py:201-202`) feeds
+`startup_check`'s `startup_check_failed`, which `extension/app.js` `issueCopy` renders as
+the issue body. The same text reaches the first-run console through
+`packaging/engine_entry.py`.
+
+| the message | what it names |
+|---|---|
+| `scrapex/databases/registry.py:69` — the pointer could not be read | `scrapex init-db` |
+| `scrapex/databases/registry.py:83-86` — the pointer is from before the collapse | **three**: `scrapex carry-over`, `scrapex database-status`, and `init-db` named to warn against it |
+| `scrapex/databases/registry.py:93` — the pointer does not say which database is live | `scrapex init-db` |
+| `scrapex/databases/registry.py:98` — the pointer names no database | `scrapex init-db` |
+
+**AND THE REASON THIS IS RECORDED RATHER THAN REWRITTEN IS THE INTERESTING HALF.** Two of
+those commands have **no control anywhere in the panel** — measured: `carry-over` appears
+in no `extension/**/*.js`, in no `/api/databases` route (the router has `GET /health` and
+`POST /upgrade`, nothing else), and in no native command (`STANDALONE_COMMANDS` is `PING`,
+`START_ENGINE`, `AUTOSTART_STATUS`, `SET_AUTOSTART`, `CHECK_STARTUP`, `UPGRADE_DATABASE`).
+So pointing that sentence at a button, the way `OP-135` pointed the upgrade action, would
+be **a false promise rather than a fix** — the exact defect `OP-124` found in the installer
+note, one step earlier.
+
+`R-81` says a capability with no control in the panel has no control, and **saying so is
+the honest report**. The repair is therefore a control first and a sentence second, which
+is his call and not a session's. `init-db`'s equivalent button does exist, so those three
+messages can be reworded today; the pre-collapse one cannot, and it is the one that fires
+on a machine whose pointer predates the collapse — which is the two-machine case this
+whole branch came from.
+
+---
+
+### OP-141 · The backup prune orders a DELETION by mtime, and a reset-backup's mtime is the warehouse's
+
+**Found 2026-09-04** by an adversarial read of `OP-136`'s new caller — the caller is
+contained rather than shipped over this, so what is recorded here is the defect it would
+have inherited. **It is reachable today from a button he has**, «Back up now» on the
+Storage page, which prunes after every copy it makes.
+
+**Three measured facts, on this Windows box (Python 3.12, NTFS):**
+
+1. `os.replace` and `shutil.copy2` both PRESERVE the last-write time. A rename never
+   touches it; a copy2 carries it across.
+2. `storage.start_fresh` does not copy the warehouse aside, it **renames** it —
+
+```cited
+scrapex/storage.py:1042             os.replace(path, displaced)
+```
+
+   so `…reset-backup-<stamp>.db` carries **the warehouse's** last-write time, not the
+   reset's. Undoing a reset runs `storage.restore`, which `shutil.copy2`s that file back
+   (`scrapex/storage.py:958`), so the same mtime returns to the live file — and a
+   reset / undo / reset cycle produces several reset-backups sharing **one** mtime.
+3. The prune orders by that mtime, at one-second resolution —
+
+```cited
+scrapex/storage.py:735       return sorted(found, key=lambda b: b["modified_at"], reverse=True)
+```
+
+   so among equal mtimes the order is whatever the glob returned, and `prunable_backups`
+   keeps "the first N of each lineage".
+
+**Measured outcome: four reset-backups sharing one mtime, names spanning 2026-01-01 to
+2026-09-04, `keep=3` — the file deleted was TODAY's**, the only copy of everything a
+"Start fresh" had just wiped, and the three kept were the oldest.
+
+**Why this branch does not fix it.** The obvious repair — order by the stamp the name
+already carries, which `backup_tag` already parses — changes what the Restore picker
+shows, and `_STAMP` admits **three spellings that do not sort against each other**
+(`20260904-101112` < `20260904T101112Z`, because `-` is 0x2D and `T` is 0x54), so it needs
+normalising to one form or comparing as parsed datetimes. The cheaper repair — make the
+tie deterministic with the name as a secondary key, descending — is smaller but leaves
+the mtime primary and so leaves a copied-in backup mis-ordered. Both are decisions about a
+shared reader, and neither belongs inside a change about a schema refusal.
+
+**What this branch did instead**: `dbupgrade._bounded` passes `only="pre-upgrade"`, so the
+upgrade path judges the one lineage it writes and never a `reset-backup`. Proved by
+mutation — removing the argument makes
+`test_the_prune_never_reaches_another_tags_copies` delete a `reset-backup` and a
+`rebuild` copy, and it says so by name.
+
+---
+
+### OP-140 · The panel prints `too_old`: the engine's page has a vocabulary for the storage statuses and the panel has none
+
+**Found 2026-09-04** by an adversarial read of `OP-135`'s change rather than by the change
+itself — it is older than this branch, and it is the form `OP-131`'s new status arrives in
+front of him.
+
+`storage.health()` reports MACHINE keys: `healthy`, `damaged`, `not_scrapex`,
+`incompatible`, `too_old`, `missing`. The engine's own page maps every one of them to a
+sentence (`scrapex/webui/templates/_storage.html:34-38`). **The panel renders the key.**
+
+```cited
+extension/app.js:5206       <div class="kv"><span>Health</span><span>${esc(s.health.status)}</span></div>
+```
+
+So the Storage row on his only interface reads `healthy` where the engine's page reads
+"Healthy", and now `too_old` where that page reads "Older than this engine's schema".
+Measured: **no `too_old`, `incompatible` or `not_scrapex` string appears anywhere in
+`extension/app.js`** — the vocabulary exists exactly once, in a template he does not open,
+which is `R-80`'s one-place rule pointing at the wrong place.
+
+**Not fixed here.** The panel needs that table, and the two copies then need something
+holding them together — the same pin `OP-135` added for the pair it created, one step
+further out. Recorded rather than patched because a second hand-written copy of a six-word
+vocabulary is how the last three of these began.
+
+---
+
+### OP-133 · The squash gate asks whether the tool is published; what decides the outcome is whether HIS warehouses are at the head
+
+**Found 2026-09-04**, answering his own question about recurrence — *«اريد معرفة هل
+المشاكل التى ذكرتها ستحدث مرة اخرى فى حالت اردت تحديث القاعدة من الوضع الحالى»* — and
+then narrowed by him to *«انا بتكلم من اول baseline الحالى»*: from the current baseline
+onwards, will this happen again. **It can, and this entry is the mechanism.**
+
+**THE CONDITION IS EXACT AND BOTH SIDES OF IT ARE ALREADY TESTED.** A squash strands a
+database if and only if that database is BEHIND THE HEAD at the moment of the squash:
+
+| the database at squash time | what happens | the test that fixes it |
+|---|---|---|
+| at the head | accepted, `initialize() == []`, ledger re-stamped once | `test_a_database_that_went_through_the_chain_opens` — whose own docstring calls it *"THE ONE THAT MATTERS: his warehouse"* |
+| behind the head | refused, nothing replayed | `test_a_database_below_the_baseline_is_refused_and_not_replayed` |
+
+So the reconciliation works and a squash at the head is genuinely harmless. What is
+missing is anything that establishes the condition before the collapse. The only gate is
+one manually-set flag:
+
+```cited
+scrapex/version.py:99                    PUBLISHED_TO_OTHERS = False
+tools/squash_engine_baseline.py:372      if version.PUBLISHED_TO_OTHERS:
+```
+
+**AND THE FLAG EXCLUDES HIS OWN MACHINES ON PURPOSE**, which is not an oversight to be
+corrected quietly — it is written into its own docstring:
+
+> *"A GIT TAG IS NOT THIS MARKER … `engine-v0.2.1`, `engine-v0.3.0` and `engine-v0.3.1`
+> already exist and are **the owner's own installs on his own two machines**. A guard
+> keyed on tags would have refused the squash he authorised."*
+
+That reasoning is sound about tags and it leaves the owner unprotected, on the
+two-machine setup [../CLAUDE.md](../CLAUDE.md) opens by describing. `R-84`'s own
+measurement — *"His warehouse was measured read-only at `PRAGMA user_version = 16` — the
+head of the chain"* — was true of ONE of the two. **The other was measured on 2026-09-04
+at `user_version = 10`** and is the warehouse that stopped opening: 16,411
+`generic_record`, 20,379 snapshots, 3,739 price observations, 15,559 taxonomy
+memberships.
+
+**What would remove the recurrence rather than repeat the promise**: the gate refuses
+unless a committed record says every warehouse he has is at the head, and that record is
+in the repository, because a note on one machine does not exist on the other (`C1`). It
+cannot be inferred from tags — the docstring is right about that — and it cannot be
+inferred from the machine running the squash either, which is the half nobody had.
+
+**HIS CALL, NOT A SESSION'S.** `R-84` is his ruling and the exclusion was deliberate.
+Two shapes to choose between, both cheap: declare his own installs a publication
+(`PUBLISHED_TO_OTHERS = True`, one line, and the squash is refused for ever), or gate on
+the recorded per-warehouse version so a squash is possible again the moment both are at
+the head. Related: `OP-134`, which is why one of them is reliably behind.
+
+---
+
+### OP-134 · No release has ever carried the chain past v10, so a machine on a release is permanently behind the head
+
+**Found 2026-09-04**, measuring `OP-133`'s condition rather than assuming it. It is the
+reason "behind at squash time" is not bad luck but the normal state of one of his two
+machines.
+
+Measured at the tag rather than from prose — `git ls-tree engine-v0.3.1` lists
+`0002…0010` in `db/engine/migrations/`, and `git show engine-v0.3.1:db/engine/schema.sql`
+declares `PRAGMA user_version = 1`:
+
+| build | last migration it carries | schema ceiling |
+|---|---|---|
+| `engine-v0.2.1` | `0003_a_source_says_how_deep_its_crawl_goes` | **v3** |
+| `engine-v0.3.0` | `0009_a_contractor_points_at_a_taxonomy_instead_of_repeating_it` | **v9** |
+| `engine-v0.3.1` — **the newest installable engine** | `0010_a_membership_carries_what_the_site_said_about_it` | **v10** |
+| `main` before the squash (`9cbc6f0`) — 16 files, `0002…0017` | `0017_a_job_may_be_a_directory_crawl` | v17 |
+| `main` today — one baseline file, no migrations | — | v17, and no path up from below |
+
+Each tag's baseline declares `PRAGMA user_version = 1`, so the ceiling is the last
+numbered migration it ships. **The three published ceilings are v3, v9 and v10** — an
+earlier correction of this table read "every published engine: v10", which flattened
+three numbers into the newest one.
+
+**So his v10 warehouse is not a warehouse that fell behind: v10 is exactly the ceiling of
+the newest engine he can install.** Migrations `0011…0017` existed only on unreleased
+`main`, and the squash deleted them.
+
+**AND IT MAKES BOTH REMEDIES THE REFUSAL PRINTS IMPOSSIBLE**, which is worth stating
+plainly because the sentence is honest and the world it describes does not exist:
+
+| what the refusal offers | measured |
+|---|---|
+| *"Bring it to v17 with the last release that still carried those migrations"* | **no release ever carried them** — every published engine tops out at v10 |
+| *"or start a new one and carry this one's rows into it"* | `databases/carry_over.py` reads the two pre-M5 files and never an engine one; `warehousemerge` is evidence-only by its own docstring. **The path does not exist** |
+
+The only artifact that can take a v10 warehouse to v17 is a checkout of `9cbc6f0`, which
+is a terminal, which is not a door he has (`R-81`).
+
+**HIS CALL: cut a release at the current baseline.** It is the half of `OP-133` that a
+gate cannot fix — while the newest installable engine is older than the source head,
+every machine that uses a release is behind it by construction, so the next squash finds
+exactly the state that broke this one. `OP-32`'s three conditions are the right thing to
+check against, and the second of them is true again today.
+
+---
+
+### OP-135 · `health()` answered "Needs upgrade. Run 'python -m scrapex.cli init-db'" about a database no command can upgrade — CLOSED 2026-09-04
+
+**Found 2026-09-04** while reviewing why his engine would not start, and closed on the
+branch that found it. **`OP-131`'s sibling, one surface further in**: that entry fixed
+`storage.py`'s `health()`, which reports `too_old` correctly. This is the OTHER health
+surface — `EngineDatabase.health()` — and it is the one the side panel actually reads.
+
+**One line reached four surfaces.** `DatabaseHealth.action` is rendered verbatim by the
+panel (`native.startup_check` → `startup_blocked` → `extension/app.js` `issueCopy`), by
+the engine's own attention banner on **every** page (`webui/templates/base.html`), by
+`database_unavailable.html`, and by the first-run console (`cli.py` prints
+`state['action']`). For a below-baseline database all four said *"Run 'python -m
+scrapex.cli init-db' to upgrade it, then retry"* — a terminal he does not use (`R-81`)
+naming a command that raises the very error being reported (`R-84`).
+
+**AND THE STATUS DECIDED A BUTTON, so the wrong status cost 302 MB a press.**
+`native.startup_check` sets `action: "upgrade_database"` by matching that status string,
+the panel renders «Upgrade database», and the guarded upgrade then took a full copy
+before `initialize()` refused. Measured on a copy of his warehouse: **316,760,064 bytes
+per press, and nothing changed.** `domain.py`'s own `_migrate` comment had already
+recorded this loop — *"every engine launch left another copy of the warehouse and then
+failed, while `health()` went on advising the one command that could not work"* — and the
+report it describes was still doing it.
+
+**MEASURED, AND IT WAS NOT AN EDGE CASE: the "Needs upgrade" branch was UNREACHABLE for a
+real engine database.** With the chain collapsed the plan is one file, so
+`baseline == latest == 17` and every version between 1 and the head is below the
+baseline. Every behind engine database took the branch that named the command.
+
+**What landed.** A status of its own for below-baseline, so the panel stops offering a
+repair that cannot exist, and one sentence shared by the three places that tell the same
+fact:
+
+```cited
+scrapex/dbupgrade.py:55                  TOO_OLD = "Older than the schema baseline"
+scrapex/databases/domain.py:371              baseline = self._migrations[0].number
+scrapex/native.py:233        state["status"] == BEHIND for _, state in blocked
+```
+
+`native.py` compared against a **literal** while `dbupgrade.BEHIND` documented itself as
+*"spelled once here and imported by both callers"* — it is imported now. `no_upgrade_path`
+is the one sentence, read by `EngineDatabase.health()`, by `_migrate`'s exception and by
+`storage.py`'s `too_old` detail; the behind action names the button and the screen, the
+way `OP-124` pointed its banner. Measured after: the panel is told
+`action: "check_storage"` with no command, and a refusal makes **no copy at all**.
+
+**AND "THE BUTTON DISAPPEARS" IS TRUE OF ONE OF THE TWO BUTTONS, which is worth stating
+exactly rather than claiming the tidier thing.** There are two, and only one is decided by
+`action`:
+
+| where | what it does below the baseline, after this change |
+|---|---|
+| the issue card's «Upgrade database» (`extension/app.js` `issueCopy` → `data-runtime-upgrade`) | **not offered** — `action` is now `check_storage` |
+| the standing «Upgrade database» on Settings (`extension/app.html:1795`, static markup, never gated on health) | still there. With the engine down it takes the native door and now REFUSES without copying anything (`OP-137`); with the engine up it takes `POST /api/databases/upgrade`, which calls `initialize()` bare and answers HTTP 500 — unchanged, and that is `OP-139` |
+
+**The launch path is the one that mattered most and it is fully closed**: `cli._cmd_ui`
+runs the guarded upgrade on every start, so a below-baseline warehouse cost a full copy
+*per engine launch*, not per press. It now refuses, names `R-84`, and copies nothing.
+
+**AND TWO TESTS DEMANDED THE COMMAND**, which is why a green suite shipped it:
+`test_a_database_that_is_behind_is_called_upgradeable_not_broken` and
+`test_a_genuinely_behind_database_still_says_upgrade` both asserted `"init-db" in action`
+— and both were reading the below-baseline branch while believing they were reading the
+upgrade one, because `latest - 1` stopped meaning "behind" the day the chain was
+collapsed. A third, `test_a_database_that_degrades_while_running_is_announced_with_its_fix`,
+asserted `"init-db" in body` of the engine's own page. All three are corrected, a
+`one_migration_above_the_baseline` fixture makes "behind, above the baseline" reachable
+at all, and `test_no_database_status_ever_answers_with_a_command_line` sweeps every state
+that carries an action rather than the one that happened to be wrong — the guard whose
+absence let one sentence ship on four surfaces while
+`test_the_refusal_says_what_to_do_and_names_no_terminal_command` guarded the exception
+beside it.
+
+**AND THERE WAS A SECOND WAY INTO THE SAME FIELD, which the first fix did not touch.**
+`health()` interpolates a caught exception verbatim into its "Integrity check failed"
+branch, and `EngineDatabase._verify`'s contract-marker refusal read *"run 'scrapex
+init-db' or restore a compatible backup and retry"*. So after the version branch had
+stopped naming a command, `DatabaseHealth.action` could still print one — on the same four
+surfaces. **Found by asking which OTHER exceptions land in that branch**, not by
+re-reading the one that was wrong, and the sweep now reaches it: six states, not five.
+
+**Two remainders, recorded rather than folded in.**
+
+- **`health()` can raise instead of reporting.** A contract marker that is not a number
+  reaches `int()` in `contract.stored_contract_version` and raises `ValueError`, which
+  `health()` catches nowhere — so a corrupt marker takes down the surface whose whole job
+  is to report corruption. Measured while writing the sweep above, with `'wrong'` as the
+  stored value. Not fixed here: the choice is whether the parse or the caller absorbs it,
+  and that is a decision about every reader of that marker.
+- **The R-81 surface sweep cannot see a module.** `tests/test_panel_dom.py`'s sweep selects
+  `extension/` and `scrapex/webui/` only, so it watches the files a string is RENDERED in
+  and not the ones a string is WRITTEN in — which is exactly how one sentence in
+  `databases/domain.py` reached four surfaces with the sweep green. Its subcommand
+  alternation also omits `carry-over` and `database-status`, both of which
+  `databases/registry.py` instructs the reader to run. Widening it would light up the
+  legitimate CLI strings too, so it needs a rule about which modules feed a surface —
+  which is `OP-140`'s question in a more general form.
+
+---
+
+### OP-136 · Nothing removed a pre-upgrade copy, because the policy that would have had no caller on the path that makes them — CLOSED 2026-09-04
+
+**Found 2026-09-04**, measured on his machine: **five copies totalling 963,768,320 bytes**
+beside a 316 MB warehouse, and while `OP-135`'s refusal was live, one more full copy on
+every engine launch and every press of the button, each changing nothing.
+
+**THE FIRST DIAGNOSIS WAS WRONG AND THE CORRECTION IS THE ENTRY.** It read as "there is no
+retention policy for these files" — `retention.py` never mentions a backup and
+`settings.backup_keep_versions` governs Drive. **There is one, and it already recognised
+them**: `storage.backup_tag` classifies `scrapex-engine.pre-upgrade-<stamp>.backup.db` as
+the `pre-upgrade` lineage, `BACKUPS_KEPT_PER_TAG` is 3, and the owner can change it —
+`Setting("backups_kept_per_tag", "3", label="Backups kept of each kind")`. It had **one
+caller**, `storage.backup_now`, reached only from the Storage page's button, which the
+upgrade path never touches. **A policy with no caller on the path that makes the files is
+not a thing a search for "prune" can show you**, and a second prune written beside it
+would have been the duplication this repository keeps finding.
+
+**What landed** is a caller, not a policy:
+
+```cited
+scrapex/storage.py:813   def prune_backups_at(db_path: Path | str, folder: Path | None = None,
+scrapex/dbupgrade.py:255         pruned += _bounded(path)
+```
+
+`prune_backups(conn, …)` now reads the owner's number and his folder and calls the same
+removal; `prune_backups_at` is that removal for a caller with **no database open**, which
+is what the upgrade path is — the file is still at its old schema there, and below the
+baseline it cannot be opened at all, which is the state that was making a copy per launch.
+`_bounded` asks for his `backups_kept_per_tag` on a bare connection and falls back to the
+shipped 3 on any failure: housekeeping must not be able to fail an upgrade.
+
+Kept properties, all inherited rather than re-argued: only files this product named are
+ever removed, the newest of **every** lineage survives (so a run of pre-upgrade copies can
+never evict the only `pre-wipe` copy of a source erased months ago), a copy held open is
+skipped rather than fatal, and the outcome NAMES what it deleted on both doors — a
+deletion is the half of "it says so" he cannot discover any other way. A pruned copy's
+`-wal`/`-shm` now go with it; three orphan pairs sit beside his warehouse today.
+
+Verified end to end on a real upgrade: five copies plus the new one, bounded to **3**,
+with `pre-ledger-repair` and `rebuild` untouched.
+
+**AND ADDING THE CALLER CREATED A DATA-LOSS PATH THAT HAD TO BE CLOSED WITH IT.** Found by
+an adversarial read of this very change: `archive.backup_database` wrote through
+`source.backup(target)` straight into the FINAL name, and that call fills its destination
+page by page. A process killed mid-copy — or a disk that fills, which is the state five
+copies of a 316 MB warehouse produce — left a **partial database carrying the newest stamp
+of its lineage**. While nothing pruned this lineage that was clutter; the moment a keep-N
+policy ran over it, the fragment could be kept while a complete older copy was deleted.
+**The one moment a backup is needed is the one where it had been replaced by a piece of
+itself.**
+
+Closed the way `bundle.py` already closed it (`PARTIAL_SUFFIX`, after the 0-byte archive
+that reached Drive): the copy is written to `<name>.part`, opened to prove its header and
+schema arrived, and only then `os.replace`d onto the real name; any failure — including
+`KeyboardInterrupt`, which is not an `Exception` and is exactly the interruption in
+question — removes the partial. **A leftover `.part` is invisible to the policy by
+construction**, because `storage.list_backups` accepts only a `.db` suffix, so an
+interrupted copy leaves litter that cannot be mistaken for a backup or counted as one of
+the kept. Both halves are guarded, from the writer's side and from the policy's.
+
+
+---
+
+### OP-137 · "The database is already up to date" about a database the engine refuses to open — CLOSED 2026-09-04
+
+**Found 2026-09-04** while fixing `OP-135`, and it is `OP-131`'s defect on a third
+surface: not the wrong remedy but **no fault at all**.
+
+`upgrade_what_is_only_behind` filters the faulty databases down to the ones whose status
+is `BEHIND`, and an empty result meant two completely different things — nothing is
+wrong, or something is wrong that an upgrade cannot fix (below the baseline, written by a
+newer build, damaged). Both returned a bare `Outcome()`. With no refusal to render,
+`native.upgrade_database` answered `ok: True` with *"The database is already up to
+date."*, and `cli`'s door printed nothing.
+
+**It was latent before this branch and would have been reached by it**: the below-baseline
+status `OP-135` introduces lands exactly there, so the fix had to come with it rather than
+after it.
+
+```cited
+scrapex/dbupgrade.py:222         if faulty:
+```
+
+The faults are now named in the refusal both doors already render.
+`test_a_fault_an_upgrade_cannot_fix_is_never_reported_as_up_to_date` holds it, and asserts
+the other half too: **no copy of the warehouse is made** by a refusal.
+
+---
+
+### OP-138 · The five tests that prove `R-84`'s refusal are skipped on `main`, and on CI
+
+**Found 2026-09-04**, and it is the reason `OP-135` could ship: the file that guards the
+below-baseline behaviour builds its database from the pre-squash chain, and reads that
+chain from `origin/main`.
+
+```cited
+tests/test_a_squashed_baseline_opens_what_it_should_and_refuses_the_rest.py:64                     "origin/main:db/engine/migrations").decode().split()
+```
+
+The squash deleted that directory, so `git ls-tree origin/main:db/engine/migrations` is
+`fatal: Not a valid object name` and the fixture returns `None`. Measured with `-rs`:
+**five of the six tests in the file skip**, including
+`test_a_database_below_the_baseline_is_refused_and_not_replayed` and
+`test_the_refusal_says_what_to_do_and_names_no_terminal_command`. The sixth, which builds
+its own file in `tmp_path`, is the only one that runs.
+
+**The skip is honest and its reason has expired.** *"A shallow clone or a detached CI
+checkout may not have the ref"* was the case it was written for; what happened instead is
+that the ref exists and no longer carries the chain, permanently, everywhere — including
+CI, which fetches the same `origin/main`. **So the change that made the refusal necessary
+also turned off every test that proves the refusal is right**, and nothing said so.
+
+Not fixed here: the repair is either a pinned pre-squash commit (nothing records one —
+`db/engine/squashed-from.json` carries `absorbed`, `fingerprint`, `head` and `seed`, and no
+commit) or a fixture that builds the chain from that record instead of from git. Both are
+design choices about what the record should contain, which is `OP-133`'s neighbourhood.
+The new guards added with `OP-135` deliberately do not depend on that ref.
+
+---
+
+### OP-139 · `OP-127` closed the unprotected upgrade on one of the two doors, and the panel prefers the other one
+
+**Found 2026-09-04**, tracing the button for `OP-135`. `OP-127` records that the panel's
+«Upgrade database» pressed `registry.initialize()` bare — no backup, no BEHIND check, no
+refusal over damage, nothing said — and moved it onto the guarded path. That fix landed on
+the **native** door only.
+
+```cited
+scrapex/webui/database_api.py:50          applied = current().initialize()
+```
+
+`POST /api/databases/upgrade` still calls it bare, and `extension/app.js`
+`upgradeDatabaseFromPanel` tries **HTTP first**, falling back to the native host only when
+nothing answers. So the four protections apply exactly when the engine is DOWN, and the
+ordinary case — engine up, database one migration behind — takes the door with none of
+them, including the one whose absence `OP-127` measured: `initialize()` migrates before it
+verifies, so a damaged file is migrated first.
+
+Its docstring states the old sentence as the reason it exists — *"an instruction the owner
+cannot follow, because he does not use a terminal"* — which is true and is not the same as
+being safe.
+
+Not fixed here: routing it through `upgrade_what_is_only_behind` changes what the route
+returns (a refusal is not an exception) and `OP-135`'s status change alters which faults
+reach it, so it is a change with its own tests rather than a line moved in passing. It is
+the same shape as `OP-131` and `OP-135`: **a repair applied to one of two surfaces that
+tell the same thing**, three instances now, which is the pattern rather than the incident.
+
+---
 
 ### OP-131 · `health()` said "No problems found" about a database the engine refuses to open
 

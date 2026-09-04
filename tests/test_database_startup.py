@@ -99,18 +99,116 @@ def test_an_existing_database_that_is_behind_is_reported_not_upgraded(registry):
     assert still == behind, "ensure_ready migrated a database it was not asked to"
 
 
-def test_a_database_that_is_behind_is_called_upgradeable_not_broken(registry):
+def test_a_database_that_is_behind_is_called_upgradeable_not_broken(
+        tmp_path, one_migration_above_the_baseline):
     """"Failed — restore a verified backup" sends the owner to destroy good data
-    over a one-command upgrade."""
+    over an upgrade he can press a button for.
+
+    IT REWOUND BY ONE, AND THAT STOPPED MEANING "BEHIND". After `R-84`'s squash
+    `latest - 1` is BELOW the baseline, so this test was reading the refusal branch
+    while asserting the upgrade one — and what it asserted about the action was that
+    it named `init-db`, which is the defect rather than the fix (`R-81`: the owner
+    has no terminal, so a command is a dead end printed inside a live failure).
+    """
+    database = EngineDatabase(tmp_path / "engine" / "scrapex-engine.db")
+    database.initialize()
+    _rewind_schema(database, one_migration_above_the_baseline - 1)
+
+    state = database.health()
+
+    assert state.status == "Needs upgrade", state.status
+    assert "Upgrade database" in state.action and "Settings" in state.action, \
+        "the fix must be named as the button it is, and the screen it is on"
+    for command in ("scrapex ", "python -m", "init-db"):
+        assert command not in state.action, \
+            f"the action names {command!r}, a command line — R-81"
+    assert "backup" not in state.action.lower(), \
+        "restoring a backup is the wrong instruction for a database that is behind"
+
+
+def test_a_database_below_the_baseline_is_not_called_upgradeable(registry):
+    """`R-84`: below the baseline there is no upgrade path, so calling it "Needs
+    upgrade" offers a repair that cannot exist.
+
+    THIS IS THE BRANCH A REAL ENGINE DATABASE REACHES TODAY, measured: the plan is
+    one file, so every version between 1 and the head is below the baseline. What it
+    cost while it answered "Needs upgrade" is two things at once — `startup_check`
+    offered the panel's "Upgrade database" button, and pressing it copied the whole
+    warehouse (316,760,064 bytes, measured on his) before failing and changing
+    nothing.
+    """
     registry.ensure_ready()
     _rewind_schema(registry.engine, registry.engine.latest_schema_version - 1)
 
     state = registry.engine.health()
 
-    assert state.status == "Needs upgrade"
-    assert "init-db" in state.action, "the fix must be named, not implied"
-    assert "backup" not in state.action.lower(), \
-        "restoring a backup is the wrong instruction for a database that is behind"
+    assert state.status == "Older than the schema baseline", state.status
+    assert "R-84" in state.action, "the refusal does not name the ruling behind it"
+    assert "Nothing has been changed" in state.action, (
+        "the action does not say the database is untouched, which is the first "
+        "thing its reader needs to know")
+    for command in ("scrapex ", "python -m", "init-db"):
+        assert command not in state.action, \
+            f"the action names {command!r}, a command line — R-81"
+
+
+def test_no_database_status_ever_answers_with_a_command_line(
+        tmp_path, one_migration_above_the_baseline):
+    """THE GUARD THAT WAS MISSING, and its absence is why one command shipped on
+    three surfaces at once.
+
+    `test_the_refusal_says_what_to_do_and_names_no_terminal_command` asserts this of
+    the EXCEPTION `_migrate` raises. Nothing asserted it of `DatabaseHealth.action`
+    — which the side panel renders (`native.startup_check`), the engine's own pages
+    print (`base.html`), and `/api/health` carries — so "Run 'python -m scrapex.cli
+    init-db'" reached all three from one line, with a green suite and two tests
+    DEMANDING it.
+
+    Every state that carries an action is swept, not the one that happened to be
+    wrong. A new status is a new row here.
+    """
+    head = one_migration_above_the_baseline
+    database = EngineDatabase(tmp_path / "engine" / "scrapex-engine.db")
+
+    states = {"Missing": database.health()}
+    database.initialize()
+    states["Healthy"] = database.health()
+    for version, case in ((head - 1, "behind"),
+                          (head - 2, "below the baseline"),
+                          (head + 5, "from a newer build")):
+        _rewind_schema(database, version)
+        state = database.health()
+        assert state.status not in states, f"{case} reported {state.status!r} twice"
+        states[state.status] = state
+
+    # AND THE BRANCH REACHED BY SOMETHING OTHER THAN A VERSION, which is where the
+    # SECOND command was hiding: `health()` interpolates the exception verbatim, and
+    # `_verify`'s contract-marker refusal named `scrapex init-db` long after the
+    # version branch had stopped naming anything. A sweep that only rewinds versions
+    # cannot see it — five statuses looked like all of them.
+    _rewind_schema(database, head)
+    conn = sqlite3.connect(str(database.path))
+    try:
+        # A NUMBER, and a wrong one. `'wrong'` reaches `int()` in
+        # `contract.stored_contract_version` and raises `ValueError`, which
+        # `health()` does not catch at all -- so a corrupt marker takes down the
+        # surface that exists to report corruption. Recorded in `OP-135`; this test
+        # is about the ACTION's words, so it takes the path that reports.
+        conn.execute("UPDATE scrapex_meta SET value = '999' "
+                     "WHERE key = 'contract_version'")
+        conn.commit()
+    finally:
+        conn.close()
+    broken = database.health()
+    assert broken.status == "Integrity check failed", broken.status
+    states[broken.status] = broken
+
+    assert len(states) == 6, f"a state was not reached: {sorted(states)}"
+    for status, state in states.items():
+        for command in ("scrapex ", "python -m", "init-db", "pip install"):
+            assert command not in state.action, (
+                f"{status!r} answers with {command!r}, a command line — R-81. "
+                f"Its action reads: {state.action}")
 
 
 def test_a_database_from_a_future_build_says_update_scrapex(registry):
