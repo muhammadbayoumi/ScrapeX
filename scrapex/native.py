@@ -178,11 +178,61 @@ DEFAULT_ENGINE_PORT = 8000
 
 
 def _engine_listening(port: int) -> bool:
+    """Is ANYTHING accepting connections on this port. Cheap, and never the answer.
+
+    Kept because it is the fast negative: when nothing is bound at all, this says so
+    in microseconds and no HTTP attempt is made. What it must never do is decide that
+    the engine is up -- see `_engine_answering`.
+    """
     import socket
 
     with socket.socket() as probe:
         probe.settimeout(0.4)
         return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _engine_answering(port: int, timeout: float = 1.5) -> dict | None:
+    """The engine's own `/api/health`, or None. Identity, not occupancy.
+
+    A BARE TCP CONNECT IS NOT AN ENGINE, and this was measured rather than argued.
+    On 2026-09-04, `START_ENGINE` answered `{"ok": true, "already_running": true,
+    "confirmed": true}` while NOTHING was serving: a previous instance was dying and
+    still held the port, so the socket connected, the host reported success, and
+    `already_running` meant it did not spawn anything either. The panel then rendered
+    "Not detected" one beat after being told the engine was already up.
+
+    The two failures that follow from trusting a port are different and both real:
+
+      - ANY other process on 8000 -- another dev server, a stale instance mid-exit --
+        is mistaken for the engine, and the one command that could fix it refuses to
+        run because it believes there is nothing to fix;
+      - and a confirmation that cannot name what it confirmed cannot tell a cold
+        engine still unpacking from a foreign listener. The panel's own poll waits 60
+        seconds for a cold start (`app.js`), which is ample; what it cannot survive is
+        being told, wrongly, that the wait is over.
+
+    `app == "scrapex"` is the assertion. The payload is returned rather than a bool so
+    the caller can say WHICH engine answered -- the version is evidence a person can
+    act on, and `OP-97`-style "something answered" is not.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    if not _engine_listening(port):
+        return None
+    try:
+        with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/health", timeout=timeout) as answer:
+            if answer.status != 200:
+                return None
+            payload = json.loads(answer.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError, json.JSONDecodeError):
+        # Something is on the port and it is not this engine. That is a negative
+        # answer about the ENGINE, which is the question, and it must not be
+        # reported as an error about the port.
+        return None
+    return payload if isinstance(payload, dict) and payload.get("app") == "scrapex" else None
 
 
 def _database_report() -> tuple[dict[str, dict] | None, str | None]:
@@ -334,16 +384,22 @@ def start_engine(message: dict) -> dict:
     import time
 
     port = int(message.get("port") or DEFAULT_ENGINE_PORT)
-    if _engine_listening(port):
-        return {"ok": True, "already_running": True, "confirmed": True, "port": port}
+    # ASKED OF THE ENGINE, NOT OF THE PORT. This branch returns without spawning
+    # anything, so a wrong yes here is the most expensive answer in the file.
+    answering = _engine_answering(port)
+    if answering is not None:
+        return {"ok": True, "already_running": True, "confirmed": True, "port": port,
+                "version": answering.get("version")}
     preflight = startup_check()
     if not preflight["ok"]:
         return {**preflight, "port": port}
     _spawn_engine(port)
     deadline = time.monotonic() + _START_CONFIRM_BUDGET_S
     while time.monotonic() < deadline:
-        if _engine_listening(port):
-            return {"ok": True, "started": True, "confirmed": True, "port": port}
+        answering = _engine_answering(port, timeout=0.6)
+        if answering is not None:
+            return {"ok": True, "started": True, "confirmed": True, "port": port,
+                    "version": answering.get("version")}
         time.sleep(0.25)
     # Started but not yet answering — normal on a cold interpreter. Saying
     # "confirmed": False is honest; claiming success would teach the owner to
