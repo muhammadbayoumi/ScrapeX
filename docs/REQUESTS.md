@@ -3004,8 +3004,8 @@ Part of the request, not a follow-up.
 
 ## REQ-55 · Why does the engine not work, and will it happen again from the current baseline
 
-**Captured 2026-09-04, in the session he said it.** It arrived as a review and became a
-question about recurrence, which is the part that outlives the day:
+**Captured 2026-09-04, in the session he said it, and Done the same day.** It arrived as
+a review and became a question about recurrence, which is the part that outlives the day:
 
 > «اريد مراجعة لماذا لا يعمل المحرك ؟»
 
@@ -3038,8 +3038,8 @@ other is a tag.
 
 ## REQ-56 · Fix the three that are mine, record the two that are his, and take the data loss on its own branch
 
-**Captured 2026-09-04, in the session he said it**, after reading the three options the
-recurrence answer produced:
+**Captured 2026-09-04, in the session he said it, and Done the same day** — after reading
+the three options the recurrence answer produced:
 
 > «نفذ ج وسجل أ و ب فى BACKLOG»
 
