@@ -1118,6 +1118,26 @@ spellings `_STAMP` admits, and breaks ties by name descending. Three new guards,
 proved by mutation; the containment `OP-136` added stays, because narrowing what a caller
 may delete is right even once the ordering under it is right.
 
+### A warehouse below the baseline can be carried to it — 2026-09-04
+
+**Built because he lost a machine to it.** He reported *«كان ظاهر على جهاز آخر ومنذ
+تحديثات اليوم اختفى»* — the work machine, which `R-84` itself measured at
+`user_version = 16`. Everything between **v11 and v16** is locked out by the squash, and
+`OP-134` measured that no release ever carried the chain past v10, so the refusal's own
+advice named an artefact that does not exist.
+
+`tools/carry_a_warehouse_to_the_baseline.py` is that artefact. It recovers the absorbed
+chain from history and **proves each file against `squashed-from.json`'s digest** (17 of
+17), applies it with the ENGINE's runner rather than a second one, rehearses on a real
+copy by default, backs up before `--apply`, and ends by asking the shipped build:
+`health().ok` or it fails.
+
+Rehearsed on a v13 warehouse with a `muqawil_org` row: `applied [14, 15, 16, 17]` →
+**Healthy at v17**, the row surviving `0014`'s rebuild of `source_site`. Seven guards,
+including a tampered-digest refusal and a rehearsal that must not touch the original.
+
+**It is run FOR him from a checkout, not by him** (`R-81`) — the panel-side answer to the
+same fault is `OP-144`'s missing control and `OP-133`'s ruling.
 ### The panel's source list is one category — 2026-09-04, `OP-145`
 
 He asked why muqawil is not among the sources he can crawl. **The answer is the empty
