@@ -35,8 +35,16 @@ from pathlib import Path
 import pytest
 
 # Guards the extension (it reads design/ sources that are copied into extension/)
-# and reads a document. Both gates check for their mark; see
-# tests/test_the_extension_gate_is_complete.py and tests/test_the_docs_gate_is_complete.py.
+# and reads a document, so it carries both marks and runs on either scope.
+#
+# THE TWO MARKS ARE NOT ENFORCED THE SAME WAY, and this comment says so rather
+# than naming a file, because naming one is what put this repository here.
+# `extension` has a real guard: tests/test_the_extension_gate_is_complete.py fails
+# on a file that reads extension/ and forgets the mark. `docs` has none -- its
+# guard was deleted with the tracking system -- and all that stands behind it is
+# the collection floor in .github/workflows/ci.yml, which fails if `-m docs`
+# collects fewer than 150 tests. A floor catches the set being emptied; it cannot
+# catch THIS file dropping its mark.
 pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = Path(__file__).resolve().parent.parent
