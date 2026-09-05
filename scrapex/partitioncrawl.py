@@ -1051,15 +1051,36 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     # thread-safe. A caller's progress reporter writes to a log and a dict; making
     # every caller learn that is how a convenience becomes a defect.
     guard = threading.Lock()
+    # SET BY THE FIRST CELL TO RAISE, AND READ BY EVERY CELL THAT HAS NOT STARTED.
+    # `ThreadPoolExecutor.__exit__` calls `shutdown(wait=True)` without
+    # `cancel_futures`, so every cell already submitted RUNS even after a worker has
+    # raised -- and `on_cell` is where a caller asks whether the run may continue.
+    # Measured on the shape of the 2026-09-03 job: a pause requested at cell 3 of 56
+    # would have fetched the remaining 53 before the `CrawlStopped` raised by cell 3
+    # was re-raised below. That is a pause that crawls the whole site.
+    #
+    # THE SEQUENTIAL PATH NEVER HAD THIS, which is why it went unnoticed: `raise` from
+    # `on_cell` leaves the `for` loop and no further cell is read.
+    #
+    # ANY EXCEPTION, NOT ONLY A STOP. `future.result()` re-raises the first one and the
+    # `PartitionOutcome` is discarded either way, so the queued cells were going to be
+    # fetched and thrown away.
+    stopping = threading.Event()
 
     def one(index: int, size: CellSize, worker_conn: sqlite3.Connection) -> None:
         nonlocal newly_sighted
-        outcome, sighted = _crawl_one_cell(size, conn=worker_conn, **per_cell)
-        with guard:
-            found[index] = outcome
-            newly_sighted += sighted
-            if on_cell is not None:
-                on_cell(outcome)
+        if stopping.is_set():
+            return
+        try:
+            outcome, sighted = _crawl_one_cell(size, conn=worker_conn, **per_cell)
+            with guard:
+                found[index] = outcome
+                newly_sighted += sighted
+                if on_cell is not None:
+                    on_cell(outcome)
+        except BaseException:
+            stopping.set()
+            raise
 
     if workers > 1 and connect is not None:
         # A CONNECTION PER WORKER, NOT A SHARED ONE. `sqlite3` refuses a connection

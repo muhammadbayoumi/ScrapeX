@@ -824,6 +824,10 @@ async function loadCrawlSettings() {
   $("crawl_honour_delay").checked = !["0", "false", false].includes(value("crawl_honour_delay"));
   $("crawl_min_interval_s").value = value("crawl_min_interval_s") || "1.0";
   $("crawl_parallel_sources").value = value("crawl_parallel_sources") || "1";
+  // A rendering fallback, not a second definition of the default: the engine answers
+  // with its own catalogue value, and this only shows when that answer has no such key
+  // -- an engine older than this panel.
+  $("directory_crawl_workers").value = value("directory_crawl_workers") || "3";
   $("crawl_timeout_s").value = value("crawl_timeout_s") || "30";
   $("crawl_user_agent").value = value("crawl_user_agent") || "";
   $("log_retention_days").value = value("log_retention_days") || "30";
@@ -852,6 +856,9 @@ async function saveCrawlSettings() {
     await post("/api/settings", {
       crawl_honour_delay: $("crawl_honour_delay").checked ? "1" : "0",
       crawl_min_interval_s: String(interval),
+      directory_crawl_workers: String(Math.min(
+        Math.max(parseInt($("directory_crawl_workers").value, 10) || 1, 1),
+        MAX_PARALLEL_SOURCES)),
       crawl_parallel_sources: String(Math.min(
         Math.max(parseInt($("crawl_parallel_sources").value, 10) || 1, 1),
         MAX_PARALLEL_SOURCES)),

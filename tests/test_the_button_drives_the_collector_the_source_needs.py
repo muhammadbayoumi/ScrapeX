@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import pathlib
 import sqlite3
+import threading
 import time
 
 import pytest
@@ -944,3 +945,203 @@ def test_the_shipped_heartbeat_interval_keeps_the_card_fresh():
     assert directoryjob.BEAT_EVERY_S * 4 < jobs.JOB_HEARTBEAT_MAX_AGE_S, (
         "the interval is within a factor of four of the window that decides whether a "
         "job counts as alive, which leaves no margin for a slow page")
+
+
+# ---- the pool the panel gets, and the three things it broke (OP-132) --------
+#
+# `--workers` has been on `scrapex contractors --crawl` since 2026-08-22 and `R-81` says
+# the panel is his only interface, so the crawl he can actually start was the
+# single-threaded one -- measured on his own run, 7 cells of 56 in 198 minutes, 14.6
+# hours for the listing alone. Wiring the pool into the runner broke three things that no
+# reading of the diff would have suggested, and each is a test below.
+
+
+class _CellsInAWorkerThread:
+    """`crawl_partition`, faked with the ONE property that matters: `on_cell` is called
+    in a WORKER thread, under a single lock, exactly as the real pool calls it.
+
+    THE REAL POOL IS NOT USED HERE ON PURPOSE. `crawl_partition` needs a partition, a
+    base url, sized cells and a fetch that answers -- and this file has no network and no
+    site. What the runner has to survive is narrower than a crawl and it is entirely
+    about which thread the callback arrives on, so that is what this reproduces.
+    """
+
+    def __init__(self, cells: int = 4, workers: int = 2) -> None:
+        self.cells = cells
+        self.workers = workers
+        self.reported = 0
+        self.threads: set[int] = set()
+
+    def __call__(self, *args, **kwargs):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from scrapex.partitioncrawl import (
+            WHOLE,
+            Attempt,
+            CellOutcome,
+            CellSize,
+            PartitionOutcome,
+        )
+
+        report = kwargs["on_cell"]
+        size = CellSize(cell=WHOLE, last_page=1, cards_per_page=1, tail_cards=1,
+                        requests=1)
+        # ONE LOCK ROUND THE CALLBACK, which is `crawl_partition`'s own arrangement and
+        # the reason `cell_closed` needs no lock of its own.
+        guard = threading.Lock()
+
+        def one(_index: int) -> None:
+            with guard:
+                self.reported += 1
+                self.threads.add(threading.get_ident())
+                report(CellOutcome(size=size, attempts=(
+                    Attempt(ids=(), pages_read=1, witnessed=True, note="fake",
+                            run_ref="fake-a1"),)))
+
+        with ThreadPoolExecutor(max_workers=self.workers,
+                                thread_name_prefix="cell") as pool:
+            for future in [pool.submit(one, n) for n in range(self.cells)]:
+                future.result()
+        return PartitionOutcome(whole=size, cells=(), whole_at_end=None, parent=WHOLE)
+
+
+def _run_it_threaded(conn, monkeypatch, *, cells: int = 4, control: str | None = None):
+    """The same job as `_run_the_job`, with the cells closing off the job's thread."""
+    partition = _CellsInAWorkerThread(cells=cells)
+    monkeypatch.setattr(contractors, "crawl_partition", partition)
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (_QuietFetcher(), lambda url: ""))
+    job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                              job_kind=directoryjob.JOB_KIND)
+    if control is not None:
+        conn.execute("UPDATE crawl_job SET control = ? WHERE job_ref = ?",
+                     (control, job_ref))
+        conn.commit()
+    found = directoryjob.run_directory_crawl_job_once(conn, job_ref)
+    return job_ref, found, partition
+
+
+def test_the_crawls_report_survives_arriving_on_a_worker_thread(conn, monkeypatch):
+    """THE DEFECT THAT MADE A POOL IMPOSSIBLE HERE, and it is not a slow path.
+
+    Every write in this runner went through the job's own connection -- the log line, the
+    progress figure, the request count, the control read -- and `crawl_partition` calls
+    `on_cell` in the thread that closed the cell. `sqlite3` refuses a connection from a
+    thread it was not created on, so the FIRST cell to close inside a worker would have
+    raised `ProgrammingError` from inside the job's log writer: not a degraded crawl, a
+    dead one, hours into a real run.
+    """
+    job_ref, found, partition = _run_it_threaded(conn, monkeypatch, cells=4)
+
+    assert found["status"] == JobStatus.COMPLETED.value, found
+    assert partition.reported == 4
+    assert partition.threads and threading.get_ident() not in partition.threads, (
+        "the fake reported every cell on the job's own thread, so this test would pass "
+        "with the defect in place -- it is asserting nothing")
+    logged = " ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "listing crawl" in logged, (
+        "the crawl's own report never reached the job log from the worker")
+    assert "LISTING phase" in logged
+
+
+def test_a_pause_asked_for_while_a_worker_holds_the_cell_still_pauses(conn, monkeypatch):
+    """The owner's pause is READ and WRITTEN from the worker too.
+
+    `cell_closed` reads `control`, writes `paused`, and says where it stopped -- all on
+    the connection the callback was handed. A pause that could only be honoured on the
+    job's thread would be a pause the panel offers and the pool ignores.
+    """
+    job_ref, found, _partition = _run_it_threaded(
+        conn, monkeypatch, cells=4, control=JobControl.PAUSE.value)
+
+    assert found["status"] == JobStatus.PAUSED.value, found
+    logged = " ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "paused at a cell boundary" in logged
+    assert "skips the pages already stored" in logged, (
+        "the pause did not tell him a resume is cheap, which is the one thing that "
+        "decides whether he presses it")
+
+
+def test_the_job_thread_writes_on_the_jobs_own_connection(conn, monkeypatch):
+    """WHY THE CHOICE IS BY THREAD AND NOT BY WORKER COUNT, measured rather than argued.
+
+    The first version took a fresh connection whenever the pool was wide. Two directory
+    jobs then spent 11.75 s doing 0.7 s of work, and a thread dump two seconds in showed
+    the crawl blocked inside its own `jobs.append_log`: `contractors.crawl` writes
+    `validator_store.save(conn, ...)` on the job connection and commits only after its
+    closing report, so a log line on a SECOND connection to the same file waited out the
+    whole `busy_timeout` against an uncommitted write of its own making. A connection
+    deadlocked against its sibling; the only symptom is a five-second stall and then
+    `database is locked`.
+
+    ASSERTED BY REFUSING TO OPEN ONE. A crawl whose cells all close on the job's thread
+    must complete with `dbmod.connect` unusable -- which is a property of the code and
+    not of a timing, so it cannot pass by luck on a fast machine.
+    """
+    def refuse(*a, **k):
+        raise AssertionError(
+            "the job thread opened a second connection to its own database, which is "
+            "the deadlock this arrangement exists to avoid")
+
+    monkeypatch.setattr(directoryjob.dbmod, "connect", refuse)
+
+    _job_ref, found, partition = _run_the_job(conn, monkeypatch, cells=3)
+
+    assert found["status"] == JobStatus.COMPLETED.value, found
+    assert partition.reported == 3
+
+
+def test_the_pool_width_is_read_from_the_setting_and_clamped(conn):
+    """The number is the owner's, within a ceiling the crawl will actually honour."""
+    from scrapex import settings
+
+    shipped = int(settings.SETTINGS[directoryjob.WORKERS_SETTING].default)
+    assert directoryjob.workers_for(conn) == shipped, (
+        "an untouched warehouse did not get the shipped width")
+
+    settings.save(conn, {directoryjob.WORKERS_SETTING: "2"})
+    conn.commit()
+    assert directoryjob.workers_for(conn) == 2
+
+    settings.save(conn, {directoryjob.WORKERS_SETTING: "600"})
+    conn.commit()
+    assert directoryjob.workers_for(conn) == directoryjob.MAX_WORKERS, (
+        "a mistyped width was accepted, so the crawl promised a concurrency it would "
+        "not deliver -- `job_capacity` clamps for the same reason")
+
+    settings.save(conn, {directoryjob.WORKERS_SETTING: "six"})
+    conn.commit()
+    assert directoryjob.workers_for(conn) == shipped, (
+        "a word where a number belongs took the collection offline instead of falling "
+        "back to the shipped width")
+
+    settings.save(conn, {directoryjob.WORKERS_SETTING: ""})
+    conn.commit()
+    assert directoryjob.workers_for(conn) == shipped, (
+        "clearing the field is how a setting returns to its default, and it did not")
+
+
+def test_the_shipped_width_has_one_home_and_is_more_than_one():
+    """TWO PROPERTIES, AND BOTH WOULD BE LOST BY A TIDY-UP.
+
+    ONE HOME: the number lives in `settings.SETTINGS` and `directoryjob` names only the
+    key. A constant here beside a duplicate in the catalogue is `R-80`'s drift at the
+    smallest possible scale -- and the panel's field would then be a third copy.
+
+    MORE THAN ONE: the whole point is that `R-81` leaves him no way to type `--workers`.
+    A default of 1 restores the capability-with-no-door this change removed, and it would
+    look like a conservative choice rather than a regression.
+    """
+    from scrapex import settings
+
+    source = pathlib.Path(directoryjob.__file__).read_text(encoding="utf-8")
+    assert "DEFAULT_WORKERS" not in source, (
+        "the shipped width is spelled in `directoryjob` as well as in the settings "
+        "catalogue, so the two can disagree and nothing would say which is real")
+
+    shipped = int(settings.SETTINGS[directoryjob.WORKERS_SETTING].default)
+    assert 1 < shipped <= directoryjob.MAX_WORKERS, (
+        f"the shipped width is {shipped}. At 1 the panel's crawl is single-threaded "
+        "again and `--workers` is reachable only from a terminal he does not use "
+        "(`R-81`); above the ceiling the crawl clamps it and the setting lies")
