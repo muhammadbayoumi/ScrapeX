@@ -6257,7 +6257,20 @@ def _engines(page):
         " !== 'Checking engine…'", timeout=10_000)
 
 
-def _report(**over):
+def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
+    """A body in the shape `create_update_router()` really returns.
+
+    THE FIRST VERSION OF THIS FIXTURE PUT `phase` AND `progress` AT THE TOP LEVEL
+    and passed `detail=` there too. The engine nests all three under
+    `progress_state` and names the refusal `self_update_blocked_because`, so every
+    test below was green against a body the engine cannot produce — and the panel,
+    written against the same wrong shape, agreed with it. Five tests and a
+    five-of-five mutation check proved only that the two halves matched each other.
+
+    The keys here are asserted against the live router by
+    `tests/test_the_panel_reads_the_keys_the_updater_sends.py`, so this cannot
+    drift again without something going red.
+    """
     out = {
         "installed": "0.4.6",
         "latest": {"state": "ok", "version": "0.9.0",
@@ -6265,8 +6278,13 @@ def _report(**over):
                                  "url": "u", "verifiable": True}},
         "update_available": True,
         "can_self_update": True,
-        "phase": "idle",
-        "progress": {"received": 0, "total": 0, "percent": 0},
+        "self_update_blocked_because": blocked,
+        "progress_state": {
+            "phase": phase,
+            "progress": progress or {"received": 0, "total": 0, "percent": 0},
+            "detail": detail,
+            "staged_path": "", "staged_sha256": "", "staged_version": "",
+        },
     }
     out.update(over)
     return out
@@ -6300,10 +6318,15 @@ def test_an_engine_that_cannot_replace_itself_says_why_not_just_no(open_panel):
     """
     page = open_panel()
     _engines(page)
+    # `blocked=`, NOT `detail=`. The engine puts the reason an update cannot START
+    # in `self_update_blocked_because` and the reason one FAILED in
+    # `progress_state.detail`. This test passed `detail=` at the top level, where
+    # nothing reads it, and still went green — because the panel read a key that
+    # did not exist either, and an empty string matched an empty expectation.
     _engine_with_update(page, _report(
         can_self_update=False,
-        detail="This build runs from a source checkout, so there is no "
-               "executable to replace."))
+        blocked="This is a source checkout, not an installed engine. Update it "
+                "with git rather than from here."))
     open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
