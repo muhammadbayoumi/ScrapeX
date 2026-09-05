@@ -6183,3 +6183,203 @@ def test_a_failed_creation_does_not_abandon_the_workbook_in_force(open_panel):
     }""")
 
     assert kept == "1CHOSEN"
+
+
+# --- REQ-55: the panel calls the updater ------------------------------------
+#
+# THE ROUTE THESE TESTS DRIVE HAD NEVER BEEN CALLED BY ANYTHING. `GET/POST
+# /api/update` has been mounted, complete and tested on the engine side since
+# `#246`, and `git log -S "api/update"` over `extension/` returns no commit in
+# the whole history -- so the note beside the installer checksum claimed the
+# engine downloaded and verified its own updates while the only thing that could
+# start it was a request nobody made (`OP-124`). These tests exist so that
+# cannot recur silently: each asserts a SENTENCE the owner reads rather than a
+# status code, because `OP-126` is the row about a guard that accepted any 4xx
+# and therefore recorded a reason it never measured.
+
+_HEALTH = {"app": "scrapex", "version": "0.4.6", "worker_alive": True,
+           "protocol_version": 1, "sources_with_data": 0}
+
+_STUB = """([update, health]) => {
+  const original = window.fetch;
+  window.__updatePosts = 0;
+  window.__updateGets = 0;
+  window.fetch = async (url, options) => {
+    const u = String(url);
+    if (u.includes('/api/update')) {
+      if (options && options.method === 'POST') {
+        window.__updatePosts += 1;
+        return { ok: true, status: 200,
+                 json: async () => (update.__post || {started: true}) };
+      }
+      window.__updateGets += 1;
+      return { ok: true, status: 200, json: async () => update };
+    }
+    if (u.includes('/api/health')) {
+      return { ok: true, status: 200, json: async () => health };
+    }
+    return original(url, options);
+  };
+}"""
+
+
+def _engine_with_update(page, update):
+    """Stub `/api/health` AND `/api/update` together.
+
+    Both, because the panel asks the engine about updates only when the engine
+    is up -- `state.engineUp` gates it -- so a test that stubbed the update
+    route alone would prove nothing about a panel that never called it.
+    """
+    page.evaluate(_STUB, [update, _HEALTH])
+
+
+def _line(page):
+    return text_of(page, "#engine-update-state")
+
+
+def _asked(page) -> int:
+    """How many times THIS test's stub answered `GET /api/update`.
+
+    ASSERTED BY EVERY TEST BELOW, and the reason is a measurement rather than
+    caution. With the caller removed, each of these fails when run alone and
+    three of them PASS when the five run together: a sentence on the screen is
+    not evidence that this test's own stub put it there. The counter is zeroed by
+    this test's stub, so a non-zero value cannot have come from anywhere else --
+    which makes each test independent of what ran before it.
+    """
+    return page.evaluate("() => window.__updateGets || 0")
+
+
+def _engines(page):
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent"
+        " !== 'Checking engine…'", timeout=10_000)
+
+
+def _report(**over):
+    out = {
+        "installed": "0.4.6",
+        "latest": {"state": "ok", "version": "0.9.0",
+                   "installer": {"name": "e.exe", "bytes": 1, "sha256": "a",
+                                 "url": "u", "verifiable": True}},
+        "update_available": True,
+        "can_self_update": True,
+        "phase": "idle",
+        "progress": {"received": 0, "total": 0, "percent": 0},
+    }
+    out.update(over)
+    return out
+
+
+def test_the_panel_asks_the_engine_about_its_own_update(open_panel):
+    """THE WHOLE POINT OF `REQ-55`: the request is actually made.
+
+    Asserted on the CALL and not only on what the screen says, because a screen
+    reading correctly from the panel's own manifest fetch would satisfy every
+    other test in this group while `/api/update` stayed doorless -- which is
+    exactly the state that lasted from `#246` until now.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(update_available=False,
+                                     can_self_update=False))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function("() => window.__updateGets > 0", timeout=10_000)
+    assert page.evaluate("() => window.__updateGets") >= 1
+
+
+def test_an_engine_that_cannot_replace_itself_says_why_not_just_no(open_panel):
+    """`can_self_update` is false for reasons that ask OPPOSITE things of him.
+
+    A source checkout has no executable to replace. A release with no digest
+    will not be trusted. `update_api` keeps the flag separate from
+    `update_available` with a comment saying the panel "must be able to say
+    WHICH", and a bare "no update available" is the same words for both.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        detail="This build runs from a source checkout, so there is no "
+               "executable to replace."))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('source checkout')", timeout=10_000)
+    assert "source checkout" in _line(page)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+
+
+def test_a_release_with_no_installer_names_that_and_not_the_swap(open_panel):
+    """The other cause of the same false flag, and it must not borrow the first
+    one's sentence: nothing to FETCH is not nothing to REPLACE."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        latest={"state": "ok", "version": "0.9.0", "installer": None}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('no installer')", timeout=10_000)
+    line = _line(page)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert "no installer" in line
+    assert "replace" not in line, (
+        "a release with nothing attached borrowed the sentence for an engine "
+        f"that cannot replace itself: {line!r}")
+
+
+def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open_panel):
+    """THE BOUNDARY, STATED ON THE SCREEN AND NOT ONLY IN A DOCSTRING.
+
+    `plan_swap` describes replacing the running executable and deliberately does
+    not do it, so the caller reaches `staged` and stops. A panel that said
+    "updated" here would re-earn the false promise `OP-124` removed.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        phase="staged", progress={"received": 1, "total": 1, "percent": 100}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('digest')", timeout=10_000)
+    line = _line(page)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert "digest" in line, line
+    assert "step you take" in line, (
+        "a staged update did not say installing it is still his step, which is "
+        f"the boundary this feature stops at: {line!r}")
+
+
+def test_a_named_refusal_from_the_engine_reaches_the_screen(open_panel):
+    """`POST /api/update` refuses with `started: false` and a NAMED reason --
+    already running, no release, already current, nothing attached. A panel
+    reading only the status code would show the same nothing for all four,
+    which is `OP-126`'s shape: a range standing in for a reason."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        __post={"started": False, "detail": "An update is already running."}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('already running')", timeout=10_000)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert page.evaluate("() => window.__updatePosts") == 1, (
+        "the button did not start an update through the engine")
+    assert "already running" in _line(page)
+    assert not page.locator("#engine-download").is_disabled(), (
+        "a refusal left the button disabled, so the reason it named cannot be "
+        "acted on")
