@@ -18,7 +18,7 @@ import {
 } from "./accounts.js";
 import {
   backUp, fetchLatest, fetchPanelPack,
-  FOLDER_NAME, KEEP, folderId, listing, readLatest,
+  FOLDER_NAME, KEEP, folderId, listing, readLatest, verifyLatest,
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import {
@@ -6287,15 +6287,22 @@ async function backUpToDrive(token) {
 }
 
 async function fetchFromDrive(token) {
-  const {archive, pointer} = await fetchLatest(token, {
-    onProgress: ({received, total}) => driveProgress(total ? received / total : 0),
-  });
-  // DOWNLOADED, NOT RESTORED. Putting this archive over the warehouse is a
-  // destructive act on the owner's only copy, and it belongs behind its own
-  // confirmed control rather than at the end of a fetch they asked for. What
-  // this proves today is that the backup is real, complete and readable.
-  return `Fetched ${fmtMegabytes(archive.size)} written ${pointer.created_at || "at an unrecorded time"}` +
-         ` by engine ${pointer.engine_version || "unknown"}. It is not installed — this only checks it is there.`;
+  // ASKS DRIVE, DOES NOT DOWNLOAD. This button never restored anything -- the
+  // comment it replaces said so -- it downloaded the archive only to look at its
+  // size. On a 541,531,989-byte bundle that asks a Chrome side panel to hold half
+  // a gigabyte, which is exactly what failed on the upload side on 2026-09-03, so
+  // the one control that can tell him his backup is sound would fail on the
+  // backup it was checking.
+  //
+  // Drive's own `size` answers the same question for a file of any size, and
+  // answers it BETTER: a downloaded size catches a truncated download, and the
+  // failure that actually happened was a truncated UPLOAD -- a 0-byte archive
+  // reached Drive on 2026-08-30 with a pointer describing it as whole.
+  const {pointer, held} = await verifyLatest(token);
+  return `Drive is holding ${fmtMegabytes(held.size)}, written `
+       + `${pointer.created_at || "at an unrecorded time"} by engine `
+       + `${pointer.engine_version || "unknown"}. It is complete and it is not `
+       + "installed — this only checks that it is there.";
 }
 
 //: Where the chooser lives. It cannot be a page in this extension: Google
@@ -6505,7 +6512,7 @@ async function createSpreadsheet(token) {
 function wireGoogleControls() {
   const actions = [
     ["drive-backup", "Backing up…", backUpToDrive],
-    ["drive-restore", "Looking for the latest backup…", fetchFromDrive],
+    ["drive-restore", "Asking Drive about the latest backup…", fetchFromDrive],
     ["sheet-create", "Creating the spreadsheet…", createSpreadsheet],
   ];
   // Wired apart from the three above because it does NOT follow their shape:

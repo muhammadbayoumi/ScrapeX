@@ -532,6 +532,79 @@ export async function backUp(token, {
  * actually happens, and it is the one this catches. Whoever unpacks the archive
  * verifies the rest.
  */
+/**
+ * What Drive says it is holding, without moving any of it.
+ *
+ * `size` and `md5Checksum` are metadata: one small request answers "is the backup
+ * there, and is it whole" for a file of any size. The panel used to answer that by
+ * DOWNLOADING the archive and looking at `archive.size`, which on a 541,531,989-byte
+ * bundle asks a Chrome side panel to hold half a gigabyte — the same thing that
+ * failed on the upload side on 2026-09-03.
+ *
+ * AND IT IS A STRONGER CHECK, not merely a cheaper one. Comparing a downloaded
+ * size to the pointer catches a truncated DOWNLOAD. Drive's own stored size
+ * catches a truncated UPLOAD — which is the failure that actually happened: a
+ * 0-byte archive reached Drive on 2026-08-30 and the pointer described it as
+ * whole. The question the owner is asking this button is about the copy in
+ * Drive, and now that is the copy being examined.
+ */
+export async function metadata(token, fileId, {fetchImpl = fetch} = {}) {
+  const response = await ask(
+    fetchImpl,
+    `${FILES}/${fileId}?${new URLSearchParams({
+      fields: "id,name,size,md5Checksum,createdTime",
+    })}`,
+    {headers: headers(token)},
+    `reading what Drive holds for ${fileId}`);
+  const file = await response.json();
+  // Drive returns `size` as a STRING. Compared with `!==` against a number from
+  // the pointer it is never equal, and the check would report every healthy
+  // backup as wrong — a guard that fails on correct input is one people learn to
+  // route around.
+  return {...file, size: file.size === undefined ? undefined : Number(file.size)};
+}
+
+/**
+ * Prove the latest backup is there and complete. Downloads nothing.
+ *
+ * This is what the panel's check button needs and all it needs. `fetchLatest`
+ * below still exists and still downloads, because a RESTORE has to have the
+ * bytes — but a restore is a destructive act behind its own confirmation, and it
+ * is not what this answers.
+ */
+export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fetch} = {}) {
+  const parent = await folderId(token, {fetchImpl});
+  const pointer = await readLatest(token, parent, {fetchImpl});
+  if (!pointer) {
+    throw new DriveError(
+      "No backup has been uploaded from any device yet.", null, "no-backup");
+  }
+  const format = pointer.bundle_format;
+  if (format !== undefined && format !== null && format !== reads) {
+    throw new DriveError(
+      `That backup was written in bundle format ${format} and this device ` +
+      `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
+      "again.", null, "wrong-format");
+  }
+
+  const held = await metadata(token, pointer.file_id, {fetchImpl});
+  if (held.size === 0) {
+    throw new DriveError(
+      "The backup in Drive is empty, so there is nothing to restore from. Take " +
+      "a new backup from this panel.", null, "empty");
+  }
+  // `typeof`, not truthiness, for the reason recorded on `fetchLatest`: a pointer
+  // saying `bytes: 0` is the loudest failure here and truthiness reads it as
+  // "nothing recorded, nothing to compare".
+  if (typeof pointer.bytes === "number" && held.size !== pointer.bytes) {
+    throw new DriveError(
+      `Drive is holding ${held.size} bytes and the backup was recorded as ` +
+      `${pointer.bytes}. The upload did not finish, so this copy is not whole.`,
+      null, "truncated");
+  }
+  return {pointer, held};
+}
+
 export async function fetchLatest(token, {
   reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
 } = {}) {

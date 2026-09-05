@@ -1932,8 +1932,13 @@
                 <div class="row">
                   <button id="drive-backup" class="button" type="button">
                     Back up to Drive</button>
+                  <!-- "Check", not "Fetch": it downloads nothing and installs
+                       nothing. The id stays `drive-restore` because renaming it
+                       would touch the wiring, the DOM harness and three tests
+                       for a word the owner never sees -- but the LABEL is what
+                       he reads, and it promised a restore this has never done. -->
                   <button id="drive-restore" class="button ghost" type="button">
-                    Fetch the latest backup</button>
+                    Check the latest backup</button>
                   <button id="sheet-create" class="button ghost" type="button">
                     Create a spreadsheet</button>
                   <!-- The chooser opens in a TAB, not here: Google Picker loads
