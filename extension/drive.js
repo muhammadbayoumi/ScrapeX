@@ -572,7 +572,24 @@ export async function metadata(token, fileId, {fetchImpl = fetch} = {}) {
  * bytes — but a restore is a destructive act behind its own confirmation, and it
  * is not what this answers.
  */
-export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fetch} = {}) {
+/**
+ * The latest pointer, or a DriveError saying why there is nothing usable.
+ *
+ * ONE GATE, NOT TWO. `verifyLatest` and `fetchLatest` must answer the same two
+ * questions before they can do anything -- is there a backup, and is it one
+ * this panel can read -- and each answered them with its own copy of the same
+ * condition, the same "wrong-format" kind and the same sentence. A format
+ * number is ONE piece of knowledge about ONE format: two copies mean a
+ * BUNDLE_FORMAT bump has to be made twice, and missing one leaves a path that
+ * silently accepts what the other refuses. `tail` was the only difference, and
+ * it is context rather than knowledge -- a restore says "Nothing was restored",
+ * a check that moved nothing has nothing to reassure anyone about.
+ *
+ * The format number exists so that a machine running last month's engine says
+ * "update me" instead of opening an archive it does not understand and
+ * reporting whatever it manages to read as the warehouse.
+ */
+async function readableLatest(token, {reads, tail = "", fetchImpl}) {
   const parent = await folderId(token, {fetchImpl});
   const pointer = await readLatest(token, parent, {fetchImpl});
   if (!pointer) {
@@ -584,9 +601,13 @@ export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fe
     throw new DriveError(
       `That backup was written in bundle format ${format} and this device ` +
       `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
-      "again.", null, "wrong-format");
+      `again.${tail}`, null, "wrong-format");
   }
+  return pointer;
+}
 
+export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fetch} = {}) {
+  const pointer = await readableLatest(token, {reads, fetchImpl});
   const held = await metadata(token, pointer.file_id, {fetchImpl});
   if (held.size === 0) {
     throw new DriveError(
@@ -608,25 +629,8 @@ export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fe
 export async function fetchLatest(token, {
   reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
 } = {}) {
-  const parent = await folderId(token, {fetchImpl});
-  const pointer = await readLatest(token, parent, {fetchImpl});
-  if (!pointer) {
-    throw new DriveError(
-      "No backup has been uploaded from any device yet.", null, "no-backup");
-  }
-
-  // A BACKUP FROM A NEWER ENGINE IS REFUSED, WITH THE REMEDY IN THE SENTENCE.
-  // Carried over from the module this replaces, which had it right and is the
-  // only reason it is here: the format number exists so that a machine running
-  // last month's engine says "update me" instead of opening an archive it does
-  // not understand and reporting whatever it manages to read as the warehouse.
-  const format = pointer.bundle_format;
-  if (format !== undefined && format !== null && format !== reads) {
-    throw new DriveError(
-      `That backup was written in bundle format ${format} and this device ` +
-      `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
-      "again. Nothing was restored.", null, "wrong-format");
-  }
+  const pointer = await readableLatest(
+    token, {reads, tail: " Nothing was restored.", fetchImpl});
   const archive = await download(token, pointer.file_id, {onProgress, fetchImpl});
   // `typeof`, NOT `pointer.bytes &&`. The truthiness version read a pointer
   // saying `bytes: 0` as "no size recorded, nothing to compare" and returned an

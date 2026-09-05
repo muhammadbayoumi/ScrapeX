@@ -17,7 +17,7 @@ import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
 import {
-  backUp, fetchLatest, fetchPanelPack,
+  backUp, blobSource, fetchLatest, fetchPanelPack,
   FOLDER_NAME, KEEP, folderId, listing, readLatest, verifyLatest,
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
@@ -6260,7 +6260,21 @@ async function backUpToDrive(token) {
   // Blob is what came back empty on 2026-09-03. Its size is read from the
   // engine's own Content-Range rather than from the manifest, so the guard that
   // compares the two still has two different facts to compare.
-  const archive = await sourceFor("/api/bundle/archive");
+  // AND AN ENGINE THAT CANNOT SERVE RANGES STILL GETS A BACKUP. `ui` asks only
+  // for `fastapi>=0.110` (pyproject.toml:39) with no ceiling and no Starlette
+  // floor, so a resolver-constrained install can produce an engine whose
+  // FileResponse ignores Range and answers 200 with the whole body. Without this
+  // branch such a machine could not back up AT ALL -- not even a small warehouse
+  // the whole-blob read handled fine before -- and it would find out only after
+  // waiting out the build. Holding it whole is the old failure at 541 MB, which
+  // is why it is the fallback and not the default; refusing every size is worse.
+  let archive;
+  try {
+    archive = await sourceFor("/api/bundle/archive");
+  } catch (error) {
+    if (error?.kind !== "no-range") throw error;
+    archive = blobSource(await bytes("/api/bundle/archive"));
+  }
   // The 4 MB a browser can read on its own, carried beside the 36 MB archive
   // only an engine can open. Fetched here rather than inside drive.js: that
   // module talks to Google and nothing else, and giving it a second opinion

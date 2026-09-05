@@ -111,11 +111,20 @@ const DESTINATION_DATA_PATH =
 /**
  * Every guarantee a request to the engine gets, and nothing about the body.
  *
- * EXTRACTED BECAUSE TWO CALLERS HAD NONE OF THEM. `extension/app.js` read the
- * Drive bundle's archive and panel-pack with a BARE `fetch(...).blob()` — no
- * status check, no deadline, no abort signal — because `api()` ends in
- * `res.json()` and a zip is not JSON. So the one request in the product that
- * moves half a gigabyte was the one request with no bound and no error report.
+ * EXTRACTED BECAUSE TWO CALLERS THREW THE STATUS AWAY. `extension/app.js` read
+ * the Drive bundle's archive and panel-pack with a BARE `fetch(...).blob()`,
+ * because `api()` ends in `res.json()` and a zip is not JSON. So the one request
+ * in the product that moves half a gigabyte was the one request that could not
+ * report why it failed.
+ *
+ * AND THE DEADLINE WAS NEVER THE MISSING PART — that was said here and it was
+ * wrong. `window.fetch` is overridden above, and `localApiPath` matches any URL
+ * under the active backend beginning `/api/`, so those bare calls already ran
+ * through `fetchWithDeadline` with `deadlineForLocalRequest` and both abort
+ * signals. What they lacked was the STATUS CHECK and the detail that comes with
+ * it. Naming the wrong absence sends the next reader to the wrong layer: the
+ * override is load-bearing for anything that calls `fetch` directly, and someone
+ * told it does nothing for `/api/` is free to delete it.
  *
  * MEASURED ON HIS MACHINE, 2026-09-03: the engine built
  * `scrapex-bundle-20260903-131501.zip` at 541,531,989 bytes, the file was
@@ -177,13 +186,16 @@ export async function bytes(path, options = {}) {
  * to be ordinary rather than fatal.
  *
  * THEY WERE BARE FETCHES, AND THAT WAS THE WRONG READING OF WHY. They did not need
- * to escape the request path — they needed a different verdict at the end of it. So
- * they get the deadline and the page's abort signal, which they had NEVER had: a
- * restart poll with no deadline is a poll that can hang for as long as the browser
- * allows, on the one screen where a person is already waiting.
+ * to escape the request path — they needed a different verdict at the end of it.
+ * The deadline and the abort signals they already had, from the `window.fetch`
+ * override above; what they were missing is a way to say "a 404 here is an
+ * answer, not a failure". Routing them through `request()` moves that guarantee
+ * from an implicit seam to an explicit one that a test can see.
  *
- * `throwOnHttpError` is false here and nowhere else, so a reader can see in one
- * line which callers own their own status handling.
+ * `throwOnHttpError: false` is passed here, and by `sourceFor` and `range` — for
+ * which a 206 is the SUCCESS case, not an error. What is pinned is the LOCATION,
+ * not the count: the opt-out exists in this file and no call site outside it may
+ * pass one, which is what the guard on it actually checks.
  */
 export async function raw(path, options = {}) {
   return request(path, {...options, throwOnHttpError: false});
@@ -229,9 +241,15 @@ export async function sourceFor(path) {
     headers: {Range: "bytes=0-0"}, throwOnHttpError: false,
   });
   if (res.status !== 206) {
+    // A 200 here means the WHOLE archive is already on its way. Drop the body
+    // rather than read it: materialising half a gigabyte is the exact failure
+    // this function exists to avoid, and the caller has a whole-blob path for
+    // engines that cannot serve ranges.
+    await res.body?.cancel().catch(() => {});
     throw Object.assign(new Error(
       `The engine answered ${res.status} instead of serving a byte range, so the `
-      + "archive cannot be uploaded a chunk at a time."), {status: res.status});
+      + "archive cannot be uploaded a chunk at a time."),
+      {status: res.status, kind: "no-range"});
   }
   const stated = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
   if (!stated) {
@@ -239,20 +257,64 @@ export async function sourceFor(path) {
       "The engine served a byte range without saying how long the file is, so "
       + "there is nothing to check the manifest against.");
   }
-  return {size: Number(stated[1]), chunk: (start, end) => range(path, start, end)};
+  const size = Number(stated[1]);
+  // PIN THE REPRESENTATION FOR THE WHOLE UPLOAD.
+  //
+  // `/api/bundle/archive` re-resolves "the newest zip on disk" on EVERY request
+  // (scrapex/webui/app.py:3253), and 541,531,989 bytes is ~130 requests spread
+  // over minutes. A second panel window -- side panels are per window, so that
+  // is a second document -- taking a backup mid-upload finishes a new build, and
+  // every chunk after it comes from a DIFFERENT file. The length guard below
+  // cannot see that: if the new archive is longer, each chunk is still exactly
+  // the size asked for, the total still matches, and the check button then
+  // reports a spliced archive as complete.
+  //
+  // The engine already hands us what closes it. Measured against the live engine
+  // on 2026-09-05, the one-byte probe answers:
+  //     ETag: "c9d60b0b9a6ebd8b8d6e89b2612898fd"
+  //     Content-Range: bytes 0-0/541531989
+  // Starlette's FileResponse._should_use_range compares If-Range against the etag
+  // OR the last-modified and answers 200 with the whole body when neither still
+  // matches -- which `range` turns into a named, loud failure.
+  const validator = res.headers.get("etag") || res.headers.get("last-modified");
+  return {
+    size,
+    chunk: (start, end) => range(path, start, end, {total: size, validator}),
+  };
 }
 
 
-export async function range(path, start, end) {
+export async function range(path, start, end, {total = null, validator = null} = {}) {
   const wanted = end - start;
-  const res = await request(path, {
-    headers: {Range: `bytes=${start}-${end - 1}`},
-    throwOnHttpError: false,
-  });
+  const headers = {Range: `bytes=${start}-${end - 1}`};
+  // If-Range is what makes a swapped file ANSWERABLE. Without it the engine
+  // happily serves byte 40,000,000 of whatever archive is newest now, and this
+  // side has no way to tell that from byte 40,000,000 of the one it started on.
+  if (validator) headers["If-Range"] = validator;
+  const res = await request(path, {headers, throwOnHttpError: false});
   if (res.status !== 206 && res.status !== 200) {
     throw Object.assign(
       new Error(`The engine answered ${res.status} for bytes ${start}-${end - 1}.`),
       {status: res.status, kind: "http"});
+  }
+  if (validator && res.status === 200) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error(
+      "The archive on the engine changed while it was being uploaded, so the copy "
+      + "in Drive would be part of one backup and part of another. Nothing was "
+      + "finished. Take the backup again, and let it run on its own."),
+      {kind: "changed-under-upload"});
+  }
+  // The total on every 206 costs nothing and is INDEPENDENT of the length asked
+  // for, so it catches a swap that If-Range could not -- an engine that does not
+  // send validators, or one whose etag survives a rebuild.
+  const said = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
+  if (total !== null && said && Number(said[1]) !== total) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error(
+      `The archive was ${total} bytes when this upload started and the engine now `
+      + `says it is ${said[1]}, so it was rebuilt underneath. Nothing was `
+      + "finished. Take the backup again."), {kind: "changed-under-upload"});
   }
   const chunk = await res.blob();
   if (chunk.size !== wanted) {

@@ -59,17 +59,28 @@ def _sources() -> list[pathlib.Path]:
 
 def test_no_module_but_the_request_path_fetches_the_engine():
     """The defect this closes, stated as a rule: a request to the engine that does
-    not go through `backend.js` has no status check, no deadline and no abort."""
+    not go through `backend.js` throws its status away, and reports a failure it
+    cannot describe. The deadline and the aborts come from the `window.fetch`
+    override in the same file and were never the missing part -- saying they were
+    sent an earlier reading of this to the wrong layer."""
     offenders = []
     for path in _sources():
         text = path.read_text(encoding="utf-8")
+        # PER FILE, NOT PER 200 CHARACTERS. This read a window either side of
+        # the `fetch(` and claimed, in its own comment, to catch the call
+        # "however the URL is spelled" -- which a window cannot do: assign the
+        # base 250 characters earlier, or build the URL in a helper, and it sees
+        # nothing. The rule that holds is about the MODULE: one that knows the
+        # engine's address does not also call `fetch` itself. Measured when this
+        # replaced the window: ZERO modules newly offend, so the wider net costs
+        # nothing today and closes the spellings a window never covered. A module
+        # that genuinely fetches something else belongs in NOT_THE_ENGINE, which
+        # already reasons per file and is checked by the test below.
+        if "backendBase" not in text and "backend +" not in text:
+            continue
         for match in _FETCH.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            window = text[max(0, match.start() - 200):match.start() + 200]
-            # `backendBase()` is the engine's address, so a fetch near it is a
-            # request to the engine however the URL is spelled.
-            if "backendBase" in window or "backend +" in window:
-                offenders.append(f"{path.name}:{line}")
+            line = text.count(chr(10), 0, match.start()) + 1
+            offenders.append(f"{path.name}:{line}")
     assert not offenders, (
         "these fetch the engine directly, outside the one function that checks the "
         f"status, applies the deadline and attaches the abort signal: {offenders}. "
@@ -126,8 +137,23 @@ def test_the_request_path_still_carries_all_three_guarantees():
     # for a real reason: a 206 is the SUCCESS case for a byte range, and `api()`
     # would have to be told that. The rule was pinned to a count when what it
     # means is a location, and the count is what changed.
-    assert text.count("throwOnHttpError: false") >= 1, (
-        "the status opt-out is gone, so `range()` cannot treat a 206 as success")
+    # A COUNT CANNOT SEE WHICH FUNCTION LOST IT. `>= 1` was satisfied by
+    # `sourceFor` and `range` between them, so `raw()` could stop opting out --
+    # and start throwing on the 404 that means "this engine is too old" -- with
+    # this line still green. Each function that owns its own status is named, and
+    # the assertion is made against ITS OWN body.
+    for owner, why in (
+        ("raw", "a 404 from /api/native/status means 'this engine is too old', "
+                "not a failure, and the restart poll needs a refusal to be "
+                "ordinary rather than fatal"),
+        ("sourceFor", "a 206 is the SUCCESS case for a byte range"),
+        ("range", "a 206 is the SUCCESS case for a byte range"),
+    ):
+        start = text.find(f"export async function {owner}(")
+        assert start != -1, f"`{owner}()` is gone from backend.js"
+        body = text[start:text.find(chr(10) + "export ", start + 1)]
+        assert "throwOnHttpError: false" in body, (
+            f"`{owner}()` no longer owns its own status handling, and {why}")
     for source in _sources():
         assert "throwOnHttpError" not in source.read_text(encoding="utf-8"), (
             f"{source.name} passes the status opt-out directly instead of calling "
@@ -142,8 +168,23 @@ def test_the_archive_is_read_through_it():
         "the Drive backup no longer reads the archive through the request path. It "
         "must be a SOURCE and not `bytes()`: holding 541,531,989 bytes in one Blob "
         "is what came back empty on his machine, and `bytes()` holds a whole body")
-    assert 'await bytes("/api/bundle/archive")' not in app, (
-        "the archive is buffered whole again")
+    # NOT "never buffer it whole" -- that was the rule as a LITERAL, and a
+    # correct change broke it. The knowledge is that the DEFAULT path streams,
+    # and a whole-body read of the archive is allowed only where an engine that
+    # will not serve byte ranges leaves no other way to back up at all. Pinned as
+    # an ordering and a betweenness rather than a fixed window, because a window
+    # is a count in disguise and counts are what keep going stale here.
+    whole = app.find('await bytes("/api/bundle/archive")')
+    if whole != -1:
+        streamed = app.find('await sourceFor("/api/bundle/archive")')
+        assert streamed != -1 and streamed < whole, (
+            "app.js reads the archive whole BEFORE it tries to stream it, so the "
+            "541,531,989-byte Blob that came back empty on 2026-09-03 is the "
+            "default path again rather than a fallback")
+        assert '"no-range"' in app[streamed:whole], (
+            "app.js reads the archive whole without first proving the engine "
+            "refused a byte range. The whole-body read exists ONLY for an engine "
+            "that cannot serve ranges; anywhere else it is the original defect")
     assert 'await bytes("/api/bundle/panel-pack")' in app, (
         "the panel-pack no longer reads through the request path")
     assert "fetch(base + " not in app, (
