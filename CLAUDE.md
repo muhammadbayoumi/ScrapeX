@@ -42,19 +42,22 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 
 - **He works only from the extension panel — never a terminal.** A `scrapex ...` command
   is not an answer to him, and a capability with no control in the panel has no control.
-- **A capability is a contract; apps implement it.** The panel is the operating system —
-  the only surface, and the one that chooses. The engine is the **host** where apps
-  execute, and ours — the crawler, `scrapex/enrichment/` — is the first app in it. An
-  open-source project that does the same job its own way is installed **beside** ours,
-  never instead of it, and installing one never pauses ours: ours grows where the external
-  ones do not serve. Choose per run by measured performance, not by who wrote it. Dropping
-  an app must cost no more than adding one. The registries live in the engine and the panel
-  reads them: `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
-- **The host is never one of the apps.** The engine cannot be dropped the way an app can:
-  nothing executes without it and nothing writes the warehouse but it. Measured in
-  `spikes/opfs-sqlite/FINDINGS.md` — an MV3 service worker cannot write the warehouse, OPFS
-  loses WAL, and its access handle is exclusive with no queue, so nothing else may hold the
-  file while the engine has it. **Reading is a different question and it passes.**
+- **The panel is the operating system; everything else is an app, the engine included.**
+  It is the only surface, it chooses which app runs a job, and it starts them —
+  `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
+  launches nothing. Every app is started that same way, through the one native host, so no
+  app depends on another and dropping one costs nothing.
+- **An app brings its own way of working, and holds only the permissions it needs.**
+  Adding a project like Scrapy is worth it for its own network path and concurrency, not to
+  be wrapped in ours; ours grows where the external ones do not serve and neither pauses
+  the other. Choose per run by measured performance, not by authorship. More permission
+  than an app needs is a defect to fix, not a status to keep. Registries:
+  `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
+- **The warehouse write permission is exclusive, and the panel cannot hold it.** One writer
+  at a time, whichever app it is. Not a privilege — a measurement: the warehouse is WAL, no
+  OPFS VFS implements `xShmMap`, and a browser reads it minus every transaction still in
+  the WAL, silently (`spikes/opfs-sqlite/FINDINGS.md`). Reading a copy is a different
+  question and it passes.
 - **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
   reviews it and says what he wants.
 - **A button that cannot work is worse than no button.** If the route 404s, do not draw
@@ -123,12 +126,11 @@ numbers. **No new `R-`/`REQ-`/`OP-` number is issued** — GitHub assigns the nu
 
 ## Two traps that cost an afternoon each
 
-**Several live checkouts, and both imports and edits default to the main one.**
-`C:\Users\User01\source\repos\ScrapeX` is the main checkout;
-`...\ScrapeX\.claude\worktrees\<name>` are full checkouts too, and `scrapex` is
-pip-installed editable against main. Derive every path from the worktree root, and in a
-scratch script assert on a **symbol you just added** — `__file__` catches a misdirected
-import, never a misdirected edit.
+**Several live checkouts, and both imports and edits default to the main one.** `scrapex`
+is pip-installed editable against `C:\Users\User01\source\repos\ScrapeX`, and the worktrees
+under `.claude\worktrees\` are full checkouts too. Derive every path from the worktree
+root, and in a scratch script assert on a **symbol you just added** — `__file__` catches a
+misdirected import, never a misdirected edit.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
@@ -137,16 +139,12 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
 
 **Keep improving it — every session.** But growth here means *sharper*, not *longer*.
 
-- **A rule earns its place by changing what a session does.** If it does not change an
-  action, it does not belong.
-- **Write it as an instruction, not a story.** One clear, specific, unambiguous line.
-  No dates, no quotes, no incident reports, no justification prose — the reason lives in
-  the PR that added the rule.
-- **Add by replacing.** Before adding a line, delete one that stopped being true.
-- **If it belongs beside a line of code, put it there** — a comment, a test name, an
-  issue. Not here.
-- **Something already covered gets merged into the existing rule**, not repeated.
+- **A rule earns its place by changing what a session does.** If it changes no action, it
+  does not belong; if it belongs beside a line of code, put it there instead.
+- **Write it as an instruction, not a story.** One clear, unambiguous line. No dates, no
+  quotes, no incident reports — the reason lives in the PR that added the rule.
+- **Add by replacing.** Before adding a line, delete one that stopped being true, and
+  merge into an existing rule rather than repeating it.
 
-This file is read by a session before every task, so every wasted line is paid for on
-every read. Aim to keep it under 150 lines. Shorter and clearer is always the better
-version.
+Every session reads this before every task, so a wasted line is paid for on every read.
+Keep it under 150.
