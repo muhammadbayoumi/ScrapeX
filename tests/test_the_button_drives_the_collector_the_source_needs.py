@@ -1145,3 +1145,28 @@ def test_the_shipped_width_has_one_home_and_is_more_than_one():
         f"the shipped width is {shipped}. At 1 the panel's crawl is single-threaded "
         "again and `--workers` is reachable only from a terminal he does not use "
         "(`R-81`); above the ceiling the crawl clamps it and the setting lies")
+
+
+def test_the_pool_opens_the_jobs_own_warehouse(conn, monkeypatch):
+    """THE CLAIM `a_connection` MAKES, HELD UP.
+
+    `contractors.py` builds its worker factory from `DatabaseRegistry.defaults()`, which
+    is right for a command line and wrong here: a job running against a second warehouse
+    -- a test's, or a restored one -- would have its cells crawled into the default file
+    instead. The runner asks the job's own connection where it is, and this is the only
+    thing that says so. Without it the docstring is the only evidence, and a docstring is
+    not evidence.
+    """
+    opened: list[str] = []
+    real = directoryjob.dbmod.connect
+    monkeypatch.setattr(directoryjob.dbmod, "connect",
+                        lambda path, *a, **k: (opened.append(str(path)), real(path))[1])
+
+    _job_ref, found, _partition = _run_it_threaded(conn, monkeypatch, cells=2)
+
+    assert found["status"] == JobStatus.COMPLETED.value, found
+    assert opened, "no worker connection was opened at all, so this asserts nothing"
+    here = conn.execute("PRAGMA database_list").fetchone()[2]
+    assert set(opened) == {here}, (
+        "a worker opened a database that is not the one the job is running against: "
+        f"{sorted(set(opened))} rather than {here!r}")

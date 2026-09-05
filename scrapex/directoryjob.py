@@ -87,10 +87,16 @@ def workers_for(conn: sqlite3.Connection) -> int:
     from . import settings
 
     spec = settings.SETTINGS.get(WORKERS_SETTING)
-    # ONE IF THE KEY IS GONE, which is a build that deleted the setting rather than a
-    # database that never had it -- so the safe reading is the old behaviour, not a
-    # concurrency nothing declared.
-    shipped = int(spec.default) if spec is not None else 1
+    try:
+        # ONE IF THE KEY IS GONE, which is a build that deleted the setting rather than
+        # a database that never had it -- so the safe reading is the old behaviour, not
+        # a concurrency nothing declared. And one if the catalogue holds a value that is
+        # not a number, because the sentence above is about ANY bad value: parsing the
+        # shipped default outside this guard would let a typo in our own literal kill
+        # every directory crawl at start-up.
+        shipped = int(spec.default) if spec is not None else 1
+    except (TypeError, ValueError):
+        shipped = 1
     try:
         asked = settings.get(conn, WORKERS_SETTING)
     except (sqlite3.DatabaseError, settings.UnknownSettingError):

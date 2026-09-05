@@ -791,6 +791,16 @@ const CRAWL_KEYS = ["crawl_honour_delay", "crawl_min_interval_s",
 // rather than accepting a number and silently ignoring it.
 const MAX_PARALLEL_SOURCES = 8;
 
+// A SEPARATE CEILING FOR A SEPARATE AXIS, and equal to it only by coincidence today.
+// That one bounds how many SITES a wave crawls; this one bounds how many CELLS of one
+// directory a single crawl reads at once (directoryjob.MAX_WORKERS). They would move
+// for different reasons -- one is politeness across sites, the other is writer
+// contention inside one warehouse (issue 367) -- so sharing a constant would make a
+// change to either silently move the other. The issue number is written without its
+// hash on purpose: 367 is three valid hex digits and the colour-literal guard reads
+// it as one.
+const MAX_DIRECTORY_WORKERS = 8;
+
 function crawlPaceEffect() {
   // What the choice MEANS, in the units the owner thinks in. A checkbox that
   // silently decides whether a crawl takes one hour or eleven should say so.
@@ -858,7 +868,7 @@ async function saveCrawlSettings() {
       crawl_min_interval_s: String(interval),
       directory_crawl_workers: String(Math.min(
         Math.max(parseInt($("directory_crawl_workers").value, 10) || 1, 1),
-        MAX_PARALLEL_SOURCES)),
+        MAX_DIRECTORY_WORKERS)),
       crawl_parallel_sources: String(Math.min(
         Math.max(parseInt($("crawl_parallel_sources").value, 10) || 1, 1),
         MAX_PARALLEL_SOURCES)),
