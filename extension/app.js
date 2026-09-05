@@ -3572,8 +3572,183 @@ function engineReleaseVerdict(installed, latest) {
   }
 }
 
-function updateEngineReleaseUI(latest) {
+// THE ENGINE'S OWN ANSWER ABOUT ITS OWN UPDATE, and the reason this exists at
+// all. `create_update_router` has been mounted, tested and complete since PR 246
+// -- written without a leading hash because the colour-literal guard reads a
+// hash and three hex digits as a colour value, and a bare pull-request number is
+// exactly that shape --
+// and NOTHING HAS EVER CALLED IT -- `git log -S "api/update"` over extension/
+// returns no commit in the whole history. So the note beside the checksum
+// claimed the engine downloaded and verified its updates while the only thing
+// that could start it was a request nobody made (`OP-124`). This is the caller
+// he asked for: «ابن نادى للمحدث» (`REQ-55`).
+//
+// ONE ANSWER PER STATE, NOT TWO ANSWERS WITH A TIEBREAK. The panel keeps its own
+// manifest fetch (`latestEngineRelease`) because `renderEngines` runs it with no
+// engine at all -- the first-install case, where there is nothing to ask, and
+// which is why `update_api` reports the installer URL "so the panel can still
+// hand the file to chrome.downloads for a FIRST install". So: engine up, the
+// engine decides and only it can say `can_self_update` or a phase; engine down,
+// the panel's fetch is the only answer available. Deleting the panel's half
+// would have removed the answer for the case that has no engine.
+// NORMALISED ONCE, HERE, AND THE FIRST VERSION OF THIS DID NOT. The engine nests
+// the phase, the progress and the failure detail under `progress_state`, and names
+// the refusal reason `self_update_blocked_because`. The readers below were written
+// against `report.phase`, `report.progress` and `report.detail` -- three keys that
+// are not at the top level -- so every phase sentence was empty, the poll exited on
+// its first iteration, and the two opposite refusal causes collapsed into one
+// generic line. Five panel tests were green throughout, because their fixture was
+// a COPY of the shape that had drifted from it.
+//
+// So the flatten happens where the response arrives and nowhere else. Reading the
+// nested block at each call site is how the copies diverge in the first place, and
+// `tests/test_the_panel_reads_the_keys_the_updater_sends.py` asserts this
+// agreement against the real router rather than against a fixture.
+//
+// `blocked` KEEPS ITS OWN NAME rather than being mapped onto `detail`: a reason an
+// update CANNOT START and a reason one FAILED are different facts, and a reader
+// that cannot tell them apart is the defect one level down.
+async function engineUpdateState() {
+  try {
+    const body = await api("/api/update");
+    if (!body || typeof body !== "object") return null;
+    return {
+      ...body,
+      ...(body.progress_state || {}),
+      blocked: body.self_update_blocked_because || "",
+    };
+  } catch (_) {
+    // A poll that cannot reach the engine is not an error to report: the engine
+    // he has keeps working and there is nothing here for him to fix.
+    return null;
+  }
+}
+
+//: EVERY REFUSAL THE ENGINE CAN GIVE, AS A SENTENCE. `can_self_update` is false
+//: for reasons that are opposite in what they ask of him -- a source checkout is
+//: not a fault at all, a release with no digest is the publisher's, and an
+//: engine already current needs nothing -- and `update_api` keeps the flag
+//: separate from `update_available` with a comment saying the panel "must be
+//: able to say WHICH". A bare "no update available" is the same words for all of
+//: them, so the reason is rendered and the boolean never is.
+function engineUpdateSentence(report) {
+  if (!report) return "";
+  const phase = report.phase || "idle";
+  const pct = report.progress && typeof report.progress.percent === "number"
+    ? report.progress.percent : null;
+  if (phase === "downloading") {
+    return pct === null
+      ? "The engine is downloading the update."
+      : `The engine is downloading the update — ${pct}%.`;
+  }
+  if (phase === "staged") {
+    return "Downloaded and checked against its published digest. Replacing the "
+      + "running engine with it is still a step you take.";
+  }
+  if (phase === "failed") {
+    return report.detail || "The last update attempt failed.";
+  }
+  if (!report.update_available) {
+    const latest = report.latest || {};
+    if (latest.state && latest.state !== "ok") return latest.detail || "";
+    return `${report.installed} is the published version.`;
+  }
+  if (!report.can_self_update) {
+    // THE ENGINE'S OWN SENTENCE, NEVER ONE ASSEMBLED HERE, and this is the whole
+    // reason `self_update_blocked_because` exists as a separate field:
+    // `update_api` says the panel "must be able to say WHICH", because the two
+    // causes ask opposite things of him. A source checkout is not a fault and its
+    // remedy is git; a release with no digest is the publisher's and there is
+    // nothing for him to do. The first version of this printed ONE generic line
+    // for both, which is the distinction the feature was built to make, lost in
+    // the reader.
+    if (report.blocked) return report.blocked;
+    // Only if the engine declined to say. `latest.installer === null` is the one
+    // cause it does not put a sentence to.
+    const latest = report.latest || {};
+    if (latest.installer === null || latest.installer === undefined) {
+      return "That release attaches no installer, so there is nothing for the "
+        + "engine to fetch.";
+    }
+    return "This engine cannot replace itself, so the update has to be installed "
+      + "by hand.";
+  }
+  return "";
+}
+
+// PRESSING IT. The engine answers immediately with `started` and does the work
+// on its own thread, so this does not wait for a download -- it asks, reports
+// what the engine said about the asking, and then polls the same report the
+// renderer already reads. A refusal comes back NAMED (`already running`, `no
+// release`, `already the published version`, `no installer attached`), which is
+// why the reason is shown rather than a status code: `OP-126` is the row about a
+// guard that accepted any 4xx and so recorded a reason it never measured.
+async function startEngineUpdate() {
+  const button = $("engine-download");
+  const line = $("engine-update-state");
+  button.disabled = true;
+  line.textContent = "Asking the engine to fetch it…";
+  line.classList.remove("hidden");
+  let answer;
+  try {
+    answer = await post("/api/update", {});
+  } catch (err) {
+    line.textContent = err && err.message
+      ? `The engine refused: ${err.message}`
+      : "The engine could not be reached.";
+    button.disabled = false;
+    return;
+  }
+  if (answer && answer.started === false) {
+    // NOT AN ERROR AND NOT A SUCCESS. The engine declined for a reason it named,
+    // and the button must come back so he can act on the reason.
+    line.textContent = answer.detail || "The engine declined to start an update.";
+    button.disabled = false;
+    return;
+  }
+  await pollEngineUpdate();
+}
+
+// POLLED, NOT PUSHED, and the interval is the engine's own choosing rather than
+// a guess: `GET /api/update` documents itself as safe to poll -- a few hundred
+// bytes with a four-second timeout, touching no installer. It stops on every
+// terminal phase, and on a report it cannot get, so a lost engine mid-download
+// does not leave a timer running for the life of the panel.
+async function pollEngineUpdate() {
+  const line = $("engine-update-state");
+  for (let attempt = 0; attempt < ENGINE_UPDATE_POLL_ATTEMPTS; attempt += 1) {
+    const report = await engineUpdateState();
+    if (!report) {
+      line.textContent = "The engine stopped answering while the update was "
+        + "running. Its own log is the record of what happened.";
+      $("engine-download").disabled = false;
+      return;
+    }
+    const sentence = engineUpdateSentence(report);
+    line.textContent = sentence;
+    line.classList.toggle("hidden", !sentence);
+    if (report.phase !== "downloading") {
+      // Re-render so the version, the verdict and the button all come from the
+      // report that has just settled rather than from the one before it.
+      await renderEngines();
+      return;
+    }
+    await new Promise((done) => setTimeout(done, ENGINE_UPDATE_POLL_MS));
+  }
+  line.textContent = "The engine is still downloading. Reopen this screen to "
+    + "see where it got to.";
+}
+
+async function updateEngineReleaseUI(latest) {
   const installed = state.engineVersion || "";
+  // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
+  // `null` default, and the default was the defect: `refreshEngines` -- the
+  // "Check again" button -- called the renderer without it, so pressing the one
+  // control named for re-checking was the one path that never asked the engine
+  // about its update. Two call sites, one of them wired. That is `R-80` inside
+  // a single function: the decision lives in one place, so there is nowhere to
+  // forget it.
+  const report = state.engineUp ? await engineUpdateState() : null;
 
   $("engine-latest-version").textContent =
     latest.state === "ok" ? latest.version
@@ -3610,6 +3785,38 @@ function updateEngineReleaseUI(latest) {
     installed && latest.state === "ok" && verdict === "Update available"
       ? `Update to ${latest.version}`
       : "Download engine";
+
+  // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
+  // no line rather than an empty paragraph -- the same idiom as the verdict
+  // badge above.
+  // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW, the same guard the
+  // install steps below already carry and for the same measured reason: this
+  // renderer runs after two awaits, so it can land after the reader has opened a
+  // CANDIDATE's detail screen -- and `#view-engine-detail` is shared by all seven
+  // engines, so an unguarded un-hide paints ScrapeX's update sentence onto
+  // Scrapy's page.
+  const line = $("engine-update-state");
+  const sentence = theInstalledEngineIsOnScreen() ? engineUpdateSentence(report) : "";
+  line.textContent = sentence;
+  line.classList.toggle("hidden", !sentence);
+
+  // AND THE PRIMARY ACTION BECOMES THE ENGINE'S WHEN THE ENGINE CAN TAKE IT.
+  // `chrome.downloads` remains the first install and only the first (`R-36`):
+  // the panel can never be the installer. When the engine reports it can update
+  // itself, the button hands the work over instead -- which is the difference
+  // between a file in his Downloads folder and a file the engine has already
+  // checked against the published digest.
+  const engineCanTakeIt = Boolean(report && report.can_self_update);
+  const busy = Boolean(report && report.phase === "downloading");
+  if (engineCanTakeIt || busy) {
+    $("engine-download-label").textContent = busy
+      ? "Downloading…"
+      : `Download and check ${latest.state === "ok" ? latest.version : "the update"}`;
+    download.disabled = busy;
+    download.onclick = busy ? null : startEngineUpdate;
+    steps.classList.add("hidden");
+    return;
+  }
 
   download.disabled = !installer;
   // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW. This renderer is
@@ -3792,6 +3999,12 @@ function renderEngineDetail(id) {
   // screen, which is the one place the page promises nothing to press.
   if (!installed) $("engine-restart-note").classList.add("hidden");
   if (!installed) $("engine-install-steps").classList.add("hidden");
+  // AND THE UPDATE SENTENCE, for exactly the reason above and found the same way.
+  // It was added as a sibling of `#engine-detail-actions` and not to this list, so
+  // opening ScrapeX Engine, going back, and opening a candidate left ScrapeX's
+  // update sentence on the candidate's screen. No race is needed for it; the
+  // comment above was written about the restart note and applies here unchanged.
+  if (!installed) $("engine-update-state").classList.add("hidden");
 
   const banner = $("engine-state-banner");
   if (installed) {
@@ -3824,7 +4037,12 @@ async function renderEngines() {
   if (!latestRelease) {
     latestRelease = await latestEngineRelease();
   }
-  updateEngineReleaseUI(latestRelease);
+  // THE ENGINE FIRST WHEN IT IS THERE. Its report carries two things the panel
+  // cannot compute -- whether this build could replace itself, and what phase an
+  // update already in flight has reached -- so it is asked whenever it can
+  // answer. `null` when it cannot leaves the panel's own fetch as the whole
+  // answer, which is the engine-down case (`REQ-55`).
+  await updateEngineReleaseUI(latestRelease);
 }
 
 async function refreshEngines() {
@@ -3845,7 +4063,7 @@ async function refreshEngines() {
 
     latestRelease = null;
     const latest = await latestEngineRelease();
-    updateEngineReleaseUI(latest);
+    await updateEngineReleaseUI(latest);
   } finally {
     // Both in the same synchronous step, deliberately: a reader who sees the
     // region stop being busy must find the button that ends it enabled, not
@@ -5844,6 +6062,23 @@ async function render() {
 // 125 rather than 122 leaves the ceiling above the engine's own, so the engine
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
+
+// THE UPDATE POLL, BOUNDED BY THE ENGINE'S OWN NUMBER AND NOT BY A GUESS.
+// `scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
+// words -- "~70 MB over somebody's home connection, and failing a real download
+// at four minutes would be worse than waiting". At three seconds an attempt,
+// 310 attempts is 930 s: ABOVE the engine's 900, so the engine is always the
+// side that gives up first and can say why. That is `R-48` rule 2, and it is
+// the same arithmetic as `RESTART_CONFIRM_ATTEMPTS` above -- 125 over the
+// engine's 122.
+//
+// AND RUNNING OUT IS NOT A FAILURE HERE. The panel stops WATCHING; the engine
+// keeps downloading on its own thread. So the sentence at the end says where to
+// look rather than announcing a failure that has not happened -- which is the
+// defect `OP-116` was: sixty attempts exhausted and "the engine has not come
+// back" about an engine that had.
+const ENGINE_UPDATE_POLL_MS = 3000;
+const ENGINE_UPDATE_POLL_ATTEMPTS = 310;
 
 const ENGINE_TOO_OLD =
   "This engine started before these actions existed, so it does not have them " +

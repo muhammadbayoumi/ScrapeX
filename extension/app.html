@@ -1640,11 +1640,10 @@
                  a terminal instruction, one layer up: a sentence the product
                  cannot honour. -->
             <p class="text-sm" id="engine-checksum-note">
-              This is the SHA-256 of the file you just downloaded. Nothing
-              checks it for you yet, so if you want it checked, compare it
-              against the number on the release page before you run the
-              installer. Updates are not fetched or installed for you: an
-              update means downloading the new engine here, the same way.
+              Compare this if you wish. The Engine downloads and checks its own
+              updates against this number, so a file whose digest does not match
+              is discarded rather than staged. Replacing the running engine with
+              a checked file is still a step you take.
             </p>
           </div>
         </details>
@@ -1653,6 +1652,14 @@
       <!-- PINNED, not scrolled: these are what the screen is for, and on a
            400x520 panel with Chrome's largest font they would otherwise sit
            below the fold. -->
+      <!-- WHAT THE ENGINE IS DOING ABOUT ITS OWN UPDATE, and why it cannot when
+           it cannot. `can_self_update` is false for two opposite reasons -- a
+           source checkout has no executable to replace, and a release with no
+           digest will not be trusted -- so this line carries the REASON the
+           engine gave and never a bare "no update available", which would be
+           the same sentence for a thing he can fix and a thing he cannot
+           (REQ-55). Hidden until the engine has answered. -->
+      <p class="muted text-xs hidden" id="engine-update-state"></p>
       <div class="engine-detail-actions" id="engine-detail-actions">
         <button class="engine-action-primary" id="engine-download" type="button" disabled>
           <svg class="sx-icon sm" aria-hidden="true">
