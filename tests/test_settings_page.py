@@ -87,13 +87,13 @@ def test_general_settings_offer_device_and_manual_appearance(client):
     assert 'data-appearance-scheme-mode="dark"' in body
     assert 'data-appearance-scheme-mode="device"' in body
     assert "data-appearance-palettes" in body
-    # R-84 deleted device colours, so the switch is gone from BOTH surfaces.
+    # R-85 deleted device colours, so the switch is gone from BOTH surfaces.
     # Asserted absent rather than dropped: markup that came back would mean a
     # deleted colour mode had returned without a ruling.
     assert "data-appearance-device-colors" not in body
     assert "Device colours" not in body
     assert "Follow Chrome" not in body
-    # The SCHEME still follows the operating system. R-84 removed the colour half
+    # The SCHEME still follows the operating system. R-85 removed the colour half
     # of "device", not the light/dark half, and the assertion above for
     # `data-appearance-scheme-mode="device"` is what keeps them distinct.
 
@@ -136,7 +136,7 @@ def test_a_legacy_palette_id_is_accepted_and_stored_under_its_real_name(client):
     canonicalised on the way in, so the warehouse ends up holding one name per
     palette instead of two spellings of the same one.
 
-    AND AFTER R-84 THERE IS ONLY ONE NAME TO CANONICALISE TO. «احذف الثلاثة وابق
+    AND AFTER R-85 THERE IS ONLY ONE NAME TO CANONICALISE TO. «احذف الثلاثة وابق
     supabase وحده», 2026-08-31: all four retired ids — `whatsapp`, `github`,
     `brand`, `blue` — resolve to `supabase` at this boundary. The route ACCEPTS
     them rather than refusing them, and that is deliberate: every appearance stored
@@ -157,7 +157,7 @@ def test_a_legacy_palette_id_is_accepted_and_stored_under_its_real_name(client):
     # And what is READ BACK is the canonical name, not the one that was sent.
     assert client.get("/api/appearance").json()["appearance"]["palette"] == "supabase"
 
-    # Every retired id, not just the two that were aliases before R-84. `brand` and
+    # Every retired id, not just the two that were aliases before R-85. `brand` and
     # `blue` were real registry keys until 2026-08-31 and are the names most stored
     # records written in the last week actually contain.
     for retired, stamp in (("github", 201), ("brand", 202), ("blue", 203)):

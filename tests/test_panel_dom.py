@@ -388,7 +388,7 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
 
 
 def test_appearance_is_a_complete_android_style_destination(open_panel):
-    """R-84 CUT THIS TEST IN HALF AND THE HALF THAT WENT IS WORTH NAMING.
+    """R-85 CUT THIS TEST IN HALF AND THE HALF THAT WENT IS WORTH NAMING.
 
     It used to drive four colour choices — brand, blue, supabase and a device
     switch — comparing body backgrounds between them to prove the axis reached the
@@ -421,7 +421,7 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert view.locator('[data-appearance-scheme-mode="device"]').get_attribute(
         "aria-pressed") == "true"
     assert view.locator("[data-appearance-group]").count() == 0
-    # THE SWITCH IS GONE, NOT MISSING. R-84 deleted device colours, so
+    # THE SWITCH IS GONE, NOT MISSING. R-85 deleted device colours, so
     # `[data-appearance-device-colors]` has no markup on either surface; asserting
     # its absence is what stops it coming back without a ruling.
     assert view.locator("[data-appearance-device-colors]").count() == 0
@@ -493,7 +493,7 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert page.locator("html").get_attribute("data-theme") is None
 
 
-# FIVE TESTS STOOD HERE AND R-84 DELETED WHAT THEY TESTED, 2026-08-31.
+# FIVE TESTS STOOD HERE AND R-85 DELETED WHAT THEY TESTED, 2026-08-31.
 #
 #   test_device_colours_are_legible_in_both_schemes  (2 cases)
 #   test_device_colours_reach_the_user_in_both_schemes
@@ -582,7 +582,7 @@ def _registered_palette_ids() -> list[str]:
     registry = source.split("const PALETTES = new Map([", 1)[1]
     registry = registry.split("const PALETTE_ALIASES", 1)[0]
     ids = re.findall(r'^\s{4}\["([a-z-]+)", \{', registry, re.M)
-    # THE FLOOR WAS `>= 3` AND THAT ENCODED A FACT R-84 DELETED. Three palettes
+    # THE FLOOR WAS `>= 3` AND THAT ENCODED A FACT R-85 DELETED. Three palettes
     # existed when this was written and the number was standing in for "the parser
     # still finds them"; on 2026-08-31 he ruled one colour choice — «احذف الثلاثة
     # وابق supabase وحده» — and a floor of 3 then failed collection for the whole
@@ -597,7 +597,7 @@ def _registered_palette_ids() -> list[str]:
         "parsed nothing from the registry; the shape of design/appearance.js "
         "changed and this guard is no longer covering any palette")
     assert "supabase" in ids, (
-        f"parsed {ids}; `supabase` is the baseline colour choice under R-84 and "
+        f"parsed {ids}; `supabase` is the baseline colour choice under R-85 and "
         "must always be registered")
     return ids
 
@@ -676,7 +676,7 @@ _TEXT_PAIRS = (
     # Supabase never puts warning text on its own warning-300 tint; its ink for a
     # warning fill is --warning-foreground. The old pair measured their value at
     # 2.677:1 and that number is what justified departing from it — a number for a
-    # pairing they do not render. Under R-84 the value is theirs and so is the
+    # pairing they do not render. Under R-85 the value is theirs and so is the
     # pairing, and it measures 6.923:1.
     ("amberInk", "amber"),
     ("red", "redWeak"),
@@ -694,7 +694,7 @@ _TEXT_PAIRS = (
 #: Non-text pairs and their own floors, which are lower on purpose: a border and a
 #: switch track carry meaning without carrying words.
 _SHAPE_PAIRS = (
-    # R-84 PUT TWO OF THESE BELOW THE FLOOR THEY ASK FOR, ON HIS RULING.
+    # R-85 PUT TWO OF THESE BELOW THE FLOOR THEY ASK FOR, ON HIS RULING.
     # «مطابق تماما» with «عدل اى قرار يتعارض مع هذا النظام», 2026-08-31: the floor
     # is one of the decisions that conflicts, and for these two positions it
     # yielded. They are NOT deleted — a deleted assertion is a number nobody can

@@ -53,7 +53,7 @@
   --surface-subtle: #f6f6f6;  /* --muted */
   --surface-raised: #ffffff;  /* --popover */
   --line: #e9e9e9;            /* --border */
-  /* R-84: THEIRS, AND IT DOES NOT CLEAR THIS REPOSITORY'S OWN FLOOR.
+  /* R-85: THEIRS, AND IT DOES NOT CLEAR THIS REPOSITORY'S OWN FLOOR.
      Their --border-stronger is an alpha overlay of --foreground, so it has no
      single value -- it composites to #cecece over --background and #d0d0d0 over
      --card. This token is flat and is paired with --surface, which IS their
@@ -81,7 +81,7 @@
      1.99:1 on white. Anything light on this fill fails AA outright. */
   --accent-contrast: #030303;
   --accent-weak: #d3f8e4;     /* brand-200 light       PUBLISHED */
-  /* R-84: THEIRS EXACTLY, AND THIS ONE COST NOTHING.
+  /* R-85: THEIRS EXACTLY, AND THIS ONE COST NOTHING.
      oklch(0.68 0.14 75) = #ca8a10, their --warning.
      THE DEPARTURE HERE WAS NEVER REALLY A DEPARTURE FROM THEM. It was justified
      by 2.68:1 against --amber-weak -- but Supabase never puts warning text on its
@@ -92,7 +92,7 @@
      per-channel clip of an out-of-gamut target, 9.5 degrees off their hue) was
      answering a question they do not ask. */
   --amber: #ca8a10;
-  /* Their --warning-foreground, the ink that belongs on --amber. Added by R-84
+  /* Their --warning-foreground, the ink that belongs on --amber. Added by R-85
      because matching their VALUE without their PAIRING is what made the old
      departure look necessary. */
   --amber-ink: #080503;
@@ -101,7 +101,7 @@
   --red-hover: #8e332f;
   --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
   --danger-contrast: #fff9f8; /* --destructive-fg      derived */
-  /* R-84: THEIRS, AND IT IS THE COSTLIEST OF THE THREE.
+  /* R-85: THEIRS, AND IT IS THE COSTLIEST OF THE THREE.
      Their --ring is --primary at 55% alpha; flattened over --bg it is #98e3c0 and
      measures 1.466:1 where this repository asks 3:1 of a focus indicator. It was
      #097c4f (their own brand-600) at 5.151:1 until 2026-08-31.
@@ -356,7 +356,7 @@
   --accent-ink: #3ecf8e;      /* brand-default dark    PUBLISHED */
   --accent-contrast: #131413; /* --primary-foreground  derived */
   --accent-weak: #002918;     /* brand-300 dark        PUBLISHED */
-  /* R-84. THEIR RING SURVIVES THE FLOOR IN DARK AND NOT IN LIGHT, which matters
+  /* R-85. THEIR RING SURVIVES THE FLOOR IN DARK AND NOT IN LIGHT, which matters
      before anyone reads the light comment and assumes the departure was
      symmetrical. Their --ring is --primary at 55% alpha; flattened over the dark
      --bg it is 3.555:1 and clears the 3:1 asked of it. The same ring over the
@@ -446,7 +446,7 @@
 
 
 
-/* THERE IS NO DEVICE COLOUR PATH, AND THAT IS R-84 RATHER THAN AN OMISSION.
+/* THERE IS NO DEVICE COLOUR PATH, AND THAT IS R-85 RATHER THAN AN OMISSION.
  * «احذف الثلاثة وابق supabase وحده» -- 2026-08-31. Seventy-four lines stood here:
  * an `@supports (color: AccentColor)` block mixing the operating system's accent
  * into Supabase's neutral ladder, a second `@supports (color: contrast-color(red))`
