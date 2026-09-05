@@ -87,6 +87,17 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # in the order the job listed them. Raising it crawls that many SITES at
     # once — never two sources of one site, whatever the number says.
     Setting("crawl_parallel_sources", "1", label="Sources crawled at the same time"),
+    # Cells of ONE directory read at once -- a different axis from the line above, which
+    # is how many SITES. Three, not one, because the panel cannot type `--workers` and a
+    # default of 1 leaves that capability reachable only from a terminal he does not use.
+    # Three, not six, because issue #367 measured six concurrent writers holding the
+    # warehouse past `busy_timeout = 5000`, so starting the engine during a six-worker
+    # crawl failed with `database is locked` -- and he uses the panel while a crawl runs.
+    #
+    # The request RATE does not change with this number: `HttpFetcher._throttle` holds its
+    # lock across its own sleep, so a pool overlaps the waiting and never asks faster.
+    Setting("directory_crawl_workers", "3",
+            label="Cells of one directory read at the same time"),
     # --- Google Finance exchange rates ---
     # Six hours remains the shipped default, but is no longer hidden policy.
     # Manual refresh remains available even when automatic refresh is off.

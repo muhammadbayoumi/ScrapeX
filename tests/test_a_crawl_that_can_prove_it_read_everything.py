@@ -1375,3 +1375,53 @@ def test_a_replayed_attempt_does_not_count_as_a_dry_read(conn):
     assert not only.went_dry(), (
         "a replayed attempt fetched nothing and cannot be evidence that the site "
         "has nothing left")
+
+
+def test_a_stop_does_not_crawl_the_cells_that_have_not_started(registry):
+    """`shutdown(wait=True)` RUNS WHAT IS ALREADY QUEUED, and that is a pause that
+    crawls the whole site.
+
+    `ThreadPoolExecutor.__exit__` calls `shutdown(wait=True)` without `cancel_futures`,
+    so every cell already submitted still runs after a worker raises -- and `on_cell` is
+    where `contractors.crawl` asks `between_cells` whether the run may continue. Measured
+    on the shape of the 2026-09-03 job: a pause requested at cell 3 of 56 would have
+    fetched the remaining 53 before the `CrawlStopped` from cell 3 was re-raised.
+
+    The sequential path never had this, which is why it went unnoticed: `raise` from
+    `on_cell` leaves the `for` loop and no further cell is read.
+
+    ASSERTED ON WORK NOT DONE, not on a count of callbacks: the sightings of the cells
+    that never started must not be in the ledger. Four workers may already be in flight
+    when the first one raises, so the bound is the pool's width and not one.
+    """
+    conn = registry.engine.connect()
+    try:
+        conn.execute(
+            "INSERT INTO source_site (source_key, source_name, base_url, crawl_scope) "
+            "VALUES ('site_test','A site',?, 'listing_only')", (BASE,))
+        conn.commit()
+        ids = {n: [str(n * 100 + k) for k in range(8)] for n in range(1, 9)}
+        cells = tuple(cell(region_id=n) for n in range(1, 9))
+        directory = Directory({"whole": [x for v in ids.values() for x in v],
+                               **{c.label: list(ids[n]) for n, c in
+                                  zip(range(1, 9), cells, strict=True)}})
+
+        from scrapex.contractors import CrawlStopped
+
+        def stop(_outcome):
+            raise CrawlStopped
+
+        with pytest.raises(CrawlStopped):
+            _pool_run(conn, registry, Partition(directory, cells=cells), directory,
+                      cells, workers=4, on_cell=stop)
+
+        stored = {row[0] for row in conn.execute(
+            "SELECT external_id FROM dataset_sighting")}
+        started = {n for n in range(1, 9) if set(ids[n]) & stored}
+        assert len(started) <= 4, (
+            f"the stop was asked for at the first closed cell and {len(started)} of 8 "
+            "cells were crawled anyway, so a pause pays for the whole partition: "
+            f"{sorted(started)}")
+        assert len(started) < 8, "no cell was spared, so the stop stopped nothing"
+    finally:
+        conn.close()

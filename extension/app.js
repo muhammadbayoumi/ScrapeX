@@ -791,6 +791,16 @@ const CRAWL_KEYS = ["crawl_honour_delay", "crawl_min_interval_s",
 // rather than accepting a number and silently ignoring it.
 const MAX_PARALLEL_SOURCES = 8;
 
+// A SEPARATE CEILING FOR A SEPARATE AXIS, and equal to it only by coincidence today.
+// That one bounds how many SITES a wave crawls; this one bounds how many CELLS of one
+// directory a single crawl reads at once (directoryjob.MAX_WORKERS). They would move
+// for different reasons -- one is politeness across sites, the other is writer
+// contention inside one warehouse (issue 367) -- so sharing a constant would make a
+// change to either silently move the other. The issue number is written without its
+// hash on purpose: 367 is three valid hex digits and the colour-literal guard reads
+// it as one.
+const MAX_DIRECTORY_WORKERS = 8;
+
 function crawlPaceEffect() {
   // What the choice MEANS, in the units the owner thinks in. A checkbox that
   // silently decides whether a crawl takes one hour or eleven should say so.
@@ -824,6 +834,10 @@ async function loadCrawlSettings() {
   $("crawl_honour_delay").checked = !["0", "false", false].includes(value("crawl_honour_delay"));
   $("crawl_min_interval_s").value = value("crawl_min_interval_s") || "1.0";
   $("crawl_parallel_sources").value = value("crawl_parallel_sources") || "1";
+  // A rendering fallback, not a second definition of the default: the engine answers
+  // with its own catalogue value, and this only shows when that answer has no such key
+  // -- an engine older than this panel.
+  $("directory_crawl_workers").value = value("directory_crawl_workers") || "3";
   $("crawl_timeout_s").value = value("crawl_timeout_s") || "30";
   $("crawl_user_agent").value = value("crawl_user_agent") || "";
   $("log_retention_days").value = value("log_retention_days") || "30";
@@ -852,6 +866,9 @@ async function saveCrawlSettings() {
     await post("/api/settings", {
       crawl_honour_delay: $("crawl_honour_delay").checked ? "1" : "0",
       crawl_min_interval_s: String(interval),
+      directory_crawl_workers: String(Math.min(
+        Math.max(parseInt($("directory_crawl_workers").value, 10) || 1, 1),
+        MAX_DIRECTORY_WORKERS)),
       crawl_parallel_sources: String(Math.min(
         Math.max(parseInt($("crawl_parallel_sources").value, 10) || 1, 1),
         MAX_PARALLEL_SOURCES)),
