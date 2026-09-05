@@ -20,7 +20,7 @@
   const LEGACY_STORAGE_KEY = "scrapex-appearance-v1";
   const SYNC_PATH = "/api/appearance";
   const SCHEMES = new Set(["light", "dark"]);
-  // R-84: ONE COLOUR CHOICE. `brand` (WhatsApp) and `blue` (GitHub) were deleted on
+  // R-85: ONE COLOUR CHOICE. `brand` (WhatsApp) and `blue` (GitHub) were deleted on
   // 2026-08-31 -- «احذف الثلاثة وابق supabase وحده» -- together with device colours.
   // R-74 had made Supabase the baseline and named those three as exceptions ON it;
   // asked directly whether the exceptions survive, he removed them.
@@ -88,7 +88,7 @@
     // ... migration debt" -- or the OS AccentColor where the browser exposes one.
     // The deprecated colour was the shipped default, not a leftover.
     //
-    // AND R-84 DELETED IT ON 2026-08-31. The paragraph above is kept because C4
+    // AND R-85 DELETED IT ON 2026-08-31. The paragraph above is kept because C4
     // wants the history of a decision rather than its last state: the flip he
     // asked for the numbers on is what made `supabase` the colour a fresh install
     // actually painted, and four weeks later he removed the switch it flipped.
@@ -156,7 +156,7 @@
       // or `blue` instead of being dropped on the floor for the default.
       palette: resolvePalette(candidate.palette),
       // `deviceColors` and its v1 name `followColors` are READ AND DISCARDED. Every
-      // appearance stored before 2026-08-31 carries one of them, and R-84 removed
+      // appearance stored before 2026-08-31 carries one of them, and R-85 removed
       // the mode they selected; dropping the key here rather than rejecting the
       // record is the whole of the migration, and it is why there is no other.
       updatedAt: Number.isFinite(Number(candidate.updatedAt))
@@ -222,7 +222,7 @@
   function apply(value) {
     const root = document.documentElement;
     root.dataset.appearance = value.mode;
-    // R-84 deleted device colours, so there is one colour mode and no attribute
+    // R-85 deleted device colours, so there is one colour mode and no attribute
     // to carry a second. `data-color-mode` is removed rather than pinned to
     // "manual": a stylesheet that still selects on it should stop matching, loudly.
     root.removeAttribute("data-color-mode");
