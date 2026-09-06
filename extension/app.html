@@ -1379,6 +1379,60 @@
       </div>
     </section>
 
+    <!-- THE WAREHOUSE, AND THE ONE PLACE IT IS DESCRIBED. Its facts were split
+         across three surfaces: the size and the backups came from `GET /api/storage`
+         and were drawn on the Settings screen; the schema VERSION reached the engine's
+         own web page and nothing else, so the panel could say "healthy" and not say
+         which version; and the Upgrade control sat under Engine maintenance in
+         Settings, three screens from anything that says why it is needed.
+         `R-81` and his standing objection to one feature in two places: this page
+         holds them, and the button MOVED here rather than being copied. -->
+    <section id="view-database" class="hidden" role="tabpanel"
+             aria-labelledby="tab-database" tabindex="0">
+      <h2>Database</h2>
+      <p class="muted text-xs" id="db-path">&nbsp;</p>
+
+      <!-- THE SCHEMA FIRST, because it is the only row that can ask him to act. Both
+           numbers are shown rather than a verdict: `v17 of v18` says how far behind and
+           which way, where "behind" says neither. -->
+      <div class="card" id="db-schema-card">
+        <div class="kv">
+          <strong>Schema</strong>
+          <span id="db-schema-version" class="muted">—</span>
+        </div>
+        <p class="muted text-xs" id="db-schema-detail">&nbsp;</p>
+        <!-- MOVED FROM Settings -> Workspace -> Engine maintenance, id unchanged so
+             `upgradeDatabaseFromPanel` and every guard that names it keep working. -->
+        <div class="engine-maintenance-actions" id="db-upgrade-actions"
+             aria-label="Database maintenance">
+          <button id="runtime-upgrade" class="ghost engine-action">
+            <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#storage"></use></svg>
+            <span>Upgrade database</span>
+          </button>
+        </div>
+        <div id="runtime-note" class="muted text-xs" role="status"></div>
+      </div>
+
+      <div class="card">
+        <div class="kv"><strong>Health</strong>
+          <span id="db-health-status" class="muted">—</span></div>
+        <p class="muted text-xs" id="db-health-detail">&nbsp;</p>
+      </div>
+
+      <div class="card">
+        <strong>Size on disk</strong>
+        <div id="db-sizes"></div>
+      </div>
+
+      <div class="card">
+        <div class="kv"><strong>Backups</strong>
+          <span id="db-backup-count" class="muted">—</span></div>
+        <p class="muted text-xs" id="db-backup-detail">&nbsp;</p>
+      </div>
+
+      <p class="muted text-xs" id="db-msg" role="status">&nbsp;</p>
+    </section>
+
     <section id="view-engines" class="hidden" role="tabpanel" aria-labelledby="tab-engines" tabindex="0">
       <header class="view-heading">
         <h1>Engine</h1>
@@ -1790,14 +1844,14 @@
                      perform the most important thing they can do to a stuck
                      engine. The panel is the control room: nothing the page can
                      do may be missing here. -->
+                <!-- THE UPGRADE CONTROL MOVED TO THE DATABASE PAGE, 2026-09-06, on
+                     his instruction and his standing objection to one feature offered
+                     two ways. `runtime-actions` stays because other maintenance rows
+                     are added to it by script; `runtime-note` went with the button,
+                     because a status line with nothing to report is a line that reads
+                     as broken. -->
                 <div class="engine-maintenance-actions" id="runtime-actions"
-                     aria-label="Engine maintenance">
-                  <button id="runtime-upgrade" class="ghost engine-action">
-                    <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#storage"></use></svg>
-                    <span>Upgrade database</span>
-                  </button>
-                </div>
-                <div id="runtime-note" class="muted text-xs" role="status"></div>
+                     aria-label="Engine maintenance"></div>
                 <!-- Its twin, beside the repair buttons: this is where the
                      owner already is when something is wrong with the runtime. -->
                 <div id="runtime-error" class="card warn hidden" role="status"></div>
@@ -2119,11 +2173,17 @@
 
   <nav class="side-rail" aria-label="ScrapeX navigation">
     <span id="rail-indicator" class="rail-indicator" aria-hidden="true"></span>
-    <!-- OWNERSHIP IS THE GROUPING. Profile and Engine answer "who am I" and
-         "what is installed"; they work on a device with no engine on it at all.
-         Everything in the second group — Source, Run, Data, Google Finance — is
-         a page the engine serves, and every one of them is dead until an engine
-         is installed. The panel says which is which by its shape. -->
+    <!-- THE DEVICE, THEN THE WORK. Profile, Database and Engine answer "who am I",
+         "what is on this disk" and "what is installed" — the install itself, and each
+         still does something on a device with no engine running. Everything in the
+         second group — Source, Run, Data, Google Finance — is a page the engine
+         serves, and every one of them is dead until an engine is installed. The panel
+         says which is which by its shape.
+         Database joined the first group on his ruling (2026-09-06), which widened what
+         the boundary means: it was "answerable with no engine at all", and this page's
+         FACTS are not — its one ACTION is, through the native host. Anything added here
+         has to clear that lower bar, and the second group is where a page with no
+         engine-free half belongs. -->
     <div class="rail-tablist" role="tablist" aria-label="Extension pages">
       <button class="rail-item" id="tab-profile" role="tab" data-view="profile"
               aria-controls="view-profile" aria-selected="true" aria-current="page"
@@ -2138,6 +2198,26 @@
           <use href="icons/material-icons.svg#account-circle"></use>
         </svg>
         <span class="visually-hidden">Profile</span>
+      </button>
+      <!-- ABOVE ENGINE, BY HIS RULING. He asked for the page "above the engine page"
+           and I put it at the head of the engine's group instead, because the grouping
+           reads as "what a device with no engine can still answer" and this page's
+           FACTS all come from `GET /api/storage`. He answered the reasoning: put it
+           above Engine. So the group's meaning is the wider one it can carry honestly
+           — the device and what is installed on it, against the second group's work —
+           and the Database page qualifies on the property a guard already holds:
+           `upgradeDatabaseFromPanel` falls back to the native host, so the one thing
+           this page can DO survives an engine that never answers, and the page says so
+           in place of the numbers it could not read.
+           `#dns` because `#storage` is already the Data page's mark, and two pages
+           wearing one icon is a rail he has to read twice. -->
+      <button class="rail-item" id="tab-database" role="tab" data-view="database"
+              aria-controls="view-database" aria-selected="false" tabindex="-1"
+              aria-label="Database" title="Database">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#dns"></use>
+        </svg>
+        <span class="visually-hidden">Database</span>
       </button>
       <button class="rail-item" id="tab-engines" role="tab" data-view="engines"
               aria-controls="view-engines" aria-selected="false" tabindex="-1"

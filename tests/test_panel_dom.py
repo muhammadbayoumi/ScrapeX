@@ -362,13 +362,15 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["height"] == pytest.approx(800, abs=1)
 
     # Rolled 7 -> 10 and 8 -> 11 on 2026-08-05, when the agreed shape gained
-    # Profile, Engine and Console (docs/PLATFORM-PLAN.md). The RULE this
-    # asserts is unchanged and is not the number: the rail holds the pages the
-    # panel itself owns, and everything deeper stays behind one grouped menu.
-    # The count is here so a page cannot be added to the rail without someone
-    # deciding it belongs there.
-    assert page.locator("nav.side-rail button[data-view]").count() == 10
-    assert page.locator("nav.side-rail button.rail-item").count() == 11
+    # Profile, Engine and Console (docs/PLATFORM-PLAN.md), and 10 -> 11 and
+    # 11 -> 12 on 2026-09-06 when he asked for a Database page of its own. The
+    # RULE this asserts is unchanged and is not the number: the rail holds the
+    # pages the panel itself owns, and everything deeper stays behind one
+    # grouped menu. The count is here so a page cannot be added to the rail
+    # without someone deciding it belongs there -- which is exactly what
+    # happened, so the number moves and the rule does not.
+    assert page.locator("nav.side-rail button[data-view]").count() == 11
+    assert page.locator("nav.side-rail button.rail-item").count() == 12
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -2804,18 +2806,25 @@ def test_engine_actions_are_consistent_and_the_next_card_is_separate(open_panel)
     assert engine_box and storage_box
     assert storage_box["y"] - (engine_box["y"] + engine_box["height"]) >= 8
 
-    # ONE, NOT TWO, since `runtime-restart` moved to the Engine screen where the
-    # engine's own "Restart needed" badge is drawn (REQ-50). Upgrade database
-    # stays here: it repairs the WAREHOUSE, not the engine, and it is the one
-    # action with a native fallback for when the engine cannot answer at all.
+    # NONE, SINCE 2026-09-06. `runtime-restart` went to the Engine screen with the
+    # engine's own "Restart needed" badge (REQ-50), and `runtime-upgrade` went to the
+    # Database page he asked for, where the schema version that explains it is stated
+    # beside it.
     #
-    # EDITED TO 1 RATHER THAN RELAXED TO `>= 1`. The width-parity check below
-    # exists because two buttons of different widths in one row read as two
-    # different kinds of thing; a count that forgives any number would let the
-    # pair silently become three unequal ones, which is what it was written for.
+    # THE REASON THIS COMMENT USED TO GIVE FOR KEEPING IT SURVIVED THE MOVE, and it
+    # shaped the page rather than blocking it: "the one action with a native fallback
+    # for when the engine cannot answer at all". So `loadDatabase` leaves the button
+    # ENABLED when `GET /api/storage` fails, and says the upgrade goes through the
+    # native host -- `test_the_database_page_keeps_the_repair_when_the_engine_is_silent`
+    # holds that, because it is the only property that made the old placement better.
+    #
+    # EDITED TO 0 RATHER THAN DELETED. The width-parity check this guarded is gone with
+    # the buttons, and an empty row is a fact worth asserting: a maintenance group that
+    # quietly refills is how a control comes back to a screen nobody decided it belongs
+    # on.
     actions = page.locator("#s-engine .engine-maintenance-actions .engine-action")
-    assert actions.count() == 1
-    assert page.locator("#s-engine .engine-action .sx-icon").count() == 1
+    assert actions.count() == 0
+    assert page.locator("#s-engine .engine-action .sx-icon").count() == 0
 
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "diagnostics"
@@ -3702,27 +3711,48 @@ def test_anything_that_says_it_is_unbuilt_is_actually_inert(open_panel):
 
 def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
     """The agreed order, asserted because it is a decision and not an accident:
-    Profile is page one and Engine page two, before anything can be run."""
+    Profile is page one, and Engine comes before anything that runs work.
+
+    IT SAID "ENGINE IS PAGE TWO" UNTIL 2026-09-06, and Database moved above Engine on
+    his ruling. A literal index would now hold the same fact
+    `test_the_rail_groups_say_which_pages_need_an_engine` holds exhaustively three
+    functions below, and the second copy is the one nobody updates. So this states the
+    property that copy does NOT cover and that his move does not touch: no page that
+    runs work is reachable before the page that installs the thing which runs it.
+    """
     page = open_panel()
     views = page.eval_on_selector_all(
         "nav.side-rail button[data-view]", "els => els.map(e => e.dataset.view)")
 
     assert views[0] == "profile"
-    assert views[1] == "engines"
+    for works in ("source", "run", "data", "finance"):
+        assert views.index("engines") < views.index(works), (
+            f"{works} is above Engine in the rail, so the panel offers work before it "
+            "offers the engine that does it")
 
 
 
 def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
     """THE GROUPING CARRIES MEANING, so it is a guard and not a preference.
 
-    Profile and Engine are answerable on a device with no engine on it at all
-    — who am I, and what is installed. Every page in the second group is served
-    by the engine and does nothing without one. A new install spends its whole
-    first minute in exactly that state, so the boundary has to be visible
-    before anything explains it.
+    THE FIRST GROUP IS THE INSTALL: who am I, what is on this disk, what is installed.
+    Every page in the second group is served by the engine and does nothing without one.
+    A new install spends its whole first minute in exactly that state, so the boundary
+    has to be visible before anything explains it. A page joining the wrong group is not
+    a cosmetic mistake: it promises the owner something the panel cannot do yet.
 
-    A page joining the wrong group is not a cosmetic mistake: it promises the
-    owner something the panel cannot do yet.
+    AND THE BOUNDARY IS ONE NOTCH WIDER THAN IT WAS, BY HIS RULING (2026-09-06). It read
+    "answerable with no engine at all", and `database` was put at the head of the second
+    group for that reason — every FACT that page states comes from `GET /api/storage`.
+    He was told the reasoning and answered: above Engine. So the line is now "still does
+    something with no engine", which `database` clears on the property
+    `test_the_database_page_keeps_the_repair_when_the_engine_is_silent` already holds:
+    `upgradeDatabaseFromPanel` falls back to the native host, so the page's one ACTION
+    survives an engine that never answers, and the page says so in place of the numbers.
+
+    That property is asserted there and not restated here — one fact, one guard. What
+    THIS test holds is the membership, exhaustively: a fourth page cannot join the first
+    group without turning this list red and sending somebody to read the paragraph above.
     """
     page = open_panel()
     groups = page.eval_on_selector_all(
@@ -3730,7 +3760,10 @@ def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
         """els => els.map(e => [...e.querySelectorAll('button[data-view]')]
                                  .map(b => b.dataset.view))""")
 
-    assert groups[0] == ["profile", "engines"], "the extension's own pages"
+    # DATABASE SITS ABOVE ENGINE, WHERE HE PUT IT, and the position is the assertion:
+    # "above the engine page" was the instruction twice, and the head of the next group
+    # is not it.
+    assert groups[0] == ["profile", "database", "engines"], "the install's own pages"
     assert groups[1] == ["source", "run", "data", "finance"], "the engine's pages"
     assert groups[2] == ["appearance", "sources", "console", "settings"]
 
@@ -6234,3 +6267,130 @@ def test_a_failed_creation_does_not_abandon_the_workbook_in_force(open_panel):
     }""")
 
     assert kept == "1CHOSEN"
+
+
+# ---- the Database page he asked for, 2026-09-06 -----------------------------
+#
+# Its facts were split across three surfaces before this: `GET /api/storage` carried the
+# path, the size, the health verdict and the backups, and four rows of it were drawn on
+# the Settings screen; the schema VERSION reached the engine's own web page and nowhere
+# else, so the panel could say "healthy" without saying which version; and the Upgrade
+# control sat under Engine maintenance in Settings, three screens from anything that
+# explains why it is needed.
+
+
+def test_the_database_page_states_the_schema_and_offers_the_upgrade(open_panel):
+    """THE ONE NUMBER THAT DECIDES WHETHER HE HAS SOMETHING TO PRESS.
+
+    BOTH VERSIONS, NOT A VERDICT. `v17 of v18` says how far behind and which way;
+    "behind" says neither, and a build somehow sitting BELOW its own file would read as
+    ordinary. The pending migrations are NAMED, because the honest answer to "what would
+    pressing this do" is their names.
+    """
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    assert page.locator("#view-database").is_visible()
+    assert page.text_content("#db-schema-version").strip() == "v17 of v18", (
+        "the page does not state both versions, so 'behind' is all he can read")
+    detail = page.text_content("#db-schema-detail")
+    assert "0018_a_job_may_interpret_what_a_crawl_stored.sql" in detail, (
+        "the pending migration is counted and not named")
+    assert "backup is taken first" in detail, (
+        "it does not say a backup is taken before the write, which is the fact that "
+        "decides whether pressing it is safe")
+
+    upgrade = page.locator("#runtime-upgrade")
+    assert upgrade.count() == 1 and upgrade.is_visible()
+    assert not upgrade.is_disabled(), (
+        "a migration is waiting and the control is dead")
+
+
+def test_the_database_page_says_nothing_to_do_when_there_is_nothing(open_panel):
+    """`R-71`: a control that copies a 2 GB warehouse and changes nothing is the
+    button-that-cannot-work in its most expensive form -- measured at 316,760,064 bytes
+    per press on the day the status was wrong."""
+    page = open_panel(storage={
+        "path": "C:/db.sqlite", "folder": "C:/", "backup_folder": "C:/",
+        "sizes": {"db_bytes": 1024, "wal_bytes": 0, "shm_bytes": 0,
+                  "free_bytes": 999999, "backup_bytes": 0, "backup_count": 0},
+        "health": {"status": "healthy", "ok": True, "detail": "No problems found."},
+        "schema": {"version": 18, "expected": 18, "pending": []},
+        "last": {}, "backups": []})
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    assert page.text_content("#db-schema-version").strip() == "v18"
+    assert "Up to date" in page.text_content("#db-schema-detail")
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "nothing is pending and the panel still offers to copy the warehouse")
+
+
+def test_the_database_page_keeps_the_repair_when_the_engine_is_silent(open_panel):
+    """THE PROPERTY THAT MADE THE OLD PLACEMENT BETTER, kept rather than lost.
+
+    `test_engine_actions_are_consistent_and_the_next_card_is_separate` argued for keeping
+    Upgrade database on the Settings screen in these words: *"it is the one action with a
+    native fallback for when the engine cannot answer at all"* --
+    `upgradeDatabaseFromPanel` tries `POST /api/databases/upgrade` and falls back to the
+    native host on a 404 or a dead socket.
+
+    So a page that disabled the control whenever it could not READ the schema would take
+    away the one repair that survives a silent engine, at the moment it is most needed.
+    The page degrades; the repair does not.
+    """
+    page = open_panel(engine_up=False)
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    assert page.text_content("#db-schema-version").strip() == "unreadable"
+    assert "native host" in page.text_content("#db-schema-detail"), (
+        "it does not say the upgrade still works without the engine, so the enabled "
+        "button reads as a bug rather than as the fallback it is")
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "the engine is silent and the panel withdrew the one repair that does not need "
+        "it")
+
+
+def test_the_upgrade_control_is_offered_in_exactly_one_place(open_panel):
+    """His standing objection, asserted: no feature offered two ways.
+
+    The button MOVED to the Database page rather than being copied there. Two buttons
+    doing one thing is what he objected to in terms -- and the second one is always the
+    one nobody maintains.
+    """
+    page = open_panel()
+
+    assert page.locator("#runtime-upgrade").count() == 1, (
+        "there is more than one Upgrade database control in the panel")
+    assert page.locator("#view-database #runtime-upgrade").count() == 1, (
+        "the Upgrade control is not on the Database page")
+    assert page.locator("#s-engine #runtime-upgrade").count() == 0, (
+        "it is still on the Settings screen as well, which is the duplication he "
+        "objected to")
+
+
+def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
+    """A -wal grown to gigabytes is a warehouse whose writes are not being
+    checkpointed, and that fact is invisible inside a single total.
+
+    AND "ON ITS OWN LINE" IS MEASURED, not just named. The first draft asserted only
+    that the words were present, and the container was written `<dl class="kv">` while
+    `loadDatabase` writes `<div class="kv">` ROWS into it -- `.kv` is
+    `justify-content: space-between` on a flex row, so a `.kv` holding `.kv` laid all
+    four sizes out SIDE BY SIDE. Every label was in the text and the test was green.
+    """
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    rows = page.text_content("#db-sizes")
+    for label in ("Database file", "Write-ahead log", "Free on this drive"):
+        assert label in rows, f"the size block does not state {label!r}"
+
+    tops = page.eval_on_selector_all(
+        "#db-sizes .kv", "els => els.map(e => e.getBoundingClientRect().top)")
+    assert len(tops) == 4, f"four sizes were served and {len(tops)} rows were drawn"
+    assert len({round(top) for top in tops}) == 4, (
+        f"the size rows share a line rather than stacking: {tops}")

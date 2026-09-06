@@ -126,7 +126,7 @@ const VIEWS = [
   // profile and engines lead: the agreed shape opens on "who am I" and "what is
   // installed" before anything can be run. console is the owner build's page and
   // is removed from the published one — see docs/PLATFORM-PLAN.md Decision 20.
-  "profile", "engines",
+  "profile", "engines", "database",
   "source", "run", "data", "sources", "source-edit", "appearance", "finance",
   "console", "settings",
   // A sub-view of Profile, like source-edit is of Sources: no rail button, and
@@ -317,6 +317,7 @@ function showView(name, animate = true) {
   if (main.scrollTop) {
     main.scrollTo({top: 0, behavior: reduceMotion.matches ? "auto" : "smooth"});
   }
+  if (name === "database") loadDatabase();
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
   if (name === "finance") loadGoogleFinance();
@@ -494,7 +495,10 @@ function renderSchemaLag(lag) {
   // could not appear at all until `OP-113` was fixed -- so repairing the
   // warning is what put the command on screen for the first time. Both halves
   // now name the button that already exists (`R-81`).
-  how.textContent = "Fix: " + (lag.fix || "press Upgrade database on the Settings screen")
+  // THE FALLBACK NAMES THE PAGE THAT HOLDS THE BUTTON. It said "the Settings screen"
+  // until the control moved, and an instruction pointing at the wrong screen is worse
+  // than none -- he would look, not find it, and conclude the feature is missing.
+  how.textContent = "Fix: " + (lag.fix || "press Upgrade database on the Database page")
     + " — back up first, and do it before restarting the engine.";
   const which = el("div", "muted text-xs tech", lag.pending.join(", "));
   box.append(title, what, which, how);
@@ -5266,13 +5270,108 @@ async function loadStorage() {
     const s = await api("/api/storage");
     // Health is a WORD here too, never a colour: the panel has no room for a
     // legend, so the state has to be readable on its own.
+    // THESE FOUR ROWS MOVED TO THE DATABASE PAGE, 2026-09-06. They are the same four
+    // facts that page now states beside the schema version and the Upgrade control, and
+    // his standing objection is to one feature offered two ways -- so what is left here
+    // is the folder these controls act on, and a pointer to where the file is described.
     $("storage-info").innerHTML = `
-      <div class="kv"><span>Database</span><span class="tech">${esc(s.path)}</span></div>
-      <div class="kv"><span>Size</span><span>${esc(fmtMegabytes(s.sizes.db_bytes))}</span></div>
-      <div class="kv"><span>Health</span><span>${esc(s.health.status)}</span></div>
-      <div class="kv"><span>Backups</span><span>${esc(String(s.sizes.backup_count))}</span></div>`;
+      <div class="kv"><span>Folder</span><span class="tech">${esc(s.folder)}</span></div>
+      <div class="kv"><span>Described on</span><span>the Database page</span></div>`;
   } catch (_) {
     $("storage-info").innerHTML = `<span class="err">Couldn't read storage status.</span>`;
+  }
+}
+
+/**
+ * The warehouse, described in one place.
+ *
+ * WHAT WAS SPLIT ACROSS THREE SURFACES. `GET /api/storage` carried the path, the size,
+ * the health verdict and the backups, and the panel drew four rows of it on the Settings
+ * screen. The schema VERSION reached the engine's own web page (`_about`) and nowhere
+ * else, so the panel could say "healthy" without saying WHICH version -- the one number
+ * that decides whether there is an upgrade to press. And the Upgrade control sat under
+ * Engine maintenance in Settings, three screens away from anything that says why.
+ *
+ * BOTH SCHEMA NUMBERS, NEVER A VERDICT. `v17 of v18` says how far behind and which way;
+ * "behind" says neither, and a build somehow sitting BELOW its own file would read as
+ * ordinary. The pending files are NAMED, because the honest answer to "what would
+ * pressing this do" is their names.
+ *
+ * AND THE BUTTON IS DISABLED WHEN THERE IS NOTHING TO APPLY. `R-71`: a control that
+ * copies a 2 GB warehouse and then changes nothing is the button-that-cannot-work in its
+ * most expensive form -- measured at 316,760,064 bytes per press on the day the status
+ * was wrong.
+ */
+async function loadDatabase() {
+  const upgrade = $("runtime-upgrade");
+  try {
+    const s = await api("/api/storage");
+    $("db-path").textContent = s.path || "";
+
+    const schema = s.schema || {};
+    const at = schema.version;
+    const want = schema.expected;
+    const pending = schema.pending || [];
+    $("db-schema-version").textContent = at == null
+      ? "unreadable"
+      : (want != null && want !== at ? `v${at} of v${want}` : `v${at}`);
+    if (pending.length) {
+      $("db-schema-detail").textContent =
+        `${pending.length} migration${pending.length === 1 ? "" : "s"} on disk `
+        + `${pending.length === 1 ? "is" : "are"} not applied to this database: `
+        + `${pending.join(", ")}. A backup is taken first and named.`;
+    } else if (at == null) {
+      $("db-schema-detail").textContent =
+        "The schema version could not be read. The health row below says why.";
+    } else {
+      $("db-schema-detail").textContent = "Up to date. Nothing to apply.";
+    }
+    if (upgrade) upgrade.disabled = pending.length === 0;
+
+    const health = s.health || {};
+    $("db-health-status").textContent = health.status || "unknown";
+    $("db-health-detail").textContent = health.detail || "";
+
+    const sizes = s.sizes || {};
+    $("db-sizes").innerHTML = [
+      ["Database file", sizes.db_bytes],
+      // THE WAL IS ITS OWN ROW BECAUSE IT IS ITS OWN FACT. A warehouse whose -wal has
+      // grown to gigabytes is one whose writes are not being checkpointed, and that is
+      // invisible inside a single total.
+      ["Write-ahead log", sizes.wal_bytes],
+      ["Shared memory", sizes.shm_bytes],
+      ["Free on this drive", sizes.free_bytes],
+    ].map(([label, bytes]) => bytes == null ? "" :
+      `<div class="kv"><span>${esc(label)}</span><span>${esc(fmtMegabytes(bytes))}</span></div>`
+    ).join("");
+
+    const count = (s.sizes || {}).backup_count;
+    $("db-backup-count").textContent = count == null ? "—" : String(count);
+    const last = s.last || {};
+    $("db-backup-detail").textContent = last.at
+      ? `Newest ${last.at}. ${fmtMegabytes(sizes.backup_bytes || 0)} in ${s.backup_folder || "the database folder"}.`
+      : "No backup has been taken from this panel yet.";
+    out("db-msg", "", "ok");
+  } catch (error) {
+    // THE CONTROL STAYS USABLE, AND THIS IS THE HALF A GUARD ARGUED FOR RATHER THAN
+    // AGAINST. `test_engine_actions_are_consistent_and_the_next_card_is_separate` said
+    // why the Upgrade button had earned its old place: "it is the one action with a
+    // native fallback for when the engine cannot answer at all" --
+    // `upgradeDatabaseFromPanel` tries `POST /api/databases/upgrade` and falls back to
+    // the native host on a 404 or a dead socket. So a page that disabled it whenever it
+    // could not READ the schema would take away the one repair that survives a silent
+    // engine, which is the moment it is most needed.
+    //
+    // AND ENABLING IT BLIND IS NOT A GUESS. The guarded path decides: `dbupgrade`
+    // refuses anything that is not merely behind, backs up first without exception, and
+    // says what it did. Offering it here asks that path the question rather than
+    // answering it from a page that just failed to read anything.
+    if (upgrade) upgrade.disabled = false;
+    $("db-schema-version").textContent = "unreadable";
+    $("db-schema-detail").textContent =
+      "The engine did not answer, so the version could not be read. Upgrade database "
+      + "still works: it goes through the native host, which does not need the engine.";
+    out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
   }
 }
 

@@ -1522,7 +1522,50 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "space_warning": space_warning(path),
         "last": settings.get_state(conn, "storage_last"),
         "migration": settings.get_state(conn, "storage_migration"),
+        # THE SCHEMA, BECAUSE THE PANEL'S DATABASE PAGE HAS TO SAY MORE THAN "HEALTHY".
+        # `_about` reported these to the ENGINE'S OWN WEB PAGE and nowhere else, so the
+        # panel could show the file's size and its health and not the one number that
+        # decides whether the owner has an upgrade to press. `R-81`: the panel is the
+        # only interface, so a fact only the web page carries is a fact he does not have.
+        #
+        # BOTH NUMBERS, NOT A BOOLEAN. "behind" is a comparison the reader can make and
+        # a flag is not: `v17 of v18` says how far and which way, and a build that
+        # somehow sits BELOW its own file says so instead of quietly reading as fine.
+        # `pending` names the files rather than counting them, because the answer to
+        # "what would pressing it do" is their names.
+        "schema": _schema_facts(conn),
     }
+
+
+def _schema_facts(conn: sqlite3.Connection) -> dict:
+    """What version this database is at, what this build expects, and what is waiting.
+
+    READ THROUGH `db`, NEVER RE-DERIVED. `schema_version` is one PRAGMA and
+    `pending_migrations` is the stream comparison `EngineDatabase` itself uses to decide
+    whether to migrate -- so this route reports the same answer the upgrade would act on
+    rather than a second opinion about it.
+
+    A FAULT HERE IS NOT A FAULT OF THE PAGE. An unreadable ledger is reported by
+    `health` above with its own detail; this returns what it can and leaves the rest
+    empty, because a storage page that 500s tells the owner less than one that shows a
+    size and admits it could not read a version.
+    """
+    from . import db as dbmod
+
+    facts: dict = {"version": None, "expected": None, "pending": []}
+    try:
+        facts["expected"] = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+        stream = dbmod._migration_files()
+        if stream:
+            facts["expected"] = max(number for number, _path in stream)
+    except (OSError, ValueError):
+        pass
+    try:
+        facts["version"] = dbmod.schema_version(conn)
+        facts["pending"] = [name for _number, name in dbmod.pending_migrations(conn)]
+    except (sqlite3.DatabaseError, OSError, ValueError):
+        pass
+    return facts
 
 
 def wipe_source(conn: sqlite3.Connection, db_path: Path | str,
