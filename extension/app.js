@@ -3869,9 +3869,10 @@ async function pollEngineUpdateLoop() {
     + "see where it got to.");
 }
 
-async function updateEngineReleaseUI(latest) {
-  const installed = state.engineVersion || "";
-
+// THE RELEASE ROW, FROM WHICHEVER ANSWER IS BEING TRUSTED. Extracted because it
+// is painted twice now, from two sources, and painting it twice from two copies
+// of this code is how those two would come to disagree in a third way.
+function paintEngineRelease(latest, installed) {
   $("engine-latest-version").textContent =
     latest.state === "ok" ? latest.version
     : latest.state === "none" ? "No release yet"
@@ -3896,10 +3897,6 @@ async function updateEngineReleaseUI(latest) {
     node.classList.toggle("hidden", !verdict);
   }
 
-  const download = $("engine-download");
-  const steps = $("engine-install-steps");
-  const installer = latest.state === "ok" ? latest.installer : null;
-
   // WHAT THE BUTTON WILL DO, named with the version it will do it to. "Download
   // engine" is right on a device with none; on a device with 0.9.4 installed and
   // 1.0.2 published, the action is an update and the label has to say which.
@@ -3907,16 +3904,18 @@ async function updateEngineReleaseUI(latest) {
     installed && latest.state === "ok" && verdict === "Update available"
       ? `Update to ${latest.version}`
       : "Download engine";
+}
 
-  // EVERY PAINT ABOVE THIS LINE IS ALREADY ON SCREEN BEFORE THE ENGINE IS ASKED
-  // ANYTHING, and the order is the fix rather than an accident. This await was
-  // the first statement in the function when the caller was written, so making
-  // one renderer asynchronous put the latest version, the release detail, the
-  // button's label AND `#engine-row-verdict` -- which is on the CATALOGUE, not
-  // this screen -- behind up to eight seconds of network for a report none of
-  // them read. The panel already knew all of it from `latest`. Nothing that can
-  // be drawn from what is in hand waits for what is not.
-  //
+async function updateEngineReleaseUI(panelLatest) {
+  // FIRST PAINT, FROM WHAT IS ALREADY IN HAND, and the order is a fix rather
+  // than an accident. The await below was the first statement in this function
+  // when the caller was written, so making one renderer asynchronous put the
+  // latest version, the release detail, the button label AND
+  // `#engine-row-verdict` -- which is on the CATALOGUE screen, not this one --
+  // behind up to eight seconds of network. Nothing that can be drawn from what
+  // is in hand waits for what is not.
+  paintEngineRelease(panelLatest, state.engineVersion || "");
+
   // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
   // `null` default, and the default was the defect: `refreshEngines` -- the
   // "Check again" button -- called the renderer without it, so pressing the one
@@ -3931,6 +3930,39 @@ async function updateEngineReleaseUI(latest) {
   // badge above. The screen guard lives in the writer, which is where all four
   // callers of this line now get it from.
   writeEngineUpdateLine(engineUpdateSentence(report));
+
+  // THE ENGINE WINS. HIS RULING, and it settles a contradiction the review
+  // found rather than a preference. Two sources answer "what is the newest
+  // engine": the panel's own manifest fetch and the engine's report. They can
+  // differ -- the engine cache-busts its fetch every minute while the panel's
+  // goes through a CDN that holds the file about five, and the engine computes
+  // availability against the version it is ACTUALLY RUNNING while the panel
+  // computes it against what it was last told. So the row could read "Up to
+  // date" above a sentence saying an update was downloading.
+  //
+  // When the engine has answered, its answer replaces the row -- `installed`
+  // included, which it knows first-hand and the panel only remembers.
+  //
+  // THE PANEL'S OWN FETCH STAYS, and deleting it would be the obvious wrong
+  // reading of this ruling: `renderEngines` runs with no engine at all, which
+  // is the first-install case, and `update_api` reports the installer URL "so
+  // the panel can still hand the file to chrome.downloads for a FIRST install".
+  // The engine wins when it speaks; it cannot win when it is not there.
+  //
+  // AND IT WINS WITH AN ANSWER, NOT WITH A FAILURE TO GET ONE. A report whose
+  // own manifest fetch failed carries `latest.state` of "offline" or
+  // "unreadable" and no version. Letting that overwrite a good answer the panel
+  // already holds would make the ruling cost him the row it was meant to make
+  // trustworthy, so the state is checked and not merely the presence.
+  const engineLatest = report && report.latest && report.latest.state === "ok"
+    ? report.latest : null;
+  const latest = engineLatest || panelLatest;
+  const installed = (report && report.installed) || state.engineVersion || "";
+  if (engineLatest) paintEngineRelease(latest, installed);
+
+  const download = $("engine-download");
+  const steps = $("engine-install-steps");
+  const installer = latest.state === "ok" ? latest.installer : null;
 
   // AND THE PRIMARY ACTION BECOMES THE ENGINE'S WHEN THE ENGINE CAN TAKE IT.
   // `chrome.downloads` remains the first install and only the first (`R-36`):

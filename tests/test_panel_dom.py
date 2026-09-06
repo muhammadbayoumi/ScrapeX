@@ -6834,3 +6834,118 @@ def test_a_report_in_flight_does_not_paint_onto_the_candidate_he_opened(open_pan
         "a report that resolved after the reader opened a candidate painted "
         f"ScrapeX's update state onto its screen: {_line(page)!r}")
 
+
+def test_when_the_two_answers_disagree_the_engine_wins(open_panel):
+    """HIS RULING, and it is a defect until something asserts it.
+
+    Two sources answer "what is the newest engine". The panel fetches the
+    release manifest itself, because `renderEngines` runs with no engine at all
+    -- the first-install case, where there is nothing to ask. The engine fetches
+    it too, and reports what it found beside what it can do about it.
+
+    They can differ, and not rarely: the engine cache-busts its fetch once a
+    minute while the panel's goes through a CDN that holds the file for about
+    five, and the engine computes availability against the version it is ACTUALLY
+    RUNNING while the panel computes it against what it was last told. So the row
+    could read "Up to date" above a sentence saying an update was downloading --
+    two numbers on one screen, both presented as fact.
+
+    Measured here as the sharpest form of it: the panel's feed says 0.5.0 is the
+    newest, the engine says 0.9.0. The screen must say 0.9.0.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine",
+        "version": "0.5.0",
+        "tag": "engine-v0.5.0",
+        "published_at": "2026-08-06T09:00:00Z",
+        "installer": {"name": "scrapex-engine.exe", "url": "https://x/old.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    _engines(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.5.0'", timeout=10_000)
+
+    # `can_self_update` FALSE ON PURPOSE, so the install-steps path runs and the
+    # checksum below is on screen rather than behind a `hidden`. Measured while
+    # writing this: with it true, the button branch returns before the tail and
+    # `#engine-download-checksum` keeps the panel's digest -- stale, but inside
+    # `#engine-install-steps`, which that same branch hides, and nothing can
+    # un-hide it without re-running the tail that rewrites it. So the state this
+    # asserts is the one where the number is actually readable.
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        latest={"state": "ok", "detail": "", "version": "0.9.0",
+                "tag": "engine-v0.9.0",
+                "published_at": "2026-09-01T00:00:00Z",
+                "url": "https://example.invalid/r", "minimum_extension": "",
+                "protocol": 1,
+                "installer": {"name": "scrapex-engine.exe", "bytes": 1,
+                              "sha256": "c" * 64, "url": "https://x/new.exe",
+                              "verifiable": True}}))
+    open_engine(page)
+    page.click("#engine-recheck")
+
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.9.0'", timeout=10_000)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert text_of(page, "#engine-latest-version") == "0.9.0", (
+        "the panel's own feed still owns the row, so the version on screen can "
+        "contradict the sentence under it")
+    # AND THE INSTALLER FOLLOWS THE VERSION. A row that says 0.9.0 above a
+    # checksum belonging to 0.5.0 is worse than either answer alone: it is a
+    # number that verifies the wrong file, which is what `R-36` calls worse than
+    # no number at all.
+    # The digest lives inside a collapsed `<details>`, so it has to be opened --
+    # otherwise `text_content` reads a string no reader has been shown, and the
+    # assertion is about the DOM rather than about the screen.
+    page.click("#engine-install-steps summary")
+    page.wait_for_function(
+        "() => document.getElementById('engine-install-steps').open")
+    assert page.locator("#engine-download-checksum").is_visible(), (
+        "this state is meant to show the checksum; the assertion below would "
+        "otherwise pass on text nobody can read")
+    assert page.text_content("#engine-download-checksum").strip() == "c" * 64, (
+        "the row took the engine's version and kept the panel's installer, so "
+        "the SHA-256 on screen belongs to a different file than the one named")
+
+
+def test_a_release_feed_the_engine_could_not_read_does_not_erase_the_row(open_panel):
+    """THE WRONG READING OF THE SAME RULING, and it costs the row it was meant
+    to make trustworthy.
+
+    "The engine wins" is about which ANSWER is authoritative, not about letting
+    a failure to get one overwrite a good answer already on screen. When the
+    engine's own manifest fetch fails it reports `latest.state` of "offline" or
+    "unreadable" with no version in it. Taking that would blank a row the panel
+    had correctly filled from its own feed.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine",
+        "version": "0.5.0",
+        "tag": "engine-v0.5.0",
+        "published_at": "2026-08-06T09:00:00Z",
+        "installer": {"name": "scrapex-engine.exe", "url": "https://x/old.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    _engines(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.5.0'", timeout=10_000)
+
+    _engine_with_update(page, _report(
+        update_available=False, can_self_update=False,
+        latest={"state": "unreadable",
+                "detail": "The release manifest answered 502.",
+                "version": "", "tag": "", "published_at": "", "url": "",
+                "minimum_extension": "", "protocol": None, "installer": None}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function("() => window.__updateGets > 0", timeout=10_000)
+    page.wait_for_timeout(300)
+
+    assert text_of(page, "#engine-latest-version") == "0.5.0", (
+        "the engine failing to read the feed erased a version the panel had "
+        "read correctly, which is the ruling applied to a non-answer")
+
