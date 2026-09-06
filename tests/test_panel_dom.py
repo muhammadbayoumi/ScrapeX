@@ -6410,18 +6410,26 @@ def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
 # about a guard that accepted any 4xx and therefore recorded a reason it never
 # measured.
 #
-# THE READ HALF ONLY. Starting an update is `POST /api/update` and it has its own
-# change and its own tests; nothing below presses a button.
+# THE READ HALF MERGED FIRST and its tests are above this line. What follows
+# presses the button: `POST /api/update` answers `started` or refuses with a
+# NAMED reason, and a panel reading only the status code would show the same
+# nothing for all four refusals.
 
 _HEALTH = {"app": "scrapex", "version": "0.4.6", "worker_alive": True,
            "protocol_version": 1, "sources_with_data": 0}
 
 _STUB = """([update, health]) => {
   const original = window.fetch;
+  window.__updatePosts = 0;
   window.__updateGets = 0;
   window.fetch = async (url, options) => {
     const u = String(url);
     if (u.includes('/api/update')) {
+      if (options && options.method === 'POST') {
+        window.__updatePosts += 1;
+        return { ok: true, status: 200,
+                 json: async () => (update.__post || {started: true}) };
+      }
       window.__updateGets += 1;
       return { ok: true, status: 200, json: async () => update };
     }
@@ -6589,3 +6597,30 @@ def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open
     assert "step you take" in line, (
         "a staged update did not say installing it is still his step, which is "
         f"the boundary this feature stops at: {line!r}")
+
+
+def test_a_named_refusal_from_the_engine_reaches_the_screen(open_panel):
+    """`POST /api/update` refuses with `started: false` and a NAMED reason --
+    already running, no release, already current, nothing attached. A panel
+    reading only the status code would show the same nothing for all four,
+    which is `OP-126`'s shape: a range standing in for a reason."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        __post={"started": False, "detail": "An update is already running."}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('already running')", timeout=10_000)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert page.evaluate("() => window.__updatePosts") == 1, (
+        "the button did not start an update through the engine")
+    assert "already running" in _line(page)
+    assert not page.locator("#engine-download").is_disabled(), (
+        "a refusal left the button disabled, so the reason it named cannot be "
+        "acted on")

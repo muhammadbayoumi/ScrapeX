@@ -54,14 +54,14 @@ READS = re.compile(r"\breport\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 #: so `_update_readers` refuses an empty or suspiciously short slice rather than
 #: returning one.
 #:
-#: ONE ENTRY BECAUSE THERE IS ONE READER, and the next change adds its own. The
-#: first draft of this file listed the poll here too and then a later commit
-#: renamed the poll without touching this tuple, so the guard went blind on half
-#: its subject with every test still green. A reader added without its marker is
-#: a reader nothing checks, so the split that separated the two halves separated
-#: this list as well: whatever branch adds a reader adds it here, in its own diff,
-#: where a review can see both at once.
-READERS = ("function engineUpdateSentence(",)
+#: A READER ADDED HERE IN THE SAME DIFF THAT ADDS THE READER, which is the rule
+#: this line exists to hold. An earlier commit listed the poll here, then split
+#: the poll into a wrapper and a loop and left the marker naming the wrapper --
+#: so the guard went blind on half its subject with every test still green, in
+#: the very file written about tests that agree with the wrong thing. The loop is
+#: named, not the wrapper: the wrapper only holds the re-entry flag and reads no
+#: report at all.
+READERS = ("function engineUpdateSentence(", "async function pollEngineUpdateLoop(")
 
 
 def _update_readers() -> str:
