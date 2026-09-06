@@ -217,66 +217,10 @@ def test_an_explicit_db_still_bypasses_the_registry_entirely(monkeypatch, tmp_pa
     assert served == [(legacy, True)], (
         "an explicit --db must be served as given, and only THAT case migrates")
 
-def test_the_launch_path_does_not_scan_the_warehouse(monkeypatch):
-    """Starting is half the fix; starting INSIDE THE PANEL'S BUDGET is the other.
-
-    Making the host accept Chrome's arguments meant `_cmd_native_host` reached
-    `_engine_path` for the first time -- and that calls `DatabaseRegistry.verify()`,
-    which is `health()` with its default `integrity=True`, which is
-    `PRAGMA quick_check(1)` plus `pragma_foreign_key_check`. `health`'s own
-    docstring records both as O(FILE SIZE).
-
-    MEASURED on the owner's 1,982 MB warehouse, 2026-09-05, with a crawl running:
-
-        registry.engine.path          0.0 ms
-        health(integrity=False)      17.3 ms
-        health()                 38,157.7 ms
-
-    `extension/transport.js` allows 5,000 ms for a whole spawn-and-reply, and
-    Chrome spawns a FRESH host per `sendNativeMessage`, so PING, AUTOSTART_STATUS,
-    SET_AUTOSTART, CHECK_STARTUP and UPGRADE_DATABASE each paid it. The panel said
-    "the helper did not answer in time" on a machine where the helper was fine --
-    a slower, quieter version of the defect this file exists for.
-
-    Asserted as BEHAVIOUR, not as the absence of a string: the scan is made to
-    explode, and resolving the path must not touch it.
-    """
-    from scrapex.cli import _cmd_native_host
-    from scrapex.databases import DatabaseRegistry
-    from scrapex import native
-
-    def detonate(*a, **k):
-        raise AssertionError(
-            "the native host ran the integrity scan while resolving its path. On "
-            "a large warehouse that is tens of seconds, and Chrome's caller gives "
-            "it five -- so the panel reports the helper as unresponsive")
-
-    monkeypatch.setattr(DatabaseRegistry, "verify", detonate)
-    served = {}
-    monkeypatch.setattr(native, "serve",
-                        lambda path, migrate=False: served.update(path=path) or 0)
-
-    code = _cmd_native_host(argparse.Namespace(db=None))
-
-    assert code == 0
-    assert served["path"].name.endswith(".db"), (
-        "the host was handed no warehouse path at all")
-
-
-def test_an_explicit_db_still_reaches_the_host(monkeypatch):
-    """The `--db` branch is the one a person types, and it must keep working --
-    the fast path above must not have quietly dropped it."""
-    from scrapex.cli import _cmd_native_host
-    from scrapex import native
-
-    served = {}
-    monkeypatch.setattr(native, "serve",
-                        lambda path, migrate=False: served.update(
-                            path=path, migrate=migrate) or 0)
-
-    code = _cmd_native_host(argparse.Namespace(db="C:/tmp/legacy.db"))
-
-    assert code == 0
-    assert served["path"] == pathlib.Path("C:/tmp/legacy.db")
-    assert served["migrate"] is True, (
-        "an explicit legacy --db is the one warehouse the host still migrates")
+# TWO WEAKER DUPLICATES OF THE PAIR ABOVE WERE REMOVED HERE.
+#
+# They asserted the same property by patching `DatabaseRegistry.verify`, which
+# is ONE route to the scan; the pair above patches `health` itself, so anything
+# that reaches an integrity check fails however it got there. Same knowledge,
+# same reason to change, and the weaker spelling would have gone green on a
+# refactor that reached the scan by another name.
