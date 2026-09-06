@@ -3581,11 +3581,21 @@ function engineReleaseVerdict(installed, latest) {
 // -- written without a leading hash because the colour-literal guard reads a
 // hash and three hex digits as a colour value, and a bare pull-request number is
 // exactly that shape --
-// and NOTHING HAD EVER CALLED IT: `git log -S "api/update"` over extension/
-// returned no commit in the whole history until this one. So the note beside the
-// installer checksum claimed the engine downloaded and verified its updates
-// while the only thing that could start it was a request nobody made
-// (`OP-124`). The record is issue 439.
+// and NOTHING HAD EVER CALLED IT. So the note beside the installer checksum
+// claimed the engine downloaded and verified its updates while the only thing
+// that could start it was a request nobody made (`OP-124`). The record is
+// issue 439.
+//
+// THE MEASUREMENT, STATED SO IT CAN BE REPEATED. This note used to say that
+// `git log -S "api/update"` over `extension/` returned no commit in the whole
+// history, AND THAT IS FALSE: it returns `c233a219`, which added the comment in
+// `app.html` saying the route had zero callers. The string was in this directory
+// for months; a CALL never was. `git log -S` searches text, so a note about a
+// route counts as an occurrence of it -- and a claim about a command's output is
+// checkable in one line, which is why writing one that is wrong is worse than
+// writing none. What was true, and is the thing to check: before this work
+// `grep -rn "api/update" extension/` found exactly one hit and it was inside an
+// HTML comment.
 //
 // THE READ HALF. It asks the engine what it can do and what it is doing, and it
 // merged on its own. Asking the engine to START is the half below --
@@ -3661,8 +3671,20 @@ function engineUpdateSentence(report) {
       : `The engine is downloading the update — ${pct}%.`;
   }
   if (phase === "staged") {
-    return "Downloaded and checked against its published digest. Replacing the "
-      + "running engine with it is still a step you take.";
+    // AND IT SAYS WHERE THE FILE IS, because a sentence that names a step he
+    // must take and withholds what taking it needs is the same defect as a
+    // terminal instruction: it puts the work outside the panel and then does not
+    // say where. `staged_path` and `staged_version` are in the report and were
+    // read by NOTHING, so the only true half of this sentence was the half that
+    // says he is not finished. `plan_swap` describes replacing the running
+    // executable and deliberately does not do it, so this stops there -- but it
+    // stops with the file named rather than with a gesture at one.
+    const where = report.staged_path
+      ? ` It is at ${report.staged_path}.`
+      : "";
+    const which = report.staged_version ? ` ${report.staged_version}` : "";
+    return `Downloaded${which} and checked against its published digest.`
+      + ` Replacing the running engine with it is still a step you take.${where}`;
   }
   if (phase === "failed") {
     return report.detail || "The last update attempt failed.";
@@ -3835,20 +3857,20 @@ async function pollEngineUpdateLoop() {
     }
     await new Promise((done) => setTimeout(done, ENGINE_UPDATE_POLL_MS));
   }
+  // AND THE BUTTON COMES BACK WITH IT. Running out of attempts is the panel
+  // giving up on WATCHING, not the engine giving up on downloading -- but the
+  // button was disabled by the busy branch and nothing here re-enabled it, so
+  // the screen ended with a sentence saying "reopen this to see where it got to"
+  // above a control that could not be pressed and would not change. Reopening
+  // re-renders and settles it correctly either way; this is for the reader who
+  // stays.
+  $("engine-download").disabled = false;
   writeEngineUpdateLine("The engine is still downloading. Reopen this screen to "
     + "see where it got to.");
 }
 
 async function updateEngineReleaseUI(latest) {
   const installed = state.engineVersion || "";
-  // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
-  // `null` default, and the default was the defect: `refreshEngines` -- the
-  // "Check again" button -- called the renderer without it, so pressing the one
-  // control named for re-checking was the one path that never asked the engine
-  // about its update. Two call sites, one of them wired. That is `R-80` inside
-  // a single function: the decision lives in one place, so there is nowhere to
-  // forget it.
-  const report = state.engineUp ? await engineUpdateState() : null;
 
   $("engine-latest-version").textContent =
     latest.state === "ok" ? latest.version
@@ -3885,6 +3907,24 @@ async function updateEngineReleaseUI(latest) {
     installed && latest.state === "ok" && verdict === "Update available"
       ? `Update to ${latest.version}`
       : "Download engine";
+
+  // EVERY PAINT ABOVE THIS LINE IS ALREADY ON SCREEN BEFORE THE ENGINE IS ASKED
+  // ANYTHING, and the order is the fix rather than an accident. This await was
+  // the first statement in the function when the caller was written, so making
+  // one renderer asynchronous put the latest version, the release detail, the
+  // button's label AND `#engine-row-verdict` -- which is on the CATALOGUE, not
+  // this screen -- behind up to eight seconds of network for a report none of
+  // them read. The panel already knew all of it from `latest`. Nothing that can
+  // be drawn from what is in hand waits for what is not.
+  //
+  // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
+  // `null` default, and the default was the defect: `refreshEngines` -- the
+  // "Check again" button -- called the renderer without it, so pressing the one
+  // control named for re-checking was the one path that never asked the engine
+  // about its update. Two call sites, one of them wired. That is `R-80` inside
+  // a single function: the decision lives in one place, so there is nowhere to
+  // forget it.
+  const report = state.engineUp ? await engineUpdateState() : null;
 
   // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
   // no line rather than an empty paragraph -- the same idiom as the verdict
@@ -6326,10 +6366,18 @@ const RESTART_CONFIRM_ATTEMPTS = 125;
 // `scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
 // words -- "~70 MB over somebody's home connection, and failing a real download
 // at four minutes would be worse than waiting". At three seconds an attempt,
-// 310 attempts is 930 s: ABOVE the engine's 900, so the engine is always the
-// side that gives up first and can say why. That is `R-48` rule 2, and it is
-// the same arithmetic as `RESTART_CONFIRM_ATTEMPTS` above -- 125 over the
-// engine's 122.
+// 310 attempts is AT LEAST 930 s: above the engine's 900, so the engine is
+// always the side that gives up first and can say why. That is `R-48` rule 2,
+// and it is the same arithmetic as `RESTART_CONFIRM_ATTEMPTS` above -- 125 over
+// the engine's 122.
+//
+// AT LEAST, AND NOT 930 EXACTLY, which the first version of this note claimed.
+// Each turn is the 3 s sleep PLUS the request, and the request has its own 8 s
+// bound (`STARTUP_DEADLINES.updateReport`), so the real ceiling is anywhere from
+// 930 s to about 3410 s. The conclusion survives the correction and only gets
+// stronger -- every one of those numbers is above 900 -- but a derivation stated
+// as an equality when it is a floor is a number nothing verifies, which is the
+// shape `R-36` is about.
 //
 // AND RUNNING OUT IS NOT A FAILURE HERE. The panel stops WATCHING; the engine
 // keeps downloading on its own thread. So the sentence at the end says where to

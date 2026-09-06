@@ -186,6 +186,36 @@ def test_every_field_the_panel_reads_survives_the_normaliser():
         "FAILS — which is how this shipped green the first time.")
 
 
+#: `latest.<name>`, read inside the same functions. A SECOND LEVEL THAT WENT
+#: UNCHECKED: the test above compares top-level names, and `report.latest` is one
+#: of them, so a reader of `latest.detail` was satisfied by the presence of
+#: `latest` and nothing looked inside it. Measured: the panel's DOM fixture's
+#: `latest` block was missing six of the nine keys the router always emits,
+#: `detail` among them -- a field `engineUpdateSentence` reads on the path where a
+#: release feed is unreachable.
+READS_LATEST = re.compile(r"latest\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
+
+
+def test_every_field_the_panel_reads_off_latest_is_one_the_engine_sends():
+    """The block inside the block, which the top-level check cannot see.
+
+    `report.latest` passing as a name says nothing about what is in it. This is
+    the same assertion one level down, and it is here because the level above it
+    was green while the fixture's `latest` carried three keys out of nine.
+    """
+    report = _engine_report()
+    latest = report.get("latest") or {}
+    assert latest, "the engine sends no `latest` block at all"
+
+    read = set(READS_LATEST.findall(_update_readers()))
+    missing = sorted(read - set(latest))
+    assert not missing, (
+        f"the panel reads latest.{{{', '.join(missing)}}} and the engine's "
+        f"`latest` block carries {sorted(latest)}. Every name outside that set "
+        "is `undefined` at run time, so the sentence built from it is empty and "
+        "NOTHING FAILS.")
+
+
 def test_the_nested_progress_block_is_still_where_the_panel_expects_it():
     """The normaliser flattens `progress_state`, so its own shape is a contract.
 

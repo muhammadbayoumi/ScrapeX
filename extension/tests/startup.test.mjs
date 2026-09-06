@@ -35,6 +35,31 @@ test("local endpoints receive purpose-specific deadlines", () => {
                STARTUP_DEADLINES.bundleBuild);
 });
 
+// A RULE DERIVED FROM ONE METHOD MUST NOT SILENTLY BIND THE OTHER, and this is
+// the case that says so. `/api/update` is two different costs on one path: the
+// GET reads a third-party release manifest, which is why it carries a bound
+// derived from the engine's own 4 s fetch; the POST starts a thread and answers
+// at once. The rule was written for the GET and matched on the path alone, so it
+// took the POST with it -- SHORTENING that from `localMutation` to the GET's
+// number while its own comment described lengthening something.
+//
+// Nothing failed. That is the whole difficulty: a tighter deadline on a fast
+// route is invisible until the one run that needed the slack, and by then it
+// reports as "the engine did not answer".
+test("a deadline measured for one method does not bind the other", () => {
+  assert.equal(deadlineForLocalRequest("/api/update"),
+               STARTUP_DEADLINES.updateReport);
+  assert.equal(deadlineForLocalRequest("/api/update", "GET"),
+               STARTUP_DEADLINES.updateReport);
+  assert.equal(deadlineForLocalRequest("/api/update", "POST"),
+               STARTUP_DEADLINES.localMutation);
+  // The two must differ, or this case would pass over the defect it names.
+  assert.notEqual(STARTUP_DEADLINES.updateReport, STARTUP_DEADLINES.localMutation);
+  // AND THE GET'S BOUND IS ABOVE THE ENGINE'S OWN, which is the reason it is not
+  // the generic one: only the side doing the work may bound the work.
+  assert.ok(STARTUP_DEADLINES.updateReport > STARTUP_DEADLINES.localGeneric);
+});
+
 // WHAT WAS MISSING HERE ON 2026-08-29, and the shape of the hole is the lesson.
 // The case above had a row for every rule in the table and none for a path that
 // matched no rule at all -- so `POST /api/bundle` collected `localMutation:

@@ -6401,11 +6401,13 @@ def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
 # THE ROUTE THESE TESTS DRIVE HAD NEVER BEEN CALLED BY ANYTHING. `GET
 # /api/update` has been mounted, complete and tested on the engine side since
 # PR 246 -- written without a leading hash because the colour-literal guard reads
-# a hash and three hex digits as a colour value -- and `git log -S "api/update"`
-# over `extension/` returned no commit in the whole history, so the note beside
-# the installer checksum claimed the engine downloaded and verified its own
-# updates while the only thing that could start it was a request nobody made
-# (`OP-124`). These tests exist so that cannot recur silently: each asserts a
+# a hash and three hex digits as a colour value -- and nothing in `extension/`
+# had ever called it, so the note beside the installer checksum claimed the
+# engine downloaded and verified its own updates while the only thing that could
+# start it was a request nobody made (`OP-124`). Measured as: before this work
+# `grep -rn "api/update" extension/` found exactly one hit, inside an HTML
+# comment. NOT as `git log -S`, which this said first and which is false --
+# that returns `c233a219`, the commit that wrote the comment. These tests exist so that cannot recur silently: each asserts a
 # SENTENCE the owner reads rather than a status code, because `OP-126` is the row
 # about a guard that accepted any 4xx and therefore recorded a reason it never
 # measured.
@@ -6487,7 +6489,8 @@ def _engines(page):
         " !== 'Checking engine…'", timeout=10_000)
 
 
-def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
+def _report(*, phase="idle", progress=None, detail="", blocked="",
+            staged_path="", staged_version="", **over):
     """A body in the shape `create_update_router()` really returns.
 
     THE FIRST VERSION OF THIS FIXTURE PUT `phase` AND `progress` AT THE TOP LEVEL
@@ -6503,7 +6506,18 @@ def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
     """
     out = {
         "installed": "0.4.6",
-        "latest": {"state": "ok", "version": "0.9.0",
+        # ALL NINE KEYS, and the count is the point. This block carried three --
+        # `state`, `version`, `installer` -- while the router always sends nine,
+        # and `detail` was one of the six missing. `engineUpdateSentence` reads
+        # `latest.detail` on the path where the release feed is unreachable, so a
+        # test written for that path would have asserted against `undefined` and
+        # matched an empty expectation. The top-level guard could not see it:
+        # `latest` is one name there, and it was present.
+        "latest": {"state": "ok", "detail": "", "version": "0.9.0",
+                   "tag": "engine-v0.9.0",
+                   "published_at": "2026-09-01T00:00:00Z",
+                   "url": "https://example.invalid/releases/engine-v0.9.0",
+                   "minimum_extension": "", "protocol": 1,
                    "installer": {"name": "e.exe", "bytes": 1, "sha256": "a",
                                  "url": "u", "verifiable": True}},
         "update_available": True,
@@ -6513,11 +6527,53 @@ def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
             "phase": phase,
             "progress": progress or {"received": 0, "total": 0, "percent": 0},
             "detail": detail,
-            "staged_path": "", "staged_sha256": "", "staged_version": "",
+            "staged_path": staged_path, "staged_sha256": "",
+            "staged_version": staged_version,
         },
     }
     out.update(over)
     return out
+
+
+def test_the_fixture_above_has_the_shape_the_engine_really_sends():
+    """THE FIXTURE IS THE THING THAT WENT WRONG, TWICE, so it is asserted here.
+
+    Every DOM test below drives the panel with `_report()`. When it drifts from
+    the router they all stay green over a body the engine cannot produce -- which
+    is exactly what happened: first with `phase` and `detail` flattened to the top
+    level, then again with `latest` carrying three keys out of nine.
+
+    `tests/test_the_panel_reads_the_keys_the_updater_sends.py` asserts the PANEL
+    against the router. This asserts the FIXTURE against it, and the two are
+    different failures: the panel can read a name the fixture never supplies, and
+    a test can then pass because `undefined` matched an empty expectation.
+
+    Key sets and not values: the values here are deliberately fake.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from scrapex.webui import update_api
+
+    app = FastAPI()
+    app.include_router(update_api.create_update_router())
+    real = TestClient(app).get("/api/update").json()
+    fixture = _report()
+
+    for path, mine, theirs in (
+        ("", fixture, real),
+        ("latest.", fixture["latest"], real["latest"]),
+        ("progress_state.", fixture["progress_state"], real["progress_state"]),
+    ):
+        missing = sorted(set(theirs) - set(mine))
+        extra = sorted(set(mine) - set(theirs))
+        assert not missing, (
+            f"the fixture omits {[path + k for k in missing]}, so every DOM test "
+            "below runs against a body the engine cannot produce")
+        assert not extra, (
+            f"the fixture invents {[path + k for k in extra]}; the panel could "
+            "read one of them and no test would notice")
 
 
 def test_the_panel_asks_the_engine_about_its_own_update(open_panel):
@@ -6597,7 +6653,9 @@ def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open
     page = open_panel()
     _engines(page)
     _engine_with_update(page, _report(
-        phase="staged", progress={"received": 1, "total": 1, "percent": 100}))
+        phase="staged", progress={"received": 1, "total": 1, "percent": 100},
+        staged_path="C:/Users/x/.scrapex/updates/scrapex-engine-0.9.0.exe",
+        staged_version="0.9.0"))
     open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
@@ -6609,6 +6667,16 @@ def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open
     assert "step you take" in line, (
         "a staged update did not say installing it is still his step, which is "
         f"the boundary this feature stops at: {line!r}")
+    # AND IT SAYS WHERE THE FILE IS. A sentence that names a step he must take
+    # outside the panel and does not say where to take it is a terminal
+    # instruction wearing different words -- and `staged_path` was in the report
+    # all along, read by nothing.
+    assert "scrapex-engine-0.9.0.exe" in line, (
+        "the panel tells him to install a file it will not name the location of: "
+        f"{line!r}")
+    assert "0.9.0" in line, (
+        f"the staged version is not named, so 'downloaded' says nothing about "
+        f"WHAT was downloaded: {line!r}")
 
 
 def test_a_named_refusal_from_the_engine_reaches_the_screen(open_panel):
