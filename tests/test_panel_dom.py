@@ -6418,20 +6418,32 @@ def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
 _HEALTH = {"app": "scrapex", "version": "0.4.6", "worker_alive": True,
            "protocol_version": 1, "sources_with_data": 0}
 
+# `window.__update` RATHER THAN THE CLOSED-OVER VALUE, so a test can change what
+# the engine says WITHOUT reinstalling the stub. The reopen tests need exactly
+# that: what the panel painted on the way out has to differ from the truth on the
+# way back in, or a screen that is never re-rendered looks identical to one that
+# is, and the test passes over the defect.
+#
+# `__delay_ms` DELAYS THE GET ONLY. A report that arrives while the reader is
+# still on the screen cannot show a guard checked before the await from one
+# checked after it; both paint, and both are right. The window has to be open.
 _STUB = """([update, health]) => {
   const original = window.fetch;
   window.__updatePosts = 0;
   window.__updateGets = 0;
+  window.__update = update;
   window.fetch = async (url, options) => {
     const u = String(url);
     if (u.includes('/api/update')) {
       if (options && options.method === 'POST') {
         window.__updatePosts += 1;
         return { ok: true, status: 200,
-                 json: async () => (update.__post || {started: true}) };
+                 json: async () => (window.__update.__post || {started: true}) };
       }
       window.__updateGets += 1;
-      return { ok: true, status: 200, json: async () => update };
+      const wait = window.__update.__delay_ms || 0;
+      if (wait) await new Promise((done) => setTimeout(done, wait));
+      return { ok: true, status: 200, json: async () => window.__update };
     }
     if (u.includes('/api/health')) {
       return { ok: true, status: 200, json: async () => health };
@@ -6624,3 +6636,133 @@ def test_a_named_refusal_from_the_engine_reaches_the_screen(open_panel):
     assert not page.locator("#engine-download").is_disabled(), (
         "a refusal left the button disabled, so the reason it named cannot be "
         "acted on")
+
+
+def _back_to_the_catalogue(page):
+    page.click("#engine-detail-back")
+    page.wait_for_selector("#view-engines:not(.hidden)", timeout=10_000)
+
+
+def test_reopening_scrapex_after_a_candidate_brings_its_sentence_back(open_panel):
+    """"Reopen this screen" HAS TO BE TRUE, and nothing re-ran the renderer.
+
+    `#view-engine-detail` is shared by all seven engines, so opening a candidate
+    hides ScrapeX's update sentence -- correctly. Nothing rewrote it on the way
+    back in, because `renderEngineDetail` painted the rows and the banner and
+    asked the engine about nothing. So the screen the panel's own poll tells him
+    to reopen came back with the line MISSING, which reads as "no update state"
+    rather than the refusal the engine had actually given.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        blocked="This is a source checkout, not an installed engine."))
+
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('source checkout')", timeout=10_000)
+
+    _back_to_the_catalogue(page)
+    open_engine(page, "firecrawl")
+    settle_view(page, "engine-detail")
+    assert not page.locator("#engine-update-state").is_visible(), (
+        "ScrapeX's update sentence is on a candidate backend's screen")
+
+    _back_to_the_catalogue(page)
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('source checkout')", timeout=10_000)
+    assert page.locator("#engine-update-state").is_visible(), (
+        "reopening ScrapeX's own screen left it with no update state at all, so "
+        "the panel's own instruction to reopen it is false")
+
+
+def test_reopening_during_a_download_finds_a_button_that_is_not_lying(open_panel):
+    """A CONTROL THAT LIES ABOUT WORK IN FLIGHT, which is the worse half of
+    "a button that cannot work is worse than no button".
+
+    The engine downloads on its own thread and the panel only watches. Leaving
+    the screen stops the watching; it must not leave the button frozen at
+    whatever it said on the way out. Measured as: open while idle -- "Download
+    and check 0.9.0", enabled -- leave, and come back while the engine is
+    downloading. Nothing re-rendered, so the button still OFFERED a download of
+    ~70 MB that was already running.
+
+    The engine's answer is changed while the reader is away rather than the stub
+    reinstalled, because a screen that is never re-rendered and one that is look
+    identical unless the truth moved underneath it.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report())
+
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Download and check')", timeout=10_000)
+    assert not page.locator("#engine-download").is_disabled()
+
+    _back_to_the_catalogue(page)
+    page.evaluate("""(downloading) => { window.__update = downloading; }""",
+                  _report(phase="downloading",
+                          progress={"received": 1, "total": 2, "percent": 50}))
+    open_engine(page)
+
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent === 'Downloading…'", timeout=10_000)
+    assert page.locator("#engine-download").is_disabled(), (
+        "the button offers a second ~70 MB download on top of the one the engine "
+        "is already running")
+    assert "50%" in _line(page), (
+        f"the reopened screen does not say where the download got to: "
+        f"{_line(page)!r}")
+
+
+def test_a_report_in_flight_does_not_paint_onto_the_candidate_he_opened(open_panel):
+    """THE GUARD WAS ASKED BEFORE THE AWAIT AND NEVER AFTER IT.
+
+    `GET /api/update` is bounded at 8 s (`STARTUP_DEADLINES.updateReport`) and
+    the poll asked "is ScrapeX's screen up" only on the way into that wait. A
+    reader who opens a candidate inside it gets ScrapeX's download progress
+    painted onto a page whose whole design is that it promises nothing -- up to
+    eight seconds after the screen changed. Checking before the await NARROWS
+    that window; only checking after it closes it.
+
+    A slow report is the only way to hold the window open: one that arrives
+    while the reader is still on the screen paints correctly either way.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        phase="downloading",
+        progress={"received": 1, "total": 2, "percent": 50},
+        __delay_ms=1000))
+
+    open_engine(page)
+    # The label turning is the signal that the renderer's own report landed and
+    # the watcher has started -- so the NEXT report is the one in flight.
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent === 'Downloading…'", timeout=15_000)
+
+    _back_to_the_catalogue(page)
+    open_engine(page, "firecrawl")
+    settle_view(page, "engine-detail")
+    # Longer than the delay, so the in-flight report has certainly resolved.
+    page.wait_for_timeout(2000)
+
+    # VISIBILITY AND NOT TEXT, measured. The line still HOLDS ScrapeX's last
+    # sentence -- `renderEngineDetail` hides the paragraph on the way into a
+    # candidate and does not blank it -- and that is not a defect: nothing can
+    # read a hidden paragraph, and the only writer un-hides only when it writes.
+    # Asserting on the text here passed for the wrong reason and failed for the
+    # wrong reason. What the guard decides is whether the late report UN-HIDES
+    # it, so that is what is asserted.
+    assert not page.locator("#engine-update-state").is_visible(), (
+        "a report that resolved after the reader opened a candidate painted "
+        f"ScrapeX's update state onto its screen: {_line(page)!r}")
+

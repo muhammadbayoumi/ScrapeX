@@ -3695,6 +3695,37 @@ function engineUpdateSentence(report) {
   return "";
 }
 
+
+// TWO QUESTIONS, AND NOTHING WRITES THE UPDATE LINE WITHOUT ASKING BOTH. Which
+// screen is up, and whose screen it is. `theInstalledEngineIsOnScreen()` answers
+// the second only: it reads `openEngineId`, which keeps its value after the
+// reader navigates away, so on its own it says "yes" about a screen nobody is
+// looking at. `#view-engine-detail` answers the first, and it is shared by all
+// seven engines, so on its own it cannot tell ScrapeX's page from Scrapy's.
+function engineUpdateScreenIsUp() {
+  return !$("view-engine-detail").classList.contains("hidden")
+    && theInstalledEngineIsOnScreen();
+}
+
+// ONE WRITER FOR ONE LINE, and that is the point rather than the tidiness. Four
+// callers put text here -- the renderer, the button, each turn of the poll and
+// the poll running out -- and every one of them can land after an await that the
+// reader spent opening a different engine. When the guard was repeated at the
+// call sites it was right at three of them and absent at the fourth, which is
+// how ScrapeX's sentence reached a candidate's screen. The knowledge is "this
+// line may be written only while ScrapeX's own detail screen is up", it changes
+// for one reason, and it now lives in one place.
+//
+// Returns whether it wrote, so a caller can drop the rest of its work when the
+// screen it was rendering for has gone.
+function writeEngineUpdateLine(text) {
+  if (!engineUpdateScreenIsUp()) return false;
+  const line = $("engine-update-state");
+  line.textContent = text;
+  line.classList.toggle("hidden", !text);
+  return true;
+}
+
 // PRESSING IT. The engine answers immediately with `started` and does the work
 // on its own thread, so this does not wait for a download -- it asks, reports
 // what the engine said about the asking, and then polls the same report the
@@ -3704,10 +3735,8 @@ function engineUpdateSentence(report) {
 // guard that accepted any 4xx and so recorded a reason it never measured.
 async function startEngineUpdate() {
   const button = $("engine-download");
-  const line = $("engine-update-state");
   button.disabled = true;
-  line.textContent = "Asking the engine to fetch it…";
-  line.classList.remove("hidden");
+  writeEngineUpdateLine("Asking the engine to fetch it…");
   let answer;
   try {
     answer = await post("/api/update", {});
@@ -3719,19 +3748,27 @@ async function startEngineUpdate() {
     // that is running is a visible WRONG record, which is worse than a silent
     // one, and it is the same shape as reporting a restart failed because a poll
     // ran out. Only an HTTP status is a refusal; anything else is not knowing.
-    line.textContent = isTimeoutError(err)
+    //
+    // THE TEXT IS GUARDED AND THE BUTTON IS NOT, deliberately. `post` can take
+    // its whole deadline, so this line can arrive after the reader has opened a
+    // candidate -- and a sentence about ScrapeX on that page is a wrong record.
+    // The button is inside `#engine-detail-actions`, which `renderEngineDetail`
+    // hides for a candidate, so re-enabling it writes nothing anyone can see and
+    // leaves it correct for the moment he comes back.
+    writeEngineUpdateLine(isTimeoutError(err)
       ? "The engine did not answer in time. It may have started the download "
         + "anyway — press Check again to see."
       : err && err.kind === "http" && err.message
         ? `The engine refused: ${err.message}`
-        : "The engine could not be reached.";
+        : "The engine could not be reached.");
     button.disabled = false;
     return;
   }
   if (answer && answer.started === false) {
     // NOT AN ERROR AND NOT A SUCCESS. The engine declined for a reason it named,
     // and the button must come back so he can act on the reason.
-    line.textContent = answer.detail || "The engine declined to start an update.";
+    writeEngineUpdateLine(
+      answer.detail || "The engine declined to start an update.");
     button.disabled = false;
     return;
   }
@@ -3762,34 +3799,34 @@ async function pollEngineUpdate() {
 }
 
 async function pollEngineUpdateLoop() {
-  const line = $("engine-update-state");
   for (let attempt = 0; attempt < ENGINE_UPDATE_POLL_ATTEMPTS; attempt += 1) {
     // LEAVING THE SCREEN STOPS THE WATCHING, NOT THE DOWNLOAD. The engine keeps
     // going on its own thread; this only stops asking. Re-entering starts a new
-    // watcher from the busy branch of the renderer.
+    // watcher, because `renderEngineDetail` renders the installed engine again.
     //
-    // TWO QUESTIONS, AND BOTH HAVE TO BE ASKED. Which screen is up, and whose
-    // screen it is. `theInstalledEngineIsOnScreen()` alone answers the second
-    // only: it reads `openEngineId`, which keeps its value after the reader
-    // navigates away, so it says "yes" about a screen nobody is looking at.
-    //
-    // A PREVIOUS VERSION OF THIS COMMENT SAID `engine-detail` IS NOT IN `VIEWS`
-    // and that is false -- it is listed there, and `currentViewName()` returns it
-    // correctly. The claim came from reading eleven lines of a longer list. The
-    // DOM read below is kept because it asks the one element the un-hide writes
-    // to, but it is a preference and not the necessity the old note claimed.
-    const onDetail = !$("view-engine-detail").classList.contains("hidden");
-    if (!onDetail || !theInstalledEngineIsOnScreen()) return;
+    // CHECKED HERE TO AVOID THE REQUEST, and checked again inside every write to
+    // avoid the wrong paint. This one is the saving; the ones below are the
+    // correctness, and it is the second that was missing. `engineUpdateState`
+    // may take its whole `updateReport` deadline -- eight seconds -- and a guard
+    // asked only before that await NARROWS the window rather than closing it.
+    // What it fails to stop is exactly what it was written to stop: ScrapeX's
+    // sentence painted onto a candidate's screen, up to eight seconds after the
+    // reader opened it.
+    if (!engineUpdateScreenIsUp()) return;
     const report = await engineUpdateState();
     if (!report) {
-      line.textContent = "The engine stopped answering while the update was "
-        + "running. Its own log is the record of what happened.";
+      // The button write is unguarded for the reason given in `startEngineUpdate`:
+      // its region is hidden for a candidate, and this leaves it correct for a
+      // reader who comes back.
       $("engine-download").disabled = false;
+      writeEngineUpdateLine("The engine stopped answering while the update was "
+        + "running. Its own log is the record of what happened.");
       return;
     }
-    const sentence = engineUpdateSentence(report);
-    line.textContent = sentence;
-    line.classList.toggle("hidden", !sentence);
+    // A FALSE RETURN IS A SCREEN THAT HAS GONE, so there is nothing left to do
+    // for it -- including the re-render below, which would fetch a release feed
+    // and repaint a page nobody is looking at.
+    if (!writeEngineUpdateLine(engineUpdateSentence(report))) return;
     if (report.phase !== "downloading") {
       // Re-render so the version, the verdict and the button all come from the
       // report that has just settled rather than from the one before it.
@@ -3798,8 +3835,8 @@ async function pollEngineUpdateLoop() {
     }
     await new Promise((done) => setTimeout(done, ENGINE_UPDATE_POLL_MS));
   }
-  line.textContent = "The engine is still downloading. Reopen this screen to "
-    + "see where it got to.";
+  writeEngineUpdateLine("The engine is still downloading. Reopen this screen to "
+    + "see where it got to.");
 }
 
 async function updateEngineReleaseUI(latest) {
@@ -3851,17 +3888,9 @@ async function updateEngineReleaseUI(latest) {
 
   // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
   // no line rather than an empty paragraph -- the same idiom as the verdict
-  // badge above.
-  // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW, the same guard the
-  // install steps below already carry and for the same measured reason: this
-  // renderer runs after two awaits, so it can land after the reader has opened a
-  // CANDIDATE's detail screen -- and `#view-engine-detail` is shared by all seven
-  // engines, so an unguarded un-hide paints ScrapeX's update sentence onto
-  // Scrapy's page.
-  const line = $("engine-update-state");
-  const sentence = theInstalledEngineIsOnScreen() ? engineUpdateSentence(report) : "";
-  line.textContent = sentence;
-  line.classList.toggle("hidden", !sentence);
+  // badge above. The screen guard lives in the writer, which is where all four
+  // callers of this line now get it from.
+  writeEngineUpdateLine(engineUpdateSentence(report));
 
   // AND THE PRIMARY ACTION BECOMES THE ENGINE'S WHEN THE ENGINE CAN TAKE IT.
   // `chrome.downloads` remains the first install and only the first (`R-36`):
@@ -4090,6 +4119,27 @@ function renderEngineDetail(id) {
     // Written by the one status renderer, so this screen and the row agree.
     updateEngineStatus();
     refreshEngineBusy();
+    // AND THE UPDATE STATE IS ASKED FOR AGAIN, which is what makes "reopen this
+    // screen to see where it got to" a true instruction instead of a hopeful
+    // one. Nothing re-ran this renderer on the way back in: the sentence written
+    // on the first visit was cleared by the candidate branch above and never
+    // rewritten, and the button kept whatever label it had when the reader left
+    // -- "Download and check 0.9.0", enabled, over a download in flight. A
+    // control that lies about work in progress is the worse half of "a button
+    // that cannot work is worse than no button".
+    //
+    // `renderEngines` AND NOT A SMALLER CALL, because the sentence is only one
+    // of the three things that go stale together: the latest version, the
+    // verdict badge and the button all come from the same report, and asking
+    // for a subset is how they end up disagreeing. It is also where the poll
+    // restarts from, so this is the whole of the reopen path.
+    //
+    // NOT AWAITED, deliberately. `renderEngineDetail` stays synchronous so
+    // `showView` and the title focus in `openEngineDetail` are not put behind a
+    // network round trip -- the reader gets the screen now and the engine's
+    // answer when it arrives, which is the same order every other row on this
+    // page already uses.
+    renderEngines();
   } else {
     banner.removeAttribute("data-tone");
     banner.setAttribute("aria-busy", "false");
