@@ -1258,6 +1258,57 @@ def test_the_crawl_a_dataset_card_starts_names_the_site_and_not_the_dataset(open
         f"and never reads the key: {body}")
 
 
+def test_a_dataset_card_can_interpret_what_the_crawl_stored(open_panel):
+    """PRESS IT AND READ WHAT WAS POSTED, because the text guard cannot see the offer.
+
+    `test_a_dataset_card_offers_what_works.py` reads the `{action: ...}` literals out of
+    `app.js` and measures each route against a real engine. What it CANNOT see is whether
+    the card actually offers the action: hiding it behind `false ?` leaves the literal in
+    place and that whole suite stays green. Measured, as a mutation, before this test
+    existed.
+
+    AND THE OFFER IS THE ENTIRE CHANGE. His crawl of 2026-09-06 finished with 6,713 stored
+    pages, zero interpreted, because `contractors.approve` had no door but a terminal.
+    A runner, a route and a migration with no control in the panel is the same defect
+    wearing more code -- `R-81`.
+
+    THREE THINGS ARE READ OFF ONE PRESS, and each was a live defect on the crawl action
+    one test above: that the row is there to press at all; that the key posted is the
+    SITE's and not the dataset's, which `POST /api/jobs` 404s for; and that the request
+    names the kind, without which the route infers a CRAWL and goes back to the site for
+    pages already on disk.
+    """
+    page = open_panel(view="data")
+    settle_view(page, "data")
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    card = page.locator('[data-open="contractors"]')
+    card.locator(".split-button-trigger").click()
+    offer = card.locator('[data-split-action]:has-text("Interpret stored pages")')
+    assert offer.count() == 1, (
+        "a dataset card offers no way to interpret the pages its last crawl stored, so "
+        "the runner, the route and migration 0018 are all unreachable from the only "
+        "interface he uses")
+
+    offer.click()
+    page.wait_for_function("() => window.__writes.some(w => w.path === '/api/jobs')",
+                           timeout=10_000)
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+
+    assert len(queued) == 1, f"one press, {len(queued)} jobs queued: {queued}"
+    body = queued[0]["body"]
+    assert body.get("job_kind") == "dataset_interpret", (
+        "the request does not name the kind, so the route infers a CRAWL from the source "
+        f"registry and re-fetches pages that are already stored: {body}")
+    assert body["source_keys"] == ["muqawil_org"], (
+        "it was queued for the DATASET key, which `POST /api/jobs` 404s for. The site key "
+        f"travels on the card as `data-site`: {body}")
+    assert body["run_mode"] in {mode.value for mode in RunMode}, (
+        f"`{body['run_mode']}` is not a RunMode, so the engine answers 400 about the mode "
+        f"and never reads the kind: {body}")
+
+
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
     """A CONTRACTOR IS NOT A PRODUCT, and the card said 17,304 of them were.
 

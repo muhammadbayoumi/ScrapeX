@@ -58,7 +58,11 @@ def test_a_database_that_degrades_while_running_is_announced_with_its_fix(tmp_pa
     client = TestClient(create_app(databases=registry))
     assert "Databases healthy" in client.get("/").text
 
-    rewind(registry.engine, registry.engine.latest_schema_version - 1)
+    # BELOW THE BASELINE, WHICH IS NOT `latest - 1` ANY MORE. While the squash
+    # left a one-file stream the two were the same number; with a migration above
+    # it, `latest - 1` IS the baseline and the honest verdict there is a database
+    # that needs upgrading, not one with no upgrade path.
+    rewind(registry.engine, registry.engine._migrations[0].number - 1)
 
     body = client.get("/").text
     assert "Databases need attention" in body, "the status went stale"
@@ -119,7 +123,11 @@ def test_a_reachable_engine_on_an_unusable_database_does_not_report_ok(tmp_path)
     goes green, while nothing it does can actually work."""
     registry = make_registry(tmp_path)
     client = TestClient(create_app(databases=registry))
-    rewind(registry.engine, registry.engine.latest_schema_version - 1)
+    # BELOW THE BASELINE, WHICH IS NOT `latest - 1` ANY MORE. While the squash
+    # left a one-file stream the two were the same number; with a migration above
+    # it, `latest - 1` IS the baseline and the honest verdict there is a database
+    # that needs upgrading, not one with no upgrade path.
+    rewind(registry.engine, registry.engine._migrations[0].number - 1)
 
     body = client.get("/api/health").json()
 

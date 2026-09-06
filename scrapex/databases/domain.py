@@ -700,7 +700,21 @@ class DomainDatabase(Generic[T]):
         by_name = {name: digest for _number, name, digest in absorbed}
         if by_name.get(migration.name) != stored:
             return False
-        if int(conn.execute("PRAGMA user_version").fetchone()[0]) != migration.number:
+        # AT OR ABOVE THE BASELINE, NOT EXACTLY AT IT, and the difference is whether a
+        # squashed warehouse can ever be upgraded again. `_migrate` applies its
+        # migrations FIRST and calls the stamping pass afterwards, so by the time this
+        # runs the database sits at the version the LAST migration set. Written as
+        # equality, this condition held only while nothing existed above the baseline --
+        # and the first migration that ever landed above it made every pre-squash
+        # warehouse permanently unopenable on upgrade: measured on his own 2.08 GB file,
+        # `initialize()` applied 0018 and then raised "schema.sql checksum changed" about
+        # a file nobody had touched.
+        #
+        # BELOW IT IS STILL REFUSED, which is the half that carries the proof. A database
+        # under the baseline cannot have applied the chain the baseline absorbed, so it
+        # may not borrow the record's word for it. Above is the ordinary state of a
+        # warehouse that went through the chain and has since moved on.
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) < migration.number:
             return False
         rows = dict(conn.execute(
             "SELECT migration_name, sha256 FROM database_migration").fetchall())

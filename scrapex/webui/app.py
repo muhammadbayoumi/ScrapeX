@@ -32,6 +32,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .. import (
     bundle,
     compaction,
+    datasetjob,
     directories,
     directoryjob,
     localinbox,
@@ -3749,13 +3750,32 @@ def create_app(
                        f"{[k for k in source_keys if k not in directory_keys]} are not. "
                        "Queue them separately.")
         job_kind = directoryjob.JOB_KIND if directory_keys else "crawl"
-        if job_kind == directoryjob.JOB_KIND and len(source_keys) != 1:
+        # INTERPRETING IS A DIFFERENT VERB OVER THE SAME KEY, so it is the one kind a
+        # caller may NAME. Crawling is inferred from `directories.BUILDERS` and must stay
+        # inferred -- a caller free to name `crawl` or `directory_crawl` would be a second
+        # place deciding which collector runs, which is the drift that registry exists to
+        # remove. Interpretation cannot be inferred from the key, because the same key
+        # supports both, so the request has to say which of the two it wants.
+        asked_kind = (body or {}).get("job_kind")
+        if asked_kind is not None:
+            if asked_kind != datasetjob.JOB_KIND:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"job_kind may only be {datasetjob.JOB_KIND!r}; the crawl "
+                           "kinds are chosen by the source registry, not by the caller")
+            if not directory_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{datasetjob.JOB_KIND!r} interprets the stored pages of a "
+                           f"directory crawl, and {source_keys} names no directory")
+            job_kind = datasetjob.JOB_KIND
+        if job_kind in (directoryjob.JOB_KIND, datasetjob.JOB_KIND) and len(source_keys) != 1:
             # The runner refuses this too. Refused here as well because the message a
             # person reads should come from the door they knocked on, not from a job
             # that started and stopped.
             raise HTTPException(
                 status_code=400,
-                detail="a directory crawl runs one directory at a time, and this names "
+                detail=f"a {job_kind} runs one directory at a time, and this names "
                        f"{len(source_keys)}: {source_keys}")
         try:
             run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value))

@@ -89,7 +89,11 @@ def _tables(conn: sqlite3.Connection) -> dict[str, list]:
 def test_the_record_describes_the_baseline_beside_it(record):
     """A record of a different collapse would pass every check below and mean
     nothing."""
-    head = EngineDatabase("unused.db").latest_schema_version
+    # THE BASELINE, NOT THE STREAM'S END, and they were the same number until a
+    # migration landed above the squash. `latest_schema_version` is where this build can
+    # take a database; the record describes the file the collapse produced, which is
+    # `schema.sql` and stays where it is while migrations accumulate on top.
+    head = EngineDatabase("unused.db")._migrations[0].number
     assert record["head"] == head, (
         f"the record describes a chain ending at v{record['head']} and the baseline "
         f"is at v{head}")
