@@ -385,8 +385,17 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
     registered, _slice_of = read_scope(conn, directory.key)
     say(f"registered scope: {registered.value} — this is its listing phase")
     if registered is not CrawlScope.LISTING_ONLY:
-        say("  the profile half is not part of this run: `scrapex contractors "
-            "--details` fetches it, and it reads the same registration")
+        # NAMES THE ACTION, NOT A COMMAND (`R-81`). This line reaches the JOB LOG
+        # through `lines_go_to`, so on a panel-started crawl it is rendered in the job
+        # card -- and it used to tell him to run `scrapex contractors --details`, which
+        # is an answer addressed to a machine he does not sit at. The warning is worth
+        # keeping: a finished LISTING crawl is not everything the site publishes, and
+        # saying nothing would let it read as complete. So it says what is missing and
+        # what would fetch it, and leaves the door it has no key for visible instead of
+        # papered over with a command line.
+        say("  the profile half is not part of this run: the profile pages are a "
+            "separate collector over this same registration, and it has no control "
+            "in the panel yet")
     conn.commit()          # the workers open their own connections and must see it
     outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
                               run_ref=run_ref, run_id=run_id,
@@ -696,8 +705,12 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         # path a person waits on interactively.
         held = already_stored(conn, run_ref)
         if held:
+            # NAMES THE ACTION, NOT THE FLAG (`R-81`), for the same reason as the
+            # PARTIAL line below: console-only today because no job kind drives the
+            # profile half, and in the panel unchanged on the day one does.
             say(f"  NOTE: {run_ref} already holds pages. Named ids stored under it "
-                f"will be skipped as resumed — use a fresh --run-ref to re-fetch")
+                f"will be skipped as resumed — re-fetching them needs a run "
+                f"reference that has not seen them")
     else:
         if scope is CrawlScope.LISTING_ONLY:
             # NOT AN ERROR. The registration is his answer, and a command that fetched
@@ -809,7 +822,12 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     conn.commit()
     say(f"profiles stored {stored:,}, failed {failed}, resumed {resumed:,}")
     if len(todo) + resumed < len(frontier):
-        say("PARTIAL: the ceiling stopped this run. The same --run-ref continues it.")
+        # SAME RULE, BEFORE IT CAN REACH HIM. This is inside the profile fetch loop,
+        # which no job kind drives today -- so it is console-only until the profile half
+        # becomes a job, and then it is in the panel with no further change. Reworded now
+        # because that is the cheap moment.
+        say("PARTIAL: the ceiling stopped this run. Running it again under the same "
+            "run reference continues from here.")
 
 # ---- --coverage: what the warehouse knows about its own gaps ------------------
 
