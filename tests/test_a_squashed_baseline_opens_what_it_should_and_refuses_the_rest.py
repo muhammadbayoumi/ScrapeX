@@ -50,29 +50,103 @@ def _git(*args: str) -> bytes:
                           check=True).stdout
 
 
+def _pre_squash_commit(folder: Path) -> str | None:
+    """The last commit of the era BEFORE the baseline was raised — with its chain.
+
+    THIS USED TO READ `origin/main`, AND THAT IS WHY THESE TESTS STOPPED TESTING
+    ANYTHING. `origin/main` names a MOVING state; "before the squash" names a
+    MOMENT. The two agreed exactly until the squash merged, and from then on the
+    fixture recovered the SQUASHED chain while still being called
+    `pre_squash_chain` -- so the tests below built a database that was never below
+    the baseline, asserted it would be refused, and passed because nothing
+    contradicted them. They went red only when a new migration made the chain two
+    long and `whole[:max(2, len(whole) // 2)]` selected all of it.
+
+    THE PARENT, NOT THE COMMIT THAT TOUCHED THE FILE. The squash raised the
+    baseline and deleted the chain in one commit, so the era that still HAS a
+    chain is its parent -- and the parent does not appear in
+    `rev-list -- db/engine/schema.sql` at all, because it never touched it. A
+    first attempt walked only that list, found an ancestor whose baseline was
+    lower but whose migrations directory was empty, and turned five failures into
+    five SKIPS. That is the same silence in a quieter coat.
+
+    Derived, never typed, and read with the engine's own
+    `declared_schema_version` so there is no second parser to drift from it.
+    """
+    now = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+    probe = folder / "probe.sql"
+
+    def era(ref: str) -> tuple[int, int] | None:
+        """(baseline, migration count) at `ref`, or None if it has no schema."""
+        try:
+            probe.write_bytes(_git("show", f"{ref}:db/engine/schema.sql"))
+            names = _git("ls-tree", "--name-only",
+                         f"{ref}:db/engine/migrations").decode().split()
+        except subprocess.CalledProcessError:
+            return None
+        try:
+            return dbmod.declared_schema_version(probe), len(names)
+        except ValueError:
+            return None
+
+    try:
+        history = _git("rev-list", "origin/main", "--",
+                       "db/engine/schema.sql").decode().split()
+    except subprocess.CalledProcessError:
+        return None            # no history reachable: a shallow or detached checkout
+    if not history:
+        return None
+
+    for commit in history:
+        parent = f"{commit}^"
+        found = era(parent)
+        if found and found[0] < now and found[1] > 0:
+            return parent
+    # The history IS reachable and no era below the current baseline carries a
+    # chain. That is not a checkout problem and must not read as one.
+    raise AssertionError(
+        f"no commit before baseline {now} still carries a migration chain, so "
+        "these tests have no pre-squash database to build. Either the history "
+        "was rewritten or the derivation above no longer describes how the "
+        "baseline moves -- do not turn this into a skip.")
+
+
 @pytest.fixture(scope="module")
 def pre_squash_chain(tmp_path_factory) -> tuple[Path, Path] | None:
-    """`origin/main`'s baseline and migrations, on disk — or None if unavailable.
+    """A baseline and migrations from before the squash — or None if unavailable.
 
-    A shallow clone or a detached CI checkout may not have the ref. That is a reason
-    to skip, not to invent a fixture: the point of these tests is a REAL pre-squash
-    database.
+    A shallow clone or a detached CI checkout may not have the history. That is a
+    reason to skip, not to invent a fixture: the point of these tests is a REAL
+    pre-squash database.
+
+    AND IT REFUSES TO RETURN THE WRONG ERA RATHER THAN RETURNING IT QUIETLY. Every
+    exit below is a skip with a reason; none of them hands back a chain that is not
+    older than the one shipping.
     """
     folder = tmp_path_factory.mktemp("chain")
+    commit = _pre_squash_commit(folder)
+    if commit is None:
+        return None
     try:
         names = _git("ls-tree", "--name-only",
-                     "origin/main:db/engine/migrations").decode().split()
+                     f"{commit}:db/engine/migrations").decode().split()
         baseline = folder / "schema.sql"
-        baseline.write_bytes(_git("show", "origin/main:db/engine/schema.sql"))
+        baseline.write_bytes(_git("show", f"{commit}:db/engine/schema.sql"))
     except subprocess.CalledProcessError:
         return None
-    if not names:
-        return None
+    # NOT A SKIP. `_pre_squash_commit` returns only an era that HAS a chain, so an
+    # empty one here means the derivation and this reader disagree -- and a skip
+    # would hide exactly the degradation this fixture was rewritten to stop
+    # hiding. Measured by mutation: with the chain-length condition removed above,
+    # a `return None` here turned three real failures into six silent skips.
+    assert names, (
+        f"{commit} was chosen as the pre-squash era and carries no migrations; "
+        "the derivation and this reader no longer agree")
     migrations = folder / "migrations"
     migrations.mkdir()
     for name in names:
         (migrations / name).write_bytes(
-            _git("show", f"origin/main:db/engine/migrations/{name}"))
+            _git("show", f"{commit}:db/engine/migrations/{name}"))
     return baseline, migrations
 
 
@@ -104,8 +178,27 @@ def test_a_database_that_went_through_the_chain_opens(pre_squash_database):
     nothing wrong with it.
     """
     db = EngineDatabase(pre_squash_database)
-    db.connect().close()
+
+    # THE REFUSAL THAT IS FORBIDDEN IS THE CHECKSUM ONE, not every refusal. This
+    # asserted `connect()` outright, which held only while the pre-squash era's
+    # head happened to equal the shipping head -- they were both v17 on the day
+    # the squash landed, and the next migration to reach `main` made them 17 and
+    # 18. A database with migrations pending is ENTITLED to be told so; what it
+    # must never again be told is that its baseline's digest changed, which is
+    # what the squash made every existing warehouse look like.
+    try:
+        db.connect().close()
+    except DatabaseMigrationError as exc:
+        assert "checksum" not in str(exc), (
+            f"the squash reconciliation is gone: {exc}")
+        assert "expected v" in str(exc), (
+            f"refused for a reason that is neither checksum nor version: {exc}")
+
+    db.initialize()
+
+    # And after it, nothing downstream can tell a squash ever happened.
     assert db.initialize() == []
+    db.connect().close()
     health = db.health()
     assert health.ok, f"{health.status}: {health.action}"
     assert health.schema_version == db.latest_schema_version
@@ -155,7 +248,16 @@ def test_a_database_at_the_version_but_without_the_chain_is_refused(tmp_path):
 
 def test_an_unknown_digest_is_still_refused(pre_squash_database):
     """It accepts ONE digest — the one the record says the replaced baseline had — and
-    not any digest that happens to differ."""
+    not any digest that happens to differ.
+
+    BROUGHT TO HEAD FIRST, because the version check runs before the checksum one.
+    Without this the database sits a migration behind whatever `main` ships and
+    `connect()` refuses it for THAT, so the digest under test is never reached and
+    the assertion below passes or fails on the wrong sentence. It held only while
+    the pre-squash era's head equalled the shipping head.
+    """
+    EngineDatabase(pre_squash_database).initialize()
+
     conn = sqlite3.connect(str(pre_squash_database))
     try:
         conn.execute("UPDATE database_migration SET sha256 = ? "
