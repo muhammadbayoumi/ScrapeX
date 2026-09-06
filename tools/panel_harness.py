@@ -192,10 +192,27 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
                     "running. Nothing can wake a sleeping or "
                     "powered-off machine."},
         "/api/outputs": {"outputs": OUTPUTS},
+        # THE SCHEMA BLOCK IS PART OF THE DEFAULT, and leaving it out is the shape of a
+        # failure this repository has paid for: the harness carried no dataset-kind
+        # source for weeks while a test asserted every card has a menu. The Database
+        # page reads these three fields, so a stub without them would let it render
+        # "unreadable" in every DOM test and pass.
+        #
+        # BEHIND BY ONE, so the default state exercises the branch that has a button to
+        # press rather than the quiet one.
         "/api/storage": storage or {
             "path": "C:\\Users\\Owner\\.scrapex\\harvest.db",
-            "sizes": {"db_bytes": 4194304, "backup_count": 2},
-            "health": {"status": "healthy", "ok": True}},
+            "folder": "C:\\Users\\Owner\\.scrapex",
+            "backup_folder": "C:\\Users\\Owner\\.scrapex",
+            "sizes": {"db_bytes": 4194304, "wal_bytes": 8192, "shm_bytes": 32768,
+                      "free_bytes": 51539607552, "backup_bytes": 8388608,
+                      "backup_count": 2},
+            "health": {"status": "healthy", "ok": True,
+                       "detail": "No problems found."},
+            "schema": {"version": 17, "expected": 18,
+                       "pending": ["0018_a_job_may_interpret_what_a_crawl_stored.sql"]},
+            "last": {"at": "2026-09-03T09:28:39Z", "ok": True},
+            "backups": []},
         "/api/rates/google-finance": rates_status if rates_status is not None else {
             "automatic": True,
             "refresh_hours": 6,

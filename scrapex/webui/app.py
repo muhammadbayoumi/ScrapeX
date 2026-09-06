@@ -1763,7 +1763,10 @@ def create_app(
                     # (`app.js`, `upgradeDatabaseFromPanel`), so naming it here
                     # is safe in both configurations -- checked, because a
                     # remedy that is itself conditional is `OP-119` again.
-                    "fix": ("press Upgrade database on the Settings screen"),
+                    # THE PAGE THAT HOLDS THE BUTTON, and it moved on 2026-09-06.
+                    # An instruction naming the wrong screen is worse than none: he
+                    # looks, does not find it, and concludes the feature is gone.
+                    "fix": ("press Upgrade database on the Database page"),
                     "message": (
                         f"{len(waiting)} migration(s) on disk are not applied to "
                         f"this database — {waiting[0][1]} onward. Pages that read "
