@@ -240,12 +240,28 @@ export function prunable(files, keep = KEEP) {
  * {sent: 0} before the first byte so a bar can appear at once rather than after
  * the first four megabytes.
  */
+/**
+ * A blob, expressed as the thing `upload` actually needs.
+ *
+ * `upload` never wanted a Blob — it wanted a size and a way to get bytes
+ * `[a, b)`. Saying so lets the same loop upload something that is never held
+ * whole, and keeps every existing caller and test working unchanged.
+ */
+export function blobSource(blob) {
+  return {size: blob.size, chunk: (start, end) => blob.slice(start, end)};
+}
+
 export async function upload(token, {
-  blob, name, parent, mime = "application/zip", onProgress = null,
+  blob, source = null, name, parent, mime = "application/zip", onProgress = null,
   fetchImpl = fetch,
 } = {}) {
-  if (!blob) throw new DriveError("Nothing was given to upload.", null, "empty");
-  const total = blob.size;
+  // A SOURCE OR A BLOB, and a blob is just the simplest source. The archive is
+  // uploaded from a source that fetches each chunk as it is sent, because holding
+  // 541 MB in a side panel is what broke on 2026-09-03; the 4 MB panel-pack is
+  // still a blob, because for that size the extra requests buy nothing.
+  const from = source || (blob ? blobSource(blob) : null);
+  if (!from) throw new DriveError("Nothing was given to upload.", null, "empty");
+  const total = from.size;
 
   // STEP 1 — the handshake. Drive answers with a one-use session URI in the
   // Location header, and everything after this goes there rather than to the
@@ -283,7 +299,10 @@ export async function upload(token, {
   let sent = 0;
   for (;;) {
     const end = Math.min(sent + CHUNK_BYTES, total);
-    const chunk = blob.slice(sent, end);
+    // `await`, because a chunk may be fetched rather than sliced. A source that
+    // reads from the engine raises on a short read rather than uploading fewer
+    // bytes than it promised.
+    const chunk = await from.chunk(sent, end);
     const range = total === 0
       ? "bytes */0"
       : `bytes ${sent}-${end - 1}/${total}`;
@@ -443,8 +462,13 @@ export async function backUp(token, {
   }
   const parent = await folderId(token, {fetchImpl});
 
+  // A SOURCE OR A BLOB, whichever the caller had. The panel hands a source that
+  // fetches each chunk as it is sent; the tests hand a blob. `upload` treats a
+  // blob as the simplest kind of source, so both take the same path through the
+  // resumable session and neither is a second implementation.
   const stored = await upload(token, {
-    blob: archive, name, parent, onProgress, fetchImpl,
+    ...(typeof archive?.chunk === "function" ? {source: archive} : {blob: archive}),
+    name, parent, onProgress, fetchImpl,
   });
 
   // THE PANEL PACK, BEFORE THE POINTER AND AFTER THE ARCHIVE. Its place in the
@@ -508,28 +532,113 @@ export async function backUp(token, {
  * actually happens, and it is the one this catches. Whoever unpacks the archive
  * verifies the rest.
  */
-export async function fetchLatest(token, {
-  reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
-} = {}) {
+/**
+ * What Drive says it is holding, without moving any of it.
+ *
+ * `size` and `md5Checksum` are metadata: one small request answers "is the backup
+ * there, and is it whole" for a file of any size. The panel used to answer that by
+ * DOWNLOADING the archive and looking at `archive.size`, which on a 541,531,989-byte
+ * bundle asks a Chrome side panel to hold half a gigabyte — the same thing that
+ * failed on the upload side on 2026-09-03.
+ *
+ * AND IT IS A STRONGER CHECK, not merely a cheaper one. Comparing a downloaded
+ * size to the pointer catches a truncated DOWNLOAD. Drive's own stored size
+ * catches a truncated UPLOAD — which is the failure that actually happened: a
+ * 0-byte archive reached Drive on 2026-08-30 and the pointer described it as
+ * whole. The question the owner is asking this button is about the copy in
+ * Drive, and now that is the copy being examined.
+ */
+export async function metadata(token, fileId, {fetchImpl = fetch} = {}) {
+  const response = await ask(
+    fetchImpl,
+    `${FILES}/${fileId}?${new URLSearchParams({
+      fields: "id,name,size,md5Checksum,createdTime",
+    })}`,
+    {headers: headers(token)},
+    `reading what Drive holds for ${fileId}`);
+  const file = await response.json();
+  // Drive returns `size` as a STRING. Compared with `!==` against a number from
+  // the pointer it is never equal, and the check would report every healthy
+  // backup as wrong — a guard that fails on correct input is one people learn to
+  // route around.
+  return {...file, size: file.size === undefined ? undefined : Number(file.size)};
+}
+
+/**
+ * Prove the latest backup is there and complete. Downloads nothing.
+ *
+ * This is what the panel's check button needs and all it needs. `fetchLatest`
+ * below still exists and still downloads, because a RESTORE has to have the
+ * bytes — but a restore is a destructive act behind its own confirmation, and it
+ * is not what this answers.
+ */
+/**
+ * The latest pointer, or a DriveError saying why there is nothing usable.
+ *
+ * ONE GATE, NOT TWO. `verifyLatest` and `fetchLatest` must answer the same two
+ * questions before they can do anything -- is there a backup, and is it one
+ * this panel can read -- and each answered them with its own copy of the same
+ * condition, the same "wrong-format" kind and the same sentence. A format
+ * number is ONE piece of knowledge about ONE format: two copies mean a
+ * BUNDLE_FORMAT bump has to be made twice, and missing one leaves a path that
+ * silently accepts what the other refuses. `tail` was the only difference, and
+ * it is context rather than knowledge -- a restore says "Nothing was restored",
+ * a check that moved nothing has nothing to reassure anyone about.
+ *
+ * The format number exists so that a machine running last month's engine says
+ * "update me" instead of opening an archive it does not understand and
+ * reporting whatever it manages to read as the warehouse.
+ */
+async function readableLatest(token, {reads, tail = "", fetchImpl}) {
   const parent = await folderId(token, {fetchImpl});
   const pointer = await readLatest(token, parent, {fetchImpl});
   if (!pointer) {
     throw new DriveError(
       "No backup has been uploaded from any device yet.", null, "no-backup");
   }
-
-  // A BACKUP FROM A NEWER ENGINE IS REFUSED, WITH THE REMEDY IN THE SENTENCE.
-  // Carried over from the module this replaces, which had it right and is the
-  // only reason it is here: the format number exists so that a machine running
-  // last month's engine says "update me" instead of opening an archive it does
-  // not understand and reporting whatever it manages to read as the warehouse.
   const format = pointer.bundle_format;
   if (format !== undefined && format !== null && format !== reads) {
     throw new DriveError(
       `That backup was written in bundle format ${format} and this device ` +
       `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
-      "again. Nothing was restored.", null, "wrong-format");
+      `again.${tail}`, null, "wrong-format");
   }
+  return pointer;
+}
+
+export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fetch} = {}) {
+  const pointer = await readableLatest(token, {reads, fetchImpl});
+  const held = await metadata(token, pointer.file_id, {fetchImpl});
+  if (held.size === 0) {
+    throw new DriveError(
+      "The backup in Drive is empty, so there is nothing to restore from. Take " +
+      "a new backup from this panel.", null, "empty");
+  }
+  // `typeof`, not truthiness, for the reason recorded on `fetchLatest`: a pointer
+  // saying `bytes: 0` is the loudest failure here and truthiness reads it as
+  // "nothing recorded, nothing to compare".
+  if (typeof pointer.bytes === "number" && held.size !== pointer.bytes) {
+    throw new DriveError(
+      `Drive is holding ${held.size} bytes and the backup was recorded as ` +
+      `${pointer.bytes}. The upload did not finish, so this copy is not whole.`,
+      null, "truncated");
+  }
+  return {pointer, held};
+}
+
+// NOT CALLED FROM THE PANEL, AND IT MUST NOT BE UNTIL IT READS IN PIECES.
+// `fetchFromDrive` used to be its only caller and now uses `verifyLatest`, which
+// asks Drive instead of downloading. This still goes through `download()`, so
+// calling it puts the whole archive in a side panel -- 541,531,989 bytes on his
+// machine, which is the read that came back 0 on 2026-09-03 and the reason the
+// upload side was rewritten. `claude/the-restore-he-never-had` calls it at
+// app.js:6401; that is the branch that has to give it a chunked reader, and it
+// is kept here rather than deleted so that branch still has something to fix.
+export async function fetchLatest(token, {
+  reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
+} = {}) {
+  const pointer = await readableLatest(
+    token, {reads, tail: " Nothing was restored.", fetchImpl});
   const archive = await download(token, pointer.file_id, {onProgress, fetchImpl});
   // `typeof`, NOT `pointer.bytes &&`. The truthiness version read a pointer
   // saying `bytes: 0` as "no size recorded, nothing to compare" and returned an

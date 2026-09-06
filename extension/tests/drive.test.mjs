@@ -585,6 +585,34 @@ test("an archive shorter than the engine described is never uploaded", async () 
   assert.equal(fetchImpl.calls.length, 0);
 });
 
+test("A SOURCE whose length disagrees with the manifest is refused too, before any request",
+     async () => {
+  // THE PROPERTY THIS WHOLE CHANGE RESTS ON, ASSERTED AS BEHAVIOUR. `expectSize`
+  // compares what the engine DESCRIBED against what ARRIVED, and on 2026-08-30
+  // those resolved to different builds and a 0-byte archive reached Drive under
+  // a pointer carrying the real one's digest. It only has teeth while the two
+  // numbers are INDEPENDENT: a source sized from the manifest would make both
+  // sides of the comparison the same number and the guard would pass on
+  // anything. The source's size therefore comes from the engine's
+  // `Content-Range`, and this proves the comparison still happens for the shape
+  // production actually uses -- the blob case above cannot show that, because a
+  // blob's length was never in danger of being copied from the manifest.
+  const fetchImpl = scripted([[() => true, () => reply(500, {body: {}})]]);
+
+  await assert.rejects(() => backUp("tok", {
+    archive: {size: 12345, chunk: async () => new Blob([])},
+    name: "bundle.zip", manifest: {bytes: 541531989}, fetchImpl,
+  }), (error) => {
+    assert.equal(error.kind, "mismatched");
+    assert.match(error.message, /541531989 bytes and this panel read 12345/);
+    return true;
+  });
+  assert.equal(fetchImpl.calls.length, 0,
+    "the sizes must be compared before the first request, or a half-made backup "
+    + "folder is the cheapest thing it costs");
+});
+
+
 test("an empty archive is refused even when nothing described it", async () => {
   const fetchImpl = scripted([[() => true, () => reply(500, {body: {}})]]);
   await assert.rejects(() => backUp("tok", {
@@ -651,4 +679,72 @@ test("a pointer with no recorded size at all is still honoured", async () => {
   const {archive} = await fetchLatest(
     "tok", {fetchImpl: driveHolding(undefined, "a real archive")});
   assert.equal(archive.size, "a real archive".length);
+});
+
+test("backUp passes a SOURCE through as a source, which is the only path production takes",
+     async () => {
+  // THE ONE LINE THAT CARRIES THE FIX INTO PRODUCTION WAS UNTESTED. Every other
+  // backUp test in this file hands a Blob, and its own comment said so. The
+  // panel hands a source that fetches each chunk as it is sent -- because
+  // holding 541,531,989 bytes in one Blob read 0 on his machine -- and if
+  // backUp routed that object down the blob branch instead, `blobSource` would
+  // call `.slice` on something that has none and the backup would fail on the
+  // only shape that matters.
+  const asked = [];
+  const size = 9 * 1024 * 1024;
+  const archive = {
+    size,
+    chunk: async (start, end) => {
+      asked.push([start, end]);
+      return new Blob([new Uint8Array(end - start)]);
+    },
+  };
+  // 308 until Drive has all of it, which is what a resumable session really
+  // does. A fake that answers 200 to the first chunk ends the loop after one
+  // request and would let this test pass while proving almost nothing.
+  let received = 0;
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, (_url, init) => {
+      received += init.body?.size ?? 0;
+      return received >= size
+        ? reply(200, {body: {id: "new", name: "bundle.zip"}})
+        : reply(308);
+    }],
+  ]);
+
+  await backUp("tok", {
+    archive, name: "bundle.zip", manifest: {bytes: size}, fetchImpl,
+  });
+
+  assert.equal(asked.length, 3,
+    `9 MB in 4 MB chunks is three requests and the source was asked `
+    + `${asked.length} times`);
+  assert.ok(asked.length >= 2,
+    "backUp never asked the source for a chunk, so it took the blob branch and "
+    + "the archive was expected to exist all at once");
+  const biggest = Math.max(...asked.map(([a, b]) => b - a));
+  assert.ok(biggest < size,
+    `one request asked for ${biggest} of ${size} bytes at once, which is the `
+    + "whole point of a source undone");
+});
+
+
+test("and a Blob still works, because that is what every other caller hands it",
+     async () => {
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "new", name: "bundle.zip"}})],
+  ]);
+
+  await backUp("tok", {
+    archive: new Blob(["bbb"]), name: "bundle.zip",
+    manifest: {bytes: 3}, fetchImpl,
+  });
 });

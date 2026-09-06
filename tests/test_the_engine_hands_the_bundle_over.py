@@ -641,3 +641,89 @@ def test_the_final_name_appears_only_when_the_archive_is_complete(tmp_path, monk
             f"the archive existed under its final name while {moment} — that is "
             "the window a concurrent reader served 0 bytes out of")
     assert archive.exists() and archive.stat().st_size > 0
+
+# ---------------------------------------------------------------------------
+# THE PANEL'S HALF OF THE CONTRACT IS BYTE RANGES, AND NOTHING TESTED THEM.
+#
+# `extension/backend.js` uploads the archive one 4 MB chunk at a time because a
+# Chrome side panel asked to hold 541,531,989 bytes in one Blob read 0 on his
+# machine on 2026-09-03. That path needs three facts from this engine: a 206, a
+# `Content-Range` carrying the TOTAL, and a validator it can pin the archive
+# with. All three come from Starlette's `FileResponse` rather than from any code
+# in this repository -- which is exactly why they need a test here. Nothing under
+# `scrapex/` mentions Range, so a dependency bump is free to remove them and
+# every Python test would still pass while the panel's backup stopped working.
+
+
+def test_the_archive_is_served_in_byte_ranges(client):
+    """The panel cannot upload the archive at all without this."""
+    connected, _ = client
+    described = connected.post("/api/bundle").json()
+
+    probe = connected.get("/api/bundle/archive", headers={"Range": "bytes=0-0"})
+
+    assert probe.status_code == 206, (
+        "the engine served the whole body instead of a byte range, so the panel "
+        "must hold the entire archive in one Blob -- which is what read 0 on his "
+        "machine at 541,531,989 bytes")
+    assert probe.headers.get("accept-ranges") == "bytes"
+    assert probe.headers["content-range"].endswith(f"/{described['bytes']}"), (
+        "the panel reads the archive's length from Content-Range precisely so it "
+        "is a DIFFERENT fact from the manifest's size; if this stops carrying the "
+        "total there is nothing left to check the manifest against")
+    assert len(probe.content) == 1
+
+
+def test_the_ranges_reassemble_into_the_same_archive(client):
+    """A 206 that returns the wrong bytes would be worse than no 206 at all."""
+    connected, _ = client
+    connected.post("/api/bundle")
+    whole = connected.get("/api/bundle/archive").content
+
+    step = max(1, len(whole) // 4)
+    rebuilt = b""
+    while len(rebuilt) < len(whole):
+        end = min(len(rebuilt) + step, len(whole)) - 1
+        part = connected.get(
+            "/api/bundle/archive",
+            headers={"Range": f"bytes={len(rebuilt)}-{end}"})
+        assert part.status_code == 206
+        rebuilt += part.content
+
+    assert rebuilt == whole, (
+        "the chunks the panel uploads do not reassemble into the archive the "
+        "engine built, so Drive would hold something no one can open")
+    with zipfile.ZipFile(io.BytesIO(rebuilt)) as opened:
+        assert opened.namelist(), "the reassembled archive is not a readable zip"
+
+
+def test_a_stale_validator_makes_the_engine_answer_with_everything(client):
+    """This is the whole mechanism the panel uses to notice a rebuild.
+
+    `/api/bundle/archive` resolves the NEWEST archive on every request, so a
+    second backup finishing mid-upload silently changes what the later chunks
+    come from. The panel sends `If-Range` with the etag it started on; the
+    engine answering 200 rather than a chunk is how the panel finds out. If
+    that stops being true, the panel splices two builds into one Drive object
+    and every size check still passes.
+    """
+    connected, _ = client
+    connected.post("/api/bundle")
+    fresh = connected.get("/api/bundle/archive", headers={"Range": "bytes=0-0"})
+    assert fresh.headers.get("etag"), (
+        "the engine sends no etag, so the panel has nothing to pin the archive "
+        "with for the length of an upload")
+
+    matched = connected.get(
+        "/api/bundle/archive",
+        headers={"Range": "bytes=0-0", "If-Range": fresh.headers["etag"]})
+    assert matched.status_code == 206, (
+        "the engine refused a range for the very archive the validator names")
+
+    stale = connected.get(
+        "/api/bundle/archive",
+        headers={"Range": "bytes=0-0", "If-Range": '"not-this-archive"'})
+    assert stale.status_code == 200, (
+        "a stale If-Range still got a 206, so a rebuilt archive would be served "
+        "chunk by chunk as though nothing had changed and the panel could not "
+        "tell one build from another")

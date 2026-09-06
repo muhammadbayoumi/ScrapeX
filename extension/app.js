@@ -17,8 +17,8 @@ import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
 import {
-  backUp, fetchLatest, fetchPanelPack,
-  FOLDER_NAME, KEEP, folderId, listing, readLatest,
+  backUp, blobSource, fetchPanelPack,
+  FOLDER_NAME, KEEP, folderId, listing, readLatest, verifyLatest,
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import {
@@ -35,7 +35,7 @@ import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
 // flattens modules by stripping imports and relies on the names matching.
 import {
   abortBackend, activateBackend, api, backendBase, backendGeneration,
-  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw,
+  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw, sourceFor,
 } from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
@@ -6543,11 +6543,26 @@ async function backUpToDrive(token) {
   // database.
   out("drive-msg", "Building the bundle…", "");
   const built = await api("/api/bundle", { method: "POST" });
-  // `bytes`, not a bare fetch: it carries the status check, the deadline from
-  // startup.js's table and the page's abort signal. Without it a 404, a timeout
-  // and a browser refusing to hold the zip all arrived as the same thing — an
-  // empty blob — and the guard below could only report the symptom.
-  const archive = await bytes("/api/bundle/archive");
+  // A SOURCE, NOT THE BYTES. The archive is uploaded one 4 MB chunk at a time,
+  // fetched as it is sent, so the panel never holds it: 541,531,989 bytes in one
+  // Blob is what came back empty on 2026-09-03. Its size is read from the
+  // engine's own Content-Range rather than from the manifest, so the guard that
+  // compares the two still has two different facts to compare.
+  // AND AN ENGINE THAT CANNOT SERVE RANGES STILL GETS A BACKUP. `ui` asks only
+  // for `fastapi>=0.110` (pyproject.toml:39) with no ceiling and no Starlette
+  // floor, so a resolver-constrained install can produce an engine whose
+  // FileResponse ignores Range and answers 200 with the whole body. Without this
+  // branch such a machine could not back up AT ALL -- not even a small warehouse
+  // the whole-blob read handled fine before -- and it would find out only after
+  // waiting out the build. Holding it whole is the old failure at 541 MB, which
+  // is why it is the fallback and not the default; refusing every size is worse.
+  let archive;
+  try {
+    archive = await sourceFor("/api/bundle/archive");
+  } catch (error) {
+    if (error?.kind !== "no-range") throw error;
+    archive = blobSource(await bytes("/api/bundle/archive"));
+  }
   // The 4 MB a browser can read on its own, carried beside the 36 MB archive
   // only an engine can open. Fetched here rather than inside drive.js: that
   // module talks to Google and nothing else, and giving it a second opinion
@@ -6574,15 +6589,22 @@ async function backUpToDrive(token) {
 }
 
 async function fetchFromDrive(token) {
-  const {archive, pointer} = await fetchLatest(token, {
-    onProgress: ({received, total}) => driveProgress(total ? received / total : 0),
-  });
-  // DOWNLOADED, NOT RESTORED. Putting this archive over the warehouse is a
-  // destructive act on the owner's only copy, and it belongs behind its own
-  // confirmed control rather than at the end of a fetch they asked for. What
-  // this proves today is that the backup is real, complete and readable.
-  return `Fetched ${fmtMegabytes(archive.size)} written ${pointer.created_at || "at an unrecorded time"}` +
-         ` by engine ${pointer.engine_version || "unknown"}. It is not installed — this only checks it is there.`;
+  // ASKS DRIVE, DOES NOT DOWNLOAD. This button never restored anything -- the
+  // comment it replaces said so -- it downloaded the archive only to look at its
+  // size. On a 541,531,989-byte bundle that asks a Chrome side panel to hold half
+  // a gigabyte, which is exactly what failed on the upload side on 2026-09-03, so
+  // the one control that can tell him his backup is sound would fail on the
+  // backup it was checking.
+  //
+  // Drive's own `size` answers the same question for a file of any size, and
+  // answers it BETTER: a downloaded size catches a truncated download, and the
+  // failure that actually happened was a truncated UPLOAD -- a 0-byte archive
+  // reached Drive on 2026-08-30 with a pointer describing it as whole.
+  const {pointer, held} = await verifyLatest(token);
+  return `Drive is holding ${fmtMegabytes(held.size)}, written `
+       + `${pointer.created_at || "at an unrecorded time"} by engine `
+       + `${pointer.engine_version || "unknown"}. It is complete and it is not `
+       + "installed — this only checks that it is there.";
 }
 
 //: Where the chooser lives. It cannot be a page in this extension: Google
@@ -6792,7 +6814,7 @@ async function createSpreadsheet(token) {
 function wireGoogleControls() {
   const actions = [
     ["drive-backup", "Backing up…", backUpToDrive],
-    ["drive-restore", "Looking for the latest backup…", fetchFromDrive],
+    ["drive-restore", "Asking Drive about the latest backup…", fetchFromDrive],
     ["sheet-create", "Creating the spreadsheet…", createSpreadsheet],
   ];
   // Wired apart from the three above because it does NOT follow their shape:

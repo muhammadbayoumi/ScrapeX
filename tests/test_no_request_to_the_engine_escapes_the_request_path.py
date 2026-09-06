@@ -66,13 +66,21 @@ def test_no_module_but_the_request_path_fetches_the_engine():
     offenders = []
     for path in _sources():
         text = path.read_text(encoding="utf-8")
+        # PER FILE, NOT PER 200 CHARACTERS. This read a window either side of
+        # the `fetch(` and claimed, in its own comment, to catch the call
+        # "however the URL is spelled" -- which a window cannot do: assign the
+        # base 250 characters earlier, or build the URL in a helper, and it sees
+        # nothing. The rule that holds is about the MODULE: one that knows the
+        # engine's address does not also call `fetch` itself. Measured when this
+        # replaced the window: ZERO modules newly offend, so the wider net costs
+        # nothing today and closes the spellings a window never covered. A module
+        # that genuinely fetches something else belongs in NOT_THE_ENGINE, which
+        # already reasons per file and is checked by the test below.
+        if "backendBase" not in text and "backend +" not in text:
+            continue
         for match in _FETCH.finditer(text):
-            line = text.count("\n", 0, match.start()) + 1
-            window = text[max(0, match.start() - 200):match.start() + 200]
-            # `backendBase()` is the engine's address, so a fetch near it is a
-            # request to the engine however the URL is spelled.
-            if "backendBase" in window or "backend +" in window:
-                offenders.append(f"{path.name}:{line}")
+            line = text.count(chr(10), 0, match.start()) + 1
+            offenders.append(f"{path.name}:{line}")
     assert not offenders, (
         "these fetch the engine directly, outside the one function that checks the "
         f"status, applies the deadline and attaches the abort signal: {offenders}. "
@@ -120,14 +128,45 @@ def test_the_request_path_still_carries_all_three_guarantees():
                    "export async function raw("):
         assert parser in text, f"{parser} is gone, so a caller has no way to ask"
 
-    # THE OPT-OUT HAS EXACTLY ONE USER. `throwOnHttpError: false` is how a caller
-    # says "I read the status myself", and it is worth nothing if any call site can
-    # pass it: the point of `raw()` is that a reader sees in ONE line which callers
-    # own their own status handling.
-    assert text.count("throwOnHttpError: false") == 1, (
-        f"the status opt-out is passed in {text.count('throwOnHttpError: false')} "
-        "places. It belongs to `raw()` alone, or the request path has no single "
-        "answer to what a failure means.")
+    # THE OPT-OUT LIVES ONLY IN THIS FILE. `throwOnHttpError: false` is how a
+    # caller says "I read the status myself", and it is worth nothing if a call
+    # site elsewhere can pass it.
+    #
+    # It was "exactly once" when `raw()` was the only user, and that broke the
+    # moment `range()` and `sourceFor()` arrived — both of which read the status
+    # for a real reason: a 206 is the SUCCESS case for a byte range, and `api()`
+    # would have to be told that. The rule was pinned to a count when what it
+    # means is a location, and the count is what changed.
+    # WHO OWNS ITS STATUS, AND WHO MUST NOT -- both directions, because each
+    # was wrong here in turn.
+    #
+    # `>= 1` was satisfied by any two of the three, so a function could lose its
+    # opt-out unseen. Then the list itself was wrong: `sourceFor` and `range`
+    # were on it because "a 206 is the SUCCESS case", and `res.ok` covers
+    # 200-299, so a 206 was never an error to `request()` and neither ever
+    # needed to read the status. Opting out anyway mapped EVERY non-206 to
+    # "this engine will not serve byte ranges" -- a transient 500, or the 416
+    # Starlette answers for `bytes=0-0` on an empty file -- and `app.js` answers
+    # that by downloading the whole archive, which is the 541,531,989-byte read
+    # that came back 0 on his machine.
+    owns = {
+        "raw": "a 404 from /api/native/status means 'this engine is too old', not a failure, and the restart poll needs a refusal to be ordinary",
+    }
+    must_not = {
+        "sourceFor": "every non-206 would become \"no-range\", and app.js answers that by buffering the whole archive",
+        "range": "an error status would lose the engine's own detail for no gain, since 200 and 206 are both ok",
+    }
+    for owner, why in {**owns, **must_not}.items():
+        start = text.find(f"export async function {owner}(")
+        assert start != -1, f"`{owner}()` is gone from backend.js"
+        body = text[start:text.find(chr(10) + "export ", start + 1)]
+        opts_out = "throwOnHttpError: false" in body
+        if owner in owns:
+            assert opts_out, (
+                f"`{owner}()` no longer owns its own status handling, and {why}")
+        else:
+            assert not opts_out, (
+                f"`{owner}()` opts out of the status check again: {why}")
     for source in _sources():
         assert "throwOnHttpError" not in source.read_text(encoding="utf-8"), (
             f"{source.name} passes the status opt-out directly instead of calling "
@@ -138,8 +177,27 @@ def test_the_archive_is_read_through_it():
     """The specific call that failed on his machine, named so a rewrite that
     reintroduces the bare fetch fails here rather than in Drive."""
     app = (EXTENSION / "app.js").read_text(encoding="utf-8")
-    assert 'await bytes("/api/bundle/archive")' in app, (
-        "the Drive backup no longer reads the archive through the request path")
+    assert 'await sourceFor("/api/bundle/archive")' in app, (
+        "the Drive backup no longer reads the archive through the request path. It "
+        "must be a SOURCE and not `bytes()`: holding 541,531,989 bytes in one Blob "
+        "is what came back empty on his machine, and `bytes()` holds a whole body")
+    # NOT "never buffer it whole" -- that was the rule as a LITERAL, and a
+    # correct change broke it. The knowledge is that the DEFAULT path streams,
+    # and a whole-body read of the archive is allowed only where an engine that
+    # will not serve byte ranges leaves no other way to back up at all. Pinned as
+    # an ordering and a betweenness rather than a fixed window, because a window
+    # is a count in disguise and counts are what keep going stale here.
+    whole = app.find('await bytes("/api/bundle/archive")')
+    if whole != -1:
+        streamed = app.find('await sourceFor("/api/bundle/archive")')
+        assert streamed != -1 and streamed < whole, (
+            "app.js reads the archive whole BEFORE it tries to stream it, so the "
+            "541,531,989-byte Blob that came back empty on 2026-09-03 is the "
+            "default path again rather than a fallback")
+        assert '"no-range"' in app[streamed:whole], (
+            "app.js reads the archive whole without first proving the engine "
+            "refused a byte range. The whole-body read exists ONLY for an engine "
+            "that cannot serve ranges; anywhere else it is the original defect")
     assert 'await bytes("/api/bundle/panel-pack")' in app, (
         "the panel-pack no longer reads through the request path")
     assert "fetch(base + " not in app, (
