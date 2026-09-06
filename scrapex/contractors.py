@@ -1385,7 +1385,22 @@ def _listing_membership_numbers(conn) -> dict[str, str]:
 
 
 def approve(conn, directory: Directory, run_ref: str, *,
-            ids: tuple[str, ...] = ()) -> None:
+            ids: tuple[str, ...] = (), between_pages=None) -> None:
+    """Interpret the stored pages of `run_ref` into rows. Fetches nothing.
+
+    `between_pages` IS CALLED AFTER EVERY PAGE PAIR IS INTERPRETED, with the number done
+    and the total, and may ask this to stop by returning true -- which raises
+    `CrawlStopped`, exactly as `between_cells` does one function over. It exists because
+    the panel needs three things a command line does not: a progress figure, a heartbeat
+    on a run that can take minutes, and the owner's pause honoured somewhere safe.
+
+    A PAGE BOUNDARY IS SAFE HERE, and it is worth saying why, because the crawl's is not.
+    A cell's completeness proof spans many pages, so a crawl interrupted mid-cell has
+    fetched pages and proved nothing. Interpretation has no such span: each page pair is
+    written and committed on its own, so stopping between two of them leaves every earlier
+    page interpreted and no half-written record. A resume re-reads the same evidence and
+    the ones already ingested are recognised rather than duplicated.
+    """
     pairs = _pairs(conn, run_ref, ids=ids)
     if ids:
         present = {_contractor_of(key) for key in pairs}
@@ -1414,7 +1429,20 @@ def approve(conn, directory: Directory, run_ref: str, *,
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
+    #: Counted here rather than by the caller, because `_pairs` groups two locales into
+    #: one entry and a caller counting stored pages would report a denominator twice the
+    #: size of the work.
+    total_pairs = len(pairs)
+    seen_pairs = 0
     for key, halves in sorted(pairs.items()):
+        if between_pages is not None:
+            seen_pairs += 1
+            # ASKED BEFORE THE WORK, NOT AFTER, which is the opposite of `between_cells`
+            # and deliberately so: a cell's report has to be said before the stop is
+            # asked, because the cell has already paid for itself. A page pair that has
+            # not been interpreted has cost nothing, so stopping in front of it is free.
+            if between_pages(seen_pairs - 1, total_pairs):
+                raise CrawlStopped
         english = halves.get("en")
         arabic = halves.get("ar")
         if english is None:

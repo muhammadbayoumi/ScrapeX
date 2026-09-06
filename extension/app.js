@@ -4855,7 +4855,28 @@ function sourceActions(source) {
     why: "Crawl this source once, immediately.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  return [...base, ...crawlable, ...covered];
+  // AND INTERPRETING WHAT A CRAWL ALREADY STORED, which is the half of the pipeline that
+  // had no door at all. Measured 2026-09-06: his listing crawl finished with 56 of 56
+  // cells and 6,713 stored pages, ZERO of them interpreted, and the card went on showing
+  // the 17,304 rows it showed before the crawl started. `contractors.approve` could be
+  // reached from `scrapex contractors --approve` and from nowhere else -- no route, no job
+  // kind, no control -- so under `R-81` the harvest of a fourteen-hour crawl was
+  // unreachable. Interpreting the copy afterwards took 21 minutes and moved coverage from
+  // 96.8% to 99.4%: 434 contractors that were already on disk.
+  //
+  // ON A DATASET CARD ONLY, AND THAT IS A MEASURED LINE RATHER THAN A KIND CHECK FOR ITS
+  // OWN SAKE. A card of kind `directory` is a source this build can crawl and has NOT
+  // crawled, so there is no evidence to read and the runner would refuse with
+  // `NothingToInterpret` -- correctly, and pointlessly, because nothing could have made it
+  // work. A `dataset` card exists because rows exist, which means a crawl ran, so the
+  // action always has either pages to interpret or an honest count of none.
+  const interpretable = source.site_key && source.kind === "dataset" ? [{
+    action: "interpret",
+    label: "Interpret stored pages",
+    why: "Turn the pages the last crawl saved into rows. Fetches nothing.",
+    route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+  }] : [];
+  return [...base, ...crawlable, ...interpretable, ...covered];
 }
 
 function sourceMenu(source) {
@@ -4927,6 +4948,21 @@ async function runSourceAction(action, key, siteKey = "") {
       // `test_an_action_withheld_for_its_route_really_is_refused` accepted any 4xx, so a
       // 400 about the MODE read as the 404 about the KEY it claimed to be measuring.
       await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
+      showView("run");
+    } catch (error) {
+      out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
+    }
+    return;
+  }
+  if (action === "interpret") {
+    // THE SAME `site_key` THE CRAWL USES, for the same reason: this card's own
+    // `source_key` is the DATASET key and `POST /api/jobs` resolves the registry source.
+    // `job_kind` is named explicitly because the route infers a crawl from the key and
+    // cannot infer which of the two verbs this is -- the same key supports both.
+    const interpretKey = siteKey || key;
+    try {
+      await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
+                               job_kind: "dataset_interpret"});
       showView("run");
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");

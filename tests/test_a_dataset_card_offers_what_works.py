@@ -93,17 +93,53 @@ RECIPES = {
     "pause": ("POST /api/sources/{key}/active", "post",
               f"/api/sources/{KEY}/active", {"active": False}),
     "sheet": ("GET /api/export/{key}", "get", f"/api/export/{KEY}", None),
+    # THE SAME ROUTE AS `update` AND A DIFFERENT VERB, which is the whole point of naming
+    # the kind: `POST /api/jobs` infers a crawl from the source registry and cannot infer
+    # which of the two things a caller wants over one key. Measured against the real
+    # engine here rather than asserted, because the first draft of the crawl recipe
+    # carried a run mode the route refused and the refusal was read as being about the key.
+    "interpret": ("POST /api/jobs", "post", "/api/jobs",
+                  {"source_keys": [KEY], "run_mode": "update",
+                   "job_kind": "dataset_interpret"}),
 }
 
 
 def declared_actions() -> list[dict]:
-    """`SOURCE_ACTIONS`, read out of the shipped file rather than restated here."""
+    """Every action the panel can offer, read out of the shipped file.
+
+    NOT `SOURCE_ACTIONS` ALONE, AND THAT WAS A HOLE THIS GUARD COULD NOT SEE. Two actions
+    are declared INSIDE `sourceActions()` rather than in the array -- the crawl, whose
+    proof differs from the array entry of the same name, and interpreting stored pages --
+    so reading only the array meant this whole suite passed while never once looking at
+    them. Measured 2026-09-06: this returned seven names and the panel offered nine.
+
+    De-duplicated on the action AND its proof, not on the name. `update` legitimately
+    appears twice with two proofs -- `MANIFEST_ONLY` on a price card and
+    `RESOLVES_A_SOURCE_KEY` on a dataset card -- and collapsing those to one name would
+    hide exactly the entry that was invisible.
+    """
     source = APP_JS.read_text(encoding="utf-8")
     start = source.index("const SOURCE_ACTIONS = [")
     end = source.index("\n];", start)
-    body = source[start:end]
+    entries = _entries(source[start:end])
+    seen = {(e["action"], e["proof"]) for e in entries}
+    for extra in _entries(source[end:]):
+        pair = (extra["action"], extra["proof"])
+        if extra["action"] and extra["proof"] and pair not in seen:
+            seen.add(pair)
+            entries.append(extra)
+    return entries
+
+
+def _entries(body: str) -> list[dict]:
+    """The `{action: ...}` literals in one region of the file."""
     entries = []
-    for chunk in body.split("{action:")[1:]:
+    # A REGEX RATHER THAN A LITERAL SPLIT, because the two formats differ and the literal
+    # saw only one of them. The array writes the whole object on one line; the inline
+    # offers open the brace and break the line before the key. Splitting on the exact
+    # string "{action:" matched the array and silently skipped every inline offer, which
+    # is how this suite came to pass while never looking at two of the nine.
+    for chunk in re.split(r"\{\s*action:", body)[1:]:
         name = re.match(r'\s*"([a-z]+)"', chunk)
         route = re.search(r'route:\s*"([^"]+)"', chunk)
         proof = re.search(r"proof:\s*([A-Z_]+)", chunk)
