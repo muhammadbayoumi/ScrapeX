@@ -5717,6 +5717,87 @@ async function loadStorage() {
  * most expensive form -- measured at 316,760,064 bytes per press on the day the status
  * was wrong.
  */
+/**
+ * Which of the two health claims this page is holding, and how to widen it.
+ *
+ * `GET /api/storage` answers the NARROW one -- readable, at the expected version, the
+ * right kind of file -- because the wide one is O(file size). Measured on his warehouse
+ * at 2,080,395,264 bytes: the route was 7.81 s against the 5,000 ms deadline this path
+ * is given, of which `PRAGMA quick_check` and `foreign_key_check` were 5.68 s. It is
+ * 0.060 s now. So the page failed on every open, and what it showed him was
+ * `unreadable` over three empty cards.
+ *
+ * `integrity_checked` ON THE VERDICT IS WHAT MAKES THIS HONEST. "healthy" after no scan
+ * is a narrower claim than "healthy" after one, and a card that did not say which would
+ * report a file nobody has examined as examined. `s.integrity` is the last WIDE verdict
+ * the engine stored, so the answer to "when was corruption last looked for" is a date
+ * rather than an assumption.
+ */
+function renderIntegrity(status) {
+  const ask = $("db-integrity-check");
+  const state = $("db-integrity-state");
+  if (!ask || !state) return;
+  ask.disabled = false;
+  const found = status.integrity || null;
+  const scannedNow = (status.health || {}).integrity_checked === true;
+  if (scannedNow) {
+    // The routine verdict already carries a scan, which is what a small warehouse's
+    // engine may still do. Nothing to ask for.
+    state.textContent = "checked with this reading";
+    ask.disabled = true;
+    out("db-integrity-note", "", "muted");
+    return;
+  }
+  if (!found || !found.at) {
+    state.textContent = "not checked";
+    out("db-integrity-note",
+        "A full check reads every page of the file, so it is not run on opening this "
+        + "screen.", "muted");
+    return;
+  }
+  state.textContent = `${esc(found.status || "unknown")}, ${esc(found.at)}`;
+  out("db-integrity-note", found.ok === false
+    ? esc(found.detail || "Problems were found the last time this was checked.")
+    : "", found.ok === false ? "err" : "muted");
+}
+
+/**
+ * Ask for the wide verdict, and say the whole time that it is being asked.
+ *
+ * A 5.9 s press with no visible state reads as a dead button -- which is the same
+ * failure as a button that cannot work, arrived at from the other direction. The label
+ * changes, the control is disabled for the duration, and the note carries the outcome.
+ */
+async function checkIntegrityFromPanel() {
+  const ask = $("db-integrity-check");
+  if (!ask || ask.disabled) return;
+  const label = ask.querySelector("span");
+  const said = label ? label.textContent : "";
+  ask.disabled = true;
+  if (label) label.textContent = "Checking…";
+  out("db-integrity-note",
+      "Reading every page of the database. This takes about three seconds a gigabyte.",
+      "muted");
+  try {
+    const verdict = await api("/api/storage/integrity", {method: "POST"});
+    $("db-integrity-state").textContent =
+      `${esc(verdict.status || "unknown")}, ${esc(verdict.at || "just now")}`;
+    // A DAMAGED VERDICT IS NOT A FAILED REQUEST, and the two must not read alike: the
+    // request succeeded and the answer is bad news, so it is reported as the finding it
+    // is rather than as an error talking to the engine.
+    out("db-integrity-note",
+        esc(verdict.detail || ""), verdict.ok === false ? "err" : "ok");
+    // The stored verdict now feeds `ready`, so the rest of the page can have changed.
+    loadDatabase();
+  } catch (error) {
+    out("db-integrity-note",
+        esc((error && error.message) || "The check could not be run."), "err");
+  } finally {
+    if (label) label.textContent = said || "Check integrity";
+    ask.disabled = false;
+  }
+}
+
 async function loadDatabase() {
   const upgrade = $("runtime-upgrade");
   try {
@@ -5746,6 +5827,7 @@ async function loadDatabase() {
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
     $("db-health-detail").textContent = health.detail || "";
+    renderIntegrity(s);
 
     const sizes = s.sizes || {};
     $("db-sizes").innerHTML = [
@@ -5762,10 +5844,20 @@ async function loadDatabase() {
 
     const count = (s.sizes || {}).backup_count;
     $("db-backup-count").textContent = count == null ? "—" : String(count);
-    const last = s.last || {};
-    $("db-backup-detail").textContent = last.at
-      ? `Newest ${last.at}. ${fmtMegabytes(sizes.backup_bytes || 0)} in ${s.backup_folder || "the database folder"}.`
-      : "No backup has been taken from this panel yet.";
+    // THE NEWEST COPY, NOT THE LAST ACTION, and the first draft of this line read
+    // `s.last`. `s.last` is `storage_last` -- the last storage OPERATION he ran through
+    // the panel, which may be a compaction or a repair and need not be a backup at all.
+    // Measured on his warehouse: `s.last` pointed at a manual backup from 2026-08-30
+    // while the newest copy on disk was the pre-upgrade one taken 2026-09-06, six days
+    // later and the one that matters -- and the size printed beside it was
+    // `backup_bytes`, the TOTAL across all four copies, reading as though that one file
+    // were 6.9 GB. `backups` is documented newest first and ordered by `taken_at`.
+    const newest = (s.backups || [])[0];
+    $("db-backup-detail").textContent = newest
+      ? `Newest ${newest.taken_at} (${newest.tag || "manual"}), ${fmtMegabytes(newest.bytes || 0)}. `
+        + `${fmtMegabytes(sizes.backup_bytes || 0)} across ${count} in `
+        + `${s.backup_folder || "the database folder"}.`
+      : "No backup of this database is in the backup folder.";
     out("db-msg", "", "ok");
   } catch (error) {
     // THE CONTROL STAYS USABLE, AND THIS IS THE HALF A GUARD ARGUED FOR RATHER THAN
@@ -5782,6 +5874,14 @@ async function loadDatabase() {
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
     if (upgrade) upgrade.disabled = false;
+    // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
+    // `POST /api/storage/integrity` has no native fallback because the native host does
+    // not read the warehouse. A button that cannot work is worse than no button.
+    const ask = $("db-integrity-check");
+    if (ask) ask.disabled = true;
+    $("db-integrity-state").textContent = "unknown";
+    out("db-integrity-note", "The engine did not answer, so it cannot be checked.",
+        "muted");
     $("db-schema-version").textContent = "unreadable";
     $("db-schema-detail").textContent =
       "The engine did not answer, so the version could not be read. Upgrade database "
@@ -6477,10 +6577,10 @@ function wireRuntimeRepair() {
 
   // THE BUTTON AND ITS SENTENCE ARE NOW ON DIFFERENT SCREENS, which is the one
   // thing this move could quietly break. `#runtime-restart` is on the Engine
-  // screen; `#runtime-note` stays in Settings because `#runtime-upgrade` still
-  // shares it. Writing only the old node would put every restart message on a
-  // screen the reader is not looking at -- the defect this whole change exists
-  // to end, rebuilt one layer down.
+  // screen; `#runtime-note` followed `#runtime-upgrade` to the Database page,
+  // which is where it is still shared from. Writing only one node would put a
+  // restart message on a screen the reader is not looking at -- the defect this
+  // whole change exists to end, rebuilt one layer down.
   //
   // `reason` IS NOT DECORATION, and pressing the button is how that was found.
   // Four of these sentences end in "the reason is shown above": true in
@@ -7142,6 +7242,7 @@ function wireDeferredControls() {
     }));
 
   wireRuntimeRepair();
+  $("db-integrity-check").addEventListener("click", checkIntegrityFromPanel);
   wireSourceColumns();
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);

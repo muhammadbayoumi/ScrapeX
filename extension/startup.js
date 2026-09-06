@@ -13,6 +13,14 @@ export const STARTUP_DEADLINES = Object.freeze({
   destinationData: 5000,
   localMutation: 10000,
   engineRepair: 15000,
+  // DERIVED FROM A MEASUREMENT RATHER THAN CHOSEN, for the same reason as `bundleBuild`
+  // and `updateReport`: the work is O(FILE SIZE), so a chosen number expires as the
+  // warehouse grows. (`bundleBuild` still calls itself "the only" derived one here; it
+  // was, before `updateReport`. Not corrected in passing -- one claim, one diff.) `PRAGMA quick_check` plus `foreign_key_check` cost
+  // 5.9 s on his warehouse at 2.08 GB -- about 2.8 s a gigabyte -- so this covers a file
+  // roughly 40 GB before it needs revisiting. It sits far above `localMutation` because
+  // this is not a poll: he pressed a control and is watching it.
+  integrityScan: 120000,
   localGeneric: 5000,
   // 8000, DERIVED: the engine's own manifest fetch is bounded at 4 s
   // (`CHECK_TIMEOUT_S`, scrapex/release.py) and httpx applies that PER PHASE, so
@@ -61,6 +69,10 @@ const LOCAL_POLICIES = [
   [/^\/api\/(?:appearance|timezone)(?:[/?]|$)/, STARTUP_DEADLINES.preferences],
   [/^\/api\/(?:engine\/restart|databases\/upgrade)(?:[/?]|$)/,
     STARTUP_DEADLINES.engineRepair],
+  // BEFORE THE `storage` RULE BELOW, WHICH WOULD OTHERWISE SWALLOW IT: that pattern
+  // ends `(?:[/?]|$)`, so `/api/storage/integrity` matches it and would inherit the
+  // 5,000 ms bound this whole change exists to get out from under.
+  [/^\/api\/storage\/integrity(?:[/?]|$)/, STARTUP_DEADLINES.integrityScan],
   // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
   // `GET /api/update` costs one third-party fetch of the release manifest, which
   // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and

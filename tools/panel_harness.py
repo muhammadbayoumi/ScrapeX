@@ -207,12 +207,34 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "sizes": {"db_bytes": 4194304, "wal_bytes": 8192, "shm_bytes": 32768,
                       "free_bytes": 51539607552, "backup_bytes": 8388608,
                       "backup_count": 2},
-            "health": {"status": "healthy", "ok": True,
-                       "detail": "No problems found."},
+            # NARROW BY DEFAULT, because that is what the route answers now: the
+            # corruption scan is O(file size) and is asked for, not drawn. A stub
+            # claiming `integrity_checked` would hide the whole Corruption row.
+            "health": {"status": "healthy", "ok": True, "integrity_checked": False,
+                       "detail": ("Readable, at the expected version, and the right "
+                                  "kind of file. Corruption has not been checked.")},
             "schema": {"version": 17, "expected": 18,
                        "pending": ["0018_a_job_may_interpret_what_a_crawl_stored.sql"]},
             "last": {"at": "2026-09-03T09:28:39Z", "ok": True},
-            "backups": []},
+            # NOT YET CHECKED, so the default exercises the branch with a control to
+            # press rather than the one that reports a stored verdict.
+            "integrity": None,
+            # TWO OF THEM, MATCHING `backup_count`, AND NEWEST FIRST. This was `[]`
+            # beside a count of 2 -- a stub that contradicted itself, and the Backups
+            # row reads THIS list rather than the count, so every DOM test would have
+            # asserted against "no backup" while the card claimed two.
+            "backups": [
+                {"path": "C:\\Users\\Owner\\.scrapex\\harvest.pre-upgrade-"
+                         "20260903T092839Z.backup.db",
+                 "name": "harvest.pre-upgrade-20260903T092839Z.backup.db",
+                 "bytes": 4194304, "taken_at": "2026-09-03T09:28:39Z",
+                 "modified_at": "2026-09-03T09:28:45Z", "tag": "pre-upgrade"},
+                {"path": "C:\\Users\\Owner\\.scrapex\\harvest.manual-"
+                         "20260830T045246Z.backup.db",
+                 "name": "harvest.manual-20260830T045246Z.backup.db",
+                 "bytes": 4194304, "taken_at": "2026-08-30T04:52:46Z",
+                 "modified_at": "2026-08-30T04:52:52Z", "tag": "manual"},
+            ]},
         "/api/rates/google-finance": rates_status if rates_status is not None else {
             "automatic": True,
             "refresh_hours": 6,
@@ -266,7 +288,17 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     # returns the new job's ref, and the panel stores it to start polling. The
     # read table would hand back the job LIST, so anything that checked what a
     # click actually queued was testing against a shape the engine never sends.
-    write_routes = {"/api/jobs": {"job_ref": "job_stub", "status": "queued"}}
+    write_routes = {
+        "/api/jobs": {"job_ref": "job_stub", "status": "queued"},
+        # WHAT THE Check integrity CONTROL ASKS FOR. `at` is the engine's stamp on the
+        # verdict, which is the whole reason the route is a POST: the page says WHEN
+        # corruption was last looked for, and without a recorded moment a card showing
+        # no problems is indistinguishable from a card that never asked.
+        "/api/storage/integrity": {
+            "status": "healthy", "ok": True, "integrity_checked": True,
+            "problems": [], "foreign_key_problems": 0,
+            "at": "2026-09-06T12:45:10Z", "detail": "No problems found."},
+    }
     # The job log endpoint. A distinct shape from the jobs LIST (both live under
     # /api/jobs), and matched ahead of it by the interceptor's `/logs` check —
     # otherwise every log fetch would get the job list and the panel would draw
@@ -558,7 +590,14 @@ window.fetch = async (url, options = {{}}) => {{
   }}
   const table = method === "GET" ? ROUTES
                                  : {{...ROUTES, ...WRITE_ROUTES}};
-  const key = Object.keys(table).find(k => path.startsWith(k));
+  // THE MOST SPECIFIC ROUTE WINS, AND INSERTION ORDER IS NOT SPECIFICITY. `find` took
+  // the first key that was a prefix, so `POST /api/storage/integrity` was answered with
+  // `/api/storage`'s payload -- the storage blob, complete with a `status` field, so the
+  // caller read a plausible verdict for a route the stub never declared. Any nested pair
+  // of paths has the same hole.
+  const key = Object.keys(table)
+    .sort((a, b) => b.length - a.length)
+    .find(k => path.startsWith(k));
   if (!key) return {{ ok: false, status: 404, statusText: "not found",
                       json: async () => ({{detail: "not found"}}) }};
   return {{ ok: true, status: 200, json: async () => table[key] }};

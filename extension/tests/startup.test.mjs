@@ -33,6 +33,25 @@ test("local endpoints receive purpose-specific deadlines", () => {
                STARTUP_DEADLINES.engineRepair);
   assert.equal(deadlineForLocalRequest("/api/bundle", "POST"),
                STARTUP_DEADLINES.bundleBuild);
+  assert.equal(deadlineForLocalRequest("/api/storage/integrity", "POST"),
+               STARTUP_DEADLINES.integrityScan);
+});
+
+// THE ORDER OF THE TABLE IS PART OF THE TABLE, and this pair is the case that says so.
+// The `storage` rule ends `(?:[/?]|$)`, so `/api/storage/integrity` matches it too --
+// and `deadlineForLocalRequest` returns the FIRST match. Written after the storage rule
+// it would silently collect `destinationData: 5000`, which is the bound this route
+// exists to get out from under: the corruption scan it triggers is O(file size) and
+// costs 5.9 s on his warehouse at 2.08 GB. The panel would abort a scan the engine goes
+// on to finish -- the same failure `/api/bundle` above already paid for once.
+test("the integrity scan is not bounded by the storage page's deadline", () => {
+  assert.equal(deadlineForLocalRequest("/api/storage/integrity", "POST"),
+               STARTUP_DEADLINES.integrityScan);
+  assert.notEqual(STARTUP_DEADLINES.integrityScan, STARTUP_DEADLINES.destinationData);
+  // ...and the page itself keeps the fast bound, which is the other half of the split.
+  assert.equal(deadlineForLocalRequest("/api/storage"), STARTUP_DEADLINES.destinationData);
+  assert.equal(deadlineForLocalRequest("/api/storage/backup", "POST"),
+               STARTUP_DEADLINES.destinationData);
 });
 
 // A RULE DERIVED FROM ONE METHOD MUST NOT SILENTLY BIND THE OTHER, and this is

@@ -1413,10 +1413,26 @@
         <div id="runtime-note" class="muted text-xs" role="status"></div>
       </div>
 
+      <!-- HEALTH IS TWO CLAIMS NOW, AND THE CARD SAYS WHICH ONE IT IS HOLDING.
+           `GET /api/storage` answers the narrow one -- readable, at the expected
+           version, the right kind of file -- in 0.060 s on his 2 GB warehouse. It used
+           to answer the wide one too and took 7.81 s against the 5,000 ms deadline this
+           path is given, so the whole page rendered "unreadable" every time. The
+           corruption scan is O(file size), so it is asked for rather than drawn. -->
       <div class="card">
         <div class="kv"><strong>Health</strong>
           <span id="db-health-status" class="muted">—</span></div>
         <p class="muted text-xs" id="db-health-detail">&nbsp;</p>
+        <div class="kv"><span class="muted text-xs">Corruption</span>
+          <span class="muted text-xs" id="db-integrity-state">—</span></div>
+        <div class="engine-maintenance-actions" id="db-integrity-actions"
+             aria-label="Integrity">
+          <button id="db-integrity-check" class="ghost engine-action" type="button">
+            <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#check"></use></svg>
+            <span>Check integrity</span>
+          </button>
+        </div>
+        <div id="db-integrity-note" class="muted text-xs" role="status"></div>
       </div>
 
       <div class="card">
