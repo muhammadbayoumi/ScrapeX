@@ -145,20 +145,29 @@ def test_the_checksum_on_screen_says_who_checks_it():
     #
     # SO THE CLAIM IS TIED TO THE CODE INSTEAD. The note may say the engine
     # verifies updates only while something actually asks it to: measured
-    # 2026-09-02, `GET /api/update` has zero callers in `extension/`, and
+    # 2026-09-02, `GET /api/update` had zero callers in `extension/`, and
     # `scrapex/update.py`'s module docstring says it "deliberately does not"
     # replace the running executable. See `R-81` clause 5 and `R-36`.
+    #
+    # THE POST AND NOT THE ROUTE, and the difference is a whole half of the
+    # feature. This read `"/api/update" in panel_js`, which is true the moment
+    # the panel merely ASKS the engine what it can do -- a GET that starts
+    # nothing, downloads nothing and verifies nothing. Under that condition the
+    # guard demanded the note promise engine-side verification as soon as the
+    # panel could read a status, which is the exact false promise `OP-124`
+    # removed, re-required by the test written to prevent it. Only `POST
+    # /api/update` makes the note true, so only the POST is looked for.
     panel_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
-    asks_the_engine = "/api/update" in panel_js
+    asks_the_engine = 'post("/api/update"' in panel_js
     claims_the_engine_checks = any(
         phrase in text.lower()
         for phrase in ("engine downloads and", "engine checks its own",
                        "checked by the engine", "verified by the engine"))
     assert claims_the_engine_checks == asks_the_engine, (
-        "the note claims engine-side update verification while nothing calls "
-        "/api/update" if claims_the_engine_checks else
-        "the panel now calls /api/update, so the note may say the engine "
-        "verifies updates — and should")
+        "the note claims engine-side update verification while nothing asks the "
+        "engine to fetch anything" if claims_the_engine_checks else
+        "the panel now starts updates through the engine, so the note may say "
+        "the engine verifies them — and should")
 
 
 def test_the_saveas_dialogue_is_suppressed_deliberately():
