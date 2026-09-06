@@ -199,6 +199,139 @@ export async function raw(path, options = {}) {
   return request(path, {...options, throwOnHttpError: false});
 }
 
+/**
+ * Bytes `[start, end)` of a path the engine serves, and never more than that.
+ *
+ * WHY THIS EXISTS. `bytes()` reads a whole body into memory, which is fine for a
+ * 4 MB panel-pack and is what failed on a 541,531,989-byte archive: a Chrome side
+ * panel asked to hold half a gigabyte in one Blob, and the read came back empty.
+ * Measured on his machine 2026-09-03 — the file was complete on disk and the panel
+ * read 0. A 378 MB build had worked four days earlier, so the ceiling was somewhere
+ * between them and moves with the browser rather than with this code.
+ *
+ * So the archive is never held whole. `drive.js` already uploads in 4 MB chunks
+ * with a resumable session; it was slicing them out of a fully-buffered Blob. Now
+ * each chunk is fetched as it is sent, so the panel holds ONE chunk however large
+ * the warehouse grows.
+ *
+ * A SHORT CHUNK IS A FAILURE AND SAYS SO. The engine answers `206` with a
+ * `Content-Range`, and a body shorter than asked for means the file changed under
+ * the upload or the connection truncated — either way the archive being assembled
+ * in Drive would be wrong, and wrong quietly. That is the shape the 2026-08-30
+ * guard was added for, one level down.
+ */
+/**
+ * A path the engine serves, expressed as something uploadable without holding it.
+ *
+ * THE SIZE COMES FROM THE ENGINE AND NOT FROM THE MANIFEST, and that is the whole
+ * care in this function. `drive.js` `expectSize` exists to compare what the engine
+ * DESCRIBED in its POST reply against what ARRIVED — on 2026-08-30 those resolved
+ * to different builds and a 0-byte archive went to Drive. Sizing a source from the
+ * manifest would make both sides of that comparison the same number and the guard
+ * would pass on anything.
+ *
+ * So the length is read from the `Content-Range` of a one-byte request: `bytes
+ * 0-0/541531989`. That is the file the engine will actually serve chunks from,
+ * measured by the engine, which is the fact the manifest is being checked against.
+ */
+export async function sourceFor(path) {
+  // NO STATUS OPT-OUT, AND THAT IS THE FIX RATHER THAN AN OVERSIGHT. `res.ok`
+  // covers 200-299, so a 206 was never an error to `request()` and this never
+  // needed to read the status itself. Opting out mapped EVERY non-206 to "this
+  // engine will not serve byte ranges" -- so a transient 500, or the 416
+  // Starlette answers for `bytes=0-0` on an empty file, reached `app.js` as a
+  // range-capability problem and was answered by downloading the whole archive:
+  // 541,531,989 bytes into a side panel, which is the read that came back 0 on
+  // 2026-09-03. The engine's own `detail` was cancelled along with the body.
+  const res = await request(path, {headers: {Range: "bytes=0-0"}});
+  if (res.status !== 206) {
+    // Reached only for a 2xx that is not a 206 -- in practice a 200, meaning the
+    // WHOLE archive is already on its way. Drop the body rather than read it,
+    // and say so by kind so the caller can fall back to the whole-blob read.
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error(
+      `The engine answered ${res.status} instead of serving a byte range, so the `
+      + "archive cannot be uploaded a chunk at a time."),
+      {status: res.status, kind: "no-range"});
+  }
+  const stated = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
+  if (!stated) {
+    throw new Error(
+      "The engine served a byte range without saying how long the file is, so "
+      + "there is nothing to check the manifest against.");
+  }
+  const size = Number(stated[1]);
+  // PIN THE REPRESENTATION FOR THE WHOLE UPLOAD.
+  //
+  // `/api/bundle/archive` re-resolves "the newest zip on disk" on EVERY request
+  // (scrapex/webui/app.py:3253), and 541,531,989 bytes is ~130 requests spread
+  // over minutes. A second panel window -- side panels are per window, so that
+  // is a second document -- taking a backup mid-upload finishes a new build, and
+  // every chunk after it comes from a DIFFERENT file. The length guard below
+  // cannot see that: if the new archive is longer, each chunk is still exactly
+  // the size asked for, the total still matches, and the check button then
+  // reports a spliced archive as complete.
+  //
+  // The engine already hands us what closes it. Measured against the live engine
+  // on 2026-09-05, the one-byte probe answers:
+  //     ETag: "c9d60b0b9a6ebd8b8d6e89b2612898fd"
+  //     Content-Range: bytes 0-0/541531989
+  // Starlette's FileResponse._should_use_range compares If-Range against the etag
+  // OR the last-modified and answers 200 with the whole body when neither still
+  // matches -- which `range` turns into a named, loud failure.
+  const validator = res.headers.get("etag") || res.headers.get("last-modified");
+  return {
+    size,
+    chunk: (start, end) => range(path, start, end, {total: size, validator}),
+  };
+}
+
+
+export async function range(path, start, end, {total = null, validator = null} = {}) {
+  const wanted = end - start;
+  const headers = {Range: `bytes=${start}-${end - 1}`};
+  // If-Range is what makes a swapped file ANSWERABLE. Without it the engine
+  // happily serves byte 40,000,000 of whatever archive is newest now, and this
+  // side has no way to tell that from byte 40,000,000 of the one it started on.
+  if (validator) headers["If-Range"] = validator;
+  // Also no opt-out, for the same reason: 206 and 200 are both `ok`, so the only
+  // statuses `request()` turns into an error here are the ones that ARE errors,
+  // and it reports them with the engine's own detail.
+  const res = await request(path, {headers});
+  if (res.status !== 206 && res.status !== 200) {
+    throw Object.assign(
+      new Error(`The engine answered ${res.status} for bytes ${start}-${end - 1}.`),
+      {status: res.status, kind: "http"});
+  }
+  if (validator && res.status === 200) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error(
+      "The archive on the engine changed while it was being uploaded, so the copy "
+      + "in Drive would be part of one backup and part of another. Nothing was "
+      + "finished. Take the backup again, and let it run on its own."),
+      {kind: "changed-under-upload"});
+  }
+  // The total on every 206 costs nothing and is INDEPENDENT of the length asked
+  // for, so it catches a swap that If-Range could not -- an engine that does not
+  // send validators, or one whose etag survives a rebuild.
+  const said = /\/(\d+)\s*$/.exec(res.headers.get("content-range") || "");
+  if (total !== null && said && Number(said[1]) !== total) {
+    await res.body?.cancel().catch(() => {});
+    throw Object.assign(new Error(
+      `The archive was ${total} bytes when this upload started and the engine now `
+      + `says it is ${said[1]}, so it was rebuilt underneath. Nothing was `
+      + "finished. Take the backup again."), {kind: "changed-under-upload"});
+  }
+  const chunk = await res.blob();
+  if (chunk.size !== wanted) {
+    throw Object.assign(new Error(
+      `Asked the engine for ${wanted} bytes at ${start} and read ${chunk.size}. `
+      + "The file changed under the upload or the read was cut short; what is in "
+      + "Drive would be wrong."), {kind: "short-read"});
+  }
+  return chunk;
+}
+
 export const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),
