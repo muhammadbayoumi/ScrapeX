@@ -3581,18 +3581,27 @@ function engineReleaseVerdict(installed, latest) {
 // -- written without a leading hash because the colour-literal guard reads a
 // hash and three hex digits as a colour value, and a bare pull-request number is
 // exactly that shape --
-// and NOTHING HAD EVER CALLED IT: `git log -S "api/update"` over extension/
-// returned no commit in the whole history until this one. So the note beside the
-// installer checksum claimed the engine downloaded and verified its updates
-// while the only thing that could start it was a request nobody made
-// (`OP-124`). The record is issue 439.
+// and NOTHING HAD EVER CALLED IT. So the note beside the installer checksum
+// claimed the engine downloaded and verified its updates while the only thing
+// that could start it was a request nobody made (`OP-124`). The record is
+// issue 439.
 //
-// THE READ HALF, AND ONLY THE READ HALF. This asks the engine what it can do and
-// what it is doing; asking it to START is `POST /api/update` and it is a change
-// of its own, with its own button, its own watcher and its own review. Splitting
-// there is not tidiness: the two halves fail differently -- this one can only
-// paint a wrong sentence, the other can leave a control that lies about work in
-// flight -- and a reviewer who has to hold both at once finds neither.
+// THE MEASUREMENT, STATED SO IT CAN BE REPEATED. This note used to say that
+// `git log -S "api/update"` over `extension/` returned no commit in the whole
+// history, AND THAT IS FALSE: it returns `c233a219`, which added the comment in
+// `app.html` saying the route had zero callers. The string was in this directory
+// for months; a CALL never was. `git log -S` searches text, so a note about a
+// route counts as an occurrence of it -- and a claim about a command's output is
+// checkable in one line, which is why writing one that is wrong is worse than
+// writing none. What was true, and is the thing to check: before this work
+// `grep -rn "api/update" extension/` found exactly one hit and it was inside an
+// HTML comment.
+//
+// THE READ HALF. It asks the engine what it can do and what it is doing, and it
+// merged on its own. Asking the engine to START is the half below --
+// `startEngineUpdate` and the watcher after it -- and the two are separate
+// because they fail differently: this one can only paint a wrong sentence, that
+// one can leave a control that lies about work in flight.
 //
 // WRITTEN `issue 439` WITHOUT A LEADING HASH, and that is not a style choice:
 // `test_ui_colour_literals_live_only_in_the_canonical_colour_system` reads a
@@ -3662,8 +3671,20 @@ function engineUpdateSentence(report) {
       : `The engine is downloading the update — ${pct}%.`;
   }
   if (phase === "staged") {
-    return "Downloaded and checked against its published digest. Replacing the "
-      + "running engine with it is still a step you take.";
+    // AND IT SAYS WHERE THE FILE IS, because a sentence that names a step he
+    // must take and withholds what taking it needs is the same defect as a
+    // terminal instruction: it puts the work outside the panel and then does not
+    // say where. `staged_path` and `staged_version` are in the report and were
+    // read by NOTHING, so the only true half of this sentence was the half that
+    // says he is not finished. `plan_swap` describes replacing the running
+    // executable and deliberately does not do it, so this stops there -- but it
+    // stops with the file named rather than with a gesture at one.
+    const where = report.staged_path
+      ? ` It is at ${report.staged_path}.`
+      : "";
+    const which = report.staged_version ? ` ${report.staged_version}` : "";
+    return `Downloaded${which} and checked against its published digest.`
+      + ` Replacing the running engine with it is still a step you take.${where}`;
   }
   if (phase === "failed") {
     return report.detail || "The last update attempt failed.";
@@ -3696,17 +3717,162 @@ function engineUpdateSentence(report) {
   return "";
 }
 
-async function updateEngineReleaseUI(latest) {
-  const installed = state.engineVersion || "";
-  // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
-  // `null` default, and the default was the defect: `refreshEngines` -- the
-  // "Check again" button -- called the renderer without it, so pressing the one
-  // control named for re-checking was the one path that never asked the engine
-  // about its update. Two call sites, one of them wired. That is `R-80` inside
-  // a single function: the decision lives in one place, so there is nowhere to
-  // forget it.
-  const report = state.engineUp ? await engineUpdateState() : null;
 
+// TWO QUESTIONS, AND NOTHING WRITES THE UPDATE LINE WITHOUT ASKING BOTH. Which
+// screen is up, and whose screen it is. `theInstalledEngineIsOnScreen()` answers
+// the second only: it reads `openEngineId`, which keeps its value after the
+// reader navigates away, so on its own it says "yes" about a screen nobody is
+// looking at. `#view-engine-detail` answers the first, and it is shared by all
+// seven engines, so on its own it cannot tell ScrapeX's page from Scrapy's.
+function engineUpdateScreenIsUp() {
+  return !$("view-engine-detail").classList.contains("hidden")
+    && theInstalledEngineIsOnScreen();
+}
+
+// ONE WRITER FOR ONE LINE, and that is the point rather than the tidiness. Four
+// callers put text here -- the renderer, the button, each turn of the poll and
+// the poll running out -- and every one of them can land after an await that the
+// reader spent opening a different engine. When the guard was repeated at the
+// call sites it was right at three of them and absent at the fourth, which is
+// how ScrapeX's sentence reached a candidate's screen. The knowledge is "this
+// line may be written only while ScrapeX's own detail screen is up", it changes
+// for one reason, and it now lives in one place.
+//
+// Returns whether it wrote, so a caller can drop the rest of its work when the
+// screen it was rendering for has gone.
+function writeEngineUpdateLine(text) {
+  if (!engineUpdateScreenIsUp()) return false;
+  const line = $("engine-update-state");
+  line.textContent = text;
+  line.classList.toggle("hidden", !text);
+  return true;
+}
+
+// PRESSING IT. The engine answers immediately with `started` and does the work
+// on its own thread, so this does not wait for a download -- it asks, reports
+// what the engine said about the asking, and then polls the same report the
+// renderer already reads. A refusal comes back NAMED (`already running`, `no
+// release`, `already the published version`, `no installer attached`), which is
+// why the reason is shown rather than a status code: `OP-126` is the row about a
+// guard that accepted any 4xx and so recorded a reason it never measured.
+async function startEngineUpdate() {
+  const button = $("engine-download");
+  button.disabled = true;
+  writeEngineUpdateLine("Asking the engine to fetch it…");
+  let answer;
+  try {
+    answer = await post("/api/update", {});
+  } catch (err) {
+    // A TIMEOUT IS NOT A REFUSAL, and here the difference is the whole message.
+    // The engine sets `running` and starts its worker thread BEFORE this request
+    // returns, so a deadline that expires says nothing about whether the download
+    // began -- and it usually did. Printing "The engine refused" over a download
+    // that is running is a visible WRONG record, which is worse than a silent
+    // one, and it is the same shape as reporting a restart failed because a poll
+    // ran out. Only an HTTP status is a refusal; anything else is not knowing.
+    //
+    // THE TEXT IS GUARDED AND THE BUTTON IS NOT, deliberately. `post` can take
+    // its whole deadline, so this line can arrive after the reader has opened a
+    // candidate -- and a sentence about ScrapeX on that page is a wrong record.
+    // The button is inside `#engine-detail-actions`, which `renderEngineDetail`
+    // hides for a candidate, so re-enabling it writes nothing anyone can see and
+    // leaves it correct for the moment he comes back.
+    writeEngineUpdateLine(isTimeoutError(err)
+      ? "The engine did not answer in time. It may have started the download "
+        + "anyway — press Check again to see."
+      : err && err.kind === "http" && err.message
+        ? `The engine refused: ${err.message}`
+        : "The engine could not be reached.");
+    button.disabled = false;
+    return;
+  }
+  if (answer && answer.started === false) {
+    // NOT AN ERROR AND NOT A SUCCESS. The engine declined for a reason it named,
+    // and the button must come back so he can act on the reason.
+    writeEngineUpdateLine(
+      answer.detail || "The engine declined to start an update.");
+    button.disabled = false;
+    return;
+  }
+  await pollEngineUpdate();
+}
+
+// POLLED, NOT PUSHED, and the interval is the engine's own choosing rather than
+// a guess: `GET /api/update` documents itself as safe to poll -- a few hundred
+// bytes with a four-second timeout, touching no installer. It stops on every
+// terminal phase, and on a report it cannot get, so a lost engine mid-download
+// does not leave a timer running for the life of the panel.
+//: ONE WATCHER AT A TIME, AND ONLY WHILE ITS SCREEN IS ON SHOW. Without this the
+//: loop had two defects that were invisible while the report shape was wrong,
+//: because it exited on its first iteration either way. It kept polling after the
+//: reader left the Engine screen -- up to 930 s of requests for a page nobody is
+//: looking at -- and it never restarted when he came back, so the panel's own
+//: instruction, "reopen this screen to see where it got to", was false.
+let enginePollRunning = false;
+
+async function pollEngineUpdate() {
+  if (enginePollRunning) return;
+  enginePollRunning = true;
+  try {
+    await pollEngineUpdateLoop();
+  } finally {
+    enginePollRunning = false;
+  }
+}
+
+async function pollEngineUpdateLoop() {
+  for (let attempt = 0; attempt < ENGINE_UPDATE_POLL_ATTEMPTS; attempt += 1) {
+    // LEAVING THE SCREEN STOPS THE WATCHING, NOT THE DOWNLOAD. The engine keeps
+    // going on its own thread; this only stops asking. Re-entering starts a new
+    // watcher, because `renderEngineDetail` renders the installed engine again.
+    //
+    // CHECKED HERE TO AVOID THE REQUEST, and checked again inside every write to
+    // avoid the wrong paint. This one is the saving; the ones below are the
+    // correctness, and it is the second that was missing. `engineUpdateState`
+    // may take its whole `updateReport` deadline -- eight seconds -- and a guard
+    // asked only before that await NARROWS the window rather than closing it.
+    // What it fails to stop is exactly what it was written to stop: ScrapeX's
+    // sentence painted onto a candidate's screen, up to eight seconds after the
+    // reader opened it.
+    if (!engineUpdateScreenIsUp()) return;
+    const report = await engineUpdateState();
+    if (!report) {
+      // The button write is unguarded for the reason given in `startEngineUpdate`:
+      // its region is hidden for a candidate, and this leaves it correct for a
+      // reader who comes back.
+      $("engine-download").disabled = false;
+      writeEngineUpdateLine("The engine stopped answering while the update was "
+        + "running. Its own log is the record of what happened.");
+      return;
+    }
+    // A FALSE RETURN IS A SCREEN THAT HAS GONE, so there is nothing left to do
+    // for it -- including the re-render below, which would fetch a release feed
+    // and repaint a page nobody is looking at.
+    if (!writeEngineUpdateLine(engineUpdateSentence(report))) return;
+    if (report.phase !== "downloading") {
+      // Re-render so the version, the verdict and the button all come from the
+      // report that has just settled rather than from the one before it.
+      await renderEngines();
+      return;
+    }
+    await new Promise((done) => setTimeout(done, ENGINE_UPDATE_POLL_MS));
+  }
+  // AND THE BUTTON COMES BACK WITH IT. Running out of attempts is the panel
+  // giving up on WATCHING, not the engine giving up on downloading -- but the
+  // button was disabled by the busy branch and nothing here re-enabled it, so
+  // the screen ended with a sentence saying "reopen this to see where it got to"
+  // above a control that could not be pressed and would not change. Reopening
+  // re-renders and settles it correctly either way; this is for the reader who
+  // stays.
+  $("engine-download").disabled = false;
+  writeEngineUpdateLine("The engine is still downloading. Reopen this screen to "
+    + "see where it got to.");
+}
+
+// THE RELEASE ROW, FROM WHICHEVER ANSWER IS BEING TRUSTED. Extracted because it
+// is painted twice now, from two sources, and painting it twice from two copies
+// of this code is how those two would come to disagree in a third way.
+function paintEngineRelease(latest, installed) {
   $("engine-latest-version").textContent =
     latest.state === "ok" ? latest.version
     : latest.state === "none" ? "No release yet"
@@ -3731,10 +3897,6 @@ async function updateEngineReleaseUI(latest) {
     node.classList.toggle("hidden", !verdict);
   }
 
-  const download = $("engine-download");
-  const steps = $("engine-install-steps");
-  const installer = latest.state === "ok" ? latest.installer : null;
-
   // WHAT THE BUTTON WILL DO, named with the version it will do it to. "Download
   // engine" is right on a device with none; on a device with 0.9.4 installed and
   // 1.0.2 published, the action is an update and the label has to say which.
@@ -3742,20 +3904,99 @@ async function updateEngineReleaseUI(latest) {
     installed && latest.state === "ok" && verdict === "Update available"
       ? `Update to ${latest.version}`
       : "Download engine";
+}
+
+async function updateEngineReleaseUI(panelLatest) {
+  // FIRST PAINT, FROM WHAT IS ALREADY IN HAND, and the order is a fix rather
+  // than an accident. The await below was the first statement in this function
+  // when the caller was written, so making one renderer asynchronous put the
+  // latest version, the release detail, the button label AND
+  // `#engine-row-verdict` -- which is on the CATALOGUE screen, not this one --
+  // behind up to eight seconds of network. Nothing that can be drawn from what
+  // is in hand waits for what is not.
+  paintEngineRelease(panelLatest, state.engineVersion || "");
+
+  // ASKED HERE AND NOWHERE ELSE. This began as a `report` parameter with a
+  // `null` default, and the default was the defect: `refreshEngines` -- the
+  // "Check again" button -- called the renderer without it, so pressing the one
+  // control named for re-checking was the one path that never asked the engine
+  // about its update. Two call sites, one of them wired. That is `R-80` inside
+  // a single function: the decision lives in one place, so there is nowhere to
+  // forget it.
+  const report = state.engineUp ? await engineUpdateState() : null;
 
   // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
   // no line rather than an empty paragraph -- the same idiom as the verdict
-  // badge above.
-  // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW, the same guard the
-  // install steps below already carry and for the same measured reason: this
-  // renderer runs after two awaits, so it can land after the reader has opened a
-  // CANDIDATE's detail screen -- and `#view-engine-detail` is shared by all seven
-  // engines, so an unguarded un-hide paints ScrapeX's update sentence onto
-  // Scrapy's page.
-  const line = $("engine-update-state");
-  const sentence = theInstalledEngineIsOnScreen() ? engineUpdateSentence(report) : "";
-  line.textContent = sentence;
-  line.classList.toggle("hidden", !sentence);
+  // badge above. The screen guard lives in the writer, which is where all four
+  // callers of this line now get it from.
+  writeEngineUpdateLine(engineUpdateSentence(report));
+
+  // THE ENGINE WINS. HIS RULING, and it settles a contradiction the review
+  // found rather than a preference. Two sources answer "what is the newest
+  // engine": the panel's own manifest fetch and the engine's report. They can
+  // differ -- the engine cache-busts its fetch every minute while the panel's
+  // goes through a CDN that holds the file about five, and the engine computes
+  // availability against the version it is ACTUALLY RUNNING while the panel
+  // computes it against what it was last told. So the row could read "Up to
+  // date" above a sentence saying an update was downloading.
+  //
+  // When the engine has answered, its answer replaces the row -- `installed`
+  // included, which it knows first-hand and the panel only remembers.
+  //
+  // THE PANEL'S OWN FETCH STAYS, and deleting it would be the obvious wrong
+  // reading of this ruling: `renderEngines` runs with no engine at all, which
+  // is the first-install case, and `update_api` reports the installer URL "so
+  // the panel can still hand the file to chrome.downloads for a FIRST install".
+  // The engine wins when it speaks; it cannot win when it is not there.
+  //
+  // AND IT WINS WITH AN ANSWER, NOT WITH A FAILURE TO GET ONE. A report whose
+  // own manifest fetch failed carries `latest.state` of "offline" or
+  // "unreadable" and no version. Letting that overwrite a good answer the panel
+  // already holds would make the ruling cost him the row it was meant to make
+  // trustworthy, so the state is checked and not merely the presence.
+  const engineLatest = report && report.latest && report.latest.state === "ok"
+    ? report.latest : null;
+  const latest = engineLatest || panelLatest;
+  const installed = (report && report.installed) || state.engineVersion || "";
+  if (engineLatest) paintEngineRelease(latest, installed);
+
+  const download = $("engine-download");
+  const steps = $("engine-install-steps");
+  const installer = latest.state === "ok" ? latest.installer : null;
+
+  // AND THE PRIMARY ACTION BECOMES THE ENGINE'S WHEN THE ENGINE CAN TAKE IT.
+  // `chrome.downloads` remains the first install and only the first (`R-36`):
+  // the panel can never be the installer. When the engine reports it can update
+  // itself, the button hands the work over instead -- which is the difference
+  // between a file in his Downloads folder and a file the engine has already
+  // checked against the published digest.
+  const engineCanTakeIt = Boolean(report && report.can_self_update);
+  const busy = Boolean(report && report.phase === "downloading");
+  // STAGED IS NOT IDLE, and the engine cannot tell you that from its flags.
+  // `update_available` and `can_self_update` are recomputed from the RUNNING
+  // version, which staging does not change, so both stay true after a successful
+  // download -- and the button would happily start a second one. Pressing it
+  // passes every guard on the engine side, because `running` is cleared in a
+  // `finally`. So ~70 MB would come down again, verified, on top of a file that
+  // is already there and already verified. "A button that cannot work is worse
+  // than no button" -- this is the other half: one that works and should not.
+  const staged = Boolean(report && report.phase === "staged");
+  if (engineCanTakeIt || busy || staged) {
+    $("engine-download-label").textContent =
+      busy ? "Downloading…"
+      : staged ? "Downloaded and checked"
+      : `Download and check ${latest.state === "ok" ? latest.version : "the update"}`;
+    download.disabled = busy || staged;
+    download.onclick = (busy || staged) ? null : startEngineUpdate;
+    steps.classList.add("hidden");
+    // AND REOPENING THE SCREEN PICKS THE WATCHING BACK UP, which is what the
+    // sentence at the end of the poll promises him. Without this, a download
+    // started, the reader left, and coming back showed a disabled button with no
+    // progress and nothing that would ever update it. `pollEngineUpdate` is a
+    // no-op when one is already running, so this cannot stack.
+    if (busy) pollEngineUpdate();
+    return;
+  }
 
   download.disabled = !installer;
   // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW. This renderer is
@@ -3950,6 +4191,27 @@ function renderEngineDetail(id) {
     // Written by the one status renderer, so this screen and the row agree.
     updateEngineStatus();
     refreshEngineBusy();
+    // AND THE UPDATE STATE IS ASKED FOR AGAIN, which is what makes "reopen this
+    // screen to see where it got to" a true instruction instead of a hopeful
+    // one. Nothing re-ran this renderer on the way back in: the sentence written
+    // on the first visit was cleared by the candidate branch above and never
+    // rewritten, and the button kept whatever label it had when the reader left
+    // -- "Download and check 0.9.0", enabled, over a download in flight. A
+    // control that lies about work in progress is the worse half of "a button
+    // that cannot work is worse than no button".
+    //
+    // `renderEngines` AND NOT A SMALLER CALL, because the sentence is only one
+    // of the three things that go stale together: the latest version, the
+    // verdict badge and the button all come from the same report, and asking
+    // for a subset is how they end up disagreeing. It is also where the poll
+    // restarts from, so this is the whole of the reopen path.
+    //
+    // NOT AWAITED, deliberately. `renderEngineDetail` stays synchronous so
+    // `showView` and the title focus in `openEngineDetail` are not put behind a
+    // network round trip -- the reader gets the screen now and the engine's
+    // answer when it arrives, which is the same order every other row on this
+    // page already uses.
+    renderEngines();
   } else {
     banner.removeAttribute("data-tone");
     banner.setAttribute("aria-busy", "false");
@@ -6131,6 +6393,31 @@ async function render() {
 // 125 rather than 122 leaves the ceiling above the engine's own, so the engine
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
+
+// THE UPDATE POLL, BOUNDED BY THE ENGINE'S OWN NUMBER AND NOT BY A GUESS.
+// `scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
+// words -- "~70 MB over somebody's home connection, and failing a real download
+// at four minutes would be worse than waiting". At three seconds an attempt,
+// 310 attempts is AT LEAST 930 s: above the engine's 900, so the engine is
+// always the side that gives up first and can say why. That is `R-48` rule 2,
+// and it is the same arithmetic as `RESTART_CONFIRM_ATTEMPTS` above -- 125 over
+// the engine's 122.
+//
+// AT LEAST, AND NOT 930 EXACTLY, which the first version of this note claimed.
+// Each turn is the 3 s sleep PLUS the request, and the request has its own 8 s
+// bound (`STARTUP_DEADLINES.updateReport`), so the real ceiling is anywhere from
+// 930 s to about 3410 s. The conclusion survives the correction and only gets
+// stronger -- every one of those numbers is above 900 -- but a derivation stated
+// as an equality when it is a floor is a number nothing verifies, which is the
+// shape `R-36` is about.
+//
+// AND RUNNING OUT IS NOT A FAILURE HERE. The panel stops WATCHING; the engine
+// keeps downloading on its own thread. So the sentence at the end says where to
+// look rather than announcing a failure that has not happened -- which is the
+// defect `OP-116` was: sixty attempts exhausted and "the engine has not come
+// back" about an engine that had.
+const ENGINE_UPDATE_POLL_MS = 3000;
+const ENGINE_UPDATE_POLL_ATTEMPTS = 310;
 
 const ENGINE_TOO_OLD =
   "This engine started before these actions existed, so it does not have them " +

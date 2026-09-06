@@ -6401,29 +6401,51 @@ def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
 # THE ROUTE THESE TESTS DRIVE HAD NEVER BEEN CALLED BY ANYTHING. `GET
 # /api/update` has been mounted, complete and tested on the engine side since
 # PR 246 -- written without a leading hash because the colour-literal guard reads
-# a hash and three hex digits as a colour value -- and `git log -S "api/update"`
-# over `extension/` returned no commit in the whole history, so the note beside
-# the installer checksum claimed the engine downloaded and verified its own
-# updates while the only thing that could start it was a request nobody made
-# (`OP-124`). These tests exist so that cannot recur silently: each asserts a
+# a hash and three hex digits as a colour value -- and nothing in `extension/`
+# had ever called it, so the note beside the installer checksum claimed the
+# engine downloaded and verified its own updates while the only thing that could
+# start it was a request nobody made (`OP-124`). Measured as: before this work
+# `grep -rn "api/update" extension/` found exactly one hit, inside an HTML
+# comment. NOT as `git log -S`, which this said first and which is false --
+# that returns `c233a219`, the commit that wrote the comment. These tests exist so that cannot recur silently: each asserts a
 # SENTENCE the owner reads rather than a status code, because `OP-126` is the row
 # about a guard that accepted any 4xx and therefore recorded a reason it never
 # measured.
 #
-# THE READ HALF ONLY. Starting an update is `POST /api/update` and it has its own
-# change and its own tests; nothing below presses a button.
+# THE READ HALF MERGED FIRST and its tests are above this line. What follows
+# presses the button: `POST /api/update` answers `started` or refuses with a
+# NAMED reason, and a panel reading only the status code would show the same
+# nothing for all four refusals.
 
 _HEALTH = {"app": "scrapex", "version": "0.4.6", "worker_alive": True,
            "protocol_version": 1, "sources_with_data": 0}
 
+# `window.__update` RATHER THAN THE CLOSED-OVER VALUE, so a test can change what
+# the engine says WITHOUT reinstalling the stub. The reopen tests need exactly
+# that: what the panel painted on the way out has to differ from the truth on the
+# way back in, or a screen that is never re-rendered looks identical to one that
+# is, and the test passes over the defect.
+#
+# `__delay_ms` DELAYS THE GET ONLY. A report that arrives while the reader is
+# still on the screen cannot show a guard checked before the await from one
+# checked after it; both paint, and both are right. The window has to be open.
 _STUB = """([update, health]) => {
   const original = window.fetch;
+  window.__updatePosts = 0;
   window.__updateGets = 0;
+  window.__update = update;
   window.fetch = async (url, options) => {
     const u = String(url);
     if (u.includes('/api/update')) {
+      if (options && options.method === 'POST') {
+        window.__updatePosts += 1;
+        return { ok: true, status: 200,
+                 json: async () => (window.__update.__post || {started: true}) };
+      }
       window.__updateGets += 1;
-      return { ok: true, status: 200, json: async () => update };
+      const wait = window.__update.__delay_ms || 0;
+      if (wait) await new Promise((done) => setTimeout(done, wait));
+      return { ok: true, status: 200, json: async () => window.__update };
     }
     if (u.includes('/api/health')) {
       return { ok: true, status: 200, json: async () => health };
@@ -6467,7 +6489,8 @@ def _engines(page):
         " !== 'Checking engine…'", timeout=10_000)
 
 
-def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
+def _report(*, phase="idle", progress=None, detail="", blocked="",
+            staged_path="", staged_version="", **over):
     """A body in the shape `create_update_router()` really returns.
 
     THE FIRST VERSION OF THIS FIXTURE PUT `phase` AND `progress` AT THE TOP LEVEL
@@ -6483,7 +6506,18 @@ def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
     """
     out = {
         "installed": "0.4.6",
-        "latest": {"state": "ok", "version": "0.9.0",
+        # ALL NINE KEYS, and the count is the point. This block carried three --
+        # `state`, `version`, `installer` -- while the router always sends nine,
+        # and `detail` was one of the six missing. `engineUpdateSentence` reads
+        # `latest.detail` on the path where the release feed is unreachable, so a
+        # test written for that path would have asserted against `undefined` and
+        # matched an empty expectation. The top-level guard could not see it:
+        # `latest` is one name there, and it was present.
+        "latest": {"state": "ok", "detail": "", "version": "0.9.0",
+                   "tag": "engine-v0.9.0",
+                   "published_at": "2026-09-01T00:00:00Z",
+                   "url": "https://example.invalid/releases/engine-v0.9.0",
+                   "minimum_extension": "", "protocol": 1,
                    "installer": {"name": "e.exe", "bytes": 1, "sha256": "a",
                                  "url": "u", "verifiable": True}},
         "update_available": True,
@@ -6493,11 +6527,53 @@ def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
             "phase": phase,
             "progress": progress or {"received": 0, "total": 0, "percent": 0},
             "detail": detail,
-            "staged_path": "", "staged_sha256": "", "staged_version": "",
+            "staged_path": staged_path, "staged_sha256": "",
+            "staged_version": staged_version,
         },
     }
     out.update(over)
     return out
+
+
+def test_the_fixture_above_has_the_shape_the_engine_really_sends():
+    """THE FIXTURE IS THE THING THAT WENT WRONG, TWICE, so it is asserted here.
+
+    Every DOM test below drives the panel with `_report()`. When it drifts from
+    the router they all stay green over a body the engine cannot produce -- which
+    is exactly what happened: first with `phase` and `detail` flattened to the top
+    level, then again with `latest` carrying three keys out of nine.
+
+    `tests/test_the_panel_reads_the_keys_the_updater_sends.py` asserts the PANEL
+    against the router. This asserts the FIXTURE against it, and the two are
+    different failures: the panel can read a name the fixture never supplies, and
+    a test can then pass because `undefined` matched an empty expectation.
+
+    Key sets and not values: the values here are deliberately fake.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from scrapex.webui import update_api
+
+    app = FastAPI()
+    app.include_router(update_api.create_update_router())
+    real = TestClient(app).get("/api/update").json()
+    fixture = _report()
+
+    for path, mine, theirs in (
+        ("", fixture, real),
+        ("latest.", fixture["latest"], real["latest"]),
+        ("progress_state.", fixture["progress_state"], real["progress_state"]),
+    ):
+        missing = sorted(set(theirs) - set(mine))
+        extra = sorted(set(mine) - set(theirs))
+        assert not missing, (
+            f"the fixture omits {[path + k for k in missing]}, so every DOM test "
+            "below runs against a body the engine cannot produce")
+        assert not extra, (
+            f"the fixture invents {[path + k for k in extra]}; the panel could "
+            "read one of them and no test would notice")
 
 
 def test_the_panel_asks_the_engine_about_its_own_update(open_panel):
@@ -6577,7 +6653,9 @@ def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open
     page = open_panel()
     _engines(page)
     _engine_with_update(page, _report(
-        phase="staged", progress={"received": 1, "total": 1, "percent": 100}))
+        phase="staged", progress={"received": 1, "total": 1, "percent": 100},
+        staged_path="C:/Users/x/.scrapex/updates/scrapex-engine-0.9.0.exe",
+        staged_version="0.9.0"))
     open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
@@ -6589,3 +6667,285 @@ def test_a_staged_update_says_it_is_checked_and_that_installing_is_his_step(open
     assert "step you take" in line, (
         "a staged update did not say installing it is still his step, which is "
         f"the boundary this feature stops at: {line!r}")
+    # AND IT SAYS WHERE THE FILE IS. A sentence that names a step he must take
+    # outside the panel and does not say where to take it is a terminal
+    # instruction wearing different words -- and `staged_path` was in the report
+    # all along, read by nothing.
+    assert "scrapex-engine-0.9.0.exe" in line, (
+        "the panel tells him to install a file it will not name the location of: "
+        f"{line!r}")
+    assert "0.9.0" in line, (
+        f"the staged version is not named, so 'downloaded' says nothing about "
+        f"WHAT was downloaded: {line!r}")
+
+
+def test_a_named_refusal_from_the_engine_reaches_the_screen(open_panel):
+    """`POST /api/update` refuses with `started: false` and a NAMED reason --
+    already running, no release, already current, nothing attached. A panel
+    reading only the status code would show the same nothing for all four,
+    which is `OP-126`'s shape: a range standing in for a reason."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        __post={"started": False, "detail": "An update is already running."}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('already running')", timeout=10_000)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert page.evaluate("() => window.__updatePosts") == 1, (
+        "the button did not start an update through the engine")
+    assert "already running" in _line(page)
+    assert not page.locator("#engine-download").is_disabled(), (
+        "a refusal left the button disabled, so the reason it named cannot be "
+        "acted on")
+
+
+def _back_to_the_catalogue(page):
+    page.click("#engine-detail-back")
+    page.wait_for_selector("#view-engines:not(.hidden)", timeout=10_000)
+
+
+def test_reopening_scrapex_after_a_candidate_brings_its_sentence_back(open_panel):
+    """"Reopen this screen" HAS TO BE TRUE, and nothing re-ran the renderer.
+
+    `#view-engine-detail` is shared by all seven engines, so opening a candidate
+    hides ScrapeX's update sentence -- correctly. Nothing rewrote it on the way
+    back in, because `renderEngineDetail` painted the rows and the banner and
+    asked the engine about nothing. So the screen the panel's own poll tells him
+    to reopen came back with the line MISSING, which reads as "no update state"
+    rather than the refusal the engine had actually given.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        blocked="This is a source checkout, not an installed engine."))
+
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('source checkout')", timeout=10_000)
+
+    _back_to_the_catalogue(page)
+    open_engine(page, "firecrawl")
+    settle_view(page, "engine-detail")
+    assert not page.locator("#engine-update-state").is_visible(), (
+        "ScrapeX's update sentence is on a candidate backend's screen")
+
+    _back_to_the_catalogue(page)
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('source checkout')", timeout=10_000)
+    assert page.locator("#engine-update-state").is_visible(), (
+        "reopening ScrapeX's own screen left it with no update state at all, so "
+        "the panel's own instruction to reopen it is false")
+
+
+def test_reopening_during_a_download_finds_a_button_that_is_not_lying(open_panel):
+    """A CONTROL THAT LIES ABOUT WORK IN FLIGHT, which is the worse half of
+    "a button that cannot work is worse than no button".
+
+    The engine downloads on its own thread and the panel only watches. Leaving
+    the screen stops the watching; it must not leave the button frozen at
+    whatever it said on the way out. Measured as: open while idle -- "Download
+    and check 0.9.0", enabled -- leave, and come back while the engine is
+    downloading. Nothing re-rendered, so the button still OFFERED a download of
+    ~70 MB that was already running.
+
+    The engine's answer is changed while the reader is away rather than the stub
+    reinstalled, because a screen that is never re-rendered and one that is look
+    identical unless the truth moved underneath it.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report())
+
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Download and check')", timeout=10_000)
+    assert not page.locator("#engine-download").is_disabled()
+
+    _back_to_the_catalogue(page)
+    page.evaluate("""(downloading) => { window.__update = downloading; }""",
+                  _report(phase="downloading",
+                          progress={"received": 1, "total": 2, "percent": 50}))
+    open_engine(page)
+
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent === 'Downloading…'", timeout=10_000)
+    assert page.locator("#engine-download").is_disabled(), (
+        "the button offers a second ~70 MB download on top of the one the engine "
+        "is already running")
+    assert "50%" in _line(page), (
+        f"the reopened screen does not say where the download got to: "
+        f"{_line(page)!r}")
+
+
+def test_a_report_in_flight_does_not_paint_onto_the_candidate_he_opened(open_panel):
+    """THE GUARD WAS ASKED BEFORE THE AWAIT AND NEVER AFTER IT.
+
+    `GET /api/update` is bounded at 8 s (`STARTUP_DEADLINES.updateReport`) and
+    the poll asked "is ScrapeX's screen up" only on the way into that wait. A
+    reader who opens a candidate inside it gets ScrapeX's download progress
+    painted onto a page whose whole design is that it promises nothing -- up to
+    eight seconds after the screen changed. Checking before the await NARROWS
+    that window; only checking after it closes it.
+
+    A slow report is the only way to hold the window open: one that arrives
+    while the reader is still on the screen paints correctly either way.
+    """
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report(
+        phase="downloading",
+        progress={"received": 1, "total": 2, "percent": 50},
+        __delay_ms=1000))
+
+    open_engine(page)
+    # The label turning is the signal that the renderer's own report landed and
+    # the watcher has started -- so the NEXT report is the one in flight.
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent === 'Downloading…'", timeout=15_000)
+
+    _back_to_the_catalogue(page)
+    open_engine(page, "firecrawl")
+    settle_view(page, "engine-detail")
+    # Longer than the delay, so the in-flight report has certainly resolved.
+    page.wait_for_timeout(2000)
+
+    # VISIBILITY AND NOT TEXT, measured. The line still HOLDS ScrapeX's last
+    # sentence -- `renderEngineDetail` hides the paragraph on the way into a
+    # candidate and does not blank it -- and that is not a defect: nothing can
+    # read a hidden paragraph, and the only writer un-hides only when it writes.
+    # Asserting on the text here passed for the wrong reason and failed for the
+    # wrong reason. What the guard decides is whether the late report UN-HIDES
+    # it, so that is what is asserted.
+    assert not page.locator("#engine-update-state").is_visible(), (
+        "a report that resolved after the reader opened a candidate painted "
+        f"ScrapeX's update state onto its screen: {_line(page)!r}")
+
+
+def test_when_the_two_answers_disagree_the_engine_wins(open_panel):
+    """HIS RULING, and it is a defect until something asserts it.
+
+    Two sources answer "what is the newest engine". The panel fetches the
+    release manifest itself, because `renderEngines` runs with no engine at all
+    -- the first-install case, where there is nothing to ask. The engine fetches
+    it too, and reports what it found beside what it can do about it.
+
+    They can differ, and not rarely: the engine cache-busts its fetch once a
+    minute while the panel's goes through a CDN that holds the file for about
+    five, and the engine computes availability against the version it is ACTUALLY
+    RUNNING while the panel computes it against what it was last told. So the row
+    could read "Up to date" above a sentence saying an update was downloading --
+    two numbers on one screen, both presented as fact.
+
+    Measured here as the sharpest form of it: the panel's feed says 0.5.0 is the
+    newest, the engine says 0.9.0. The screen must say 0.9.0.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine",
+        "version": "0.5.0",
+        "tag": "engine-v0.5.0",
+        "published_at": "2026-08-06T09:00:00Z",
+        "installer": {"name": "scrapex-engine.exe", "url": "https://x/old.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    _engines(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.5.0'", timeout=10_000)
+
+    # `can_self_update` FALSE ON PURPOSE, so the install-steps path runs and the
+    # checksum below is on screen rather than behind a `hidden`. Measured while
+    # writing this: with it true, the button branch returns before the tail and
+    # `#engine-download-checksum` keeps the panel's digest -- stale, but inside
+    # `#engine-install-steps`, which that same branch hides, and nothing can
+    # un-hide it without re-running the tail that rewrites it. So the state this
+    # asserts is the one where the number is actually readable.
+    _engine_with_update(page, _report(
+        can_self_update=False,
+        latest={"state": "ok", "detail": "", "version": "0.9.0",
+                "tag": "engine-v0.9.0",
+                "published_at": "2026-09-01T00:00:00Z",
+                "url": "https://example.invalid/r", "minimum_extension": "",
+                "protocol": 1,
+                "installer": {"name": "scrapex-engine.exe", "bytes": 1,
+                              "sha256": "c" * 64, "url": "https://x/new.exe",
+                              "verifiable": True}}))
+    open_engine(page)
+    page.click("#engine-recheck")
+
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.9.0'", timeout=10_000)
+    assert _asked(page) >= 1, "the panel never asked the engine"
+    assert text_of(page, "#engine-latest-version") == "0.9.0", (
+        "the panel's own feed still owns the row, so the version on screen can "
+        "contradict the sentence under it")
+    # AND THE INSTALLER FOLLOWS THE VERSION. A row that says 0.9.0 above a
+    # checksum belonging to 0.5.0 is worse than either answer alone: it is a
+    # number that verifies the wrong file, which is what `R-36` calls worse than
+    # no number at all.
+    # The digest lives inside a collapsed `<details>`, so it has to be opened --
+    # otherwise `text_content` reads a string no reader has been shown, and the
+    # assertion is about the DOM rather than about the screen.
+    page.click("#engine-install-steps summary")
+    page.wait_for_function(
+        "() => document.getElementById('engine-install-steps').open")
+    assert page.locator("#engine-download-checksum").is_visible(), (
+        "this state is meant to show the checksum; the assertion below would "
+        "otherwise pass on text nobody can read")
+    assert page.text_content("#engine-download-checksum").strip() == "c" * 64, (
+        "the row took the engine's version and kept the panel's installer, so "
+        "the SHA-256 on screen belongs to a different file than the one named")
+
+
+def test_a_release_feed_the_engine_could_not_read_does_not_erase_the_row(open_panel):
+    """THE WRONG READING OF THE SAME RULING, and it costs the row it was meant
+    to make trustworthy.
+
+    "The engine wins" is about which ANSWER is authoritative, not about letting
+    a failure to get one overwrite a good answer already on screen. When the
+    engine's own manifest fetch fails it reports `latest.state` of "offline" or
+    "unreadable" with no version in it. Taking that would blank a row the panel
+    had correctly filled from its own feed.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine",
+        "version": "0.5.0",
+        "tag": "engine-v0.5.0",
+        "published_at": "2026-08-06T09:00:00Z",
+        "installer": {"name": "scrapex-engine.exe", "url": "https://x/old.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    _engines(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === '0.5.0'", timeout=10_000)
+
+    _engine_with_update(page, _report(
+        update_available=False, can_self_update=False,
+        latest={"state": "unreadable",
+                "detail": "The release manifest answered 502.",
+                "version": "", "tag": "", "published_at": "", "url": "",
+                "minimum_extension": "", "protocol": None, "installer": None}))
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function("() => window.__updateGets > 0", timeout=10_000)
+    page.wait_for_timeout(300)
+
+    assert text_of(page, "#engine-latest-version") == "0.5.0", (
+        "the engine failing to read the feed erased a version the panel had "
+        "read correctly, which is the ruling applied to a non-answer")
+

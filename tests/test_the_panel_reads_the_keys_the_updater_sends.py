@@ -54,14 +54,14 @@ READS = re.compile(r"\breport\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 #: so `_update_readers` refuses an empty or suspiciously short slice rather than
 #: returning one.
 #:
-#: ONE ENTRY BECAUSE THERE IS ONE READER, and the next change adds its own. The
-#: first draft of this file listed the poll here too and then a later commit
-#: renamed the poll without touching this tuple, so the guard went blind on half
-#: its subject with every test still green. A reader added without its marker is
-#: a reader nothing checks, so the split that separated the two halves separated
-#: this list as well: whatever branch adds a reader adds it here, in its own diff,
-#: where a review can see both at once.
-READERS = ("function engineUpdateSentence(",)
+#: A READER ADDED HERE IN THE SAME DIFF THAT ADDS THE READER, which is the rule
+#: this line exists to hold. An earlier commit listed the poll here, then split
+#: the poll into a wrapper and a loop and left the marker naming the wrapper --
+#: so the guard went blind on half its subject with every test still green, in
+#: the very file written about tests that agree with the wrong thing. The loop is
+#: named, not the wrapper: the wrapper only holds the re-entry flag and reads no
+#: report at all.
+READERS = ("function engineUpdateSentence(", "async function pollEngineUpdateLoop(")
 
 
 def _update_readers() -> str:
@@ -184,6 +184,36 @@ def test_every_field_the_panel_reads_survives_the_normaliser():
         f"{sorted(NORMALISER_ADDS)}. Every name outside that set is `undefined` at "
         "run time, so the sentence built from it is empty or wrong and NOTHING "
         "FAILS — which is how this shipped green the first time.")
+
+
+#: `latest.<name>`, read inside the same functions. A SECOND LEVEL THAT WENT
+#: UNCHECKED: the test above compares top-level names, and `report.latest` is one
+#: of them, so a reader of `latest.detail` was satisfied by the presence of
+#: `latest` and nothing looked inside it. Measured: the panel's DOM fixture's
+#: `latest` block was missing six of the nine keys the router always emits,
+#: `detail` among them -- a field `engineUpdateSentence` reads on the path where a
+#: release feed is unreachable.
+READS_LATEST = re.compile(r"latest\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
+
+
+def test_every_field_the_panel_reads_off_latest_is_one_the_engine_sends():
+    """The block inside the block, which the top-level check cannot see.
+
+    `report.latest` passing as a name says nothing about what is in it. This is
+    the same assertion one level down, and it is here because the level above it
+    was green while the fixture's `latest` carried three keys out of nine.
+    """
+    report = _engine_report()
+    latest = report.get("latest") or {}
+    assert latest, "the engine sends no `latest` block at all"
+
+    read = set(READS_LATEST.findall(_update_readers()))
+    missing = sorted(read - set(latest))
+    assert not missing, (
+        f"the panel reads latest.{{{', '.join(missing)}}} and the engine's "
+        f"`latest` block carries {sorted(latest)}. Every name outside that set "
+        "is `undefined` at run time, so the sentence built from it is empty and "
+        "NOTHING FAILS.")
 
 
 def test_the_nested_progress_block_is_still_where_the_panel_expects_it():

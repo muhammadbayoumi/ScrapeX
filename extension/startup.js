@@ -45,6 +45,15 @@ export const STARTUP_DEADLINES = Object.freeze({
 // Account and Engine checks must never wait indefinitely for one.
 export const STARTUP_PAINT_FALLBACK_MS = 100;
 
+// `[pattern, deadline]`, or `[pattern, deadline, method]` FOR ONE METHOD ONLY.
+// The third element exists because a rule derived from what a GET costs was
+// silently re-bounding the POST on the same path: `/api/update` reads a release
+// manifest on GET and returns immediately on POST, and matching on the path alone
+// gave the POST the GET's number -- SHORTENING it from `localMutation`'s 10 s to
+// 8 s while the comment below claimed to be lengthening something. A deadline
+// that moves for a route it was not measured against is the defect this file
+// already records, in the direction that is hardest to see: nothing failed, the
+// bound just got tighter than anyone had reasoned about.
 const LOCAL_POLICIES = [
   [/^\/api\/(?:engine\/)?health(?:[/?]|$)/, STARTUP_DEADLINES.engineHealth],
   [/^\/api\/version(?:[/?]|$)/, STARTUP_DEADLINES.engineVersion],
@@ -62,7 +71,12 @@ const LOCAL_POLICIES = [
   // an engine that is downloading. That is the backup this file already records:
   // a deadline shorter than the work, reported to him as a failure that did not
   // happen. Only the side doing the work may bound the work.
-  [/^\/api\/update(?:[/?]|$)/, STARTUP_DEADLINES.updateReport],
+  //
+  // GET ONLY, and that is the whole reason the method is written out. `POST
+  // /api/update` starts a thread and answers at once; it costs nothing like a
+  // manifest fetch and it keeps `localMutation`, which is what it had before
+  // this row existed.
+  [/^\/api\/update(?:[/?]|$)/, STARTUP_DEADLINES.updateReport, "GET"],
   // `(?:\?|$)` and NOT `(?:[/?]|$)` like every other rule, which is the whole
   // point of writing it out: /api/bundle/archive and /api/bundle/panel-pack are
   // FileResponse streams whose headers arrive immediately, and they must keep the
@@ -74,8 +88,10 @@ const LOCAL_POLICIES = [
 
 export function deadlineForLocalRequest(path, method = "GET") {
   const normalizedMethod = String(method || "GET").toUpperCase();
-  for (const [pattern, deadline] of LOCAL_POLICIES) {
-    if (pattern.test(path)) return deadline;
+  for (const [pattern, deadline, method] of LOCAL_POLICIES) {
+    if (!pattern.test(path)) continue;
+    if (method && method !== normalizedMethod) continue;
+    return deadline;
   }
   return normalizedMethod === "GET"
     ? STARTUP_DEADLINES.localGeneric
