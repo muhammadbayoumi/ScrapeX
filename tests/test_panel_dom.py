@@ -958,6 +958,97 @@ def test_data_output_is_grouped_under_settings_not_run_or_data(open_panel):
     assert "Synchronization services" in page.text_content("#outputs")
 
 
+def test_the_card_says_what_is_waiting_for_a_press(open_panel):
+    """HIS REQUIREMENT, in his words: *«اريد الظهور على الكارت انه يحتاج لعمل interpret
+    store pages عند الحاجة لذلك حتى لا انتظر شى يحتاج اكشن منى»*.
+
+    MEASURED THE DAY THE INTERPRET DOOR SHIPPED: a listing crawl had finished with 6,713
+    stored pages, the card went on showing the 17,304 rows it showed before the crawl
+    started, and nothing anywhere said a press was owed. He waited for a number that was
+    waiting for him.
+
+    THE LINE NAMES THE ACTION, NOT A STATE, and it is the menu row's own words -- so the
+    thing he reads and the thing he presses cannot be read as two different things.
+    """
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+
+    said = card.text_content()
+    assert "Interpret stored pages" in said, (
+        f"the card does not say an interpretation is owed: {said!r}")
+    assert "Fetch missing profiles" in said, (
+        f"the card does not say profiles are missing: {said!r}")
+    # THE NUMBER, BECAUSE THE ENGINE KNOWS IT EXACTLY -- a set of contractors with no
+    # profile row. The interpret line deliberately carries no count: counting
+    # uninterpreted pages means running the interpreter's frontier over every stored
+    # page, and issue 684 is what a guessed number costs.
+    assert "469" in said, f"the profile line does not carry its count: {said!r}"
+
+    badges = card.locator(".badge.off")
+    assert badges.count() == 2, (
+        f"{badges.count()} amber badge(s) on the card, expected 2")
+    # `badge warn` RENDERS AS THE PLAIN GREY ONE, and I wrote it here first --
+    # `renderEngineDetail` already records making the identical mistake. The kit defines
+    # `.badge`, `.badge.ok`, `.badge.off` and `.badge.danger` and nothing else, so a line
+    # whose whole job is to draw the eye would have drawn none.
+    amber = badges.first.evaluate("(el) => getComputedStyle(el).backgroundColor")
+    plain = page.evaluate(
+        """() => {
+            const probe = document.createElement("span");
+            probe.className = "badge";
+            document.body.appendChild(probe);
+            const colour = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return colour;
+        }""")
+    assert amber != plain, (
+        f"the waiting badge is the plain badge colour {plain}, so it draws no eye")
+
+
+def test_a_card_with_nothing_waiting_says_nothing(open_panel):
+    """A line that is always there is a line nobody reads. `work_waiting` absent or empty
+    must draw no row at all -- the price-source cards in the stub carry neither."""
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+
+    for card in ("Interpret stored pages", "Fetch missing profiles"):
+        assert page.locator(
+            f'.dataset-card:not([data-open="contractors"]) .badge.off:has-text("{card}")'
+        ).count() == 0, f"a price card claims {card!r} is waiting"
+
+
+def test_the_missing_profiles_control_asks_for_the_missing_ones(open_panel):
+    """HIS RULING: the default is the missing set. The whole frontier is about 35,700
+    pages -- roughly 87 hours at the measured 9.03 s a page -- against 938 pages for the
+    missing ones, so a request that carried `whole_frontier` would be the 87-hour button
+    wearing this label."""
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click('.dataset-card[data-open="contractors"] .split-button-trigger')
+    page.wait_for_timeout(150)
+    page.click('.dataset-card[data-open="contractors"] '
+               '[data-split-action="profiles"]')
+    page.wait_for_function(
+        "() => window.__writes.some(w => w.path === '/api/jobs')", timeout=4000)
+
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(queued) == 1, queued
+    body = queued[0]["body"]
+    assert body["job_kind"] == "profile_crawl", body
+    # THE SITE KEY, NOT THE DATASET KEY: `POST /api/jobs` resolves the registry source
+    # and 404s for a dataset key, which is the defect the crawl action already paid for.
+    assert body["source_keys"] == ["muqawil_org"], body
+    assert "whole_frontier" not in body and "ids" not in body, (
+        f"the button asked for a frontier it does not name on its face: {body}")
+
+
 def test_dataset_action_opens_the_workspace_directly(open_panel):
     page = open_panel()
     page.evaluate("""() => {

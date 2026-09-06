@@ -44,21 +44,29 @@ import pytest
 
 from scrapex.databases.domain import EngineDatabase
 
-#: The version an existing owner is upgrading FROM. It must be a real version of
-#: the shipped stream with something after it, and
-#: `test_the_stop_point_is_a_version_this_stream_actually_has` enforces that --
-#: see this file's header for what one unenforced constant cost.
+#: HOW MANY OF THE SHIPPED STREAM AN EXISTING OWNER ALREADY HAS. It is a SLICE
+#: INDEX into `EngineDatabase._migrations` -- `whole[:PREVIOUS_RELEASE]` is applied,
+#: then the rest is the upgrade under test -- and `_stop_point_is_valid` requires
+#: `2 <= PREVIOUS_RELEASE < len(stream)`.
 #:
-#: WHAT THIS NUMBER MEANS NOW THAT THE CHAIN IS ONE FILE: nothing, until a
-#: migration lands after the squashed baseline. It is kept at the value it had --
-#: 14, chosen because migration 0014 walled off every stop point below it -- so
-#: that the first person to add 0017 finds a number and a reason rather than a
-#: blank, and `test_the_stop_point_is_a_version_this_stream_actually_has` tells
-#: them it needs re-choosing. It is NOT lowered to 1 to make the suite green: that
-#: is the move this file's own history is a warning about.
+#: IT WAS 14, AND THE MOMENT ITS OWN NOTE PREDICTED HAS ARRIVED. That note said the
+#: number meant "nothing, until a migration lands after the squashed baseline", kept
+#: 14 so a reader would find a number and a reason rather than a blank, and pointed
+#: at `test_the_stop_point_is_a_version_this_stream_actually_has` to say when it
+#: needed re-choosing. Two migrations have now landed on the baseline -- 0018 and
+#: 0019 -- so the stream is `[schema.sql(17), 0018, 0019]` and the only value in
+#: range is 2: an owner sitting at v18, upgraded to v19 by this build, compared
+#: against a warehouse built fresh.
+#:
+#: THIS IS NOT THE LOWERING THE HEADER WARNS ABOUT. That warning is against picking
+#: a number to make the suite green while the comparison still asserts nothing --
+#: `PREVIOUS_RELEASE = 1` would apply the baseline alone and compare a fresh build
+#: with itself. 2 is the one value at which a real migration is the thing measured,
+#: and it must be RE-CHOSEN, not incremented by habit, when 0020 lands: the useful
+#: stop point is the version an owner is actually upgrading from.
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-PREVIOUS_RELEASE = 14
+PREVIOUS_RELEASE = 2
 
 
 
@@ -183,7 +191,8 @@ def test_the_stop_point_is_a_version_this_stream_actually_has():
     # is still the frozen record, and it is still checked below rather than assumed.
     record = ROOT / "db" / "engine" / "squashed-from.json"
     assert count < 3, (
-        f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a version the shipped engine "
+        f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a stop point the shipped "
+        f"engine "
         f"stream has: it holds {count} migration(s), so a stop point must be at "
         f"least 2 and at most {count - 1}, which is empty below three. This exact "
         f"mismatch turned the two-way "
