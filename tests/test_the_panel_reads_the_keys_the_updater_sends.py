@@ -61,7 +61,16 @@ READS = re.compile(r"\breport\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 #: the very file written about tests that agree with the wrong thing. The loop is
 #: named, not the wrapper: the wrapper only holds the re-entry flag and reads no
 #: report at all.
-READERS = ("function engineUpdateSentence(", "async function pollEngineUpdateLoop(")
+#: AND THE RENDERER, added the day the rule above was written and broken in one
+#: diff. `updateEngineReleaseUI` reads `report.latest`, `report.installed`,
+#: `report.can_self_update`, `report.phase` and `report.staged_version`, and
+#: `latest.version` is read NOWHERE ELSE -- so the `latest` guard below could not
+#: see the one key the release row and the button label are both built from. Rename
+#: it engine-side and every test here stayed green while the screen printed
+#: `undefined`.
+READERS = ("function engineUpdateSentence(",
+           "async function pollEngineUpdateLoop(",
+           "async function updateEngineReleaseUI(")
 
 
 def _update_readers() -> str:
