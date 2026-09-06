@@ -138,7 +138,11 @@ def test_a_database_below_the_baseline_is_not_called_upgradeable(registry):
     nothing.
     """
     registry.ensure_ready()
-    _rewind_schema(registry.engine, registry.engine.latest_schema_version - 1)
+    # BELOW THE BASELINE, WHICH IS NOT `latest - 1` ANY MORE. While the squash
+    # left a one-file stream the two were the same number; with a migration above
+    # it, `latest - 1` IS the baseline and the honest verdict there is a database
+    # that needs upgrading, not one with no upgrade path.
+    _rewind_schema(registry.engine, registry.engine._migrations[0].number - 1)
 
     state = registry.engine.health()
 

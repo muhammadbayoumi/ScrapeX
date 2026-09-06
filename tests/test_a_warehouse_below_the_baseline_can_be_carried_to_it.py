@@ -125,9 +125,15 @@ def test_it_carries_a_locked_warehouse_to_the_baseline_and_keeps_the_rows(
 
     reached = tool.carry(below_the_baseline)
 
-    baseline = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
-    assert reached == baseline
-    assert _version(below_the_baseline) == baseline
+    # WHERE THIS BUILD CAN TAKE IT, NOT THE BASELINE, and the two were the same number
+    # until a migration landed above the squash. The tool walks the recovered chain up to
+    # the baseline and then hands over to the shipped build, whose `initialize()` carries
+    # it the rest of the way -- so what it reports is the version the panel will see. A
+    # warehouse left AT the baseline while the build expects more is still one the owner
+    # would be told to upgrade, which is not what "carried" should mean.
+    latest = EngineDatabase(below_the_baseline).latest_schema_version
+    assert reached == latest
+    assert _version(below_the_baseline) == latest
     settled = EngineDatabase(below_the_baseline).health()
     assert settled.ok, f"{settled.status}: {settled.action}"
 
@@ -193,3 +199,69 @@ def test_a_file_that_is_not_an_engine_warehouse_is_refused(tmp_path):
 
     with pytest.raises(SystemExit, match="not the engine's"):
         tool.carry(path)
+
+
+def test_a_warehouse_that_went_through_the_chain_can_still_be_upgraded(tmp_path):
+    """THE DEFECT THAT WOULD HAVE FROZEN HIS WAREHOUSE FOR EVER, and no tool is involved.
+
+    `R-84`'s squash rewrote `db/engine/schema.sql`, so every database built before it
+    holds a ledger stamped with the OLD baseline's digest.
+    `_went_through_the_collapsed_chain` exists to recognise exactly that and accept it --
+    and one of its four conditions demanded the database be sitting at the baseline's
+    version, `!= migration.number`.
+
+    THAT HELD ONLY WHILE NOTHING EXISTED ABOVE THE BASELINE. `_migrate` applies its
+    migrations FIRST and stamps afterwards, so the moment a migration lands above the
+    squash the database is one version further on by the time the recognition runs, the
+    condition fails, and the upgrade dies with `schema.sql checksum changed` about a file
+    nobody touched. Measured on a copy of his own 2.08 GB warehouse: `initialize()`
+    applied 0018 and then raised.
+
+    So it was not a defect in the migration -- it was a defect waiting for the FIRST
+    migration after the squash, and it made every pre-squash warehouse permanently
+    un-upgradeable through the panel's own button.
+
+    NO CARRY TOOL HERE, DELIBERATELY. `test_it_carries_a_locked_warehouse...` reaches the
+    same code through `tools/carry_a_warehouse_to_the_baseline.py`, which is a repair
+    somebody runs once. This is the ordinary path: a warehouse that is already AT the
+    baseline, upgraded by the shipped build the way the Upgrade database button does it.
+    """
+    if not _chain_is_reachable():
+        pytest.skip("the pre-squash chain is not reachable in this checkout")
+    baseline_number = dbmod.declared_schema_version(dbmod.SCHEMA_FILE)
+    latest = EngineDatabase(tmp_path / "unused.db").latest_schema_version
+    if latest <= baseline_number:
+        pytest.skip("no migration above the baseline yet, so this cannot be exercised")
+
+    chain_baseline, chain_migrations = tool.recover_chain(tmp_path / "chain")
+    path = tmp_path / "scrapex-engine.db"
+
+    real = (dbmod.SCHEMA_FILE, dbmod.MIGRATIONS_DIR)
+    try:
+        dbmod.SCHEMA_FILE, dbmod.MIGRATIONS_DIR = chain_baseline, chain_migrations
+        EngineDatabase(path).initialize()
+    finally:
+        dbmod.SCHEMA_FILE, dbmod.MIGRATIONS_DIR = real
+
+    stamped = sqlite3.connect(str(path))
+    try:
+        assert stamped.execute("PRAGMA user_version").fetchone()[0] == baseline_number, (
+            "the chain did not leave the database at the baseline, so this test is not "
+            "exercising a pre-squash warehouse at all")
+        digest = stamped.execute(
+            "SELECT sha256 FROM database_migration WHERE migration_name = 'schema.sql'"
+        ).fetchone()
+        assert digest is not None, "the chain stamped no baseline row to be recognised"
+    finally:
+        stamped.close()
+
+    shipped = EngineDatabase(path)
+    applied = shipped.initialize()
+
+    assert applied, (
+        "the shipped build applied nothing to a warehouse below its head, so either the "
+        "stream is empty or the migration was skipped")
+    report = shipped.health()
+    assert report.ok, f"{report.status}: {report.action}"
+    assert report.schema_version == latest, (
+        f"carried to v{report.schema_version} and this build expects v{latest}")

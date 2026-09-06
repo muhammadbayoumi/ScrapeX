@@ -175,11 +175,18 @@ def test_the_stop_point_is_a_version_this_stream_actually_has():
     # `tests/test_the_squashed_baseline_carries_the_chain.py` holds the baseline
     # against it. Checked HERE rather than taken on trust, because a file that
     # merely exists is the weakest possible replacement for a check.
+    # TOO SHORT TO STOP INSIDE, WHICH IS 1 OR 2 AND NOT ONLY 1. A stop point must
+    # satisfy `2 <= P < count`, so a stream of two has no room for one either -- the
+    # allowance was written the week the squash left exactly one file and would have
+    # refused the first migration that landed above it. This is the decision the
+    # docstring above asks somebody to take and write down: the replacement measurement
+    # is still the frozen record, and it is still checked below rather than assumed.
     record = ROOT / "db" / "engine" / "squashed-from.json"
-    assert count == 1, (
+    assert count < 3, (
         f"PREVIOUS_RELEASE = {PREVIOUS_RELEASE} is not a version the shipped engine "
         f"stream has: it holds {count} migration(s), so a stop point must be at "
-        f"least 2 and at most {count - 1}. This exact mismatch turned the two-way "
+        f"least 2 and at most {count - 1}, which is empty below three. This exact "
+        f"mismatch turned the two-way "
         f"drift check ENGINEERING.md T5 mandates off for a month -- 30 was the "
         f"deleted price stream's number. Choose a real stop point; do not lower "
         f"this to make the suite green.")
@@ -188,10 +195,14 @@ def test_the_stop_point_is_a_version_this_stream_actually_has():
         f"and {record.name} is not there to replace the measurement. A squashed "
         "baseline with no record of what it absorbed is a claim with no evidence.")
     frozen = json.loads(record.read_text(encoding="utf-8"))
-    assert frozen.get("head") == db.latest_schema_version, (
+    # AGAINST THE BASELINE, for the reason `test_the_record_describes_the_baseline_
+    # beside_it` gives: the record describes the file the collapse produced, and that
+    # file does not move when a migration lands on top of it.
+    baseline = db._migrations[0].number
+    assert frozen.get("head") == baseline, (
         f"{record.name} records a chain ending at v{frozen.get('head')} and the "
-        f"baseline is at v{db.latest_schema_version}. One of them is wrong, and a "
-        "record that does not describe the file beside it proves nothing.")
+        f"baseline is at v{baseline}. One of them is wrong, and a record that does not "
+        "describe the file beside it proves nothing.")
     assert len(frozen.get("absorbed") or []) > 1, (
         f"{record.name} says the baseline absorbed "
         f"{len(frozen.get('absorbed') or [])} migration(s), which is not a collapse. "
