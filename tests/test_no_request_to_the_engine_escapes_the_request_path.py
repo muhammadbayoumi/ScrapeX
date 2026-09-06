@@ -51,6 +51,41 @@ NOT_THE_ENGINE: dict[str, str] = {
 }
 
 _FETCH = re.compile(r"(?<![\w.])fetch\s*\(")
+def _code_only(text: str) -> str:
+    """The source with its COMMENTS blanked -- same length, same line numbers.
+
+    THE DETECTOR MATCHED PROSE. `extension/app.js` carries the sentence
+    "// manifest fetch (`latestEngineRelease`) because `renderEngines` runs it
+    with no ..." and the rule below read it as a bare call to the engine. A guard
+    that fails on a comment somebody else wrote is the loudest possible way to be
+    wrong about correct code, and it arrived the moment two unrelated pull
+    requests added panel prose -- so the wider net this rule casts had to learn
+    the difference between a call and a sentence about one.
+
+    Blanked rather than deleted, so every line number it reports still points at
+    the line it came from.
+
+    A `//` preceded by a colon is left alone. An over-eager strip would cut the
+    rest of a line after "http://" and could hide a real call sitting behind a
+    URL -- a false negative here is a bare fetch reaching the engine unseen,
+    which is the direction that costs something.
+    """
+    blanked = re.sub(
+        r"/\*.*?\*/",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        text,
+        flags=re.S,
+    )
+    kept = []
+    for line in blanked.split("\n"):
+        cut = None
+        for hit in re.finditer(r"//", line):
+            if hit.start() and line[hit.start() - 1] == ":":
+                continue
+            cut = hit.start()
+            break
+        kept.append(line if cut is None else line[:cut])
+    return "\n".join(kept)
 
 
 def _sources() -> list[pathlib.Path]:
@@ -78,7 +113,7 @@ def test_no_module_but_the_request_path_fetches_the_engine():
         # already reasons per file and is checked by the test below.
         if "backendBase" not in text and "backend +" not in text:
             continue
-        for match in _FETCH.finditer(text):
+        for match in _FETCH.finditer(_code_only(text)):
             line = text.count(chr(10), 0, match.start()) + 1
             offenders.append(f"{path.name}:{line}")
     assert not offenders, (
