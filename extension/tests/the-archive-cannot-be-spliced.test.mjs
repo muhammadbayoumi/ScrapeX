@@ -130,7 +130,10 @@ test("the old length check alone would have accepted the splice", async () => {
   activateBackend("http://127.0.0.1:9");
 
   const source = await sourceFor("/api/bundle/archive");
+  assert.equal(source.size, A.size, "the upload started against build A");
   state.name = "b";
+  // `range` called WITHOUT the total and validator `sourceFor` threads through --
+  // which is exactly what this code did before the fix.
   const spliced = await range("/api/bundle/archive", 0, 4 * MB);
 
   assert.equal(spliced.size, 4 * MB,
@@ -140,7 +143,7 @@ test("the old length check alone would have accepted the splice", async () => {
 
 test("an engine that will not serve ranges says so by kind, so the panel can fall back",
      async () => {
-  const state = engine({a: {size: 4096, etag: '"x"', ranges: false}}, "a");
+  engine({a: {size: 4096, etag: '"x"', ranges: false}}, "a");
   activateBackend("http://127.0.0.1:9");
 
   await assert.rejects(
@@ -172,4 +175,45 @@ test("last-modified stands in when the engine sends no etag", async () => {
   const source = await sourceFor("/api/bundle/archive");
   const chunk = await source.chunk(0, 50);
   assert.equal(chunk.size, 50);
+});
+
+test("A FAILING ENGINE IS NOT A RANGE PROBLEM, and must not trigger the whole-blob read",
+     async () => {
+  // The fallback in app.js reads the archive WHOLE when `sourceFor` reports
+  // "no-range". If a transient 500 -- or the 416 Starlette answers for
+  // `bytes=0-0` on an empty file -- arrived under that kind, the panel would
+  // answer a failing engine by asking it for 541,531,989 bytes in one Blob:
+  // exactly the read that came back 0 on 2026-09-03, reintroduced by the very
+  // branch that removed it.
+  for (const [status, detail] of [[500, "the warehouse is locked"],
+                                  [416, "that range does not exist"],
+                                  [404, "no bundle has been built"]]) {
+    globalThis.fetch = async () => new Response(JSON.stringify({detail}), {
+      status, headers: {"content-type": "application/json"},
+    });
+    activateBackend("http://127.0.0.1:9");
+
+    await assert.rejects(
+      () => sourceFor("/api/bundle/archive"),
+      (error) => {
+        assert.notEqual(error.kind, "no-range",
+          `a ${status} was reported as "the engine will not serve byte ranges", `
+          + "so the panel would answer it by downloading the whole archive");
+        assert.equal(error.kind, "http");
+        assert.equal(error.message, detail,
+          "the engine's own reason was thrown away, leaving the owner with a "
+          + "status number and no cause");
+        return true;
+      });
+  }
+});
+
+test("and a 200 IS a range problem, because that is the engine sending everything",
+     async () => {
+  globalThis.fetch = async () => new Response(new Uint8Array(8), {status: 200});
+  activateBackend("http://127.0.0.1:9");
+
+  await assert.rejects(
+    () => sourceFor("/api/bundle/archive"),
+    (error) => error.kind === "no-range" && error.status === 200);
 });

@@ -709,7 +709,34 @@ def _cmd_native_host(args: argparse.Namespace) -> int:
     """Chrome launches this; it speaks framed JSON on stdio, not to a human."""
     from .native import serve
 
-    db_path = _engine_path(args)
+    # THE PATH, NOT A HEALTH VERDICT -- and this is a budget, not a preference.
+    #
+    # `_engine_path` calls `DatabaseRegistry.verify()`, which is
+    # `health()` with its default `integrity=True`, which is
+    # `PRAGMA quick_check(1)` plus `pragma_foreign_key_check`. That method's own
+    # docstring records them as O(FILE SIZE), and the owner's warehouse is
+    # 1,982 MB. MEASURED on it, 2026-09-05, while a crawl was running:
+    #
+    #     registry.engine.path          0.0 ms   <- everything this needs
+    #     health(integrity=False)      17.3 ms
+    #     health()                 38,157.7 ms
+    #
+    # `extension/transport.js:41` allows 5,000 ms for a whole spawn-and-reply,
+    # and Chrome spawns a FRESH host per `sendNativeMessage` -- so PING,
+    # AUTOSTART_STATUS, SET_AUTOSTART, CHECK_STARTUP and UPGRADE_DATABASE each
+    # paid the scan. The panel answered "the helper did not answer in time" on
+    # a machine where the helper was fine.
+    #
+    # Nothing is lost by skipping it. `serve()` opens the warehouse per command
+    # and turns a bad one into a framed `engine_unavailable` reply the panel can
+    # render; exiting before the first frame gives the panel nothing to say.
+    #
+    # NOT `_engine_path` WITH A FLAG. That helper answers "resolve and vouch for
+    # the warehouse" for commands a person waits on; this answers "resolve fast
+    # for a process Chrome will kill in five seconds". Same two lines, different
+    # reasons to change.
+    explicit = getattr(args, "db", None)
+    db_path = Path(explicit) if explicit else DatabaseRegistry.defaults().engine.path
     # Migrate only an EXPLICIT legacy --db warehouse. The registry's own
     # database has its own migration stream and is already at head; the unified
     # stream over it dies on "table tax_rule already exists" — which killed the

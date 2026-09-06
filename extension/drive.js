@@ -626,6 +626,14 @@ export async function verifyLatest(token, {reads = BUNDLE_FORMAT, fetchImpl = fe
   return {pointer, held};
 }
 
+// NOT CALLED FROM THE PANEL, AND IT MUST NOT BE UNTIL IT READS IN PIECES.
+// `fetchFromDrive` used to be its only caller and now uses `verifyLatest`, which
+// asks Drive instead of downloading. This still goes through `download()`, so
+// calling it puts the whole archive in a side panel -- 541,531,989 bytes on his
+// machine, which is the read that came back 0 on 2026-09-03 and the reason the
+// upload side was rewritten. `claude/the-restore-he-never-had` calls it at
+// app.js:6401; that is the branch that has to give it a chunked reader, and it
+// is kept here rather than deleted so that branch still has something to fix.
 export async function fetchLatest(token, {
   reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
 } = {}) {

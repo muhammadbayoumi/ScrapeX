@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import argparse
 import pathlib
 import struct
 import subprocess
@@ -40,6 +41,12 @@ import tempfile
 import pytest
 
 from scrapex import nativehost
+
+# THE BUDGET THIS FILE ARGUES FROM LIVES IN THE PANEL. `extension/transport.js`
+# sets the 5,000 ms a spawn-and-reply gets, and the launch-path test below is
+# only meaningful against that number -- so this has to run when the extension
+# changes, not only when the engine does.
+pytestmark = pytest.mark.extension
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -150,3 +157,126 @@ def test_a_launcher_left_by_an_older_install_still_forwards(tmp_path):
     assert "%*" in text and "native-host" in text, (
         "the launcher already on this machine no longer forwards Chrome's "
         "arguments, which changes what the host has to tolerate")
+
+def test_the_launch_path_never_scans_the_warehouse(monkeypatch, tmp_path):
+    """Chrome gives the host five seconds, and a corruption scan is O(file size).
+
+    `_cmd_native_host` used to resolve its path through `_engine_path`, which
+    calls `DatabaseRegistry.verify()` -> `health()` with the default
+    `integrity=True` -> `PRAGMA quick_check(1)` and `pragma_foreign_key_check`.
+    MEASURED on the owner's 1,982 MB warehouse on 2026-09-05, with a crawl
+    running: 38,157 ms for the scan against `extension/transport.js:41`'s
+    5,000 ms budget, and 0.0 ms for the path the host actually needs. Chrome
+    spawns a fresh host per message, so every PING, AUTOSTART_STATUS,
+    SET_AUTOSTART, CHECK_STARTUP and UPGRADE_DATABASE paid it, and the panel
+    reported "the helper did not answer in time" about a helper that was fine.
+
+    Asserted as BEHAVIOUR rather than by reading the source, because the scan
+    can return by more than one spelling: anything that reaches an integrity
+    check fails here, however it got there.
+    """
+    import scrapex.cli as cli
+    import scrapex.native as native
+    from scrapex.databases import DatabaseRegistry
+
+    scanned = []
+
+    def refuse_to_scan(self, *, integrity: bool = True):
+        scanned.append(integrity)
+        raise AssertionError(
+            "the native host launch path ran a health check. With "
+            "integrity=True that is a full-file scan -- 38 seconds on the "
+            "owner's warehouse against Chrome's 5-second budget -- and the "
+            "host needs only `registry.engine.path`, which costs nothing.")
+
+    monkeypatch.setattr(type(DatabaseRegistry.defaults().engine), "health",
+                        refuse_to_scan)
+    served = []
+    monkeypatch.setattr(native, "serve",
+                        lambda path, migrate=False: served.append(path) or 0)
+
+    code = cli._cmd_native_host(argparse.Namespace(db=None))
+
+    assert code == 0
+    assert served, "the host never reached serve()"
+    assert scanned == [], "a health check ran on the launch path"
+
+
+def test_an_explicit_db_still_bypasses_the_registry_entirely(monkeypatch, tmp_path):
+    """`--db` is the legacy path and must not acquire a registry lookup."""
+    import scrapex.cli as cli
+    import scrapex.native as native
+
+    served = []
+    monkeypatch.setattr(native, "serve",
+                        lambda path, migrate=False: served.append((path, migrate)) or 0)
+
+    legacy = tmp_path / "old.db"
+    cli._cmd_native_host(argparse.Namespace(db=str(legacy)))
+
+    assert served == [(legacy, True)], (
+        "an explicit --db must be served as given, and only THAT case migrates")
+
+def test_the_launch_path_does_not_scan_the_warehouse(monkeypatch):
+    """Starting is half the fix; starting INSIDE THE PANEL'S BUDGET is the other.
+
+    Making the host accept Chrome's arguments meant `_cmd_native_host` reached
+    `_engine_path` for the first time -- and that calls `DatabaseRegistry.verify()`,
+    which is `health()` with its default `integrity=True`, which is
+    `PRAGMA quick_check(1)` plus `pragma_foreign_key_check`. `health`'s own
+    docstring records both as O(FILE SIZE).
+
+    MEASURED on the owner's 1,982 MB warehouse, 2026-09-05, with a crawl running:
+
+        registry.engine.path          0.0 ms
+        health(integrity=False)      17.3 ms
+        health()                 38,157.7 ms
+
+    `extension/transport.js` allows 5,000 ms for a whole spawn-and-reply, and
+    Chrome spawns a FRESH host per `sendNativeMessage`, so PING, AUTOSTART_STATUS,
+    SET_AUTOSTART, CHECK_STARTUP and UPGRADE_DATABASE each paid it. The panel said
+    "the helper did not answer in time" on a machine where the helper was fine --
+    a slower, quieter version of the defect this file exists for.
+
+    Asserted as BEHAVIOUR, not as the absence of a string: the scan is made to
+    explode, and resolving the path must not touch it.
+    """
+    from scrapex.cli import _cmd_native_host
+    from scrapex.databases import DatabaseRegistry
+    from scrapex import native
+
+    def detonate(*a, **k):
+        raise AssertionError(
+            "the native host ran the integrity scan while resolving its path. On "
+            "a large warehouse that is tens of seconds, and Chrome's caller gives "
+            "it five -- so the panel reports the helper as unresponsive")
+
+    monkeypatch.setattr(DatabaseRegistry, "verify", detonate)
+    served = {}
+    monkeypatch.setattr(native, "serve",
+                        lambda path, migrate=False: served.update(path=path) or 0)
+
+    code = _cmd_native_host(argparse.Namespace(db=None))
+
+    assert code == 0
+    assert served["path"].name.endswith(".db"), (
+        "the host was handed no warehouse path at all")
+
+
+def test_an_explicit_db_still_reaches_the_host(monkeypatch):
+    """The `--db` branch is the one a person types, and it must keep working --
+    the fast path above must not have quietly dropped it."""
+    from scrapex.cli import _cmd_native_host
+    from scrapex import native
+
+    served = {}
+    monkeypatch.setattr(native, "serve",
+                        lambda path, migrate=False: served.update(
+                            path=path, migrate=migrate) or 0)
+
+    code = _cmd_native_host(argparse.Namespace(db="C:/tmp/legacy.db"))
+
+    assert code == 0
+    assert served["path"] == pathlib.Path("C:/tmp/legacy.db")
+    assert served["migrate"] is True, (
+        "an explicit legacy --db is the one warehouse the host still migrates")

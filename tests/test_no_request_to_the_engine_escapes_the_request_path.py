@@ -137,23 +137,36 @@ def test_the_request_path_still_carries_all_three_guarantees():
     # for a real reason: a 206 is the SUCCESS case for a byte range, and `api()`
     # would have to be told that. The rule was pinned to a count when what it
     # means is a location, and the count is what changed.
-    # A COUNT CANNOT SEE WHICH FUNCTION LOST IT. `>= 1` was satisfied by
-    # `sourceFor` and `range` between them, so `raw()` could stop opting out --
-    # and start throwing on the 404 that means "this engine is too old" -- with
-    # this line still green. Each function that owns its own status is named, and
-    # the assertion is made against ITS OWN body.
-    for owner, why in (
-        ("raw", "a 404 from /api/native/status means 'this engine is too old', "
-                "not a failure, and the restart poll needs a refusal to be "
-                "ordinary rather than fatal"),
-        ("sourceFor", "a 206 is the SUCCESS case for a byte range"),
-        ("range", "a 206 is the SUCCESS case for a byte range"),
-    ):
+    # WHO OWNS ITS STATUS, AND WHO MUST NOT -- both directions, because each
+    # was wrong here in turn.
+    #
+    # `>= 1` was satisfied by any two of the three, so a function could lose its
+    # opt-out unseen. Then the list itself was wrong: `sourceFor` and `range`
+    # were on it because "a 206 is the SUCCESS case", and `res.ok` covers
+    # 200-299, so a 206 was never an error to `request()` and neither ever
+    # needed to read the status. Opting out anyway mapped EVERY non-206 to
+    # "this engine will not serve byte ranges" -- a transient 500, or the 416
+    # Starlette answers for `bytes=0-0` on an empty file -- and `app.js` answers
+    # that by downloading the whole archive, which is the 541,531,989-byte read
+    # that came back 0 on his machine.
+    owns = {
+        "raw": "a 404 from /api/native/status means 'this engine is too old', not a failure, and the restart poll needs a refusal to be ordinary",
+    }
+    must_not = {
+        "sourceFor": "every non-206 would become \"no-range\", and app.js answers that by buffering the whole archive",
+        "range": "an error status would lose the engine's own detail for no gain, since 200 and 206 are both ok",
+    }
+    for owner, why in {**owns, **must_not}.items():
         start = text.find(f"export async function {owner}(")
         assert start != -1, f"`{owner}()` is gone from backend.js"
         body = text[start:text.find(chr(10) + "export ", start + 1)]
-        assert "throwOnHttpError: false" in body, (
-            f"`{owner}()` no longer owns its own status handling, and {why}")
+        opts_out = "throwOnHttpError: false" in body
+        if owner in owns:
+            assert opts_out, (
+                f"`{owner}()` no longer owns its own status handling, and {why}")
+        else:
+            assert not opts_out, (
+                f"`{owner}()` opts out of the status check again: {why}")
     for source in _sources():
         assert "throwOnHttpError" not in source.read_text(encoding="utf-8"), (
             f"{source.name} passes the status opt-out directly instead of calling "

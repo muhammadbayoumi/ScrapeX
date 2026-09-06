@@ -17,7 +17,7 @@ import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
 import {
-  backUp, blobSource, fetchLatest, fetchPanelPack,
+  backUp, blobSource, fetchPanelPack,
   FOLDER_NAME, KEEP, folderId, listing, readLatest, verifyLatest,
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";

@@ -237,14 +237,19 @@ export async function raw(path, options = {}) {
  * measured by the engine, which is the fact the manifest is being checked against.
  */
 export async function sourceFor(path) {
-  const res = await request(path, {
-    headers: {Range: "bytes=0-0"}, throwOnHttpError: false,
-  });
+  // NO STATUS OPT-OUT, AND THAT IS THE FIX RATHER THAN AN OVERSIGHT. `res.ok`
+  // covers 200-299, so a 206 was never an error to `request()` and this never
+  // needed to read the status itself. Opting out mapped EVERY non-206 to "this
+  // engine will not serve byte ranges" -- so a transient 500, or the 416
+  // Starlette answers for `bytes=0-0` on an empty file, reached `app.js` as a
+  // range-capability problem and was answered by downloading the whole archive:
+  // 541,531,989 bytes into a side panel, which is the read that came back 0 on
+  // 2026-09-03. The engine's own `detail` was cancelled along with the body.
+  const res = await request(path, {headers: {Range: "bytes=0-0"}});
   if (res.status !== 206) {
-    // A 200 here means the WHOLE archive is already on its way. Drop the body
-    // rather than read it: materialising half a gigabyte is the exact failure
-    // this function exists to avoid, and the caller has a whole-blob path for
-    // engines that cannot serve ranges.
+    // Reached only for a 2xx that is not a 206 -- in practice a 200, meaning the
+    // WHOLE archive is already on its way. Drop the body rather than read it,
+    // and say so by kind so the caller can fall back to the whole-blob read.
     await res.body?.cancel().catch(() => {});
     throw Object.assign(new Error(
       `The engine answered ${res.status} instead of serving a byte range, so the `
@@ -291,7 +296,10 @@ export async function range(path, start, end, {total = null, validator = null} =
   // happily serves byte 40,000,000 of whatever archive is newest now, and this
   // side has no way to tell that from byte 40,000,000 of the one it started on.
   if (validator) headers["If-Range"] = validator;
-  const res = await request(path, {headers, throwOnHttpError: false});
+  // Also no opt-out, for the same reason: 206 and 200 are both `ok`, so the only
+  // statuses `request()` turns into an error here are the ones that ARE errors,
+  // and it reports them with the engine's own detail.
+  const res = await request(path, {headers});
   if (res.status !== 206 && res.status !== 200) {
     throw Object.assign(
       new Error(`The engine answered ${res.status} for bytes ${start}-${end - 1}.`),
