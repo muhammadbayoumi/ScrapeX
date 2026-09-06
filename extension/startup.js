@@ -14,6 +14,13 @@ export const STARTUP_DEADLINES = Object.freeze({
   localMutation: 10000,
   engineRepair: 15000,
   localGeneric: 5000,
+  // 8000, DERIVED: the engine's own manifest fetch is bounded at 4 s
+  // (`CHECK_TIMEOUT_S`, scrapex/release.py) and httpx applies that PER PHASE, so
+  // connect-plus-read on a slow-but-alive path can legitimately exceed it before
+  // the engine gives up. Double it and the engine is always the side that
+  // surrenders first and can say why, which is the same arithmetic as the restart
+  // poll's 125 attempts over the engine's 122.
+  updateReport: 8000,
   // THE ONLY DEADLINE HERE DERIVED FROM A MEASUREMENT INSTEAD OF CHOSEN, because
   // POST /api/bundle does not stream. The engine copies the warehouse, exports
   // every dataset, hashes each file, zips the lot and hashes that -- all before
@@ -45,6 +52,17 @@ const LOCAL_POLICIES = [
   [/^\/api\/(?:appearance|timezone)(?:[/?]|$)/, STARTUP_DEADLINES.preferences],
   [/^\/api\/(?:engine\/restart|databases\/upgrade)(?:[/?]|$)/,
     STARTUP_DEADLINES.engineRepair],
+  // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
+  // `GET /api/update` costs one third-party fetch of the release manifest, which
+  // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and
+  // cache-busted per minute, so it pays that cost every time. Under the generic
+  // 5 s the panel can give up on a request the engine is still legitimately
+  // serving, and `engineUpdateState` turns an abort into `null`, which the poll
+  // reads as "the engine stopped answering while the update was running" -- about
+  // an engine that is downloading. That is the backup this file already records:
+  // a deadline shorter than the work, reported to him as a failure that did not
+  // happen. Only the side doing the work may bound the work.
+  [/^\/api\/update(?:[/?]|$)/, STARTUP_DEADLINES.updateReport],
   // `(?:\?|$)` and NOT `(?:[/?]|$)` like every other rule, which is the whole
   // point of writing it out: /api/bundle/archive and /api/bundle/panel-pack are
   // FileResponse streams whose headers arrive immediately, and they must keep the

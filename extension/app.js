@@ -3577,11 +3577,26 @@ function engineReleaseVerdict(installed, latest) {
 // -- written without a leading hash because the colour-literal guard reads a
 // hash and three hex digits as a colour value, and a bare pull-request number is
 // exactly that shape --
-// and NOTHING HAS EVER CALLED IT -- `git log -S "api/update"` over extension/
-// returns no commit in the whole history. So the note beside the checksum
+// and NOTHING HAD EVER CALLED IT. `git log -S "api/update"` over extension/
+// returned no commit in the whole history until this work; it returns two now,
+// this change and the one that removed the false promise the absence had left
+// on screen. The sentence is kept in the past tense rather than deleted,
+// because the command in `CLAUDE.md` is how the next reader checks it. So the note beside the checksum
 // claimed the engine downloaded and verified its updates while the only thing
 // that could start it was a request nobody made (`OP-124`). This is the caller
-// he asked for: «ابن نادى للمحدث» (`REQ-55`).
+// he asked for, on 2026-09-03, after being shown the measurement below:
+// build a caller for the updater. The record is issue 439 -- `REQ-55` was
+// written here first and is wrong twice over: no new `REQ-` number is issued
+// any more, and the archived `REQ-55` is a different request entirely.
+//
+// WRITTEN `issue 439` WITHOUT A LEADING HASH, and that is not a style choice:
+// `test_ui_colour_literals_live_only_in_the_canonical_colour_system` reads a
+// hash followed by three hex digits as a colour value, and every decimal digit
+// is a valid hex digit -- so EVERY three-digit issue number is a colour literal
+// to it, and the repository is in exactly that range. Four-digit numbers escape.
+// It reddened this file twice: once for a pull-request number, and again for
+// the issue number written while correcting a false citation. The guard is
+// right and it fires on correct prose, which is the expensive direction.
 //
 // ONE ANSWER PER STATE, NOT TWO ANSWERS WITH A TIEBREAK. The panel keeps its own
 // manifest fetch (`latestEngineRelease`) because `renderEngines` runs it with no
@@ -3693,9 +3708,19 @@ async function startEngineUpdate() {
   try {
     answer = await post("/api/update", {});
   } catch (err) {
-    line.textContent = err && err.message
-      ? `The engine refused: ${err.message}`
-      : "The engine could not be reached.";
+    // A TIMEOUT IS NOT A REFUSAL, and here the difference is the whole message.
+    // The engine sets `running` and starts its worker thread BEFORE this request
+    // returns, so a deadline that expires says nothing about whether the download
+    // began -- and it usually did. Printing "The engine refused" over a download
+    // that is running is a visible WRONG record, which is worse than a silent
+    // one, and it is the same shape as reporting a restart failed because a poll
+    // ran out. Only an HTTP status is a refusal; anything else is not knowing.
+    line.textContent = isTimeoutError(err)
+      ? "The engine did not answer in time. It may have started the download "
+        + "anyway — press Check again to see."
+      : err && err.kind === "http" && err.message
+        ? `The engine refused: ${err.message}`
+        : "The engine could not be reached.";
     button.disabled = false;
     return;
   }
@@ -3714,9 +3739,41 @@ async function startEngineUpdate() {
 // bytes with a four-second timeout, touching no installer. It stops on every
 // terminal phase, and on a report it cannot get, so a lost engine mid-download
 // does not leave a timer running for the life of the panel.
+//: ONE WATCHER AT A TIME, AND ONLY WHILE ITS SCREEN IS ON SHOW. Without this the
+//: loop had two defects that were invisible while the report shape was wrong,
+//: because it exited on its first iteration either way. It kept polling after the
+//: reader left the Engine screen -- up to 930 s of requests for a page nobody is
+//: looking at -- and it never restarted when he came back, so the panel's own
+//: instruction, "reopen this screen to see where it got to", was false.
+let enginePollRunning = false;
+
 async function pollEngineUpdate() {
+  if (enginePollRunning) return;
+  enginePollRunning = true;
+  try {
+    await pollEngineUpdateLoop();
+  } finally {
+    enginePollRunning = false;
+  }
+}
+
+async function pollEngineUpdateLoop() {
   const line = $("engine-update-state");
   for (let attempt = 0; attempt < ENGINE_UPDATE_POLL_ATTEMPTS; attempt += 1) {
+    // LEAVING THE SCREEN STOPS THE WATCHING, NOT THE DOWNLOAD. The engine keeps
+    // going on its own thread; this only stops asking. Re-entering starts a new
+    // watcher from the busy branch of the renderer.
+    //
+    // ASKED OF THE DOM, NOT OF `currentViewName()`, and the difference is a guard
+    // that works from one that cannot. `engine-detail` is NOT in `VIEWS` -- it is
+    // shown by `showView` but never listed -- so `currentViewName() !==
+    // "engine-detail"` is TRUE on every screen including this one, and a loop
+    // guarded on it would stop on its first iteration, always. Measured before
+    // relying on it. `theInstalledEngineIsOnScreen()` alone is not enough either:
+    // it reads `openEngineId`, which keeps its value after the reader navigates
+    // away, so it answers "yes" for a screen nobody is looking at.
+    const onDetail = !$("view-engine-detail").classList.contains("hidden");
+    if (!onDetail || !theInstalledEngineIsOnScreen()) return;
     const report = await engineUpdateState();
     if (!report) {
       line.textContent = "The engine stopped answering while the update was "
@@ -3808,13 +3865,29 @@ async function updateEngineReleaseUI(latest) {
   // checked against the published digest.
   const engineCanTakeIt = Boolean(report && report.can_self_update);
   const busy = Boolean(report && report.phase === "downloading");
-  if (engineCanTakeIt || busy) {
-    $("engine-download-label").textContent = busy
-      ? "Downloading…"
+  // STAGED IS NOT IDLE, and the engine cannot tell you that from its flags.
+  // `update_available` and `can_self_update` are recomputed from the RUNNING
+  // version, which staging does not change, so both stay true after a successful
+  // download -- and the button would happily start a second one. Pressing it
+  // passes every guard on the engine side, because `running` is cleared in a
+  // `finally`. So ~70 MB would come down again, verified, on top of a file that
+  // is already there and already verified. "A button that cannot work is worse
+  // than no button" -- this is the other half: one that works and should not.
+  const staged = Boolean(report && report.phase === "staged");
+  if (engineCanTakeIt || busy || staged) {
+    $("engine-download-label").textContent =
+      busy ? "Downloading…"
+      : staged ? "Downloaded and checked"
       : `Download and check ${latest.state === "ok" ? latest.version : "the update"}`;
-    download.disabled = busy;
-    download.onclick = busy ? null : startEngineUpdate;
+    download.disabled = busy || staged;
+    download.onclick = (busy || staged) ? null : startEngineUpdate;
     steps.classList.add("hidden");
+    // AND REOPENING THE SCREEN PICKS THE WATCHING BACK UP, which is what the
+    // sentence at the end of the poll promises him. Without this, a download
+    // started, the reader left, and coming back showed a disabled button with no
+    // progress and nothing that would ever update it. `pollEngineUpdate` is a
+    // no-op when one is already running, so this cannot stack.
+    if (busy) pollEngineUpdate();
     return;
   }
 
@@ -4041,7 +4114,7 @@ async function renderEngines() {
   // cannot compute -- whether this build could replace itself, and what phase an
   // update already in flight has reached -- so it is asked whenever it can
   // answer. `null` when it cannot leaves the panel's own fetch as the whole
-  // answer, which is the engine-down case (`REQ-55`).
+  // answer, which is the engine-down case (issue 439).
   await updateEngineReleaseUI(latestRelease);
 }
 

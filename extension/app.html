@@ -1630,15 +1630,19 @@
                  yours to compare if you want to. Every update after this one
                  is fetched and verified by the engine itself before anything
                  is replaced (R-36). -->
-            <!-- WHAT THIS SAID WAS FALSE, and measurably: `GET /api/update`
-                 has ZERO callers in `extension/`, and `scrapex/update.py`'s own
-                 module docstring says it "deliberately does not" replace the
-                 running executable -- `plan_swap` names the steps as data
-                 rather than performing them. So the engine does not download,
-                 verify or install anything today. `R-36` permits the updater;
-                 nothing has built it. Promising it here is the same defect as
-                 a terminal instruction, one layer up: a sentence the product
-                 cannot honour. -->
+            <!-- THIS SAID THE ENGINE FETCHED AND VERIFIED ITS OWN UPDATES while
+                 `GET /api/update` had ZERO callers in `extension/`, so nothing
+                 could start one -- a sentence the product could not honour, which
+                 is a terminal instruction's defect one layer up (issue 439). It
+                 was corrected to say that nothing checked the file.
+
+                 BOTH ARE OUT OF DATE NOW and the paragraph below is the current
+                 truth: the caller exists, so the engine does fetch the installer
+                 and compare its digest. What it still does NOT do is replace the
+                 running executable -- `plan_swap` names those steps as data rather
+                 than performing them -- so the note stops exactly there and says
+                 the replacing is his step. A note that runs one clause past what
+                 the code does is how this paragraph went wrong twice. -->
             <p class="text-sm" id="engine-checksum-note">
               Compare this if you wish. The Engine downloads and checks its own
               updates against this number, so a file whose digest does not match
@@ -1658,7 +1662,7 @@
            digest will not be trusted -- so this line carries the REASON the
            engine gave and never a bare "no update available", which would be
            the same sentence for a thing he can fix and a thing he cannot
-           (REQ-55). Hidden until the engine has answered. -->
+           (issue 439). Hidden until the engine has answered. -->
       <p class="muted text-xs hidden" id="engine-update-state"></p>
       <div class="engine-detail-actions" id="engine-detail-actions">
         <button class="engine-action-primary" id="engine-download" type="button" disabled>

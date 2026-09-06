@@ -6185,7 +6185,7 @@ def test_a_failed_creation_does_not_abandon_the_workbook_in_force(open_panel):
     assert kept == "1CHOSEN"
 
 
-# --- REQ-55: the panel calls the updater ------------------------------------
+# --- issue #439: the panel calls the updater ---------------------------------
 #
 # THE ROUTE THESE TESTS DRIVE HAD NEVER BEEN CALLED BY ANYTHING. `GET/POST
 # /api/update` has been mounted, complete and tested on the engine side since
@@ -6291,7 +6291,7 @@ def _report(*, phase="idle", progress=None, detail="", blocked="", **over):
 
 
 def test_the_panel_asks_the_engine_about_its_own_update(open_panel):
-    """THE WHOLE POINT OF `REQ-55`: the request is actually made.
+    """THE WHOLE POINT OF ISSUE #439: the request is actually made.
 
     Asserted on the CALL and not only on what the screen says, because a screen
     reading correctly from the panel's own manifest fetch would satisfy every
