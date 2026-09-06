@@ -158,13 +158,13 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     script = canonical.decode("utf-8")
     assert 'mode: "device"' in script
     # `deviceColors` HAD A DEFAULT AND NOW HAS NO KEY. R-73 flipped it to false so
-    # the named default palette was the one a fresh install actually painted; R-84
+    # the named default palette was the one a fresh install actually painted; R-85
     # deleted device colours outright on 2026-08-31, so there is nothing left to
     # default. Asserting its ABSENCE rather than dropping the line: a key that came
     # back would mean a deleted colour mode had returned without a ruling.
     #
     # `mode: "device"` above is untouched and is a different thing — the SCHEME
-    # follows the operating system's light/dark preference, which R-84 did not
+    # follows the operating system's light/dark preference, which R-85 did not
     # touch. Only the COLOURS stopped following it.
     # Asserted against the CODE, not the word: three comments in
     # design/appearance.js still name `deviceColors`, kept deliberately because C4
@@ -174,7 +174,7 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     for code in ("deviceColors:", "deviceColors ", ".deviceColors",
                  "deviceColors}", "deviceColors)"):
         assert code not in _without_comments(script), (
-            f"{code!r} is live code, not history; R-84 deleted device colours")
+            f"{code!r} is live code, not history; R-85 deleted device colours")
     assert 'palette: "supabase"' in script
     assert "data-appearance-scheme-mode" in script
     assert "data-appearance-palettes" in script
@@ -183,7 +183,7 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
 # test_appearance_colour_rebuilds_the_whole_tonal_surface_family STOOD HERE.
 #
 # It asserted that the device tonal block named all nine surface tokens and mixed
-# them with `light-dark()` and `color-mix(in srgb, var(--accent)`. R-84 deleted the
+# them with `light-dark()` and `color-mix(in srgb, var(--accent)`. R-85 deleted the
 # block on 2026-08-31 — «احذف الثلاثة وابق supabase وحده» — so the test split the
 # file on a marker that no longer exists and raised IndexError rather than failing
 # with a reason.
@@ -220,7 +220,7 @@ def test_only_the_one_reviewed_application_palette_is_available():
     own value fails a threshold this repository already enforces; the palette
     entry states each divergence with the measured ratio.
 
-    AND THEN THE COUNT WENT THE OTHER WAY. On 2026-08-31 he ruled R-84 — «احذف
+    AND THEN THE COUNT WENT THE OTHER WAY. On 2026-08-31 he ruled R-85 — «احذف
     الثلاثة وابق supabase وحده» — and `brand` and `blue` were deleted along with
     device colours. So the gate now reads `== 1`, and it is still a review gate
     rather than a fact: adding a palette back costs a written justification here,
@@ -236,7 +236,7 @@ def test_only_the_one_reviewed_application_palette_is_available():
 
     assert appearance.count('description: "') == 1
     assert '["supabase", {' in appearance
-    # DELETED BY R-84, and asserted ABSENT rather than simply unmentioned: an entry
+    # DELETED BY R-85, and asserted ABSENT rather than simply unmentioned: an entry
     # that came back without a ruling would otherwise pass unnoticed.
     assert '["brand", {' not in appearance
     assert '["blue", {' not in appearance

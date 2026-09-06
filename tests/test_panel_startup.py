@@ -488,7 +488,7 @@ def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
         # value written by a previous build through to the attribute on the
         # painted frame.
         #
-        # AND R-84 MADE ALL FOUR OLD NAMES POINT AT ONE. «احذف الثلاثة وابق
+        # AND R-85 MADE ALL FOUR OLD NAMES POINT AT ONE. «احذف الثلاثة وابق
         # supabase وحده», 2026-08-31: `brand` and `blue` were deleted, so a stored
         # `whatsapp`, `github`, `brand` or `blue` now paints `supabase`. THIS IS THE
         # WHOLE MIGRATION AND THERE IS NO OTHER — no upgrade step, no rewrite of
