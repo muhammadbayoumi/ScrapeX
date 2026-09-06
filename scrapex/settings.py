@@ -150,7 +150,12 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 # Status records written after a run. They are not owner-editable, so they are
 # kept out of SETTINGS and read/written through get_state/set_state.
 STATE_KEYS = ("excel_last", "apps_script_last",
-              "storage_last", "retention_last", "storage_migration")
+              "storage_last", "retention_last", "storage_migration",
+              # THE LAST TIME CORRUPTION WAS LOOKED FOR, and what was found. Separate
+              # from `storage_last`, which is the last storage ACTION -- a backup, a
+              # compaction, a repair. An integrity check acts on nothing, and reading
+              # one out of the other would date the answer to the wrong event.
+              "storage_integrity")
 
 
 @dataclass

@@ -6371,6 +6371,117 @@ def test_the_upgrade_control_is_offered_in_exactly_one_place(open_panel):
         "objected to")
 
 
+def test_the_corruption_row_says_it_has_not_been_asked(open_panel):
+    """TWO HEALTH CLAIMS, AND THE CARD SAYS WHICH ONE IT IS HOLDING.
+
+    `GET /api/storage` answers the narrow question -- readable, at the expected version,
+    the right kind of file. Measured on his warehouse at 2,080,395,264 bytes, the route
+    was 7.81 s against the 5,000 ms deadline this path is given, of which `quick_check`
+    and `foreign_key_check` were 5.68 s; it is 0.060 s now. So the page did not show a
+    slow verdict, it showed `unreadable` over empty cards on every open.
+
+    A CARD THAT DID NOT SAY WHICH WOULD REPORT A FILE NOBODY HAS EXAMINED AS EXAMINED,
+    which is the same class of untruth as the "Newest backup" row below.
+    """
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    assert page.text_content("#db-integrity-state").strip() == "not checked", (
+        "the card does not say corruption has not been looked for")
+    assert "every page of the file" in page.text_content("#db-integrity-note"), (
+        "it does not say WHY the check is not run on opening, so an unpressed button "
+        "reads as something the panel forgot to do")
+    assert not page.locator("#db-integrity-check").is_disabled()
+
+
+def test_pressing_it_asks_the_engine_and_dates_the_answer(open_panel):
+    """The verdict AND its moment, because "no problems" with no date is
+    indistinguishable from a card that never asked."""
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#db-integrity-check")
+    page.wait_for_function(
+        "() => window.__writes.some(w => w.path === '/api/storage/integrity')",
+        timeout=4000)
+
+    asked = [w for w in page.evaluate("() => window.__writes.slice()")
+             if w["path"] == "/api/storage/integrity"]
+    assert len(asked) == 1 and asked[0]["method"] == "POST", asked
+    page.wait_for_function(
+        "() => document.getElementById('db-integrity-state').textContent"
+        "        .includes('2026-09-06')", timeout=4000)
+    state = page.text_content("#db-integrity-state")
+    assert "healthy" in state and "2026-09-06T12:45:10Z" in state, state
+
+    # AND IT SURVIVES THE REFRESH THE PRESS ITSELF TRIGGERS. `checkIntegrityFromPanel`
+    # reloads the page because the stored verdict feeds `ready`, and that reload
+    # re-renders this row from `GET /api/storage` -- which, until the engine's record is
+    # visible to it, carries no verdict at all. The first version of this page wrote
+    # "not checked" over the answer that had just arrived: press Check, read `healthy`,
+    # watch it flip back.
+    #
+    # DRIVEN RATHER THAN WAITED FOR, because the bug only showed in the full-file run:
+    # alone, this test observed the text BEFORE the reload landed and passed. A guard
+    # that depends on losing a race is not a guard, so the reload is called here.
+    page.evaluate("async () => { await loadDatabase(); }")
+
+    kept = page.text_content("#db-integrity-state")
+    assert "2026-09-06T12:45:10Z" in kept, (
+        "a re-read with no stored verdict overwrote the one the engine just returned: "
+        f"{kept!r}")
+
+
+def test_the_check_is_not_offered_when_the_engine_is_silent(open_panel):
+    """THE OPPOSITE OF THE UPGRADE BUTTON BESIDE IT, and the difference is real rather
+    than a matter of taste. `upgradeDatabaseFromPanel` falls back to the native host, so
+    it survives a dead engine; `POST /api/storage/integrity` has no fallback, because
+    the native host does not read the warehouse. A button that cannot work is worse than
+    no button."""
+    page = open_panel(engine_up=False)
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    assert page.locator("#db-integrity-check").is_disabled(), (
+        "the engine is silent and the panel still offers a check that can only be done "
+        "by the engine")
+    assert "cannot be checked" in page.text_content("#db-integrity-note")
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "the upgrade went down with the check, and it is the one repair that does not "
+        "need the engine")
+
+
+def test_the_newest_backup_is_the_newest_backup(open_panel):
+    """`s.last` IS THE LAST STORAGE ACTION, NOT THE LAST BACKUP, and this row read it.
+
+    `storage_last` records whichever operation the owner last ran through the panel -- a
+    compaction and a repair write it too. Measured on his warehouse: it pointed at a
+    manual backup from 2026-08-30 while the newest copy on disk was the pre-upgrade one
+    taken 2026-09-06, six days later and the one that matters, because it is what a
+    schema change left behind. The size printed beside it was `backup_bytes`, the TOTAL
+    across all four copies, so one 2 GB file was labelled 6.9 GB.
+    """
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+
+    said = page.text_content("#db-backup-detail")
+    assert "2026-09-03T09:28:39Z" in said, (
+        f"the newest copy in the folder is not what the row names: {said!r}")
+    assert "2026-08-30" not in said, (
+        f"it named an older copy as the newest: {said!r}")
+    assert "pre-upgrade" in said, (
+        f"the row does not say what kind of copy it is, and 'pre-upgrade' is the one "
+        f"whose existence answers 'is it safe to press Upgrade': {said!r}")
+    assert "4.0 MB." in said and "8.0 MB across 2" in said, (
+        "the row does not distinguish this copy's size from the total across the "
+        f"folder, which is how one file came to be labelled with four files' bytes: "
+        f"{said!r}")
+
+
 def test_the_database_page_states_the_wal_on_its_own_line(open_panel):
     """A -wal grown to gigabytes is a warehouse whose writes are not being
     checkpointed, and that fact is invisible inside a single total.

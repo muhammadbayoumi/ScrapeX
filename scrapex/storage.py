@@ -622,18 +622,46 @@ def reconcile_active(conn) -> dict[str, bool]:
     return changed
 
 
-def health(db_path: Path | str) -> dict:
+def health(db_path: Path | str, *, integrity: bool = True) -> dict:
     """SQLite's own verdict, reported as a word plus the raw findings.
 
     `quick_check` rather than `integrity_check`: it catches the corruption that
-    matters at a fraction of the cost, which means the Storage page can run it
-    on every visit instead of hiding it behind a button nobody presses.
+    matters at a fraction of the cost.
+
+    `integrity=False` SKIPS THE CORRUPTION SCAN, AND THE SENTENCE THAT USED TO STAND
+    HERE WAS THIS FUNCTION'S OWN DEFENCE OF NOT HAVING THE FLAG: *"which means the
+    Storage page can run it on every visit instead of hiding it behind a button nobody
+    presses."* That was true at some file size and is now false. Measured 2026-09-06 on
+    the owner's warehouse at 2,080,395,264 bytes:
+
+        health()                      5.73 s
+          PRAGMA quick_check          2.89 s
+          PRAGMA foreign_key_check    1.50 s
+        everything else here          0.048 s
+        GET /api/storage end to end   7.81 s
+        the deadline that path gets   5.000 s  (`STARTUP_DEADLINES.destinationData`)
+
+    So the page did not run it on every visit -- it FAILED on every visit, and the
+    panel's Database page showed `unreadable` with an empty card under it. Both pragmas
+    are O(FILE SIZE), so raising the deadline buys time and not a fix.
+
+    THE SPLIT IS A RULE THIS CODEBASE ALREADY STATES, and this is the caller that was
+    missed. `EngineDatabase.health` took the same flag, with the same name, for the same
+    reason and off the same measurement at 1,067 MB -- and `_warehouse_identity` below
+    says in terms: *"Integrity and identity are deliberately separate checks."* This
+    function asked both questions under one name and charged a full file scan for it.
+
+    `integrity_checked` rides on every verdict so the two answers are never confused:
+    "healthy" without a scan is a NARROWER CLAIM than "healthy" with one, and a caller
+    that needs the wider one asks for it -- `POST /api/storage/integrity`, which is what
+    the Database page's Check integrity control presses.
     """
     path = Path(db_path)
     if not path.exists():
         return {"status": "missing", "ok": False,
                 "detail": "There is no database at this location yet.",
-                "problems": [], "foreign_key_problems": 0}
+                "problems": [], "foreign_key_problems": 0,
+                "integrity_checked": False}
     if _size(path) == 0:
         # SQLite opens a zero-byte file as a valid EMPTY database and every
         # check passes, so "healthy" was technically true and completely
@@ -642,12 +670,18 @@ def health(db_path: Path | str) -> dict:
         return {"status": "not_scrapex", "ok": False,
                 "detail": "The file is empty and is not a ScrapeX warehouse.",
                 "problems": ["empty file"], "foreign_key_problems": 0,
-                "reclaimable_bytes": 0}
+                "reclaimable_bytes": 0, "integrity_checked": False}
     conn = sqlite3.connect(str(path))
     try:
-        problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
-        problems = [p for p in problems if p != "ok"]
-        fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if integrity:
+            problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
+            problems = [p for p in problems if p != "ok"]
+            fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        else:
+            # THE TWO SCANS ARE THE WHOLE COST, and skipping them is not the same as
+            # finding nothing: an unscanned file reports no problems because none was
+            # LOOKED FOR. `integrity_checked` below is what tells the two apart.
+            problems, fk = [], []
         freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = conn.execute("PRAGMA page_size").fetchone()[0]
         identity_problem = _warehouse_identity(conn)
@@ -655,30 +689,36 @@ def health(db_path: Path | str) -> dict:
     except sqlite3.DatabaseError as exc:
         return {"status": "unreadable", "ok": False,
                 "detail": f"SQLite could not read this file: {exc}",
-                "problems": [str(exc)], "foreign_key_problems": 0}
+                "problems": [str(exc)], "foreign_key_problems": 0,
+                "integrity_checked": integrity}
     finally:
         conn.close()
 
     reclaimable = freelist * page_size
     if problems or fk:
         return {"status": "damaged", "ok": False, "problems": problems,
-                "foreign_key_problems": len(fk),
+                "foreign_key_problems": len(fk), "integrity_checked": integrity,
                 "detail": "SQLite reported problems. Back up first, then run Repair."}
     if identity_problem is not None:
         status, detail = identity_problem
         return {"status": status, "ok": False, "problems": [detail],
                 "foreign_key_problems": 0, "reclaimable_bytes": reclaimable,
-                "detail": detail}
+                "integrity_checked": integrity, "detail": detail}
     # A forgotten source is not corruption — the file is sound and `ok` stays
     # true — but it is the one thing quick_check can never see, so it rides the
     # verdict the Storage page already reads on every visit rather than waiting
     # for someone to think of censusing the database again.
     return {
         "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
-        "reclaimable_bytes": reclaimable,
+        "reclaimable_bytes": reclaimable, "integrity_checked": integrity,
         "undeclared_sources": forgotten,
         "prunable_backup_bytes": sum(b["bytes"] for b in prunable_backups(path)),
-        "detail": ("No problems found." + (
+        # THE SENTENCE NARROWS WITH THE CLAIM. "No problems found" after no scan reads
+        # as a clean bill of health for a question nobody asked, and this string is
+        # what both the panel and the engine's own page print.
+        "detail": (("No problems found." if integrity else
+                    "Readable, at the expected version, and the right kind of file. "
+                    "Corruption has not been checked.") + (
             f" Compacting would return about {reclaimable:,} bytes of free pages."
             if reclaimable else "") + (
             f" {len(forgotten)} source(s) hold data here but are not in the "
@@ -1505,12 +1545,26 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
     path = Path(db_path)
     folder = backup_folder(conn, path)
     sizes = measure(path, folder)
-    verdict = health(path)
+    # THE NARROW QUESTION, BECAUSE THIS ROUTE IS DRAWN ON PAGE OPEN. `health`'s
+    # docstring carries the measurement: the two corruption pragmas are 5.68 s of a
+    # 5.73 s call on a 2 GB warehouse, against the 5,000 ms deadline the panel gives
+    # `/api/storage` -- so the whole page failed rather than the scan being slow. The
+    # wide verdict is `POST /api/storage/integrity`, and `integrity_checked` on this one
+    # is what lets a page say which answer it is holding.
+    verdict = health(path, integrity=False)
+    found = settings.get_state(conn, "storage_integrity") or {}
+    ready = bool(verdict["ok"]) and found.get("ok", True) is not False
     return {
         "key": "local_storage",
         "label": "Local storage",
-        "ready": verdict["ok"],
-        "blocker": "" if verdict["ok"] else verdict["detail"],
+        # A FINDING NOBODY HAS CLEARED STILL COUNTS. The routine verdict no longer looks
+        # for corruption, so on its own it would report a file the owner was told last
+        # week was damaged as ready -- "Enabled" on the same screen that said "damaged".
+        # The last WIDE verdict is the last thing anybody actually learned about this
+        # file, and it holds until another check replaces it.
+        "ready": ready,
+        "blocker": "" if ready else (verdict["detail"] if not verdict["ok"]
+                                     else str(found.get("detail", ""))),
         "path": str(path),
         "folder": str(path.parent),
         "pointer": str(read_pointer()) if read_pointer() else "",
@@ -1522,6 +1576,9 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "space_warning": space_warning(path),
         "last": settings.get_state(conn, "storage_last"),
         "migration": settings.get_state(conn, "storage_migration"),
+        # THE LAST WIDE VERDICT, so a page can say WHEN corruption was last looked for
+        # rather than leaving the reader to assume it just was.
+        "integrity": settings.get_state(conn, "storage_integrity"),
         # THE SCHEMA, BECAUSE THE PANEL'S DATABASE PAGE HAS TO SAY MORE THAN "HEALTHY".
         # `_about` reported these to the ENGINE'S OWN WEB PAGE and nowhere else, so the
         # panel could show the file's size and its health and not the one number that

@@ -139,6 +139,7 @@ from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
+from ..settings import set_state as set_settings_state
 from ..sourceresolver import SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
@@ -158,6 +159,7 @@ from ..storage import (
     wipe_source,
 )
 from ..storage import compact as storage_compact
+from ..storage import health as storage_health
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..vocab import (
     TERMINAL_JOB_STATUSES,
@@ -3016,6 +3018,37 @@ def create_app(
             return storage_status(conn, app.state.db_path)
         finally:
             conn.close()
+
+    @app.post("/api/storage/integrity")
+    def api_storage_integrity():
+        """The WIDE verdict, because somebody asked for it.
+
+        `GET /api/storage` stopped running the corruption scan: it is O(file size) and
+        cost 5.68 s of a 5.73 s call on the owner's 2 GB warehouse, against the 5,000 ms
+        deadline the panel gives that path -- so the page it draws failed entirely
+        instead of being slow. `storage.health`'s docstring carries the measurement.
+
+        POST BECAUSE IT RECORDS WHAT IT FOUND, not because it changes the warehouse. The
+        verdict is stored so a page can say WHEN corruption was last looked for; without
+        that, a card showing no problems is indistinguishable from a card that never
+        asked.
+
+        THE SCAN DOES NOT HOLD THE WRITE LOCK, and that is deliberate rather than
+        incidental. `health` opens its own read connection, so a 5.7 s scan taken under
+        the lock would stall a running crawl's writes for its whole duration for the
+        sake of a status card. The lock is taken for the one small write at the end.
+        """
+        verdict = storage_health(app.state.db_path, integrity=True)
+        state = dict(verdict)
+        state["at"] = utc_now_iso()
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                set_settings_state(conn, "storage_integrity", state)
+                conn.commit()
+            finally:
+                conn.close()
+        return state
 
     @app.post("/api/storage/backup")
     def api_storage_backup():
