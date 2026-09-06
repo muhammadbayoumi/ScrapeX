@@ -7219,3 +7219,163 @@ def test_a_release_feed_the_engine_could_not_read_does_not_erase_the_row(open_pa
         "the engine failing to read the feed erased a version the panel had "
         "read correctly, which is the ruling applied to a non-answer")
 
+def test_a_backup_can_be_taken_from_the_page_that_lists_the_backups(open_panel):
+    """The control and its answer live on the same screen.
+
+    Taking a backup was only possible from Settings -> Data output, two screens
+    from the card that says whether it worked. This asserts the property that
+    makes the new button usable rather than merely present: the status line and
+    the progress bar it writes into are inside `#view-manage-account`, not the
+    ones in `#view-settings`. A control whose progress appears on another screen
+    is the button this project's rules forbid, and it would look identical to a
+    working one in any test that only checked the button exists.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    assert page.is_visible("#manage-backup"), (
+        "Manage account lists the backups in Drive and offers no way to take one")
+
+    inside = page.evaluate("""() => {
+      const view = document.querySelector('#view-manage-account');
+      const has = (id) => {
+        const node = document.getElementById(id);
+        return Boolean(node && view.contains(node));
+      };
+      return {
+        button: has('manage-backup'),
+        message: has('manage-backup-msg'),
+        progress: has('manage-backup-progress'),
+      };
+    }""")
+    assert inside == {"button": True, "message": True, "progress": True}, (
+        "the button reports somewhere the owner cannot see while pressing it: "
+        f"{inside}")
+
+
+def test_the_backup_button_answers_on_its_own_screen_not_the_other_one(open_panel):
+    """SIGNED IN, because that is the only state in which this button is used.
+
+    An earlier version of this pressed the button while signed out to reach the
+    "Sign in with Google first" branch. The owner pointed out that it tests a
+    situation he will never be in -- he cannot back up to a Drive he is not
+    signed into -- and he is right: the panel does not even show the Manage
+    account door until an account exists.
+
+    So the press happens signed in, and Drive is left unstubbed (`drive=None`,
+    the harness default) so its first read fails deterministically. The subject
+    is not the failure. It is WHERE THE ANSWER LANDS: `runGoogleAction` wrote
+    every message into `drive-msg`, which lives inside `#view-settings`, and a
+    button copied from there would disable, run, fail, and report onto a screen
+    the owner is not looking at.
+
+    The successful path cannot be driven here yet: the harness stubs Drive's
+    reads and not its resumable upload, so a real backup is proven against the
+    live engine and a real account, not against this fake.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    page.click("#manage-backup")
+    page.wait_for_function(
+        "() => document.querySelector('#manage-backup-msg').innerText.trim() !== ''",
+        timeout=15000)
+
+    said = page.inner_text("#manage-backup-msg").strip()
+    assert said, "the button ran and said nothing on the screen it was pressed from"
+    elsewhere = page.inner_text("#drive-msg").strip()
+    assert elsewhere == "", (
+        "the answer was written into the Settings status line, two screens from "
+        f"the button that caused it: {elsewhere!r}")
+
+
+# A bundle small enough to move in one chunk and real enough to be checked: the
+# panel compares what the engine DESCRIBED (this manifest) against what ARRIVED
+# (the ranged read), and a fake where those came from one number would pass on
+# anything.
+HARNESS_BUNDLE = {
+    "name": "scrapex-bundle-20260906-000000.zip",
+    "bytes": 8192,
+    "sha256": "a" * 64,
+    "created_at": "2026-09-06T00:00:00Z",
+    "engine_version": "0.4.9",
+    "bundle_format": 1,
+    "panel_pack": {"bytes": 256},
+}
+
+
+def test_the_button_takes_a_whole_backup_and_the_list_below_it_updates(open_panel):
+    """The path the owner actually walks, end to end, from the screen he is on.
+
+    Every other test of this control watches it fail, because the harness could
+    not serve a bundle or a resumable upload and so the only reachable state was
+    an error. That is the wrong half to cover: both defects this feature has had
+    in production were on the SUCCESS path -- a 541,531,989-byte read that came
+    back 0, and two builds spliced into one Drive object under a pointer that
+    called the result complete.
+
+    So this drives the whole thing: the engine builds a manifest, the panel reads
+    the archive as a byte range, uploads it through a resumable session, writes
+    the pointer, and then refreshes the card underneath the button. The last step
+    is the reason the button belongs on this screen at all -- without it he
+    presses "Back up now", it works, and the list still describes yesterday.
+    """
+    page = open_panel(
+        signed_in=ACCOUNT,
+        bundle=HARNESS_BUNDLE,
+        drive={"folder": "folder-1", "files": [], "pointer": None},
+    )
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    page.click("#manage-backup")
+    page.wait_for_function(
+        "() => /Backed up/.test("
+        "document.querySelector('#manage-backup-msg').innerText)",
+        timeout=30000)
+
+    said = page.inner_text("#manage-backup-msg").strip()
+    assert "Backed up" in said, said
+    assert page.inner_text("#drive-msg").strip() == "", (
+        "the verdict was written into the Settings status line as well")
+
+    # THE ARCHIVE WAS READ AS A RANGE, not swallowed whole. `Content-Range` on
+    # the chunk request is what proves it, and it is the difference between this
+    # feature working on his 541 MB warehouse and returning 0.
+    chunks = page.evaluate("() => window.__sx_chunks || []")
+    assert chunks, "nothing was uploaded through the resumable session"
+    assert all("bytes " in c for c in chunks), chunks
+
+    uploaded = page.evaluate("() => window.__sx_uploads || []")
+    assert HARNESS_BUNDLE["name"] in uploaded, (
+        f"the archive was not the file uploaded: {uploaded}")
+    assert "latest.json" in uploaded, (
+        "no pointer was written, so nothing in Drive says which backup is current")
+
+    # THE ARCHIVE WAS ASKED FOR AS A RANGE. Asserted against the ENGINE's
+    # request, not Drive's upload: both carry a Content-Range, so checking the
+    # upload alone passed even when the archive was read whole -- found by
+    # mutation, not by reading this test back.
+    reads = page.evaluate("() => window.__sx_archive_reads || []")
+    assert reads, "the archive was never requested"
+    assert any(r.startswith("bytes=") for r in reads), (
+        f"the archive was read whole, not in ranges: {reads}")
+
+    # AND THE LIST BELOW THE BUTTON SHOWS THE NEW BACKUP. This is the reason the
+    # control belongs on this screen, and it was the other thing this test
+    # claimed in its own docstring without checking.
+    page.wait_for_function(
+        "(name) => document.querySelector('#drive-backups')"
+        "  .innerText.includes('1 backup') "
+        "  || document.querySelector('#drive-backups').innerText.includes('Latest backup')",
+        arg=HARNESS_BUNDLE["name"], timeout=15000)
+    listed = page.inner_text("#drive-backups")
+    assert "Latest backup" in listed or "backup" in listed.lower(), listed
+
+    # And the button re-enables, or a second backup is impossible without a reload.
+    assert page.is_enabled("#manage-backup")

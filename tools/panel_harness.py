@@ -138,7 +138,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
-         worker_alive=True, engine_build=None) -> str:
+         worker_alive=True, engine_build=None, bundle=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -489,6 +489,17 @@ const REVOKE_STATUS = {json.dumps(revoke_status)};
 const NATIVE_MODE = {json.dumps(native_mode)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const DRIVE = {json.dumps(drive)};
+// THE BUNDLE ROUTES, so a whole backup can be driven end to end.
+// Without this the harness could show the Manage-account screen and never
+// press its button: `/api/bundle` 404s, so every test of the control that
+// takes a backup could only ever see it fail. The two production defects
+// this feature has had -- a 541,531,989-byte read that returned 0, and two
+// builds spliced into one Drive object -- were both on the happy path.
+const BUNDLE = {json.dumps(bundle)};
+// One validator for the whole session, which is what a real engine serves
+// while the file on disk does not change. `range()` sends it back as
+// `If-Range`; a fake that varied it would fail every chunk after the first.
+const BUNDLE_ETAG = '"harness-archive"';
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -544,6 +555,46 @@ window.fetch = async (url, options = {{}}) => {{
     catch (_) {{}}
     window.__sx_revoked = (window.__sx_revoked || []).concat([ended]);
     return new Response("", {{status: REVOKE_STATUS}});
+  }}
+
+  // DRIVE'S RESUMABLE UPLOAD, before the read branch below. `UPLOAD` is
+  // `.../upload/drive/v3/files`, which CONTAINS `drive/v3/files`, so without
+  // this the handshake fell into the folder search, came back with no
+  // `Location`, and `upload` refused with "no-session" -- a real refusal for a
+  // fake reason, which is the worst kind of green.
+  if (DRIVE && String(url).includes("uploadType=resumable")) {{
+    window.__sx_uploads = (window.__sx_uploads || []).concat(
+      [JSON.parse((options.body) || "{{}}").name || ""]);
+    return {{ ok: true, status: 200,
+              headers: {{get: (k) => (String(k).toLowerCase() === "location"
+                ? "https://upload.harness.invalid/session/1" : null)}},
+              json: async () => ({{}}), text: async () => "" }};
+  }}
+  if (String(url).startsWith("https://upload.harness.invalid/session/")) {{
+    // One chunk is enough here: the archive this harness serves is small. The
+    // 308-until-complete path is covered by extension/tests, against `upload`
+    // itself rather than through the panel.
+    window.__sx_chunks = (window.__sx_chunks || []).concat(
+      [(options.headers || {{}})["Content-Range"] || ""]);
+    // THE FILE JOINS THE FOLDER. Drive's own listing shows what was just put
+    // there, and a fake whose folder never changes cannot tell a screen that
+    // refreshes from one that does not -- which is the whole reason the backup
+    // button was moved next to the list.
+    const named = (window.__sx_uploads || []).slice(-1)[0] || "from-harness";
+    const id = "uploaded-" + ((window.__sx_chunks || []).length);
+    if (DRIVE) {{
+      DRIVE.files = (DRIVE.files || []).filter(f => f.name !== named)
+        .concat([{{id, name: named, createdTime: "2026-09-06T00:00:00Z",
+                   size: String((BUNDLE && BUNDLE.bytes) || 0)}}]);
+    }}
+    return {{ ok: true, status: 200, headers: {{get: () => null}},
+              json: async () => ({{id, name: named}}), text: async () => "" }};
+  }}
+  if (DRIVE && method === "DELETE"
+      && String(url).includes("googleapis.com/drive/v3/files/")) {{
+    window.__sx_pruned = (window.__sx_pruned || []).concat([String(url)]);
+    return {{ ok: true, status: 204, headers: {{get: () => null}},
+              json: async () => ({{}}), text: async () => "" }};
   }}
 
   // GOOGLE DRIVE. Without this every Drive read 404s and the Manage-account
@@ -606,6 +657,53 @@ window.fetch = async (url, options = {{}}) => {{
     return {{ ok: false, status: 500, statusText: "engine error",
               json: async () => ({{detail: "the engine could not do that"}}) }};
   }}
+  // THE BUNDLE, BEFORE THE FLAT TABLE. These three cannot be rows in `ROUTES`:
+  // that table answers `{{ok, status, json}}` and nothing else, and an archive
+  // needs a byte range, a `Content-Range`, an `ETag` and a blob. The panel reads
+  // the archive's LENGTH off `Content-Range` rather than off the manifest on
+  // purpose -- they are two facts and comparing them is what catches a truncated
+  // upload -- so a fake that skipped the header would test the wrong thing.
+  if (BUNDLE && path.startsWith("/api/bundle")) {{
+    const bytes = Number(BUNDLE.bytes || 0);
+    const filler = (n) => new Blob([new Uint8Array(Math.max(0, n))]);
+    if (path === "/api/bundle" && method === "POST") {{
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                json: async () => BUNDLE }};
+    }}
+    if (path.startsWith("/api/bundle/panel-pack")) {{
+      const size = Number((BUNDLE.panel_pack || {{}}).bytes || 0);
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                blob: async () => filler(size), json: async () => ({{}}) }};
+    }}
+    if (path.startsWith("/api/bundle/archive")) {{
+      // RECORDED, because "was the archive read as a range" is the question the
+      // 2026-09-03 failure turned on and a test cannot see it any other way:
+      // a whole-body read and a ranged one both end with bytes in Drive.
+      window.__sx_archive_reads = (window.__sx_archive_reads || []).concat(
+        [(options.headers && (options.headers.Range || options.headers.range)) || ""]);
+      const asked = /bytes=(\\d+)-(\\d+)/.exec(
+        (options.headers && (options.headers.Range || options.headers.range)) || "");
+      if (!asked) {{
+        return {{ ok: true, status: 200,
+                  headers: {{get: (k) => (String(k).toLowerCase() === "etag"
+                    ? BUNDLE_ETAG : null)}},
+                  blob: async () => filler(bytes), json: async () => ({{}}) }};
+      }}
+      const start = Number(asked[1]);
+      const end = Math.min(Number(asked[2]) + 1, bytes);
+      return {{ ok: true, status: 206,
+                headers: {{get: (k) => {{
+                  const name = String(k).toLowerCase();
+                  if (name === "content-range") {{
+                    return `bytes ${{start}}-${{end - 1}}/${{bytes}}`;
+                  }}
+                  if (name === "etag") return BUNDLE_ETAG;
+                  return null;
+                }}}},
+                blob: async () => filler(end - start), json: async () => ({{}}) }};
+    }}
+  }}
+
   // The log endpoint lives under /api/jobs too, so it must be answered BEFORE
   // the generic /api/jobs list route swallows it.
   if (/^\\/api\\/jobs\\/[^/]+\\/logs/.test(path)) {{

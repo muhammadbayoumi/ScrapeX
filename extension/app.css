@@ -2285,6 +2285,28 @@
     font-family: var(--font-mono);
   }
 
+  /* The backup card: the same column as the danger card below it, without the
+     red border. It sits between the "In your Drive" heading and the list of
+     what is there, so pressing it and reading the result never leaves the
+     screen. */
+  .manage-account-backup {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-4);
+    border-radius: var(--radius-xl);
+  }
+  .manage-account-backup-copy {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+  /* Full width, so the bar reads as this card's progress and not the page's. */
+  .manage-account-backup .bar {
+    align-self: stretch;
+  }
+
   .manage-account-danger {
     display: flex;
     flex-direction: column;

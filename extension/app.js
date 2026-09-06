@@ -7055,9 +7055,18 @@ function wireStartupShell() {
 // state.token at the moment of use is the same discipline drive.js applies by
 // taking it as an argument rather than holding it.
 
-function driveProgress(fraction) {
-  const bar = $("drive-progress");
-  const fill = $("drive-progress-fill");
+/**
+ * Draw an upload's progress into ONE of the two bars this panel now has.
+ *
+ * The Settings bar is inside `#view-settings`; the Manage account one is inside
+ * `#view-manage-account`. A single hard-coded id would have meant the button on
+ * one screen animating a bar on the other, which is indistinguishable from a
+ * button that does nothing.
+ */
+function driveProgress(fraction, barId = "drive-progress",
+                       fillId = "drive-progress-fill") {
+  const bar = $(barId);
+  const fill = $(fillId);
   if (!bar || !fill) return;
   if (fraction === null) {
     bar.classList.add("hidden");
@@ -7069,36 +7078,62 @@ function driveProgress(fraction) {
   fill.style.width = percent + "%";
 }
 
-/** One shape for all three buttons: disable, run, report, re-enable. */
-async function runGoogleAction(button, working, action) {
+/**
+ * One shape for every Google button: disable, run, report, re-enable.
+ *
+ * `report` names where the answer goes, because the same actions are now
+ * reachable from two screens and the answer has to appear on the one the owner
+ * is looking at.
+ *
+ * `then` runs only after a success. The backup button on Manage account uses it
+ * to refresh the list beneath itself: without that the owner presses "Back up
+ * now", it succeeds, and the card above still describes the previous backup.
+ *
+ * EVERY BUTTON IS DISABLED, ACROSS BOTH SCREENS. Two backups at once is not a
+ * cosmetic problem: `/api/bundle/archive` resolves the newest archive on disk
+ * per request, so a second build finishing mid-upload is how two builds get
+ * spliced into one Drive object. `If-Range` catches that between panel windows,
+ * which this cannot; inside one document, not starting it is better.
+ */
+async function runGoogleAction(button, working, action, {
+  report = "drive-msg",
+  bar = ["drive-progress", "drive-progress-fill"],
+  then = null,
+} = {}) {
   if (!state.token) {
-    out("drive-msg", "Sign in with Google first — the Account button at the " +
-                     "top of the panel.", "err");
+    out(report, "Sign in with Google first — the Account button at the " +
+                "top of the panel.", "err");
     return;
   }
-  const buttons = ["drive-backup", "drive-restore", "sheet-create"];
+  const buttons = ["drive-backup", "drive-restore", "sheet-create",
+                   "manage-backup"];
   buttons.forEach((id) => { if ($(id)) $(id).disabled = true; });
-  out("drive-msg", esc(working), "");
+  out(report, esc(working), "");
   try {
-    const said = await action(state.token);
-    out("drive-msg", esc(said), "ok");
+    // The action reports its own progress too -- a bundle takes about 104
+    // seconds to build before an upload starts, and `backUpToDrive` says so
+    // while it waits. That sentence has to land on the same screen as the
+    // verdict, or the owner watches an empty status line and presses again.
+    const said = await action(state.token, report);
+    out(report, esc(said), "ok");
+    if (then) await then();
   } catch (error) {
     // The message is the module's own sentence — "Sign in again from the
     // panel", "ScrapeX can only open spreadsheets it created itself" — because
     // those name the next action. Replacing them with a generic failure here
     // would throw away the only part the owner can act on.
-    out("drive-msg", esc((error && error.message) || "Something went wrong."), "err");
+    out(report, esc((error && error.message) || "Something went wrong."), "err");
   } finally {
-    driveProgress(null);
+    driveProgress(null, bar[0], bar[1]);
     buttons.forEach((id) => { if ($(id)) $(id).disabled = false; });
   }
 }
 
-async function backUpToDrive(token) {
+async function backUpToDrive(token, report = "drive-msg") {
   // The engine builds the bundle; the panel uploads it. Neither half sees the
   // other's secret: the engine never gets the token, the panel never opens the
   // database.
-  out("drive-msg", "Building the bundle…", "");
+  out(report, "Building the bundle…", "");
   const built = await api("/api/bundle", { method: "POST" });
   // A SOURCE, NOT THE BYTES. The archive is uploaded one 4 MB chunk at a time,
   // fetched as it is sent, so the panel never holds it: 541,531,989 bytes in one
@@ -7137,7 +7172,15 @@ async function backUpToDrive(token) {
   const stored = await backUp(token, {
     archive, name: built.name, panelPack,
     manifest: built, bundleFormat: built.bundle_format,
-    onProgress: ({sent, total}) => driveProgress(total ? sent / total : 0),
+    // Both bars, because only the visible one exists on any given screen and
+    // `driveProgress` is a no-op for the other. Cheaper and plainer than
+    // threading the caller's choice through `backUpToDrive`.
+    onProgress: ({sent, total}) => {
+      const fraction = total ? sent / total : 0;
+      driveProgress(fraction);
+      driveProgress(fraction, "manage-backup-progress",
+                    "manage-backup-progress-fill");
+    },
   });
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
@@ -7377,6 +7420,20 @@ function wireGoogleControls() {
   // Wired apart from the three above because it does NOT follow their shape:
   // it opens a tab and waits on the owner rather than running a request, so it
   // must not disable the row or claim to be working while nothing is.
+  // THE SAME ACTION, ON THE SCREEN THAT SHOWS ITS RESULT. Not a second way of
+  // taking a backup -- `backUpToDrive` is still the only one -- but a second
+  // door to it, reporting into Manage account's own status line and refreshing
+  // the list below when it lands.
+  const manage = $("manage-backup");
+  if (manage) {
+    manage.addEventListener("click", () => runGoogleAction(
+      manage, "Backing up…", backUpToDrive, {
+        report: "manage-backup-msg",
+        bar: ["manage-backup-progress", "manage-backup-progress-fill"],
+        then: loadManageAccount,
+      }));
+  }
+
   const choose = $("sheet-choose");
   if (choose) choose.addEventListener("click", () => pickExistingSpreadsheet());
 
