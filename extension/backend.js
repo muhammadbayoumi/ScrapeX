@@ -108,12 +108,42 @@ window.fetch = (input, options = {}) => {
 const DESTINATION_DATA_PATH =
   /^\/api\/(?:sources|outputs|jobs|enrichment|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/;
 
-export async function api(path, options = {}) {
+/**
+ * Every guarantee a request to the engine gets, and nothing about the body.
+ *
+ * EXTRACTED BECAUSE TWO CALLERS THREW THE STATUS AWAY. `extension/app.js` read
+ * the Drive bundle's archive and panel-pack with a BARE `fetch(...).blob()`,
+ * because `api()` ends in `res.json()` and a zip is not JSON. So the one request
+ * in the product that moves half a gigabyte was the one request that could not
+ * report why it failed.
+ *
+ * AND THE DEADLINE WAS NEVER THE MISSING PART — that was claimed here first and
+ * it was wrong. `window.fetch` is overridden above, and `localApiPath` matches
+ * any URL under the active backend beginning `/api/`, so those bare calls
+ * already ran through `fetchWithDeadline` with `deadlineForLocalRequest` and
+ * both abort signals. What they lacked was the STATUS CHECK and the detail that
+ * comes with it. Naming the wrong absence sends the next reader to the wrong
+ * layer: the override is load-bearing for anything calling `fetch` directly, and
+ * someone told it does nothing for `/api/` is free to delete it.
+ *
+ * MEASURED ON HIS MACHINE, 2026-09-03: the engine built
+ * `scrapex-bundle-20260903-131501.zip` at 541,531,989 bytes, the file was
+ * complete on disk with no `.part` beside it, and the panel read **0**. The guard
+ * added on 2026-08-30 refused the upload — correctly — but the message could only
+ * say "this panel read 0", because the status was thrown away by the line that
+ * read it. A build of 378,655,878 bytes had succeeded four days earlier.
+ *
+ * So the shape is one function that owns the request and two that own the parse.
+ * A third caller cannot now acquire a bare fetch by needing a different body.
+ */
+async function request(path, options = {}) {
   const backend = await backendBase();
   const method = options.method || "GET";
   const deadlineMs = options.deadlineMs || deadlineForLocalRequest(path, method);
   const requestOptions = {...options};
   delete requestOptions.deadlineMs;
+  const throwOnHttpError = requestOptions.throwOnHttpError !== false;
+  delete requestOptions.throwOnHttpError;
   if (!firstDestinationDataMarked && DESTINATION_DATA_PATH.test(path)) {
     firstDestinationDataMarked = true;
     markStartup("first-destination-data-request", {path});
@@ -122,12 +152,51 @@ export async function api(path, options = {}) {
     window.fetch, backend + path, requestOptions, deadlineMs,
     [pageController.signal, backendController.signal],
   );
-  if (!res.ok) {
+  if (!res.ok && throwOnHttpError) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch (_) {}
     throw Object.assign(new Error(detail), {status: res.status, kind: "http"});
   }
-  return res.json();
+  return res;
+}
+
+export async function api(path, options = {}) {
+  return (await request(path, options)).json();
+}
+
+/**
+ * The same request, read as bytes.
+ *
+ * The `blob()` call can still fail on its own — a browser refusing to hold half
+ * a gigabyte in memory raises HERE, after a 200 — and that is a different failure
+ * from a 404 or a timeout. It is left to raise rather than be flattened into an
+ * empty blob, so the caller's message can say which happened.
+ */
+export async function bytes(path, options = {}) {
+  return (await request(path, options)).blob();
+}
+
+/**
+ * The response itself, for the callers that have to READ the status.
+ *
+ * `api()` and `bytes()` turn a non-2xx into an error, which is right for almost
+ * everything and wrong for four calls that BRANCH on it: `/api/databases/upgrade`
+ * and `/api/engine/restart` treat a 404 as "this engine is too old" rather than as
+ * a failure, and the restart poll asks `/api/health` repeatedly and needs a refusal
+ * to be ordinary rather than fatal.
+ *
+ * THEY WERE BARE FETCHES, AND THAT WAS THE WRONG READING OF WHY. They did not need
+ * to escape the request path — they needed a different verdict at the end of it.
+ * The deadline and the abort signals they already had, from the `window.fetch`
+ * override above; what they were missing is a way to say "a 404 here is an
+ * answer, not a failure". Routing them through `request()` moves that guarantee
+ * from an implicit seam to an explicit one.
+ *
+ * `throwOnHttpError` is false here and nowhere else, so a reader can see in one
+ * line which callers own their own status handling.
+ */
+export async function raw(path, options = {}) {
+  return request(path, {...options, throwOnHttpError: false});
 }
 
 export const post = (path, body) => api(path, {

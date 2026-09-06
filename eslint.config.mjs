@@ -53,6 +53,9 @@ const NODE = {
   __dirname: "readonly", __filename: "readonly", URL: "readonly",
   TextEncoder: "readonly", TextDecoder: "readonly", fetch: "readonly",
   setTimeout: "readonly", structuredClone: "readonly",
+  // `Response` arrived with `fetch`; a test that stubs an engine has to build
+  // one. Node has had it as a global since 18.
+  Response: "readonly",
 };
 
 // Apps Script runs on Google's own runtime, where these are provided.
