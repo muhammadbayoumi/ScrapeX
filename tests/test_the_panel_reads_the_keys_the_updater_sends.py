@@ -28,6 +28,14 @@ import re
 
 import pytest
 
+# THIS FILE READS `extension/app.js`, SO IT MUST SAY SO OR IT STOPS RUNNING ON THE
+# ONE KIND OF CHANGE IT EXISTS TO CATCH. `test_the_extension_gate_is_complete`
+# caught its absence on the first CI run, and the finding is sharper than the fix:
+# without the mark, an extension-only pull request -- a key renamed in `app.js`,
+# exactly the defect this file guards -- would skip this file entirely. A guard
+# that does not run when its subject changes is the shape this whole file is about.
+pytestmark = pytest.mark.extension
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 #: Read out of the panel's source rather than listed here, so this cannot drift
