@@ -1,5 +1,5 @@
 {
-  "version": "0.4.9",
+  "version": "0.4.10",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql"
@@ -95,6 +95,7 @@
     "POST /api/storage/check-move",
     "POST /api/storage/compact",
     "POST /api/storage/export",
+    "POST /api/storage/integrity",
     "POST /api/storage/move",
     "POST /api/storage/open-folder",
     "POST /api/storage/repair",

@@ -5733,12 +5733,30 @@ async function loadStorage() {
  * the engine stored, so the answer to "when was corruption last looked for" is a date
  * rather than an assumption.
  */
+//: THE VERDICT THIS PANEL WAS HANDED, which outranks a read that does not carry it.
+//
+// `checkIntegrityFromPanel` refreshes the page after a successful check, because the
+// stored verdict feeds `ready` and the cards above can change. That refresh RE-RENDERED
+// this row from `status.integrity` and, whenever the re-read did not carry the verdict
+// yet, wrote "not checked" over the answer that had just arrived -- the owner presses
+// Check, reads `healthy`, and watches it flip back. A DOM guard caught it only in the
+// full run: alone, the wait observed the text before the refresh landed, which is the
+// signature of a race rather than a wrong string.
+//
+// A re-read replaces this only with a NEWER verdict, so the freshest fact the panel
+// holds cannot be erased by a reading that is behind it.
+let heldIntegrity = null;
+
 function renderIntegrity(status) {
   const ask = $("db-integrity-check");
   const state = $("db-integrity-state");
   if (!ask || !state) return;
   ask.disabled = false;
-  const found = status.integrity || null;
+  const read = status.integrity || null;
+  if (read && read.at && (!heldIntegrity || !heldIntegrity.at || read.at > heldIntegrity.at)) {
+    heldIntegrity = read;
+  }
+  const found = heldIntegrity || read;
   const scannedNow = (status.health || {}).integrity_checked === true;
   if (scannedNow) {
     // The routine verdict already carries a scan, which is what a small warehouse's
@@ -5787,6 +5805,9 @@ async function checkIntegrityFromPanel() {
     // is rather than as an error talking to the engine.
     out("db-integrity-note",
         esc(verdict.detail || ""), verdict.ok === false ? "err" : "ok");
+    // HELD BEFORE THE REFRESH, not after: `loadDatabase` re-renders this row, and a
+    // re-read that has not caught up must not overwrite what the engine just said.
+    heldIntegrity = verdict;
     // The stored verdict now feeds `ready`, so the rest of the page can have changed.
     loadDatabase();
   } catch (error) {

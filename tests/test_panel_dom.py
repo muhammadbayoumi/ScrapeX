@@ -6417,6 +6417,23 @@ def test_pressing_it_asks_the_engine_and_dates_the_answer(open_panel):
     state = page.text_content("#db-integrity-state")
     assert "healthy" in state and "2026-09-06T12:45:10Z" in state, state
 
+    # AND IT SURVIVES THE REFRESH THE PRESS ITSELF TRIGGERS. `checkIntegrityFromPanel`
+    # reloads the page because the stored verdict feeds `ready`, and that reload
+    # re-renders this row from `GET /api/storage` -- which, until the engine's record is
+    # visible to it, carries no verdict at all. The first version of this page wrote
+    # "not checked" over the answer that had just arrived: press Check, read `healthy`,
+    # watch it flip back.
+    #
+    # DRIVEN RATHER THAN WAITED FOR, because the bug only showed in the full-file run:
+    # alone, this test observed the text BEFORE the reload landed and passed. A guard
+    # that depends on losing a race is not a guard, so the reload is called here.
+    page.evaluate("async () => { await loadDatabase(); }")
+
+    kept = page.text_content("#db-integrity-state")
+    assert "2026-09-06T12:45:10Z" in kept, (
+        "a re-read with no stored verdict overwrote the one the engine just returned: "
+        f"{kept!r}")
+
 
 def test_the_check_is_not_offered_when_the_engine_is_silent(open_panel):
     """THE OPPOSITE OF THE UPGRADE BUTTON BESIDE IT, and the difference is real rather
