@@ -14,25 +14,32 @@ It was last edited on 2026-07-23; `R-73` and `R-74` were ruled on 2026-08-28 and
 1. **`design/tokens.css` IS the Supabase design system.** Shape, typography, spacing,
    elevation, motion and focus geometry are Supabase's, always, and they live in the
    baseline so that every colour choice sits on them.
-2. **A user chooses COLOUR and nothing else.** Four choices: `supabase` (the default),
-   `whatsapp`/`brand`, `github`/`blue`, and `device`.
+2. **A user chooses COLOUR and nothing else, and there is exactly one choice.**
+   `supabase`. [R-85](archive/RULINGS.md#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice)
+   deleted the other three on 2026-08-31 — *«احذف الثلاثة وابق supabase وحده»* — and device
+   colour mode with them. `whatsapp`, `brand`, `github` and `blue` survive in
+   `design/appearance.js` only as aliases resolving to `supabase`, so a preference stored
+   before that date still opens.
 3. **A palette entry may contain nothing but colour**, enforced by
-   `tests/test_a_palette_may_change_nothing_but_colour.py`. `whatsapp` and `github` do not
-   represent the brand — they are colour exceptions on top of the system.
+   `tests/test_a_palette_may_change_nothing_but_colour.py`. The rule outlived the three
+   exceptions it was written for: it governs the palette that remains, and the next one
+   added.
 4. [R-59](archive/RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
    decision 4 still governs: components consume semantic roles, **never** a palette
    identifier.
 
-**Measured 2026-08-29 and worth knowing before you trust the guard:** rule 3 holds in the
-built product across all eight shipped states, and is enforced by one unasserted statement.
-See `OP-102`, and read it before adding a palette.
+**Measured 2026-08-29, and the number moved under it.** Rule 3 was verified in the built
+product across all eight shipped states — four palettes by two schemes. `R-85` left one
+palette by two schemes, so the same guard now covers everything the product ships rather
+than a quarter of it. Read `OP-102` before adding a palette.
 
 ---
 
 ScrapeX has one authored visual system shared by the browser extension and the
-local web workspace. `tools/sync_design_assets.py` is the single source of the copy map —
-nine sources into eighteen destinations — and it is the file to read rather than any list
-restated here, because a restated list goes stale. The three that carry the rules:
+local web workspace. `tools/sync_design_assets.py` is the single source of the copy map,
+and it is the file to read rather than any list restated here — **a count is that same
+restatement in miniature**, and the one that stood in this sentence went stale exactly as
+the sentence warned. The three that carry the rules:
 
 - `design/tokens.css` — semantic colour, type, spacing, shape, elevation,
   control, motion, and layering tokens. **This is the file `R-74` rules on**, and it is
@@ -114,10 +121,19 @@ sentence used to read `LICENSE.txt`, which does not exist**; all three copies do
 (`design/`, `extension/icons/`, `scrapex/webui/static/material-icons/`) and two of the
 three are guarded. Corrected 2026-08-29 by `REQ-49`.
 
-**Nothing here discharges the Supabase obligation.** `design/tokens.css` carries values
-traceable to `github.com/supabase/supabase` — Apache-2.0 at the root, MIT for the
-`packages/ui` these came from — and `design/` carries no notice of either. That is
-`OP-108`, and it is the one licence gap this repository has not already answered.
+**The Supabase obligation is discharged, and this paragraph said the opposite for two
+days.** `design/tokens.css` carries values traceable to `github.com/supabase/supabase` —
+Apache-2.0 at the root, MIT for the `packages/ui` they came from — and since 2026-09-04
+`design/supabase.NOTICE.txt` carries both licences, pins the source commit `86c813ec`,
+names the files the values came from, and states the changes Apache-2.0 §4(b) asks for. It
+is synced to `extension/` and `scrapex/webui/static/` like every other design asset.
+
+What is still open is not the notice's absence but its accuracy. **Nothing asserts a single
+Supabase value anywhere**, so its Apache-2.0 §4(b) statement of changes can go false in
+silence — and four of its five colour entries already have, because `R-85` restored
+`--line-strong`, `--amber` and `--focus` to Supabase's own values and deleted the device
+path the fourth describes. Only `--accent-contrast` is still the departure it claims.
+That is `#700`, and `#698` is why nothing caught it.
 
 Use an icon decoratively with an adjacent visible label:
 
