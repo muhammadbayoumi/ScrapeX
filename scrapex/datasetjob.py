@@ -66,7 +66,7 @@ class NothingToInterpret(LookupError):
 
 
 def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str, int]:
-    """The run ref of this source's most recent crawl that actually stored pages.
+    """The run ref of this source's most recent crawl, and how many READINGS it stored.
 
     CHOSEN HERE AND SAID OUT LOUD, rather than asked of the caller. The panel would
     otherwise have to know how a run ref is built, which is `directoryjob`'s private
@@ -77,6 +77,16 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
     NEWEST BY JOB, NOT BY PAGE. Ordering by `captured_at` would pick a run that stored one
     late page over a run that stored six thousand, because a resumed crawl writes under
     the ref of the job that started it. The job order is the run order.
+
+    THE SECOND VALUE IS SNAPSHOT ROWS, NOT PAGES, AND THE CALLER MUST SAY SO. Measured on
+    the owner's warehouse for run `job-job_6eb28381bf56`: 6,713 snapshot rows, 1,818
+    distinct URLs, 909 page pairs after collapsing the en/ar halves -- because the
+    listing reorders and the sweep reads it once per pass, storing the same URLs again
+    each time (1,818 / 1,546 / 1,260 / 1,138 / 761 / 190 across six passes).
+
+    SO THIS NUMBER AND `approve`'S ARE BOTH TRUE AND MEASURE DIFFERENT THINGS. They were
+    printed six seconds apart under the same words -- "page(s) on disk" -- and read as
+    5,804 pages lost between one line and the next. Nothing was lost; the label was.
     """
     rows = conn.execute(
         "SELECT j.job_ref, count(s.page_snapshot_id) AS pages "
@@ -167,7 +177,10 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     jobs.append_log(
         conn, job["job_id"],
         f"{directory.display_name}: interpreting the stored pages of {run_ref}"
-        + (f" — {pages:,} page(s) on disk" if pages else "")
+        # NAMED FOR WHAT IT COUNTS. `pages` is snapshot ROWS, which a repeated pass
+        # inflates well above the number of distinct pages; `approve` reports the page
+        # pairs it will actually read, and the two shared this line's wording.
+        + (f" — {pages:,} stored reading(s) on disk" if pages else "")
         + ". Nothing is fetched", source_key=source_key)
     conn.commit()
 

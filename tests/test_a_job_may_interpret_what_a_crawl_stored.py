@@ -91,7 +91,9 @@ class _Interpreter:
 
     def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
         self.run_ref = run_ref
-        contractors.say(f"approve {run_ref}: {self.pairs} page(s) on disk")
+        # THE PRODUCT'S OWN WORDING, because a stub that says something the real
+        # `approve` does not is a stub a vocabulary guard cannot measure.
+        contractors.say(f"approve {run_ref}: {self.pairs} page pair(s) to interpret")
         for index in range(self.pairs):
             if between_pages is not None and between_pages(index, self.pairs):
                 raise contractors.CrawlStopped
@@ -234,9 +236,22 @@ def test_the_interpreters_own_report_reaches_the_job_log(conn, monkeypatch):
         "the job interpreted a ref the crawl never stored under")
     logged = " ".join(row["message"] for row in jobs.job_logs(conn, ref))
     assert "interpreting the stored pages of job-job_crawl" in logged
-    assert "9 page(s) on disk" in logged, (
+    assert "9 stored reading(s) on disk" in logged, (
         "the job did not say how much evidence it found, so a run over nothing and a run "
         "over nine thousand pages read the same")
+    # AND THE TWO COUNTS MUST NOT SHARE A WORD, which is the whole of issue 684. On the
+    # owner's warehouse this job logged `6,713 page(s) on disk` and then, six seconds
+    # later, `909 page(s) on disk` -- both true, measuring snapshot ROWS and page PAIRS,
+    # and reading in sequence as 5,804 pages lost. The sweep had stored the same URLs
+    # once per pass (1,818 / 1,546 / 1,260 / 1,138 / 761 / 190), which is by design.
+    assert "page pair(s) to interpret" in logged, (
+        "the interpreter no longer says its count is page PAIRS, so it can be read "
+        "against the job's snapshot-row count as though pages went missing")
+    readings = [row["message"] for row in jobs.job_logs(conn, ref)
+                if "on disk" in row["message"]]
+    assert len(readings) == 1, (
+        "more than one line in this log claims a count 'on disk', which is the "
+        f"ambiguity issue 684 is about: {readings}")
     assert "Nothing is fetched" in logged, (
         "the log does not say this makes no request, which is the one fact that decides "
         "whether it is safe to start beside a crawl")
