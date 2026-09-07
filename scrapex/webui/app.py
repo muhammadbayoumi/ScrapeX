@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -141,6 +142,7 @@ from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
 from ..settings import set_state as set_settings_state
+from ..snapshotcrawl import stored_under_run
 from ..sourceresolver import SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
@@ -739,14 +741,31 @@ def create_app(
         the cautionary tale one file over: it ran a full-file integrity scan on every
         page open and failed the deadline every time.
         """
-        waiting: dict = {"interpret": None, "profiles": None}
+        waiting: dict = {"interpret": None, "profiles": None, "resumable": None}
         if site_key not in directories.BUILDERS:
             return waiting
         directory = directories.get(site_key)
+        # A STOPPED RUN IS A PROPERTY OF THE SITE, NOT OF A DATASET, so it is answered
+        # BEFORE the dataset guard below. It is the one of the three that a
+        # `kind: "directory"` card can carry -- and that card is where the pages are most
+        # at risk: no dataset exists, so no crawl of this source was ever interpreted,
+        # and a run cancelled before that is the one nothing else on the screen mentions.
+        # A test caught the omission by failing on the row that branch builds.
+        #
+        # PAGES A STOPPED CRAWL ALREADY BOUGHT. Measured twice in three days: a cancelled
+        # run held 3,138 stored readings over 802 distinct page URLs, and the next crawl
+        # re-fetched 3,429 of the same readings over about four hours. The newest run is
+        # offered because its frontier is closest to now; the others stay reachable
+        # through the route.
+        stopped = directoryjob.resumable_runs(general, site_key, limit=1)
+        if stopped:
+            waiting["resumable"] = stopped[0]
         if directory.dataset_key != dataset_key:
             # NOT THE PRIMARY DATASET OF THIS SITE. The panel folds a site's tables into
             # one card, and putting the same badge on the folded rows would say a press
-            # is owed three times for one press.
+            # is owed three times for one press. A directory row reaches here too, with
+            # no dataset key at all: interpreting and fetching profiles are claims about
+            # a dataset that does not exist yet, so they stay `None`.
             return waiting
         like = f'%"{site_key}"%'
         crawled = general.execute(
@@ -941,9 +960,29 @@ def create_app(
                 # Never crawled, which the panel renders in words rather than as a
                 # blank or a nought (`freshnessLine`).
                 "last_success": None,
+                # A DIRECTORY CARD CAN HOLD A STOPPED RUN TOO, and this is the case where
+                # the pages are MOST at risk. `kind: "directory"` means no dataset exists
+                # -- so no crawl of this source has ever been interpreted into rows -- and
+                # a run cancelled before that happened is exactly the run whose evidence
+                # nothing else on this screen mentions. A test caught the omission by
+                # failing on the row this branch builds.
+                #
                 "kept_pages": 0,
                 "kept_at": None,
             })
+        # WHAT IS WAITING, DECORATED AFTER THE ROWS RATHER THAN INSIDE THE LOOP, so the
+        # handle is opened once and closed on every path including a raise. A leaked
+        # handle on this file is what blocks a restore from renaming it.
+        #
+        # `interpret` AND `profiles` COME BACK `None` HERE, and that is right rather than
+        # a gap: `kind: "directory"` means no dataset exists, so both would be claims
+        # about a table that is not there. `resumable` is a property of the SITE, and
+        # this is the card where a stopped run's pages are most at risk -- nothing else
+        # on this screen mentions them.
+        if rows:
+            with closing(general_read_conn()) as general:
+                for row in rows:
+                    row["work_waiting"] = _work_waiting(general, row["site_key"], "")
         return rows
 
     def _dataset_listing():
@@ -3908,6 +3947,52 @@ def create_app(
                            "start a run instead")
             checkpoint = {"completed_source_keys": [], "errors": [], "succeeded": 0,
                           "partial_source": source_keys[0]}
+        if job_kind == directoryjob.JOB_KIND and body.get("resume_run_ref"):
+            # CONTINUING ANOTHER RUN'S EVIDENCE, which `already_stored` makes free: the
+            # ref IS the resume key by `snapshotcrawl`'s own design, and a cancelled job
+            # never gets its ref back, so without this the pages under it are unreachable
+            # for ever. Issue 642.
+            asked = str(body["resume_run_ref"])
+            if run_mode == RunMode.FULL_REBUILD:
+                # REFUSED AT THE DOOR AS WELL AS IN THE RUNNER. The runner refuses it
+                # too, but the message a person reads should come from the door they
+                # knocked on rather than from a job that started and stopped.
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"a {RunMode.FULL_REBUILD.value} crawl may not continue "
+                           f"{asked!r}: the mode exists to re-read the site, and "
+                           "skipping what is already stored would make it a no-op that "
+                           "reports success")
+            probe = read_conn()
+            try:
+                # `stored_under_run`, NOT `already_stored`. The exact match is right
+                # for a cell attempt asking about its own derived ref, and returns ZERO
+                # for a run ref -- measured on his warehouse, 0 against 802 distinct
+                # URLs for the cancelled run this exists to rescue. Asking the wrong
+                # one refused every real ref.
+                held = len(stored_under_run(probe, asked))
+                offered = {run["run_ref"]
+                           for run in directoryjob.resumable_runs(probe, source_keys[0],
+                                                                  limit=50)}
+            finally:
+                probe.close()
+            if not held:
+                # A REF WITH NOTHING UNDER IT IS A TYPO, and accepting it would queue a
+                # crawl that stores its pages where nothing will look for them again.
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"no pages are stored under {asked!r}, so there is nothing "
+                           "to continue")
+            if asked not in offered:
+                # A COMPLETED RUN IS NOT RESUMABLE. Inheriting its ref would make this
+                # crawl skip every page it stored -- a crawl that reads nothing and
+                # reports success, which is the trap issue 642 rejected by name.
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{asked!r} is not an interrupted run of {source_keys[0]!r}. "
+                           "A finished run is not resumable: continuing it would skip "
+                           "everything it stored and read nothing")
+            checkpoint = {**(checkpoint or {}), "resume_run_ref": asked}
         if job_kind == profilejob.JOB_KIND:
             # WHICH PROFILES, PASSED THROUGH RATHER THAN DECIDED HERE. The runner reads
             # these three and its docstring holds the rule; this route's job is to let a

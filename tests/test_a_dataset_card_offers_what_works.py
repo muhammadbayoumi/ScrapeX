@@ -109,6 +109,20 @@ RECIPES = {
     "profiles": ("POST /api/jobs", "post", "/api/jobs",
                  {"source_keys": [KEY], "run_mode": "update",
                   "job_kind": "profile_crawl"}),
+    # CONTINUING A STOPPED RUN. THIS RECIPE IS CHECKED FOR ROUTE AGREEMENT AND ITS
+    # REQUEST IS NEVER SENT, and saying so is the point: the two loops below call the
+    # `RESOLVES_A_DATASET` actions and the `MANIFEST_ONLY` ones, and nothing here calls a
+    # `RESOLVES_A_SOURCE_KEY` action at all -- `interpret` and `profiles` are in the same
+    # position. The crawl is measured directly by
+    # `test_the_crawl_route_resolves_the_site_key_and_still_refuses_the_dataset_key`, and
+    # this action is measured by `tests/test_a_cancelled_crawls_pages_are_not_lost.py`,
+    # which drives all four of its answers. The gap is filed rather than papered over
+    # here, because widening it means deciding what a source-key action must answer FOR
+    # -- the site key, not the dataset key -- and that is a change to this suite's own
+    # split.
+    "resume": ("POST /api/jobs", "post", "/api/jobs",
+               {"source_keys": [SITE_KEY], "run_mode": "update",
+                "resume_run_ref": "job-nothing-is-stored-under-this"}),
 }
 
 

@@ -112,6 +112,33 @@ def already_stored(conn: sqlite3.Connection, run_ref: str) -> frozenset[str]:
         (run_ref,)))
 
 
+def stored_under_run(conn: sqlite3.Connection, run_ref: str) -> frozenset[str]:
+    """Every page URL stored under this run ref OR any ref derived from it.
+
+    `already_stored` ABOVE IS AN EXACT MATCH, AND THAT IS RIGHT FOR ITS CALLER. Each cell
+    attempt of a partitioned crawl asks about its OWN derived ref
+    (`{run_ref}-{cell}-a{n}`), because a retry deliberately gets a fresh one and must
+    re-fetch rather than be skipped.
+
+    SO A PARTITIONED CRAWL STORES NOTHING UNDER THE BARE REF, and anything asking "does
+    this RUN hold pages" with the exact match gets zero. Measured while building the
+    resume control: the check refused every real ref, and the log line beside it would
+    have reported `0 page URL(s)` about a run holding thousands.
+
+    A PREFIX COMPARISON AND NOT A LIKE, BECAUSE A JOB REF CARRIES A `_`.
+    `job_925080aad843` contains one, and `_` is a LIKE wildcard -- so an unescaped
+    pattern would also match a ref differing from this one in that position.
+    `contractors.approve` escapes for that reason and says so; here `substr` says the
+    same thing with nothing to escape, which is the version a reader can check at a
+    glance.
+    """
+    return frozenset(row[0] for row in conn.execute(
+        "SELECT DISTINCT source_url FROM generic_page_snapshot "
+        " WHERE crawl_run_ref = ? "
+        "    OR substr(crawl_run_ref, 1, ?) = ?",
+        (run_ref, len(run_ref) + 1, run_ref + "-")))
+
+
 def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
                        base_url: str, *, fetch: Fetch,
                        listing_pages: int, detail_pages: int = 0,

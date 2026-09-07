@@ -31,10 +31,10 @@ import threading
 import time
 from contextlib import closing, nullcontext
 
-from . import contractors, directories
+from . import contractors, directories, snapshotcrawl
 from . import db as dbmod
 from .payload import utc_now_iso
-from .vocab import JobControl, JobStage, JobStatus, LogLevel
+from .vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
 
 #: The kind this module runs. Named once; `jobs.SPECIALISED_RUNNERS` reads it so the
 #: string cannot be spelled two ways in two files.
@@ -117,6 +117,101 @@ class NotADirectory(LookupError):
     """
 
 
+def resumable_runs(conn: sqlite3.Connection, source_key: str,
+                   limit: int = 5) -> list[dict]:
+    """Previous runs of this source that still hold pages, newest job first.
+
+    HIS INSTRUCTION, 2026-09-05: «عاوزين ايضا الاستفادة من ما تم زحفة فى حالة الالغاء» --
+    the pages a cancelled crawl already stored must be usable by the next one. Measured
+    twice in three days: `job_925080aad843` was cancelled holding 3,138 pages and
+    `job_6eb28381bf56` then re-fetched 3,429 of the same pages over about four hours.
+    The same work, bought twice, ~3,400 requests at muqawil.org for nothing.
+
+    NAMED RATHER THAN CHOSEN, and that is the point of returning a list. More than one
+    run may hold pages, and a run whose frontier has moved on is not always the one you
+    want -- so the panel offers one with its page count and when it stopped, and the
+    owner decides. Picking silently would be this function answering a question that is
+    his.
+
+    THE COUNT IS SNAPSHOT ROWS, and it says so in its own key. Issue 684 is what happens
+    when a row count and a page count share a word.
+
+    A RUN THAT FINISHED IS NOT RESUMABLE, AND EXCLUDING IT IS THE LOAD-BEARING HALF.
+    Inheriting a COMPLETED run's ref would make the next crawl skip every page that run
+    stored -- a crawl that reads nothing and reports success, which is precisely the trap
+    issue 642 rejected under "make the ref per-source instead of per-job". An update
+    exists to find what changed, so it must re-read. Only an interruption leaves work
+    that a later run should not buy again.
+    """
+    rows = conn.execute(
+        "SELECT j.job_ref, j.status, j.finished_at, j.created_at, "
+        "       count(s.page_snapshot_id) AS readings "
+        "  FROM crawl_job AS j "
+        "  JOIN generic_page_snapshot AS s "
+        # SUBSTR AND NOT LIKE, BECAUSE EVERY JOB REF CARRIES A `_` --
+        # `job_925080aad843` -- and `_` is a LIKE wildcard, so an unescaped pattern also
+        # matches a ref differing in that position. The escaping is doable and it nests
+        # three deep inside a Python string inside SQL; a prefix comparison says the same
+        # thing with nothing to get wrong. `contractors.approve` escapes instead because
+        # there the pattern arrives as a parameter.
+        "    ON s.crawl_run_ref = 'job-' || j.job_ref "
+        "    OR substr(s.crawl_run_ref, 1, length(j.job_ref) + 5) "
+        "         = 'job-' || j.job_ref || '-' "
+        " WHERE j.job_kind = ? AND j.source_keys LIKE ? "
+        # NOT `completed`, for the reason the docstring gives. Every other terminal and
+        # non-terminal state -- cancelled, failed, paused, partially_completed,
+        # completed_with_errors -- left a frontier somebody stopped part way through.
+        "   AND j.status <> ? "
+        # AN INNER JOIN IS THE FILTER: a run that stored nothing produces no row to
+        # count, so there is nothing to offer and no clause is needed to say so.
+        " GROUP BY j.job_id "
+        " ORDER BY j.job_id DESC LIMIT ?",
+        (JOB_KIND, f'%"{source_key}"%', JobStatus.COMPLETED.value, limit)).fetchall()
+    return [{"run_ref": f"job-{row[0]}", "job_ref": row[0], "status": row[1],
+             "stopped_at": row[2] or row[3], "readings": int(row[4])}
+            for row in rows]
+
+
+def _run_ref_for(job: dict, job_ref: str) -> tuple[str, str]:
+    """`(the ref this crawl stores under, the ref it inherited or "")`.
+
+    THE REF IS THE JOB'S BY DEFAULT, so a resume under the same job skips the pages it
+    already stored -- `already_stored` is scoped to the ref, and the job ref is the only
+    label that is stable across a pause and a re-pick.
+
+    AND A CANCEL IS EXACTLY WHY THAT DEFAULT NEEDED AN ESCAPE. `cancelled` is terminal:
+    no job is ever given that ref again, so the pages stored under it could never be
+    recognised by anything. `snapshotcrawl.already_stored`'s docstring says the run ref
+    IS the resume key, deliberately -- *"the alternative is a `resuming` flag, and a flag
+    is a second place for the two to disagree"* -- and `crawl_to_snapshots` calls the ref
+    *"the operator's label"* while `run_id` carries the run's identity (`R-54`). So
+    inheriting a ref restores a choice the code already says belongs to the caller; it
+    invents nothing.
+
+    IT IS THE SAME CODE PATH A PAUSE ALREADY TAKES, which is why this is small. A
+    re-picked job re-derives `<ref>-<cell>-a1` and finds those pages stored; an inherited
+    ref derives the identical strings from a different job. And a cell whose pages are
+    all skipped still yields its proof -- `_Unstored` says so in terms: *"THE PAGES IT
+    REMOVES ARE NOT LOST TO THE ARITHMETIC. Their ids are read back off the stored
+    snapshot by `_ids_from_disk`."*
+
+    A FULL REBUILD MAY NOT INHERIT. `full_rebuild` exists to re-read; a ref that made it
+    skip what is on disk would turn it into a no-op that reports success, which is worse
+    than the defect being fixed. Refused rather than ignored, because a mode that
+    silently dropped the request would leave the owner believing a rebuild had read the
+    site.
+    """
+    asked = str((job.get("checkpoint") or {}).get("resume_run_ref") or "")
+    if not asked:
+        return f"job-{job_ref}", ""
+    if job.get("run_mode") == RunMode.FULL_REBUILD.value:
+        raise ValueError(
+            f"a {RunMode.FULL_REBUILD.value} crawl may not inherit {asked!r}: the mode "
+            "exists to re-read the site, and skipping what is already stored would make "
+            "it a no-op that reports success")
+    return asked, asked
+
+
 def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                                  admission=None) -> dict:
     """Execute one directory listing crawl to completion, or to a control boundary.
@@ -170,10 +265,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             f"{sorted(directories.BUILDERS)}")
 
     directory = directories.get(source_key)
-    # THE REF IS THE JOB'S, so a resume under the same job skips the pages it already
-    # stored -- `already_stored` is scoped to the ref, and the job ref is the only
-    # label that is stable across a pause and a re-pick.
-    run_ref = f"job-{job_ref}"
+    run_ref, inherited = _run_ref_for(job, job_ref)
     cells = len(directory.partition().cells())
     #: The warehouse this job connection is open on, asked of the connection itself
     #: rather than threaded in as a parameter -- the runner contract is
@@ -195,6 +287,20 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     jobs.append_log(conn, job["job_id"],
                     f"{directory.display_name}: listing crawl of {cells:,} cell(s) "
                     f"as {run_ref}", source_key=source_key)
+    if inherited:
+        # SAID, BECAUSE IT CHANGES WHAT THE RUN WILL DO. A crawl storing under another
+        # job's label skips every page that label already holds, so a reader who did not
+        # know would take a short run as a short site.
+        # THE DERIVED REFS, because a partitioned crawl stores under none of them
+        # bare: `already_stored` here would have printed `0 page URL(s)` about a run
+        # holding hundreds, which is a false zero in the one line that explains why
+        # the run will be short.
+        held = len(snapshotcrawl.stored_under_run(conn, inherited))
+        jobs.append_log(
+            conn, job["job_id"],
+            f"  continuing the evidence of {inherited}, which holds {held:,} page URL(s)"
+            " — those are skipped rather than fetched again",
+            source_key=source_key)
     if workers > 1:
         # SAID, BECAUSE HE CANNOT SEE IT ANY OTHER WAY. A pool is invisible from the job
         # card -- the cells still close one at a time -- and a crawl that suddenly runs
