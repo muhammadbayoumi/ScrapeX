@@ -20,6 +20,7 @@ WHAT WAS TAKEN, AND FROM WHERE
   Commit     86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94  (2026-08-28)
 
   Files read:
+    packages/config/css/animations.css
     packages/ui/build/css/themes/light.css
     packages/ui/build/css/themes/dark.css
     packages/ui/build/css/source/semantic.css
@@ -27,9 +28,12 @@ WHAT WAS TAKEN, AND FROM WHERE
     apps/design-system/styles/globals.css
 
   What came across:
-    * Fifteen colour values, byte-exact.
-    * Nineteen more, re-derived by evaluating Supabase's own OKLCH expressions
-      for the scalar inputs their theme files declare.
+    * Colour values. Some are byte-exact; the rest were re-derived by evaluating
+      Supabase's own OKLCH expressions for the scalar inputs their theme files
+      declare. WHICH IS WHICH IS RECORDED AT EACH VALUE in design/tokens.css and
+      is not counted here: a count is a restatement, and the one that stood in
+      this sentence went stale on 2026-08-31, when R-85 moved three values out of
+      the replaced set and into the byte-exact one.
     * The type scale, the weights, the radius scale and the focus geometry.
     * Token NAMES, where this product's semantic role matches theirs.
 
@@ -66,10 +70,16 @@ APACHE LICENSE 2.0
     License for the specific language governing permissions and limitations under
     the License.
 
-The full text of the Apache License 2.0 is carried in this repository alongside
-this file, as design/material-icons.LICENSE.txt. It is the same licence text and
-it is not duplicated; that file is Google's attribution and this one is
-Supabase's, and both point at the same terms.
+The full text of the Apache License 2.0 is carried in this repository as
+material-icons.LICENSE.txt, which is Google's attribution for the icon sprite. It
+is the same licence text, it is not duplicated, and both notices point at the same
+terms.
+
+WHERE TO FIND IT DEPENDS ON WHICH COPY OF THIS FILE YOU ARE READING, and the
+sentence above used to claim it sat beside all three. It is beside this file only
+in design/. In the two synced distributions the sprite and its licence sit one
+directory deeper -- extension/icons/ and scrapex/webui/static/material-icons/ --
+while this notice sits at the root of each.
 
 
 MIT LICENSE
@@ -100,36 +110,82 @@ of its own, so no copyright line of theirs exists to copy verbatim.
 
 STATEMENT OF CHANGES — Apache License 2.0, section 4(b)
 
-The values in design/tokens.css are CHANGED from what Supabase publishes. Every
-change is recorded at the value in that file; this is the summary.
+Most values in design/tokens.css are Supabase's; a few are not, and the shape of
+the borrowing differs from theirs in ways that are not values at all. Section 4(b)
+asks for a statement of what changed, so this is that statement. Every change is
+also recorded at the value in design/tokens.css, and that file is authoritative
+where this summary is brief.
 
   1. RESOLVED, NOT COPIED. Their semantic colours are computed at runtime in
      OKLCH from a small set of scalar inputs per theme. This product resolves
      those expressions to static values, because it ships CSS without a build
      step. The arithmetic is theirs; the constants are the output of it.
 
-  2. FIVE VALUES WERE DELIBERATELY REPLACED, each because it fails a contrast
-     floor this product enforces and theirs does not state:
+  2. ONE VALUE IS STILL DELIBERATELY REPLACED, because it fails a contrast floor
+     this product enforces and theirs does not state:
 
-       --line-strong   their --border-stronger is 1.57:1 on their own card
-       --amber         their --warning is 2.68:1 on their own warning-300 tint
-       --focus         their focus ring flattens to 1.47:1 on their background
-       --accent-contrast   their brand green is 1.99:1 against white
-       device --accent-contrast   the on-colour their OKLCH-lightness step picks
-                       is near-white where WCAG relative luminance wants black,
-                       because the two disagree about saturated blues
+       --accent-contrast   near-black rather than their on-colour, because their
+                       brand green measures 1.99:1 against white and anything
+                       light on that fill fails AA outright
+
+     FOUR ENTRIES STOOD HERE AND ARE GONE RATHER THAN CORRECTED. --line-strong,
+     --amber and --focus were replacements until 2026-08-31, when R-85 ruled that
+     this system matches Supabase exactly and all three were restored to their
+     published values. A fifth described an on-colour for device colour mode;
+     R-85 deleted that path entirely and no device block remains. The contrast
+     numbers those entries carried are still recorded at the values in
+     design/tokens.css, which is where a reader who wonders why a border measures
+     1.542:1 finds both the number and the ruling behind it.
 
   3. NAMES DIVERGE ABOVE THE BODY SIZE. This product's type scale carries an
      `md` step that Tailwind has no name for, so from --fs-md upward every rung
      sits one place below theirs. The values match; the names do not.
 
-  4. THE MOTION VOCABULARY IS NOT THEIRS. Neither easing curve in
-     design/tokens.css appears in their source, and their most-used duration has
-     no token here.
+  4. THE MOTION CURVES ARE THEIRS; NAMING THEM IS NOT. Both curves in
+     design/tokens.css are Supabase's own, at the commit above, in
+     packages/config/css/animations.css: cubic-bezier(0.16, 1, 0.3, 1) in four of
+     their --animate-* declarations and cubic-bezier(0.87, 0, 0.13, 1) in eight.
+     Three of their durations are here too, 0.1s and 0.15s and 0.25s. What is this
+     product's own is that the curves are ADDRESSABLE: they declare no custom
+     property for either and inline both inside animation shorthands, while
+     --ease and --ease-travel make them referable. Their most-used duration,
+     300ms, has no rung here.
 
-  5. TOKENS THEY DO NOT HAVE. Shadow tokens, line-height tokens, a forced-colors
-     block, a prefers-contrast accommodation, and a bidirectional-text contract
-     are this product's own. Supabase publishes none of them.
+     THIS ITEM CLAIMED THE OPPOSITE UNTIL 2026-09-07 -- that neither curve
+     appeared in their source. It was wrong in the direction a licence notice can
+     least afford, crediting this product with their work.
+
+  5. TOKENS AND ACCOMMODATIONS THEY DO NOT HAVE. Shadow tokens, line-height
+     tokens and a prefers-contrast accommodation are in design/tokens.css. A
+     forced-colors block and a bidirectional-text contract -- unicode-bidi
+     isolation plus logical box and alignment properties -- are in
+     design/components.css. Searching their repository for forced-colors,
+     prefers-contrast and unicode-bidi returns nothing at all, so none of the five
+     is theirs. The heading of this section names tokens.css; two of the five live
+     one file over, and saying so costs less than letting a reader discover it.
+
+     REDUCED MOTION IS NOT ON THIS LIST, and it was on an earlier draft of it.
+     Supabase does honour prefers-reduced-motion -- fourteen places in their
+     repository, including packages/ui-patterns -- so respecting it here is not a
+     divergence and does not belong in a statement of changes.
+
+     THE BIDIRECTIONAL CONTRACT IS ALSO THE ONE AXIS THE EXACTNESS RULING
+     EXEMPTS. R-85 makes this system Supabase's exactly, and he scoped that to the
+     value layer. Their system is written in physical directions and their
+     documentation does not raise bidirectional text, while half of what this
+     product collects is Arabic. Matching them on that axis could only mean
+     deleting the contract, so it is exempt by ruling and not by oversight.
+
+  6. THE ICON SET IS NOT THEIRS, and it is recorded here rather than repaired.
+     Supabase mandates Lucide, at size 24 with strokeWidth 1.5, stroke
+     currentColor and no fill. This product ships a filled Material Design
+     sprite: 50 <symbol> tags of which 49 carry an id, 37 distinct symbols
+     referenced across 205 call sites, and three copies of Google's own
+     Apache-2.0 notice that this repository already discharges.
+
+     ASKED ON 2026-09-02 WHETHER TO MIGRATE OR TO RECORD IT, HE CHOSE TO RECORD
+     IT. R-85's exactness instruction was scoped to the values, and an icon set is
+     not a colour value.
 
 
 WHAT IS NOT COVERED BY THIS NOTICE

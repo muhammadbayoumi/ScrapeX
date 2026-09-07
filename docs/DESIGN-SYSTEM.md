@@ -70,15 +70,28 @@ python tools/sync_design_assets.py --check
 2. **Shared behavior is a component concern.** Hover, active, focus-visible,
    invalid, and disabled states live in `components.css`. A page stylesheet
    should normally contain layout only.
-3. **Theme-aware by default.** Light, dark, increased-contrast, reduced-motion,
-   forced-colour, touch, and keyboard states are part of the core system.
+3. **Theme-aware by default, and two of these are ours rather than theirs.**
+   Light, dark, increased-contrast, reduced-motion, forced-colour, touch and
+   keyboard states are all part of the core system. Light and dark are Supabase's.
+   **The `forced-colors` block and the `prefers-contrast` accommodation are
+   additions above the baseline** — searching their repository for either returns
+   nothing — and both are recorded as such in the statement of changes in
+   `design/supabase.NOTICE.txt`. **Reduced motion is not an addition**: Supabase
+   honours `prefers-reduced-motion` in fourteen places, so respecting it here
+   matches them rather than departing from them.
 4. **English chrome, any-language data.** Scraped values use `.content`,
    `.name`, or `dir="auto"` so bidirectional text is isolated correctly.
 5. **Use native semantics first.** Real buttons, links, labels, fieldsets,
    tables, tabs, and dialogs are preferred; ARIA augments them only where the
    native element cannot express the interaction.
-6. **One icon source.** Reuse a symbol from the Material sprite instead of
-   embedding an SVG path or drawing a replacement.
+6. **One icon source, and it is a declared departure.** Reuse a symbol from the
+   Material sprite instead of embedding an SVG path or drawing a replacement.
+   **Supabase's icon set is Lucide**, at size 24 with `strokeWidth` 1.5 and
+   `stroke: currentColor`; this product ships a filled Material sprite. Asked on
+   2026-09-02 whether to migrate or to record the difference, he chose to record
+   it — `R-85`'s exactness instruction was scoped to the values, and an icon set
+   is not a colour value. The cost of migrating, and the reason it was not paid,
+   are in `design/supabase.NOTICE.txt`.
 
 ## Token groups
 
@@ -86,7 +99,7 @@ python tools/sync_design_assets.py --check
 |---|---|
 | Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
-| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` (40px) and `--control-height-sm` (32px), both from the Supabase baseline since `R-85` deleted the panel's 48/40 override; `--touch-target` survives for the places that size for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
 | Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
 | Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
@@ -128,12 +141,16 @@ Apache-2.0 at the root, MIT for the `packages/ui` they came from — and since 2
 names the files the values came from, and states the changes Apache-2.0 §4(b) asks for. It
 is synced to `extension/` and `scrapex/webui/static/` like every other design asset.
 
-What is still open is not the notice's absence but its accuracy. **Nothing asserts a single
-Supabase value anywhere**, so its Apache-2.0 §4(b) statement of changes can go false in
-silence — and four of its five colour entries already have, because `R-85` restored
-`--line-strong`, `--amber` and `--focus` to Supabase's own values and deleted the device
-path the fourth describes. Only `--accent-contrast` is still the departure it claims.
-That is `#700`, and `#698` is why nothing caught it.
+What was open until 2026-09-07 was not the notice's absence but its accuracy: **four of
+its five colour entries were false**, because `R-85` restored `--line-strong`, `--amber`
+and `--focus` to Supabase's own values and deleted the device path the fourth described.
+Only `--accent-contrast` is still the departure it claims.
+
+`tests/test_the_notice_describes_the_values_it_ships.py` now pins those five values and
+asserts the harder thing — that the tokens the notice **names** as replaced are exactly the
+tokens the guard pins — because the failure was never a value moving. It was a value moving
+while the notice kept its old sentence. **What that guard does not do is assert every value
+borrowed from Supabase**; that is the wider gap, and it is open.
 
 Use an icon decoratively with an adjacent visible label:
 
