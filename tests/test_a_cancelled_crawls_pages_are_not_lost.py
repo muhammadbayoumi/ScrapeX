@@ -196,6 +196,62 @@ def test_the_runner_really_crawls_under_the_inherited_ref(conn, monkeypatch):
         f"the line reports the wrong number of held URLs: {logged!r}")
 
 
+def test_a_re_picked_job_says_it_is_resuming(conn, monkeypatch):
+    """ISSUE 606, AND IT IS THE HALF THE INHERITED-REF LINE DID NOT COVER.
+
+    His crawl was at `running 7/56` with 2,859 pages stored; the engine was relaunched
+    and the panel went to `preparing 0/56` with `Requests 0`. Nothing was lost -- the job
+    was re-dispatched and RE-PROVED its closed cells from disk at zero network requests.
+    But the opening lines were identical either way, so that pair of numbers reads as a
+    stalled crawl while being the resume working perfectly. He watched it and had to ask.
+
+    NO INHERITED REF HERE. This is a job re-picked under its OWN ref, which is the case
+    he actually met, and the first version of this line fired only on an inheritance.
+    """
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    # Pages already under this job's own ref, the way a killed run leaves them.
+    for page in range(4):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+            "VALUES (?, 'text/html', X'00', ?, ?)",
+            (f"https://muqawil.org/en/contractors?page={page}", f"h-{page}",
+             f"job-{ref}-riyadh-a1"))
+    conn.commit()
+    monkeypatch.setattr(directoryjob.contractors, "crawl",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+
+    with pytest.raises(RuntimeError, match="stop"):
+        directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "resuming:" in logged, (
+        f"a re-picked job does not say it is resuming, so `0/56 · Requests 0` still "
+        f"reads as a stalled crawl: {logged!r}")
+    assert "4 page URL(s)" in logged, f"it does not say what it found: {logged!r}"
+    assert "not fetched" in logged and "zero requests" in logged, (
+        f"the line does not explain the pair of numbers he asked about: {logged!r}")
+    assert "continuing the evidence" not in logged, (
+        "it claims to have inherited a ref nobody gave it")
+
+
+def test_a_first_run_says_nothing_about_resuming(conn, monkeypatch):
+    """A LINE THAT IS ALWAYS THERE IS A LINE NOBODY READS, and a first run has nothing on
+    disk to recognise. Silence here is what makes the resume line mean something."""
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(directoryjob.contractors, "crawl",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+
+    with pytest.raises(RuntimeError, match="stop"):
+        directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "resuming:" not in logged, (
+        f"a first run claims to be resuming: {logged!r}")
+
+
 # ---- the route the control presses ------------------------------------------
 
 

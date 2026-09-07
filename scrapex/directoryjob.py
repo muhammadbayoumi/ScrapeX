@@ -287,19 +287,34 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     jobs.append_log(conn, job["job_id"],
                     f"{directory.display_name}: listing crawl of {cells:,} cell(s) "
                     f"as {run_ref}", source_key=source_key)
-    if inherited:
-        # SAID, BECAUSE IT CHANGES WHAT THE RUN WILL DO. A crawl storing under another
-        # job's label skips every page that label already holds, so a reader who did not
-        # know would take a short run as a short site.
-        # THE DERIVED REFS, because a partitioned crawl stores under none of them
-        # bare: `already_stored` here would have printed `0 page URL(s)` about a run
-        # holding hundreds, which is a false zero in the one line that explains why
-        # the run will be short.
-        held = len(snapshotcrawl.stored_under_run(conn, inherited))
+    # A RESUME SAYS SO, WHETHER IT INHERITED A REF OR RE-PICKED ITS OWN. Issue 606: his
+    # crawl was at `running 7/56` with 2,859 pages stored, the engine was relaunched, and
+    # the panel went to `preparing 0/56` with `Requests 0`. Nothing was lost -- the job
+    # was re-dispatched and RE-PROVED its closed cells from disk at zero network requests
+    # -- but the opening lines were identical either way, so that pair of numbers reads
+    # as a stalled crawl and is in fact the resume working perfectly. He watched it happen
+    # and had to ask what it meant; answering needed a read of four tables and the process
+    # list.
+    #
+    # PAGE URLs AND NOT CELLS, though the bar counts cells. A cell count means parsing the
+    # cell label out of a run ref, and the ref's shape is this module's own business by the
+    # docstring above -- a number derived from a string breaks silently the day the string
+    # changes. The URL count answers the question he actually asked, because what makes
+    # `0/56 · Requests 0` legible is that the pages are already there.
+    #
+    # THE DERIVED REFS, because a partitioned crawl stores under none of them bare:
+    # `already_stored` here printed `0 page URL(s)` about a run holding hundreds --
+    # measured 0 against 802 on his warehouse -- which is a false zero in the one line
+    # that exists to explain why a run will be short.
+    held = len(snapshotcrawl.stored_under_run(conn, run_ref))
+    if held:
         jobs.append_log(
             conn, job["job_id"],
-            f"  continuing the evidence of {inherited}, which holds {held:,} page URL(s)"
-            " — those are skipped rather than fetched again",
+            (f"  continuing the evidence of {inherited}, which holds " if inherited
+             else f"  resuming: {run_ref} already holds ")
+            + f"{held:,} page URL(s) — those are re-proved from disk and not fetched "
+            "again, so a low cell count beside zero requests is this run recognising "
+            "what is already stored",
             source_key=source_key)
     if workers > 1:
         # SAID, BECAUSE HE CANNOT SEE IT ANY OTHER WAY. A pool is invisible from the job

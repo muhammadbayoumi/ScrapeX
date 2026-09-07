@@ -328,6 +328,80 @@ def test_appearance_has_one_cross_surface_sync_contract():
     assert '@app.post("/api/appearance")' in server
 
 
+def _colour_pattern() -> re.Pattern[str]:
+    """Every colour literal this repository refuses outside the token layer.
+
+    NAMED SO ITS OWN TEST MEASURES THE SHIPPED PATTERN. It was a local, and a
+    test for it would have had to re-type the regex -- which is how a guard comes
+    to pass against a pattern the product no longer uses.
+    """
+    # THE THREE-DIGIT BRANCH REQUIRES ONE NON-DECIMAL HEX LETTER, and that is a
+    # deliberate trade rather than an oversight. Every decimal digit is a valid hex
+    # digit, so `#367`, `#420` and `#301` all matched the old three-digit alternative --
+    # and an issue number cited in a comment is exactly what `CLAUDE.md` asks for: "if it
+    # belongs beside a line of code, put it there -- a comment, a test name, an issue".
+    # It fired on correct code four times in one day (issue 607), and the failure names a
+    # COLOUR LITERAL, so the first move was always to hunt for a colour that is not
+    # there.
+    #
+    # WHAT IT COSTS, AND THE ISSUE'S OWN OPTION TABLE GOT THIS WRONG: it said three-digit
+    # greys "like `#333` and `#ccc`" stay caught. `#ccc` does. `#333` DOES NOT -- it is
+    # all-decimal, and so are `#000`, `#111`, `#666` and `#999`, which are the commonest
+    # three-digit greys there are. So the trade is bigger than that sentence claimed and
+    # is stated here properly: NO all-decimal three-digit colour is detected any more.
+    #
+    # MEASURED BEFORE ACCEPTING IT. Scanning the three policed folders for
+    # `#nnn` with all-decimal digits: 98 occurrences, 6 distinct values -- and EVERY ONE
+    # of them is inside `vendor/tabulator.min.css`, which this guard already exempts as
+    # vendor code. In the first-party code it actually polices there are ZERO. The six-
+    # and eight-digit branches are untouched, so `#333333` is still caught, and the
+    # design-system milestones audit the token layer far more thoroughly than this
+    # regex ever could.
+    #
+    # `test_the_colour_guard_reads_an_issue_number_as_a_number` holds both halves, so the
+    # exemption cannot widen in silence.
+    return re.compile(
+        r"(?<![&A-Za-z0-9_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|"
+        r"(?=[0-9a-fA-F]{3}(?![A-Za-z0-9_-]))[0-9a-fA-F]*[a-fA-F][0-9a-fA-F]*"
+        r")(?![A-Za-z0-9_-])|rgba?\(|"
+        r"(?<![.A-Za-z0-9_-])(?:hsla?|hwb|oklab|oklch|lab|lch|light-dark|color)\(",
+    )
+
+
+def test_the_colour_guard_reads_an_issue_number_as_a_number(tmp_path):
+    """An issue number cited in a comment is not a colour, and four sessions in one day
+    were spent proving that the hard way.
+
+    `#367`, `#420`, `#301` all matched the old three-digit alternative, because every
+    decimal digit is a valid hex digit. The failure message names a COLOUR LITERAL, so
+    the first move was always to hunt for a colour that is not there -- and citing an
+    issue beside the line it explains is exactly what `CLAUDE.md` asks for.
+
+    BOTH HALVES ARE HELD HERE so the exemption cannot widen in silence: an all-decimal
+    triple is a number, and anything carrying a hex letter is still a colour.
+    """
+    from tests.test_vendor import _colour_pattern
+
+    colour = _colour_pattern()
+
+    for number in ("#367", "#420", "#301", "#123", "#333", "#000", "#999"):
+        assert not colour.search(f"// see issue {number} for why"), (
+            f"{number} is read as a colour, so a cited issue number fails this guard")
+
+    for literal in ("#3a7", "#ccc", "#a1b", "#0a0", "#fff",
+                    "#112233", "#FFFFFF", "#aabbccdd"):
+        assert colour.search(f"color: {literal};"), (
+            f"{literal} is no longer caught, so the guard has stopped guarding")
+
+    # AND THE FUNCTIONAL NOTATIONS, which the same pattern owns and which a rewrite of
+    # the hex branches could break without any hex test noticing.
+    for functional in ("rgba(0,0,0,1)", "rgb(0 0 0)", "hsl(0 0% 100%)",
+                       "oklch(0.5 0 0)", "light-dark(white, black)"):
+        assert colour.search(f"color: {functional};"), functional
+    # `color-mix(` STAYS LEGAL: it is arithmetic on tokens, not a literal.
+    assert not colour.search("color-mix(in oklab, var(--a), var(--b))")
+
+
 def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
     allowed = {
         ROOT / "design" / "tokens.css",
@@ -343,11 +417,7 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
     # defect in its next-cheapest spellings. `color-mix(` stays legal: it is
     # arithmetic on tokens, not a literal, and both components sheets lean on
     # it. The dot in the lookbehind keeps `.color(...)` calls out of the net.
-    colour = re.compile(
-        r"(?<![&A-Za-z0-9_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|"
-        r"[0-9a-fA-F]{3})(?![A-Za-z0-9_-])|rgba?\(|"
-        r"(?<![.A-Za-z0-9_-])(?:hsla?|hwb|oklab|oklch|lab|lch|light-dark|color)\(",
-    )
+    colour = _colour_pattern()
     # `href="#add"` is a fragment reference to a sprite symbol, and `add` is
     # three hex digits. Every page that reaches the sprite through a path has a
     # letter before the `#`, which the lookbehind already covers; a page with an
