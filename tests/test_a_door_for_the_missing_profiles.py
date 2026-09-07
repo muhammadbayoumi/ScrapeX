@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from scrapex import contractors, directories, jobs, profilejob  # noqa: E402
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
-from scrapex.vocab import JobStatus  # noqa: E402
+from scrapex.vocab import JobControl, JobStatus  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -467,6 +467,92 @@ def test_a_job_stopped_while_waiting_never_fetches(warehouse, monkeypatch):
     assert "stopped while waiting" in logged, (
         f"it stopped in silence, so nobody can tell this from a job that never ran: "
         f"{logged!r}")
+
+
+def test_a_settled_row_stops_a_running_sweep_even_with_no_control_left(warehouse,
+                                                                       monkeypatch):
+    """ISSUE 791, AND IT IS THE ONE THE MORNING'S FIX DOES NOT COVER.
+
+    He pressed Cancel at 13:55:57 on a sweep that was AWAKE and fetching. It ran to
+    `completed 938/938` at 14:23:50 and the word "cancel" appears nowhere in its log.
+    At 13:58 the row read `finished_at = 13:55:57` AND `status = running` AND
+    `control = none` -- finished and running at once, with no instruction left to find.
+
+    TWO THINGS MADE THAT POSSIBLE. The beat wrote `status = running` FIRST and
+    unconditionally, over the `cancelling` `set_control` parks there; and `_finish`
+    clears `control`, so a stop already recorded leaves nothing for a guard that reads
+    only `control`.
+
+    SO THE ROW OUTRANKS THE INSTRUCTION. This settles the job from underneath, exactly as
+    the live incident did, and leaves `control` clear -- the state in which the old guard
+    saw nothing at all.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"95{n:02d}" for n in range(8)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    fetched: list[str] = []
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+
+    def settle_after_two(url):
+        fetched.append(url)
+        if len(fetched) == 2:
+            # WHAT THE INCIDENT DID: the job is finished and its control cleared, while
+            # the sweep goes on holding the thread.
+            jobs._finish(conn, jobs.get_job(conn, job_ref)["job_id"],
+                         JobStatus.CANCELLED, None)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, settle_after_two))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    assert len(fetched) <= 3, (
+        f"the sweep asked for {len(fetched)} page(s) after its row was settled -- it "
+        "fetched on past a stop, which is what cost 938 requests on 2026-09-07")
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "already settled" in logged, (
+        f"it stopped in silence, so this is indistinguishable from a sweep that simply "
+        f"ended: {logged!r}")
+    assert jobs.get_job(conn, job_ref)["status"] == JobStatus.CANCELLED.value
+
+
+def test_the_beat_does_not_write_running_over_a_pending_stop(warehouse, monkeypatch):
+    """`set_control` PARKS A WORKER-HELD JOB IN `cancelling` to mean "the worker will
+    settle this at its next safe boundary", and its own docstring calls the
+    compare-and-swap load-bearing so *"a job that reaches a terminal state concurrently
+    can never be resurrected by a late control click"*. The beat resurrected it from the
+    other side, by writing `running` before it read anything."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"96{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+
+    def cancel_after_one(url):
+        seen.append(url)
+        if len(seen) == 1:
+            jobs.set_control(conn, job_ref, JobControl.CANCEL)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, cancel_after_one))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert settled["status"] == JobStatus.CANCELLED.value, (
+        f"a pending cancel did not settle the job: {settled['status']}")
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "cancelled between pages" in logged, (
+        f"the cancel branch never fired, or never committed its line: {logged!r}")
+    assert len(seen) <= 2, f"it fetched {len(seen)} page(s) past the cancel"
 
 
 def test_the_route_still_refuses_a_kind_the_registry_owns(served):

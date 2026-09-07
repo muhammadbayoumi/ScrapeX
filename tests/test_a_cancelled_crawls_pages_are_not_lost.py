@@ -252,6 +252,48 @@ def test_a_first_run_says_nothing_about_resuming(conn, monkeypatch):
         f"a first run claims to be resuming: {logged!r}")
 
 
+def test_a_settled_row_stops_the_listing_crawl_at_its_next_cell(conn, monkeypatch):
+    """ISSUE 791 ON THIS RUNNER, WHICH HAS THE IDENTICAL SHAPE AND WAS NOT BITTEN.
+
+    Measured on the profile runner: he pressed Cancel on a sweep that was awake and
+    fetching, and it ran to completion -- 938 requests -- with the word "cancel" nowhere
+    in its log. The beat wrote `status = running` first and unconditionally, and
+    `_finish` clears `control`, so a stop already recorded left nothing for a guard that
+    read only `control`.
+
+    THIS RUNNER ESCAPED BY TIMING, NOT BY DESIGN: the cells he cancelled happened to
+    close before a beat could resurrect them. A 14-hour crawl is the worst place for that
+    to be luck, so the row is read here too.
+    """
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    closed: list[int] = []
+
+    def crawl_two_cells(conn_, directory, fetch, fetcher, run_ref, attempts,
+                        *, between_cells=None, workers=1, connect=None):
+        for cell in range(4):
+            if cell == 1:
+                # WHAT THE INCIDENT DID: settled, and its control cleared, while the
+                # crawl still holds the thread.
+                jobs._finish(conn, jobs.get_job(conn, ref)["job_id"],
+                             JobStatus.CANCELLED, None)
+                conn.commit()
+            if between_cells is not None and between_cells():
+                return
+            closed.append(cell)
+
+    monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_two_cells)
+
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    assert len(closed) <= 2, (
+        f"{len(closed)} cell(s) closed after the row was settled -- the crawl ran on "
+        "past a stop")
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "already settled" in logged, (
+        f"it stopped in silence: {logged!r}")
+
+
 # ---- the route the control presses ------------------------------------------
 
 

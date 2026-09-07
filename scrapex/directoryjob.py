@@ -461,9 +461,37 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # `on_cell` -- so however wide the pool, exactly one thread is in this function
         # at a time. That is also what makes `done["cells"]` a count rather than a race.
         with for_writing() as own:
-            jobs._update(own, job["job_id"], status=JobStatus.RUNNING.value,
-                         stage=JobStage.FETCHING.value, progress_done=done["cells"],
-                         last_heartbeat_at=utc_now_iso())
+            # READ BEFORE WRITING, AND THE ROW OUTRANKS THE INSTRUCTION -- issue 791,
+            # measured on the profile runner, which has the identical shape. He pressed
+            # Cancel on a running sweep and it fetched all 938 pages anyway, with the
+            # word "cancel" nowhere in its log: the beat wrote `status = running` FIRST
+            # and unconditionally, over the `cancelling` that `set_control` had just
+            # parked there to mean "the worker will settle this at its next safe
+            # boundary". And `_finish` clears `control`, so a stop already recorded
+            # leaves no pending intent for a guard that reads only `control`.
+            #
+            # THIS RUNNER HAD NOT BEEN BITTEN, and the reason is not that it is safe: the
+            # cells he cancelled happened to close before the beat that would have
+            # resurrected them. The shape is the same, so the guard is the same.
+            if not jobs.still_wanted(own, job_ref):
+                jobs.append_log(
+                    own, job["job_id"],
+                    f"stopped after {done['cells']:,} of {cells:,} cell(s): this job is "
+                    "already settled, so no further page is fetched",
+                    source_key=source_key)
+                own.commit()
+                stopped.append(JobStatus.CANCELLED.value)
+                return True
+            pending = jobs._control_of(own, job["job_id"]) in {
+                JobControl.PAUSE.value, JobControl.CANCEL.value}
+            if not pending:
+                # NOT WHEN A STOP IS PENDING: writing `running` would erase the
+                # transitional state the panel is showing him, and the branches below
+                # settle it a few lines from here.
+                jobs._update(own, job["job_id"], status=JobStatus.RUNNING.value,
+                             stage=JobStage.FETCHING.value,
+                             progress_done=done["cells"],
+                             last_heartbeat_at=utc_now_iso())
             # AND THE REQUEST COUNT, HERE RATHER THAN ONLY AT THE END. It was written
             # once in `finally`, so the panel showed `requests: 0` beside `cells 2/56`
             # for hours -- two numbers on one card contradicting each other, on the
