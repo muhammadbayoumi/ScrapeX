@@ -527,11 +527,32 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         return dbmod.connect(db_file)
 
     try:
-        with admit, contractors.lines_go_to(note):
-            contractors.crawl(conn, directory, beating, fetcher, run_ref,
-                              contractors.DEFAULT_MAX_ATTEMPTS,
-                              between_cells=cell_closed, workers=workers,
-                              connect=a_connection if workers > 1 else None)
+        with admit:
+            # RE-READ AFTER THE LANE, BECAUSE THE WAIT MADE THE ENTRY CHECK STALE. The
+            # terminal check at the top of this function ran before `admit`, and a lane
+            # wait lasts exactly as long as the job holding the lane. Measured on the
+            # profile runner 2026-09-07: a sweep entered at 10:33:44, waited 33 minutes,
+            # was cancelled at 11:02:54 -- and fetched 938 pages at 11:06 because
+            # nothing looked again. `between_cells` could not save it either: `_finish`
+            # clears `control`, so by then there was no instruction left to find.
+            #
+            # THIS RUNNER HAS THE SAME SHAPE AND HAD NOT BEEN BITTEN YET, which is the
+            # only difference: his listing crawl happened to be the job HOLDING the
+            # lane rather than the one waiting for it.
+            if not jobs.still_wanted(conn, job_ref):
+                jobs.append_log(
+                    conn, job["job_id"],
+                    "stopped while waiting for the site's turn, so nothing was "
+                    "fetched — the decision to stop was made after this run began "
+                    "waiting",
+                    source_key=source_key)
+                conn.commit()
+                return jobs.get_job(conn, job_ref) or job
+            with contractors.lines_go_to(note):
+                contractors.crawl(conn, directory, beating, fetcher, run_ref,
+                                  contractors.DEFAULT_MAX_ATTEMPTS,
+                                  between_cells=cell_closed, workers=workers,
+                                  connect=a_connection if workers > 1 else None)
     except contractors.CrawlStopped:
         # NOT AN ERROR, AND NOT SILENT EITHER. The crawl was asked to stop by
         # `cell_closed`, which has already written the status and said why.

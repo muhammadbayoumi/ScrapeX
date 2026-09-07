@@ -66,7 +66,7 @@ class NothingToInterpret(LookupError):
 
 
 def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str, int]:
-    """The run ref of this source's most recent crawl, and how many READINGS it stored.
+    """The run ref of this source's most recent run that stored pages, and how many.
 
     CHOSEN HERE AND SAID OUT LOUD, rather than asked of the caller. The panel would
     otherwise have to know how a run ref is built, which is `directoryjob`'s private
@@ -94,14 +94,40 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
         "  JOIN generic_page_snapshot AS s "
         "    ON s.crawl_run_ref = 'job-' || j.job_ref "
         "    OR s.crawl_run_ref LIKE 'job-' || j.job_ref || '-%' "
-        " WHERE j.job_kind = ? AND j.source_keys LIKE ? "
+        # ANY KIND THAT STORED PAGES, NOT THE LISTING CRAWL ALONE -- issue 782, and it
+        # stranded 33 minutes of his work. A `profile_crawl` stores profile pages under
+        # its OWN ref, and this filter could only ever choose a `directory_crawl`, so
+        # `Interpret stored pages` looked straight past 938 pages he had just fetched
+        # and `contractor_profiles` stayed at 17,393 rows.
+        #
+        # THE INTERPRETER WAS NEVER THE LIMIT. `contractors.approve` decides per page
+        # which document it is reading -- `_contractor_of(key)` picks the profile
+        # candidate builder, and its own comment records what it cost before that branch
+        # existed: "running it over 712 stored profiles would have refused every one of
+        # them." The capability was there; the SELECTION was blind.
+        #
+        # THE BUTTON SAYS `interpret stored pages`, and the honest reading of that is the
+        # pages most recently stored. `job_id DESC` below keeps the order the run
+        # happened in, and the opening log line names the ref it chose -- which is what
+        # this function's own docstring promises: the choice is auditable rather than
+        # hidden.
+        #
+        # NAMED KINDS AND NOT AN OPEN FILTER, though dropping the clause entirely would
+        # pass every test today. Measured on his warehouse: only `directory_crawl` (9,851
+        # pages) and `profile_crawl` (1,876) hold pages under a `job-` ref for this
+        # source, and `organization_enrichment` holds none anywhere. "None today" is not
+        # a guarantee -- a future kind storing pages of some third shape would be fed to
+        # a parser built for two, and the failure would be a refusal per page rather than
+        # anything loud. So the two collectors are named, and adding a third is a
+        # deliberate edit here.
+        " WHERE j.job_kind IN (?, ?) AND j.source_keys LIKE ? "
         # AN INNER JOIN IS THE FILTER, and a `HAVING pages > 0` beside it was dead code
         # that read as the guard -- a mutation removing it changed no verdict, because a
         # crawl that stored nothing produces no row to count in the first place. Said
         # here rather than left as a clause somebody trusts.
         " GROUP BY j.job_id "
         " ORDER BY j.job_id DESC LIMIT 1",
-        ("directory_crawl", f'%"{source_key}"%')).fetchone()
+        ("directory_crawl", "profile_crawl", f'%"{source_key}"%')).fetchone()
     if rows is None:
         raise NothingToInterpret(
             f"{source_key!r} has no crawl that stored pages, so there is nothing to "

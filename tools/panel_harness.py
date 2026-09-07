@@ -85,7 +85,14 @@ STRESS_SOURCES = [
      # cancelled holding 3,138 stored readings.
      "work_waiting": {"interpret": {"crawl_finished_at": "2026-09-06T05:01:44Z",
                                     "interpreted_at": None},
-                      "profiles": 469,
+                      # TWO NUMBERS SINCE THE FETCH GAP AND THE ROW GAP WERE SPLIT.
+                      # `fetch` is what a request would buy; `rowless` is the coverage
+                      # figure. EQUAL HERE, which is the state before any fetch has run
+                      # and the one that offers the button -- his warehouse on 2026-09-07
+                      # at 10:33. The state where they DIVERGE is driven by a test with
+                      # its own `sources=` stub, because that branch withholds the button
+                      # and a default carrying it would hide the offer everywhere else.
+                      "profiles": {"rowless": 469, "fetch": 469},
                       "resumable": {"run_ref": "job-job_925080aad843",
                                     "job_ref": "job_925080aad843",
                                     "status": "cancelled",

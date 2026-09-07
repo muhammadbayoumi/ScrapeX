@@ -5232,11 +5232,26 @@ function waitingLine(s) {
       `${esc(fmtCount(stopped.readings))} stored reading(s); starting fresh buys them ` +
       `again</span>`);
   }
-  if (waiting.profiles) {
+  // TWO NUMBERS, AND THE LINE ONLY OFFERS THE BUTTON WHEN THERE IS A REQUEST TO MAKE.
+  // `rowless` is who has no profile ROW; `fetch` is who still needs a page from the
+  // site. They diverged the moment he pressed Fetch: 469 rowless, 938 pages fetched,
+  // and `rowless` did not move -- storing a page writes no row. The card went on saying
+  // "469 contractors have no profile page stored", which had become FALSE, above a
+  // button that would have bought the same 938 pages again.
+  const profiles = waiting.profiles || {};
+  if (profiles.fetch) {
     rows.push(`<span class="badge off">Fetch missing profiles</span>` +
-      `<span class="muted"> · ${esc(fmtCount(waiting.profiles))} ` +
-      `${waiting.profiles === 1 ? "contractor has" : "contractors have"} no profile ` +
-      `page stored</span>`);
+      `<span class="muted"> · ${esc(fmtCount(profiles.fetch))} ` +
+      `${profiles.fetch === 1 ? "contractor needs" : "contractors need"} a profile ` +
+      `page fetched</span>`);
+  } else if (profiles.rowless) {
+    // PAGES ON DISK AND NO ROWS: the next press is an INTERPRETATION, not a request.
+    // Saying so is the difference between him finding the right button and pressing the
+    // one that says "profiles" because the word matches.
+    rows.push(`<span class="badge off">Interpret stored pages</span>` +
+      `<span class="muted"> · ${esc(fmtCount(profiles.rowless))} ` +
+      `${profiles.rowless === 1 ? "contractor has" : "contractors have"} a profile ` +
+      `page on disk and no row yet — nothing to fetch</span>`);
   }
   if (!rows.length) return "";
   return `<div class="n" role="status">` +
@@ -5493,7 +5508,13 @@ function sourceActions(source) {
     why: "Crawl on from where a stopped run left off, skipping the pages it kept.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  const profiles = source.site_key && source.kind === "dataset" ? [{
+  // OFFERED ONLY WHEN A REQUEST IS OWED. `profiles.fetch` is the count of contractors
+  // whose pages are NOT on disk; when it is zero every rowless contractor already has
+  // its pages and the honest next step is an interpretation. A button that would buy
+  // 938 pages the warehouse already holds is the button-that-cannot-work in its most
+  // expensive form.
+  const profileGap = ((source.work_waiting || {}).profiles || {}).fetch;
+  const profiles = source.site_key && source.kind === "dataset" && profileGap ? [{
     action: "profiles",
     label: "Fetch missing profiles",
     why: "Fetch the profile page of every contractor that has none yet.",

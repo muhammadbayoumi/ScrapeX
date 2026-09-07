@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from scrapex import contractors, directories, jobs, profilejob  # noqa: E402
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
+from scrapex.vocab import JobStatus  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -335,6 +336,139 @@ def test_the_route_queues_a_profile_sweep_for_a_directory(served):
     assert kind == "profile_crawl"
 
 
+def test_the_fetch_gap_closes_when_the_pages_are_stored(warehouse):
+    """THE DEFECT HIS SCREENSHOT SHOWED. Storing a profile page writes no row, so a
+    frontier counting ROWS does not move when the sweep succeeds -- and the control
+    re-derives the same contractors on every press. Measured on his engine: two sweeps
+    fetched 938 pages EACH, 1,876 requests for what 938 would have bought.
+
+    `still_to_fetch` IS THE SECOND QUESTION. `missing_profile_ids` stays the row gap,
+    because that is the right frontier for interpreting and the honest coverage figure.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["7001", "7002"])
+    rowless = profilejob.missing_profile_ids(conn, directory)
+    assert set(rowless) == {"7001", "7002"}
+    assert profilejob.still_to_fetch(conn, directory, rowless) == rowless, (
+        "nothing is stored yet and the fetch gap is already empty")
+
+    # Every locale of 7001's profile, stored the way the sweep stores them.
+    from scrapex.sites.muqawil import MuqawilPageSource
+    for url in MuqawilPageSource(last_page=1).profile_urls(directory.base_url, "7001"):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+            "VALUES (?, 'text/html', X'00', ?, 'job-whatever-a1')",
+            (url, f"hash-{url}"))
+    conn.commit()
+
+    assert profilejob.missing_profile_ids(conn, directory) == rowless, (
+        "the ROW gap moved when a page was stored, which it must not: a stored page "
+        "writes no row, and this number is the coverage figure")
+    assert profilejob.still_to_fetch(conn, directory, rowless) == ("7002",), (
+        "the FETCH gap still names a contractor whose pages are on disk, so the control "
+        "would buy them again")
+
+
+def test_one_locale_stored_is_not_fetched(warehouse):
+    """ALL LOCALES OR NONE. `approve` pairs the halves and counts a lonely one as lonely,
+    so a contractor with an English page and no Arabic one still needs a request --
+    which is what a resume is for."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["8001"])
+    from scrapex.sites.muqawil import MuqawilPageSource
+    first = next(iter(MuqawilPageSource(last_page=1)
+                      .profile_urls(directory.base_url, "8001")))
+    conn.execute(
+        "INSERT INTO generic_page_snapshot "
+        "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+        "VALUES (?, 'text/html', X'00', 'h', 'job-half-a1')", (first,))
+    conn.commit()
+
+    assert profilejob.still_to_fetch(conn, directory, ("8001",)) == ("8001",), (
+        "a contractor with one locale stored was treated as fetched, so the missing "
+        "half is never asked for")
+
+
+def test_the_runner_refuses_when_every_rowless_contractor_has_its_pages(warehouse):
+    """AND IT SAYS WHICH REFUSAL IT IS. "Nothing to fetch" because nobody is missing and
+    "nothing to fetch" because the pages are already here are different answers, and the
+    second one means the next press is an interpretation. Saying only the first would
+    send him looking for the wrong button -- which is exactly what the card did."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["9101"])
+    from scrapex.sites.muqawil import MuqawilPageSource
+    for url in MuqawilPageSource(last_page=1).profile_urls(directory.base_url, "9101"):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+            "VALUES (?, 'text/html', X'00', ?, 'job-stored-a1')", (url, f"h-{url}"))
+    conn.commit()
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+
+    with pytest.raises(profilejob.NothingToFetch, match="nothing left to FETCH"):
+        profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+
+def test_a_job_stopped_while_waiting_never_fetches(warehouse, monkeypatch):
+    """THE WORST OF TODAY'S THREE, AND IT EXECUTED WORK HE HAD STOPPED.
+
+    MEASURED 2026-09-07. Two sweeps were queued 18 seconds apart. The second entered its
+    runner at 10:33:44, passed the terminal check, and BLOCKED on the per-host politeness
+    lane for 33 minutes. He cancelled it at 11:02:54 -- thirty minutes after the only
+    check that would have stopped it. At 11:06:23 the lane freed, it woke up, and it
+    fetched 938 profile pages: 938 requests at muqawil.org and 38 minutes, for pages
+    another job had already stored.
+
+    `between_pages` COULD NOT SAVE IT. That hook reads `control`, and `_finish` clears
+    `control` to `none` when it settles a job -- so by the time the sweep was running
+    there was no pending instruction left to find, and its log never mentioned the cancel
+    at all. **The hole is before the first page, not between pages.**
+
+    THE LANE IS CANCELLED HERE BY CANCELLING THE JOB WHILE IT WAITS, which is what the
+    admission object lets a test do: `lane` is entered, and the cancel lands inside it.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["9201"])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    fetched: list[str] = []
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+
+    class CancelWhileWaiting:
+        """An admission whose lane cancels the job before it lets go -- which is exactly
+        what a 33-minute wait allows to happen."""
+
+        def lane(self, host):
+            from contextlib import contextmanager
+
+            @contextmanager
+            def held():
+                jobs._finish(conn, jobs.get_job(conn, job_ref)["job_id"],
+                             JobStatus.CANCELLED, None)
+                conn.commit()
+                yield
+            return held()
+
+    settled = profilejob.run_profile_crawl_job_once(
+        conn, job_ref, admission=CancelWhileWaiting())
+
+    assert fetched == [], (
+        f"a cancelled job asked the site for {len(fetched)} page(s) -- it executed work "
+        "that had been stopped")
+    assert settled["status"] == JobStatus.CANCELLED.value, settled["status"]
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "stopped while waiting" in logged, (
+        f"it stopped in silence, so nobody can tell this from a job that never ran: "
+        f"{logged!r}")
+
+
 def test_the_route_still_refuses_a_kind_the_registry_owns(served):
     """The crawl kinds stay INFERRED. A caller free to name `directory_crawl` would be a
     second place deciding which collector runs, which is the drift the registry exists to
@@ -401,6 +535,45 @@ def test_the_default_asks_for_nothing_and_that_means_the_missing_set(served, tmp
         f"the default carried a frontier choice: {raw!r}")
 
 
+def test_the_route_sends_the_fetch_gap_and_not_the_row_gap_twice(served):
+    """A MUTATION FOUND THIS GUARD MISSING. The DOM guard for the same defect drives a
+    `sources=` stub, so replacing the route's `still_to_fetch` call with `len(rowless)`
+    changed nothing any test could see -- the panel's half was proven and the engine's
+    was not.
+
+    HIS SCREENSHOT IS THE CASE. 469 rowless, 938 pages fetched, and the card went on
+    offering a request that would buy them again -- because both numbers came from the
+    row gap.
+    """
+    client, path = served
+    directory = directories.get(SITE)
+    conn = dbmod.connect(path)
+    try:
+        from scrapex.sites.muqawil import MuqawilPageSource
+        for url in MuqawilPageSource(last_page=1).profile_urls(
+                directory.base_url, "9001"):
+            conn.execute(
+                "INSERT INTO generic_page_snapshot "
+                "  (source_url, content_type, html_content, content_hash, "
+                "   crawl_run_ref) "
+                "VALUES (?, 'text/html', X'00', ?, 'job-fetched-a1')",
+                (url, f"h-{url}"))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["profiles"]["rowless"] == 2, (
+        "the ROW gap moved because a page was stored, which it must not: that number is "
+        f"the coverage figure: {waiting['profiles']}")
+    assert waiting["profiles"]["fetch"] == 1, (
+        "the FETCH gap still counts a contractor whose pages are on disk, so the card "
+        f"offers a request that would buy them again: {waiting['profiles']}")
+
+
 def test_the_sources_route_says_what_is_waiting(served):
     """HIS REQUIREMENT: *«اريد الظهور على الكارت انه يحتاج لعمل interpret store pages عند
     الحاجة»* -- so the card is not a place he waits for something that is waiting for
@@ -417,9 +590,15 @@ def test_the_sources_route_says_what_is_waiting(served):
             "the route does not say what is waiting, so the card cannot")
         waiting = row["work_waiting"]
         assert set(waiting) >= {"interpret", "profiles"}, waiting
-        # TWO CONTRACTORS SIGHTED AND NO PROFILE STORED FOR EITHER, so the number the
-        # button acts on is 2. A `None` here would mean the route looked and found
-        # nothing to look at, which is a different claim from "none are missing".
-        assert waiting["profiles"] == 2, waiting
+        # TWO NUMBERS, NOT ONE, AND HIS SCREENSHOT IS WHY. `rowless` is who has no
+        # profile ROW -- the coverage figure -- and `fetch` is who still needs a REQUEST.
+        # They were one number until 2026-09-07, when he fetched 938 pages, `rowless` did
+        # not move (storing a page writes no row), and the card went on offering a button
+        # that would buy the same pages again.
+        #
+        # EQUAL HERE, because nothing has been fetched in this warehouse: two sighted
+        # contractors, no rows and no pages. The state where they DIVERGE is asserted in
+        # `test_the_fetch_gap_closes_when_the_pages_are_stored` below.
+        assert waiting["profiles"] == {"rowless": 2, "fetch": 2}, waiting
         assert waiting["interpret"] is None, (
             "no crawl has finished in this warehouse and the route says one has")

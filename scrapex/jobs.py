@@ -1148,6 +1148,36 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     return (datetime.now(UTC) - beat).total_seconds() <= max_age_s
 
 
+def still_wanted(conn: sqlite3.Connection, job_ref: str) -> bool:
+    """Whether this job is still one the owner wants run. Read AFTER a wait.
+
+    THE TERMINAL CHECK AT A RUNNER'S ENTRY IS NOT ENOUGH, and 2026-09-07 measured the
+    cost. Two `profile_crawl` jobs were queued 18 seconds apart. The second entered its
+    runner at 10:33:44, passed the entry check, and then BLOCKED on the per-host
+    politeness lane for 33 minutes. He cancelled it at 11:02:54 -- thirty minutes after
+    the only check that would have stopped it. At 11:06:23 the lane freed, it woke up,
+    and it fetched 938 profile pages he had stopped: 938 requests at muqawil.org and 38
+    minutes, for pages another job had already stored.
+
+    AND THE IN-FLIGHT CANCEL GUARD DID NOT CATCH IT EITHER. `between_pages` reads
+    `control`, and `_finish` clears `control` to `none` when it settles a job -- so by
+    the time the sweep was running there was no pending instruction left to find, and its
+    log never mentioned the cancel at all. The hole is BEFORE the first page, not between
+    pages.
+
+    SO A WAIT MAKES A DECISION STALE, and any runner that waits has to re-read. A lane
+    wait is unbounded by design: it exists so two jobs do not ask one host for pages at
+    once, which means it lasts exactly as long as the other job does.
+
+    `None` FROM `get_job` COUNTS AS NOT WANTED, the same reading `page_closed` already
+    takes: a job whose row has gone is a job whose database this worker was told to drop.
+    """
+    job = get_job(conn, job_ref)
+    if job is None:
+        return False
+    return job["status"] not in {status.value for status in TERMINAL_JOB_STATUSES}
+
+
 def reclaim_orphaned_jobs(conn: sqlite3.Connection, *,
                           keep: Iterable[str] = ()) -> int:
     """Settle jobs left mid-flight by a runtime that died. Returns how many.
