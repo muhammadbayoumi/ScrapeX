@@ -33,7 +33,12 @@ WHAT WAS TAKEN, AND FROM WHERE
       declare. WHICH IS WHICH IS RECORDED AT EACH VALUE in design/tokens.css and
       is not counted here: a count is a restatement, and the one that stood in
       this sentence went stale on 2026-08-31, when R-85 moved three values out of
-      the replaced set and into the byte-exact one.
+      the replaced set. They moved into the RE-DERIVED set rather than the
+      byte-exact one, because upstream all three are expressions and not
+      literals -- --border-stronger and --ring are alpha composites and --warning
+      is an oklch() call -- so what ships is this product's evaluation of their
+      arithmetic. An earlier version of this sentence said byte-exact, which
+      over-credited them with three values that are our own output.
     * The type scale, the weights, the radius scale and the focus geometry.
     * Token NAMES, where this product's semantic role matches theirs.
 
@@ -121,21 +126,38 @@ where this summary is brief.
      those expressions to static values, because it ships CSS without a build
      step. The arithmetic is theirs; the constants are the output of it.
 
-  2. ONE VALUE IS STILL DELIBERATELY REPLACED, because it fails a contrast floor
-     this product enforces and theirs does not state:
+  2. NO COLOUR VALUE IS DELIBERATELY REPLACED. This item listed five, and every
+     one of the five is gone. It is kept as an empty item rather than deleted,
+     because a reader comparing this notice against an earlier distribution needs
+     to know the list emptied rather than moved.
 
-       --accent-contrast   near-black rather than their on-colour, because their
-                       brand green measures 1.99:1 against white and anything
-                       light on that fill fails AA outright
+     THREE WERE RESTORED. --line-strong, --amber and --focus were replacements
+     until 2026-08-31, when R-85 ruled that this system matches Supabase exactly.
+     A FOURTH DESCRIBED A PATH THAT NO LONGER EXISTS: an on-colour for device
+     colour mode, which R-85 deleted entirely.
 
-     FOUR ENTRIES STOOD HERE AND ARE GONE RATHER THAN CORRECTED. --line-strong,
-     --amber and --focus were replacements until 2026-08-31, when R-85 ruled that
-     this system matches Supabase exactly and all three were restored to their
-     published values. A fifth described an on-colour for device colour mode;
-     R-85 deleted that path entirely and no device block remains. The contrast
-     numbers those entries carried are still recorded at the values in
-     design/tokens.css, which is where a reader who wonders why a border measures
-     1.542:1 finds both the number and the ruling behind it.
+     AND THE FIFTH WAS NEVER A REPLACEMENT, which took two review passes to find.
+     --accent-contrast ships #030303 in light and #131413 in dark, and this item
+     said that was a deliberate near-black chosen because their brand green
+     measures 1.99:1 against white. Both values are in fact Supabase's own
+     resolved output. Their --primary-foreground is
+
+         oklch( min(--surface, --foreground-lightness)
+                calc(--chroma * 0.45)
+                --hue )
+
+     and evaluating it with the scalars their own theme files declare at the
+     commit above gives exactly those two values: light surface 0.995 and
+     foreground-lightness 0.1 and chroma 0 give oklch(0.1 0 159) = #030303, and
+     dark surface 0.19 and foreground-lightness 0.95 and chroma 0.005 give
+     oklch(0.19 0.00225 159) = #131413. Supabase reaches the same near-black by
+     the same reasoning; this product did not depart from them, it agreed with
+     them. The contrast measurement is corroboration and was never the cause.
+
+     So every colour value here belongs to item 1: resolved from their arithmetic,
+     not chosen against it. The contrast numbers the removed entries carried are
+     still recorded at the values in design/tokens.css, which is where a reader who
+     wonders why a border measures 1.542:1 finds both the number and the ruling.
 
   3. NAMES DIVERGE ABOVE THE BODY SIZE. This product's type scale carries an
      `md` step that Tailwind has no name for, so from --fs-md upward every rung

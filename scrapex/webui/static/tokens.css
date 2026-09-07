@@ -77,8 +77,16 @@
   --accent-hover: #65d8a4;    /* brand/80 flat         derived */
   --accent-active: #8ee8bd;   /* brand-400/80 flat     derived */
   --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
-  /* Near-black, not white, and not a stylistic choice: their brand green is
-     1.99:1 on white. Anything light on this fill fails AA outright. */
+  /* THEIRS, RESOLVED -- and this comment called it a departure for nine days.
+     Their --primary-foreground is
+     oklch(min(--surface,--foreground-lightness) calc(--chroma*0.45) --hue); with
+     light's own scalars (surface 0.995, foreground-lightness 0.1, chroma 0) that
+     is oklch(0.1 0 159) = #030303, and dark's (0.19, 0.95, 0.005) give
+     oklch(0.19 0.00225 159) = #131413. Both reproduce byte-for-byte, which is
+     also what validates the converter.
+     The contrast fact is still true and is no longer the reason: their brand
+     green is 1.99:1 on white, so anything light on this fill fails AA outright.
+     Supabase arrives at the same near-black by the same logic. */
   --accent-contrast: #030303;
   --accent-weak: #d3f8e4;     /* brand-200 light       PUBLISHED */
   /* R-85: THEIRS EXACTLY, AND THIS ONE COST NOTHING.
