@@ -117,7 +117,13 @@ def test_a_database_that_is_behind_is_called_upgradeable_not_broken(
     state = database.health()
 
     assert state.status == "Needs upgrade", state.status
-    assert "Upgrade database" in state.action and "Settings" in state.action, \
+    # "Database" AND NOT "Settings", which is this assertion's own intent catching
+    # up with the product. Its message has always demanded "the screen it is on";
+    # #679 gave the Database page its own screen and took `#runtime-upgrade` with
+    # it, and this line went on pinning the screen the control had left. A guard
+    # that pins the wrong screen is worse than no guard: it makes the stale
+    # sentence look verified, which is why the sentence survived weeks of green.
+    assert "Upgrade database" in state.action and "Database" in state.action, \
         "the fix must be named as the button it is, and the screen it is on"
     for command in ("scrapex ", "python -m", "init-db"):
         assert command not in state.action, \
