@@ -260,16 +260,34 @@
   --lh: 1.5;
   --lh-relaxed: 1.65;
 
-  /* Motion and layering. THE DURATIONS BELOW ARE NOT THEIR RAMP, and an earlier
-     version of this comment said they were. Measured over packages/ui and
-     packages/ui-patterns their ramp is 75/100/150/200/300/400/500/700/1000ms,
-     dominated by 200 (14 uses) and 100 (6). `duration-250` is used ZERO times,
-     and 200 -- their de-facto control transition -- has no token here at all.
-     THE TWO CURVES ARE OURS, NOT THEIRS. Neither cubic-bezier below appears
-     anywhere in their source; their components use Tailwind stock easing. Pairing
-     the curves by meaning -- one for things that APPEAR, one for things that
-     TRAVEL -- is this repository's own idea and worth keeping, but it is an
-     addition on top of the baseline, not a transcription of it. */
+  /* Motion and layering. BOTH CURVES BELOW ARE SUPABASE'S OWN, and this comment
+     said the opposite twice before it said this. They are in
+     packages/config/css/animations.css at the pinned commit: cubic-bezier(0.16, 1,
+     0.3, 1) in four of their --animate-* declarations and cubic-bezier(0.87, 0,
+     0.13, 1) in eight.
+
+     WHY IT TOOK THREE PASSES, because the shape of the error matters more than the
+     error. The measurement that concluded "the curves are ours" searched
+     packages/ui and packages/ui-patterns -- named in the sentence it produced --
+     and the curves live in packages/config, which was never searched. A correct
+     query aimed at the wrong object returns a confident wrong answer, and this
+     comment is what a later session reads to learn why a line exists, so the wrong
+     answer propagated into the licence notice's statement of changes.
+
+     WHAT IS ACTUALLY OURS IS THAT THE CURVES ARE ADDRESSABLE. Supabase declares no
+     custom property for either and inlines both inside animation shorthands;
+     --ease and --ease-travel make them referable, and pairing them by meaning --
+     one for things that APPEAR, one for things that TRAVEL -- is this repository's
+     idea.
+
+     THE DURATIONS NEED BOTH MEASUREMENTS TO BE TRUE AT ONCE. Their Tailwind
+     utility ramp across packages/ui and packages/ui-patterns is
+     75/100/150/200/300/400/500/700/1000ms, dominated by 200 (14 uses) and 100 (6),
+     and the `duration-250` utility is used ZERO times. Their animations.css uses
+     the literals 100ms, 200ms, 250ms and 300ms directly. So all three tokens below
+     match a duration they use, AND their most-used control transition, 200ms, has
+     no token here. Both sentences are about different objects; neither replaces
+     the other. */
   --dur-fast: 0.1s;
   --dur: 0.15s;
   --dur-slow: 0.25s;

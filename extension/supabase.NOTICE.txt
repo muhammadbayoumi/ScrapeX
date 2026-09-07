@@ -20,6 +20,7 @@ WHAT WAS TAKEN, AND FROM WHERE
   Commit     86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94  (2026-08-28)
 
   Files read:
+    packages/config/css/animations.css
     packages/ui/build/css/themes/light.css
     packages/ui/build/css/themes/dark.css
     packages/ui/build/css/source/semantic.css
@@ -154,13 +155,19 @@ where this summary is brief.
      appeared in their source. It was wrong in the direction a licence notice can
      least afford, crediting this product with their work.
 
-  5. TOKENS AND ACCOMMODATIONS THEY DO NOT HAVE. Shadow tokens and line-height
-     tokens are in design/tokens.css. A forced-colors block, a prefers-contrast
-     accommodation and a bidirectional-text contract -- unicode-bidi isolation
-     plus logical box and alignment properties -- are in design/components.css.
-     Supabase publishes none of the five. The heading of this section names
-     tokens.css; two of the five live one file over, and saying so costs less than
-     letting a reader discover it.
+  5. TOKENS AND ACCOMMODATIONS THEY DO NOT HAVE. Shadow tokens, line-height
+     tokens and a prefers-contrast accommodation are in design/tokens.css. A
+     forced-colors block and a bidirectional-text contract -- unicode-bidi
+     isolation plus logical box and alignment properties -- are in
+     design/components.css. Searching their repository for forced-colors,
+     prefers-contrast and unicode-bidi returns nothing at all, so none of the five
+     is theirs. The heading of this section names tokens.css; two of the five live
+     one file over, and saying so costs less than letting a reader discover it.
+
+     REDUCED MOTION IS NOT ON THIS LIST, and it was on an earlier draft of it.
+     Supabase does honour prefers-reduced-motion -- fourteen places in their
+     repository, including packages/ui-patterns -- so respecting it here is not a
+     divergence and does not belong in a statement of changes.
 
      THE BIDIRECTIONAL CONTRACT IS ALSO THE ONE AXIS THE EXACTNESS RULING
      EXEMPTS. R-85 makes this system Supabase's exactly, and he scoped that to the
