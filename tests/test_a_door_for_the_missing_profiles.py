@@ -27,7 +27,9 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from scrapex import contractors, directories, jobs, profilejob  # noqa: E402
+from scrapex import (  # noqa: E402
+    contractors, datasetjob, directories, directoryjob, jobs, profilejob,
+)
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
 from scrapex.vocab import JobControl, JobStatus  # noqa: E402
@@ -658,6 +660,71 @@ def test_the_route_sends_the_fetch_gap_and_not_the_row_gap_twice(served):
     assert waiting["profiles"]["fetch"] == 1, (
         "the FETCH gap still counts a contractor whose pages are on disk, so the card "
         f"offers a request that would buy them again: {waiting['profiles']}")
+
+
+def test_a_finished_profile_sweep_sets_the_interpret_badge(served):
+    """ISSUE 792, WHICH IS 782'S FILTER IN THE OTHER PLACE AND THE ONE I MISSED.
+
+    The badge asked "has a LISTING crawl finished since the last interpretation?", so a
+    profile sweep finishing with 938 uninterpreted pages set nothing. Measured on his
+    warehouse: newest listing crawl 2026-09-06T05:01:44Z, newest interpretation
+    2026-09-06T14:07:16Z, newest profile sweep 2026-09-07T14:23:50Z -- and the route
+    answered `"interpret": null`.
+
+    **The button worked and the card said nothing.** He pressed Interpret because I told
+    him to in chat, not because the panel told him a press was owed -- and «حتى لا انتظر
+    شى يحتاج اكشن منى» is the requirement that badge exists for.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        # An interpretation that finished, and then a profile sweep AFTER it.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T14:07:16Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a profile sweep finished after the last interpretation and the card says "
+        "nothing is owed -- which is the whole point of that badge")
+    assert waiting["interpret"]["crawl_finished_at"] == "2026-09-07T14:23:50Z", (
+        f"the badge is dated from the wrong run: {waiting['interpret']}")
+    assert waiting["interpret"]["interpreted_at"] == "2026-09-06T14:07:16Z"
+
+
+def test_the_two_collecting_kinds_are_named_once(served):
+    """TWO READERS, ONE FACT. The selection and the badge both need to know which kinds
+    collect pages, and issue 792 happened because only the first was widened. A third
+    reader would make it three, so the names live in `datasetjob.COLLECTING_KINDS` and
+    this asserts nothing re-types them."""
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    app = (root / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+
+    assert "COLLECTING_KINDS" in app, (
+        "the route no longer reads the shared constant, so the two readers can drift "
+        "again")
+    assert '"profile_crawl"' not in app.replace(
+        'profilejob.JOB_KIND', ''), (
+        "the route re-types a collecting kind as a literal instead of reading the "
+        "constant")
+    assert set(datasetjob.COLLECTING_KINDS) == {directoryjob.JOB_KIND,
+                                                profilejob.JOB_KIND}, (
+        f"the constant and the modules disagree: {datasetjob.COLLECTING_KINDS}")
 
 
 def test_the_sources_route_says_what_is_waiting(served):
