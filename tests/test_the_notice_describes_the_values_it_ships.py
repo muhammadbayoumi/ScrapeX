@@ -155,11 +155,21 @@ def test_the_notice_declares_no_deliberate_colour_replacement(notice):
         "guard reads. If a deliberate replacement has been introduced, add it to "
         "OURS above and rewrite this assertion deliberately rather than deleting it."
     )
-    body = notice.split(marker, 1)[1].split("THREE WERE RESTORED", 1)[0]
-    named = set(re.findall(r"--[a-z0-9-]+", body))
-    assert named == set(OURS), (
-        f"the notice names {sorted(named)} in its replaced-values paragraph; this "
-        f"guard pins {sorted(OURS)}. A value was replaced without the notice saying "
+    end = "  3. NAMES DIVERGE"
+    assert end in notice, "item 3's heading moved; this guard delimits item 2 by it"
+    item_two = notice.split(marker, 1)[1].split(end, 1)[0]
+
+    # An ENTRY is a token at the entry indentation followed by its reason -- the
+    # shape every one of the five removed entries had. Prose that merely NAMES a
+    # token, as the paragraphs explaining what was removed do, is not an entry and
+    # must not be counted as one. An earlier version of this test read the two
+    # sentences before those paragraphs, a window that contains no token at all, so
+    # it compared set() with set() and could not fail. It is asserted against the
+    # WHOLE of item 2 now, and against the shape rather than the mention.
+    entries = set(re.findall(r"^ {7}(--[a-z0-9-]+)\s{2,}\S", item_two, re.M))
+    assert entries == set(OURS), (
+        f"item 2 lists {sorted(entries) or 'no'} entries; this guard pins "
+        f"{sorted(OURS) or 'none'}. A value was replaced without the notice saying "
         f"so, or the notice says so without the value being replaced."
     )
 

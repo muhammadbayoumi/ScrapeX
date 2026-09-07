@@ -144,7 +144,11 @@ is synced to `extension/` and `scrapex/webui/static/` like every other design as
 What was open until 2026-09-07 was not the notice's absence but its accuracy: **four of
 its five colour entries were false**, because `R-85` restored `--line-strong`, `--amber`
 and `--focus` to Supabase's own values and deleted the device path the fourth described.
-Only `--accent-contrast` is still the departure it claims.
+**And the fifth was never a departure either**, which took a further review pass to find:
+`--accent-contrast` ships Supabase's own `--primary-foreground` resolved — `oklch(0.1 0 159)`
+= `#030303` in light and `oklch(0.19 0.00225 159)` = `#131413` in dark, from the scalars
+their own theme files declare. **No colour value in `design/tokens.css` is a deliberate
+departure**; every one belongs to *resolved, not copied*.
 
 `tests/test_the_notice_describes_the_values_it_ships.py` now pins those five values and
 asserts the harder thing — that the tokens the notice **names** as replaced are exactly the
