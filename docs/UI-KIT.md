@@ -74,8 +74,8 @@ are invisible to it. That gap is real. It is not closed by pretending otherwise.
 | Belongs to one page of the web UI | `scrapex/webui/static/pages/<page>.css` | one page |
 
 `design/` is **canonical**, and `tools/sync_design_assets.py` is the single source of the
-copy map — **nine sources into eighteen destinations**. Read the tool rather than a list
-restated here; a restated list goes stale, and this one had.
+copy map. Read the tool rather than any restatement here — **a count is a restatement too**,
+and the one that stood in this sentence went stale exactly as the sentence warned.
 
 **The two copies this sentence used to omit are the ones that matter most.**
 `design/tokens.css` is the file [R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
