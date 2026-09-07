@@ -1319,6 +1319,30 @@
         </section>
 
         <h2 class="manage-account-section" id="manage-backups-title">In your Drive</h2>
+
+        <!-- TAKING A BACKUP LIVES WHERE THE BACKUPS ARE LISTED. Until now the only
+             control was in Settings -> Data output, two screens away from the card
+             that says whether it worked, so pressing it meant leaving the answer
+             behind. The list below refreshes when this finishes, which is the
+             whole reason the button belongs here rather than there.
+
+             Its own progress bar and its own status line, NOT the ones in
+             Settings: those are inside `#view-settings` and invisible from this
+             screen, and a control whose progress appears somewhere else is the
+             button this project's rules forbid. A backup of his warehouse takes
+             roughly 104 seconds to build before a byte is uploaded. -->
+        <section class="card manage-account-backup" aria-labelledby="manage-backups-title">
+          <p class="manage-account-backup-copy">A backup copies the database, a
+            plain export of every dataset, and a manifest of row counts and
+            checksums into your Drive. Nothing on this machine is changed.</p>
+          <button id="manage-backup" class="button" type="button">Back up now</button>
+          <div id="manage-backup-progress" class="bar hidden" role="progressbar"
+               aria-labelledby="manage-backups-title" aria-valuemin="0"
+               aria-valuemax="100"><div id="manage-backup-progress-fill"
+               class="bar-fill"></div></div>
+          <p id="manage-backup-msg" class="hint" role="status" aria-live="polite"></p>
+        </section>
+
         <section class="card manage-account-rows" aria-labelledby="manage-backups-title"
                  id="drive-backups"></section>
 
