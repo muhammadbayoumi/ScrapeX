@@ -4879,6 +4879,7 @@ async function loadDatasets() {
     box.innerHTML = withData.map((s) => `
       <article class="card dataset-card" data-open="${esc(s.source_key)}"
                data-site="${esc(s.site_key || "")}"
+               data-resume="${esc(((s.work_waiting || {}).resumable || {}).run_ref || "")}"
                role="link" tabindex="0"
                aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
         ${sourceMenu(s)}
@@ -4891,7 +4892,8 @@ async function loadDatasets() {
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
       const card = root.closest("[data-open]");
       window.ScrapeXSplitButton.wire(
-        root, (action) => runSourceAction(action, card.dataset.open, card.dataset.site));
+        root, (action) => runSourceAction(action, card.dataset.open, card.dataset.site,
+                                          card.dataset.resume));
     });
     box.querySelectorAll("[data-open]").forEach((card) => {
       // THE MENU IS INSIDE THE CARD, AND THE CARD IS ITSELF A LINK. Without
@@ -5119,6 +5121,18 @@ function waitingLine(s) {
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
       `<span class="muted"> · a crawl finished ${when} and its pages are not rows yet` +
       `</span>`);
+  }
+  if (waiting.resumable && waiting.resumable.run_ref) {
+    // PAGES ALREADY BOUGHT, AND THE LINE SAYS SO IN REQUESTS RATHER THAN IN ROWS. What
+    // pressing Update now costs him is the fetching, and the engine's count is snapshot
+    // READINGS -- the same distinction issue 684 is about -- so the word is "reading"
+    // and never "page".
+    const stopped = waiting.resumable;
+    const when = window.ScrapeXTime.markup(stopped.stopped_at, "datetime", {zone: true});
+    rows.push(`<span class="badge off">Continue the stopped crawl</span>` +
+      `<span class="muted"> · a ${esc(stopped.status)} run ${when} kept ` +
+      `${esc(fmtCount(stopped.readings))} stored reading(s); starting fresh buys them ` +
+      `again</span>`);
   }
   if (waiting.profiles) {
     rows.push(`<span class="badge off">Fetch missing profiles</span>` +
@@ -5363,13 +5377,32 @@ function sourceActions(source) {
   // `directory` card is a source that has never been crawled, so no listing has named a
   // profile and the runner would refuse with `NothingToFetch` -- correctly, and
   // pointlessly.
+  // AND CONTINUING A CRAWL SOMEBODY STOPPED, so its pages are not bought twice.
+  // Measured twice in three days: a cancelled run held 3,138 pages and the next crawl
+  // re-fetched 3,429 of the same ones over about four hours -- ~3,400 requests at
+  // muqawil.org for nothing. `cancelled` is terminal, so no job is ever given that ref
+  // again and the pages under it were unreachable by anything. Issue 642.
+  //
+  // OFFERED ONLY WHEN THE ENGINE NAMES A RUN, never inferred here. The engine excludes a
+  // COMPLETED run, because inheriting its ref would make this crawl skip every page it
+  // stored -- a crawl that reads nothing and reports success. So the presence of
+  // `resumable` is the whole permission, and the card prints its count and its date
+  // beside the control rather than asking him to trust a word.
+  const resumable = (source.work_waiting || {}).resumable;
+  const continuable = source.site_key && resumable && resumable.run_ref ? [{
+    action: "resume",
+    label: "Continue the stopped crawl",
+    why: "Crawl on from where a stopped run left off, skipping the pages it kept.",
+    route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+  }] : [];
   const profiles = source.site_key && source.kind === "dataset" ? [{
     action: "profiles",
     label: "Fetch missing profiles",
     why: "Fetch the profile page of every contractor that has none yet.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  return [...base, ...crawlable, ...interpretable, ...profiles, ...covered];
+  return [...base, ...crawlable, ...continuable, ...interpretable, ...profiles,
+          ...covered];
 }
 
 function sourceMenu(source) {
@@ -5401,7 +5434,7 @@ function sourceMenu(source) {
 }
 
 /** Everything a source menu can do, in one place so the card stays a template. */
-async function runSourceAction(action, key, siteKey = "") {
+async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
   // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
   // and this page ships in the extension. It still reads the engine for its
   // rows — the difference is that the PAGE is ours.
@@ -5456,6 +5489,30 @@ async function runSourceAction(action, key, siteKey = "") {
     try {
       await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
                                job_kind: "dataset_interpret"});
+      showView("run");
+    } catch (error) {
+      out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
+    }
+    return;
+  }
+  if (action === "resume") {
+    // THE REF TRAVELS FROM THE ENGINE'S OWN ANSWER, not from anything assembled here.
+    // The panel does not know how a run ref is built -- that is `directoryjob`'s
+    // business, and its own docstring says so -- so it echoes back the one the card was
+    // given. A ref the panel composed would be a second place for the format to be
+    // wrong.
+    //
+    // ON THE CARD AS `data-resume`, WHICH IS `data-site`'S PRECEDENT AND NOT `table:`'S.
+    // The `profiles` action above records why a value must not be folded into an action
+    // NAME: a folded card stands for several datasets, so which one an action means
+    // cannot be a property of the card. A run ref is different -- there is exactly one
+    // resumable run behind a card, the same way there is exactly one site -- so it rides
+    // the element the way the site key already does.
+    if (!resumeRef) return;
+    const crawlKey = siteKey || key;
+    try {
+      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update",
+                               resume_run_ref: resumeRef});
       showView("run");
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");

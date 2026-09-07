@@ -1148,17 +1148,40 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     return (datetime.now(UTC) - beat).total_seconds() <= max_age_s
 
 
-def reclaim_orphaned_jobs(conn: sqlite3.Connection) -> int:
+def reclaim_orphaned_jobs(conn: sqlite3.Connection, *,
+                          keep: Iterable[str] = ()) -> int:
     """Settle jobs left mid-flight by a runtime that died. Returns how many.
 
-    Only ONE worker ever executes, so at startup any in-flight job is ours and
-    nobody else's — nothing can be legitimately running. Without this sweep a
-    crash mid-crawl left a job 'running' forever, and `_source_is_busy` then
-    blocked that source's schedules permanently with no error anywhere.
+    At startup any in-flight job is ours and nobody else's -- nothing can be legitimately
+    running -- and without this sweep a crash mid-crawl left a job 'running' for ever,
+    with `_source_is_busy` blocking that source's schedules permanently and no error
+    anywhere.
 
-    Re-queueing is safe because the checkpoint records which sources already
-    completed, so the resumed run skips them.
+    Re-queueing is safe because the checkpoint records which sources already completed,
+    so the resumed run skips them.
+
+    `keep` NAMES THE JOBS THIS RUNTIME IS ACTUALLY RUNNING, AND THAT PREMISE IS THE FIX.
+    The sentence above justifies the sweep with "at startup", and `_loop` also calls it
+    MID-LIFE, on the path that reopens a dropped connection. There, a job whose thread is
+    still working is not an orphan, and requeueing it makes `_dispatch` start it a SECOND
+    time on a SECOND thread against the same rows.
+
+    MEASURED ON THE OWNER'S WAREHOUSE, 2026-09-06. One `dataset_interpret` job logged its
+    entry preamble three times -- 14:01:15, then again at 14:06:51 and 14:07:05, five and
+    six minutes into a pass that had announced itself at 14:01:21 and did not report until
+    14:07:16. That line is written once per entry to the runner, immediately after it sets
+    the job `preparing` with `progress_done=0`, so his progress bar went back to zero
+    twice mid-run. Nothing was corrupted that time, because the extra entries did not get
+    past the preamble; a longer sweep would have started a second concurrent pass.
+
+    AND THE CAUSE WAS NOT RECOVERABLE AFTER THE FACT, which is why this also SAYS what it
+    did. `clear_worker_failure` runs on every healthy pass, so a loop that died and
+    restarted leaves no trace by the next poll -- and a restarted loop has an empty
+    `_running` while the old daemon thread is still alive, which is the one mechanism
+    `keep` cannot see. A reclaim that names each job it requeues turns the next occurrence
+    into a fact instead of a deduction.
     """
+    held = {str(one) for one in keep}
     reclaimed = 0
     for stuck, target in (
         (JobStatus.PREPARING, JobStatus.QUEUED), (JobStatus.RUNNING, JobStatus.QUEUED),
@@ -1166,12 +1189,35 @@ def reclaim_orphaned_jobs(conn: sqlite3.Connection) -> int:
         (JobStatus.PAUSING, JobStatus.PAUSED),          # the owner asked to stop
         (JobStatus.CANCELLING, JobStatus.CANCELLED),    # ...and to give up entirely
     ):
-        cur = conn.execute(
-            "UPDATE crawl_job SET status = ?, control = ?, "
-            " finished_at = CASE WHEN ? = 'cancelled' THEN ? ELSE finished_at END "
-            "WHERE status = ?",
-            (target.value, JobControl.NONE.value, target.value, utc_now_iso(), stuck.value))
-        reclaimed += cur.rowcount
+        # READ BEFORE WRITING, so each row can be named and each decision logged. The
+        # blanket `UPDATE ... WHERE status = ?` this replaces could not tell anybody
+        # WHICH job it had moved, which is how a reclaim of a live job left a duplicated
+        # preamble as its only evidence.
+        rows = conn.execute(
+            "SELECT job_id, job_ref FROM crawl_job WHERE status = ? ORDER BY job_id",
+            (stuck.value,)).fetchall()
+        for job_id, job_ref in rows:
+            if job_ref in held:
+                # NOT AN ORPHAN. A thread of this runtime is working on it, so the
+                # status is the truth and the sweep is the thing that is wrong.
+                append_log(
+                    conn, int(job_id),
+                    f"orphan sweep: left {job_ref} at {stuck.value} — this runtime is "
+                    "running it, so it is not an orphan",
+                    level=LogLevel.INFO)
+                continue
+            conn.execute(
+                "UPDATE crawl_job SET status = ?, control = ?, "
+                " finished_at = CASE WHEN ? = 'cancelled' THEN ? ELSE finished_at END "
+                "WHERE job_id = ?",
+                (target.value, JobControl.NONE.value, target.value, utc_now_iso(),
+                 job_id))
+            append_log(
+                conn, int(job_id),
+                f"orphan sweep: {job_ref} was {stuck.value} with no runtime behind it, "
+                f"so it is now {target.value}",
+                level=LogLevel.WARNING)
+            reclaimed += 1
     # THE SWEEP SAYS WHEN IT RAN, and it says so even when it reclaimed nothing.
     #
     # OP-19. `Engine.start()` in the chaos test waited for /api/health and then
@@ -1322,7 +1368,11 @@ class JobRunner:
         if self._stop.wait(self._poll_interval_s):
             pass
         fresh = dbmod.connect(current)
-        reclaim_orphaned_jobs(fresh)     # anything left running belongs to the old file
+        # ANYTHING LEFT RUNNING BELONGS TO THE OLD FILE -- and `keep` is passed anyway.
+        # `_loop` only reaches this when `self._running` is empty, so the set is empty and
+        # the behaviour is unchanged; but that guard is forty lines away and invisible
+        # from here, and this call would requeue a live job the day it moves.
+        reclaim_orphaned_jobs(fresh, keep=set(self._running))
         fresh.commit()
         self._db_path = current
         self._reopen.clear()
@@ -1407,7 +1457,15 @@ class JobRunner:
                         # fault that broke the reopen (a restore mid-rename, an
                         # unplugged drive) is usually over by the next poll.
                         conn = dbmod.connect(self._db_path)
-                        reclaim_orphaned_jobs(conn)
+                        # `keep` IS THE DIFFERENCE BETWEEN A CRASH AND A RECONNECT.
+                        # `reclaim_orphaned_jobs` justifies itself with "at startup any
+                        # in-flight job is ours and nobody else's" -- true there, and
+                        # false HERE: this pass runs while job threads of this same
+                        # runtime are working, and requeueing one makes `_dispatch` start
+                        # it a second time on a second thread over the same rows. The
+                        # startup call twenty lines up passes nothing, which is correct:
+                        # at startup nothing of ours is running.
+                        reclaim_orphaned_jobs(conn, keep=set(self._running))
                     self._reap_finished()
                     # A database move or a restore renames the live file, which
                     # cannot happen under a live crawl handle — so the reopen

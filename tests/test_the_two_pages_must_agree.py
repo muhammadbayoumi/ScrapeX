@@ -283,6 +283,24 @@ def test_the_cross_check_refuses_inside_approve(monkeypatch, capsys):
     assert "1 page(s) refused because the profile and the listing disagree" in said, (
         "the mismatch was folded into the ordinary refusals and lost its own count")
 
+    # AND ITS OPENING COUNT SAYS WHAT IT COUNTS -- issue 684, measured on the owner's
+    # warehouse. One interpret job logged `6,713 page(s) on disk` from
+    # `datasetjob.latest_crawl_run_ref`, then this line logged `909 page(s) on disk` six
+    # seconds later. Both true: the first counts snapshot ROWS, the second counts page
+    # PAIRS after collapsing the en/ar halves and keeping the latest write per URL. The
+    # sweep had stored the same URLs once per pass (1,818 / 1,546 / 1,260 / 1,138 / 761 /
+    # 190), so the gap is by design -- but read in sequence the two lines said 5,804
+    # pages had gone missing.
+    #
+    # ASSERTED HERE BECAUSE THIS IS THE ONE TEST THAT DRIVES THE REAL `approve`. The
+    # interpret-job suite uses a stub, so a mutation reverting this wording passed there
+    # while changing nothing the test could see.
+    assert "page pair(s) to interpret" in said, (
+        f"the opening count does not say it counts page PAIRS: {said!r}")
+    assert "page(s) on disk" not in said, (
+        "this line still shares its wording with the job's snapshot-row count, which is "
+        f"the ambiguity issue 684 is about: {said!r}")
+
     # AND THE `ids` KEYWORD IS FORWARDED, NOT DROPPED. `approve` gained it so a
     # re-approval can be narrowed to profiles a person named; a version that accepted
     # the argument and passed nothing on would reapprove all 17,417 rows and read as a
@@ -292,7 +310,9 @@ def test_the_cross_check_refuses_inside_approve(monkeypatch, capsys):
         + str(forwarded))
 
     contractors.approve(conn, directory, "run-x", ids=("1001",))
-    capsys.readouterr()
+    targeted = capsys.readouterr().out
+    assert "named profile page pair(s) to interpret" in targeted, (
+        f"the targeted count does not say what it counts either: {targeted!r}")
     assert forwarded[-1] == ("1001",), (
         "the named id never reached `_pairs`, so narrowing was accepted and ignored: "
         + str(forwarded))

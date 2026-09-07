@@ -986,9 +986,12 @@ def test_the_card_says_what_is_waiting_for_a_press(open_panel):
     # page, and issue 684 is what a guessed number costs.
     assert "469" in said, f"the profile line does not carry its count: {said!r}"
 
+    # THREE NOW: interpret, continue-the-stopped-crawl, fetch-missing-profiles. The
+    # number moves when a state is added, which is the point of asserting it -- a line
+    # that stopped being drawn would otherwise pass here unnoticed.
     badges = card.locator(".badge.off")
-    assert badges.count() == 2, (
-        f"{badges.count()} amber badge(s) on the card, expected 2")
+    assert badges.count() == 3, (
+        f"{badges.count()} amber badge(s) on the card, expected 3")
     # `badge warn` RENDERS AS THE PLAIN GREY ONE, and I wrote it here first --
     # `renderEngineDetail` already records making the identical mistake. The kit defines
     # `.badge`, `.badge.ok`, `.badge.off` and `.badge.danger` and nothing else, so a line
@@ -1005,6 +1008,71 @@ def test_the_card_says_what_is_waiting_for_a_press(open_panel):
         }""")
     assert amber != plain, (
         f"the waiting badge is the plain badge colour {plain}, so it draws no eye")
+
+
+def test_the_card_offers_to_continue_a_stopped_crawl(open_panel):
+    """HIS INSTRUCTION, 2026-09-05: «عاوزين ايضا الاستفادة من ما تم زحفة فى حالة الالغاء».
+
+    MEASURED TWICE IN THREE DAYS. `job_925080aad843` was cancelled holding 3,138 stored
+    readings over 802 distinct page URLs, and the next crawl re-fetched 3,429 of the same
+    readings over about four hours -- ~3,400 requests at muqawil.org for nothing.
+    `cancelled` is terminal, so no job is ever given that ref again and the pages under
+    it were unreachable by anything.
+
+    THE LINE NAMES THE RUN, ITS COUNT AND ITS MOMENT, because which run to continue is
+    his decision. A panel that picked silently would be answering a question issue 642
+    says belongs to him -- more than one run may hold pages, and a run whose frontier has
+    moved on is not always the one you want.
+    """
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+
+    said = card.text_content()
+    assert "Continue the stopped crawl" in said, (
+        f"the card does not offer to continue the stopped run: {said!r}")
+    assert "cancelled" in said, f"it does not say what stopped it: {said!r}"
+    assert "3,138" in said, f"it does not say what continuing saves: {said!r}"
+    # RENDERED IN HIS ZONE, NOT AS THE ISO STAMP. `ScrapeXTime.markup` is what every
+    # other date in this panel goes through, and `freshnessLine` records why: a fixed-UTC
+    # line made this the one place the owner had to convert in his head.
+    assert "5 September 2026" in said, f"it does not say when it stopped: {said!r}"
+    # STORED READING(S), NOT PAGES -- the engine counts snapshot rows, and issue 684 is
+    # what a shared word between a row count and a page count costs.
+    assert "stored reading" in said, (
+        f"the count claims to be pages, which it is not: {said!r}")
+
+    # AND THE REF RIDES THE CARD, the way the site key already does, so the handler
+    # never has to compose one: the panel does not know how a run ref is built.
+    assert card.get_attribute("data-resume") == "job-job_925080aad843", (
+        "the run ref is not on the card, so the action cannot echo the engine's answer")
+
+
+def test_continuing_sends_the_ref_the_engine_named(open_panel):
+    """A REF THE PANEL COMPOSED WOULD BE A SECOND PLACE FOR THE FORMAT TO BE WRONG.
+    `directoryjob` owns the shape of a run ref by its own docstring, so the panel echoes
+    back what the card was given and nothing else."""
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click('.dataset-card[data-open="contractors"] .split-button-trigger')
+    page.wait_for_timeout(150)
+    page.click('.dataset-card[data-open="contractors"] [data-split-action="resume"]')
+    page.wait_for_function(
+        "() => window.__writes.some(w => w.path === '/api/jobs')", timeout=4000)
+
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(queued) == 1, queued
+    body = queued[0]["body"]
+    assert body["resume_run_ref"] == "job-job_925080aad843", body
+    assert body["source_keys"] == ["muqawil_org"], body
+    # NOT A REBUILD, WHICH MAY NOT INHERIT AT ALL: that mode exists to re-read, and a ref
+    # that made it skip what is on disk would turn it into a no-op reporting success.
+    assert body["run_mode"] == "update", body
 
 
 def test_a_card_with_nothing_waiting_says_nothing(open_panel):

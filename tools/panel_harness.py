@@ -76,9 +76,21 @@ STRESS_SOURCES = [
      # The numbers are his warehouse's, measured read-only 2026-09-06: a listing crawl
      # that finished with its pages uninterpreted, and 469 sighted contractors with no
      # profile page stored.
+     # ALL THREE THINGS WAITING, because the card draws a line for each and a stub
+     # carrying one of them would let a guard for the others pass on an empty card --
+     # the shape of failure this file has paid for three times now.
+     #
+     # His warehouse, measured read-only 2026-09-06: a listing crawl whose pages are
+     # uninterpreted, 469 sighted contractors with no profile page, and a run he
+     # cancelled holding 3,138 stored readings.
      "work_waiting": {"interpret": {"crawl_finished_at": "2026-09-06T05:01:44Z",
                                     "interpreted_at": None},
-                      "profiles": 469},
+                      "profiles": 469,
+                      "resumable": {"run_ref": "job-job_925080aad843",
+                                    "job_ref": "job_925080aad843",
+                                    "status": "cancelled",
+                                    "stopped_at": "2026-09-05T05:06:20Z",
+                                    "readings": 3138}},
      "last_success": {"started_at": "2026-08-21T18:40:11Z",
                       "finished_at": "2026-08-21T18:40:11Z",
                       "rows_seen": 0, "requests_count": 0},

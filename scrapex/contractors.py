@@ -1446,9 +1446,16 @@ def approve(conn, directory: Directory, run_ref: str, *,
         if missing:
             _refuse("--ids asked approval for profile snapshots this run does not "
                     f"carry: {', '.join(missing)}. Nothing was written")
-        say(f"targeted approve {run_ref}: {len(pairs)} named profile page(s) on disk")
+        say(f"targeted approve {run_ref}: {len(pairs)} named profile page pair(s) "
+            "to interpret")
     else:
-        say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
+        # PAGE PAIRS TO INTERPRET, WHICH IS THE WORK. `_pairs` collapses the en/ar halves
+        # of one page and keeps the latest write per URL, so this is far below the
+        # snapshot-row count the job's opening line reports -- 909 against 6,713 on the
+        # owner's warehouse, because the sweep stored the same URLs once per pass. Both
+        # numbers were printed as "page(s) on disk" six seconds apart and read as 5,804
+        # pages lost between them.
+        say(f"approve {run_ref}: {len(pairs)} page pair(s) to interpret")
     made = 0
     recovered = 0
     reparsed = 0
