@@ -3810,6 +3810,18 @@ async function startEngineUpdate() {
 //: instruction, "reopen this screen to see where it got to", was false.
 let enginePollRunning = false;
 
+// A BROWSER-SIDE INSTALL IS STATE ONLY THE PANEL HOLDS, and until this existed
+// nothing could consult it. `chrome.downloads` fetches the installer for a FIRST
+// install (`R-36`), `startInstallerDownload` disables the button for the length
+// of it, and any re-render put the button back: enabled, wired to start a
+// SECOND ~70 MB download of the same file, with two intervals then fighting over
+// one label and a second copy landing as `scrapex-engine (1).exe`.
+//
+// The engine-side download was already protected -- `report.phase` says
+// "downloading" and the busy branch reads it. This is the same protection for
+// the half the engine knows nothing about.
+let installerDownloadRunning = false;
+
 async function pollEngineUpdate() {
   if (enginePollRunning) return;
   enginePollRunning = true;
@@ -3821,6 +3833,28 @@ async function pollEngineUpdate() {
 }
 
 async function pollEngineUpdateLoop() {
+  // ONE LOST TURN IS NOT AN ANSWER ABOUT THE ENGINE, and this counter is the
+  // whole of the repair. The branch below used to render a single `null` as the
+  // definite sentence "the engine stopped answering" and RETURN, ending the
+  // watch -- about an engine that was very likely still downloading.
+  //
+  // IT IS NOT A RARE TURN. `engineUpdateState` flattens every failure to `null`,
+  // the deadline included, and the deadline is a TIE rather than a margin:
+  // `CHECK_TIMEOUT_S = 4.0` is applied by httpx PER PHASE, so the engine's own
+  // worst legitimate answer is connect 4 s plus read 4 s -- exactly the 8000 ms
+  // this panel allows, before a redirect hop, the loopback round trip or
+  // uvicorn's dispatch. Measured, not read off the comment that claimed a
+  // margin. And the turn most exposed to it is a poll turn, because those
+  // phases run while the same process streams ~70 MB.
+  //
+  // SO THE ATTEMPT BUDGET OWNS THE GIVING UP, which is what the restart poll in
+  // this same file has always done with a failed probe. This repository has a
+  // test named for the distinction -- `test_a_health_check_that_times_out_is_
+  // not_reported_as_no_engine`: "a health check that runs out of time is a
+  // DIFFERENT answer from an engine that is not there, and the difference is
+  // the whole of what to do next". This loop was making exactly that
+  // conflation.
+  let lostTurns = 0;
   for (let attempt = 0; attempt < ENGINE_UPDATE_POLL_ATTEMPTS; attempt += 1) {
     // LEAVING THE SCREEN STOPS THE WATCHING, NOT THE DOWNLOAD. The engine keeps
     // going on its own thread; this only stops asking. Re-entering starts a new
@@ -3836,37 +3870,45 @@ async function pollEngineUpdateLoop() {
     // reader opened it.
     if (!engineUpdateScreenIsUp()) return;
     const report = await engineUpdateState();
-    if (!report) {
-      // The button write is unguarded for the reason given in `startEngineUpdate`:
-      // its region is hidden for a candidate, and this leaves it correct for a
-      // reader who comes back.
-      $("engine-download").disabled = false;
-      writeEngineUpdateLine("The engine stopped answering while the update was "
-        + "running. Its own log is the record of what happened.");
-      return;
-    }
-    // A FALSE RETURN IS A SCREEN THAT HAS GONE, so there is nothing left to do
-    // for it -- including the re-render below, which would fetch a release feed
-    // and repaint a page nobody is looking at.
-    if (!writeEngineUpdateLine(engineUpdateSentence(report))) return;
-    if (report.phase !== "downloading") {
-      // Re-render so the version, the verdict and the button all come from the
-      // report that has just settled rather than from the one before it.
-      await renderEngines();
-      return;
+    if (report) {
+      lostTurns = 0;
+      // A FALSE RETURN IS A SCREEN THAT HAS GONE, so there is nothing left to do
+      // for it -- including the re-render below, which would fetch a release
+      // feed and repaint a page nobody is looking at.
+      if (!writeEngineUpdateLine(engineUpdateSentence(report))) return;
+      if (report.phase !== "downloading") {
+        // Re-render so the version, the verdict and the button all come from
+        // the report that has just settled rather than from the one before it.
+        await renderEngines();
+        return;
+      }
+    } else {
+      lostTurns += 1;
+      // THE LAST GOOD SENTENCE STANDS while a turn or two go missing, because
+      // replacing "downloading -- 42%" with a doubt every time a request runs
+      // long is a worse record than a slightly old percentage. After a run of
+      // them the screen says what is actually known, which is that it does not
+      // know -- and it keeps watching, so a link that recovers repaints itself.
+      //
+      // AND THE BUTTON IS NOT TOUCHED. It was disabled by the busy render, and
+      // re-enabling it here produced a control that was enabled, labelled
+      // "Downloading…" and carried `onclick = null`: pressable and inert. The
+      // way back is `Check again`, which is a different control, enabled, and
+      // named in the sentence.
+      if (lostTurns >= ENGINE_UPDATE_QUIET_TURNS
+          && !writeEngineUpdateLine(ENGINE_UPDATE_NOT_ANSWERING)) return;
     }
     await new Promise((done) => setTimeout(done, ENGINE_UPDATE_POLL_MS));
   }
-  // AND THE BUTTON COMES BACK WITH IT. Running out of attempts is the panel
-  // giving up on WATCHING, not the engine giving up on downloading -- but the
-  // button was disabled by the busy branch and nothing here re-enabled it, so
-  // the screen ended with a sentence saying "reopen this to see where it got to"
-  // above a control that could not be pressed and would not change. Reopening
-  // re-renders and settles it correctly either way; this is for the reader who
-  // stays.
-  $("engine-download").disabled = false;
-  writeEngineUpdateLine("The engine is still downloading. Reopen this screen to "
-    + "see where it got to.");
+  // AND WHAT IT SAYS DEPENDS ON WHY IT STOPPED. "Still downloading" is a claim,
+  // and it is only supportable if the last turns were answered. A previous
+  // version of this branch also re-enabled the button here, which produced the
+  // same pressable-and-inert control described above -- so it does not, and the
+  // way back is `Check again` in both cases.
+  writeEngineUpdateLine(lostTurns
+    ? ENGINE_UPDATE_NOT_ANSWERING
+    : "The engine is still downloading. Reopen this screen to see where it "
+      + "got to.");
 }
 
 // THE RELEASE ROW, FROM WHICHEVER ANSWER IS BEING TRUSTED. Extracted because it
@@ -3980,7 +4022,21 @@ async function updateEngineReleaseUI(panelLatest) {
   // `finally`. So ~70 MB would come down again, verified, on top of a file that
   // is already there and already verified. "A button that cannot work is worse
   // than no button" -- this is the other half: one that works and should not.
-  const staged = Boolean(report && report.phase === "staged");
+  //
+  // AND STAGED MEANS *THIS* RELEASE IS STAGED. The comment above argues against
+  // a DUPLICATE download and the guard was written for that, but `phase` alone
+  // cannot tell one release from another: an engine holding 1.0.0 staged stays
+  // in that phase until it restarts, so publishing 1.1.0 left the row and the
+  // badge reading "1.1.0 / Update available" above the only control on the
+  // screen -- disabled, and labelled "Downloaded and checked" for a DIFFERENT
+  // version, with no panel path to 1.1.0 at all and nothing saying so. The
+  // engine would have accepted that POST: `start()` refuses a run in progress,
+  // a feed that is not ok, a release that is not newer, and one with no
+  // installer -- none of which applies. `staged_version` and the version being
+  // offered are both in hand right here, so the guard now says what the comment
+  // above it argues.
+  const staged = Boolean(report && report.phase === "staged"
+    && report.staged_version === latest.version);
   if (engineCanTakeIt || busy || staged) {
     $("engine-download-label").textContent =
       busy ? "Downloading…"
@@ -3998,7 +4054,32 @@ async function updateEngineReleaseUI(panelLatest) {
     return;
   }
 
-  download.disabled = !installer;
+  // A BROWSER-SIDE INSTALL IN FLIGHT KEEPS THE BUTTON AS IT IS. Any re-render
+  // used to re-arm it mid-download -- and the reopen path made that reachable
+  // with no timing luck at all: first install, no engine, so the repaint is
+  // microtasks rather than network. Press Download, go back, reopen, and the
+  // button was enabled again; pressing it started a second ~70 MB fetch of the
+  // same file, landing as `scrapex-engine (1).exe`, with two intervals then
+  // writing one label.
+  if (installerDownloadRunning) return;
+
+  // THE ENGINE ALREADY JUDGED THIS FILE, and until now the panel threw the
+  // verdict away. `Installer.verifiable` is false when the digest is missing or
+  // short **or the host is not in `ALLOWED_INSTALLER_HOSTS`** -- and in that
+  // last case the engine refuses to fetch a URL the panel would then hand to
+  // `chrome.downloads` itself, under a sentence blaming a missing SHA-256 that
+  // is not missing. Refusing to fetch it and offering it on the same screen is
+  // what `R-36` is about, with the panel taking the risk the engine declined.
+  //
+  // `=== false` AND NOT `!verifiable`, which is the whole care in this line.
+  // The panel's own release object (`extension/releases.js`) has no
+  // `verifiable` field at all, so a falsy test would delete the Download button
+  // for every FIRST install -- the one case with no engine to ask, and the one
+  // case `chrome.downloads` exists for. Absent means nobody judged; only an
+  // explicit `false` is a judgement.
+  const engineRefusedTheHost = Boolean(installer)
+    && installer.verifiable === false;
+  download.disabled = !installer || engineRefusedTheHost;
   // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW. This renderer is
   // called after two awaits (renderEngines, refreshEngines), so it can land
   // after the reader has opened a CANDIDATE's detail screen -- and since the
@@ -4010,8 +4091,19 @@ async function updateEngineReleaseUI(panelLatest) {
   // not. Same guard the two callers below already use.
   steps.classList.toggle("hidden", !installer || !theInstalledEngineIsOnScreen());
 
+  // The digest is still shown when the host was refused: it is what he would
+  // compare against if he fetched the file himself, and hiding it would leave
+  // the refusal with nothing beside it.
   if (installer) {
     $("engine-download-checksum").textContent = installer.sha256 ? installer.sha256 : "";
+  }
+  // WRITTEN AS A STATEMENT AND NOT A TERNARY, deliberately.
+  // `test_window_open_survives_only_as_a_fallback` pins this exact line, because
+  // the route from the button to `chrome.downloads` is the thing `R-36` is about
+  // and a static guard is how it stays pinned. A ternary preserved the behaviour
+  // and broke the guard, which is the wrong trade: the behaviour was never the
+  // part at risk.
+  if (installer && !engineRefusedTheHost) {
     download.onclick = () => startInstallerDownload(installer);
   } else {
     download.onclick = null;
@@ -4045,6 +4137,7 @@ async function startInstallerDownload(installer) {
   }
   const restore = label.textContent;
   button.disabled = true;
+  installerDownloadRunning = true;
   label.textContent = "Starting download…";
   let id = null;
   try {
@@ -4057,6 +4150,10 @@ async function startInstallerDownload(installer) {
       saveAs: false,
     });
   } catch (error) {
+    // CLEARED HERE TOO, and not only in `finish`. A flag set on the way in and
+    // released on one exit is a button that never returns -- the failure mode of
+    // the guard, worse than the defect it guards.
+    installerDownloadRunning = false;
     button.disabled = false;
     label.textContent = restore;
     window.open(installer.url, "_blank");
@@ -4068,6 +4165,7 @@ async function startInstallerDownload(installer) {
   // `search()` while it runs -- which is what gives a moving number rather
   // than a spinner that means nothing.
   const finish = (text) => {
+    installerDownloadRunning = false;
     label.textContent = text;
     button.disabled = false;
   };
@@ -6675,11 +6773,23 @@ const RESTART_CONFIRM_ATTEMPTS = 125;
 //
 // AT LEAST, AND NOT 930 EXACTLY, which the first version of this note claimed.
 // Each turn is the 3 s sleep PLUS the request, and the request has its own 8 s
-// bound (`STARTUP_DEADLINES.updateReport`), so the real ceiling is anywhere from
-// 930 s to about 3410 s. The conclusion survives the correction and only gets
-// stronger -- every one of those numbers is above 900 -- but a derivation stated
-// as an equality when it is a floor is a number nothing verifies, which is the
-// shape `R-36` is about.
+// bound (`STARTUP_DEADLINES.updateReport`), so the real ceiling is anywhere
+// from 930 s to about 3410 s. A derivation stated as an equality when it is a
+// floor is a number nothing verifies, which is the shape `R-36` is about.
+//
+// AND THE COMPARISON ITSELF DOES NOT HOLD, which is the sharper correction.
+// `DOWNLOAD_TIMEOUT_S` is handed to `httpx.Client(timeout=...)` and httpx
+// applies it PER PHASE; for a stream the governing phase is `read` -- the
+// longest gap between chunks, not the elapsed time. 70 MB arriving steadily at
+// 20 KB/s takes about 3500 s and never trips it, which is above this poll's own
+// ceiling. So the engine is NOT guaranteed to give up first, and two sentences
+// of `R-48` arithmetic that said it was were comparing an elapsed bound against
+// an idle one.
+//
+// WHAT ACTUALLY MAKES THIS SAFE is the sentence rather than the arithmetic:
+// running out says the panel stopped watching and never announces a failure.
+// That is the guarantee to keep, and the reason a later reader must not
+// "improve" the exhaustion message into a verdict.
 //
 // AND RUNNING OUT IS NOT A FAILURE HERE. The panel stops WATCHING; the engine
 // keeps downloading on its own thread. So the sentence at the end says where to
@@ -6688,6 +6798,21 @@ const RESTART_CONFIRM_ATTEMPTS = 125;
 // back" about an engine that had.
 const ENGINE_UPDATE_POLL_MS = 3000;
 const ENGINE_UPDATE_POLL_ATTEMPTS = 310;
+
+// THREE, so a run of ~9 s of silence is what it takes to say so. One lost turn
+// is a request that ran long; three in a row is a pattern. Below this the last
+// good sentence stands, which is a truer record than a doubt printed over a
+// percentage that was right nine seconds ago.
+const ENGINE_UPDATE_QUIET_TURNS = 3;
+
+// NOT "THE ENGINE STOPPED", which is a fact this panel cannot establish from a
+// request that did not come back, and not a pointer at "its own log" -- the
+// panel has no surface showing the engine's process log, so the sentence that
+// said so was directing him at nothing. `Check again` is a real control, on
+// this screen, enabled, and it asks the engine directly.
+const ENGINE_UPDATE_NOT_ANSWERING =
+  "The engine has not answered the last few checks. It may still be "
+  + "downloading — press Check again to ask it directly.";
 
 const ENGINE_TOO_OLD =
   "This engine started before these actions existed, so it does not have them " +

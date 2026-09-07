@@ -61,7 +61,16 @@ READS = re.compile(r"\breport\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 #: the very file written about tests that agree with the wrong thing. The loop is
 #: named, not the wrapper: the wrapper only holds the re-entry flag and reads no
 #: report at all.
-READERS = ("function engineUpdateSentence(", "async function pollEngineUpdateLoop(")
+#: AND THE RENDERER, added the day the rule above was written and broken in one
+#: diff. `updateEngineReleaseUI` reads `report.latest`, `report.installed`,
+#: `report.can_self_update`, `report.phase` and `report.staged_version`, and
+#: `latest.version` is read NOWHERE ELSE -- so the `latest` guard below could not
+#: see the one key the release row and the button label are both built from. Rename
+#: it engine-side and every test here stayed green while the screen printed
+#: `undefined`.
+READERS = ("function engineUpdateSentence(",
+           "async function pollEngineUpdateLoop(",
+           "async function updateEngineReleaseUI(")
 
 
 def _update_readers() -> str:
@@ -77,12 +86,24 @@ def _update_readers() -> str:
         # of these ends in this file.
         rest = source[start + len(opener):]
         nxt = re.search(r"\n(?:async )?function ", rest)
-        out.append(rest[:nxt.start()] if nxt else rest)
-    slice_ = "\n".join(out)
-    assert len(slice_) > 400 * len(READERS), (
-        f"the reader slice is {len(slice_)} characters, which is too short for "
-        f"{len(READERS)} reader(s) — a marker moved and this guard went blind")
-    return slice_
+        body = rest[:nxt.start()] if nxt else rest
+        # PER SLICE, NOT ON THE SUM, and this is measured rather than tidy.
+        # The floor used to be `400 * len(READERS)` against the JOINED
+        # string, and the three real slices total about 9000 characters -- so
+        # any ONE of them could collapse to nothing and the sum still cleared
+        # the threshold many times over. Splitting a reader into a one-line
+        # wrapper plus an inner function does exactly that: the marker still
+        # matches the wrapper exactly once, the wrapper reads no report, and
+        # this guard goes blind on everything that moved out of it. Not
+        # hypothetical -- that mutation was run against the sum-based floor
+        # and SURVIVED, the second time this file was defeated by that move.
+        assert len(body) > 400, (
+            f"{opener!r} yields only {len(body)} characters, too short to be "
+            "the function it names. It was probably split into a wrapper plus "
+            "an inner function -- name the inner one in READERS, because that "
+            "is where the report is read now and this guard cannot see it.")
+        out.append(body)
+    return "\n".join(out)
 
 
 def _engine_report() -> dict:
@@ -146,17 +167,25 @@ def _normaliser_adds() -> set[str]:
     defect this whole file was written about, one level in, committed by the file
     written about it.
     """
+    return {name for name, _ in _normaliser_pairs()}
+
+
+def _normaliser_pairs() -> set[tuple[str, str]]:
+    """`(name_written, key_read)` for every field the normaliser adds.
+
+    Split out of `_normaliser_adds` so the refusal test can assert the PAIR
+    rather than the presence of a string somewhere in the file.
+    """
     body = _normaliser()
-    adds = set()
-    for name, produced in re.findall(r"(\w+)\s*:\s*body\.(\w+)", body):
-        adds.add(name)
+    pairs = set(re.findall(r"(\w+)\s*:\s*body\.(\w+)", body))
+    assert pairs, "the normaliser adds no `<name>: body.<key>` field at all"
     assert "...(body.progress_state || {})" in body.replace(" ", "").replace(
         "...(body.progress_state||{})", "...(body.progress_state || {})") or \
         "...(body.progress_state||{})" in body.replace(" ", ""), (
         "`engineUpdateState` no longer flattens `progress_state`, so `phase`, "
         "`progress` and `detail` are `undefined` at every reader again — the "
         "original defect, restored")
-    return adds
+    return pairs
 
 
 def test_every_field_the_panel_reads_survives_the_normaliser():
@@ -267,8 +296,18 @@ def test_the_panel_reads_the_refusal_reason_at_all():
     the two opposite causes still collapsed into one sentence, the original defect
     surviving its own fix.
     """
-    source = PANEL.read_text(encoding="utf-8")
-    assert "self_update_blocked_because" in source, (
-        "nothing in the panel reads `self_update_blocked_because`, so a source "
-        "checkout and a release with no SHA-256 produce the same sentence — the "
-        "two states this feature exists to tell apart")
+    # THE NORMALISER'S OWN PAIRS, NOT A GREP OF THE FILE. This read the whole
+    # of `app.js` for the literal, and that literal also appears in TWO
+    # COMMENTS -- so renaming the one line that reads it left both comments
+    # behind and this test green, inside the file written about tests that
+    # cannot fail. Measured: `body.self_update_blocked_because` ->
+    # `body.blocked_reason` kept all six tests here passing. The DOM tests did
+    # catch the behaviour, so the consequence was bounded and the guard itself
+    # was decorative -- which is the worse of the two, because it reads as
+    # coverage.
+    pairs = _normaliser_pairs()
+    assert ("blocked", "self_update_blocked_because") in pairs, (
+        "the panel no longer maps `self_update_blocked_because` onto "
+        "`blocked`, so a source checkout and a release with no SHA-256 "
+        "produce the same sentence — the two states this feature exists to "
+        f"tell apart. The normaliser maps {sorted(pairs)}.")
