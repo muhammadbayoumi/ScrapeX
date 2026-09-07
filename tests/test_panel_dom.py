@@ -1075,6 +1075,49 @@ def test_continuing_sends_the_ref_the_engine_named(open_panel):
     assert body["run_mode"] == "update", body
 
 
+def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
+    """HIS SCREENSHOT, 2026-09-07. He had just fetched 938 profile pages in 33 minutes,
+    and the card still read *"469 contractors have no profile page stored"* above a
+    button that would have bought the same 938 pages a third time.
+
+    BOTH HALVES WERE WRONG. The sentence had become false -- they HAD pages -- and the
+    frontier behind the button counted ROWS, which storing a page does not change. So
+    the number never moved and the control never stopped offering. Measured on his
+    engine: two presses fetched 938 pages each, 1,876 requests for what 938 would have
+    bought.
+
+    `rowless` AND `fetch` ARE NOW TWO NUMBERS. When `fetch` is zero the request is not
+    offered at all and the line says what IS owed -- an interpretation -- because a
+    button that would buy pages the warehouse already holds is the
+    button-that-cannot-work in its most expensive form.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {**(row.get("work_waiting") or {}),
+                                   "profiles": {"rowless": 469, "fetch": 0}}
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+
+    said = card.text_content()
+    assert "no profile page stored" not in said, (
+        f"the card still claims they have no page, which is what he screenshotted: "
+        f"{said!r}")
+    assert "on disk and no row yet" in said, (
+        f"the card does not say what is actually owed: {said!r}")
+    assert "nothing to fetch" in said, said
+
+    assert card.locator('[data-split-action="profiles"]').count() == 0, (
+        "the fetch control is still offered when every rowless contractor already has "
+        "its pages, so pressing it would buy them again")
+    # AND THE INTERPRET CONTROL IS STILL THERE, because that is the press now owed.
+    assert card.locator('[data-split-action="interpret"]').count() == 1
+
+
 def test_a_card_with_nothing_waiting_says_nothing(open_panel):
     """A line that is always there is a line nobody reads. `work_waiting` absent or empty
     must draw no row at all -- the price-source cards in the stub carry neither."""

@@ -52,7 +52,8 @@ def conn(tmp_path):
 
 
 def _a_crawl_that_stored(conn, job_ref: str, pages: int, *,
-                         source_key: str = "muqawil_org") -> None:
+                         source_key: str = "muqawil_org",
+                         job_kind: str = "directory_crawl") -> None:
     """A finished directory crawl with `pages` snapshots under its own run ref.
 
     WRITTEN THROUGH THE REAL TABLES rather than through a fake, because what
@@ -62,7 +63,7 @@ def _a_crawl_that_stored(conn, job_ref: str, pages: int, *,
     conn.execute(
         "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
         "VALUES (?,?,?,?,?)",
-        (job_ref, RunMode.UPDATE.value, f'["{source_key}"]', "directory_crawl",
+        (job_ref, RunMode.UPDATE.value, f'["{source_key}"]', job_kind,
          JobStatus.COMPLETED.value))
     for n in range(pages):
         conn.execute(
@@ -202,6 +203,51 @@ def test_it_reads_the_newest_crawl_that_actually_stored_pages(conn):
     assert run_ref == "job-job_new", (
         "it chose a crawl that stored nothing over one that stored pages")
     assert pages == 5
+
+
+def test_a_profile_sweeps_pages_are_reachable_too(conn):
+    """ISSUE 782, AND IT STRANDED 33 MINUTES OF HIS WORK.
+
+    `latest_crawl_run_ref` filtered `job_kind = 'directory_crawl'`, so it could only ever
+    choose a LISTING crawl. He fetched 938 profile pages in 33 minutes with zero
+    failures, pressed nothing else, and `contractor_profiles` stayed at 17,393 rows --
+    the only door the panel has looked straight past them.
+
+    THE INTERPRETER WAS NEVER THE LIMIT. `contractors.approve` picks the profile
+    candidate builder per page through `_contractor_of`, and its own comment records what
+    it cost before that branch existed: *"running it over 712 stored profiles would have
+    refused every one of them."* The capability was there and the SELECTION was blind.
+    """
+    _a_crawl_that_stored(conn, "job_listing", pages=4)
+    _a_crawl_that_stored(conn, "job_profiles", pages=9, job_kind="profile_crawl")
+    conn.commit()
+
+    run_ref, pages = datasetjob.latest_crawl_run_ref(conn, "muqawil_org")
+
+    assert run_ref == "job-job_profiles", (
+        "the newest run that stored pages was a profile sweep and it was skipped, so "
+        "the pages it fetched cannot become rows from the panel")
+    assert pages == 9
+
+
+def test_a_kind_that_collects_nothing_is_still_not_chosen(conn):
+    """NAMED KINDS, NOT AN OPEN FILTER, and dropping the clause entirely would pass the
+    test above. Measured on his warehouse: only `directory_crawl` and `profile_crawl`
+    hold pages under a `job-` ref, and `organization_enrichment` holds none anywhere --
+    but "none today" is not a guarantee. A future kind storing pages of a third shape
+    would be fed to a parser built for two, and the failure would be a refusal per page
+    rather than anything loud."""
+    _a_crawl_that_stored(conn, "job_listing", pages=4)
+    _a_crawl_that_stored(conn, "job_enrich", pages=9,
+                         job_kind="organization_enrichment")
+    conn.commit()
+
+    run_ref, pages = datasetjob.latest_crawl_run_ref(conn, "muqawil_org")
+
+    assert run_ref == "job-job_listing", (
+        "a kind that is not one of the two collectors was chosen, so its pages reach a "
+        "parser built for something else")
+    assert pages == 4
 
 
 def test_a_source_no_crawl_has_touched_is_refused_rather_than_called_a_success(conn):

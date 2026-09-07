@@ -783,7 +783,22 @@ def create_app(
                 waiting["interpret"] = {"crawl_finished_at": crawled[0],
                                         "interpreted_at": read[0] if read else None}
         if directory.profiles is not None:
-            waiting["profiles"] = len(profilejob.missing_profile_ids(general, directory))
+            # TWO NUMBERS, BECAUSE THEY ARE TWO QUESTIONS AND THE CARD OFFERS TWO
+            # BUTTONS. `rowless` is who has no profile ROW -- the coverage figure, and
+            # what an INTERPRETATION would close. `fetch` is who still needs a REQUEST,
+            # which is the subset whose pages are not on disk.
+            #
+            # THEY DIVERGED THE MOMENT HE PRESSED FETCH. 469 rowless, 938 pages fetched,
+            # and `rowless` did not move -- storing a page writes no row. The card went
+            # on saying "469 contractors have no profile page stored", which had become
+            # false: they had pages. Saying it in ROWS is the honest version, and
+            # carrying `fetch` separately is what stops the button offering a request
+            # that would buy the same pages again.
+            rowless = profilejob.missing_profile_ids(general, directory)
+            waiting["profiles"] = {
+                "rowless": len(rowless),
+                "fetch": len(profilejob.still_to_fetch(general, directory, rowless)),
+            }
         return waiting
 
     def _dataset_rows():

@@ -54,6 +54,7 @@ from contextlib import nullcontext
 
 from . import contractors, directories
 from .payload import utc_now_iso
+from .sites.muqawil import MuqawilPageSource
 from .vocab import JobControl, JobStage, JobStatus, LogLevel
 
 #: The kind this module runs. Named once; `jobs.SPECIALISED_RUNNERS` reads it so the
@@ -123,6 +124,50 @@ def missing_profile_ids(conn: sqlite3.Connection,
     return tuple(sorted(str(row[0]) for row in rows if row[0] is not None))
 
 
+def still_to_fetch(conn: sqlite3.Connection, directory: directories.Directory,
+                   ids: tuple[str, ...]) -> tuple[str, ...]:
+    """Of these contractors, the ones whose profile pages are not already on disk.
+
+    THE FETCH GAP AND THE INTERPRETATION GAP ARE DIFFERENT QUESTIONS, AND I GAVE THEM ONE
+    ANSWER. `missing_profile_ids` asks "who has no profile ROW", which is the right
+    frontier for interpreting and the wrong one for fetching: storing a page changes no
+    row, so the answer does not move when the sweep succeeds. He pressed the control and
+    it re-derived the same 469 contractors -- and `details`' own resume could not help,
+    because `already_stored` is scoped to the RUN REF and a new job has a new one.
+
+    MEASURED 2026-09-07: two sweeps fetched 938 pages EACH, 1,876 requests for what 938
+    would have bought. Left alone the button re-buys the same pages on every press until
+    an interpretation happens, which is a crawl that hammers a site -- a defect by this
+    repository's own rule, not an inconvenience.
+
+    THE URL SHAPE STAYS IN ITS ONE PLACE. `MuqawilPageSource.profile_urls` says why:
+    "Two copies of the pattern is two places to forget `SELF_BUILD_SEGMENT`, which is the
+    segment that makes the self-build price section render at all." So this generates each
+    contractor's URLs through that builder and tests them against ONE read of the stored
+    set, rather than parsing an id back out of a URL.
+
+    ALL LOCALES OR NONE. A contractor with an English page and no Arabic one is not
+    fetched: `approve` pairs the halves and a lonely half is counted as lonely. Asking
+    for `all` means a half-finished contractor is re-fetched, which is what a resume is
+    for.
+
+    AND A CALLER NAMING IDS EXPLICITLY IS NOT FILTERED BY THIS -- the runner applies it
+    to the DEFAULT frontier only. `OP-64`'s remediation is re-fetching a contractor whose
+    rows came from the wrong document, and that needs the page again even though it is on
+    disk.
+    """
+    if not ids:
+        return ()
+    source = MuqawilPageSource(last_page=1)
+    stored = {row[0] for row in conn.execute(
+        "SELECT DISTINCT source_url FROM generic_page_snapshot "
+        " WHERE instr(source_url, ?) > 0", ("/contractors/",))}
+    return tuple(
+        one for one in ids
+        if not all(url in stored
+                   for url in source.profile_urls(directory.base_url, one)))
+
+
 def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                                admission=None) -> dict:
     """Fetch the profile pages this job asks for, to completion or a control boundary.
@@ -186,19 +231,39 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         ids, wanted = named, len(named)
         opening = f"{len(named):,} named contractor(s)"
     else:
-        ids = missing_profile_ids(conn, directory)
+        # TWO GAPS, AND THE FETCH ASKS THE SECOND. `missing_profile_ids` answers "who has
+        # no profile ROW", which is the interpretation gap; `still_to_fetch` removes the
+        # ones whose pages are already on disk. Storing a page changes no row, so without
+        # the second call this frontier does not move when the sweep succeeds and the
+        # control re-buys the same pages on every press -- measured 2026-09-07 at 1,876
+        # requests for what 938 would have bought.
+        rowless = missing_profile_ids(conn, directory)
+        ids = still_to_fetch(conn, directory, rowless)
         wanted = len(ids)
         if not ids:
             # AN HONEST REFUSAL. `details` with an empty `ids` tuple falls through to the
             # SCOPE's frontier -- the 87-hour question -- so returning early here is not
             # tidiness: passing `()` on would start the wrong sweep, which is the exact
             # four-round hole `--ids` records in `contractors.run`.
+            #
+            # AND THE TWO REASONS FOR NOTHING TO DO ARE DIFFERENT ANSWERS. Nobody
+            # missing at all is one; everybody missing a ROW already having their PAGES
+            # is the other, and it means the next step is an interpretation rather than a
+            # fetch. Telling him "nothing to fetch" without saying which would send him
+            # looking for the wrong button.
             raise NothingToFetch(
-                f"every contractor {directory.display_name} has shown us already has a "
-                "profile page stored, so there is nothing missing to fetch. Nothing was "
-                "requested")
+                (f"all {len(rowless):,} contractor(s) without a profile row already have "
+                 "their profile pages stored, so there is nothing left to FETCH — what "
+                 "is owed is an interpretation of those pages, not a request to the "
+                 "site. Nothing was requested"
+                 ) if rowless else
+                (f"every contractor {directory.display_name} has shown us already has a "
+                 "profile row, so there is nothing missing. Nothing was requested"))
         opening = (f"{len(ids):,} contractor(s) with no profile page stored — "
                    f"{len(ids) * 2:,} page(s) across both locales")
+        if len(rowless) != len(ids):
+            opening += (f" ({len(rowless) - len(ids):,} more have no row but their pages "
+                        "are already on disk, so they are not fetched again)")
 
     # THE REF IS THE JOB'S, so a resume under the same job skips the pages it already
     # stored: `already_stored` is scoped to the ref, and the job ref is the only label
@@ -292,10 +357,27 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # for nothing.
     admit = admission.lane(host) if admission is not None else nullcontext()
     try:
-        with admit, contractors.lines_go_to(note):
-            contractors.details(conn, directory, fetch, fetcher, run_ref,
-                                ceiling=ceiling, ids=ids,
-                                between_pages=page_closed)
+        with admit:
+            # RE-READ AFTER THE LANE, BECAUSE THE WAIT MADE THE ENTRY CHECK STALE. The
+            # terminal check at the top of this function ran before `admit`, and a lane
+            # wait lasts exactly as long as the job holding the lane. Measured
+            # 2026-09-07: a sweep entered at 10:33:44, waited 33 minutes, was cancelled
+            # at 11:02:54 -- and fetched 938 pages at 11:06 because nothing looked
+            # again. `between_pages` could not save it either: `_finish` clears
+            # `control`, so by then there was no instruction left to find.
+            if not jobs.still_wanted(conn, job_ref):
+                jobs.append_log(
+                    conn, job["job_id"],
+                    "stopped while waiting for the site's turn, so nothing was "
+                    "fetched — the decision to stop was made after this run began "
+                    "waiting",
+                    source_key=source_key)
+                conn.commit()
+                return jobs.get_job(conn, job_ref) or job
+            with contractors.lines_go_to(note):
+                contractors.details(conn, directory, fetch, fetcher, run_ref,
+                                    ceiling=ceiling, ids=ids,
+                                    between_pages=page_closed)
     except contractors.CrawlStopped:
         # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
         # status and said where it stopped.
