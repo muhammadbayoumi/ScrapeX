@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 from .. import db as legacy_db
+from .. import settings
 from ..database_ids import ENGINE_APPLICATION_ID, ENGINE_DATABASE_KIND
 
 # The status vocabulary and the one sentence for a below-baseline database. Both
@@ -71,6 +72,120 @@ class MigrationStreamError(RuntimeError):
 
 class DatabaseMigrationError(RuntimeError):
     """A migration stream is incomplete, newer, or has been edited in place."""
+
+
+#: WHO WROTE THE SCHEMA THAT IS IN THERE, and when. Stamped in the same
+#: transaction as `PRAGMA user_version`, for the reason the comment beside that
+#: stamp already gives about the version itself: a second commit leaves a crash
+#: window in which the file's number survives without its provenance, and a
+#: reader then has to guess again.
+#:
+#: MEASURED NEED, 2026-09-07. A source checkout at 0.4.9 met a warehouse another
+#: build had migrated to v19, and could only say "this build reads v18" -- true,
+#: and silent about what to update TO. Establishing that took reading the
+#: migration list on `origin/main`, finding the commit that added `0019`, and
+#: comparing it against the checkout the engine resolves to. Two rows make that
+#: a sentence instead of an investigation.
+#:
+#: IN THE FILE AND NOT IN A LOG, the same argument `storage.mark_sealed` makes:
+#: the warehouse travels -- onto another machine, into a backup, out of an
+#: archive -- and `~/.scrapex/engine.log` rotates (its `.1` is already 5.7 MB).
+#: The fact belongs to the thing it describes.
+SCHEMA_WRITTEN_BY_KEY = "schema_written_by"
+SCHEMA_WRITTEN_AT_KEY = "schema_written_at"
+
+#: WHERE THE CONTROL IS, named once, because it moved and one sentence did not.
+#: `#runtime-upgrade` was on the Settings screen and #679 moved it into the
+#: Database page; the health detail below went on naming Settings. A screen name
+#: is a fact about another file, so it gets a name here rather than being spelled
+#: out at each use -- there are two uses already.
+UPGRADE_CONTROL_LOCATION = "the Upgrade database button on the Database screen"
+
+
+def schema_ahead_detail(current: int, latest: int, written_by: str = "",
+                        written_at: str = "") -> str:
+    """The one sentence for a database NEWER than the build that opened it.
+
+    ONE PLACE, BECAUSE THERE WERE TWO AND ONE OF THEM WAS WRONG. The health path
+    asked which direction the mismatch ran and answered it. The open path asked
+    the same question with `!=` and gave the answer for the other direction --
+    "run database initialization and retry" -- about a warehouse whose only fault
+    was being newer. Measured on the owner's machine 2026-09-07 at 1,986 MB:
+    initialisation cannot make a v18 build read a v19 schema, it is the remedy
+    for a missing or unmarked file, and offering it there is the most expensive
+    wrong instruction this product has.
+
+    The two callers want different shapes -- one raises, one builds a
+    `DatabaseHealth` -- so what they share is the WORDS, and this owns them.
+
+    `written_by` is `schema_written_by` when the file carries it. A warehouse
+    written before that key existed does not, and the sentence then says exactly
+    what it always said rather than inventing a provenance.
+    """
+    wrote = ""
+    if written_by:
+        when = f" on {written_at}" if written_at else ""
+        wrote = f" Schema v{current} was written by ScrapeX {written_by}{when}."
+    return (f"This database was written by a later version (schema v{current}; "
+            f"this build reads v{latest}).{wrote} Update ScrapeX and retry, and "
+            "do not downgrade the database.")
+
+
+def _writer_identity() -> str:
+    """What to record as the build that wrote a schema.
+
+    THE VERSION IS NOT ENOUGH ON A SOURCE CHECKOUT, which is the case this was
+    written for: 0.4.9 names hundreds of commits, and the one that matters is the
+    one whose migration list ends where the file's version does. A frozen build
+    has one commit per version, so the commit is redundant there and harmless.
+
+    Imported here rather than at module scope: `provenance` reads the loaded
+    source tree and hashes files, and this module is imported by paths that must
+    not pay for that at import time.
+    """
+    from ..version import VERSION
+    try:
+        from .. import provenance as prov
+        build = prov.summary()
+    except Exception:
+        # A build that cannot describe itself still knows its version, and the
+        # version alone is the answer for every frozen release. Recording it is
+        # strictly better than recording nothing, so this is not a swallowed
+        # error -- it is a narrower answer, and the sentence reads correctly
+        # either way.
+        return VERSION
+    mode = str(build.get("mode") or "")
+    if mode != "source":
+        # A frozen release has one commit per version, so the version alone is
+        # already unambiguous and a hash would add noise to a sentence he reads.
+        return VERSION
+    commit = str(build.get("commit") or "")[:8]
+    # "(source)" EVEN WITH NO COMMIT, because that is the fact that matters: a
+    # checkout at 0.4.11 is not the released 0.4.11, and knowing it is a checkout
+    # tells the reader that git is the update path and not the installer. The
+    # commit is absent when the process never recorded what it loaded, which is
+    # what a bare `import` looks like -- measured in this worktree.
+    return f"{VERSION} (source {commit})" if commit else f"{VERSION} (source)"
+
+
+def schema_provenance(conn: sqlite3.Connection) -> tuple[str, str]:
+    """`(written_by, written_at)`, or two empty strings.
+
+    EMPTY IS AN ANSWER, NOT A SWALLOWED ERROR. Every warehouse written before
+    these keys existed has no row to read -- including the owner's 1,986 MB one --
+    and `scrapex_meta` itself is absent from a file that never got past its first
+    migration. In both cases the honest report is "not recorded", and
+    `schema_ahead_detail` then says what it always said. A failure here must never
+    replace the sentence about the version, which is the fact that matters.
+    """
+    try:
+        rows = dict(conn.execute(
+            "SELECT key, value FROM scrapex_meta WHERE key IN (?, ?)",
+            (SCHEMA_WRITTEN_BY_KEY, SCHEMA_WRITTEN_AT_KEY)).fetchall())
+    except sqlite3.DatabaseError:
+        return ("", "")
+    return (str(rows.get(SCHEMA_WRITTEN_BY_KEY) or ""),
+            str(rows.get(SCHEMA_WRITTEN_AT_KEY) or ""))
 
 
 @dataclass(frozen=True)
@@ -333,9 +448,8 @@ class DomainDatabase(Generic[T]):
             if version is not None and version > self.latest_schema_version:
                 return DatabaseHealth(
                     self.kind, str(self.path), False, "Needs a newer ScrapeX",
-                    f"This database was written by a later version (schema v{version}; "
-                    f"this build reads v{self.latest_schema_version}). Update ScrapeX "
-                    "and retry, and do not downgrade the database.",
+                    schema_ahead_detail(version, self.latest_schema_version,
+                                        *self._schema_provenance()),
                     version, None,
                 )
             if version is not None and version == self.latest_schema_version:
@@ -378,8 +492,8 @@ class DomainDatabase(Generic[T]):
             return DatabaseHealth(
                 self.kind, str(self.path), False, BEHIND,
                 f"This database is at schema v{version} and this build expects "
-                f"v{self.latest_schema_version}. Use the Upgrade database button on "
-                "the Settings screen, then retry.",
+                f"v{self.latest_schema_version}. Use {UPGRADE_CONTROL_LOCATION}, "
+                "then retry.",
                 version, None,
             )
         except (sqlite3.DatabaseError, DatabaseUnavailableError,
@@ -401,6 +515,18 @@ class DomainDatabase(Generic[T]):
                 conn.close()
         except sqlite3.DatabaseError:
             return None
+
+    def _schema_provenance(self) -> tuple[str, str]:
+        """The same shape as `_schema_version_or_none`, and for the same reason:
+        read after the checks have already failed, without re-running them."""
+        try:
+            conn = sqlite3.connect(str(self.path))
+            try:
+                return schema_provenance(conn)
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError:
+            return ("", "")
 
     def backup(self, folder: Path | str | None = None) -> Path:
         target_folder = Path(folder) if folder else self.path.parent / "backups"
@@ -538,6 +664,21 @@ class DomainDatabase(Generic[T]):
                         "version at all; add a PRAGMA user_version and retry")
                 if stamped != migration.number:
                     conn.execute(f"PRAGMA user_version = {migration.number}")
+                # AND WHO PUT IT THERE, in this same transaction and for the
+                # same reason the paragraph above gives about the number: a
+                # second commit leaves a crash window in which the version
+                # survives without its provenance, and the next reader is back
+                # to guessing. `INSERT OR REPLACE` rather than an append: the
+                # useful answer is the newest one, and a ledger of every
+                # migration ever applied answers a question nobody has asked.
+                conn.execute(
+                    "INSERT INTO scrapex_meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (SCHEMA_WRITTEN_BY_KEY, _writer_identity()))
+                conn.execute(
+                    "INSERT INTO scrapex_meta (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (SCHEMA_WRITTEN_AT_KEY, settings.utc_now()))
                 conn.execute("COMMIT")
             except Exception:
                 if conn.in_transaction:
@@ -765,10 +906,26 @@ class DomainDatabase(Generic[T]):
                 "correct database and retry"
             )
         current = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        # WHICH DIRECTION, and this used to be a bare `!=`. Both mismatches raise
+        # from here and their remedies are opposite: a database BEHIND this build
+        # needs migrating forward, one AHEAD needs a newer build. The single
+        # message said "run database initialization and retry", which is the
+        # remedy for NEITHER -- it is for a missing or unmarked file -- and
+        # against 1,986 MB of collected data it is the most expensive wrong
+        # instruction this product has. Measured on the owner's machine
+        # 2026-09-07: a v19 warehouse, a v18 build, and that sentence on screen.
+        #
+        # The health path already knew the difference, forty lines up. That is
+        # the duplication `CLAUDE.md` describes by change amplification: one
+        # piece of knowledge, two homes, and the second copy already wrong.
+        if current > self.latest_schema_version:
+            raise DatabaseMigrationError(schema_ahead_detail(
+                current, self.latest_schema_version, *schema_provenance(conn)))
         if current != self.latest_schema_version:
             raise DatabaseMigrationError(
                 f"{self.kind} database is at schema v{current}, expected "
-                f"v{self.latest_schema_version}; run database initialization and retry"
+                f"v{self.latest_schema_version}; use {UPGRADE_CONTROL_LOCATION}, "
+                "then retry"
             )
         self._verify_checksums(conn)
 

@@ -38,6 +38,18 @@ _CLOCK_COLUMNS = {
     ("database_migration", "applied_at"),
 }
 
+#: ROWS, NOT COLUMNS, and it needs its own list because `scrapex_meta` is one
+#: table holding many unrelated facts: excluding a COLUMN there would drop every
+#: setting the migrations write, which is most of what this gate reads.
+#:
+#: `schema_written_by` and `schema_written_at` are per-RUN by design -- the
+#: build that migrated the file and the instant it did -- so two honest runs a
+#: second apart differ there, and a source checkout differs from itself between
+#: commits. That is the same reason `applied_at` above is excluded, one level in:
+#: this gate compares what the MIGRATIONS decide, and who ran them is not one of
+#: those things.
+_PER_RUN_META_KEYS = {"schema_written_by", "schema_written_at"}
+
 
 def _shape(conn: sqlite3.Connection) -> dict:
     """Everything about a database that a real migration decides."""
@@ -63,9 +75,10 @@ def _shape(conn: sqlite3.Connection) -> dict:
         # tuple() because dbmod.connect sets row_factory = sqlite3.Row while a
         # plain connection yields tuples; comparing the raw objects compares
         # their addresses and every row looks different.
-        shape[f"rows:{name}"] = sorted(
-            repr(tuple(row))
-            for row in conn.execute(f"SELECT {picked} FROM {name}"))
+        rows = [tuple(row) for row in conn.execute(f"SELECT {picked} FROM {name}")]
+        if name == "scrapex_meta" and columns and columns[0] == "key":
+            rows = [row for row in rows if row[0] not in _PER_RUN_META_KEYS]
+        shape[f"rows:{name}"] = sorted(repr(row) for row in rows)
     return shape
 
 
