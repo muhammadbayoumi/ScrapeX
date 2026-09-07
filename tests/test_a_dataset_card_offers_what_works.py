@@ -101,6 +101,14 @@ RECIPES = {
     "interpret": ("POST /api/jobs", "post", "/api/jobs",
                   {"source_keys": [KEY], "run_mode": "update",
                    "job_kind": "dataset_interpret"}),
+    # THE THIRD VERB OVER ONE KEY, and the last of the three to get a door. It carries
+    # NO frontier, and that absence is the request the panel actually sends: the runner
+    # reads nothing as "the contractors with no profile page", which is his ruling. A
+    # recipe that named `whole_frontier` here would be measuring a request no button
+    # makes -- about 35,700 pages against 938.
+    "profiles": ("POST /api/jobs", "post", "/api/jobs",
+                 {"source_keys": [KEY], "run_mode": "update",
+                  "job_kind": "profile_crawl"}),
 }
 
 

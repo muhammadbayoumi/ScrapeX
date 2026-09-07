@@ -629,7 +629,7 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
 
 def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             ceiling: int = 0, *, workers: int = 1, connect=None,
-            ids: tuple[str, ...] = ()) -> None:
+            ids: tuple[str, ...] = (), between_pages=None) -> None:
     """Fetch the profile pages the registered scope asks for, each stored as evidence.
 
     WHY THIS IS A PHASE OF ITS OWN AND NOT PART OF `--crawl`. The listing crawl is
@@ -661,6 +661,20 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     serialise the writes AND the fetches between them, which is the whole thing being
     parallelised. Same shape as `partitioncrawl.crawl_partition`, deliberately: two
     commands that do the same thing should read the same way.
+
+    `between_pages(index, total) -> bool` IS ASKED BEFORE EACH PAGE, and `True` stops the
+    sweep here. The same hook `approve` took for the same reason: a job needs a boundary
+    at which the owner's pause or cancel can be applied, and a page is the only safe one
+    -- a page is stored whole and the next one is independent of it, so stopping between
+    two loses nothing and a resume under the same ref skips what is already down.
+
+    IT IS REFUSED ABOVE ONE WORKER, on purpose rather than by omission. The pool calls
+    into worker threads, and a callback that writes -- which is what a job's pause does
+    -- would need `directoryjob.for_writing`'s treatment and the `stopping` event
+    `partitioncrawl` carries, because `ThreadPoolExecutor.__exit__` runs every queued
+    task after a stop is decided. Accepting the hook and quietly not honouring it in the
+    pool would be a pause control that does nothing on the path he would actually press
+    it on.
     """
     scope, slice_of = read_scope(conn, directory.key)
     say(f"registered scope: {scope.value}"
@@ -772,6 +786,17 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
 
     stored = failed = 0
     notes: list[str] = []
+    #: Set when `between_pages` asked to stop. It decides the run's CLOSING STATUS, which
+    #: is the point of tracking it: a sweep the owner paused read part of its frontier,
+    #: and a later reader taking that as "the site was fully read" is exactly the
+    #: distinction `RunStatus.PARTIAL` exists to keep.
+    stopped_early = False
+    if between_pages is not None and workers > 1:
+        raise ValueError(
+            "between_pages is a sequential hook: the pool would call it from worker "
+            "threads and ThreadPoolExecutor runs queued tasks after a stop is decided, "
+            "so a pause would be honoured late or not at all. Ask for one worker, or "
+            "give the pool the stopping event partitioncrawl carries")
     if workers > 1 and connect is not None:
         # A CONNECTION PER WORKER, opened and closed by the worker that uses it.
         # `sqlite3` refuses one across threads; every connection sets WAL and
@@ -799,6 +824,14 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                     notes.append(note)
     else:
         for number, url in enumerate(todo, start=1):
+            # BEFORE THE FETCH, so a stop costs no request. Asked with the index of the
+            # page about to be read, which is what a progress figure counts up to.
+            if between_pages is not None and between_pages(number - 1, len(todo)):
+                stopped_early = True
+                say(f"  stopped at {number - 1:,} of {len(todo):,}. The pages already "
+                    f"stored under {run_ref} are kept, and running again under the same "
+                    "run reference continues from here")
+                break
             did, note = one(number, url, conn)
             stored += did
             failed += not did
@@ -816,7 +849,12 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # distinction.
     runs.close_run(
         conn, run_id,
-        status=RunStatus.PARTIAL if len(todo) < len(frontier) else RunStatus.SUCCESS,
+        # A CEILING OR A STOP, and both make the same claim false. The condition read
+        # only `len(todo) < len(frontier)` -- the ceiling -- so a sweep the owner paused
+        # after nine of eight hundred pages closed as SUCCESS.
+        status=(RunStatus.PARTIAL
+                if stopped_early or len(todo) < len(frontier)
+                else RunStatus.SUCCESS),
         rows_seen=stored, errors=failed,
         requests=int(getattr(fetcher, "requests_count", 0) or 0))
     conn.commit()

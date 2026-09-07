@@ -1,0 +1,425 @@
+"""The profile sweep is a job the panel can start, and its default is what is missing.
+
+WHAT WAS ACTUALLY WRONG, MEASURED ON HIS WAREHOUSE 2026-09-06. `contractors.details` --
+the step that fetches the profile page of every contractor a listing named -- was
+reachable from `scrapex contractors --details` and from nowhere else: no route, no job
+kind, no control. `R-81` says the panel is his only interface, so the profile half of
+muqawil did not exist for the one person the tool is for.
+
+    contractors sighted                      17,848
+    profiles stored                          17,379
+    sighted ids with NO profile                 469   <- the frontier this door builds
+    the registered scope's whole frontier    ~35,700 pages, about 87 hours
+    the missing set                              938 pages, about 2.4 hours
+
+THE DEFAULT IS THE MISSING SET AND THAT IS HIS RULING. A control whose only question
+takes 87 hours is one he cannot safely press.
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("fastapi")
+from fastapi.testclient import TestClient  # noqa: E402
+
+from scrapex import contractors, directories, jobs, profilejob  # noqa: E402
+from scrapex import db as dbmod  # noqa: E402
+from scrapex.config import MANIFEST_FILE  # noqa: E402
+from scrapex.webui.app import create_app  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+SITE = "muqawil_org"
+
+
+def _register(conn: sqlite3.Connection) -> int:
+    """The `source_site` row, because a sweep with no registered scope is refused.
+
+    `snapshotcrawl.SiteNotRegistered` says why in terms: *"how deep its crawl may go has
+    never been decided ... a crawl that picked the default would be answering for the
+    owner."* The column defaults to `listing_only`, and that is deliberately left alone
+    here -- NAMED IDS ARE NOT SUBJECT TO THE SCOPE (`contractors.details`), so a fixture
+    that widened the scope would hide a regression in exactly that rule.
+    """
+    row = conn.execute("SELECT source_id FROM source_site WHERE source_key = ?",
+                       (SITE,)).fetchone()
+    if row:
+        return int(row[0])
+    return int(conn.execute(
+        "INSERT INTO source_site (source_key, source_name, base_url, platform) "
+        "VALUES (?, ?, ?, 'directory') RETURNING source_id",
+        (SITE, "muqawil.org", "https://muqawil.org")).fetchone()[0])
+
+
+@pytest.fixture()
+def warehouse(tmp_path):
+    path = tmp_path / "harvest.db"
+    conn = dbmod.connect(path)
+    dbmod.migrate(conn)
+    _register(conn)
+    conn.commit()
+    try:
+        yield conn, path
+    finally:
+        conn.close()
+
+
+def _sight(conn: sqlite3.Connection, dataset_key: str, ids) -> None:
+    """Put contractor ids in the sighting ledger, which is where the frontier comes from."""
+    for one in ids:
+        conn.execute(
+            "INSERT INTO dataset_sighting (dataset_key, external_id, seen_count) "
+            "VALUES (?, ?, 1)", (dataset_key, str(one)))
+    conn.commit()
+
+
+def _dataset(conn: sqlite3.Connection, dataset_key: str, name: str) -> tuple[int, int]:
+    """`(dataset_definition_id, schema_version_id)` for one dataset, created once.
+
+    THE FULL FOREIGN-KEY CHAIN, and there is no shortcut: `generic_record` requires a
+    `schema_version_id` and a `source_snapshot_id`, both NOT NULL into real tables, so a
+    fixture that inserted a bare row would fail rather than lie -- which is the schema
+    doing its job. `discovery_method` is NOT NULL with no default for the same reason.
+    """
+    source_id = _register(conn)
+    row = conn.execute(
+        "SELECT dataset_definition_id FROM dataset_definition WHERE dataset_key = ?",
+        (dataset_key,)).fetchone()
+    if row is None:
+        row = conn.execute(
+            "INSERT INTO dataset_definition "
+            "  (source_id, dataset_key, original_name, dataset_kind, discovery_method) "
+            "VALUES (?, ?, ?, 'table', 'repeating_dom') RETURNING dataset_definition_id",
+            (source_id, dataset_key, name)).fetchone()
+    definition = int(row[0])
+    version = conn.execute(
+        "SELECT schema_version_id FROM dataset_schema_version "
+        " WHERE dataset_definition_id = ?", (definition,)).fetchone()
+    if version is None:
+        version = conn.execute(
+            "INSERT INTO dataset_schema_version "
+            "  (dataset_definition_id, version_number, schema_hash) "
+            "VALUES (?, 1, ?) RETURNING schema_version_id",
+            (definition, f"hash-{dataset_key}")).fetchone()
+    conn.commit()
+    return definition, int(version[0])
+
+
+def _snapshot(conn: sqlite3.Connection, url: str) -> int:
+    """One stored page, through the production writer.
+
+    NOT RAW SQL, and the reason is recorded: seventeen tests in
+    `test_two_warehouses_become_one.py` once passed both before and after a real defect
+    because none of them stored a page the way the product does.
+    """
+    from scrapex.extract import service
+    from scrapex.extract.models import SnapshotCreate
+    stored = service.save_snapshot(conn, SnapshotCreate(
+        source_url=url, html_content="<html><body>fixture</body></html>"))
+    conn.commit()
+    return int(stored["page_snapshot_id"])
+
+
+def _profile_row(conn: sqlite3.Connection, contractor_id: str) -> None:
+    """One stored profile, addressed the way the product addresses it.
+
+    THROUGH `dataset_definition`, not by a literal id, because the whole point of the
+    query under test is that it resolves the profile dataset BY KEY.
+    """
+    directory = directories.get(SITE)
+    definition, version = _dataset(conn, directory.profiles.dataset_key,
+                                   "Contractor profiles")
+    snapshot = _snapshot(conn, f"https://muqawil.org/en/contractors/{contractor_id}")
+    conn.execute(
+        "INSERT INTO generic_record (dataset_definition_id, record_key, "
+        "                            schema_version_id, data_json, source_snapshot_id, "
+        "                            source_locator, content_hash, status) "
+        "VALUES (?, ?, ?, ?, ?, 'div.info-box::row(1)', ?, 'active')",
+        (definition, f"key-{contractor_id}", version,
+         json.dumps({"contractor_id": contractor_id}), snapshot,
+         f"hash-{contractor_id}"))
+    conn.commit()
+
+
+def test_the_frontier_is_what_has_no_profile(warehouse):
+    """THE ONE NUMBER THE BUTTON ACTS ON."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["1001", "1002", "1003"])
+    _profile_row(conn, "1002")
+
+    missing = profilejob.missing_profile_ids(conn, directory)
+
+    assert missing == ("1001", "1003"), missing
+
+
+def test_it_joins_on_the_contractor_id_and_not_on_the_record_key(warehouse):
+    """THE MISTAKE THIS GUARD EXISTS FOR, AND I MADE IT.
+
+    My first count of the gap joined `generic_record.record_key` across the two datasets
+    and reported 410. Those keys are digests of the PARSED ROW and the two datasets hash
+    different things -- `source_locator` is `div.section-card::row(N)` for a listing card
+    and `div.info-box::row(1)` for a profile -- so the join was meaningless and the
+    number was a coincidence of the right order of magnitude. The real figure, on
+    `contractor_id`, is 469.
+
+    So this stores a profile whose `record_key` matches NOTHING and whose `contractor_id`
+    matches a sighted contractor. A `record_key` join reports it missing; the right join
+    does not.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["2001"])
+    _profile_row(conn, "2001")
+    stored = conn.execute(
+        "SELECT record_key FROM generic_record WHERE data_json LIKE '%2001%'"
+    ).fetchone()[0]
+    assert stored == "key-2001" != "2001", (
+        "the fixture's record_key happens to equal the contractor id, so this test "
+        "cannot tell the two joins apart")
+
+    assert profilejob.missing_profile_ids(conn, directory) == (), (
+        "a stored profile was reported missing, which is what a record_key join does")
+
+
+def test_a_warehouse_with_nothing_missing_refuses_rather_than_sweeping(warehouse):
+    """AN EMPTY `ids` FALLS THROUGH TO THE SCOPE'S FRONTIER, which is the 87-hour
+    question -- so "nothing missing" has to be a refusal and not an empty tuple passed
+    on. `--ids` records four rounds of exactly this hole in `contractors.run`."""
+    conn, path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["3001"])
+    _profile_row(conn, "3001")
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+
+    with pytest.raises(profilejob.NothingToFetch, match="nothing missing"):
+        profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+
+def test_the_runner_refuses_a_job_of_another_kind(warehouse):
+    conn, _path = warehouse
+    job_ref = jobs.create_job(conn, [SITE], job_kind="directory_crawl")
+    conn.commit()
+
+    with pytest.raises(ValueError, match="not a 'profile_crawl'"):
+        profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+
+def test_the_runner_refuses_a_key_that_is_no_directory(warehouse):
+    conn, _path = warehouse
+    job_ref = jobs.create_job(conn, ["ELSEWEDYSHOP"], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+
+    with pytest.raises(profilejob.NotADirectory):
+        profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+
+def test_the_kind_is_registered_and_the_schema_allows_it(warehouse):
+    """A runner the dispatch cannot find is a job that queues and never starts, and a
+    kind the CHECK refuses is a row that cannot be written at all. Both have been real:
+    `0018` exists because the second happened."""
+    conn, _path = warehouse
+
+    assert jobs.runner_for(profilejob.JOB_KIND) is profilejob.run_profile_crawl_job_once
+    assert profilejob.JOB_KIND in jobs.JOB_KINDS
+
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    assert jobs.get_job(conn, job_ref)["job_kind"] == profilejob.JOB_KIND, (
+        "the row was written with another kind, so the CHECK accepted it and the "
+        "dispatch will run the wrong runner")
+
+
+def test_the_sweep_can_be_stopped_between_pages(warehouse):
+    """A PAGE IS THE BOUNDARY, and `details` had none: a 938-page sweep with no hook is
+    two and a half hours the owner cannot interrupt."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    asked: list[tuple[int, int]] = []
+
+    def stop_at_two(index: int, total: int) -> bool:
+        asked.append((index, total))
+        return index >= 2
+
+    fetched: list[str] = []
+
+    def fetch(url: str) -> str:
+        fetched.append(url)
+        return "<html><body>nothing</body></html>"
+
+    contractors.details(conn, directory, fetch, None, "run-stop",
+                        ids=("4001", "4002", "4003"), between_pages=stop_at_two)
+
+    assert len(fetched) == 2, (
+        f"the sweep did not stop at the second page: {len(fetched)} fetched")
+    assert asked[0] == (0, 6), (
+        f"the first call must carry the total so the card can draw a bar: {asked[0]}")
+
+
+def test_the_hook_is_refused_above_one_worker(warehouse):
+    """ACCEPTING IT AND NOT HONOURING IT WOULD BE A PAUSE CONTROL THAT DOES NOTHING on
+    the path he would press it on. The pool calls back from worker threads, where this
+    connection cannot be used, and `ThreadPoolExecutor.__exit__` runs every queued task
+    after a stop is decided."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+
+    with pytest.raises(ValueError, match="sequential hook"):
+        contractors.details(conn, directory, lambda url: "", None, "run-pool",
+                            ids=("5001",), workers=4, connect=lambda: conn,
+                            between_pages=lambda index, total: False)
+
+
+def test_a_stopped_sweep_closes_partial_and_not_success(warehouse):
+    """A SWEEP THE OWNER PAUSED READ PART OF ITS FRONTIER, and a later reader taking
+    that as "the site was fully read" is exactly what `RunStatus.PARTIAL` exists to
+    prevent. The condition read only the ceiling before this."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+
+    contractors.details(conn, directory, lambda url: "<html></html>", None, "run-part",
+                        ids=("6001", "6002", "6003"),
+                        between_pages=lambda index, total: index >= 1)
+
+    status = conn.execute(
+        "SELECT status FROM crawl_run ORDER BY run_id DESC LIMIT 1").fetchone()[0]
+    assert status == "partial", (
+        f"a sweep stopped after one page closed as {status!r}")
+
+
+# ---- the route the control presses ------------------------------------------
+
+
+@pytest.fixture()
+def served(tmp_path):
+    """An engine holding ONE APPROVED-SHAPED DATASET, and two contractors sighted.
+
+    A DATASET HAS TO EXIST FOR THIS TO TEST ANYTHING. `_registered_directories` lists a
+    directory that has never been crawled, and such a card has nothing waiting by
+    construction -- no crawl has finished, so nothing can be uninterpreted. The badge
+    belongs to the DATASET row, so a warehouse with no dataset would let the guard for
+    it pass against a row that never carries it.
+    """
+    path = tmp_path / "harvest.db"
+    conn = dbmod.connect(path)
+    dbmod.migrate(conn)
+    directory = directories.get(SITE)
+    _dataset(conn, directory.dataset_key, "Contractors")
+    _sight(conn, directory.dataset_key, ["9001", "9002"])
+    conn.commit()
+    conn.close()
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    return TestClient(create_app(path, manifest_path=manifest)), path
+
+
+def test_the_route_queues_a_profile_sweep_for_a_directory(served):
+    client, path = served
+
+    answer = client.post("/api/jobs", json={
+        "source_keys": [SITE], "run_mode": "update", "job_kind": "profile_crawl"})
+
+    assert answer.status_code == 200, answer.text
+    conn = sqlite3.connect(str(path))
+    try:
+        kind = conn.execute(
+            "SELECT job_kind FROM crawl_job WHERE job_ref = ?",
+            (answer.json()["job_ref"],)).fetchone()[0]
+    finally:
+        conn.close()
+    assert kind == "profile_crawl"
+
+
+def test_the_route_still_refuses_a_kind_the_registry_owns(served):
+    """The crawl kinds stay INFERRED. A caller free to name `directory_crawl` would be a
+    second place deciding which collector runs, which is the drift the registry exists to
+    remove -- and widening the nameable set for profiles must not widen it for those."""
+    client, _path = served
+
+    refused = client.post("/api/jobs", json={
+        "source_keys": [SITE], "job_kind": "directory_crawl"})
+
+    assert refused.status_code == 400, refused.text
+    assert "source registry" in refused.json()["detail"]
+
+
+def test_the_route_refuses_two_frontiers_at_once(served):
+    """Named ids REPLACE the frontier rather than filtering it, so asking for both an id
+    list and the whole frontier cannot mean anything. Refusing beats picking one."""
+    client, _path = served
+
+    refused = client.post("/api/jobs", json={
+        "source_keys": [SITE], "job_kind": "profile_crawl",
+        "ids": ["7001"], "whole_frontier": True})
+
+    assert refused.status_code == 400, refused.text
+    assert "different frontiers" in refused.json()["detail"]
+
+
+def test_the_frontier_choice_reaches_the_job(served):
+    """The runner reads these out of the checkpoint. A route that accepted them and
+    dropped them would start the WRONG sweep -- the 87-hour one -- and say nothing."""
+    client, path = served
+
+    queued = client.post("/api/jobs", json={
+        "source_keys": [SITE], "job_kind": "profile_crawl",
+        "ids": ["8001", "8002"], "ceiling": 4})
+
+    assert queued.status_code == 200, queued.text
+    conn = sqlite3.connect(str(path))
+    try:
+        raw = conn.execute("SELECT checkpoint_json FROM crawl_job WHERE job_ref = ?",
+                           (queued.json()["job_ref"],)).fetchone()[0]
+    finally:
+        conn.close()
+    held = json.loads(raw)
+    assert held["ids"] == ["8001", "8002"] and held["ceiling"] == 4, held
+
+
+def test_the_default_asks_for_nothing_and_that_means_the_missing_set(served, tmp_path):
+    """HIS RULING, ASSERTED: the panel sends no frontier, and the absence must mean the
+    missing set rather than the whole one. A checkpoint that arrived carrying
+    `whole_frontier` by default would be the 87-hour button."""
+    client, path = served
+
+    queued = client.post("/api/jobs", json={
+        "source_keys": [SITE], "job_kind": "profile_crawl"})
+
+    assert queued.status_code == 200, queued.text
+    conn = sqlite3.connect(str(path))
+    try:
+        raw = conn.execute("SELECT checkpoint_json FROM crawl_job WHERE job_ref = ?",
+                           (queued.json()["job_ref"],)).fetchone()[0]
+    finally:
+        conn.close()
+    assert raw in (None, "", "null"), (
+        f"the default carried a frontier choice: {raw!r}")
+
+
+def test_the_sources_route_says_what_is_waiting(served):
+    """HIS REQUIREMENT: *«اريد الظهور على الكارت انه يحتاج لعمل interpret store pages عند
+    الحاجة»* -- so the card is not a place he waits for something that is waiting for
+    him. The panel can only draw it if the route sends it."""
+    client, _path = served
+
+    rows = client.get("/api/sources").json()["sources"]
+    cards = [row for row in rows
+             if row.get("site_key") == SITE and row.get("kind") == "dataset"]
+
+    assert cards, f"muqawil has no dataset card: {[r.get('kind') for r in rows]}"
+    for row in cards:
+        assert "work_waiting" in row, (
+            "the route does not say what is waiting, so the card cannot")
+        waiting = row["work_waiting"]
+        assert set(waiting) >= {"interpret", "profiles"}, waiting
+        # TWO CONTRACTORS SIGHTED AND NO PROFILE STORED FOR EITHER, so the number the
+        # button acts on is 2. A `None` here would mean the route looked and found
+        # nothing to look at, which is a different claim from "none are missing".
+        assert waiting["profiles"] == 2, waiting
+        assert waiting["interpret"] is None, (
+            "no crawl has finished in this warehouse and the route says one has")

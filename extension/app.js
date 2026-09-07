@@ -4885,7 +4885,8 @@ async function loadDatasets() {
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, fmtCount(s.observations))}</div>
           <div class="n">${countLine(s)}</div>
-          <div class="n muted">${freshnessLine(s)}</div></div>
+          <div class="n muted">${freshnessLine(s)}</div>
+          ${waitingLine(s)}</div>
       </article>`).join("");
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
       const card = root.closest("[data-open]");
@@ -5079,6 +5080,57 @@ function coverageShare(c) {
 // The freshness of a dataset — the first thing anyone asks, and the fact the
 // card was missing where it used to read "no recorded changes yet". A read-out
 // from the last SUCCESSFUL crawl; "never" is a real answer, not a blank.
+/**
+ * What this source has on disk that is waiting for a press.
+ *
+ * HIS REQUIREMENT, in his words: *«اريد الظهور على الكارت انه يحتاج لعمل interpret store
+ * pages عند الحاجة لذلك حتى لا انتظر شى يحتاج اكشن منى»*. Measured the day the interpret
+ * door shipped: a listing crawl had finished with 6,713 stored pages, the card went on
+ * showing the 17,304 rows it showed before the crawl started, and nothing anywhere said
+ * a press was owed. He waited for a number that was waiting for him.
+ *
+ * IT NAMES THE ACTION, NOT A STATE. "Stored pages not interpreted" is a condition;
+ * "Interpret stored pages" is the row in this card's own menu, spelled exactly as it
+ * appears there, so the line and the control cannot be read as two different things.
+ *
+ * AND IT COUNTS ONLY WHERE A COUNT IS HONEST. The profile line carries a number because
+ * the engine counts contractors with no profile row -- a set, exactly known. The
+ * interpret line carries a DATE and no number, because counting uninterpreted pages
+ * means running the interpreter's frontier over every stored page, and issue 684 is what
+ * a guessed number costs: two counts of one run shared a word and read as 5,804 lost
+ * pages.
+ *
+ * `badge off` IS THE AMBER BADGE AND IT IS THE ONLY AMBER ONE THERE IS -- the kit
+ * defines `.badge`, `.badge.ok`, `.badge.off` and `.badge.danger` and nothing else. I
+ * wrote `badge warn` here first, which is the identical mistake `renderEngineDetail`
+ * already records making: an undefined variant renders as the plain grey badge, so a
+ * line whose whole job is to draw the eye would have drawn none. A new variant is four
+ * edits and a palette sweep; amber already means "attend to this".
+ *
+ * Returns MARKUP, so the call site must not esc() it -- the same shape `freshnessLine`
+ * above uses.
+ */
+function waitingLine(s) {
+  const waiting = s.work_waiting || {};
+  const rows = [];
+  if (waiting.interpret && waiting.interpret.crawl_finished_at) {
+    const when = window.ScrapeXTime.markup(
+      waiting.interpret.crawl_finished_at, "datetime", {zone: true});
+    rows.push(`<span class="badge off">Interpret stored pages</span>` +
+      `<span class="muted"> · a crawl finished ${when} and its pages are not rows yet` +
+      `</span>`);
+  }
+  if (waiting.profiles) {
+    rows.push(`<span class="badge off">Fetch missing profiles</span>` +
+      `<span class="muted"> · ${esc(fmtCount(waiting.profiles))} ` +
+      `${waiting.profiles === 1 ? "contractor has" : "contractors have"} no profile ` +
+      `page stored</span>`);
+  }
+  if (!rows.length) return "";
+  return `<div class="n" role="status">` +
+    rows.map((row) => `<div>${row}</div>`).join("") + `</div>`;
+}
+
 function freshnessLine(s) {
   const last = s.last_success;
   if (!last || !last.started_at) return "no successful crawl yet";
@@ -5295,7 +5347,29 @@ function sourceActions(source) {
     why: "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  return [...base, ...crawlable, ...interpretable, ...covered];
+  // AND FETCHING THE PROFILE PAGES THE LISTING NAMED, the third verb over one key and the
+  // last of the three to get a door. Measured 2026-09-06 on his warehouse: 17,848
+  // contractors sighted, 17,379 profiles stored, and 469 sighted ids with NO profile page
+  // at all -- while `contractors.details` was reachable from `--details` and nowhere
+  // else. `R-81`, again: no control in the panel, no capability.
+  //
+  // IT ASKS FOR THE MISSING ONES, WHICH IS HIS RULING AND NOT A CONVENIENCE. The whole
+  // frontier is about 35,700 pages, roughly 87 hours at the measured 9.03 s a page; the
+  // missing set is 938 pages, about 2.4 hours. A control whose only question takes 87
+  // hours is one he cannot safely press, so the button asks the narrow one and the route
+  // carries `whole_frontier` for a caller that wants the other.
+  //
+  // ON A DATASET CARD ONLY, for the same measured reason as `interpret` above: a
+  // `directory` card is a source that has never been crawled, so no listing has named a
+  // profile and the runner would refuse with `NothingToFetch` -- correctly, and
+  // pointlessly.
+  const profiles = source.site_key && source.kind === "dataset" ? [{
+    action: "profiles",
+    label: "Fetch missing profiles",
+    why: "Fetch the profile page of every contractor that has none yet.",
+    route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+  }] : [];
+  return [...base, ...crawlable, ...interpretable, ...profiles, ...covered];
 }
 
 function sourceMenu(source) {
@@ -5382,6 +5456,24 @@ async function runSourceAction(action, key, siteKey = "") {
     try {
       await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
                                job_kind: "dataset_interpret"});
+      showView("run");
+    } catch (error) {
+      out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
+    }
+    return;
+  }
+  if (action === "profiles") {
+    // THE SAME `site_key` THE CRAWL AND THE INTERPRETER USE, for the same reason: this
+    // card's own `source_key` is the DATASET key and `POST /api/jobs` resolves the
+    // registry source. `job_kind` is named because the route cannot infer which of the
+    // three verbs over this key a request means.
+    //
+    // NO `ids` AND NO `whole_frontier`: the runner reads an absent frontier as "the
+    // contractors with no profile", which is what this button says it does.
+    const profileKey = siteKey || key;
+    try {
+      await post("/api/jobs", {source_keys: [profileKey], run_mode: "update",
+                               job_kind: "profile_crawl"});
       showView("run");
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");

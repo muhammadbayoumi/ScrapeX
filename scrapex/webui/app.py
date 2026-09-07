@@ -38,6 +38,7 @@ from .. import (
     localinbox,
     nativehost,
     pricehistory,
+    profilejob,
     provenance,
     rates,
     retention,
@@ -709,6 +710,63 @@ def create_app(
             source.base_url = entry.base_url or source.base_url
         return sources
 
+    def _work_waiting(general, site_key: str, dataset_key: str) -> dict:
+        """What this directory has on disk that needs a press, and nothing else.
+
+        HIS REQUIREMENT, in his words: *«اريد الظهور على الكارت انه يحتاج لعمل interpret
+        store pages عند الحاجة لذلك حتى لا انتظر شى يحتاج اكشن منى»* -- show it on the
+        card, so he is not waiting for something that is waiting for him. Measured on his
+        warehouse the day the interpret door shipped: a listing crawl had finished with
+        6,713 stored pages and the card went on showing the 17,304 rows it showed before
+        the crawl started, with nothing anywhere saying a press was owed.
+
+        TWO STATES, AND EACH IS THE THING ITS OWN BUTTON ACTS ON. `interpret` is due when
+        a listing crawl has finished MORE RECENTLY than the last interpretation of this
+        source; `profiles` is due when contractors are sighted with no profile page.
+
+        A COMPARISON OF FINISH TIMES, NOT A COUNT OF UNINTERPRETED PAGES, and that is a
+        deliberate limit rather than a shortcut. Counting what an interpretation would
+        act on means running its frontier, which decodes and parses every stored page --
+        measured at over two minutes for the listing frontier and killed before it
+        finished. So this answers "a crawl has completed since the last interpretation",
+        which is exactly the state that needs a press, and it does not claim a number.
+        #684 is why a number would be worse than none here: two counts of one run shared
+        a word and read as 5,804 lost pages.
+
+        MEASURED COST: `/api/sources` answered in 0.35 s before this and the three
+        queries here add about 0.09 s of it on a 2.08 GB warehouse -- against the
+        5,000 ms `STARTUP_DEADLINES.destinationData` gives this path. `/api/storage` is
+        the cautionary tale one file over: it ran a full-file integrity scan on every
+        page open and failed the deadline every time.
+        """
+        waiting: dict = {"interpret": None, "profiles": None}
+        if site_key not in directories.BUILDERS:
+            return waiting
+        directory = directories.get(site_key)
+        if directory.dataset_key != dataset_key:
+            # NOT THE PRIMARY DATASET OF THIS SITE. The panel folds a site's tables into
+            # one card, and putting the same badge on the folded rows would say a press
+            # is owed three times for one press.
+            return waiting
+        like = f'%"{site_key}"%'
+        crawled = general.execute(
+            "SELECT finished_at FROM crawl_job "
+            " WHERE job_kind = ? AND source_keys LIKE ? AND finished_at IS NOT NULL "
+            " ORDER BY finished_at DESC LIMIT 1",
+            (directoryjob.JOB_KIND, like)).fetchone()
+        if crawled:
+            read = general.execute(
+                "SELECT finished_at FROM crawl_job "
+                " WHERE job_kind = ? AND source_keys LIKE ? AND finished_at IS NOT NULL "
+                " ORDER BY finished_at DESC LIMIT 1",
+                (datasetjob.JOB_KIND, like)).fetchone()
+            if read is None or str(crawled[0]) > str(read[0]):
+                waiting["interpret"] = {"crawl_finished_at": crawled[0],
+                                        "interpreted_at": read[0] if read else None}
+        if directory.profiles is not None:
+            waiting["profiles"] = len(profilejob.missing_profile_ids(general, directory))
+        return waiting
+
     def _dataset_rows():
         """Every approved dataset, in the shape a source listing already speaks.
 
@@ -796,6 +854,10 @@ def create_app(
                 # second shape would be a second code path in each of them.
                 "last_success": _dataset_freshness(
                     general, int(row["dataset_definition_id"])),
+                # WHAT IS WAITING FOR A PRESS, so the card can say so instead of leaving
+                # him to wait for something that is waiting for him.
+                "work_waiting": _work_waiting(general, row["site_key"],
+                                              row["dataset_key"]),
                 "kept_pages": 0, "kept_at": None,
             } for row in catalogue]
         finally:
@@ -3786,26 +3848,28 @@ def create_app(
                        f"{[k for k in source_keys if k not in directory_keys]} are not. "
                        "Queue them separately.")
         job_kind = directoryjob.JOB_KIND if directory_keys else "crawl"
-        # INTERPRETING IS A DIFFERENT VERB OVER THE SAME KEY, so it is the one kind a
-        # caller may NAME. Crawling is inferred from `directories.BUILDERS` and must stay
-        # inferred -- a caller free to name `crawl` or `directory_crawl` would be a second
-        # place deciding which collector runs, which is the drift that registry exists to
-        # remove. Interpretation cannot be inferred from the key, because the same key
-        # supports both, so the request has to say which of the two it wants.
+        # THREE VERBS OVER ONE KEY, so the verb is the one thing a caller may NAME.
+        # `muqawil_org` supports crawling its listing, fetching the profiles that listing
+        # named, and interpreting what either stored -- and no registry lookup can say
+        # which of the three a request means. What stays INFERRED is the collector:
+        # crawling comes from `directories.BUILDERS`, and a caller free to name `crawl`
+        # or `directory_crawl` would be a second place deciding which collector runs,
+        # which is the drift that registry exists to remove.
+        NAMEABLE = (datasetjob.JOB_KIND, profilejob.JOB_KIND)
         asked_kind = (body or {}).get("job_kind")
         if asked_kind is not None:
-            if asked_kind != datasetjob.JOB_KIND:
+            if asked_kind not in NAMEABLE:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"job_kind may only be {datasetjob.JOB_KIND!r}; the crawl "
+                    detail=f"job_kind may only be one of {list(NAMEABLE)}; the crawl "
                            "kinds are chosen by the source registry, not by the caller")
             if not directory_keys:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{datasetjob.JOB_KIND!r} interprets the stored pages of a "
-                           f"directory crawl, and {source_keys} names no directory")
-            job_kind = datasetjob.JOB_KIND
-        if job_kind in (directoryjob.JOB_KIND, datasetjob.JOB_KIND) and len(source_keys) != 1:
+                    detail=f"{asked_kind!r} acts on a directory's own pages, and "
+                           f"{source_keys} names no directory")
+            job_kind = asked_kind
+        if job_kind in (directoryjob.JOB_KIND, *NAMEABLE) and len(source_keys) != 1:
             # The runner refuses this too. Refused here as well because the message a
             # person reads should come from the door they knocked on, not from a job
             # that started and stopped.
@@ -3844,6 +3908,34 @@ def create_app(
                            "start a run instead")
             checkpoint = {"completed_source_keys": [], "errors": [], "succeeded": 0,
                           "partial_source": source_keys[0]}
+        if job_kind == profilejob.JOB_KIND:
+            # WHICH PROFILES, PASSED THROUGH RATHER THAN DECIDED HERE. The runner reads
+            # these three and its docstring holds the rule; this route's job is to let a
+            # caller say which of the three it means, not to have an opinion.
+            #
+            # NOTHING MEANS THE MISSING SET, which is what the panel's control sends and
+            # what he ruled the default should be: the whole frontier is about 35,700
+            # pages -- roughly 87 hours -- and a control whose only question takes 87
+            # hours is one he cannot safely press.
+            #
+            # AND THE OTHER TWO ARE REACHABLE FROM HERE SO THEY ARE NOT DEAD BRANCHES. A
+            # runner path with no caller is a path no test exercises and nobody trusts;
+            # these are the `OP-64` remediation (name the contractors) and the full
+            # sweep, and neither is drawn as a button.
+            asked = {}
+            if body.get("ids"):
+                asked["ids"] = [str(one) for one in body["ids"]]
+            if body.get("whole_frontier"):
+                asked["whole_frontier"] = True
+            if body.get("ceiling"):
+                asked["ceiling"] = int(body["ceiling"])
+            if asked.get("ids") and asked.get("whole_frontier"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="ids and whole_frontier are different frontiers: named ids "
+                           "REPLACE the frontier rather than filtering it, so asking "
+                           "for both cannot mean anything. Choose one.")
+            checkpoint = {**(checkpoint or {}), **asked} if asked else checkpoint
         conn = read_conn()
         try:
             ensure_schema(conn)

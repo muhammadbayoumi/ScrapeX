@@ -68,6 +68,17 @@ STRESS_SOURCES = [
      "coverage": [{"dataset_key": "contractor_profiles",
                    "label": "Contractor profiles",
                    "stored": 704, "population": 17304}],
+     # BOTH THINGS WAITING, because the card draws a line for each and a stub carrying
+     # neither would let a guard for them pass on an empty card -- the shape of failure
+     # this file has paid for twice: no dataset-kind source for weeks while a test
+     # asserted every card has a menu, and `backups: []` beside `backup_count: 2`.
+     #
+     # The numbers are his warehouse's, measured read-only 2026-09-06: a listing crawl
+     # that finished with its pages uninterpreted, and 469 sighted contractors with no
+     # profile page stored.
+     "work_waiting": {"interpret": {"crawl_finished_at": "2026-09-06T05:01:44Z",
+                                    "interpreted_at": None},
+                      "profiles": 469},
      "last_success": {"started_at": "2026-08-21T18:40:11Z",
                       "finished_at": "2026-08-21T18:40:11Z",
                       "rows_seen": 0, "requests_count": 0},
