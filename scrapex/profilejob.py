@@ -338,16 +338,22 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             conn.commit()
             stopped.append(JobStatus.CANCELLED.value)
             return True
-        if control in {JobControl.PAUSE.value, JobControl.CANCEL.value}:
-            # THE BEAT DOES NOT WRITE `running` WHEN A STOP IS PENDING. Falling through
-            # to the branches below settles it; writing the status first would erase the
-            # transitional state the panel is showing him.
-            pass
-        else:
-            jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
-                         stage=JobStage.FETCHING.value, progress_done=index,
-                         progress_total=total, last_heartbeat_at=utc_now_iso())
-            conn.commit()
+        # THE COUNT IS AN OBSERVATION AND THE STATUS IS A CLAIM, so a pending stop
+        # withholds the claim and nothing else. Withholding the whole write was a
+        # regression of this branch, and a worse one here than in `directoryjob`:
+        # `index` AND `total` sat inside it, so a sweep paused before its first page
+        # closed settled at `0/0` -- a card that cannot say whether the job ever had a
+        # frontier, on a run that had 938 pages in it.
+        beat = {"progress_done": index, "progress_total": total,
+                "last_heartbeat_at": utc_now_iso()}
+        if control not in {JobControl.PAUSE.value, JobControl.CANCEL.value}:
+            # NOT WHEN A STOP IS PENDING. Falling through to the branches below settles
+            # it; writing `running` first would erase the transitional state the panel
+            # is showing him.
+            beat["status"] = JobStatus.RUNNING.value
+            beat["stage"] = JobStage.FETCHING.value
+        jobs._update(conn, job["job_id"], **beat)
+        conn.commit()
         if control == JobControl.PAUSE.value:
             jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
                          control=JobControl.NONE.value, stage=None,

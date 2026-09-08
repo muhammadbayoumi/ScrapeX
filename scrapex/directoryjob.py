@@ -484,14 +484,21 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                 return True
             pending = jobs._control_of(own, job["job_id"]) in {
                 JobControl.PAUSE.value, JobControl.CANCEL.value}
+            # THE COUNT IS AN OBSERVATION AND THE STATUS IS A CLAIM, and a pending stop
+            # may withhold only the claim. Withholding the whole write was a regression
+            # of this branch: `progress_done` sat inside the guarded call and the pause
+            # branch below does not write it, so a crawl he paused reported `0 of 56`
+            # cells closed and a resume could not say what was left. The cell DID close
+            # -- that is a measurement, and a stop cannot make it untrue.
+            beat = {"progress_done": done["cells"],
+                    "last_heartbeat_at": utc_now_iso()}
             if not pending:
                 # NOT WHEN A STOP IS PENDING: writing `running` would erase the
                 # transitional state the panel is showing him, and the branches below
                 # settle it a few lines from here.
-                jobs._update(own, job["job_id"], status=JobStatus.RUNNING.value,
-                             stage=JobStage.FETCHING.value,
-                             progress_done=done["cells"],
-                             last_heartbeat_at=utc_now_iso())
+                beat["status"] = JobStatus.RUNNING.value
+                beat["stage"] = JobStage.FETCHING.value
+            jobs._update(own, job["job_id"], **beat)
             # AND THE REQUEST COUNT, HERE RATHER THAN ONLY AT THE END. It was written
             # once in `finally`, so the panel showed `requests: 0` beside `cells 2/56`
             # for hours -- two numbers on one card contradicting each other, on the

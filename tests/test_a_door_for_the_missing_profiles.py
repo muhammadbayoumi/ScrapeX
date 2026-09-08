@@ -557,6 +557,88 @@ def test_the_beat_does_not_write_running_over_a_pending_stop(warehouse, monkeypa
     assert len(seen) <= 2, f"it fetched {len(seen)} page(s) past the cancel"
 
 
+def test_a_paused_sweep_still_counts_the_pages_it_fetched(warehouse, monkeypatch):
+    """A PAUSE THAT LOSES THE COUNT IS A PAUSE HE CANNOT READ, and this one was a
+    REGRESSION OF THIS BRANCH rather than an old defect.
+
+    Withholding `status = running` from a pending stop was right; withholding the whole
+    write with it was not, because the page count travelled inside that call and the
+    pause branch below does not write it. The listing crawl has the identical shape and
+    its guard -- `test_a_pause_stops_at_a_cell_boundary_and_says_where` -- failed the
+    moment the change landed. Nothing was watching the profile sweep, so this is that
+    guard's twin.
+
+    THE PAGE WAS FETCHED. That is a measurement, and a stop cannot make it untrue.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"97{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+
+    def pause_after_one(url):
+        seen.append(url)
+        if len(seen) == 1:
+            jobs.set_control(conn, job_ref, JobControl.PAUSE)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, pause_after_one))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert settled["status"] == JobStatus.PAUSED.value, (
+        f"a pending pause did not settle the job: {settled['status']}")
+    assert seen, "nothing was fetched, so this proves nothing about the count"
+    assert settled["progress_done"] == len(seen), (
+        f"{len(seen)} page(s) were fetched and the row says "
+        f"{settled['progress_done']} -- a resume cannot say what is left")
+
+
+def test_a_pause_before_the_first_page_still_corrects_the_total(warehouse, monkeypatch):
+    """`page_closed` PROMISES ITS FIRST CALL ALWAYS WRITES, so `progress_total` reaches
+    the card before the work rather than after it -- the runner's entry can only write
+    an ESTIMATE (`wanted * 2`), because the resume and the ceiling are applied inside
+    `details`.
+
+    A stop pending at that first call broke exactly that promise: the corrected total
+    never landed and the card kept an estimate the run never had. Six sighted
+    contractors are twelve pages by the estimate and three by the ceiling.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"98{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], checkpoint={"ceiling": 3},
+                              job_kind=profilejob.JOB_KIND)
+    # WORKER-HELD, WHICH IS WHAT MAKES THE PAUSE PENDING RATHER THAN DONE. `set_control`
+    # settles a job the worker is not holding on the spot; it parks a held one in
+    # `pausing` with `control = pause`, and the runner's own entry write leaves that
+    # control alone. That is the live shape: he pressed Pause in the seconds between
+    # dispatch and the first page.
+    jobs._update(conn, jobs.get_job(conn, job_ref)["job_id"],
+                 status=JobStatus.PREPARING.value)
+    conn.commit()
+    assert jobs.set_control(conn, job_ref, JobControl.PAUSE), "the pause was not parked"
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: seen.append(url) or "<html/>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert seen == [], f"it fetched {len(seen)} page(s) past a pause that was pending"
+    assert settled["status"] == JobStatus.PAUSED.value, settled["status"]
+    assert settled["progress_total"] == 3, (
+        f"the total the run actually had is 3 and the row says "
+        f"{settled['progress_total']} -- the card draws a bar against a frontier that "
+        "never existed")
+
+
 def test_the_route_still_refuses_a_kind_the_registry_owns(served):
     """The crawl kinds stay INFERRED. A caller free to name `directory_crawl` would be a
     second place deciding which collector runs, which is the drift the registry exists to
