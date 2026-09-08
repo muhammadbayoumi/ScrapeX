@@ -59,11 +59,20 @@ def _warehouse() -> sqlite3.Connection:
         -- `approve` ends with a coverage line, reading the sighting ledger.
         -- Empty here on purpose: the run under test discovered nothing new, and an
         -- empty ledger is a real state rather than a convenience.
+        -- `profile_unresolved_*` ARE HERE BECAUSE `approve` WRITES THEM (issue 794),
+        -- and this fixture is the reason `CLAUDE.md` says an integration test runs the
+        -- real `db/engine/schema.sql`: migration 0020 added the pair, and the only
+        -- thing that noticed was this hand-written copy failing with `no such column`.
+        -- Kept hand-written rather than converted, because the file argues that a small
+        -- stated schema makes the dependency visible -- but the pair is now part of
+        -- what `approve` depends on, so leaving it out would be a stub that cannot see
+        -- a real failure, which is the objection the `record_key` comment above makes.
         CREATE TABLE dataset_sighting (
             dataset_sighting_id INTEGER PRIMARY KEY, dataset_key TEXT,
             external_id TEXT, first_seen_at TEXT, last_seen_at TEXT,
             seen_count INTEGER, first_run_ref TEXT,
-            last_absent_at TEXT, last_absent_run_ref TEXT);
+            last_absent_at TEXT, last_absent_run_ref TEXT,
+            profile_unresolved_at TEXT, profile_unresolved_run_ref TEXT);
         INSERT INTO dataset_definition VALUES (1, 'contractors', NULL),
                                               (2, 'contractor_profiles', NULL);
     """)

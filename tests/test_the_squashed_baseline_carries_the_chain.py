@@ -68,8 +68,23 @@ def record() -> dict:
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> sqlite3.Connection:
-    """A database the baseline alone builds, through the real runner."""
+    """A database the baseline alone builds, through the real runner.
+
+    THE BASELINE ALONE, AND IT DID NOT USED TO BE. `initialize()` applies the whole
+    stream, so this fixture handed every check below a database at the STREAM'S head
+    while the record beside it describes the file the collapse produced -- the exact
+    distinction `test_the_record_describes_the_baseline_beside_it` draws for `head` and
+    this fixture then ignored. 0018 and 0019 hid it: both rebuild `crawl_job` to widen a
+    CHECK, which `PRAGMA table_info` does not report, so the column comparison stayed
+    true by luck. 0020 adds two columns to `dataset_sighting` and the comparison failed
+    -- naming a migration that had done nothing wrong.
+
+    A FROZEN RECORD MEASURED AGAINST A MOVING DATABASE CANNOT HOLD. Sliced to
+    `_migrations[:1]`, which is `schema.sql`, this asks the question the record can
+    answer and keeps answering it however many migrations land on top.
+    """
     db = EngineDatabase(tmp_path_factory.mktemp("squashed") / "engine.db")
+    db._migrations = db._migrations[:1]
     db.initialize()
     conn = sqlite3.connect(str(db.path))
     yield conn

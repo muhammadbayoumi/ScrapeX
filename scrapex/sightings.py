@@ -464,6 +464,99 @@ def record_absences(conn: sqlite3.Connection, dataset_key: str, *,
     return len(missing)
 
 
+def profile_unresolved_ids(conn: sqlite3.Connection,
+                           dataset_key: str) -> frozenset[str]:
+    """Sighted ids whose profile URL the site was found not to serve.
+
+    A FRONTIER READER AND NOT A REPORT. `missing_profile_ids` subtracts this, so an id
+    the site declines to serve stops being counted as work waiting on him and stops
+    being re-fetched. Issue 794: 37 of his 469 sat in that number with nothing able to
+    move them, and every future pass refused the same 37 and wrote nothing.
+
+    A DATE AND NOT A FLAG, so `IS NOT NULL` is the whole test and the date stays
+    available to a reader that wants to say WHEN.
+    """
+    return frozenset(str(row[0]) for row in conn.execute(
+        "SELECT external_id FROM dataset_sighting "
+        " WHERE dataset_key = ? AND profile_unresolved_at IS NOT NULL",
+        (dataset_key,)))
+
+
+def mark_profile_unresolved(conn: sqlite3.Connection, dataset_key: str, *,
+                            external_ids: Iterable[str], run_ref: str) -> tuple[str, ...]:
+    """Write down that the site would not serve these ids' profile pages.
+
+    **ONLY EVER CALLED FROM `ProfileIdDidNotResolve`**, which is the one refusal that is
+    evidence about the ID rather than about the document we happened to receive. A page
+    linking to no contractor at all is a login wall, an interstitial or a truncated body
+    -- `read_profile` says so in its own words -- and marking that would take a live
+    contractor out of the frontier because the site had a bad minute. That is `R-27`
+    arriving from the other side, and it is why the caller keys on the exception TYPE.
+
+    NOT `mark_unavailable`, AND THE DIFFERENCE IS MEASURED. That function sets a
+    `generic_record.status`, so it needs a row -- these ids have no profile row, which
+    is the entire complaint -- and it reserves `unavailable` for what a crawl PROVED
+    absent by closing its cells with `D = 0`. Measured on his warehouse 2026-09-07: all
+    20 of the refused ids recoverable from the log carry an ACTIVE listing row last seen
+    2026-08-29, `last_absent_at = NULL`, and the ledger holds zero proven absences out of
+    17,848. **The contractor is published; its profile page is not served.** Only the
+    second of those has evidence, so only the second is written.
+
+    IDEMPOTENT, AND THE FIRST DATE IS THE ONE KEPT. `profile_unresolved_at IS NULL` in
+    the WHERE means a second pass over the same refusal reports nothing and does not
+    move the date -- so "since when" survives every re-interpretation, and the returned
+    tuple is news rather than a total.
+    """
+    wanted = sorted({str(one) for one in external_ids if str(one)})
+    if not wanted:
+        return ()
+    marked: list[str] = []
+    for one in wanted:
+        cur = conn.execute(
+            "UPDATE dataset_sighting "
+            "   SET profile_unresolved_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+            "       profile_unresolved_run_ref = ? "
+            " WHERE dataset_key = ? AND external_id = ? "
+            "   AND profile_unresolved_at IS NULL",
+            (run_ref, dataset_key, one))
+        if cur.rowcount == 1:
+            marked.append(one)
+    if marked:
+        conn.commit()
+    return tuple(marked)
+
+
+def clear_profile_unresolved(conn: sqlite3.Connection, dataset_key: str, *,
+                             external_ids: Iterable[str]) -> tuple[str, ...]:
+    """Take the mark back for ids whose profile page HAS now been read.
+
+    NOT OPTIONAL, FOR THE REASON `mark_unavailable` GIVES ABOUT ITS OWN RESTORE: a mark
+    that cannot be lifted is not half of this feature, it is a contractor permanently
+    outside the frontier. muqawil reissues membership numbers and an id that answers with
+    the listing today can answer with a profile next month; the only thing that proves it
+    is a profile page that actually read, which is what this call is downstream of.
+
+    NARROWED TO THE MARKED ONES BY THE WHERE, so a run that approved 17,811 profiles
+    writes nothing here and reports nothing.
+    """
+    wanted = sorted({str(one) for one in external_ids if str(one)})
+    if not wanted:
+        return ()
+    cleared: list[str] = []
+    for one in wanted:
+        cur = conn.execute(
+            "UPDATE dataset_sighting "
+            "   SET profile_unresolved_at = NULL, profile_unresolved_run_ref = NULL "
+            " WHERE dataset_key = ? AND external_id = ? "
+            "   AND profile_unresolved_at IS NOT NULL",
+            (dataset_key, one))
+        if cur.rowcount == 1:
+            cleared.append(one)
+    if cleared:
+        conn.commit()
+    return tuple(cleared)
+
+
 @dataclass(frozen=True)
 class Marking:
     """What one `mark_unavailable` pass changed, both directions named separately.

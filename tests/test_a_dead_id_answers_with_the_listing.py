@@ -47,6 +47,7 @@ import pytest
 from scrapex.extract.muqawil import (
     ONE_CONTRACTOR,
     PageIsNotAProfile,
+    ProfileIdDidNotResolve,
     read_profile,
 )
 
@@ -124,3 +125,38 @@ def test_the_refusal_is_not_a_missing_field():
     assert not issubclass(PageIsNotAProfile, LookupError), (
         "a LookupError reads as 'not found on the page', which is the wrong story: "
         "the page itself is the wrong document")
+
+def test_only_a_page_about_somebody_else_is_evidence_about_the_id():
+    """WHICH REFUSALS MAY BE ACTED ON, and this is the whole point of the subclass.
+
+    Issue 794 asks for the verdict to be RECORDED so 37 contractors stop being counted
+    as work waiting. Recording it from `PageIsNotAProfile` would record three different
+    facts as one:
+
+      * the site answered with the listing               -> it did not serve this id
+      * the site answered with a stranger's profile      -> it did not serve this id
+      * the page links to no contractor at all           -> we do not know WHAT we got
+
+    The third is a login wall, an interstitial or a truncated body. Marking it would
+    take a live contractor out of the frontier on the strength of a bad afternoon.
+    """
+    with pytest.raises(ProfileIdDidNotResolve):
+        read_profile(LISTING_EN, contractor_id="20008518")
+
+    # SOMEBODY ELSE'S PROFILE IS THE SAME EVIDENCE. The production URL is built from
+    # the id, so a page about another contractor is the site declining to serve it --
+    # and there is exactly ONE stranger here, not twenty, which is why the type is
+    # named for the id rather than for the listing.
+    with pytest.raises(ProfileIdDidNotResolve):
+        read_profile(PROFILE_EN, contractor_id="99999999")
+
+    # AND THE ONE THAT MUST NOT BE ACTED ON.
+    with pytest.raises(PageIsNotAProfile) as refused:
+        read_profile("<html><body>nothing at all</body></html>",
+                     contractor_id="20008518")
+    assert not isinstance(refused.value, ProfileIdDidNotResolve), (
+        "a page linking to nobody was reported as evidence that the id is dead -- it "
+        "is a login wall, an interstitial or a truncated body, and marking it would "
+        "drop a live contractor out of the frontier")
+    assert issubclass(ProfileIdDidNotResolve, PageIsNotAProfile), (
+        "every caller that catches the general refusal must still catch this one")
