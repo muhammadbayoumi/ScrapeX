@@ -44,6 +44,7 @@ from .. import (
     rates,
     retention,
     sourceboard,
+    taxonomy,
 )
 from .. import db as dbmod
 from .. import version as engine_version
@@ -1430,6 +1431,8 @@ def create_app(
         source_key: str,
         fold: bool | None = None,
         site_key: str | None = None,
+        nodes: str = "",
+        nodes_mode: str = "any",
     ):
         """The whole table for one source, for a grid that filters it in place.
 
@@ -1460,7 +1463,12 @@ def create_app(
         general = general_read_conn()
         try:
             dataset = extract_service.dataset_table_payload(
-                general, source_key, site_key=site_key
+                general, source_key, site_key=site_key,
+                # A COMMA LIST BECAUSE IT ARRIVES IN A URL, and unreadable ids are
+                # DROPPED rather than 400: the selection is a view, and a stale
+                # bookmark carrying one deleted node must still draw the table.
+                nodes=[int(one) for one in str(nodes).split(",") if one.strip().isdigit()],
+                nodes_mode=nodes_mode,
             )
         finally:
             general.close()
@@ -2113,6 +2121,48 @@ def create_app(
         # drawn twice (`REQ-37`).
         out.extend(_registered_directories(out))
         return {"sources": out}
+
+    @app.get("/api/taxonomy/{dataset_key}")
+    def api_taxonomy(dataset_key: str):
+        """The vocabularies a dataset's rows point at, with what holds each node.
+
+        ISSUE 543. 407,384 memberships are stored and no surface reads them:
+        `taxonomy.memberships` has no caller in `scrapex/` outside its tests, so a
+        contractor's 22.9 interests are invisible on every screen. This is the read
+        half of the filter his ruling asked for.
+
+        GROUPS THE SOURCE DECLARES AS TREES, AND THAT IS NOT A LITERAL LIST. muqawil
+        declares five multi-valued groups and two are wired; `kind="tree"` is the
+        declaration that says a group is a hierarchy, and it is `interests` alone today.
+        His ruling of 2026-09-08 defers `licensed_activities` to issue 800 -- it
+        declares `kind="table"` and stores leaves where interests stores whole paths --
+         and this predicate expresses that without a second place to state it.
+
+        WHOLE AND UNPAGED, because it is 214 nodes. The membership table it counts
+        against is 407,384 rows and is scanned once, not once per node.
+        """
+        # `BUILDERS` AND NOT `keys()`: the registry is the one list of directories this
+        # build can crawl, and `directoryjob` already refuses a source that is not in
+        # it -- so the lookup and the refusal read the same dict.
+        directory = next(
+            (one for one in (directories.get(key) for key in directories.BUILDERS)
+             if one.profiles is not None
+             and one.profiles.dataset_key == dataset_key),
+            None)
+        if directory is None or directory.profiles is None:
+            # NOT A 404 ON A REAL DATASET. Every generic dataset can be asked this and
+            # most have no vocabulary at all; an error would make the panel branch on
+            # the source instead of on the answer.
+            return {"dataset_key": dataset_key, "groups": []}
+        general = general_read_conn()
+        try:
+            groups = [taxonomy.group_tree(general, group.key)
+                      for group in directory.profiles.groups
+                      if getattr(group, "kind", "") == "tree"]
+        finally:
+            general.close()
+        return {"dataset_key": dataset_key,
+                "groups": [one for one in groups if one["scheme"] is not None]}
 
     @app.get("/api/resolve")
     def api_resolve(url: str):

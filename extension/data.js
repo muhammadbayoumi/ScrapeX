@@ -28,6 +28,8 @@ import { api, backendBase, backendGeneration } from "./backend.js";
 // datatable.js, where hostile input can be pushed through it.
 import { columnsFrom, foldControl, sourceKeyFrom, summarise, truncationNotice }
   from "./datatable.js";
+import { filterSummary, modeLabel, selectionQuery, treeFrom, undeclaredLine }
+  from "./taxonomyfilter.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -37,6 +39,10 @@ const SOURCE_KEY = sourceKeyFrom(window.location.search);
 const SITE_KEY = new URLSearchParams(window.location.search).get("site")?.trim() || "";
 
 let table = null;
+
+/** The activity nodes he has ticked. Issue 543. Held here rather than read back
+ *  out of the DOM, so the reload a tick starts cannot race the redraw. */
+const chosen = new Set();
 
 function show(id, text) {
   const node = $(id);
@@ -70,8 +76,11 @@ async function load() {
   try {
     const wanted = $("data-fold").checked ? "1" : "0";
     const site = SITE_KEY ? `&site_key=${encodeURIComponent(SITE_KEY)}` : "";
+    // THE SELECTION NARROWS IN SQL, not in the grid. 407,384 memberships beside a
+    // 17,811-row table would be several times the table itself on the wire.
+    const picked = selectionQuery([...chosen], $("data-activities-mode").value);
     payload = await api(
-      `/api/table/${encodeURIComponent(SOURCE_KEY)}?fold=${wanted}${site}`);
+      `/api/table/${encodeURIComponent(SOURCE_KEY)}?fold=${wanted}${site}${picked}`);
   } catch (error) {
     // A DIFFERENT BACKEND IS NOW AUTHORITATIVE. Painting this answer would put
     // one engine's rows under another engine's name.
@@ -90,8 +99,11 @@ async function load() {
   $("data-fold").disabled = fold.disabled;
   $("data-fold-label").textContent = fold.label;
 
-  $("data-summary").textContent = summarise(payload);
+  // WHAT THE FILTER LEFT WINS THE LINE, because it is the number that changed.
+  // `summarise` answers the unfiltered question and stays for the unfiltered case.
+  $("data-summary").textContent = filterSummary(payload) || summarise(payload);
   show("data-truncated", truncationNotice(payload));
+  $("data-activities-clear").hidden = chosen.size === 0;
 
   const rows = payload.rows || [];
   if (table === null) {
@@ -114,7 +126,92 @@ async function load() {
   }
 }
 
+/**
+ * The activity tree, drawn once per source.
+ *
+ * BUILT WITH `textContent`, NEVER MARKUP. Every one of these names came off
+ * muqawil.org, and this repository treats scraped content as untrusted input --
+ * `datatable.js` reaches for Tabulator's `plaintext` formatter for the same reason.
+ */
+function drawNode(node) {
+  const li = document.createElement("li");
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.value = String(node.node_id);
+  box.checked = chosen.has(node.node_id);
+  box.addEventListener("change", () => {
+    if (box.checked) chosen.add(node.node_id);
+    else chosen.delete(node.node_id);
+    load();
+  });
+  const name = document.createElement("span");
+  name.textContent = node.name_ar || node.name || String(node.node_id);
+  const held = document.createElement("span");
+  held.className = "held";
+  held.textContent = Number(node.held || 0).toLocaleString();
+  label.append(box, name, held);
+  li.append(label);
+  if (node.children?.length) {
+    const list = document.createElement("ul");
+    node.children.forEach((child) => list.append(drawNode(child)));
+    li.append(list);
+  }
+  return li;
+}
+
+async function loadActivities() {
+  // NOTHING IS ASKED WITHOUT A SOURCE, and the guard is here rather than at the one
+  // call below because `test_a_page_opened_with_no_source_asks_for_one` counts the
+  // requests a sourceless page makes -- it caught this the moment the second route
+  // was added, having been written for the first.
+  if (!SOURCE_KEY) return;
+  let payload;
+  try {
+    payload = await api(`/api/taxonomy/${encodeURIComponent(SOURCE_KEY)}`);
+  } catch (_) {
+    // NOT A SECOND RED LINE. The table already says when the engine is not
+    // answering, and reporting one fault twice is how a screen stops being read.
+    return;
+  }
+  const group = (payload?.groups || [])[0];
+  if (!group) return;
+  const roots = treeFrom(group);
+  if (!roots.length) return;
+  const list = document.createElement("ul");
+  roots.forEach((node) => list.append(drawNode(node)));
+  $("data-activities-tree").replaceChildren(list);
+  $("data-undeclared").textContent = undeclaredLine(group);
+  $("data-activities-toggle").textContent =
+    group.scheme?.name_ar || group.scheme?.name || "Activities";
+  $("data-activities").classList.remove("hidden");
+}
+
+function sayMode() {
+  $("data-activities-mode-label").textContent =
+    modeLabel($("data-activities-mode").value);
+}
+
 $("data-reload").addEventListener("click", load);
 $("data-fold").addEventListener("change", load);
+$("data-activities-toggle").addEventListener("click", () => {
+  const open = $("data-activities-tree").classList.toggle("hidden") === false;
+  $("data-activities-toggle").setAttribute("aria-expanded", String(open));
+});
+$("data-activities-mode").addEventListener("change", () => {
+  sayMode();
+  // ONLY WHEN IT CHANGES SOMETHING. Any and All are the same question for one node,
+  // so flipping the toggle with nothing or one thing ticked must not spend a round
+  // trip on an identical answer.
+  if (chosen.size > 1) load();
+});
+$("data-activities-clear").addEventListener("click", () => {
+  chosen.clear();
+  $("data-activities-tree").querySelectorAll("input[type=checkbox]")
+    .forEach((box) => { box.checked = false; });
+  load();
+});
 
+sayMode();
 load();
+loadActivities();

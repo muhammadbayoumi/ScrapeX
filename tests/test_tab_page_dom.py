@@ -213,6 +213,100 @@ def test_a_stopped_engine_is_named_rather_than_left_blank(open_data):
     assert page.locator("#data-summary").inner_text() == ""
 
 
+#: `/api/taxonomy/{key}` as the engine really answers it, cut down to what a reader
+#: can hold. The numbers are his: `Specialized` 6,564 and `Buildings` 7,634 of 17,811
+#: contractors, and the undeclared node at 9,001 -- larger than either.
+TAXONOMY = {
+    "dataset_key": "contractor_profiles",
+    "groups": [{
+        "group_key": "interests",
+        "scheme": {"scheme_id": 1, "name": "Interests", "name_ar": "الأنشطة"},
+        "undeclared": {"node_id": 111, "level": 1, "name": "No Data",
+                       "name_ar": "لا يوجد بيانات", "held": 9001},
+        "nodes": [
+            {"node_id": 1, "parent_node_id": None, "level": 1,
+             "name": "Buildings", "name_ar": "تشييد المباني", "held": 7634},
+            {"node_id": 11, "parent_node_id": None, "level": 1,
+             "name": "Specialized", "name_ar": "أنشطة التشييد المتخصصة", "held": 6564},
+            {"node_id": 14, "parent_node_id": 11, "level": 2,
+             "name": "Electrical", "name_ar": "التركيبات الكهربائية", "held": 4578},
+        ],
+    }],
+}
+
+
+def test_the_activity_filter_draws_the_tree_it_was_served(open_data):
+    """ISSUE 543, AND THE FIRST SURFACE THAT READS 398,933 STORED MEMBERSHIPS.
+
+    `taxonomy.memberships` had no caller in `scrapex/` outside its own tests, so a
+    contractor's 22.9 activities were invisible on every screen he has.
+    """
+    page = open_data(taxonomy=TAXONOMY)
+
+    assert page.locator("#data-activities").is_visible(), (
+        "the filter did not appear for a dataset the engine says has a vocabulary")
+    assert page.locator("#data-activities-toggle").inner_text() == "الأنشطة", (
+        "the control is not named by the scheme the site publishes")
+    # THE TREE IS BEHIND ONE CLICK, DELIBERATELY. 214 nodes three levels deep is
+    # taller than the screen, and the page's job is the table; what he sees closed is
+    # the scheme's own name and the undeclared line. So the guard opens it, which also
+    # proves the toggle works rather than assuming it.
+    assert page.locator("#data-activities-tree").is_visible() is False
+    page.locator("#data-activities-toggle").click()
+    assert page.locator("#data-activities-toggle").get_attribute("aria-expanded") == "true"
+    boxes = page.locator("#data-activities-tree input[type=checkbox]")
+    assert boxes.count() == 3, f"{boxes.count()} node(s) drawn of 3"
+    # BIGGEST REAL CATEGORY FIRST, and the undeclared one is not a category at all.
+    first = page.locator("#data-activities-tree > ul > li").first
+    assert "تشييد المباني" in first.inner_text()
+    assert "7,634" in first.inner_text(), (
+        "the held count is missing, which is the whole point of the list")
+    assert page.js_errors == [], f"the page threw: {page.js_errors}"
+
+
+def test_the_undeclared_node_is_a_line_and_never_a_category(open_data):
+    """HIS RULING, 2026-09-08. The site publishes `No Data` as a level-1 node held by
+    9,001 contractors -- larger than its largest real category -- and a filter whose
+    biggest entry is a fake category answers a question nobody asked. Kept as a state,
+    said in a line, and NOT deleted: 9,001 contractors having declared nothing is a
+    fact about them."""
+    page = open_data(taxonomy=TAXONOMY)
+
+    said = page.locator("#data-undeclared").inner_text()
+    assert "9,001" in said, f"the undeclared count is not on the page: {said!r}"
+    tree = page.locator("#data-activities-tree").inner_text()
+    assert "No Data" not in tree and "لا يوجد بيانات" not in tree, (
+        f"the undeclared node reached the tree as a category: {tree!r}")
+
+
+def test_ticking_a_node_asks_the_engine_to_narrow_and_says_which_way(open_data):
+    """THE SELECTION NARROWS IN SQL. 407,384 memberships beside a 17,811-row table
+    would be several times the table itself, so the grid cannot be the filter."""
+    page = open_data(taxonomy=TAXONOMY)
+    page.locator("#data-activities-toggle").click()
+    page.locator("#data-activities-tree input[value='11']").check()
+    page.wait_for_timeout(300)
+
+    asked = page.evaluate("window.__ASKED__")
+    narrowed = [one for one in asked if "nodes=11" in one]
+    assert narrowed, f"ticking a node asked for nothing narrower: {asked}"
+    assert "nodes_mode=any" in narrowed[-1], (
+        f"the request does not say which way it combines: {narrowed[-1]}")
+    assert page.locator("#data-activities-clear").is_visible(), (
+        "a selection is on and there is no way to take it off")
+    assert "ANY" in page.locator("#data-activities-mode-label").inner_text(), (
+        "the toggle does not say in words what it is doing")
+
+
+def test_a_source_with_no_vocabulary_is_drawn_no_control(open_data):
+    """A button that cannot work is worse than no button. A price source has no
+    memberships at all, and the engine answers `groups: []` rather than 404."""
+    page = open_data()          # the harness answers `{"groups": []}` by default
+
+    assert not page.locator("#data-activities").is_visible(), (
+        "a price table was given an activity filter it can never fill")
+
+
 def test_a_page_opened_with_no_source_asks_for_one(open_data):
     """It must not ask the engine for `/api/table/` and report the 404 as if the
     engine were down — that sends the owner to restart something that is running

@@ -109,3 +109,50 @@ body {
 }
 
 .tabulator .tabulator-footer .tabulator-page.active { color: var(--accent-ink); }
+
+/* THE ACTIVITY FILTER — issue 543. Tokens only: this page renders in whichever
+   theme and palette he has chosen, and a literal colour here would be the one
+   thing on the page that ignores it. */
+.data-activities {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-subtle);
+  padding: 8px 10px;
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.data-activities-head { align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.data-activities-mode { display: flex; align-items: center; gap: 6px; }
+
+/* BOUNDED AND SCROLLED. 214 nodes three levels deep is taller than the screen,
+   and a filter that pushes the table it filters off the page is not a filter. */
+.data-activities-tree {
+  max-height: 34vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.data-activities-tree ul { list-style: none; margin: 0; padding-left: 14px; }
+.data-activities-tree > ul { padding-left: 0; }
+
+.data-activities-tree li { margin: 1px 0; }
+
+.data-activities-tree label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* THE COUNT IS THE POINT OF THE LIST, so it is aligned and never wraps away
+   from the name it belongs to. */
+.data-activities-tree .held {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

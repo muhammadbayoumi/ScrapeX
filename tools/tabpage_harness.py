@@ -40,8 +40,11 @@ EXT = ROOT / "extension"
 #: In dependency order, because flattening removes the imports that expressed it.
 #: startup.js first (backend.js calls its deadline helpers), then engine.js
 #: (backend.js calls getBackend), then backend.js, then the page's own modules.
+#: ORDER IS DEPENDENCY ORDER, because `flatten` strips the imports that would
+#: otherwise say so. `taxonomyfilter.js` sits beside `datatable.js` for the same
+#: reason it exists: `data.js` reads both and neither reads anything of the page.
 DATA_PAGE_MODULES = ("startup.js", "transport.js", "engine.js", "backend.js",
-                     "datatable.js", "data.js")
+                     "datatable.js", "taxonomyfilter.js", "data.js")
 
 
 def flatten(source: str) -> str:
@@ -51,14 +54,23 @@ def flatten(source: str) -> str:
 
 
 def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
-         status: int = 200, fail: str = "") -> str:
+         status: int = 200, fail: str = "", taxonomy: dict | None = None) -> str:
     """The two things a plain browser tab cannot have: chrome, and an engine.
 
     `fail` makes the engine unreachable the way a stopped engine is — a rejected
     fetch rather than an HTTP error — because those reach the page by different
     paths and the page says different things about them.
+
+    `taxonomy` ANSWERS A SECOND ROUTE, and until issue 543 there was only ever one.
+    The Data page now asks `/api/taxonomy/{key}` as well, and a stub that answers
+    every URL with the table payload would hand the filter a table — so the filter
+    would find no groups, hide itself, and every guard for it would pass against a
+    control that was never drawn. Left None, that is exactly what happens, which is
+    the right answer for a price source: it has no vocabulary and gets no control.
     """
     body = json.dumps(payload or {}, ensure_ascii=False)
+    tax = json.dumps(taxonomy if taxonomy is not None else {"groups": []},
+                     ensure_ascii=False)
     return f"""
 window.__ASKED__ = [];
 window.chrome = {{
@@ -73,6 +85,11 @@ window.fetch = async (input, options) => {{
   const url = String(input && input.url ? input.url : input);
   window.__ASKED__.push(url);
   if ({json.dumps(bool(fail))}) throw new TypeError({json.dumps(fail or "failed to fetch")});
+  if (url.includes("/api/taxonomy/")) {{
+    return new Response({json.dumps(tax)}, {{
+      status: {status}, headers: {{"Content-Type": "application/json"}},
+    }});
+  }}
   return new Response({json.dumps(body)}, {{
     status: {status},
     headers: {{"Content-Type": "application/json"}},
