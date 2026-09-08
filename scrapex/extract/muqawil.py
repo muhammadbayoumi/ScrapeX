@@ -299,6 +299,30 @@ class PageIsNotAProfile(ValueError):
     """
 
 
+class ProfileIdDidNotResolve(PageIsNotAProfile):
+    """The one refusal that is evidence about the ID, separated from the rest.
+
+    `PageIsNotAProfile` is raised three ways and only this one says anything about the
+    contractor we asked for. The production URL is built FROM the id, so a page about
+    somebody else is the site declining to serve that id -- whether it answered with
+    the whole listing (~20 strangers) or with one stranger's profile (1). A page
+    linking to NOBODY is the other story entirely: "may not be a profile page at all"
+    in its own words -- a login wall, an interstitial, a truncated body -- and reading
+    that as evidence about the contractor would delist a live one on the strength of a
+    bad afternoon, which is what `R-27` exists to prevent.
+
+    NAMED FOR THE ID AND NOT FOR THE LISTING, because the listing is only the commonest
+    of the two documents that prove it. A type called "this is the listing" would be
+    false for the stranger-profile case that `read_profile`'s own id check was added to
+    catch.
+
+    SO A CALLER KEYS ON THE TYPE AND NEVER ON THE MESSAGE. `contractors.approve`
+    catches every builder failure into one `refused` list; telling these apart by
+    matching prose would put the distinction in a string no test can defend and a
+    reworded sentence would silently break.
+    """
+
+
 class CoordinatesMoved(LookupError):
     """The inline script no longer carries `lat:`/`lng:` where it did.
 
@@ -1182,7 +1206,9 @@ def read_profile(html: str, *, contractor_id: str | None = None) -> Reading:
               for found in [_PROFILE_HREF.search(anchor["href"])] if found}
     strangers = linked - {str(contractor_id)} if contractor_id else set()
     if contractor_id and strangers:
-        raise PageIsNotAProfile(
+        # THE NARROWER TYPE, and only here: this is the case that says something about
+        # the ID rather than about the document we happened to receive.
+        raise ProfileIdDidNotResolve(
             f"this page links to {len(strangers)} contractor(s) other than "
             f"{contractor_id} — it is the contractors listing, which is what the "
             f"site answers with when an id no longer resolves, at HTTP 200")
