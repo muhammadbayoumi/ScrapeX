@@ -54,6 +54,7 @@ from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
 from .extract.models import ApprovalField, CandidateApproval
+from .extract.muqawil import ProfileIdDidNotResolve
 from .extract.service import SnapshotCreate, _canonical, _digest
 from .features import FeatureKey, is_enabled
 from .pagesource import FetchedPage, PageKind, slice_rows
@@ -66,8 +67,10 @@ from .partitioncrawl import (
 )
 from .passes import DIRECTORY_PASSES
 from .sightings import (
+    clear_profile_unresolved,
     coverage,
     departures,
+    mark_profile_unresolved,
     mark_unavailable,
     missing_ids,
     record_absences,
@@ -1474,6 +1477,11 @@ def approve(conn, directory: Directory, run_ref: str, *,
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
+    #: Contractor ids the SITE would not serve, and the ones whose profile page read.
+    #: Issue 794. Collected rather than written per page so one statement per direction
+    #: settles the ledger, and so a run that changes nothing writes nothing.
+    unresolved_ids: list[str] = []
+    read_ids: list[str] = []
     #: Counted here rather than by the caller, because `_pairs` groups two locales into
     #: one entry and a caller counting stored pages would report a denominator twice the
     #: size of the work.
@@ -1517,6 +1525,15 @@ def approve(conn, directory: Directory, run_ref: str, *,
             # box counts, which is correct and happens on 8 of 712 real profiles. With
             # this outside the guard, the first of those eight killed all 712.
             refused.append((key, f"{type(exc).__name__}: {exc}"))
+            # THE ONE REFUSAL THAT IS EVIDENCE ABOUT THE ID -- issue 794, and it is
+            # keyed on the TYPE. `merge_locales` refuses a pair whose locales publish
+            # different box counts (8 of 712 real profiles), which is the site
+            # publishing two shapes and says nothing about the contractor; a page
+            # linking to nobody is a login wall or a truncated body. Marking either
+            # would take a live contractor out of the frontier, which is `R-27`
+            # arriving from the other side.
+            if contractor is not None and isinstance(exc, ProfileIdDidNotResolve):
+                unresolved_ids.append(str(contractor))
             continue
         if not candidate.approvable:
             refused.append((key, candidate.warnings[0] if candidate.warnings else "?"))
@@ -1590,6 +1607,11 @@ def approve(conn, directory: Directory, run_ref: str, *,
             continue
         conn.commit()
         made += 1
+        if contractor is not None:
+            # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
+            # that actually read. muqawil reissues membership numbers, so an id serving
+            # the listing today can serve a profile next month.
+            read_ids.append(str(contractor))
         if result.get("recovered"):
             # ALREADY APPROVED AND IDENTICAL — and since `R-40` that is a claim about the
             # ROWS and not just the request. The digest of what the parser produced is
@@ -1635,6 +1657,25 @@ def approve(conn, directory: Directory, run_ref: str, *,
         say(f"  refused {key}: {why}")
     if len(refused) > 20:
         say(f"  … and {len(refused) - 20} more")
+    # THE VERDICT IS RECORDED AND NOT ONLY PRINTED -- issue 794. Without this the
+    # refusal lived in the job log, which `log_retention_days` prunes after 30 days, and
+    # the ids stayed in `missing_profile_ids` for ever: his card said 37 contractors had
+    # work waiting on them, every later pass refused the same 37 and wrote nothing, and
+    # coverage could never reach its population.
+    #
+    # BOTH DIRECTIONS, AND NAMED SEPARATELY for the reason `Marking` gives: ids leaving
+    # the frontier and ids coming back are the same total and opposite news.
+    marked = mark_profile_unresolved(conn, directory.dataset_key,
+                                     external_ids=unresolved_ids, run_ref=run_ref)
+    lifted = clear_profile_unresolved(conn, directory.dataset_key,
+                                      external_ids=read_ids)
+    if marked:
+        say(f"  {len(marked):,} contractor(s) marked as not served on the profile "
+            f"path, so they leave the fetch frontier: the site answered their URL "
+            f"with another contractor's document (issue 794)")
+    if lifted:
+        say(f"  {len(lifted):,} contractor(s) served a profile page again, so the "
+            f"mark is lifted and they are back in the count")
     say("")
     say(str(coverage(conn, directory.dataset_key)))
 

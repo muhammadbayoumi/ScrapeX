@@ -52,7 +52,7 @@ import sqlite3
 import time
 from contextlib import nullcontext
 
-from . import contractors, directories
+from . import contractors, directories, sightings
 from .payload import utc_now_iso
 from .sites.muqawil import MuqawilPageSource
 from .vocab import JobControl, JobStage, JobStatus, LogLevel
@@ -119,9 +119,22 @@ def missing_profile_ids(conn: sqlite3.Connection,
         " WHERE d.dataset_key = ? AND r.status = 'active'",
         (directory.dataset_key, directory.identity_field,
          directory.profiles.dataset_key)).fetchall()
+    # AND AN ID THE SITE WILL NOT SERVE IS NOT A GAP WE CAN CLOSE -- issue 794. 37 of his
+    # 469 answered `/contractors/<id>/143` with the contractors listing at HTTP 200, so
+    # they can never become rows: every pass refused the same 37 and wrote nothing, the
+    # card went on calling them work waiting, and the fetch control would have bought
+    # their 74 pages again on every press.
+    #
+    # SUBTRACTED HERE AND NOWHERE ELSE, which is what keeps `still_to_fetch` and the
+    # route honest without a second filter to forget: this is the DEFAULT frontier both
+    # of them start from. A caller naming ids explicitly still reaches them, because
+    # `OP-64`'s remediation is re-fetching a contractor whose rows came from the wrong
+    # document -- and a marked id is precisely one of those.
+    unresolved = sightings.profile_unresolved_ids(conn, directory.dataset_key)
     # ORDERED, so two runs of the same warehouse build the same frontier and a report of
     # one can be diffed against the other. `EXCEPT` does not promise an order.
-    return tuple(sorted(str(row[0]) for row in rows if row[0] is not None))
+    return tuple(sorted(str(row[0]) for row in rows
+                        if row[0] is not None and str(row[0]) not in unresolved))
 
 
 def still_to_fetch(conn: sqlite3.Connection, directory: directories.Directory,

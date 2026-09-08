@@ -61,12 +61,17 @@ from scrapex.databases.domain import EngineDatabase
 #: THIS IS NOT THE LOWERING THE HEADER WARNS ABOUT. That warning is against picking
 #: a number to make the suite green while the comparison still asserts nothing --
 #: `PREVIOUS_RELEASE = 1` would apply the baseline alone and compare a fresh build
-#: with itself. 2 is the one value at which a real migration is the thing measured,
-#: and it must be RE-CHOSEN, not incremented by habit, when 0020 lands: the useful
-#: stop point is the version an owner is actually upgrading from.
+#: with itself.
+#:
+#: RE-CHOSEN AT 0020 RATHER THAN INCREMENTED, which is what the note above asked for,
+#: and the choice is a MEASUREMENT and not a step: his live warehouse reads
+#: `PRAGMA user_version = 19` (read 2026-09-08), so the version an owner is actually
+#: upgrading from is 19. The stream is `[schema.sql(17), 0018, 0019, 0020]`, so
+#: stopping at 19 is `whole[:3]`. 2 would still be IN RANGE and would measure the
+#: wrong upgrade -- v18 to v20, which no warehouse in existence is about to perform.
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-PREVIOUS_RELEASE = 2
+PREVIOUS_RELEASE = 3
 
 
 

@@ -28,7 +28,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from scrapex import (  # noqa: E402
-    contractors, datasetjob, directories, directoryjob, jobs, profilejob,
+    contractors, datasetjob, directories, directoryjob, jobs, profilejob, sightings,
 )
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
@@ -262,6 +262,64 @@ def test_the_sweep_can_be_stopped_between_pages(warehouse):
         f"the sweep did not stop at the second page: {len(fetched)} fetched")
     assert asked[0] == (0, 6), (
         f"the first call must carry the total so the card can draw a bar: {asked[0]}")
+
+
+def test_the_frontier_drops_an_id_the_site_will_not_serve(warehouse):
+    """ISSUE 794. 37 of his 469 answered `/contractors/<id>/143` with the contractors
+    listing at HTTP 200, so they can never become rows -- and the row gap stopped at 37
+    with nothing able to move it. The card called them work waiting for ever, and the
+    fetch control would have re-bought their 74 pages on every press.
+
+    SUBTRACTED IN `missing_profile_ids` AND NOWHERE ELSE, because that is the DEFAULT
+    frontier both `still_to_fetch` and the route start from -- one filter rather than
+    three places to forget it.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["7001", "7002", "7003"])
+
+    before = profilejob.missing_profile_ids(conn, directory)
+    assert before == ("7001", "7002", "7003"), before
+
+    marked = sightings.mark_profile_unresolved(
+        conn, directory.dataset_key, external_ids=("7002",), run_ref="job-run")
+    assert marked == ("7002",), marked
+
+    after = profilejob.missing_profile_ids(conn, directory)
+    assert after == ("7001", "7003"), (
+        f"an id the site will not serve is still counted as a gap: {after}")
+
+
+def test_a_named_id_still_reaches_a_marked_contractor(warehouse, monkeypatch):
+    """OP-64 REMEDIATION IS RE-FETCHING EXACTLY THIS CONTRACTOR.
+
+    A marked id is one whose stored pages are another contractor s document, so naming
+    it explicitly must still fetch: the mark removes it from the DEFAULT frontier, which
+    is the number on his card, and it is not a ban. Driven through the runner rather than
+    asserted about the code, because the filter and the named path are two branches and
+    only the runner chooses between them.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["7101"])
+    sightings.mark_profile_unresolved(
+        conn, directory.dataset_key, external_ids=("7101",), run_ref="job-earlier")
+    assert profilejob.missing_profile_ids(conn, directory) == (), (
+        "the fixture did not actually remove it from the default frontier")
+
+    job_ref = jobs.create_job(conn, [SITE], checkpoint={"ids": ["7101"]},
+                              job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    fetched: list[str] = []
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    assert fetched, (
+        "naming a marked contractor fetched nothing, so the one remediation OP-64 "
+        "defines is unreachable")
+    assert all("7101" in url for url in fetched), fetched
 
 
 def test_the_hook_is_refused_above_one_worker(warehouse):
