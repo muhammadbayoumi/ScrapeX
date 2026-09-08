@@ -210,6 +210,33 @@ def test_a_profile_that_reads_again_lifts_the_mark(warehouse, monkeypatch):
         f"the run lifted a mark and did not say so: {said!r}")
 
 
+def test_lifting_costs_one_read_and_not_one_write_per_contractor(warehouse):
+    """AN `N+1` THE OUTCOME CANNOT SEE, which is why it needs its own guard.
+
+    `clear_profile_unresolved` is called with every contractor whose profile page read --
+    17,811 of them on his warehouse -- and almost none is marked. Leaning on the WHERE to
+    make each one a no-op gives the right answer and issues one UPDATE per contractor on
+    every interpretation. Every assertion about the ledger passes either way.
+    """
+    ids = [f"95{n:03d}" for n in range(200)]
+    _sight(warehouse, ids)
+    _mark(warehouse, ids[0])
+    seen: list[str] = []
+    warehouse.set_trace_callback(seen.append)
+    try:
+        cleared = sightings.clear_profile_unresolved(
+            warehouse, DATASET, external_ids=ids)
+    finally:
+        warehouse.set_trace_callback(None)
+
+    assert cleared == (ids[0],), cleared
+    updates = [one for one in seen if one.lstrip().upper().startswith("UPDATE")]
+    assert len(updates) == 1, (
+        f"{len(updates)} UPDATE(s) for one marked contractor out of {len(ids)}: the "
+        "lift is issuing a statement per contractor read, on the path that runs every "
+        "interpretation")
+
+
 def test_a_run_that_reads_unmarked_profiles_writes_nothing_to_the_ledger(
         warehouse, monkeypatch):
     """THE ORDINARY CASE IS 17,811 PROFILES. A clear-per-id that wrote unconditionally
