@@ -768,11 +768,24 @@ def create_app(
             # a dataset that does not exist yet, so they stay `None`.
             return waiting
         like = f'%"{site_key}"%'
+        # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
+        # is issue 782's filter in the other place. This check asked "has a LISTING crawl
+        # finished since the last interpretation?", so a profile sweep finishing with 938
+        # uninterpreted pages set nothing: the button worked and the card stayed silent.
+        # Measured on his warehouse the day it happened -- newest listing crawl
+        # 2026-09-06T05:01:44Z, newest interpretation 2026-09-06T14:07:16Z, newest profile
+        # sweep 2026-09-07T14:23:50Z -- and `"interpret": null`.
+        #
+        # `datasetjob.COLLECTING_KINDS` IS THE ONE PLACE THE NAMES LIVE, because this is
+        # the second reader of the same fact and the first one having been widened alone
+        # is precisely the defect.
+        marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
-            " WHERE job_kind = ? AND source_keys LIKE ? AND finished_at IS NOT NULL "
+            f" WHERE job_kind IN ({marks}) AND source_keys LIKE ? "
+            "   AND finished_at IS NOT NULL "
             " ORDER BY finished_at DESC LIMIT 1",
-            (directoryjob.JOB_KIND, like)).fetchone()
+            (*datasetjob.COLLECTING_KINDS, like)).fetchone()
         if crawled:
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "

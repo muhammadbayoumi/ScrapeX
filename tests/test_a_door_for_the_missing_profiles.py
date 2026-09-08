@@ -27,10 +27,12 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from scrapex import contractors, directories, jobs, profilejob  # noqa: E402
+from scrapex import (  # noqa: E402
+    contractors, datasetjob, directories, directoryjob, jobs, profilejob,
+)
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
-from scrapex.vocab import JobStatus  # noqa: E402
+from scrapex.vocab import JobControl, JobStatus  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -469,6 +471,174 @@ def test_a_job_stopped_while_waiting_never_fetches(warehouse, monkeypatch):
         f"{logged!r}")
 
 
+def test_a_settled_row_stops_a_running_sweep_even_with_no_control_left(warehouse,
+                                                                       monkeypatch):
+    """ISSUE 791, AND IT IS THE ONE THE MORNING'S FIX DOES NOT COVER.
+
+    He pressed Cancel at 13:55:57 on a sweep that was AWAKE and fetching. It ran to
+    `completed 938/938` at 14:23:50 and the word "cancel" appears nowhere in its log.
+    At 13:58 the row read `finished_at = 13:55:57` AND `status = running` AND
+    `control = none` -- finished and running at once, with no instruction left to find.
+
+    TWO THINGS MADE THAT POSSIBLE. The beat wrote `status = running` FIRST and
+    unconditionally, over the `cancelling` `set_control` parks there; and `_finish`
+    clears `control`, so a stop already recorded leaves nothing for a guard that reads
+    only `control`.
+
+    SO THE ROW OUTRANKS THE INSTRUCTION. This settles the job from underneath, exactly as
+    the live incident did, and leaves `control` clear -- the state in which the old guard
+    saw nothing at all.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"95{n:02d}" for n in range(8)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    fetched: list[str] = []
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+
+    def settle_after_two(url):
+        fetched.append(url)
+        if len(fetched) == 2:
+            # WHAT THE INCIDENT DID: the job is finished and its control cleared, while
+            # the sweep goes on holding the thread.
+            jobs._finish(conn, jobs.get_job(conn, job_ref)["job_id"],
+                         JobStatus.CANCELLED, None)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, settle_after_two))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    assert len(fetched) <= 3, (
+        f"the sweep asked for {len(fetched)} page(s) after its row was settled -- it "
+        "fetched on past a stop, which is what cost 938 requests on 2026-09-07")
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "already settled" in logged, (
+        f"it stopped in silence, so this is indistinguishable from a sweep that simply "
+        f"ended: {logged!r}")
+    assert jobs.get_job(conn, job_ref)["status"] == JobStatus.CANCELLED.value
+
+
+def test_the_beat_does_not_write_running_over_a_pending_stop(warehouse, monkeypatch):
+    """`set_control` PARKS A WORKER-HELD JOB IN `cancelling` to mean "the worker will
+    settle this at its next safe boundary", and its own docstring calls the
+    compare-and-swap load-bearing so *"a job that reaches a terminal state concurrently
+    can never be resurrected by a late control click"*. The beat resurrected it from the
+    other side, by writing `running` before it read anything."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"96{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+
+    def cancel_after_one(url):
+        seen.append(url)
+        if len(seen) == 1:
+            jobs.set_control(conn, job_ref, JobControl.CANCEL)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, cancel_after_one))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert settled["status"] == JobStatus.CANCELLED.value, (
+        f"a pending cancel did not settle the job: {settled['status']}")
+    logged = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "cancelled between pages" in logged, (
+        f"the cancel branch never fired, or never committed its line: {logged!r}")
+    assert len(seen) <= 2, f"it fetched {len(seen)} page(s) past the cancel"
+
+
+def test_a_paused_sweep_still_counts_the_pages_it_fetched(warehouse, monkeypatch):
+    """A PAUSE THAT LOSES THE COUNT IS A PAUSE HE CANNOT READ, and this one was a
+    REGRESSION OF THIS BRANCH rather than an old defect.
+
+    Withholding `status = running` from a pending stop was right; withholding the whole
+    write with it was not, because the page count travelled inside that call and the
+    pause branch below does not write it. The listing crawl has the identical shape and
+    its guard -- `test_a_pause_stops_at_a_cell_boundary_and_says_where` -- failed the
+    moment the change landed. Nothing was watching the profile sweep, so this is that
+    guard's twin.
+
+    THE PAGE WAS FETCHED. That is a measurement, and a stop cannot make it untrue.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"97{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+
+    def pause_after_one(url):
+        seen.append(url)
+        if len(seen) == 1:
+            jobs.set_control(conn, job_ref, JobControl.PAUSE)
+            conn.commit()
+        return "<html></html>"
+
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, pause_after_one))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert settled["status"] == JobStatus.PAUSED.value, (
+        f"a pending pause did not settle the job: {settled['status']}")
+    assert seen, "nothing was fetched, so this proves nothing about the count"
+    assert settled["progress_done"] == len(seen), (
+        f"{len(seen)} page(s) were fetched and the row says "
+        f"{settled['progress_done']} -- a resume cannot say what is left")
+
+
+def test_a_pause_before_the_first_page_still_corrects_the_total(warehouse, monkeypatch):
+    """`page_closed` PROMISES ITS FIRST CALL ALWAYS WRITES, so `progress_total` reaches
+    the card before the work rather than after it -- the runner's entry can only write
+    an ESTIMATE (`wanted * 2`), because the resume and the ceiling are applied inside
+    `details`.
+
+    A stop pending at that first call broke exactly that promise: the corrected total
+    never landed and the card kept an estimate the run never had. Six sighted
+    contractors are twelve pages by the estimate and three by the ceiling.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, [f"98{n:02d}" for n in range(6)])
+    job_ref = jobs.create_job(conn, [SITE], checkpoint={"ceiling": 3},
+                              job_kind=profilejob.JOB_KIND)
+    # WORKER-HELD, WHICH IS WHAT MAKES THE PAUSE PENDING RATHER THAN DONE. `set_control`
+    # settles a job the worker is not holding on the spot; it parks a held one in
+    # `pausing` with `control = pause`, and the runner's own entry write leaves that
+    # control alone. That is the live shape: he pressed Pause in the seconds between
+    # dispatch and the first page.
+    jobs._update(conn, jobs.get_job(conn, job_ref)["job_id"],
+                 status=JobStatus.PREPARING.value)
+    conn.commit()
+    assert jobs.set_control(conn, job_ref, JobControl.PAUSE), "the pause was not parked"
+    monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
+    seen: list[str] = []
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: seen.append(url) or "<html/>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    settled = jobs.get_job(conn, job_ref)
+    assert seen == [], f"it fetched {len(seen)} page(s) past a pause that was pending"
+    assert settled["status"] == JobStatus.PAUSED.value, settled["status"]
+    assert settled["progress_total"] == 3, (
+        f"the total the run actually had is 3 and the row says "
+        f"{settled['progress_total']} -- the card draws a bar against a frontier that "
+        "never existed")
+
+
 def test_the_route_still_refuses_a_kind_the_registry_owns(served):
     """The crawl kinds stay INFERRED. A caller free to name `directory_crawl` would be a
     second place deciding which collector runs, which is the drift the registry exists to
@@ -572,6 +742,71 @@ def test_the_route_sends_the_fetch_gap_and_not_the_row_gap_twice(served):
     assert waiting["profiles"]["fetch"] == 1, (
         "the FETCH gap still counts a contractor whose pages are on disk, so the card "
         f"offers a request that would buy them again: {waiting['profiles']}")
+
+
+def test_a_finished_profile_sweep_sets_the_interpret_badge(served):
+    """ISSUE 792, WHICH IS 782'S FILTER IN THE OTHER PLACE AND THE ONE I MISSED.
+
+    The badge asked "has a LISTING crawl finished since the last interpretation?", so a
+    profile sweep finishing with 938 uninterpreted pages set nothing. Measured on his
+    warehouse: newest listing crawl 2026-09-06T05:01:44Z, newest interpretation
+    2026-09-06T14:07:16Z, newest profile sweep 2026-09-07T14:23:50Z -- and the route
+    answered `"interpret": null`.
+
+    **The button worked and the card said nothing.** He pressed Interpret because I told
+    him to in chat, not because the panel told him a press was owed -- and «حتى لا انتظر
+    شى يحتاج اكشن منى» is the requirement that badge exists for.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        # An interpretation that finished, and then a profile sweep AFTER it.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T14:07:16Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a profile sweep finished after the last interpretation and the card says "
+        "nothing is owed -- which is the whole point of that badge")
+    assert waiting["interpret"]["crawl_finished_at"] == "2026-09-07T14:23:50Z", (
+        f"the badge is dated from the wrong run: {waiting['interpret']}")
+    assert waiting["interpret"]["interpreted_at"] == "2026-09-06T14:07:16Z"
+
+
+def test_the_two_collecting_kinds_are_named_once(served):
+    """TWO READERS, ONE FACT. The selection and the badge both need to know which kinds
+    collect pages, and issue 792 happened because only the first was widened. A third
+    reader would make it three, so the names live in `datasetjob.COLLECTING_KINDS` and
+    this asserts nothing re-types them."""
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent
+    app = (root / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+
+    assert "COLLECTING_KINDS" in app, (
+        "the route no longer reads the shared constant, so the two readers can drift "
+        "again")
+    assert '"profile_crawl"' not in app.replace(
+        'profilejob.JOB_KIND', ''), (
+        "the route re-types a collecting kind as a literal instead of reading the "
+        "constant")
+    assert set(datasetjob.COLLECTING_KINDS) == {directoryjob.JOB_KIND,
+                                                profilejob.JOB_KIND}, (
+        f"the constant and the modules disagree: {datasetjob.COLLECTING_KINDS}")
 
 
 def test_the_sources_route_says_what_is_waiting(served):

@@ -65,6 +65,21 @@ class NothingToInterpret(LookupError):
     """
 
 
+#: The job kinds that COLLECT pages for a directory, and therefore the kinds an
+#: interpretation can have something to read.
+#:
+#: NAMED IN ONE PLACE, AND ISSUE 792 IS WHY. The same filter lived in
+#: `latest_crawl_run_ref` and in the panel's interpret badge, and only the first was
+#: widened when a profile sweep's pages turned out to be unreachable -- so the button
+#: worked and the card that is supposed to say a press is owed stayed silent. Two
+#: readers, one fact, and changing one of them is the shape this constant removes.
+#:
+#: NOT AN OPEN FILTER, and the measurement is in `latest_crawl_run_ref` below: a future
+#: kind storing pages of a third shape would reach a parser built for two, failing as a
+#: refusal per page rather than as anything loud.
+COLLECTING_KINDS = ("directory_crawl", "profile_crawl")
+
+
 def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str, int]:
     """The run ref of this source's most recent run that stored pages, and how many.
 
@@ -127,7 +142,7 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
         # here rather than left as a clause somebody trusts.
         " GROUP BY j.job_id "
         " ORDER BY j.job_id DESC LIMIT 1",
-        ("directory_crawl", "profile_crawl", f'%"{source_key}"%')).fetchone()
+        (*COLLECTING_KINDS, f'%"{source_key}"%')).fetchone()
     if rows is None:
         raise NothingToInterpret(
             f"{source_key!r} has no crawl that stored pages, so there is nothing to "

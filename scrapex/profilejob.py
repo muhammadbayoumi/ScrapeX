@@ -314,12 +314,46 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # because `details` decides it, after the resume and the ceiling are applied.
         if index and index % globals()["BEAT_EVERY_PAGES"]:
             return False
-        jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
-                     stage=JobStage.FETCHING.value, progress_done=index,
-                     progress_total=total, last_heartbeat_at=utc_now_iso())
-        conn.commit()
+        # READ BEFORE WRITING, AND THE ORDER IS THE FIX. Issue 791: he pressed Cancel on
+        # a running sweep at 13:55:57 and it fetched all 938 pages anyway, with the word
+        # "cancel" nowhere in its log. The beat wrote `status = running` FIRST and
+        # unconditionally -- over the `cancelling` that `set_control` had just parked
+        # there to mean "the worker will settle this at its next safe boundary". Its own
+        # docstring calls that compare-and-swap load-bearing so a late click cannot
+        # resurrect a settled job; the beat resurrected it from the other side.
         current = jobs.get_job(conn, job_ref)
         control = jobs._control_of(conn, job["job_id"])
+        # AND THE ROW OUTRANKS THE INSTRUCTION, because the instruction can be gone. At
+        # 13:58 that job carried `finished_at` AND `status = running` AND
+        # `control = none` -- finished and running at once, with nothing left to find.
+        # `_finish` clears `control`, so a stop that has already been recorded leaves no
+        # pending intent, and a guard reading only `control` sails past it. This is the
+        # half that stops the run whichever of issue 791's readings was the true one.
+        if not jobs.still_wanted(conn, job_ref):
+            jobs.append_log(
+                conn, job["job_id"],
+                f"stopped after {index:,} of {total:,} page(s): this job is already "
+                "settled, so nothing more is fetched",
+                source_key=source_key)
+            conn.commit()
+            stopped.append(JobStatus.CANCELLED.value)
+            return True
+        # THE COUNT IS AN OBSERVATION AND THE STATUS IS A CLAIM, so a pending stop
+        # withholds the claim and nothing else. Withholding the whole write was a
+        # regression of this branch, and a worse one here than in `directoryjob`:
+        # `index` AND `total` sat inside it, so a sweep paused before its first page
+        # closed settled at `0/0` -- a card that cannot say whether the job ever had a
+        # frontier, on a run that had 938 pages in it.
+        beat = {"progress_done": index, "progress_total": total,
+                "last_heartbeat_at": utc_now_iso()}
+        if control not in {JobControl.PAUSE.value, JobControl.CANCEL.value}:
+            # NOT WHEN A STOP IS PENDING. Falling through to the branches below settles
+            # it; writing `running` first would erase the transitional state the panel
+            # is showing him.
+            beat["status"] = JobStatus.RUNNING.value
+            beat["stage"] = JobStage.FETCHING.value
+        jobs._update(conn, job["job_id"], **beat)
+        conn.commit()
         if control == JobControl.PAUSE.value:
             jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
                          control=JobControl.NONE.value, stage=None,
@@ -339,6 +373,10 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                 f"{run_ref} are kept and a later run continues from them",
                 source_key=source_key)
             jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+            # COMMITTED, LIKE ITS PAUSE SIBLING. This branch was the only one of the two
+            # without it, so its log line and its `_finish` rode on whatever committed
+            # next -- and issue 791's log has no cancel line in it at all.
+            conn.commit()
             stopped.append(JobStatus.CANCELLED.value)
             return True
         # `current` IS READ AND USED, not read and discarded: a job the worker has been
