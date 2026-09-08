@@ -166,15 +166,21 @@ async function loadActivities() {
   // requests a sourceless page makes -- it caught this the moment the second route
   // was added, having been written for the first.
   if (!SOURCE_KEY) return;
-  let payload;
+  // NOT CALLED `payload`, AND THAT IS NOT A STYLE CHOICE. This file reads TWO answers
+  // of different shapes, and
+  // `test_the_table_payload_answers_every_key_its_readers_read` derives the table
+  // contract by scanning this file for dotted reads off a variable of that name -- so
+  // a second one under it reported the taxonomy's own keys as keys both table
+  // producers must emit. That regex reads comments too, so this one says none.
+  let answer;
   try {
-    payload = await api(`/api/taxonomy/${encodeURIComponent(SOURCE_KEY)}`);
+    answer = await api(`/api/taxonomy/${encodeURIComponent(SOURCE_KEY)}`);
   } catch (_) {
     // NOT A SECOND RED LINE. The table already says when the engine is not
     // answering, and reporting one fault twice is how a screen stops being read.
     return;
   }
-  const group = (payload?.groups || [])[0];
+  const group = (answer?.groups || [])[0];
   if (!group) return;
   const roots = treeFrom(group);
   if (!roots.length) return;
