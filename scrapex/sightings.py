@@ -536,10 +536,17 @@ def clear_profile_unresolved(conn: sqlite3.Connection, dataset_key: str, *,
     the listing today can answer with a profile next month; the only thing that proves it
     is a profile page that actually read, which is what this call is downstream of.
 
-    NARROWED TO THE MARKED ONES BY THE WHERE, so a run that approved 17,811 profiles
-    writes nothing here and reports nothing.
+    ONE READ AND THEN ONLY THE INTERSECTION, WHICH IS THE NORMAL CASE BY A FACTOR OF
+    17,811. This is called with every contractor whose profile page read -- 17,811 of
+    them on his warehouse -- and almost none of those is marked. Relying on the WHERE to
+    make each one a no-op would issue 17,811 statements on every interpretation to change
+    nothing: the `N+1` shape, on the path that runs every time. Reading the marked set
+    first costs one indexed query and usually leaves an empty list.
     """
-    wanted = sorted({str(one) for one in external_ids if str(one)})
+    wanted = {str(one) for one in external_ids if str(one)}
+    if not wanted:
+        return ()
+    wanted = sorted(wanted & profile_unresolved_ids(conn, dataset_key))
     if not wanted:
         return ()
     cleared: list[str] = []
