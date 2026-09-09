@@ -137,7 +137,7 @@ def dataset_workbook_tables(payload: dict,
                 raise UnexportableCell(
                     f"{payload['source_key']}.{key} holds a nested "
                     f"{type(value).__name__}, which no spreadsheet cell can "
-                    f"carry: {repr(value):.120}. Flatten that field where it "
+                    f"carry: {value!r:.120}. Flatten that field where it "
                     f"is written, or hide the column from the table — a hidden "
                     f"column leaves the export with it.")
             cells.append(value)
