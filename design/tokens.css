@@ -74,7 +74,7 @@
      blocks below, beside the dark surfaces, rather than being spelled twice in
      two different notations. */
   --accent: #3fcf8e;          /* brand-default light   PUBLISHED */
-  --accent-hover: #65d8a4;    /* brand/80 flat         derived */
+  --accent-hover: #65d8a4;    /* brand-default/80 flat derived */
   --accent-active: #8ee8bd;   /* brand-400/80 flat     derived */
   --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
   /* THEIRS, RESOLVED -- and this comment called it a departure for nine days.
@@ -108,7 +108,7 @@
   --red: #ab413e;             /* --destructive light   derived */
   --red-hover: #8e332f;
   --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
-  --danger-contrast: #fff9f8; /* --destructive-fg      derived */
+  --danger-contrast: #fff9f8; /* --destructive-foreground derived */
   /* R-85: THEIRS, AND IT IS THE COSTLIEST OF THE THREE.
      Their --ring is --primary at 55% alpha; flattened over --bg it is #98e3c0 and
      measures 1.466:1 where this repository asks 3:1 of a focus indicator. It was
@@ -401,7 +401,7 @@
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
   --red-weak: #3b1813;        /* destructive-300 dark  PUBLISHED */
-  --danger-contrast: #090504; /* --destructive-fg      derived */
+  --danger-contrast: #090504; /* --destructive-foreground derived */
 
   /* OP-94. This was the literal `#171b21` while --control-bg was not reachable
      by any appearance, so every palette's dark control backgrounds stayed on the

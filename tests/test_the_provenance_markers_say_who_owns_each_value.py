@@ -1,4 +1,4 @@
-"""Every colour in design/tokens.css says whose it is, and nothing checked the answer.
+"""Every colour in design/tokens.css says whose it is, and this checks the answer.
 
 WHAT THE MARKERS ARE. Each colour declaration in design/tokens.css carries an inline
 comment naming the Supabase token it came from and one of two words:
@@ -6,38 +6,40 @@ comment naming the Supabase token it came from and one of two words:
     --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
     --amber:      #f2af48;      /* --warning dark        derived   */
 
-`PUBLISHED` means Supabase declares that value as a literal -- their stepped numeric
-scales are per-theme HSL triples, and converting a triple to hex is a change of
-notation, not an evaluation. `derived` means the value is this product's own
-evaluation of one of their expressions.
+`PUBLISHED` means Supabase declares that value as a literal -- an HSL triple or a hex --
+and converting a triple to hex is a change of notation, not an evaluation. `derived`
+means the value is this product's own evaluation of one of their expressions.
 
-WHY THAT IS A LICENCE STATEMENT AND NOT A CONVENIENCE. design/supabase.NOTICE.txt
-discharges Apache-2.0 section 4(b), and it delegates the per-value record to this
-file: "WHICH IS WHICH IS RECORDED AT EACH VALUE in design/tokens.css". So a marker
-pointing the wrong way is a wrong statement of changes, in the document a recipient
-reads to learn what was taken.
+WHY THAT IS A LICENCE STATEMENT. design/supabase.NOTICE.txt discharges Apache-2.0
+section 4(b) and delegates the per-value record here: "WHICH IS WHICH IS RECORDED AT
+EACH VALUE in design/tokens.css". A marker pointing the wrong way is a wrong statement
+of changes, in the document a recipient reads to learn what was taken.
 
-WHAT WENT WRONG WITHOUT IT. Three markers drifted and no test could see any of them:
-dark `--focus` and dark `--amber-ink` were marked PUBLISHED although their upstream
-tokens -- `--ring` and `--warning-foreground` -- are expressions, and dark
-`--line-strong` named `scale-900`, a token that exists nowhere in Supabase's themes.
-All three over-credited Supabase with this product's own arithmetic.
+THREE THINGS THIS GUARD LEARNED THE HARD WAY, all in one review pass on its own first
+version, and each is why an assertion below exists:
 
-HOW THIS CHECKS THEM WITHOUT A NETWORK. SUPABASE_SCALES below is Supabase's stepped
-numeric scales, transcribed verbatim from packages/ui/build/css/themes/light.css and
-dark.css at the commit design/supabase.NOTICE.txt pins. That is the complete set of
-colour LITERALS they publish; everything else in their system is computed. So:
+  1. IT TYPED THE UPSTREAM VALUES BY HAND -- 43 of them. Their sources declare 631 token
+     names and 107 colour literals, so 64 literals were missing, including every one of
+     the 52 in global.css. That did not make the check smaller, it made it WRONG in one
+     direction: a `derived` marker on a value Supabase publishes outright passed, because
+     the guard had no literal to contradict it. Under-crediting them is the direction
+     every provenance error in this repository has run in. The table is now a generated
+     fixture -- see tools/read_supabase_tokens.py.
 
-  * a `PUBLISHED` marker must name a token in that table, and the declaration must
-    equal that literal converted to hex;
-  * a `derived` marker must name a token that is NOT in it.
+  2. IT COULD NOT CATCH AN INVENTED NAME on the `derived` side. The name check returned
+     early whenever the named token was unknown, so `--scale-900` was caught only because
+     it also claimed PUBLISHED. `--destructive-fg` -- their token is
+     `--destructive-foreground` -- and a claim naming `--brand`, which they do not
+     declare at all, both passed. Every marker's name is now checked against the 631 they
+     declare, whichever word it carries.
 
-Both directions matter. The first stops us claiming their authorship; the second
-stops us claiming ours.
+  3. ITS REGEX CROSSED NEWLINES. `\\s*` between the semicolon and the comment let a
+     declaration bind to the NEXT comment in the file once its own was stripped, inventing
+     a marker for a token that has none. Horizontal whitespace only, now.
 """
 from __future__ import annotations
 
-import colorsys
+import json
 import re
 from pathlib import Path
 
@@ -50,89 +52,51 @@ pytestmark = pytest.mark.extension
 ROOT = Path(__file__).resolve().parent.parent
 TOKENS = ROOT / "design" / "tokens.css"
 NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
+FIXTURE = ROOT / "tests" / "fixtures" / "supabase-design-tokens.json"
 
-# Verbatim from Supabase's own theme files at 86c813ec, under their comment
-# "Stepped numeric scales (per-theme literals; mapped in theme.css)". These are the
-# only colour literals their system publishes.
-SUPABASE_SCALES = {
-    "light": {
-        "--secondary-default": "247.8deg 100% 70%",
-        "--secondary-400": "248.3deg 54.5% 25.9%",
-        "--secondary-200": "248deg 53.6% 11%",
-        "--brand-link": "153.4deg 86.5% 27.8%",
-        "--brand-default": "152.9deg 60% 52.9%",
-        "--brand-600": "156.5deg 86.5% 26.1%",
-        "--brand-500": "155.3deg 78.4% 40%",
-        "--brand-400": "151.3deg 66.9% 66.9%",
-        "--brand-300": "147.5deg 72% 80.4%",
-        "--brand-200": "147.6deg 72.5% 90%",
-        "--warning-600": "30.3deg 80.3% 47.8%",
-        "--warning-500": "36.3deg 85.7% 67.1%",
-        "--warning-400": "41.9deg 100% 81.8%",
-        "--warning-300": "44.3deg 100% 91.8%",
-        "--warning-200": "40deg 81.8% 97.8%",
-        "--destructive-default": "10.2deg 77.9% 53.9%",
-        "--destructive-600": "9.9deg 82% 43.5%",
-        "--destructive-500": "10.4deg 77.1% 79.4%",
-        "--destructive-400": "7.1deg 91.3% 91%",
-        "--destructive-300": "7.1deg 100% 96.7%",
-        "--destructive-200": "0deg 100% 99.4%",
-    },
-    "dark": {
-        "--secondary-default": "247.8deg 100% 70%",
-        "--secondary-400": "248.3deg 54.5% 25.9%",
-        "--secondary-200": "248deg 53.6% 11%",
-        "--brand-link": "155deg 100% 38.6%",
-        "--brand-default": "153.1deg 60.2% 52.7%",
-        "--brand-600": "154.9deg 59.5% 70%",
-        "--brand-500": "154.9deg 100% 19.2%",
-        "--brand-400": "155.5deg 100% 9.6%",
-        "--brand-300": "155.1deg 100% 8%",
-        "--brand-200": "162deg 100% 2%",
-        "--warning-default": "38.9deg 100% 42.9%",
-        "--warning-600": "38.9deg 100% 42.9%",
-        "--warning-500": "34.8deg 90.9% 21.6%",
-        "--warning-400": "33.2deg 100% 14.5%",
-        "--warning-300": "32.3deg 100% 10.2%",
-        "--warning-200": "36.6deg 100% 8%",
-        "--destructive-default": "10.2deg 77.9% 53.9%",
-        "--destructive-600": "9.7deg 85.2% 62.9%",
-        "--destructive-500": "7.9deg 71.6% 29%",
-        "--destructive-400": "6.7deg 60% 20.6%",
-        "--destructive-300": "7.5deg 51.3% 15.3%",
-        "--destructive-200": "10.9deg 23.4% 9.2%",
-    },
-}
+UPSTREAM = json.loads(FIXTURE.read_text(encoding="utf-8"))
+THEIR_NAMES = frozenset(UPSTREAM["names"])
+THEIR_LITERALS = UPSTREAM["literals"]
 
+# Horizontal whitespace only between the declaration and its note. `\s` matches
+# newlines, which let a declaration claim the next comment in the file as its own.
 MARKED = re.compile(
-    r"^\s*(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\s*;\s*/\*\s*([^*]+?)\s*\*/", re.M
+    r"^[ \t]*(--[a-z0-9-]+)[ \t]*:[ \t]*(#[0-9a-fA-F]{3,8})[ \t]*;[ \t]*/\*([^*]*)\*/", re.M
 )
+LEADING_TOKEN = re.compile(r"^(--[a-z0-9-]+)")
+FIRST_WORD = re.compile(r"^([a-z0-9-]+)")
 
 
-def _hsl_to_hex(triple: str) -> str:
-    hue, sat, light = re.match(
-        r"([\d.]+)deg\s+([\d.]+)%\s+([\d.]+)%$", triple.strip()
-    ).groups()
-    red, green, blue = colorsys.hls_to_rgb(
-        float(hue) / 360, float(light) / 100, float(sat) / 100
-    )
-    return "#%02x%02x%02x" % (round(red * 255), round(green * 255), round(blue * 255))
+def _named_token(note: str) -> str:
+    """The upstream token a note names, ignoring how the value was obtained from it.
+
+    A note may describe an operation -- "brand-default/80 flat" -- and the token is the
+    name at the front. The marker word and the theme word are removed as WHOLE WORDS: an
+    earlier version removed them as substrings, which turned
+    `--colors-gray-light-900` into `--colors-gray--900`.
+    """
+    words = [w for w in note.split() if w not in ("PUBLISHED", "derived", "light", "dark")]
+    claim = " ".join(words)
+    leading = LEADING_TOKEN.match(claim)
+    if leading:
+        return leading.group(1)
+    first = FIRST_WORD.match(claim)
+    return "--" + first.group(1).split("/")[0] if first else ""
 
 
 def _blocks() -> list[tuple[str, str]]:
-    """(scheme, block text) for the light and dark declaration blocks.
+    """(theme, block text) for the light and dark declaration blocks.
 
-    The scheme comes from WHICH BLOCK the declaration is in, never from the comment
-    beside it. An earlier version read the word "dark" out of the comment text, so a
-    dark declaration whose comment omitted the word was checked against the light
-    table -- which is how a wrong marker could be right for the wrong reason.
+    The theme comes from WHICH BLOCK a declaration is in, never from the word "dark"
+    appearing in its note -- a dark note that omits the word was otherwise checked
+    against the light table.
     """
-    source = re.sub(r"/\*(?![^*]*(?:PUBLISHED|derived))[^*]*(?:\*(?!/)[^*]*)*\*/", "",
-                    TOKENS.read_text(encoding="utf-8"))
+    source = TOKENS.read_text(encoding="utf-8")
     out = []
-    for scheme, pattern in (("light", r":root\s*\{"), ("dark", r':root\[data-theme="dark"\]\s*\{')):
+    for theme, pattern in (("light", r":root\s*\{"),
+                           ("dark", r':root\[data-theme="dark"\]\s*\{')):
         match = re.search(pattern, source)
-        assert match, f"no {scheme} block in design/tokens.css"
+        assert match, f"no {theme} block in design/tokens.css"
         depth, start = 0, match.end() - 1
         for i in range(start, len(source)):
             if source[i] == "{":
@@ -140,106 +104,118 @@ def _blocks() -> list[tuple[str, str]]:
             elif source[i] == "}":
                 depth -= 1
                 if depth == 0:
-                    out.append((scheme, source[start:i]))
+                    out.append((theme, source[start:i]))
                     break
         else:
-            raise AssertionError(f"the {scheme} block does not close")
+            raise AssertionError(f"the {theme} block does not close")
     return out
 
 
 def _markers() -> list[tuple[str, str, str, str, str]]:
-    """(scheme, our token, our value, marker word, the upstream token it names)."""
+    """(theme, our token, our value, marker word, the upstream token it names)."""
     found = []
-    for scheme, block in _blocks():
+    for theme, block in _blocks():
         for match in MARKED.finditer(block):
-            token, value = match.group(1), match.group(2).lower()
             note = " ".join(match.group(3).split())
-            marker = "PUBLISHED" if "PUBLISHED" in note else "derived" if "derived" in note else None
+            marker = ("PUBLISHED" if "PUBLISHED" in note
+                      else "derived" if "derived" in note else None)
             if marker is None:
                 continue
-            claim = note.replace("PUBLISHED", "").replace("derived", "")
-            claim = claim.replace("dark", "").replace("light", "").strip()
-            named = claim if claim.startswith("--") else "--" + claim
-            found.append((scheme, token, value, marker, named))
+            found.append((theme, match.group(1), match.group(2).lower(), marker, _named_token(note)))
     return found
+
+
+def _literal(theme: str, token: str) -> str | None:
+    """The hex Supabase publishes for a token in this theme, or at their root."""
+    return THEIR_LITERALS[theme].get(token) or THEIR_LITERALS["root"].get(token)
 
 
 ALL = _markers()
 PUBLISHED = [m for m in ALL if m[3] == "PUBLISHED"]
 DERIVED = [m for m in ALL if m[3] == "derived"]
+IDS = {"all": [f"{m[0]}{m[1]}" for m in ALL],
+       "pub": [f"{m[0]}{m[1]}" for m in PUBLISHED],
+       "der": [f"{m[0]}{m[1]}" for m in DERIVED]}
+
+
+def test_the_fixture_records_the_commit_the_notice_pins():
+    """One commit, named in two places, and they must agree.
+
+    The notice tells a recipient which commit the values came from; the fixture is what
+    the guard compares against. If they drift, the guard checks the wrong Supabase.
+    """
+    pinned = re.search(r"^\s*Commit\s+([0-9a-f]{40})", NOTICE.read_text(encoding="utf-8"), re.M)
+    assert pinned, "design/supabase.NOTICE.txt no longer pins a 40-character commit"
+    assert UPSTREAM["commit"] == pinned.group(1), (
+        f"the notice pins {pinned.group(1)[:8]} and the fixture was read at "
+        f"{UPSTREAM['commit'][:8]}. Run tools/read_supabase_tokens.py to bring the "
+        f"fixture to the pinned commit, and re-check every marker against it."
+    )
 
 
 def test_the_file_still_carries_markers_to_check():
-    """A regex that silently matches nothing is a green test that checks nothing.
-
-    This is the floor: the parse found markers of both kinds. If the comment format
-    changes, this fails first and says so, instead of every test below passing on an
-    empty list.
-    """
+    """A regex that silently matches nothing is a green test that checks nothing."""
     assert len(PUBLISHED) >= 8 and len(DERIVED) >= 8, (
         f"parsed {len(PUBLISHED)} PUBLISHED and {len(DERIVED)} derived markers in "
-        f"design/tokens.css. The comment format has changed and this guard is no "
-        f"longer reading it; fix the parser rather than the floor."
+        f"design/tokens.css. The comment format has changed and this guard is no longer "
+        f"reading it; fix the parser rather than the floor."
     )
 
 
-@pytest.mark.parametrize("scheme,token,value,_marker,named", PUBLISHED,
-                         ids=[f"{m[0]}{m[1]}" for m in PUBLISHED])
-def test_a_published_marker_names_a_literal_supabase_actually_publishes(
-    scheme, token, value, _marker, named
-):
-    """PUBLISHED is a claim about THEIR authorship, so it is checked against them.
+@pytest.mark.parametrize("theme,token,value,marker,named", ALL, ids=IDS["all"])
+def test_every_marker_names_a_token_supabase_declares(theme, token, value, marker, named):
+    """Whichever word it carries, the name has to be one of theirs.
 
-    The failure mode this catches, three times over: a semantic token Supabase
-    computes, marked as though they had published the number this product arrived at
-    by evaluating their expression.
+    This is the assertion the first version lacked. `--scale-900` was caught only because
+    it also claimed PUBLISHED; `--destructive-fg` and a claim naming `--brand` were not
+    caught at all. A name they do not declare cannot be a provenance record.
     """
-    literal = SUPABASE_SCALES[scheme].get(named)
+    assert named in THEIR_NAMES, (
+        f"{theme} {token} records its origin as {named}, which Supabase does not declare "
+        f"in any of the {len(UPSTREAM['files_read'])} files read at "
+        f"{UPSTREAM['commit'][:8]}. Either the name is wrong -- theirs may be spelled out "
+        f"in full, as --destructive-foreground rather than --destructive-fg -- or this "
+        f"value did not come from them and has no business carrying a marker."
+    )
+
+
+@pytest.mark.parametrize("theme,token,value,_marker,named", PUBLISHED, ids=IDS["pub"])
+def test_a_published_marker_equals_the_literal_it_names(theme, token, value, _marker, named):
+    """PUBLISHED is a claim about THEIR authorship, so it is checked against them."""
+    literal = _literal(theme, named)
     assert literal is not None, (
-        f"{scheme} {token} is marked PUBLISHED naming {named}, which is not one of "
-        f"Supabase's published scale literals. Either it is a token they COMPUTE -- "
-        f"in which case this value is ours and the marker should read `derived` -- or "
-        f"the name is wrong. There is no --scale-900; that exact mistake is why this "
-        f"guard exists."
+        f"{theme} {token} is marked PUBLISHED naming {named}, which Supabase declares but "
+        f"does not publish as a literal -- it is computed. This value is therefore this "
+        f"product's own evaluation of their expression, and the marker should read "
+        f"`derived`."
     )
-    assert _hsl_to_hex(literal) == value, (
-        f"{scheme} {token} is marked PUBLISHED as {named}, but {named} is {literal} "
-        f"= {_hsl_to_hex(literal)} and this ships {value}. A PUBLISHED value must be "
-        f"their literal, converted and nothing else."
+    assert literal == value, (
+        f"{theme} {token} is marked PUBLISHED as {named}, which is {literal}, and this "
+        f"ships {value}. A PUBLISHED value must be their literal and nothing else."
     )
 
 
-@pytest.mark.parametrize("scheme,token,value,_marker,named", DERIVED,
-                         ids=[f"{m[0]}{m[1]}" for m in DERIVED])
-def test_a_derived_marker_does_not_name_a_published_literal(
-    scheme, token, value, _marker, named
-):
-    """The mirror, and it matters as much.
+@pytest.mark.parametrize("theme,token,value,_marker,named", DERIVED, ids=IDS["der"])
+def test_a_derived_marker_does_not_claim_their_literal_as_ours(theme, token, value, _marker, named):
+    """The mirror, and it is the direction every error here has run in.
 
     `derived` claims the arithmetic is ours. If the named token is one they publish
-    outright, the claim takes credit for a transcription -- the same error in the
-    direction that under-credits them.
+    outright and the value matches it, the claim takes credit for a transcription.
     """
-    literal = SUPABASE_SCALES[scheme].get(named)
+    literal = _literal(theme, named)
     if literal is None:
         return
-    assert _hsl_to_hex(literal) != value, (
-        f"{scheme} {token} is marked derived naming {named}, but {named} is a "
-        f"published literal and this value equals it exactly. The marker should read "
-        f"PUBLISHED: nothing was derived."
+    assert literal != value, (
+        f"{theme} {token} is marked derived naming {named}, but Supabase publishes "
+        f"{named} as {literal} and this value equals it exactly. Nothing was derived; "
+        f"the marker should read PUBLISHED."
     )
 
 
 def test_the_notice_still_delegates_the_record_to_these_markers():
-    """The markers are only a licence statement while the notice says they are.
-
-    If that delegation is ever removed from design/supabase.NOTICE.txt, this guard
-    stops guarding an obligation and starts guarding a convention -- which is worth
-    knowing rather than discovering.
-    """
-    notice = NOTICE.read_text(encoding="utf-8")
-    assert "RECORDED AT EACH VALUE in design/tokens.css" in notice, (
-        "design/supabase.NOTICE.txt no longer delegates the per-value provenance "
-        "record to design/tokens.css. If the notice now states provenance itself, "
-        "this guard should be checking the notice instead."
+    """The markers are a licence statement only while the notice says they are."""
+    assert "RECORDED AT EACH VALUE in design/tokens.css" in NOTICE.read_text(encoding="utf-8"), (
+        "design/supabase.NOTICE.txt no longer delegates the per-value provenance record "
+        "to design/tokens.css. If the notice states provenance itself now, this guard "
+        "should be checking the notice instead."
     )
