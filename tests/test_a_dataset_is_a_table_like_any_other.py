@@ -602,6 +602,86 @@ def test_a_dataset_exports_a_workbook_instead_of_refusing_one(conn):
         workbook_tables(conn, "NOT_A_SOURCE_OR_DATASET")
 
 
+def _cells(payload, field: str):
+    """One dataset field as it lands in a real .xlsx, read back out of the file.
+
+    Through `workbook_bytes` and not merely through the tabs, because the tabs
+    were never what failed: `test_a_dataset_exports_a_workbook_instead_of_
+    refusing_one` above stops at `workbook_tables`, and that is the gap the
+    defect below fell through — openpyxl is the reader that refuses.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
+    from io import BytesIO
+
+    from scrapex.localsheets import workbook_bytes
+    from scrapex.publish import dataset_workbook_tables
+
+    tabs = dataset_workbook_tables(payload)
+    sheet = openpyxl.load_workbook(BytesIO(workbook_bytes(tabs))).worksheets[0]
+    header = [cell.value for cell in sheet[1]]
+    column = header.index(field) + 1
+    return [row[0].value for row in
+            sheet.iter_rows(min_row=2, min_col=column, max_col=column)]
+
+
+def test_a_multi_value_field_becomes_one_readable_cell(conn):
+    """`/export/contractor_enrichment.xlsx` answered 500 with an EMPTY body, so
+    the owner pressed Export to Excel and got no file and no message.
+
+    A record is stored as JSON, so a field published as an array reaches the
+    workbook as a `list`, and openpyxl refuses one outright — "Cannot convert
+    ['email_domain_candidate', 'source', 'website'] to Excel". Measured over
+    the whole warehouse: 36,318 such cells, every one of them in
+    `contractor_enrichment` — `providers_checked` and `evidence_urls` on all
+    17,304 rows, then `contact_emails` (768), `contact_phones` (750),
+    `iso_certifications` (170) and `core_specialties` (22).
+
+    ", " is the owner's ruling: the screen renders `a,b,c` because that is
+    Tabulator's default `String()` over an array, and a workbook is printed and
+    mailed, so its cell is spaced to be read.
+    """
+    payload = stored(conn)
+    payload["rows"][0]["membership_level"] = ["Grade 1", "Grade 2"]
+    payload["rows"][1]["membership_level"] = ["Grade 3"]
+    payload["rows"][2]["membership_level"] = []
+    # A null INSIDE the list, which is the case that would otherwise put the
+    # text "None" in a cell as if the site had published it.
+    payload["rows"][3]["membership_level"] = ["Grade 4", None]
+
+    # `None` is an EMPTY CELL read back out of the file, which is what an empty
+    # list should be — the same thing an absent key has always written.
+    assert _cells(payload, "membership_level")[:4] == [
+        "Grade 1, Grade 2", "Grade 3", None, "Grade 4"]
+
+
+def test_a_nested_object_names_its_field_instead_of_landing_as_wrong_data(conn):
+    """Joining a list of objects would write "{'name': ...}" into a cell, and a
+    workbook is read by people with no way to see that it is wrong.
+
+    `key_decision_makers` is already declared as a `json` output field
+    (`enrichment/models.py:237`) with no provider writing it yet, so this is
+    the shape the next provider can produce. A TypeError and not a ValueError
+    on purpose: both this route and `outputs.apps_script_send` read a
+    ValueError out of `workbook_tables` as "nothing ingested yet", and would
+    have reported a shape defect as "crawl and ingest it first".
+    """
+    from scrapex.publish import UnexportableCell, dataset_workbook_tables
+
+    nested = stored(conn)
+    nested["rows"][0]["membership_level"] = [{"name": "Sara", "title": "CEO"}]
+    with pytest.raises(UnexportableCell, match="membership_level") as inside:
+        dataset_workbook_tables(nested)
+    assert "Sara" in str(inside.value), (
+        "the message must carry the value he has to go and look at")
+    assert not isinstance(inside.value, ValueError), (
+        "a ValueError here is reported to him as 'crawl and ingest it first'")
+
+    mapping = stored(conn)
+    mapping["rows"][0]["membership_level"] = {"grade": 1}
+    with pytest.raises(UnexportableCell, match="membership_level"):
+        dataset_workbook_tables(mapping)
+
+
 # ---- the FIFTH leak, and the partition is what exposed it --------------------
 
 def _without_the_location_box(html: str) -> str:

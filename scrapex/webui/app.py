@@ -112,7 +112,7 @@ from ..outputs import (
 )
 from ..payload import utc_now_iso
 from ..probe import probe as probe_url
-from ..publish import workbook_tables
+from ..publish import UnexportableCell, workbook_tables
 from ..reports import (
     BROWSE_COLUMNS,
     FILTERABLE,
@@ -1640,6 +1640,12 @@ def create_app(
         general = general_read_conn()
         try:
             tabs = workbook_tables(conn, source_key, general=general)
+        except UnexportableCell as exc:
+            # A SHAPE NO CELL CAN CARRY, AND IT SAYS WHICH FIELD. Before this
+            # the button navigated to a bare `500 Internal Server Error` with
+            # an empty body, so the owner pressed Export and got nothing to
+            # read and nothing to act on.
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         except ValueError as exc:      # nothing ingested for this source yet
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:

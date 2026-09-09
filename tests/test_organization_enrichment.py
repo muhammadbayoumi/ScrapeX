@@ -579,6 +579,55 @@ def test_runs_are_resumable_idempotent_and_keep_changed_fact_history(conn, monke
     assert enrichment.get_definition(conn, definition_id)["counts"]["organizations"] == 4
 
 
+def test_the_enrichment_output_downloads_as_a_workbook(registry, monkeypatch, tmp_path):
+    """He pressed Export to Excel on `/source/contractor_enrichment` and no file
+    arrived: the route answered 500 with an empty body.
+
+    An enrichment output declares SIX `json` fields (`enrichment/models.py`),
+    and `providers_checked` and `evidence_urls` are written on EVERY row — so
+    every row of this dataset carried a Python list into openpyxl, which
+    refuses one outright. This presses the actual button, through the route,
+    and opens the file that comes back.
+
+    The path the download takes is shared: `publish.workbook_tables` also feeds
+    the Apps Script funnel and the Google sink, and both were sending nested
+    arrays into a flat tab for the same reason.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
+    from io import BytesIO
+
+    conn = registry.engine.connect()
+    try:
+        definition = enrichment.create_definition(conn, _request(conn))
+        job = _run(conn, definition["enrichment_definition_id"], monkeypatch,
+                   _FakeWebsite())
+        assert job["status"] == "completed", job["error_summary"]
+    finally:
+        conn.close()
+
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(databases=registry, manifest_path=manifest))
+
+    response = client.get("/export/contractor_enrichment.xlsx")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].endswith("spreadsheetml.sheet")
+    sheet = openpyxl.load_workbook(BytesIO(response.content)).worksheets[0]
+    header = [cell.value for cell in sheet[1]]
+    rows = [dict(zip(header, [cell.value for cell in row]))
+            for row in sheet.iter_rows(min_row=2)]
+    assert len(rows) == 4, "the workbook lost rows the dataset holds"
+    # THE TEXT, not a repr: `['source', 'website']` in a cell would be a list
+    # that had merely survived the writer rather than one a reader can use.
+    # This fixture reproduces production's own three-provider cell, so the
+    # separator is proved here on a real row and not only on a made-up one.
+    assert {row["providers_checked"] for row in rows} == {
+        "email_domain_candidate, source, website"}
+    assert all(row["evidence_urls"].startswith("https://contractor-")
+               for row in rows), [row["evidence_urls"] for row in rows]
+
+
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     definition = enrichment.create_definition(conn, _request(conn))
     provider = _SystemFailureProvider()
