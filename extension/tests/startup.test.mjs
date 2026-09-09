@@ -35,6 +35,36 @@ test("local endpoints receive purpose-specific deadlines", () => {
                STARTUP_DEADLINES.bundleBuild);
   assert.equal(deadlineForLocalRequest("/api/storage/integrity", "POST"),
                STARTUP_DEADLINES.integrityScan);
+  assert.equal(deadlineForLocalRequest("/api/storage/restore", "POST"),
+               STARTUP_DEADLINES.restoreCopy);
+});
+
+test("a restore is not bounded like a page of rows, whatever the table order", () => {
+  // THE SAME TRAP AS `/api/storage/integrity` BELOW, and worth its own test
+  // because the consequence is worse. The `storage` rule ends `(?:[/?]|$)`, so
+  // `/api/storage/restore` matches it, and a row written after it silently
+  // collects `destinationData: 5000`.
+  //
+  // `storage.restore` health-checks the backup, copies it, health-checks the
+  // copy and compares both files byte for byte before switching. MEASURED
+  // 2026-09-09: `health()` alone is 30,784 ms on a 2,148,061,184-byte file and
+  // it runs twice, so a restore is about 113 s on that warehouse -- 22x the
+  // generic bound.
+  //
+  // AND ABORTING CANCELS NOTHING ON THE FAR SIDE. The engine holds the write
+  // lock and completes the switch, so the bound this guards against does not
+  // stop a restore -- it reports failure over one that SUCCEEDED, about the one
+  // action that replaces his warehouse.
+  const restore = deadlineForLocalRequest("/api/storage/restore", "POST");
+  assert.equal(restore, STARTUP_DEADLINES.restoreCopy);
+  assert.notEqual(restore, STARTUP_DEADLINES.destinationData,
+                  "the restore inherited the bound for fetching rows");
+  assert.notEqual(restore, STARTUP_DEADLINES.localMutation,
+                  "the restore inherited the generic mutation bound");
+  // A GET of the same path must not be treated as a restore: nothing reads it,
+  // and a rule matching both would bound a listing at ten minutes.
+  assert.equal(deadlineForLocalRequest("/api/storage"), STARTUP_DEADLINES.destinationData,
+               "the row above it swallowed the storage listing");
 });
 
 // THE ORDER OF THE TABLE IS PART OF THE TABLE, and this pair is the case that says so.

@@ -1468,6 +1468,22 @@
         <div class="kv"><strong>Backups</strong>
           <span id="db-backup-count" class="muted">—</span></div>
         <p class="muted text-xs" id="db-backup-detail">&nbsp;</p>
+
+        <!-- THE LIST, UNDER THE COUNT THAT ALREADY EXISTED. This card has
+             reported a number and named only the newest copy since it was
+             built, and `GET /api/storage` has carried the whole list --
+             path, tag, size and the moment each was taken -- all along. So
+             the panel already knew about every snapshot on the disk and
+             offered no way to put one back: `POST /api/storage/restore` has
+             existed and had no caller in this interface (`R-81` -- a
+             capability with no panel control has no control).
+
+             `manage-account-rows` DESPITE THE NAME. It is the panel's one
+             row component and its CSS is not scoped to that view; a second
+             row style for this screen would be the duplication worth
+             avoiding. The name is wrong for a shared thing and renaming it
+             is not this diff's business. -->
+        <div class="manage-account-rows" id="db-snapshots"></div>
       </div>
 
       <p class="muted text-xs" id="db-msg" role="status">&nbsp;</p>
@@ -2403,6 +2419,31 @@
        Not a native <dialog>: a document-level keydown handler in app.js calls
        preventDefault() on every Escape, which would stop the browser's own
        close. This one is a plain element and owns its Escape. -->
+  <!-- The restore confirmation, at BODY level for the two reasons the
+       disconnect one below gives: a view is transformed for 180ms during
+       navigation and becomes the containing block for `position: fixed`, and
+       a document-level Escape handler calls preventDefault() on every
+       Escape, so a native <dialog> could not close itself.
+
+       A SECOND MODAL MEANS THE MECHANICS ARE NOW WRITTEN TWICE -- open,
+       close, focus return, the Tab trap. That is real duplication and it is
+       deliberately not fixed here: generalising it would rewrite a working
+       confirmation in a diff about restoring a database. Recorded as #818. -->
+  <div id="restore-veil" class="modal-veil hidden">
+    <div class="modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="restore-dialog-title" tabindex="-1"
+         id="restore-dialog">
+      <h2 class="modal-title" id="restore-dialog-title">Put this copy back?</h2>
+      <div class="modal-copy" id="restore-dialog-copy"></div>
+      <div class="modal-actions">
+        <button class="ghost" type="button" id="restore-cancel">Cancel</button>
+        <button class="danger" type="button" id="restore-confirm">
+          Restore this copy
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div id="disconnect-veil" class="modal-veil hidden">
     <div class="modal-card" role="dialog" aria-modal="true"
          aria-labelledby="disconnect-dialog-title" tabindex="-1"
