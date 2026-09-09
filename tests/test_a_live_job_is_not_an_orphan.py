@@ -180,3 +180,110 @@ def test_the_reopen_path_passes_what_it_is_running(conn):
     assert source.count("reclaim_orphaned_jobs(") == 4, (
         "a call site was added or removed and this guard was not told: every one of them "
         "has to have decided about `keep`")
+
+# ---- issue 796: and the pass that follows a requeue says it is not the first ----
+
+def _entered(connection: sqlite3.Connection, ref: str, *, reached: int) -> None:
+    """A job that has already run once and been requeued, which is the live shape.
+
+    `started_at` SET AND `status` BACK TO `queued` is exactly what
+    `reclaim_orphaned_jobs` leaves behind, and it is the state all three runners read
+    and discard.
+    """
+    connection.execute(
+        "UPDATE crawl_job SET started_at = ?, progress_done = ?, status = 'queued' "
+        " WHERE job_ref = ?", ("2026-09-07T14:31:42Z", reached, ref))
+    connection.commit()
+
+
+def test_a_first_entry_says_nothing_and_reports_nothing(conn):
+    """MOST ENTRIES ARE FIRST ONES. A line on every start would be noise, and noise on
+    every start is how the line that matters stops being read."""
+    ref = _job(conn, JobStatus.QUEUED)
+    job = jobs.get_job(conn, ref)
+
+    reached = jobs.note_a_re_entry(conn, job, unit="page pair(s)",
+                                  consequence="nothing is fetched")
+
+    assert reached == 0
+    assert "re-entered" not in _log(conn, ref), _log(conn, ref)
+
+
+def test_a_re_entry_says_so_and_names_what_the_last_pass_reached(conn):
+    """ISSUE 796. Two interpret jobs logged their opening preamble five times each on
+    2026-09-07 while he was updating the engine, and every runner writes
+    `progress_done = 0` at entry -- so his bar went back to zero eight times with no
+    line anywhere explaining it. The panel is his only surface."""
+    ref = _job(conn, JobStatus.QUEUED)
+    _entered(conn, ref, reached=300)
+    job = jobs.get_job(conn, ref)
+
+    reached = jobs.note_a_re_entry(
+        conn, job, unit="page pair(s)",
+        consequence="Every pair is read from disk again")
+
+    assert reached == 300
+    said = _log(conn, ref)
+    assert "re-entered after a restart" in said, said
+    assert "300 page pair(s)" in said, (
+        f"the number he watched disappear is not in the line: {said}")
+    assert "read from disk again" in said, (
+        f"the caller's own consequence was dropped: {said}")
+
+
+def test_it_is_read_before_the_reset_and_not_after(conn):
+    """THE ORDER IS THE CONTRACT. Called after the entry write -- which zeroes
+    `progress_done` -- it would report every re-entry as having reached nothing, which
+    is the same silence with an extra line."""
+    ref = _job(conn, JobStatus.QUEUED)
+    _entered(conn, ref, reached=620)
+    job = jobs.get_job(conn, ref)
+    # What the runners do immediately after the call under test.
+    jobs._update(conn, job["job_id"], progress_done=0)
+    conn.commit()
+
+    reached = jobs.note_a_re_entry(conn, job, unit="page(s)",
+                                   consequence="skipped rather than bought again")
+
+    assert reached == 620, (
+        "the number came from a re-read row rather than from the job handed in, so "
+        "the caller's order stopped mattering and the line reports zero for ever")
+
+
+def test_the_consequence_belongs_to_the_caller(conn):
+    """AN INTERPRETATION ASKS THE SITE FOR NOTHING AND A SWEEP DOES NOT, so one sentence
+    for both would be false for one of them. What is shared is that a re-entry must be
+    said at all, and with the number."""
+    interpret = _job(conn, JobStatus.QUEUED, source="muqawil_org")
+    _entered(conn, interpret, reached=300)
+    sweep = _job(conn, JobStatus.QUEUED, source="muqawil_org")
+    _entered(conn, sweep, reached=620)
+
+    jobs.note_a_re_entry(
+        conn, jobs.get_job(conn, interpret), unit="page pair(s)",
+        consequence="Every pair is read from disk again and the site is asked for "
+                    "nothing")
+    jobs.note_a_re_entry(
+        conn, jobs.get_job(conn, sweep), unit="page(s)",
+        consequence="The pages already stored under job-x are skipped rather than "
+                    "bought again")
+
+    assert "asked for nothing" in _log(conn, interpret)
+    assert "skipped rather than bought again" in _log(conn, sweep)
+    assert "asked for nothing" not in _log(conn, sweep), (
+        "one kind's consequence reached the other kind's log")
+
+
+def test_the_line_is_a_warning_like_the_sweep_line_above_it(conn):
+    """It sits one line below `orphan sweep: ... is now queued` in his log, and a plain
+    `info` under a warning reads as a different event rather than its consequence."""
+    ref = _job(conn, JobStatus.QUEUED)
+    _entered(conn, ref, reached=12)
+
+    jobs.note_a_re_entry(conn, jobs.get_job(conn, ref), unit="cell(s)",
+                         consequence="re-proved from disk")
+
+    levels = [row["level"] for row in jobs.job_logs(conn, ref)
+              if "re-entered" in row["message"]]
+    assert levels == ["warning"], levels
+

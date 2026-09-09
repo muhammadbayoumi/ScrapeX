@@ -3940,13 +3940,16 @@
 }
 
 /* ONE DOT FOR "THIS IS THE ONE MOVING", which is the question the whole page exists to
-   answer. `--ok` rather than the accent: it is a state, not a control. */
+   answer. `--accent-ink` because that is the positive ink this panel HAS: `--ok` is not
+   a token here, and an invalid var() makes the whole declaration invalid without
+   throwing -- which is what `test_every_custom_property_a_stylesheet_reads_is_one_
+   something_defines` exists to catch, and did. */
 .job-live {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--ok);
+  background: var(--accent-ink);
 }
 
 .job-bar {
@@ -3969,7 +3972,6 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: var(--text-xs, 11px);
   color: var(--muted);
 }
 

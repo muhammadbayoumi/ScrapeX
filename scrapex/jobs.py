@@ -1148,6 +1148,54 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     return (datetime.now(UTC) - beat).total_seconds() <= max_age_s
 
 
+def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
+                    consequence: str, source_key: str | None = None) -> int:
+    """Say that this pass is not the job's first, and what the previous one had done.
+
+    ISSUE 796, MEASURED ON HIS WAREHOUSE 2026-09-07. Two `dataset_interpret` jobs logged
+    their opening preamble FIVE times each, one second after an orphan sweep named them:
+
+        job_5155b86ba455  entered 14:31:42, then 14:31:54, 14:32:47, 14:33:35, 14:36:31
+
+    He was updating the engine through that window, so the sweep was right and requeueing
+    was right -- `reclaim_orphaned_jobs` at loop startup passes no `keep` because at
+    startup nothing of that runtime is running. What was wrong is that every runner then
+    writes `progress_done = 0` and says nothing, so **his progress bar went back to zero
+    eight times across the two jobs** with no line anywhere explaining it. The panel is
+    his only surface and it looked like a job that kept failing to start.
+
+    `started_at` IS THE SIGNAL AND IT WAS ALREADY THERE. All three runners guard their
+    entry write with `{} if job["started_at"] else {"started_at": ...}` -- so the fact
+    that this is a re-entry is a value they already read and discard. This turns it into
+    a sentence.
+
+    READ BEFORE THE RESET, which is the whole contract of this function: it reports
+    `progress_done` as it stands, and the caller zeroes it immediately afterwards. Called
+    after that write it would say every job had done nothing.
+
+    `consequence` IS THE CALLER'S AND NOT THIS FUNCTION'S. What a re-entry COSTS differs
+    by kind -- an interpretation re-reads pages off disk and asks the site for nothing, a
+    sweep skips what is already stored under its own run ref -- and one sentence for all
+    three would be wrong for two of them. What is shared is that a re-entry must be said
+    at all, and with the number he watched disappear.
+
+    Returns what the previous pass had reached, or 0 when this is a first entry and
+    nothing was said.
+    """
+    if not job.get("started_at"):
+        return 0
+    done = int(job.get("progress_done") or 0)
+    append_log(
+        conn, int(job["job_id"]),
+        "re-entered after a restart, so this pass starts again from the beginning"
+        + (f" — the previous pass had reached {done:,} {unit}" if done else "")
+        + f". {consequence}",
+        # A WARNING, LIKE THE SWEEP LINE IT FOLLOWS. It is news rather than a fault, and
+        # `orphan sweep: ... is now queued` is the line immediately above it in his log.
+        level=LogLevel.WARNING, source_key=source_key)
+    return done
+
+
 def still_wanted(conn: sqlite3.Connection, job_ref: str) -> bool:
     """Whether this job is still one the owner wants run. Read AFTER a wait.
 

@@ -895,3 +895,58 @@ def test_the_sources_route_says_what_is_waiting(served):
         assert waiting["profiles"] == {"rowless": 2, "fetch": 2}, waiting
         assert waiting["interpret"] is None, (
             "no crawl has finished in this warehouse and the route says one has")
+
+
+def test_a_re_entered_sweep_says_so_and_says_what_it_costs(warehouse, monkeypatch):
+    """ISSUE 796 IN THIS RUNNER, AND THE CALL SITE IS THE SUBJECT. A mutation deleting
+    the call from `run_profile_crawl_job_once` survived every guard that drove
+    `jobs.note_a_re_entry` directly -- the vacuity shape of a test that reads a helper
+    while the wiring goes unmeasured.
+
+    The state is what `reclaim_orphaned_jobs` leaves behind when a restart requeues a
+    running job: `started_at` set, `progress_done` at what the previous pass reached.
+    Measured on his warehouse 2026-09-07, eight times across two jobs in half an hour
+    while he was updating the engine -- and every runner writes `progress_done = 0` at
+    entry, so his bar went back to zero with no line anywhere saying why.
+
+    AND THE CONSEQUENCE IS THIS KIND'S OWN. A sweep skips what is already stored under
+    its run ref; an interpretation asks the site for nothing at all. One sentence for
+    both would be false for one of them.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["8201", "8202"])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.execute(
+        "UPDATE crawl_job SET started_at = ?, progress_done = ? WHERE job_ref = ?",
+        ("2026-09-07T10:33:25Z", 620, job_ref))
+    conn.commit()
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: "<html></html>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "re-entered after a restart" in said, (
+        f"the sweep reset his bar to zero and said nothing: {said}")
+    assert "620 page(s)" in said, (
+        f"the number he watched disappear is not in the line: {said}")
+    assert "skipped rather than bought again" in said, (
+        f"the line does not say what a re-entry costs for a SWEEP: {said}")
+
+
+def test_a_first_sweep_says_nothing_about_a_restart(warehouse, monkeypatch):
+    """A line on every start is noise, and noise on every start is how the line that
+    matters stops being read."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["8301"])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: "<html></html>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "re-entered" not in said, said

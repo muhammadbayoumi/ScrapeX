@@ -906,14 +906,17 @@ def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel)
     page.keyboard.press("ArrowDown")
     page.wait_for_timeout(220)
 
-    assert page.is_visible("#view-run")
-    assert page.get_attribute(RUN_TAB, "aria-current") == "page"
-    indicator_y, run_y = page.evaluate("""() => [
+    # THE NEXT TAB IS JOBS, where he put it on 2026-09-09. The subject of this test is
+    # unchanged -- ArrowDown moves one destination and the indicator follows it -- and
+    # the destination is read off the rail rather than assumed.
+    assert page.is_visible("#view-jobs")
+    assert page.get_attribute(JOBS_TAB, "aria-current") == "page"
+    indicator_y, jobs_y = page.evaluate("""() => [
         getComputedStyle(document.querySelector("nav.side-rail"))
           .getPropertyValue("--rail-indicator-y").trim(),
-        document.querySelector('[data-view="run"]').offsetTop + "px",
+        document.querySelector('[data-view="jobs"]').offsetTop + "px",
     ]""")
-    assert indicator_y == run_y
+    assert indicator_y == jobs_y
 
     page.click("#workspace-toggle")
     assert page.get_attribute("#workspace-menu", "aria-hidden") == "false"
@@ -926,18 +929,20 @@ def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel)
     assert page.locator("nav.side-rail .rail-item.is-rail-active").count() == 1
     assert page.locator("#workspace-toggle").evaluate(
         "(button) => button.classList.contains('is-rail-active')")
-    assert not page.locator(RUN_TAB).evaluate(
+    assert not page.locator(JOBS_TAB).evaluate(
         "(button) => button.classList.contains('is-rail-active')")
 
     page.keyboard.press("Escape")
     assert page.get_attribute("#workspace-menu", "aria-hidden") == "true"
     assert page.evaluate("() => document.activeElement.id") == "workspace-toggle"
+    # BACK TO THE PAGE THE RAIL WAS ON, which is the destination ArrowDown reached at
+    # the top of this test -- Jobs since 2026-09-09.
     assert page.evaluate("""() =>
         getComputedStyle(document.querySelector("nav.side-rail"))
           .getPropertyValue("--rail-indicator-y").trim()
-    """) == run_y
+    """) == jobs_y
     assert page.locator("nav.side-rail .rail-item.is-rail-active").count() == 1
-    assert page.locator(RUN_TAB).evaluate(
+    assert page.locator(JOBS_TAB).evaluate(
         "(button) => button.classList.contains('is-rail-active')")
 
 
@@ -4508,6 +4513,12 @@ PLURAL_PAGE_NAMES_ALLOWED = {
     "Settings": "the singular `Setting` means one setting, or a scene, and is "
                 "broken English for a page that holds dozens; every product "
                 "that has this page writes it plural",
+    "Jobs": "he named it, twice and in writing — «اريد اضافة jobs» and «Jobs فوق "
+            "Run» — and this test's own docstring is the second argument: a plural "
+            "among singulars reads as a LIST rather than a place, the panel has "
+            "both kinds, and the difference has to mean something. This page is a "
+            "list of 163 rows whose whole purpose is to be one; `Job` would name a "
+            "page about a single job, which is the Run screen",
 }
 
 
