@@ -362,15 +362,16 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["height"] == pytest.approx(800, abs=1)
 
     # Rolled 7 -> 10 and 8 -> 11 on 2026-08-05, when the agreed shape gained
-    # Profile, Engine and Console (docs/PLATFORM-PLAN.md), and 10 -> 11 and
-    # 11 -> 12 on 2026-09-06 when he asked for a Database page of its own. The
-    # RULE this asserts is unchanged and is not the number: the rail holds the
-    # pages the panel itself owns, and everything deeper stays behind one
-    # grouped menu. The count is here so a page cannot be added to the rail
-    # without someone deciding it belongs there -- which is exactly what
-    # happened, so the number moves and the rule does not.
-    assert page.locator("nav.side-rail button[data-view]").count() == 11
-    assert page.locator("nav.side-rail button.rail-item").count() == 12
+    # Profile, Engine and Console (docs/PLATFORM-PLAN.md), 10 -> 11 and
+    # 11 -> 12 on 2026-09-06 when he asked for a Database page of its own, and
+    # 11 -> 12 / 12 -> 13 on 2026-09-09 when he asked for a Jobs page and ruled
+    # where it sits. The RULE this asserts is unchanged and is not the number:
+    # the rail holds the pages the panel itself owns, and everything deeper
+    # stays behind one grouped menu. The count is here so a page cannot be added
+    # to the rail without someone deciding it belongs there -- which is exactly
+    # what happened each time, so the number moves and the rule does not.
+    assert page.locator("nav.side-rail button[data-view]").count() == 12
+    assert page.locator("nav.side-rail button.rail-item").count() == 13
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -387,6 +388,163 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     page.wait_for_timeout(100)
     opened = page.evaluate("() => window.__opened")
     assert len(opened) == 1 and opened[0].endswith("/changes")
+
+
+#: Four jobs from his warehouse on 2026-09-07, and each is one of the four things the
+#: panel could not show him. `job_1a95d29ebf89` is the one that cost him 33 minutes: it
+#: was entered 18 seconds AFTER the job doing the work, so `jobs[0]` drew it -- 0/938,
+#: preparing, with nothing saying why -- while the other was at 620/938.
+HIS_JOBS = [
+    {"job_ref": "job_1a95d29ebf89", "job_kind": "profile_crawl", "status": "preparing",
+     "run_mode": "update", "source_keys": ["muqawil_org"], "current_source_key": None,
+     "stage": None, "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 0, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 0, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "counters": {}, "created_at": "2026-09-07T10:33:44Z", "started_at": None,
+     "finished_at": None, "last_heartbeat_at": None, "error_summary": None},
+    {"job_ref": "job_034c51a29deb", "job_kind": "profile_crawl", "status": "running",
+     "run_mode": "update", "source_keys": ["muqawil_org"],
+     "current_source_key": "muqawil_org", "stage": "fetching",
+     "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 620, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 620, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "counters": {}, "created_at": "2026-09-07T10:33:25Z",
+     "started_at": "2026-09-07T10:33:25Z", "finished_at": None,
+     "last_heartbeat_at": "2026-09-07T10:55:00Z", "error_summary": None},
+    {"job_ref": "job_0212decca681", "job_kind": "dataset_interpret", "status": "paused",
+     "run_mode": "update", "source_keys": ["muqawil_org"],
+     "current_source_key": "muqawil_org", "stage": None,
+     "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 300, "expected": 909, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 300, "expected": 909, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "counters": {}, "created_at": "2026-09-06T14:01:14Z",
+     "started_at": "2026-09-06T14:01:15Z", "finished_at": None,
+     "last_heartbeat_at": "2026-09-06T14:07:16Z", "error_summary": None},
+    {"job_ref": "job_7b891d5b67ac", "job_kind": "profile_crawl", "status": "completed",
+     "run_mode": "update", "source_keys": ["muqawil_org"],
+     "current_source_key": "muqawil_org", "stage": None,
+     "progress": {"done": 1, "total": 1},
+     "fetch": {"requests": 938, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 938, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "counters": {}, "created_at": "2026-09-07T13:53:17Z",
+     "started_at": "2026-09-07T13:53:18Z", "finished_at": "2026-09-07T14:23:50Z",
+     "last_heartbeat_at": "2026-09-07T14:23:50Z", "error_summary": None},
+]
+
+JOBS_TAB = 'nav.side-rail button[data-view="jobs"]'
+
+
+def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
+    """HIS REQUEST OF 2026-09-07, and the number is the argument: 163 jobs in his
+    warehouse and the panel could draw ONE, because its only query carried
+    `active_only=true` and then took `jobs[0]`. 104 completed, 28 failed and 23
+    cancelled jobs were unreachable from the panel however they ended."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    rows = page.locator("#jobs-list .job-row")
+    assert rows.count() == 4, (
+        f"{rows.count()} of 4 jobs drawn -- a finished job is still unreachable")
+    said = page.locator("#jobs-summary").inner_text()
+    assert "4 jobs" in said, said
+    assert "1 completed" in said and "1 paused" in said, (
+        f"the summary does not say what state they are in: {said!r}")
+    # THE SETTLED ONE IS THERE, which is the whole request.
+    assert page.locator('#jobs-list .job-row[data-job="job_7b891d5b67ac"]').count() == 1
+
+    # AND THE REQUEST IS ASSERTED, NOT ONLY THE ROWS. The harness answers every
+    # `/api/jobs` path with the same payload whatever the query string says, so putting
+     # `active_only=true` back drew four rows and this test passed -- measured by
+    # mutation. The defect was in the QUESTION the panel asks, so that is what this
+    # reads.
+    asked = [one for one in page.evaluate("() => window.__calls")
+             if one.startswith("/api/jobs?")]
+    assert asked, "the page never asked for the list at all"
+    # THE PAGE'S OWN REQUEST, and the mini-player's is not it. That one still carries
+    # `active_only=true&limit=5` and correctly so -- he ruled the mini-player stays,
+    # and it wants the live job. What this asserts is that ONE request asks for the
+    # whole list: unbounded by status, and bounded by a number that is not five.
+    whole = [one for one in asked if "active_only" not in one]
+    assert whole, (
+        f"every request still filters by status, so the settled jobs are unreachable "
+        f"however many rows a stub happens to answer with: {asked}")
+    assert all("limit=200" in one for one in whole), (
+        f"the page asked for a handful rather than the list: {whole}")
+
+
+def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_panel):
+    """ISSUE 778's SECOND HALF. `queued_behind` is `null` for a job blocked on the
+    per-host politeness lane, which is the case that cost him 33 minutes of silence.
+    Naming a job we cannot identify would be a sentence he could act on and be wrong
+    about."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    blocked = page.locator('#jobs-list .job-row[data-job="job_1a95d29ebf89"]')
+    said = blocked.inner_text()
+    assert "waiting for this site's turn" in said, (
+        f"the blocked job says nothing about why it is still: {said!r}")
+    assert "job_034c51a29deb" not in said, (
+        f"it named the job holding the worker, which the payload cannot tell it: {said!r}")
+    paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').inner_text()
+    assert "resume it" in paused, paused
+
+
+def test_the_controls_sit_on_the_job_they_belong_to(open_panel):
+    """HALF OF WHAT THIS PAGE IS FOR. On 2026-09-07 the job he wanted to stop was not
+    the job the panel was drawing, so Cancel could not reach it at all."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    settled = page.locator('#jobs-list .job-row[data-job="job_7b891d5b67ac"]')
+    assert settled.locator("button").count() == 0, (
+        "a finished job was offered a control the route answers 409 for")
+    # THE ROW IS OPENED FIRST, WHICH IS WHAT A PERSON DOES. The controls sit inside the
+    # row on purpose: a mis-click on a list of 163 must not cancel a 33-minute crawl.
+    paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
+    paused.locator("summary").click()
+    page.wait_for_timeout(150)
+    labels = [paused.locator("button").nth(i).inner_text()
+              for i in range(paused.locator("button").count())]
+    assert labels == ["Resume", "Cancel"], labels
+
+    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    working.locator("summary").click()
+    page.wait_for_timeout(150)
+    working.locator("button").first.click()
+    page.wait_for_timeout(300)
+    # `__writes` IS THE HARNESS'S OWN RECORD of every non-GET, with its path, method
+    # and body -- so this asserts the request that was actually made rather than the
+    # button's appearance.
+    writes = page.evaluate("() => window.__writes")
+    reached = [one for one in writes
+               if one["path"] == "/api/jobs/job_034c51a29deb/control"]
+    assert reached, (
+        f"Pause did not reach the job whose row it sits on: {writes}")
+    assert reached[-1]["body"] == {"control": "pause"}, reached[-1]
+
+
+def test_the_miniplayer_adopts_the_job_doing_the_work(open_panel):
+    """ISSUE 778. `jobs[0]` over a newest-first list drew `0/938 preparing` while
+    another job was at 620/938, and he read the panel as nothing working."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_timeout(400)
+
+    drawn = page.locator("#miniplayer").inner_text()
+    assert "620" in drawn, (
+        f"the mini-player is still drawing whichever job was entered last: {drawn!r}")
+
+
+def test_a_stopped_engine_says_why_the_jobs_list_is_empty(open_panel):
+    """A blank list and a stopped engine look identical, and that confusion is the
+    shape of every complaint this page answers."""
+    page = open_panel(engine_up=False)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    assert page.locator("#jobs-list .job-row").count() == 0
+    said = page.locator("#jobs-blocked").inner_text()
+    assert "did not answer" in said, (
+        f"an empty list with no reason is what this page exists to stop: {said!r}")
 
 
 def test_appearance_is_a_complete_android_style_destination(open_panel):
@@ -3966,7 +4124,12 @@ def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
     # "above the engine page" was the instruction twice, and the head of the next group
     # is not it.
     assert groups[0] == ["profile", "database", "engines"], "the install's own pages"
-    assert groups[1] == ["source", "run", "data", "finance"], "the engine's pages"
+    # JOBS SITS ABOVE RUN, WHERE HE PUT IT (2026-09-09), and the position is the
+    # assertion for the same reason Database's is. This page needed no argument about
+    # the grouping -- it reads `GET /api/jobs` and shows nothing at all without an
+    # engine, which is precisely what the second group means -- so the only open
+    # question was the order inside it, and he answered it.
+    assert groups[1] == ["source", "jobs", "run", "data", "finance"], "the engine's pages"
     assert groups[2] == ["appearance", "sources", "console", "settings"]
 
     # A group has to READ as one. The hairline it replaced said "something

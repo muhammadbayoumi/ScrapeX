@@ -12,6 +12,7 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
+import { liveJob, rowsFrom, summariseJobs } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
@@ -127,7 +128,9 @@ const VIEWS = [
   // installed" before anything can be run. console is the owner build's page and
   // is removed from the published one — see docs/PLATFORM-PLAN.md Decision 20.
   "profile", "engines", "database",
-  "source", "run", "data", "sources", "source-edit", "appearance", "finance",
+  // `jobs` SITS BEFORE `run` HERE FOR THE SAME REASON IT DOES IN THE RAIL: his ruling
+  // of 2026-09-09, and this list is the order a reader of the file sees.
+  "source", "jobs", "run", "data", "sources", "source-edit", "appearance", "finance",
   "console", "settings",
   // A sub-view of Profile, like source-edit is of Sources: no rail button, and
   // showView maps it back to the Profile rail entry below. A name here with no
@@ -318,6 +321,7 @@ function showView(name, animate = true) {
     main.scrollTo({top: 0, behavior: reduceMotion.matches ? "auto" : "smooth"});
   }
   if (name === "database") loadDatabase();
+  if (name === "jobs") loadJobs();
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
   if (name === "finance") loadGoogleFinance();
@@ -4866,7 +4870,11 @@ async function pollJobOnce() {
   try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
   catch (_) { renderMiniplayer(null); renderActivity(null); return; }
 
-  const job = jobs[0] || null;
+  // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
+  // entered eighteen seconds after the one doing the work was drawn instead of it.
+  // Measured 2026-09-07: the panel showed `0/938 preparing` while another job was at
+  // 620/938, and he read the panel as nothing working. `liveJob` ranks by status.
+  const job = liveJob(jobs);
   state.job = job;
   if (job) {
     state.jobRef = job.job_ref;
@@ -6249,6 +6257,209 @@ async function restoreSnapshot() {
     confirm.textContent = "Restore this copy";
   }
 }
+//: HOW MANY JOBS THE PAGE ASKS FOR. His warehouse held 163 the day he asked for this
+//: page, so 200 shows every one of them today -- and the page SAYS when it stopped at
+//: the bound rather than presenting a prefix as the whole, which is the failure the
+//: bound exists to prevent.
+const JOBS_LIMIT = 200;
+
+/** A line that is there when it has something to say and gone when it does not.
+ *  `data.js` has the same three lines under the same name; kept local rather than
+ *  shared because that file is a TAB page and this one is the panel -- two documents,
+ *  and nothing about one changes when the other does. */
+function sayOn(id, text) {
+  const node = $(id);
+  node.textContent = text || "";
+  node.classList.toggle("hidden", !text);
+}
+
+/**
+ * The Jobs page: every job this warehouse has run.
+ *
+ * HIS REQUEST OF 2026-09-07, and the four things it makes visible are the four that
+ * were not: a sweep at 620/938 hidden behind a blocked one showing 0/938, a duplicate
+ * sweep he could not see was a second job, a cancelled job that ran to completion, and
+ * a paused interpretation at 300/909.
+ *
+ * THE ENGINE NEEDED NO CHANGE. `GET /api/jobs?limit=N` already answers every status
+ * with the full per-job view; the panel asked it once, with `active_only=true`, and
+ * then read `jobs[0]`.
+ */
+async function loadJobs() {
+  const list = $("jobs-list");
+  let payload;
+  try {
+    payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
+  } catch (error) {
+    // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
+    // and that confusion is the shape of every complaint this page answers.
+    list.replaceChildren();
+    $("jobs-summary").textContent = "";
+    sayOn("jobs-bounded", "");
+    sayOn("jobs-blocked", `The engine did not answer: ${error.message}. Start it from `
+      + "the Run screen.");
+    return;
+  }
+  sayOn("jobs-blocked", "");
+  const rows = rowsFrom(payload);
+  $("jobs-summary").textContent = summariseJobs(payload);
+  sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
+    ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
+      + "whole of it."
+    : "");
+  list.replaceChildren(...rows.map(drawJobRow));
+}
+
+/**
+ * One job as a row that opens.
+ *
+ * `<details>` RATHER THAN A CLICK HANDLER AND A CLASS TOGGLE: it is keyboard-operable
+ * and announced by a screen reader without a line of script, and the log is fetched the
+ * first time a row opens rather than two hundred times on load.
+ */
+function drawJobRow(row) {
+  const box = document.createElement("details");
+  box.className = "card job-row";
+  box.dataset.job = row.job_ref;
+  const head = document.createElement("summary");
+  head.className = "job-summary";
+  // WHY A JOB IS NOT MOVING GOES IN THE PART THAT IS ALWAYS VISIBLE. It is the one
+  // sentence this page exists to say: a closed row showed `preparing` and nothing else,
+  // which is exactly the screen he read as "nothing is working". The log, the controls
+  // and the timestamps open on demand; this does not.
+  const top = document.createElement("span");
+  top.className = "job-head";
+  // THE STATUS IS A BADGE AND `off` IS THE ONLY AMBER ONE. `warn` renders as plain grey
+  // in this panel, which `renderEngineDetail` already records as a mistake made once.
+  const badge = document.createElement("span");
+  badge.className = `badge ${row.tone}`;
+  badge.textContent = row.status;
+  const label = document.createElement("span");
+  label.className = "job-label";
+  label.textContent = row.label;
+  top.append(badge, label);
+  if (row.progress) {
+    const progress = document.createElement("span");
+    progress.className = "muted text-xs";
+    progress.textContent = row.progress;
+    top.append(progress);
+  }
+  if (row.live) {
+    const dot = document.createElement("span");
+    dot.className = "job-live";
+    dot.setAttribute("aria-label", "running");
+    top.append(dot);
+  }
+  head.append(top);
+  if (row.waiting) {
+    const why = document.createElement("span");
+    why.className = "job-waiting muted text-xs";
+    why.textContent = row.waiting;
+    head.append(why);
+  }
+  box.append(head);
+
+  const when = document.createElement("p");
+  when.className = "muted text-xs";
+  const started = window.ScrapeXTime.markup(row.created_at, "datetime", {zone: true});
+  when.innerHTML = row.finished_at
+    ? `${started} &rarr; ${window.ScrapeXTime.markup(row.finished_at, "datetime", {zone: true})}`
+    : started;
+  box.append(when);
+
+  if (row.fraction !== null) {
+    const bar = document.createElement("div");
+    bar.className = "job-bar";
+    bar.setAttribute("role", "progressbar");
+    // THE VALUE IS ON THE ELEMENT, not only in the width. Issue 725 is this exact
+    // omission on the crawl bar: a screen reader was told there was a bar and never
+    // what it read.
+    bar.setAttribute("aria-valuenow", String(Math.round(row.fraction * 100)));
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.round(row.fraction * 100)}%`;
+    bar.append(fill);
+    box.append(bar);
+  }
+  if (row.error_summary) {
+    const failed = document.createElement("p");
+    failed.className = "hint err text-xs";
+    failed.textContent = row.error_summary;
+    box.append(failed);
+  }
+  if (row.controls.length) {
+    const actions = document.createElement("div");
+    actions.className = "row job-actions";
+    for (const control of row.controls) {
+      const button = document.createElement("button");
+      button.className = "ghost";
+      button.type = "button";
+      button.textContent = control[0].toUpperCase() + control.slice(1);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        pressJobControl(row.job_ref, control, button);
+      });
+      actions.append(button);
+    }
+    box.append(actions);
+  }
+
+  const log = document.createElement("pre");
+  log.className = "job-log";
+  box.append(log);
+  box.addEventListener("toggle", () => {
+    if (box.open && !log.textContent) openJobLog(row.job_ref, log);
+  });
+  return box;
+}
+
+/**
+ * One job's log, into its own row.
+ *
+ * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
+ * somebody else's website. The Run screen keeps `renderLogs` for the LIVE job, which is
+ * a different question -- a streaming log that repolls and scrolls itself -- so this is
+ * not a second copy of one renderer.
+ */
+async function openJobLog(jobRef, into) {
+  into.textContent = "Reading\u2026";
+  try {
+    const log = await api(`/api/jobs/${encodeURIComponent(jobRef)}/logs`);
+    const entries = log.entries || [];
+    into.textContent = entries.length
+      ? entries.map((entry) => `${entry.logged_at || ""}  ${entry.level || ""}  `
+          + `${entry.message || ""}`).join("\n")
+      : "This job wrote no log.";
+  } catch (error) {
+    into.textContent = `The log could not be read: ${error.message}`;
+  }
+}
+
+/**
+ * Pause, resume or cancel -- from the row of the job it belongs to.
+ *
+ * THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER ADOPTED,
+ * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
+ * not the job the panel was drawing.
+ */
+async function pressJobControl(jobRef, control, button) {
+  const was = button.textContent;
+  button.disabled = true;
+  button.textContent = "\u2026";
+  try {
+    await post(`/api/jobs/${encodeURIComponent(jobRef)}/control`, {control});
+  } catch (error) {
+    // 409 IS AN ANSWER AND NOT A CRASH: the job settled between the draw and the press,
+    // which a long list of jobs makes likely rather than rare.
+    sayOn("jobs-blocked", `${control} was refused: ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = was;
+  }
+  await loadJobs();
+}
+
 async function loadDatabase() {
   const upgrade = $("runtime-upgrade");
   try {

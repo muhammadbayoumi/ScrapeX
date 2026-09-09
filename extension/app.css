@@ -3903,3 +3903,74 @@
     .checking-bar { border: 1px solid CanvasText; }
     .checking-bar-thumb { background: CanvasText; }
   }
+
+/* THE JOBS PAGE — his request of 2026-09-07. Tokens only: the panel renders in
+   whichever theme and palette he has chosen, and a literal colour here would be the
+   one thing on the page that ignores it. */
+.jobs-head { align-items: baseline; justify-content: space-between; gap: 8px; }
+
+.jobs-list { display: flex; flex-direction: column; gap: 6px; }
+
+.job-row { padding: 8px 10px; }
+
+/* A COLUMN, because the waiting line sits inside the summary and must be readable
+   without opening the row. */
+.job-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.job-head { display: flex; align-items: center; gap: 8px; }
+
+/* WRAPS RATHER THAN TRUNCATES. This sentence is the answer to "why is nothing
+   happening", and half of it is not an answer. */
+.job-waiting { white-space: normal; }
+
+/* THE NAME TAKES THE ROOM AND TRUNCATES, so a long source key cannot push the status
+   badge off a 360px panel. */
+.job-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ONE DOT FOR "THIS IS THE ONE MOVING", which is the question the whole page exists to
+   answer. `--ok` rather than the accent: it is a state, not a control. */
+.job-live {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.job-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-subtle);
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.job-bar > span { display: block; height: 100%; background: var(--accent); }
+
+.job-actions { gap: 6px; margin-top: 6px; }
+
+/* THE LOG IS TEXT AND SCROLLS INSIDE ITS OWN BOX. Every line came off somebody else's
+   website, and a long one must not make the panel scroll sideways. */
+.job-log {
+  margin: 6px 0 0;
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs, 11px);
+  color: var(--muted);
+}
+
+.job-log:empty { display: none; }
