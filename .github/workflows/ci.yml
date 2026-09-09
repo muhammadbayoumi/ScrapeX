@@ -272,40 +272,6 @@ jobs:
           test "$(collected tests/test_grid_dom.py)" -ge 24
           test "$(collected tests/test_tab_page_dom.py)" -ge 10
 
-      - name: The pre-squash suite must RUN, not skip
-        # THE COLLECT-ONLY FLOORS ABOVE CANNOT SEE THIS ONE, which is why it is a
-        # step of its own. A browser suite disappears at COLLECTION; this file
-        # always collects six and loses five at RUN TIME, because
-        # `pre_squash_chain` returns None and every test that needs a real
-        # pre-squash database skips. `addopts` carries `-q`, so the file then
-        # reports green.
-        #
-        # That was its whole life before #678. The five were added by #318 — the
-        # same commit that deleted db/engine/migrations/ — and their fixture asked
-        # `origin/main` for that directory, so they never ran once (#644). The
-        # subject is the owner's own warehouse, which predates the squash: whether
-        # it still opens, upgrades, and refuses what it should is the one question
-        # this file exists to answer, and a skip answers it with silence.
-        #
-        # SKIPS ARE COUNTED, NOT COLLECTIONS, and the count is a number rather
-        # than "at least one" for the same reason the panel's floor is: five of
-        # six going quiet is exactly the shape that already happened. Measured on
-        # c30b098: 6 tests, 0 skipped, 1.3s — cheap enough to run on every scope,
-        # like the floors above, instead of only on `full`.
-        run: |
-          python -m pytest tests/test_a_squashed_baseline_opens_what_it_should_and_refuses_the_rest.py \
-            --junitxml=/tmp/pre-squash.xml
-          python - <<'PY'
-          import xml.etree.ElementTree as ET
-          suite = ET.parse("/tmp/pre-squash.xml").getroot().find("testsuite")
-          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
-          print(f"pre-squash suite: {ran} tests, {skipped} skipped")
-          assert skipped == 0, (
-              "the pre-squash chain went unreachable and the suite skipped; these "
-              "tests are the only proof his warehouse still opens")
-          assert ran >= 6, f"the pre-squash suite ran {ran} tests, and there were six"
-          PY
-
       - name: The extension gate must not have emptied
         # The same reasoning as the line above, for the set the split depends
         # on. 325 of 2020 tests carried the mark when the split was made and
@@ -389,6 +355,49 @@ jobs:
         # required check still decides. What changes is that a failure unrelated
         # to migrations surfaces in six minutes instead of thirteen.
         run: python -m pytest -q
+
+      - name: The pre-squash suite must RUN, not skip
+        # THE COLLECT-ONLY FLOORS ABOVE CANNOT SEE THIS ONE. A browser suite
+        # disappears at COLLECTION; this file always collects six and loses five
+        # at RUN TIME, because `pre_squash_chain` returns None and every test that
+        # needs a real pre-squash database skips. `addopts` carries `-q`, so the
+        # file then reports green. Measured: 6 tests, 0 skipped, ~1.5s in CI.
+        #
+        # The subject is the owner's own warehouse, which predates the squash:
+        # whether it still opens, upgrades, and refuses what it should is the one
+        # question these six exist to answer. #318 added them and deleted
+        # db/engine/migrations/ in the same commit, and their fixture asked
+        # `origin/main` for that directory, so for the next 25 commits five of the
+        # six skipped and the file reported green (#644). #678 replaced the moving
+        # ref with a derivation. This step is what would have said so at the time.
+        #
+        # LAST, NOT BESIDE THE FLOORS IT RESEMBLES, and that is the whole reason
+        # it sits here. Those floors are `--collect-only`: they can fail for a
+        # missing suite and nothing else. This one EXECUTES six tests against
+        # EngineDatabase, so it can go red for a product reason — and above the
+        # suite it would abort the job and take ~11.8 minutes of unrelated answers
+        # with it, the failure `lint` was made its own job to avoid. Below the
+        # suite, a product defect reddens the suite with every other answer
+        # already reported, and this step is left saying only what nothing else
+        # can: that the six ran. On `docs` and `extension` the suite step is
+        # skipped, so the guard still lands in about forty seconds.
+        #
+        # SKIPS ARE COUNTED, NOT COLLECTIONS, and the floor is a number rather
+        # than "at least one" for the same reason the panel's is: five of six
+        # going quiet is exactly the shape that already happened.
+        run: |
+          python -m pytest tests/test_a_squashed_baseline_opens_what_it_should_and_refuses_the_rest.py \
+            --junitxml=/tmp/pre-squash.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("/tmp/pre-squash.xml").getroot().find("testsuite")
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"pre-squash suite: {ran} tests, {skipped} skipped")
+          assert skipped == 0, (
+              "the pre-squash chain went unreachable and the suite skipped; these "
+              "tests are the only proof his warehouse still opens")
+          assert ran >= 6, f"the pre-squash suite ran {ran} tests, and there were six"
+          PY
 
   migration-authority:
     # THE GUARANTEE THAT USED TO BE AN ENVIRONMENT VARIABLE ON ANOTHER JOB'S
