@@ -5,12 +5,13 @@ import hashlib
 import json
 import logging
 import sqlite3
+from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
-from .. import catalog, runs
+from .. import catalog, runs, taxonomy
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
 from ..fields import arranged, list_fields
 from ..sightings import STATE_MEANING, row_state
@@ -926,7 +927,9 @@ def dataset_schema_fields(
 
 def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
                           *, cap: int | None = None,
-                          site_key: str | None = None) -> dict[str, Any] | None:
+                          site_key: str | None = None,
+                          nodes: Iterable[int] = (),
+                          nodes_mode: str = "any") -> dict[str, Any] | None:
     """One generic dataset in the shape the grid already renders.
 
     THE PAGE NEEDS NO CHANGE, AND THAT IS THE WHOLE DESIGN. `grid.js` never asks
@@ -997,9 +1000,43 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     # contractor the site stopped publishing would simply VANISH from his screen the
     # moment anything marked the row, and the disappearance he wants to see would be
     # the one thing he could not.
-    total = conn.execute(
+    # THE TAXONOMY FILTER, NARROWED IN SQL RATHER THAN IN THE PAGE -- issue 543. The
+    # grid filters what it holds, and it cannot hold this: 407,384 memberships against
+    # 17,811 rows would be several times the payload the table itself is. So the
+    # selection arrives as node ids and the WHERE does the work.
+    #
+    # DESCENDED, NOT MATCHED. `taxonomy.subtree_ids` says why: whether a chosen
+    # parent's children carry their ancestors differs BY GROUP on his warehouse, so
+    # equality would answer zero for a parent in one group and everything in the other.
+    #
+    # `population` IS THE UNFILTERED COUNT AND `total` IS WHAT THE FILTER LEFT. With no
+    # selection the two are equal and every existing reader of `total` is untouched.
+    where, params = "", []
+    chosen = tuple({int(one) for one in nodes})
+    if chosen:
+        subtrees = [sorted(taxonomy.subtree_ids(conn, (one,))) for one in chosen]
+        clauses = []
+        for ids in subtrees:
+            marks = ",".join("?" * len(ids)) or "NULL"
+            clauses.append(
+                "EXISTS (SELECT 1 FROM generic_record_node AS gn "
+                f" WHERE gn.generic_record_id = r.generic_record_id "
+                f"   AND gn.node_id IN ({marks}))")
+            params.extend(ids)
+        # ANY OR ALL, AND THE CONTROL SAYS WHICH -- his ruling, 2026-09-08. One EXISTS
+        # per chosen node rather than a count over the union: under a stored-path
+        # convention a single contractor holds a leaf AND its ancestors, so a
+        # `COUNT(DISTINCT node_id) = n` test would be satisfied by one deep membership
+        # and "all of these" would quietly mean "any of these".
+        joiner = " OR " if str(nodes_mode).lower() != "all" else " AND "
+        where = " AND (" + joiner.join(clauses) + ") "
+    population = conn.execute(
         "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ?",
         (dataset_id,)).fetchone()[0]
+    total = population if not chosen else conn.execute(
+        "SELECT count(*) FROM generic_record AS r "
+        " WHERE r.dataset_definition_id = ? " + where,
+        (dataset_id, *params)).fetchone()[0]
     # WHICH RUN LAST WROTE INTO THIS DATASET — one question, not a per-row one.
     # Derived, never stored: written into the row it would be stale the moment the next
     # crawl ran (`R-27`).
@@ -1110,9 +1147,9 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         # the crawl saw, and dropping it here would be the vanishing that ruling forbids.
         "  LEFT JOIN generic_page_snapshot AS s "
         "    ON s.page_snapshot_id = r.source_snapshot_id "
-        " WHERE r.dataset_definition_id = ? "
+        " WHERE r.dataset_definition_id = ? " + where +
         " ORDER BY r.generic_record_id LIMIT ?",
-        (dataset_id, -1 if cap is None else int(cap)))
+        (dataset_id, *params, -1 if cap is None else int(cap)))
 
     rows = []
     for row in stored:
@@ -1194,6 +1231,12 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         # A PREFIX PRESENTED AS THE WHOLE is the failure the bound exists to
         # prevent, and the grid already draws a notice from this flag.
         "truncated": total > len(rows),
+        # WHAT THE FILTER LEFT, AND WHAT IT STARTED FROM. The panel prints both, so a
+        # selection that leaves 12 of 17,811 says so instead of reading as a dataset
+        # that lost seventeen thousand rows.
+        "population": population,
+        "filtered_by": {"nodes": sorted(chosen),
+                        "mode": "all" if str(nodes_mode).lower() == "all" else "any"},
         # NEITHER IS TRUE OF A DIRECTORY, and both are answered rather than
         # omitted: `grid.js` reads them unconditionally, and an absent key would
         # be a crash where a false is a switch the page simply does not offer.

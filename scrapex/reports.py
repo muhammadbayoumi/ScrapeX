@@ -2252,6 +2252,15 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # prevent; the page states it rather than looking complete. Measured
         # against what the QUERY returned, never against the folded count.
         "truncated": total > fetched,
+        # THE SAME TWO KEYS THE DATASET PRODUCER EMITS, AND CONSTANT HERE. A price
+        # source has no memberships to filter by -- `generic_record_node` is a
+        # generic-dataset table -- so the population IS the total and nothing is
+        # chosen. Emitted rather than omitted because ONE page reads both producers:
+        # `test_the_two_producers_agree_on_the_whole_shape` exists for exactly this,
+        # and it caught the omission the hour the filter landed. A key present on one
+        # path only is a page that reads `undefined` for half the sources it draws.
+        "population": total,
+        "filtered_by": {"nodes": [], "mode": "any"},
         "tree": _tree_shape(shaped),
         # The pairs actually on offer for THIS source: the grid's AR|EN
         # toggle flips exactly these, so it never hardcodes a field list.

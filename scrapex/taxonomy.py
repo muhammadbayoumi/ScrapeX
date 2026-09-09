@@ -248,3 +248,131 @@ def memberships(conn: sqlite3.Connection, generic_record_id: int, *,
                    attribute_value=said[(group, leaf)][1],
                    attribute_value_ar=said[(group, leaf)][2])
         for (group, leaf), (names, names_ar) in sorted(built.items()))
+
+
+#: The node the site publishes where a contractor declared nothing. It is a LEVEL-1
+#: node of the `interests` scheme with 9,001 contractors under it on his warehouse --
+#: larger than `Construction of buildings` at 7,634 -- and it is not a category. His
+#: ruling, 2026-09-08: **a state said in a line, not a category in the tree.**
+#:
+#: MATCHED ON THE ARABIC, because that is the identity the schema chose:
+#: `node_name_ar` is `NOT NULL` and carries the unique index while `node_name` is
+#: nullable, so the English `No Data` is the softer of the two names to key on.
+#:
+#: NOT DELETED, AND THAT IS THE OTHER HALF OF HIS RULING. 9,001 contractors having
+#: declared nothing is a fact about them; dropping the rows would make it
+#: indistinguishable from 9,001 contractors nobody has fetched.
+UNDECLARED_NODE_NAMES_AR: tuple[str, ...] = ("لا يوجد بيانات",)
+
+
+def held_counts(conn: sqlite3.Connection, group_key: str) -> dict[int, int]:
+    """Per node: how many records hold it OR anything under it.
+
+    ONE DEFINITION THAT IS CORRECT UNDER BOTH STORAGE CONVENTIONS, which is what makes
+    issue 800 safe to defer. Measured on his warehouse: `interests` stores the whole
+    path (367,015 of 367,015 child memberships carry their ancestor) and
+    `licensed_activities` stores leaves only (0 of 8,451). A count of the stored rows
+    per node is therefore the right answer for the first group and reports **zero** for
+    every parent in the second -- an empty category rather than a wrong query, which is
+    the worst way for this to be wrong.
+
+    Counting the SUBTREE gives one quantity in both, and it is the quantity the filter
+    acts on: pick a node, get everyone under it.
+
+    `COUNT(DISTINCT)` IS LOAD-BEARING, NOT DEFENSIVE. Under a stored-path convention a
+    contractor holding a leaf holds its ancestors too, so a plain `COUNT(*)` up the
+    subtree counts the same contractor once per level of the path -- 22.9 memberships
+    per contractor on average, and a root would report several times its own population.
+
+    ONE QUERY AND NOT ONE PER NODE. The recursive term walks the tree, which is 214
+    nodes for `interests`, and the membership table is scanned once against it -- 214
+    subtree counts in place of 214 round trips.
+    """
+    rows = conn.execute(
+        "WITH RECURSIVE sub(root, node) AS ("
+        "  SELECT node_id, node_id FROM classification_node "
+        "  UNION ALL "
+        "  SELECT sub.root, child.node_id FROM sub "
+        "    JOIN classification_node AS child ON child.parent_node_id = sub.node "
+        ") "
+        "SELECT sub.root, COUNT(DISTINCT m.generic_record_id) "
+        "  FROM sub JOIN generic_record_node AS m ON m.node_id = sub.node "
+        " WHERE m.group_key = ? "
+        " GROUP BY sub.root",
+        (group_key,))
+    return {int(root): int(held) for root, held in rows}
+
+
+def subtree_ids(conn: sqlite3.Connection, node_ids) -> frozenset[int]:
+    """These nodes and everything under them.
+
+    THE FILTER'S OWN CORRECTNESS, for the reason `held_counts` gives: a chosen parent
+    must reach the contractors who hold only its children, and whether those children's
+    ancestors happen to be stored differs by group. Descending makes the question the
+    same in both.
+
+    Returns an empty set for an empty ask, so a caller can pass a selection straight
+    through without deciding what "nothing chosen" means to SQL.
+    """
+    wanted = tuple({int(one) for one in node_ids})
+    if not wanted:
+        return frozenset()
+    marks = ",".join("?" * len(wanted))
+    rows = conn.execute(
+        f"WITH RECURSIVE down(node) AS ("
+        f"  SELECT node_id FROM classification_node WHERE node_id IN ({marks}) "
+        f"  UNION "
+        f"  SELECT child.node_id FROM down "
+        f"    JOIN classification_node AS child ON child.parent_node_id = down.node "
+        f") SELECT node FROM down", wanted)
+    return frozenset(int(row[0]) for row in rows)
+
+
+def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
+    """One group's vocabulary, with what holds it, ready for a filter control.
+
+    THE UNDECLARED NODE IS SEPARATED RATHER THAN DROPPED. His ruling: it is a state,
+    said in a line above the tree, so it leaves `nodes` and arrives as `undeclared`
+    with its own count. A filter whose largest category is `No Data` is a filter
+    answering a question nobody asked.
+
+    THE SCHEME IS NAMED IN BOTH LOCALES because the panel draws whichever the reader
+    has chosen, and `classification_scheme` carries both.
+    """
+    counts = held_counts(conn, group_key)
+    scheme = conn.execute(
+        "SELECT s.scheme_id, s.scheme_name, s.scheme_name_ar "
+        "  FROM classification_scheme AS s "
+        " WHERE s.scheme_id = ("
+        "   SELECT n.scheme_id FROM generic_record_node AS m "
+        "     JOIN classification_node AS n ON n.node_id = m.node_id "
+        "    WHERE m.group_key = ? LIMIT 1)",
+        (group_key,)).fetchone()
+    if scheme is None:
+        # NOTHING STORED FOR THIS GROUP, WHICH IS NOT AN ERROR. A directory declares
+        # five groups and two are wired; asking for one of the other three has to
+        # answer emptily rather than raise, or the route would 500 on a shape the
+        # source itself describes.
+        return {"group_key": group_key, "scheme": None, "nodes": [],
+                "undeclared": None}
+    nodes, undeclared = [], None
+    for row in conn.execute(
+            "SELECT node_id, parent_node_id, level, node_name, node_name_ar "
+            "  FROM classification_node WHERE scheme_id = ? "
+            " ORDER BY level, node_name_ar", (scheme["scheme_id"],)):
+        entry = {"node_id": int(row["node_id"]),
+                 "parent_node_id": (None if row["parent_node_id"] is None
+                                    else int(row["parent_node_id"])),
+                 "level": int(row["level"] or 0),
+                 "name": row["node_name"],
+                 "name_ar": row["node_name_ar"],
+                 "held": int(counts.get(int(row["node_id"]), 0))}
+        if row["node_name_ar"] in UNDECLARED_NODE_NAMES_AR:
+            undeclared = entry
+        else:
+            nodes.append(entry)
+    return {"group_key": group_key,
+            "scheme": {"scheme_id": int(scheme["scheme_id"]),
+                       "name": scheme["scheme_name"],
+                       "name_ar": scheme["scheme_name_ar"]},
+            "nodes": nodes, "undeclared": undeclared}

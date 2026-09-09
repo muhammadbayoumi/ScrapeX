@@ -46,6 +46,29 @@
 <p id="data-truncated" class="hint err hidden" role="status"></p>
 <p id="data-blocked" class="hint err hidden" role="status" aria-live="polite"></p>
 
+<!-- THE ACTIVITY FILTER. Issue 543: 398,933 memberships over 17,811 contractors,
+     stored since August and readable from nowhere. HIDDEN UNTIL THE ENGINE SAYS THIS
+     DATASET HAS A VOCABULARY -- a control that cannot work is worse than no control,
+     and a price source has none of this. -->
+<section id="data-activities" class="data-activities hidden">
+  <div class="row data-activities-head">
+    <button id="data-activities-toggle" class="button ghost" type="button"
+            aria-expanded="false" aria-controls="data-activities-tree">Activities</button>
+    <label class="data-activities-mode" for="data-activities-mode">
+      <select id="data-activities-mode">
+        <option value="any" selected>Any of the chosen</option>
+        <option value="all">All of the chosen</option>
+      </select>
+      <span class="hint" id="data-activities-mode-label"></span>
+    </label>
+    <button id="data-activities-clear" class="button ghost" type="button" hidden>Clear</button>
+  </div>
+  <!-- A STATE, NOT A CATEGORY -- his ruling. 9,001 contractors carry the site&rsquo;s
+       own "No Data" node, which is larger than its largest real category. -->
+  <p class="hint" id="data-undeclared"></p>
+  <div id="data-activities-tree" class="data-activities-tree hidden"></div>
+</section>
+
 <div id="data-grid" class="data-grid"></div>
 
 <!-- appearance.js FIRST, and as a classic script. It is what puts `data-theme`

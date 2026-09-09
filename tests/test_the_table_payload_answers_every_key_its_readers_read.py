@@ -74,6 +74,11 @@ READERS = (
     "scrapex/webui/static/grid.js",
     "extension/datatable.js",
     "extension/data.js",
+    # THE FOURTH READER, and the file above predicted it: "moving a source page into
+    # the extension adds readers rather than replacing one". It reads `population` and
+    # `filtered_by` for issue 543's activity filter, and leaving it off this list would
+    # have reported both keys as emitted-but-dead.
+    "extension/taxonomyfilter.js",
 )
 
 #: Both producers, and the function in each that builds the payload.
