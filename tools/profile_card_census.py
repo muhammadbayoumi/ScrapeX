@@ -271,7 +271,14 @@ def _report(out: Census) -> str:
         mark = "declared" if label in declared else "NOT DECLARED"
         lines.append(f"   {label[:40]:<40} {valued:>6,}/{seen:<6,} "
                      f"{100 * valued / max(profiles, 1):>5.1f}%  {mark}")
-    lines += ["", "== cards: pages / of those carrying data =="]
+    # "A TABLE OR A LIST" AND NOT "DATA", because that is what `_carries_data` asks --
+    # it tests for the ELEMENT, not for rows in it. Measured on 400 sampled pages: the
+    # licences card is published on every one and its table is EMPTY on 373 of them
+    # (93.5%), so a column headed "with data" would report 100% where the truth is
+    # 6.5%. The parser's filter is right for what it guards -- an undeclared card with
+    # an empty table still gets reported, which is the safe direction -- and wrong as a
+    # heading here.
+    lines += ["", "== cards: pages / of those with a table or list =="]
     known = declared_card_titles()
     for title, (pages, carrying, _) in sorted(
             out.cards.items(), key=lambda one: -one[1][0]):
@@ -279,7 +286,7 @@ def _report(out: Census) -> str:
             continue                      # the contractor's own name card
         mark = "declared" if title in known else "NOT DECLARED"
         lines.append(f"   {title[:44]:<44} {pages:>6,} pages, {carrying:>6,} "
-                     f"with data  {mark}")
+                     f"with a table or list  {mark}")
     lines += ["", "== the page against the row: page has it / row has it / OUR GAP =="]
     for name, (page_has, row_has, gap) in out.against_rows.items():
         lines.append(f"   {name[:40]:<40} page {page_has:>5,}  row {row_has:>5,}  "
