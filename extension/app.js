@@ -6949,7 +6949,9 @@ function drawJobRow(row) {
   }
 
   const log = document.createElement("pre");
-  log.className = "job-log";
+  // `text-xs` IS A CLASS THIS PANEL HAS. It was a `var(--text-xs, 11px)` read, and a
+  // token nothing declares is a declaration the browser drops in silence.
+  log.className = "job-log text-xs";
   box.append(log);
   box.addEventListener("toggle", () => {
     if (box.open && !log.textContent) openJobLog(row.job_ref, log);

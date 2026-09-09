@@ -33,11 +33,13 @@
     <div id="version-notice" class="card warn hidden" role="status" aria-live="polite"></div>
 
     <!-- ============================ RUN ============================ -->
-    <!-- THE JOBS PAGE. His request of 2026-09-07: «اريد اضافة jobs بحيث اقدر اتابع
-         مثل ما قلت مهمة كذا انتهت او مهمة كذات توقفت لانى لا ارى ذلك من خلال
-         extension». Measured that day: 163 jobs in his warehouse and the panel could
-         draw ONE of them, because its only query carried `active_only=true` and then
-         took `jobs[0]`.
+    <!-- THE JOBS PAGE, asked for on 2026-09-07: he wanted to follow that one job
+         finished and another stopped, because he could not see either through the
+         extension. His own words are quoted in issue 793 and in the PR; this file stays
+         English, which `test_the_interface_stays_english` enforces and caught.
+         Measured that day: 163 jobs in his warehouse and the panel could draw ONE of
+         them, because its only query carried `active_only=true` and then took
+         `jobs[0]`.
 
          NOT A SECOND ACTIVITY LOG. Console exists and Run draws one job's log; this
          is a list that OPENS one. The log itself is rendered by the Run screen's own
