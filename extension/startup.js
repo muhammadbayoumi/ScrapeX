@@ -21,6 +21,27 @@ export const STARTUP_DEADLINES = Object.freeze({
   // roughly 40 GB before it needs revisiting. It sits far above `localMutation` because
   // this is not a poll: he pressed a control and is watching it.
   integrityScan: 120000,
+  // DERIVED FROM A MEASUREMENT, like `bundleBuild` and `integrityScan`, because a
+  // restore is O(FILE SIZE) four times over and a chosen number expires as the
+  // warehouse grows.
+  //
+  // `storage.restore` DOES NOT RENAME. It health-checks the backup, copies it
+  // beside the live warehouse, health-checks the copy, and compares both files
+  // byte for byte -- and only then switches. MEASURED on the owner's machine
+  // 2026-09-09: `health()` alone is 30,784 ms on a 2,148,061,184-byte file and it
+  // runs TWICE; the copy and the comparison move 6.45 GB, which at the 126 MB/s
+  // measured on this disk the same day is another 51 s. About 52 s a gigabyte, so
+  // roughly 113 s for his warehouse as it stands.
+  //
+  // 600000 covers a warehouse near 11 GB, AND THAT IS ALSO ITS EXPIRY DATE.
+  //
+  // A SHORTER BOUND WOULD NOT PROTECT HIM, IT WOULD LIE TO HIM. Aborting a fetch
+  // cancels nothing on the far side: the engine holds the write lock and completes
+  // the switch regardless, so a deadline that expires first reports failure over a
+  // restore that SUCCEEDED -- about the one action that replaces his warehouse.
+  // Under the generic 5,000 ms this route inherited, that is not an edge case; it
+  // is every restore of a database above about 100 MB.
+  restoreCopy: 600000,
   localGeneric: 5000,
   // 8000, DERIVED: the engine's own manifest fetch is bounded at 4 s
   // (`CHECK_TIMEOUT_S`, scrapex/release.py) and httpx applies that PER PHASE, so
@@ -73,6 +94,11 @@ const LOCAL_POLICIES = [
   // ends `(?:[/?]|$)`, so `/api/storage/integrity` matches it and would inherit the
   // 5,000 ms bound this whole change exists to get out from under.
   [/^\/api\/storage\/integrity(?:[/?]|$)/, STARTUP_DEADLINES.integrityScan],
+  // ABOVE THE `storage` RULE FOR THE SAME REASON AS THE ROW ABOVE, and it is the
+  // same trap: that pattern ends `(?:[/?]|$)`, so `/api/storage/restore` matches it
+  // and inherited `destinationData`'s 5,000 ms -- a bound derived from fetching a
+  // page of rows, applied to copying and verifying a whole warehouse twice.
+  [/^\/api\/storage\/restore(?:[/?]|$)/, STARTUP_DEADLINES.restoreCopy],
   // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
   // `GET /api/update` costs one third-party fetch of the release manifest, which
   // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and

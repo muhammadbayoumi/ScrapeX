@@ -7730,3 +7730,165 @@ def test_the_row_takes_the_version_the_engine_runs_not_the_one_remembered(open_p
         "the button offers an update to the version the engine says it is "
         "already running")
 
+
+# The two copies the harness serves, and their paths verbatim. A restore sends the
+# path BACK to the engine, and `storage.restore` refuses any path it did not itself
+# list -- so a test that accepted a path the panel composed would pass against code
+# the engine rejects.
+HARNESS_NEWEST_SNAPSHOT = r"C:\Users\Owner\.scrapex\harvest.pre-upgrade-20260903T092839Z.backup.db"
+HARNESS_OLDER_SNAPSHOT = r"C:\Users\Owner\.scrapex\harvest.manual-20260830T045246Z.backup.db"
+
+
+def _open_database(open_panel, **stub):
+    page = open_panel(view="database", **stub)
+    settle_view(page, "database")
+    return page
+
+
+def test_the_database_page_lists_every_copy_and_not_only_the_newest(open_panel):
+    """The card counted the copies and named one of them.
+
+    `GET /api/storage` has carried the whole list -- path, tag, size and the moment
+    each was taken -- and this page read `backups[0]` for a sentence and dropped the
+    rest. So the owner could see that four copies existed, learn the date of one,
+    and reach none of them.
+
+    THE COUNT OF ROWS IS THE ASSERTION, not the presence of a row. A renderer that
+    kept the old behaviour and drew the newest one prettily would satisfy every
+    check that only looked for a label.
+    """
+    page = _open_database(open_panel)
+
+    rows = page.locator("#db-snapshots .manage-account-row")
+    assert rows.count() == 2, (
+        "the page does not offer every copy the engine listed: "
+        f"{rows.count()} row(s) for 2 backups")
+
+    text = page.inner_text("#db-snapshots")
+    # THE EVENT, NOT THE FILENAME. A restore is a choice between moments, and
+    # `pre-upgrade` and `manual` are different events -- one the engine took before
+    # it migrated, one somebody asked for.
+    assert "Before an upgrade" in text, text
+    assert "Taken by hand" in text, text
+
+    # AND EVERY ROW IS PRESSABLE, because a list of copies that cannot be chosen is
+    # the same nothing the sentence was.
+    buttons = page.locator("#db-snapshots button.manage-account-row-button")
+    assert buttons.count() == 2, (
+        f"{buttons.count()} of 2 copies can be acted on")
+
+
+def test_the_restore_question_names_which_copy_it_would_put_back(open_panel):
+    """This replaces a live warehouse, so "Are you sure?" is unanswerable.
+
+    The moment, the event and the size all have to be in the question -- and so does
+    the thing people get wrong about a restore: it is not a merge. Everything
+    collected since that copy was taken is not in it.
+
+    THE TWO COPIES MUST PRODUCE DIFFERENT QUESTIONS. A dialog built from a template
+    that forgot to read its argument would name a copy, read correctly, and be
+    wrong about which one -- which is the failure that matters here, and the one a
+    single-snapshot test cannot see.
+    """
+    page = _open_database(open_panel)
+    rows = page.locator("#db-snapshots button.manage-account-row-button")
+
+    rows.nth(0).click()
+    page.wait_for_selector("#restore-veil:not(.hidden)")
+    first = page.inner_text("#restore-dialog-copy")
+
+    assert "Before an upgrade" in first, first
+    assert "4.0 MB" in first, first
+    assert "moved aside" in first and "not deleted" in first, (
+        "the question does not say the current database survives: " + first)
+    assert "is not in it" in first, (
+        "the question does not say a restore is not a merge: " + first)
+
+    # Escape answers the innermost open thing, and the dialog is modal.
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#restore-veil", state="hidden")
+
+    rows.nth(1).click()
+    page.wait_for_selector("#restore-veil:not(.hidden)")
+    second = page.inner_text("#restore-dialog-copy")
+    assert "Taken by hand" in second, second
+    assert second != first, (
+        "both copies produced the same question, so it names no copy at all")
+
+
+def test_restoring_sends_back_the_path_the_engine_itself_offered(open_panel):
+    """`storage.restore` refuses any path it did not list, and rightly.
+
+    `backup_path` arrives from the network on a loopback port every page in the
+    browser can reach, so the engine checks the path against `list_backups` before
+    anything else. This asserts the panel sends back exactly what that same listing
+    gave it -- not a path it rebuilt from a name, which would be refused for a
+    reason no message could explain.
+    """
+    page = _open_database(open_panel)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(1).click()
+    page.wait_for_selector("#restore-veil:not(.hidden)")
+    page.click("#restore-confirm")
+    page.wait_for_selector("#restore-veil", state="hidden", timeout=10_000)
+
+    writes = page.evaluate("() => window.__writes || []")
+    restores = [w for w in writes
+                if w.get("path") == "/api/storage/restore"]
+    assert len(restores) == 1, (
+        f"the engine was asked to restore {len(restores)} times: {writes}")
+    assert restores[0]["method"] == "POST", restores[0]
+    assert restores[0]["body"] == {"backup_path": HARNESS_OLDER_SNAPSHOT}, (
+        "the panel sent a path the engine never offered: " + repr(restores[0]))
+
+    # AND THE PAGE IS RE-READ, not just the list: a restore changes the size, the
+    # schema version and the health verdict as well as which copies are on disk.
+    reads = [c for c in page.evaluate("() => window.__calls || []")
+             if c == "/api/storage"]
+    assert len(reads) >= 2, (
+        f"the page was read {len(reads)} time(s), so it still shows the old database")
+    assert "is live" in page.inner_text("#db-msg"), page.inner_text("#db-msg")
+
+
+def test_a_refused_restore_keeps_the_question_open_and_says_why(open_panel):
+    """The engine refuses a restore for reasons only it can know.
+
+    A failed health check on the copy, too little free space, a file that moved
+    between the listing and the press -- each is a different thing to do next. So
+    the dialog stays open carrying the engine's own words: closing it would leave
+    somebody who pressed a destructive button with no idea whether it happened.
+    """
+    page = _open_database(open_panel, fail_routes=("/api/storage/restore",))
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil:not(.hidden)")
+    page.click("#restore-confirm")
+    page.wait_for_function(
+        "() => /did not happen/.test("
+        "document.getElementById('restore-dialog-copy').innerText)",
+        timeout=10_000)
+
+    assert page.is_visible("#restore-veil"), (
+        "the dialog closed over a restore that did not happen")
+    said = page.inner_text("#restore-dialog-copy")
+    assert "the engine could not do that" in said, (
+        "the engine's own reason was replaced by a generic one: " + said)
+    assert "Nothing has been changed" in said, said
+
+    # AND THE BUTTON COMES BACK, or the reason it named cannot be acted on.
+    assert page.is_enabled("#restore-confirm")
+    assert page.is_enabled("#restore-cancel")
+
+
+def test_an_engine_that_cannot_be_read_offers_no_copy_to_restore(open_panel):
+    """A row from an earlier read is a button that looks live and cannot work.
+
+    `storage.restore` refuses a path it can no longer list, so a stale row leads to
+    a refusal about a file rather than the truth, which is that the engine stopped
+    answering. `A button that cannot work is worse than no button.`
+    """
+    page = _open_database(open_panel, fail_routes=("/api/storage",))
+
+    buttons = page.locator("#db-snapshots button.manage-account-row-button")
+    assert buttons.count() == 0, (
+        f"{buttons.count()} copies are still offered by an engine that did not answer")
+    assert "could not be read" in page.inner_text("#db-snapshots"), (
+        page.inner_text("#db-snapshots"))

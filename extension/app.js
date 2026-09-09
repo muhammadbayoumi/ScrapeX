@@ -6087,6 +6087,168 @@ async function checkIntegrityFromPanel() {
   }
 }
 
+// ---- the copy he can put back ---------------------------------------------
+//
+// `POST /api/storage/restore` has existed, guarded and tested, with NO CALLER
+// in this interface -- and `R-81` says a capability with no panel control has
+// no control. The Backups card counted the copies and named only the newest,
+// while `GET /api/storage` carried every one of them with its path. So the
+// panel already held everything a restore needs and offered none of it.
+//
+// A SNAPSHOT IS NOT A DRIVE BACKUP, and the two live on different screens for
+// that reason. A snapshot is on this disk: it is the fast way back after a
+// change goes wrong, and it dies with the disk. The Drive copy is what
+// survives losing the machine. Sharing one word for both was the confusion.
+let restoreReturnFocus = null;
+let pendingRestore = null;
+
+/**
+ * The EVENT a copy was taken for, because a restore is a choice between
+ * moments and the moments are not interchangeable: the engine took
+ * `pre-upgrade` before it migrated, `reset` before a source was wiped, and
+ * `manual` because somebody asked for it. `storage.backup_tag` is where these
+ * come from, and a tag it does not recognise is shown rather than hidden --
+ * inventing a friendly name for an unknown event would be the worse answer.
+ */
+function snapshotLabel(snapshot) {
+  const named = {
+    "pre-upgrade": "Before an upgrade",
+    reset: "Before a reset",
+    manual: "Taken by hand",
+  };
+  return named[snapshot.tag]
+    || (snapshot.tag ? `Tagged ${snapshot.tag}` : "Copy of the database");
+}
+
+/**
+ * Every copy on the disk, not just the newest.
+ *
+ * Fed from the `backups` this page has already fetched rather than a second
+ * request: two reads of one fact are how the count and the list come to
+ * disagree, which this card has done once already.
+ */
+function renderSnapshots(backups, { detail = '' } = {}) {
+  const card = $("db-snapshots");
+  if (!card) return;
+  card.textContent = "";
+
+  if (detail) {
+    card.append(manageRow("The copies on this machine could not be read",
+                          { sub: detail }));
+    return;
+  }
+  if (!backups.length) {
+    // The card STAYS EMPTY-BUT-PRESENT so the sentence explaining what a
+    // snapshot is has somewhere to live before there is one to restore.
+    card.append(manageRow("No copy of this database is on this machine yet.", {
+      sub: "The engine takes one before it upgrades or resets. A copy here is the fast way back after a change goes wrong -- it does not survive losing this disk, which is what a Drive backup is for.",
+    }));
+    return;
+  }
+
+  for (const snapshot of backups) {
+    card.append(manageRow(snapshotLabel(snapshot), {
+      // `financeDateTime` and `fmtMegabytes` despite their names: they are the
+      // panel's one instant and size formatters, so this screen cannot invent
+      // a second format for either.
+      sub: financeDateTime(snapshot.taken_at, "Time not recorded"),
+      figure: fmtMegabytes(snapshot.bytes || 0),
+      lead: "history",
+      onClick: () => openRestoreDialog(snapshot),
+    }));
+  }
+}
+
+function restoreDialogIsOpen() {
+  const veil = $("restore-veil");
+  return Boolean(veil) && !veil.classList.contains("hidden");
+}
+
+/** Keep Tab inside the dialog while it is open. */
+function trapRestoreFocus(event) {
+  if (event.key !== "Tab" || !restoreDialogIsOpen()) return;
+  const stops = $("restore-dialog").querySelectorAll("button:not(:disabled)");
+  if (!stops.length) return;
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+/**
+ * Ask, naming the copy.
+ *
+ * "Are you sure?" is a question nobody can answer about a control that
+ * replaces a live warehouse. The moment, the event and the size are all in the
+ * question, and so is the thing people get wrong about a restore: it is not a
+ * merge. Everything collected since that copy was taken is not in it.
+ */
+function openRestoreDialog(snapshot) {
+  const veil = $("restore-veil");
+  if (!veil) return;
+  pendingRestore = snapshot;
+  restoreReturnFocus = document.activeElement;
+  $("restore-dialog-copy").textContent =
+    `${snapshotLabel(snapshot)} — ${financeDateTime(snapshot.taken_at, "time not recorded")}, ${fmtMegabytes(snapshot.bytes || 0)}. `
+    + "The database in use now is moved aside under a name that says what it is, not deleted, and this copy takes its place. Anything collected since this copy was taken is not in it.";
+  veil.classList.remove("hidden");
+  $("restore-dialog").focus({ preventScroll: true });
+}
+
+function closeRestoreDialog({ restoreFocus = true } = {}) {
+  const veil = $("restore-veil");
+  if (!veil || veil.classList.contains("hidden")) return;
+  veil.classList.add("hidden");
+  pendingRestore = null;
+  if (restoreFocus && restoreReturnFocus && restoreReturnFocus.isConnected) {
+    restoreReturnFocus.focus({ preventScroll: true });
+  }
+  restoreReturnFocus = null;
+}
+
+async function restoreSnapshot() {
+  const snapshot = pendingRestore;
+  if (!snapshot) return;
+  const confirm = $("restore-confirm");
+  const cancel = $("restore-cancel");
+  confirm.disabled = true;
+  cancel.disabled = true;
+  confirm.textContent = "Restoring…";
+  try {
+    // THE PATH THE ENGINE OFFERED, never one this side composed. `restore`
+    // refuses any path outside what `list_backups` returned, and this sends
+    // back exactly what that same listing gave -- so the offer and the rule
+    // cannot drift apart.
+    //
+    // Bounded by `restoreCopy` rather than the generic 5,000 ms: the engine
+    // health-checks the copy, copies it, health-checks it again and compares
+    // both files before switching -- measured at about 113 s on his warehouse.
+    await post("/api/storage/restore", { backup_path: snapshot.path });
+    closeRestoreDialog({ restoreFocus: false });
+    // The page, not just the list: a restore changes the size, the schema
+    // version and the health verdict as well as which copies are on disk.
+    await loadDatabase();
+    out("db-msg", esc(
+      `${snapshotLabel(snapshot)} is live. The database that was in use has been moved aside, not deleted.`), "ok");
+  } catch (error) {
+    // THE DIALOG STAYS OPEN, showing what went wrong. Closing it would leave
+    // somebody who pressed a destructive button with no idea whether it
+    // happened -- and the engine's own refusals are the useful half here: a
+    // failed health check, too little free space, a file that moved.
+    $("restore-dialog-copy").textContent =
+      `The restore did not happen: ${(error && error.message) || "the engine did not answer"}. `
+      + "Nothing has been changed.";
+  } finally {
+    confirm.disabled = false;
+    cancel.disabled = false;
+    confirm.textContent = "Restore this copy";
+  }
+}
 async function loadDatabase() {
   const upgrade = $("runtime-upgrade");
   try {
@@ -6147,6 +6309,9 @@ async function loadDatabase() {
         + `${fmtMegabytes(sizes.backup_bytes || 0)} across ${count} in `
         + `${s.backup_folder || "the database folder"}.`
       : "No backup of this database is in the backup folder.";
+    // EVERY COPY, from the list this function already has. The row above
+    // names the newest; these are the ones a restore can choose between.
+    renderSnapshots(s.backups || []);
     out("db-msg", "", "ok");
   } catch (error) {
     // THE CONTROL STAYS USABLE, AND THIS IS THE HALF A GUARD ARGUED FOR RATHER THAN
@@ -6175,6 +6340,10 @@ async function loadDatabase() {
     $("db-schema-detail").textContent =
       "The engine did not answer, so the version could not be read. Upgrade database "
       + "still works: it goes through the native host, which does not need the engine.";
+    // AND THE COPIES ARE CLEARED, not left standing. Rows from an earlier read
+    // still offer a restore, and `restore` refuses a path it can no longer list --
+    // so a stale row is a button that looks live and cannot work.
+    renderSnapshots([], { detail: (error && error.message) || "the engine did not answer" });
     out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
   }
 }
@@ -7092,6 +7261,11 @@ function wireStartupShell() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     // Innermost first. The dialog is modal, so nothing behind it may answer.
+    if (restoreDialogIsOpen()) {
+      event.stopPropagation();
+      closeRestoreDialog();
+      return;
+    }
     if (disconnectDialogIsOpen()) {
       event.stopPropagation();
       closeDisconnectDialog();
@@ -7126,6 +7300,16 @@ function wireStartupShell() {
   window.ScrapeXSplitButton?.wire($("drive-disconnect"), (action) => {
     if (action === "disconnect-drive") openDisconnectDialog();
   });
+  $("restore-cancel").addEventListener("click",
+                                      () => closeRestoreDialog());
+  $("restore-confirm").addEventListener("click", () => { restoreSnapshot(); });
+  // The veil, not the card: a click that lands on the question must not
+  // dismiss the question.
+  $("restore-veil").addEventListener("click", (event) => {
+    if (event.target === $("restore-veil")) closeRestoreDialog();
+  });
+  document.addEventListener("keydown", trapRestoreFocus);
+
   $("disconnect-cancel").addEventListener("click", () => closeDisconnectDialog());
   $("disconnect-confirm").addEventListener("click", () => { disconnectDrive(); });
   // The veil itself, not the card: a click that lands on the card must not
