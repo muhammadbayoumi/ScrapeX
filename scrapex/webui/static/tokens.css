@@ -118,7 +118,7 @@
      where they are. He was given 1.47:1 before he ruled and ruled anyway; it is
      recorded at the value rather than argued, and this comment is what a future
      session needs to find before it "fixes" the ring back. */
-  --focus: #98e3c0;
+  --focus: #98e3c0;           /* --ring light          derived   */
   --selection: color-mix(in srgb, var(--accent) 20%, transparent);
   --diagram-source: var(--accent);
   --diagram-general: color-mix(in srgb, var(--accent) 64%, var(--muted));
@@ -366,8 +366,14 @@
   --surface-subtle: #1a1b1a;  /* --muted */
   --surface-raised: #1b1d1c;  /* --popover */
   --line: #232423;            /* --border */
-  /* Their --border-stronger is #393a39 = 1.53:1 on their own --card. This is
-     scale-900 dark, PUBLISHED, and 3.53:1. */
+  /* THEIRS, over --card -- and this comment named a token that does not exist.
+     It read "scale-900 dark, PUBLISHED"; there is no --scale-900 anywhere in their
+     themes. Their --border-stronger is
+     oklch(from --foreground l calc(c * 0.5) h / calc(5% + 45% * --contrast-border)),
+     an alpha overlay, so it has no single value: over --background it flattens to
+     #393a39 and over --card to #3e3f3e. This ships the --card composite, which is
+     the same choice the light block makes and records as the honest transcription;
+     the one-unit gap is compositing rounding. DERIVED, not published. */
   --line-strong: #3d3f3e;
   --text: #edefee;            /* --foreground */
   --muted: #bcbdbc;           /* --muted-foreground */
@@ -387,10 +393,10 @@
      symmetrical. Their --ring is --primary at 55% alpha; flattened over the dark
      --bg it is 3.555:1 and clears the 3:1 asked of it. The same ring over the
      light --bg is 1.466:1. It was #3ecf8e (brand-default) at 9.252:1. */
-  --focus: #2f7a57;           /* --ring dark           PUBLISHED */
+  --focus: #2f7a57;           /* --ring dark           derived   */
 
   --amber: #f2af48;           /* --warning dark        derived */
-  --amber-ink: #080503;       /* --warning-foreground  PUBLISHED */
+  --amber-ink: #080503;       /* --warning-foreground  derived   */
   --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
