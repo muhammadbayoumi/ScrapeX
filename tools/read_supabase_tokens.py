@@ -32,22 +32,37 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "supabase-design-tokens.json"
 NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
 
-# Their files, and which theme each one's literals belong to. `None` means the file
-# declares no per-theme literals -- it is read for its NAMES, so that a marker naming a
-# token they compute is still recognised as one of theirs.
+# EVERY CSS FILE OF THEIRS THAT DECLARES A CUSTOM PROPERTY, and which theme each one's
+# literals belong to. `None` means read it for its NAMES only, so a marker naming a token
+# they COMPUTE is still recognised as one of theirs.
+#
+# THE TWO CLASSIC-DARK THEMES ARE NAMES-ONLY DELIBERATELY. They declare 27 literals each
+# for the same tokens themes/dark.css declares -- a second and third dark. This product
+# ships ONE dark and it matches themes/dark.css, so admitting their values into the dark
+# scope would let a marker cite a value from a theme this product does not ship and pass.
 SOURCES = {
     "packages/ui/build/css/themes/light.css": "light",
     "packages/ui/build/css/themes/dark.css": "dark",
+    "packages/ui/build/css/themes/classic-dark.css": None,
+    "packages/ui/build/css/themes/faux-classic-dark.css": None,
     "packages/ui/build/css/source/global.css": "root",
     "packages/ui/build/css/source/semantic.css": None,
     "packages/ui/build/css/source/compat.css": None,
     "packages/config/css/animations.css": None,
+    "packages/config/css/base.css": None,
+    "packages/config/css/colors.css": "root",
     "packages/config/css/theme.css": None,
+    "packages/config/css/utilities.css": None,
+    "packages/config/css/variants.css": None,
 }
 
 DECLARATION = re.compile(r"^\s*(--[A-Za-z0-9-]+)\s*:\s*([^;]+);", re.M)
+# They write literals three ways and the first version of this tool saw only two of them.
+# `hsl(39, 70%, 99%)` is the dominant form -- 445 of their 607 literals, 397 in colors.css
+# and 48 in global.css, a file this tool already read and whose literals it still missed.
+HSL_FUNCTION = re.compile(r"hsla?\(\s*([\d.]+)(?:deg)?\s*[, ]\s*([\d.]+)%\s*[, ]\s*([\d.]+)%\s*(?:[,/].*)?\)")
 HSL_TRIPLE = re.compile(r"([\d.]+)deg\s+([\d.]+)%\s+([\d.]+)%")
-HEX = re.compile(r"#([0-9a-fA-F]{6})")
+HEX = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 
 def pinned_commit() -> str:
@@ -70,21 +85,35 @@ def fetch(path: str, ref: str) -> str:
     return result.stdout
 
 
+def _hsl(hue: str, sat: str, light: str) -> str:
+    red, green, blue = colorsys.hls_to_rgb(
+        float(hue) / 360, float(light) / 100, float(sat) / 100
+    )
+    return "#%02x%02x%02x" % (round(red * 255), round(green * 255), round(blue * 255))
+
+
 def as_hex(value: str) -> str | None:
     """A published literal as hex, or None if the value is an expression.
 
-    An HSL triple converted to hex is a change of NOTATION. Anything containing
-    `oklch(`, `var(`, `calc(` or `from ` is arithmetic, and its output belongs to
-    whoever evaluated it.
+    An HSL triple or an hsl() call converted to hex is a change of NOTATION, and the
+    number is still theirs. Anything containing `var(`, `calc(`, `from ` or a `--value()`
+    is arithmetic, and its output belongs to whoever evaluated it.
     """
+    if any(marker in value for marker in ("var(", "calc(", "from ", "--value(", "color-mix(")):
+        return None
+    call = HSL_FUNCTION.fullmatch(value)
+    if call:
+        return _hsl(*call.groups())
     triple = HSL_TRIPLE.fullmatch(value)
     if triple:
-        red, green, blue = colorsys.hls_to_rgb(
-            float(triple.group(1)) / 360, float(triple.group(3)) / 100, float(triple.group(2)) / 100
-        )
-        return "#%02x%02x%02x" % (round(red * 255), round(green * 255), round(blue * 255))
+        return _hsl(triple.group(1), triple.group(2), triple.group(3))
     solid = HEX.fullmatch(value)
-    return "#" + solid.group(1).lower() if solid else None
+    if not solid:
+        return None
+    digits = solid.group(1).lower()
+    if len(digits) == 3:
+        digits = "".join(c * 2 for c in digits)
+    return "#" + digits[:6]
 
 
 def main() -> None:
