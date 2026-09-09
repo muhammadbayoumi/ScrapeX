@@ -109,6 +109,20 @@ export function readTokenResult(token, lastError, grantedScopes) {
     return { state: "authorization-required",
              detail: "Google access isn’t currently granted. Sign in with Google to try again." };
   }
+  if (/not signed in/i.test(message)) {
+    // A CHROME PROFILE WITH NO GOOGLE ACCOUNT IS NOT A FAULT — it is the
+    // ordinary state of a browser nobody has signed into. Chrome's message for
+    // it matches none of the shapes above, so it fell through to `failed`, and
+    // `failed` is one of the two states the panel shows even on the silent
+    // check it runs on every open. The first thing such a person saw was
+    // therefore Chrome's raw error string on a panel that had asked them
+    // nothing. Its own state keeps it out of that list; the copy below is only
+    // ever read by someone who pressed the button.
+    return { state: "no-chrome-account",
+             detail: "Chrome has no Google account signed in, so there is " +
+                     "nobody to sign in as. Add your account to Chrome, then " +
+                     "try again." };
+  }
   if (/bad client id|invalid client/i.test(message)) {
     // The one failure the owner cannot fix by trying again, so it must not
     // look like the ones he can.
