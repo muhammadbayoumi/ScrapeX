@@ -92,6 +92,24 @@ def _hsl(hue: str, sat: str, light: str) -> str:
     return "#%02x%02x%02x" % (round(red * 255), round(green * 255), round(blue * 255))
 
 
+def _selector_blocks(body: str) -> list[tuple[str, str]]:
+    """(selector, declarations) for each top-level block, so a per-theme file is read
+    as the several themes it is rather than as one flat list."""
+    out, depth, start, selector = [], 0, None, ""
+    for i, char in enumerate(body):
+        if char == "{":
+            if depth == 0:
+                selector = body[:i].rsplit("}", 1)[-1].strip()
+                start = i + 1
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                out.append((selector, body[start:i]))
+                start = None
+    return out or [("", body)]
+
+
 def as_hex(value: str) -> str | None:
     """A published literal as hex, or None if the value is an expression.
 
@@ -126,13 +144,22 @@ def main() -> None:
     literals: dict[str, dict[str, str]] = {"light": {}, "dark": {}, "root": {}}
     for path, scope in SOURCES.items():
         body = re.sub(r"/\*.*?\*/", "", fetch(path, ref), flags=re.S)
-        for match in DECLARATION.finditer(body):
-            token, value = match.group(1), " ".join(match.group(2).split())
-            names.add(token)
-            hexed = as_hex(value)
-            if hexed and scope:
-                literals[scope][token] = hexed
-        print(f"  read {path}")
+        blocks = _selector_blocks(body)
+        for selector, block in blocks:
+            # A FILE CAN CARRY MORE THAN ONE THEME, and reading it linearly loses one.
+            # colors.css declares all 204 of its names TWICE -- once under `:root` and
+            # once under `[data-theme*='dark']` -- with 185 of the pairs differing. A
+            # last-wins scan of the whole file therefore stored the DARK value for every
+            # one of them and dropped all 185 light values, which is how a correct light
+            # marker would have been failed with Supabase's dark number quoted back at it.
+            block_scope = "dark" if "dark" in selector else scope
+            for match in DECLARATION.finditer(block):
+                token, value = match.group(1), " ".join(match.group(2).split())
+                names.add(token)
+                hexed = as_hex(value)
+                if hexed and block_scope:
+                    literals[block_scope][token] = hexed
+        print(f"  read {path} ({len(blocks)} block{'' if len(blocks) == 1 else 's'})")
 
     FIXTURE.write_text(json.dumps({
         "_what": "Supabase's declared custom-property names and colour literals, read from "
