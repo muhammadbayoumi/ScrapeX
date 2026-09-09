@@ -153,6 +153,34 @@ def test_the_fixture_records_the_commit_the_notice_pins():
     )
 
 
+def test_the_fixture_is_the_whole_reading_and_not_a_sample():
+    """Nothing else fails if the fixture shrinks, so this does.
+
+    Its first version held 107 of Supabase's literals because the generator read 7 of
+    their 13 files and could not read the hsl() function form at all. Expanding it to
+    the full reading changed NO test outcome -- restoring the 107-entry version left
+    every assertion here green -- so the correction was carried by nothing and a revert
+    would have gone unnoticed.
+
+    Floors rather than exact counts, because a legitimate regeneration at a newer
+    Supabase commit will move them. They are set where the known-blind version fails:
+    it had 52 root literals and 27 dark, against 299 and 226 now.
+    """
+    assert len(THEIR_NAMES) >= 600, (
+        f"the fixture holds {len(THEIR_NAMES)} token names. Supabase declares over 600 "
+        f"across the files tools/read_supabase_tokens.py reads; a number this low means "
+        f"the generator read fewer files than it should, or failed part way."
+    )
+    for scope, floor in (("root", 250), ("dark", 200), ("light", 25)):
+        assert len(THEIR_LITERALS[scope]) >= floor, (
+            f"the fixture holds {len(THEIR_LITERALS[scope])} {scope} literals, under the "
+            f"floor of {floor}. Regenerate it with tools/read_supabase_tokens.py and "
+            f"check what it could not read -- a partial fetch or an unrecognised literal "
+            f"shape both produce a silently smaller fixture, which is the exact defect "
+            f"this file exists to have caught once already."
+        )
+
+
 def test_the_file_still_carries_markers_to_check():
     """A regex that silently matches nothing is a green test that checks nothing."""
     assert len(PUBLISHED) >= 8 and len(DERIVED) >= 8, (
