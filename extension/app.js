@@ -6188,6 +6188,92 @@ function trapRestoreFocus(event) {
  * question, and so is the thing people get wrong about a restore: it is not a
  * merge. Everything collected since that copy was taken is not in it.
  */
+/**
+ * Ask the engine whether this copy is sound, and say so before he commits.
+ *
+ * THE REPLY IS CHECKED AGAINST WHAT WAS ASKED. An engine that predates the
+ * `backup_path` field ignores it and answers about the LIVE warehouse -- a
+ * verdict that reads as reassurance about the wrong file. `checked` is echoed
+ * back so this side can tell understanding from politeness, which a version
+ * gate could not: the field is not a contract change and the engine version
+ * does not move for it.
+ */
+async function checkTheCopy(snapshot) {
+  const line = $("restore-check");
+  if (!line) return;
+  // The confirm button waits. Pressing Restore while the verdict is still
+  // coming would be deciding without the answer this line exists to give.
+  const confirm = $("restore-confirm");
+  confirm.disabled = true;
+  out("restore-check", "Checking this copy…", "muted");
+  try {
+    // Bounded by `integrityScan`, which is what this route has always been
+    // bounded by: the scan is O(file size) and reads every page.
+    const verdict = await post("/api/storage/integrity",
+                               { backup_path: snapshot.path });
+    if (pendingRestore !== snapshot) return;      // he moved on
+    if (verdict.checked !== snapshot.path) {
+      // THE RESTORE IS STILL OFFERED, and a guard caught this being wrong: the
+      // first draft returned here without re-enabling, so an owner whose engine
+      // predates the field could not restore at all -- a regression against the
+      // control that shipped in #819, introduced by the check meant to help it.
+      // The check failing to RUN says nothing about the copy.
+      confirm.disabled = false;
+      out("restore-check",
+          "This engine is too old to check a copy, so nothing here has been "
+          + "verified. The restore still works.", "muted");
+      return;
+    }
+    if (!verdict.ok) {
+      out("restore-check", esc(
+      `This copy does not pass a health check (${verdict.status}): ${verdict.detail} Restoring it would replace a working database with a broken one.`), "err");
+      // AND THE BUTTON STAYS DISABLED. `storage.restore` refuses an unhealthy
+      // backup anyway, so pressing it could only produce a refusal -- and a
+      // button that cannot work is worse than no button.
+      return;
+    }
+    confirm.disabled = false;
+    out("restore-check", esc(rowVerdict(verdict)), "ok");
+  } catch (error) {
+    if (pendingRestore !== snapshot) return;
+    confirm.disabled = false;
+    // NOT A REFUSAL OF THE RESTORE. The check failing says nothing about the
+    // copy, so the choice stays his -- with the plain fact that it is unchecked.
+    // `muted` AND NOT `warn`: `.warn` exists only as `.card.warn`, so a bare
+    // span carrying it is styled as ordinary text -- a caution that does not
+    // look like one. The caution is in the words instead.
+    out("restore-check", esc(
+    `This copy could not be checked: ${(error && error.message) || "the engine did not answer"}. Restoring it is still possible, unverified.`), "muted");
+  }
+}
+
+/**
+ * What the counts mean, without pretending to know what he wants.
+ *
+ * A count on its own says nothing: 17,274 rows is a healthy copy beside 17,300
+ * live and a catastrophe beside 400,000. So both are shown and the comparison
+ * is left to the person making the decision. The one judgement made here is
+ * that a copy with NO rows where the live warehouse has some is worth naming --
+ * `quick_check` passes on a database that is intact and empty, and that is the
+ * disaster this check exists for.
+ */
+function rowVerdict(verdict) {
+  const rows = verdict.rows || {};
+  const live = verdict.live_rows || {};
+  const biggest = Object.keys(live)
+    .sort((a, b) => (live[b] || 0) - (live[a] || 0))[0];
+  if (!biggest) return "This copy opens and passes its checks.";
+  const inCopy = rows[biggest];
+  const inLive = live[biggest];
+  if (inCopy === 0 && inLive > 0) {
+    return `This copy opens, but ${biggest} is EMPTY in it and holds ${inLive.toLocaleString()} rows now. Restoring it would lose them.`;
+  }
+  const unreadable = Object.keys(rows).filter((t) => rows[t] === -1);
+  if (unreadable.length) {
+    return `This copy opens, but ${unreadable.length} table(s) could not be read: ${unreadable.slice(0, 3).join(", ")}.`;
+  }
+  return `Checked: it opens, passes its checks, and holds ${(inCopy || 0).toLocaleString()} rows in ${biggest} against ${(inLive || 0).toLocaleString()} now.`;
+}
 function openRestoreDialog(snapshot) {
   const veil = $("restore-veil");
   if (!veil) return;
@@ -6198,6 +6284,9 @@ function openRestoreDialog(snapshot) {
     + "The database in use now is moved aside under a name that says what it is, not deleted, and this copy takes its place. Anything collected since this copy was taken is not in it.";
   veil.classList.remove("hidden");
   $("restore-dialog").focus({ preventScroll: true });
+  // EVERY TIME IT OPENS, not once per session: the answer is about a file on
+  // a disk that another process may have touched since.
+  checkTheCopy(snapshot);
 }
 
 function closeRestoreDialog({ restoreFocus = true } = {}) {
@@ -6205,6 +6294,11 @@ function closeRestoreDialog({ restoreFocus = true } = {}) {
   if (!veil || veil.classList.contains("hidden")) return;
   veil.classList.add("hidden");
   pendingRestore = null;
+  // CLEARED, or the next copy opens under the previous one's verdict -- which
+  // is the failure this whole check exists to prevent, wearing a friendlier
+  // face.
+  out("restore-check", "", "muted");
+  $("restore-confirm").disabled = false;
   if (restoreFocus && restoreReturnFocus && restoreReturnFocus.isConnected) {
     restoreReturnFocus.focus({ preventScroll: true });
   }

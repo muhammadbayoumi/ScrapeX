@@ -47,9 +47,10 @@ test("a restore is not bounded like a page of rows, whatever the table order", (
   //
   // `storage.restore` health-checks the backup, copies it, health-checks the
   // copy and compares both files byte for byte before switching. MEASURED
-  // 2026-09-09: `health()` alone is 30,784 ms on a 2,148,061,184-byte file and
-  // it runs twice, so a restore is about 113 s on that warehouse -- 22x the
-  // generic bound.
+  // 2026-09-09 on a 2,148,061,184-byte file: `health()` is 42,874 ms COLD and
+  // 5,045 ms warm, and a restore reads a backup nobody has touched -- twice --
+  // then moves 6.45 GB. About 130 s on that warehouse, 26x the generic bound.
+  // The cold/warm spread is written out beside the deadline itself.
   //
   // AND ABORTING CANCELS NOTHING ON THE FAR SIDE. The engine holds the write
   // lock and completes the switch, so the bound this guards against does not

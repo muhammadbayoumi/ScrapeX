@@ -759,6 +759,44 @@ def base_stem(db_path: Path | str) -> str:
     return stem
 
 
+def row_counts(db_path: Path | str) -> dict[str, int]:
+    """Every table and how many rows it holds.
+
+    WHY THIS EXISTS BESIDE `health`. `PRAGMA quick_check` passes on a database
+    that is intact and EMPTY, and an empty warehouse restored over a full one is
+    the disaster a restore check is for. So the file has to be asked a question
+    it can only answer with its contents.
+
+    EVERY TABLE, NOT A CHOSEN FEW. `quick_check` has already read every page by
+    the time this runs, so the counts come off a warm cache: MEASURED on the
+    owner's machine 2026-09-09, all 67 tables of a 2,148,061,184-byte file cost
+    123 ms against that file's 6,953 ms health check -- 2%. A hand-picked list
+    would cost the same and go stale at the next migration.
+
+    A table this build cannot read is reported as -1 rather than skipped. A
+    missing count and a count of zero are different findings, and silently
+    dropping the unreadable one is how a broken table reads as an absent one.
+    """
+    counts: dict[str, int] = {}
+    conn = sqlite3.connect(f"file:{Path(db_path)}?mode=ro", uri=True)
+    try:
+        named = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        for table in named:
+            try:
+                # The name comes from `sqlite_master`, never from a caller, and
+                # it is quoted anyway: this file's rule is that all SQL is
+                # parameterised and an identifier cannot be a parameter.
+                counts[table] = conn.execute(
+                    f'SELECT count(*) FROM "{table}"').fetchone()[0]
+            except sqlite3.DatabaseError:
+                counts[table] = -1
+    finally:
+        conn.close()
+    return counts
+
+
 def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
     """Backups produced by this product, newest first."""
     path = Path(db_path)
@@ -1579,6 +1617,12 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         # THE LAST WIDE VERDICT, so a page can say WHEN corruption was last looked for
         # rather than leaving the reader to assume it just was.
         "integrity": settings.get_state(conn, "storage_integrity"),
+        # AND THE LAST COPY THAT WAS CHECKED, for the same reason one step further
+        # out: until this existed, `0 restore errors` was not a measurement but an
+        # assumption -- no copy had ever been opened to find out. It carries the
+        # path it checked, so a reader can tell a verdict about THIS copy from a
+        # verdict about another one.
+        "copy_check": settings.get_state(conn, "storage_copy_check"),
         # THE SCHEMA, BECAUSE THE PANEL'S DATABASE PAGE HAS TO SAY MORE THAN "HEALTHY".
         # `_about` reported these to the ENGINE'S OWN WEB PAGE and nowhere else, so the
         # panel could show the file's size and its health and not the one number that

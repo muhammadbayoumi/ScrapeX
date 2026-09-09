@@ -152,6 +152,7 @@ from ..storage import (
     backup_now,
     check_move,
     export_database,
+    list_backups,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -164,6 +165,7 @@ from ..storage import (
 )
 from ..storage import compact as storage_compact
 from ..storage import health as storage_health
+from ..storage import row_counts as storage_row_counts
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..vocab import (
     TERMINAL_JOB_STATUSES,
@@ -3213,7 +3215,7 @@ def create_app(
             conn.close()
 
     @app.post("/api/storage/integrity")
-    def api_storage_integrity():
+    def api_storage_integrity(body: dict | None = None):
         """The WIDE verdict, because somebody asked for it.
 
         `GET /api/storage` stopped running the corruption scan: it is O(file size) and
@@ -3230,14 +3232,64 @@ def create_app(
         incidental. `health` opens its own read connection, so a 5.7 s scan taken under
         the lock would stall a running crawl's writes for its whole duration for the
         sake of a status card. The lock is taken for the one small write at the end.
+
+        `backup_path` ASKS THE SAME QUESTION OF A COPY, and it is this route rather
+        than a new one because it is the same knowledge: is this file a healthy
+        ScrapeX warehouse, and record the answer. A change to what `healthy` means
+        has to change both, so they are one thing. Until this existed nothing had
+        ever opened a backup to find out -- `0 restore errors` was an assumption,
+        and `verifyLatest` only asks Drive whether an object of the right size is
+        there.
+
+        THE REPLY ECHOES WHAT IT CHECKED, and that is not decoration. An older
+        engine ignores an unknown body field and answers about the LIVE warehouse,
+        so a panel that trusted the reply would show a verdict about the wrong
+        file -- a silently wrong answer, which is worse than a refusal. `checked`
+        lets the caller confirm the engine understood, without a version gate that
+        would drift out of step with what the engine can actually do.
         """
-        verdict = storage_health(app.state.db_path, integrity=True)
-        state = dict(verdict)
-        state["at"] = utc_now_iso()
+        asked = str((body or {}).get("backup_path") or "").strip()
+        if not asked:
+            verdict = storage_health(app.state.db_path, integrity=True)
+            state = dict(verdict)
+            state["at"] = utc_now_iso()
+            state["checked"] = str(app.state.db_path)
+            state["rows"] = storage_row_counts(app.state.db_path)
+            key = "storage_integrity"
+        else:
+            # ONLY A BACKUP THIS PRODUCT LISTED, asked first and for the reason
+            # `storage.restore` gives at greater length: `backup_path` arrives from
+            # the network on a loopback port every page in the browser can reach,
+            # and every other check below asks whether the file is a healthy
+            # warehouse rather than whether it is one of ours. Both guards derive
+            # the permitted set from `list_backups`, so one function decides what a
+            # backup is and the rule cannot drift away from the offer.
+            try:
+                offered = {Path(entry["path"]).resolve()
+                           for entry in list_backups(app.state.db_path)}
+                chosen = Path(asked).resolve()
+            except OSError:
+                offered, chosen = set(), None
+            if chosen is None or chosen not in offered:
+                raise HTTPException(
+                    status_code=400,
+                    detail=("ScrapeX checks only a backup it listed for this "
+                            "database. Reopen the page to refresh the list, then "
+                            "pick the copy again."))
+            verdict = storage_health(chosen, integrity=True)
+            state = dict(verdict)
+            state["at"] = utc_now_iso()
+            state["checked"] = str(chosen)
+            # BOTH SIDES, because a count on its own says nothing. 17,274 rows is
+            # a healthy copy beside 17,300 live and a catastrophe beside 400,000,
+            # and only the reader knows which. The comparison is not made here.
+            state["rows"] = storage_row_counts(chosen)
+            state["live_rows"] = storage_row_counts(app.state.db_path)
+            key = "storage_copy_check"
         with dbmod.write_lock(app.state.db_path):
             conn = _write_conn()
             try:
-                set_settings_state(conn, "storage_integrity", state)
+                set_settings_state(conn, key, state)
                 conn.commit()
             finally:
                 conn.close()

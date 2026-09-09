@@ -272,3 +272,223 @@ def test_the_routine_route_is_not_the_slow_one_any_more(served):
     assert wide["integrity_checked"] is True
     assert set(cheap) >= {"path", "sizes", "schema", "backups", "health", "integrity"}, (
         "the cheap route stopped carrying something the Database page draws")
+
+
+# ---- checking a copy before it is trusted ---------------------------------
+#
+# Until this existed nothing had ever opened a backup to find out whether it
+# could be opened. `verifyLatest` asks Drive whether an object of the right size
+# is there, which proves an object exists and not that it restores -- so
+# `0 restore errors` was an assumption wearing the clothes of a measurement.
+#
+# THE SAME ROUTE, because it is the same knowledge: is this file a healthy
+# ScrapeX warehouse, and record the answer. A change to what `healthy` means
+# has to change both, so they are one thing rather than two that resemble
+# each other.
+
+
+def _a_copy_of(path: Path, tag: str = 'manual') -> Path:
+    """A backup with this product's own naming, so `list_backups` sees it."""
+    from scrapex.archive import backup_database
+    made = backup_database(path, tag=tag)
+    made = Path(made if isinstance(made, (str, Path)) else made.path)
+    assert made.is_file(), made
+    return made
+
+
+def test_the_caller_that_was_already_there_still_gets_the_live_warehouse(served):
+    """The panel posts this route with no body at all.
+
+    An optional field that broke the existing caller would be a worse defect than
+    the one it was added for: the corruption scan is the only wide verdict the
+    Database page has. It must keep answering, and it must SAY which file it
+    answered about -- the echo is what a caller checks to know it was understood.
+    """
+    client, path = served
+
+    answer = client.post("/api/storage/integrity")
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["integrity_checked"] is True, verdict
+    assert verdict["checked"] == str(path), (
+        "the reply does not say which file it checked, so no caller can tell "
+        "understanding from politeness")
+    assert verdict["rows"], "the live verdict carries no row counts"
+
+
+def test_a_copy_can_be_checked_and_the_verdict_names_that_copy(served):
+    """A verdict about one copy must not read as a verdict about another.
+
+    The two are recorded under different keys for the same reason: the live
+    warehouse's corruption verdict decides whether the page says `ready`, and a
+    finding about a two-week-old backup has nothing to do with that.
+    """
+    client, path = served
+    copy = _a_copy_of(path)
+
+    before = client.get("/api/storage").json()
+    assert before["copy_check"] is None, "a verdict exists before anyone asked"
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": str(copy)})
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["checked"] == str(copy.resolve()), verdict
+    assert verdict["ok"] is True and verdict["integrity_checked"] is True, verdict
+    assert verdict["rows"] and verdict["live_rows"], (
+        "both sides are needed: a count on its own says nothing")
+
+    after = client.get("/api/storage").json()
+    assert after["copy_check"]["checked"] == str(copy.resolve())
+    assert after["integrity"] is None, (
+        "checking a COPY was recorded as a verdict about the live warehouse, so "
+        "the page would date its corruption scan from a backup it read")
+
+
+def test_a_path_the_engine_never_listed_is_refused_and_tells_no_tales(served):
+    """`backup_path` arrives from the network on a loopback port.
+
+    Every page in the browser can reach it, and every other check asks whether
+    the file is a healthy warehouse rather than whether it is one of ours. So the
+    listing decides, exactly as `storage.restore` decides.
+
+    AND THE TWO REFUSALS MUST BE THE SAME WORDS. A refusal that differs for a
+    file that exists is an existence oracle: it answers `is there a database at
+    this path` for any page that can reach the port, which is a question this
+    engine has no business answering.
+    """
+    client, path = served
+    outsider = path.parent / "not-a-backup-of-ours.db"
+    import sqlite3 as _sqlite3
+    _sqlite3.connect(outsider).close()          # a real file, never listed
+    missing = path.parent / "nothing-here-at-all.db"
+
+    real = client.post("/api/storage/integrity",
+                       json={"backup_path": str(outsider)})
+    fake = client.post("/api/storage/integrity",
+                       json={"backup_path": str(missing)})
+
+    assert real.status_code == 400, real.text
+    assert fake.status_code == 400, fake.text
+    assert real.json()["detail"] == fake.json()["detail"], (
+        "the refusal differs for a file that exists, so it answers whether one "
+        "does")
+
+
+def test_a_copy_that_is_intact_and_empty_is_told_apart_from_a_full_one(served):
+    """THE DISASTER THIS CHECK EXISTS FOR, and the one health cannot see.
+
+    `PRAGMA quick_check` passes on a database that is intact and EMPTY. So a copy
+    taken before a crawl -- or a copy of a warehouse that was reset -- is
+    perfectly healthy and restoring it loses everything. Health is necessary and
+    it is not sufficient, which is why the counts are asked for at all.
+    """
+    client, path = served
+    copy = _a_copy_of(path)                      # taken while empty
+
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash) "
+            "VALUES ('https://example.test/a', 'text/html', X'00', 'abc123')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    verdict = client.post("/api/storage/integrity",
+                          json={"backup_path": str(copy)}).json()
+
+    assert verdict["ok"] is True, (
+        "an intact empty copy was reported unhealthy; health is not the question "
+        "the counts answer")
+    assert verdict["rows"]["generic_page_snapshot"] == 0, verdict["rows"]
+    assert verdict["live_rows"]["generic_page_snapshot"] == 1, (
+        "the live side was not read, so nothing can be compared against it")
+
+
+def test_a_damaged_copy_is_a_finding_and_not_a_failed_request(served):
+    """A page that cannot tell `the check failed` from `the copy is damaged`
+    tells the owner neither. The route answers 200 with bad news in it, exactly as
+    it does for the live warehouse."""
+    client, path = served
+    copy = _a_copy_of(path)
+    _plant_a_foreign_key_violation(copy)
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": str(copy)})
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["ok"] is False and verdict["status"] == "damaged", verdict
+    assert client.get("/api/storage").json()["ready"] is True, (
+        "a finding about a BACKUP made the live warehouse read as not ready")
+
+
+def test_every_table_is_counted_and_none_is_invented(warehouse):
+    """Counting all of them rather than a chosen few is affordable.
+
+    `quick_check` has already read every page by the time this runs: MEASURED on
+    the owner's machine 2026-09-09, all 67 tables of a 2,148,061,184-byte file
+    cost 123 ms against that file's 6,953 ms health check. A hand-picked list
+    would cost the same and go stale at the next migration, which is why this
+    asserts the SET and not a sample."""
+    conn, path = warehouse
+    named = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%'")}
+
+    counted = storage.row_counts(path)
+
+    assert set(counted) == named, (
+        "the counts do not cover every table: "
+        f"missing {sorted(named - set(counted))}, "
+        f"invented {sorted(set(counted) - named)}")
+    assert all(isinstance(v, int) and v >= 0 for v in counted.values()), counted
+
+
+def test_a_table_this_build_cannot_read_is_reported_and_not_dropped(tmp_path):
+    """A missing count and a count of zero are DIFFERENT FINDINGS.
+
+    Silently dropping the unreadable one is how a broken table reads as an absent
+    one -- and on a restore check that is the difference between `this copy is
+    damaged` and `this copy has a slightly older schema`.
+
+    THE FIRST VERSION OF THIS TEST ASSERTED IT AND CHECKED NOTHING. It ran on a
+    freshly migrated warehouse where every table reads, so the `except` branch
+    never executed; replacing `counts[table] = -1` with `pass` did not fail it.
+    A mutant is what found that, and this is the test that survives it: one table
+    is made genuinely unreadable by overwriting its root page, and the others go
+    on counting."""
+    hurt = tmp_path / "one-bad-table.db"
+    conn = sqlite3.connect(hurt)
+    try:
+        conn.execute("CREATE TABLE keep (a)")
+        conn.execute("CREATE TABLE broken (a)")
+        conn.executemany(
+            "INSERT INTO keep VALUES (?)", [(n,) for n in range(50)])
+        conn.executemany(
+            "INSERT INTO broken VALUES (?)", [(n,) for n in range(50)])
+        conn.commit()
+        page = conn.execute("PRAGMA page_size").fetchone()[0]
+        root = conn.execute(
+            "SELECT rootpage FROM sqlite_master WHERE name = 'broken'").fetchone()[0]
+    finally:
+        conn.close()
+
+    # A page whose first byte is not 2, 5, 10 or 13 is not a b-tree page, so
+    # SQLite refuses THIS TABLE and reads the rest of the file normally.
+    with open(hurt, "r+b") as handle:
+        handle.seek((root - 1) * page)
+        handle.write(b"\xff" * page)
+
+    counted = storage.row_counts(hurt)
+
+    assert "broken" in counted, (
+        "the unreadable table was dropped, so a damaged copy reads as one with a "
+        "table this build has not heard of")
+    assert counted["broken"] == -1, counted
+    assert counted["keep"] == 50, (
+        "one bad table stopped the others being counted: " + repr(counted))

@@ -155,7 +155,16 @@ STATE_KEYS = ("excel_last", "apps_script_last",
               # from `storage_last`, which is the last storage ACTION -- a backup, a
               # compaction, a repair. An integrity check acts on nothing, and reading
               # one out of the other would date the answer to the wrong event.
-              "storage_integrity")
+              "storage_integrity",
+              # THE LAST COPY THAT WAS OPENED TO SEE WHETHER IT COULD BE. Separate
+              # from `storage_integrity` because a finding about a backup must not
+              # decide whether the LIVE warehouse reads as ready: `storage_status`
+              # holds a corruption finding against the file it was found in, and a
+              # two-week-old copy failing its check says nothing about the
+              # warehouse in use. It carries the path it checked for the same
+              # reason -- a verdict that cannot name its subject is a verdict about
+              # whichever copy the reader has in mind.
+              "storage_copy_check")
 
 
 @dataclass

@@ -27,11 +27,25 @@ export const STARTUP_DEADLINES = Object.freeze({
   //
   // `storage.restore` DOES NOT RENAME. It health-checks the backup, copies it
   // beside the live warehouse, health-checks the copy, and compares both files
-  // byte for byte -- and only then switches. MEASURED on the owner's machine
-  // 2026-09-09: `health()` alone is 30,784 ms on a 2,148,061,184-byte file and it
-  // runs TWICE; the copy and the comparison move 6.45 GB, which at the 126 MB/s
-  // measured on this disk the same day is another 51 s. About 52 s a gigabyte, so
-  // roughly 113 s for his warehouse as it stands.
+  // byte for byte -- and only then switches.
+  //
+  // MEASURED on the owner's machine 2026-09-09, on a 2,148,061,184-byte file:
+  //
+  //     health() cold          42,874 ms      the file comes off the disk
+  //     health() warm           5,045 ms      the page cache still holds it
+  //     PRAGMA quick_check      2,168 ms
+  //     PRAGMA foreign_key_check 1,532 ms
+  //     health(integrity=False)      6 ms
+  //
+  // COLD IS THE CASE THAT GOVERNS A RESTORE, and reconciling the two is the
+  // point of listing both: `integrityScan` above is derived from the WARM
+  // figure -- 5.9 s, correct for a scan of the warehouse the engine has open --
+  // and a first draft of this row quoted a cold reading as if it were the same
+  // measurement. It is not. A restore reads a backup nobody has touched, twice,
+  // and then moves 6.45 GB copying and comparing, which at the 126 MB/s measured
+  // on this disk the same day is another 51 s. Call it 130 s for his warehouse
+  // as it stands, and the spread between cold and warm is why the bound is not
+  // set near the measurement.
   //
   // 600000 covers a warehouse near 11 GB, AND THAT IS ALSO ITS EXPIRY DATE.
   //

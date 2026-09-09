@@ -2435,6 +2435,14 @@
          id="restore-dialog">
       <h2 class="modal-title" id="restore-dialog-title">Put this copy back?</h2>
       <div class="modal-copy" id="restore-dialog-copy"></div>
+      <!-- THE VERDICT ON THIS COPY, ASKED WHEN THE QUESTION OPENS. Not a button
+           somewhere else: a check nobody remembers to run reports nothing, and
+           silence reads as health. This is the one moment the answer is worth
+           anything -- he is deciding whether to replace a live warehouse with
+           this file, and until now nothing had ever opened a copy to find out
+           whether it could be opened at all. -->
+      <p class="modal-copy" id="restore-check" role="status"
+         aria-live="polite"></p>
       <div class="modal-actions">
         <button class="ghost" type="button" id="restore-cancel">Cancel</button>
         <button class="danger" type="button" id="restore-confirm">

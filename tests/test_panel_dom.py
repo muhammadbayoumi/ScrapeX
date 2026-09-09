@@ -7892,3 +7892,129 @@ def test_an_engine_that_cannot_be_read_offers_no_copy_to_restore(open_panel):
         f"{buttons.count()} copies are still offered by an engine that did not answer")
     assert "could not be read" in page.inner_text("#db-snapshots"), (
         page.inner_text("#db-snapshots"))
+
+
+def test_opening_the_question_checks_the_copy_it_is_asking_about(open_panel):
+    """The check runs where the decision is made, not where it is remembered.
+
+    #808's own brief called an on-demand check the weak option, and said why: a
+    check nobody runs reports nothing, and silence reads as health. Putting it
+    inside the confirmation removes that -- it cannot be skipped, because it is
+    part of the only moment the answer matters.
+
+    THE ROW COUNTS ARE IN THE VERDICT, because health is not the question. A copy
+    that is intact and EMPTY passes every pragma there is, and restoring it loses
+    everything.
+    """
+    page = _open_database(open_panel)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /Checked|could not|too old/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "Checked" in said, said
+    assert "12" in said, ("the verdict names no row count, so an intact empty "
+                          "copy would read the same as a full one: " + said)
+
+    # AND IT ASKED ABOUT THE COPY HE PRESSED, not the live warehouse.
+    writes = page.evaluate("() => window.__writes || []")
+    asked = [w for w in writes
+             if w.get("path") == "/api/storage/integrity"]
+    assert len(asked) == 1, f"asked {len(asked)} times: {writes}"
+    assert asked[0]["body"] == {"backup_path": HARNESS_NEWEST_SNAPSHOT}, asked[0]
+
+    # The restore stays available: a sound copy is the case where it should be.
+    assert page.is_enabled("#restore-confirm")
+
+
+def test_a_copy_that_fails_its_check_cannot_be_restored(open_panel):
+    """`storage.restore` refuses an unhealthy backup anyway.
+
+    So leaving the button live could only produce a refusal, and a button that
+    cannot work is worse than no button. The verdict carries the engine's own
+    words, because a failed health check and a foreign database need different
+    things done next.
+    """
+    page = _open_database(open_panel, copy_check={
+        "ok": False, "status": "damaged",
+        "detail": "1 foreign key violation.",
+    })
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /does not pass/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "damaged" in said and "1 foreign key violation." in said, (
+        "the engine's own reason was replaced by a generic one: " + said)
+    assert "broken one" in said, (
+        "the consequence is not stated, so the reader has to infer it: " + said)
+
+    assert page.is_disabled("#restore-confirm"), (
+        "a copy that fails its check can still be pressed into place")
+
+
+def test_an_engine_too_old_to_check_a_copy_says_so_instead_of_reassuring(open_panel):
+    """THE FAILURE A VERSION GATE WOULD NOT HAVE CAUGHT.
+
+    `backup_path` is an optional field on an existing route, so it is not a
+    contract change and the engine version does not move for it. An engine that
+    predates it ignores the field and answers about the LIVE warehouse -- a
+    healthy verdict, about the wrong file, arriving in the place the reader is
+    looking for reassurance about this copy.
+
+    The reply echoes what it read, and this side checks the echo. That is why the
+    guard works without knowing anything about versions.
+    """
+    page = _open_database(open_panel, copy_check_echoes=False)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /too old/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "nothing here has been verified" in said, (
+        "an unverified copy was not said to be unverified: " + said)
+    assert "Checked" not in said, (
+        "a verdict about the live warehouse was shown as a verdict about this "
+        "copy: " + said)
+
+    # AND THE RESTORE IS STILL OFFERED. The check failing says nothing about the
+    # copy, so the choice stays his -- with the plain fact that it is unchecked.
+    assert page.is_enabled("#restore-confirm")
+
+
+def test_the_verdict_does_not_carry_over_to_the_next_copy(open_panel):
+    """A stale verdict is the failure this check exists to prevent.
+
+    If the line survived a close, the second copy would open under the first
+    one's answer -- reassurance about a file nobody checked, which is exactly
+    what `0 restore errors` used to be.
+    """
+    page = _open_database(open_panel)
+    rows = page.locator("#db-snapshots button.manage-account-row-button")
+
+    rows.nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /Checked/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#restore-veil", state="hidden")
+
+    assert page.inner_text("#restore-check").strip() == "", (
+        "the verdict outlived the question it answered")
+
+    rows.nth(1).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    # It asks again, about the second copy, rather than reusing the first answer.
+    page.wait_for_function(
+        "() => (window.__writes || []).filter("
+        "w => w.path === '/api/storage/integrity').length === 2", timeout=10_000)
+    asked = page.evaluate("() => (window.__writes || [])"
+                          ".filter(w => w.path === '/api/storage/integrity')")
+    assert asked[1]["body"] == {"backup_path": HARNESS_OLDER_SNAPSHOT}, asked[1]
