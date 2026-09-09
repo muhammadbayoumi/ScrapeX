@@ -938,6 +938,11 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     drive_js = flatten((EXT / "drive.js").read_text(encoding="utf-8"))
     sheets_js = flatten((EXT / "sheets.js").read_text(encoding="utf-8"))
     bundleview_js = flatten((EXT / "bundleview.js").read_text(encoding="utf-8"))
+    # jobsview.js arrived on 2026-09-09 with the Jobs page, and its absence cost a
+    # debugging round exactly as the comment above predicts: `rowsFrom is not defined`,
+    # thrown inside `showView`, so the page kept its empty placeholder and every guard
+    # for it failed with "0 of 4 jobs drawn" instead of with the real reason.
+    jobsview_js = flatten((EXT / "jobsview.js").read_text(encoding="utf-8"))
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -976,7 +981,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # then toggle twice and appear to do nothing at all.
         f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
         f"{accounts_js}\n{drive_js}\n{sheets_js}\n{bundleview_js}\n"
-        f"{engine_js}\n{backend_js}\n{app_js}</script></body></html>",
+        f"{engine_js}\n{backend_js}\n{jobsview_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page
 
