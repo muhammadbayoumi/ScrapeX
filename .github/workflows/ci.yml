@@ -1,11 +1,14 @@
 name: CI
 
 # PUSH IS NARROWED TO main, AND THAT IS THE WHOLE OF #646. Unfiltered, every
-# commit on a branch with an open pull request ran this matrix TWICE — measured
-# over 30 days: 617 runs across 378 SHAs, 231 of them run twice, and the
-# duplicate copies alone cost 4,438 of 11,529 runner-minutes, 38% of all CI
-# compute. Every branch commit is still covered by the `pull_request` run, and
-# main keeps its post-merge run, so nothing loses coverage.
+# commit on a branch with an open pull request ran this matrix TWICE. Measured
+# over 2026-08-11..09-10 from the Actions API: 1,322 runs across 820 SHAs, 465
+# of them run twice, and the duplicate copies cost 8,591 of 23,369 runner-
+# minutes — 36.8%. (#646 quotes 617 runs and 11,529 minutes for the same shape;
+# that is the most recent 617 runs, not the window, and it reproduces on that
+# slice. The share it derives, 38%, is the number that survives.) Every branch
+# commit is still covered by the `pull_request` run, and main keeps its
+# post-merge run, so nothing loses coverage.
 #
 # WHAT DOES CHANGE, and it is a behaviour change rather than a tidy-up: a branch
 # with NO open pull request stops being tested on push. Work travels here as
@@ -35,17 +38,30 @@ permissions:
 # a median full run is ~13 minutes of wall clock and ~22 runner-minutes, spent
 # describing a tree that has already moved (#647).
 #
-# `main` IS EXCLUDED BY THE EXPRESSION, NOT BY OMISSION. A post-merge run on
-# main is the record that the merged tree is green, and cancelling it because
-# the next merge arrived erases exactly the signal this repository reads. The
-# group still covers main so its runs queue rather than overlap; only the
-# cancellation is withheld.
+# `main` LEAVES THE GROUP ENTIRELY, and `cancel-in-progress: false` would NOT
+# have been enough. GitHub's rule is that "any existing pending job or workflow
+# in the same concurrency group will be canceled" — unconditionally, whatever
+# `cancel-in-progress` says, because that flag governs only the RUNNING slot.
+# A group holds one running and one pending run, so three merges inside one
+# run's wall clock evict the middle one while it is still pending.
+#
+# THAT WOULD COST A RELEASE, NOT JUST A ROW. `tag-the-release.yml` consumes this
+# workflow through `workflow_run` and tags only on `conclusion == 'success'`; a
+# cancelled run publishes nothing, so a `VERSION` bump merged in the middle of a
+# burst would never be tagged — the defect R-87 built that mechanism to remove.
+# Simulated over the last 297 squash merges at the 13.2-minute median run:
+# 10 of them (3.4%) would have lost their post-merge run.
+#
+# `github.run_id` is unique per run, so main's expression yields a group of one
+# and nothing of main's is ever grouped or cancelled. Pull requests group by
+# `refs/pull/<n>/merge`, unique per PR — two PRs on the same head branch cannot
+# collide, and no PR can share a group with main.
 #
 # It is NOT a flake remedy. With CI on both triggers an intermittent had two to
 # four chances to fire per SHA and now has fewer, which lowers exposure without
 # fixing a single flaky test — see #649 for the ones that are real.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -381,19 +397,23 @@ jobs:
         # before this only the second job did, so this is strictly MORE
         # protection than the step it replaces.
         #
-        # WHAT IT COSTS, MEASURED on this branch over two pairs of whole-suite
-        # runs: +73.1s and +99.8s on a ~345s suite, +21% to +30%. #645 budgeted
-        # +15.7s for this, and that number was taken when db/engine/migrations/
-        # was EMPTY — 0018 through 0020 have landed since, so every real
-        # migrate() now replays the baseline and three files instead of one.
-        # The 396ms-per-call figure this comment used to carry is older still:
-        # it measured the 57-file chain R-84 squashed away.
+        # WHAT IT COSTS, MEASURED ON CI, not on a developer machine. Run
+        # 34428035437 ran both suites off one tree: this step unflagged 651s,
+        # the deleted job's identical `pytest -q` flagged 743s. So +92s, +14.1%.
+        # #645 budgeted +15.7s, measured when db/engine/migrations/ was EMPTY —
+        # 0018 through 0020 have landed since, so every real migrate() replays
+        # the baseline and three files instead of one. The 396ms-per-call figure
+        # this comment used to carry is older still: it measured the 57-file
+        # chain R-84 squashed away. (Locally the delta is +73s and +100s, which
+        # brackets 92s; the PERCENTAGE does not travel, because a local suite is
+        # ~345s against CI's ~651s.)
         #
-        # SO THE COMPUTE WIN IS REAL AND THE LATENCY WIN IS NOT. Deleting the
-        # duplicate job removes roughly half of this workflow's runner-minutes,
-        # but the job it removes was the slowest one, and this step grows by
-        # about as much as that job cost in wall clock. A merge does not get
-        # faster; CI stops paying twice for the same answer.
+        # AND THE WALL CLOCK BARELY MOVES, because the job removed was PARALLEL
+        # and only 75-95s longer than this one. Absorbing +92s puts this step
+        # back at almost exactly the old critical path: 785s before, 750s after,
+        # measured on the two branches' own runs, and 17% better at the median of
+        # 802 full runs. The win being bought is compute, not latency — 69.5% of
+        # this workflow's billed runner-minutes across all three edits.
         #
         # THE FLAG IS ON THIS STEP, NOT ON THE JOB, and that is load-bearing.
         # The seven tests in tests/test_fast_migrations.py SKIP when it is set,
@@ -407,10 +427,35 @@ jobs:
         if: needs.scope.outputs.scope == 'full'
         # SEVEN TESTS THAT ONLY RUN WITHOUT THE FLAG. They are the only thing
         # pinning the template mechanism `tests/conftest.py` uses to make a local
-        # suite bearable, and until #645 they ran in the job that had no flag.
-        # That job is gone, so they get a step of their own — seconds long,
+        # suite bearable. Until #645 they ran in THIS job, which had no flag —
+        # the flag lived in the job that was deleted. Moving it onto the step
+        # above took their home away, so they get a step of their own,
         # deliberately with no `env:` block.
-        run: python -m pytest tests/test_fast_migrations.py
+        #
+        # AND IT HAS A FLOOR, because without one the step is green either way:
+        # all seven skip when the flag reaches them and pytest still exits 0
+        # under `-q`. Measured: 7 passed without it, 7 skipped with it, exit 0
+        # both times. That is the shape #644 hid for 25 commits, and the shape
+        # the step below this one exists to stop.
+        #
+        # `raise SystemExit`, NOT `assert`: #833 is open against the sibling
+        # floor below for exactly this — PYTHONOPTIMIZE strips an assert and the
+        # step goes green with every test skipped.
+        run: |
+          python -m pytest tests/test_fast_migrations.py --junitxml=/tmp/fast.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("/tmp/fast.xml").getroot().find("testsuite")
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"fast-migrations: {ran} tests, {skipped} skipped")
+          if skipped:
+              raise SystemExit(
+                  "the template suite skipped, so nothing pins the mechanism "
+                  "tests/conftest.py restores from; SCRAPEX_FULL_MIGRATIONS has "
+                  "reached this step")
+          if ran < 7:
+              raise SystemExit(f"the template suite ran {ran} tests, and there were seven")
+          PY
 
       - name: The pre-squash suite must RUN, not skip
         # THE COLLECT-ONLY FLOORS ABOVE CANNOT SEE THIS ONE. A browser suite
