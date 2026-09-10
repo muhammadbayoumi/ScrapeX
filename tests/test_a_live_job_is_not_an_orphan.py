@@ -206,7 +206,7 @@ def test_a_first_entry_says_nothing_and_reports_nothing(conn):
                                   consequence="nothing is fetched")
 
     assert reached == 0
-    assert "re-entered" not in _log(conn, ref), _log(conn, ref)
+    assert "not this job's first pass" not in _log(conn, ref), _log(conn, ref)
 
 
 def test_a_re_entry_says_so_and_names_what_the_last_pass_reached(conn):
@@ -224,9 +224,13 @@ def test_a_re_entry_says_so_and_names_what_the_last_pass_reached(conn):
 
     assert reached == 300
     said = _log(conn, ref)
-    assert "re-entered after a restart" in said, said
+    assert "not this job's first pass" in said, said
     assert "300 page pair(s)" in said, (
         f"the number he watched disappear is not in the line: {said}")
+    # AND IT BLAMES NOTHING. `started_at` cannot tell a restart from a resume, and this
+    # PR makes the resume the common path: a Resume button on every paused row.
+    assert "restart" not in said, (
+        f"the line names a cause `started_at` cannot know: {said}")
     assert "read from disk again" in said, (
         f"the caller's own consequence was dropped: {said}")
 
@@ -287,6 +291,6 @@ def test_the_line_is_a_warning_like_the_sweep_line_above_it(conn):
                          consequence="re-proved from disk")
 
     levels = [row["level"] for row in jobs.job_logs(conn, ref)
-              if "re-entered" in row["message"]]
+              if "not this job's first pass" in row["message"]]
     assert levels == ["warning"], levels
 

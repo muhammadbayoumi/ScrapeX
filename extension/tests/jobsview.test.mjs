@@ -10,32 +10,56 @@ import {
   progressFraction, progressLine, rowsFrom, statusTone, statusWords, summariseJobs,
 } from "../jobsview.js";
 
+/** `fetch` AS THE RUNNERS ACTUALLY LEAVE IT, which is empty.
+ *
+ *  Measured on his live engine 2026-09-10: `GET /api/jobs` returns
+ *  `{requests: 0, expected: null, ...}` for every `profile_crawl` and
+ *  `dataset_interpret` job, because neither runner is among `record_source_fetch`'s
+ *  callers. These fixtures used to carry `{requests: 620, expected: 938}` AND an empty
+ *  `counters`, which is a payload no producer can emit -- `_fetch_progress` derives
+ *  `fetch` FROM `counters` -- so every assertion below certified a fiction and the real
+ *  page said "620 of 938 source(s)" against twelve registered sources. */
+const NO_FETCH = {requests: 0, expected: null, basis: null, as_of: null,
+                  unknown_sources: [], sources: {}};
+
 /** The pair that cost him 33 minutes: a blocked job entered 18 seconds after the one
  *  doing the work, and `jobs[0]` drew the blocked one. */
 const BLOCKED = {
   job_ref: "job_1a95d29ebf89", job_kind: "profile_crawl", status: "preparing",
   source_keys: ["muqawil_org"], current_source_key: null,
-  progress: {done: 0, total: 1}, fetch: {requests: 0, expected: 938},
+  progress: {done: 0, total: 938, unit: "page(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-09-07T10:33:44Z", finished_at: null,
 };
 const WORKING = {
   job_ref: "job_034c51a29deb", job_kind: "profile_crawl", status: "running",
   source_keys: ["muqawil_org"], current_source_key: "muqawil_org",
-  progress: {done: 0, total: 1}, fetch: {requests: 620, expected: 938},
+  progress: {done: 620, total: 938, unit: "page(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-09-07T10:33:25Z", finished_at: null,
 };
 const PAUSED = {
   job_ref: "job_0212decca681", job_kind: "dataset_interpret", status: "paused",
   source_keys: ["muqawil_org"], current_source_key: "muqawil_org",
-  progress: {done: 0, total: 1}, fetch: {requests: 300, expected: 909},
+  progress: {done: 300, total: 909, unit: "page pair(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-09-06T14:01:14Z", finished_at: null,
 };
 const DONE = {
   job_ref: "job_7b891d5b67ac", job_kind: "profile_crawl", status: "completed",
   source_keys: ["muqawil_org"], current_source_key: "muqawil_org",
-  progress: {done: 1, total: 1}, fetch: {requests: 938, expected: 938},
+  progress: {done: 938, total: 938, unit: "page(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-09-07T13:53:17Z",
   finished_at: "2026-09-07T14:23:50Z",
+};
+
+/** A PRICE CRAWL, which is the one kind that DOES fill `fetch`. Without it the
+ *  `fetch`-first branch of `counted` goes unmeasured, and the fix for the wrong unit
+ *  would be free to delete it. */
+const PRICE = {
+  job_ref: "job_price", job_kind: "crawl", status: "running",
+  source_keys: ["SALLA_SHOP"], current_source_key: "SALLA_SHOP",
+  progress: {done: 0, total: 1},
+  fetch: {requests: 1030, expected: 2461, basis: "estimate", as_of: "2026-07-29",
+          unknown_sources: [], sources: {}},
+  queued_behind: null, created_at: "2026-07-30T10:00:00Z", finished_at: null,
 };
 
 test("the working job wins the mini-player, not whichever was entered last", () => {
@@ -126,12 +150,20 @@ test("the controls offered are the ones set_control can honour", () => {
   assert.deepEqual(controlsFor({status: "requires_review"}), ["cancel"]);
 });
 
-test("progress is counted in the unit the job measures", () => {
-  // `requests`/`expected` IS THE SHAPE THE ENGINE SERVES. Reading it as `done`/`total`
-  // -- which is `progress`'s shape -- drew nothing at all, and the DOM guard is what
-  // caught that: an assumed payload is the same defect as an assumed file path.
-  assert.equal(progressLine(WORKING), "620 of 938 requests");
-  assert.equal(progressLine(PAUSED), "300 of 909 requests");
+test("progress is counted in the unit the job says it counted", () => {
+  // THE UNIT COMES FROM THE PAYLOAD AND NOT FROM THIS FILE. `_job_view` declares one
+  // per kind, because the runner that wrote the number is the only thing that knows
+  // what it counted. These two said `source(s)` until 2026-09-10 -- "469 of 469
+  // source(s)" for 469 page pairs, against twelve registered sources.
+  assert.equal(progressLine(WORKING), "620 of 938 page(s)");
+  assert.equal(progressLine(PAUSED), "300 of 909 page pair(s)");
+  // A PRICE CRAWL FILLS `fetch`, and requests win when they are there: `progress` is
+  // 0/1 for its whole duration, which is the 0% he watched for 18 minutes while 1,030
+  // requests succeeded behind it. Its total is an ESTIMATE, so it wears the tilde —
+  // the two facts belong on one fixture rather than on two.
+  assert.equal(progressLine(PRICE), "1,030 of ~2,461 requests");
+  // AND A KIND THAT DECLARES NO UNIT COUNTS SOURCES, which is what the pair meant
+  // before any kind declared anything.
   assert.equal(progressLine({progress: {done: 0, total: 1}, fetch: {}}),
     "0 of 1 source(s)", "the source count is the fallback and it was dropped");
   assert.equal(progressLine({}), "", "a job with nothing measured was given a figure");
@@ -160,6 +192,7 @@ test("an estimated total wears a tilde and a counted one does not", () => {
 
 test("a job with no denominator gets no bar rather than a bar at zero", () => {
   assert.equal(progressFraction(WORKING), 620 / 938);
+  assert.equal(progressFraction(PRICE), 1030 / 2461);
   assert.equal(progressFraction({}), null,
     "a bar drawn at 0% says nothing has happened, which may be false");
   assert.equal(progressFraction({fetch: {requests: 41, expected: null}}), null,

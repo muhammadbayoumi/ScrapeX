@@ -1184,6 +1184,15 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     three would be wrong for two of them. What is shared is that a re-entry must be said
     at all, and with the number he watched disappear.
 
+    AND IT NAMES NO CAUSE, WHICH IS THE CORRECTION A REVIEW EARNED. The line said
+    "re-entered after a restart", and `started_at` cannot tell a restart from a resume:
+    `set_control(RESUME)` sets the status to QUEUED and touches neither `started_at` nor
+    `progress_done`, so a pause he ended himself fired a sentence blaming a restart that
+    never happened. This PR makes that the COMMON path -- `controlsFor` draws Resume on
+    every paused row of a 173-row list -- and `jobWaitingLine` two files away refuses to
+    name a job it cannot identify for exactly the same reason. So the line states what it
+    knows: this pass is not the first, and here is where the last one got to.
+
     Returns what the previous pass had reached, or 0 when this is a first entry and
     nothing was said.
     """
@@ -1192,8 +1201,8 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     done = int(job.get("progress_done") or 0)
     append_log(
         conn, int(job["job_id"]),
-        "re-entered after a restart, so this pass starts again from the beginning"
-        + (f" — the previous pass had reached {done:,} {unit}" if done else "")
+        "starting again from the beginning: this is not this job's first pass"
+        + (f", and the last one had reached {done:,} {unit}" if done else "")
         + f". {consequence}",
         # A WARNING, LIKE THE SWEEP LINE IT FOLLOWS. It is news rather than a fault, and
         # `orphan sweep: ... is now queued` is the line immediately above it in his log.

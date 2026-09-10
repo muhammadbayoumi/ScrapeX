@@ -927,7 +927,7 @@ def test_a_re_entered_sweep_says_so_and_says_what_it_costs(warehouse, monkeypatc
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
-    assert "re-entered after a restart" in said, (
+    assert "not this job's first pass" in said, (
         f"the sweep reset his bar to zero and said nothing: {said}")
     assert "620 page(s)" in said, (
         f"the number he watched disappear is not in the line: {said}")
@@ -949,4 +949,46 @@ def test_a_first_sweep_says_nothing_about_a_restart(warehouse, monkeypatch):
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
-    assert "re-entered" not in said, said
+    assert "not this job's first pass" not in said, said
+
+
+def test_the_route_says_what_each_kind_counted(served):
+    """A NUMBER WITHOUT ITS UNIT IS A NUMBER THE PANEL HAS TO GUESS, and it guessed
+    wrong: the Jobs page printed "469 of 469 source(s)" for 469 page pairs, against
+    twelve registered sources.
+
+    MEASURED ON HIS LIVE ENGINE, 2026-09-10: `GET /api/jobs` returns
+    `fetch.requests = 0` and `fetch.expected = null` for every `profile_crawl` and
+    `dataset_interpret` job -- neither runner is among `record_source_fetch`'s callers --
+    so `progress` is the only pair a reader has, and it named nothing.
+
+    THE RUNNER THAT WROTE THE NUMBER IS THE ONLY THING THAT KNOWS WHAT IT COUNTED, which
+    is why the word is declared on the wire and not guessed in the panel.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        sweep = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+        interpret = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+        crawl = jobs.create_job(conn, [SITE])
+        conn.commit()
+    finally:
+        conn.close()
+
+    listed = {job["job_ref"]: job for job in client.get("/api/jobs").json()["jobs"]}
+
+    assert listed[sweep]["progress"]["unit"] == "page(s)", (
+        f"a profile sweep counts pages and says so: {listed[sweep]['progress']}")
+    assert listed[interpret]["progress"]["unit"] == "page pair(s)", (
+        f"an interpretation counts page PAIRS -- 469 pairs is 938 stored readings and "
+        f"neither is the other: {listed[interpret]['progress']}")
+    # AND A KIND THAT COUNTS SOURCES DECLARES NOTHING, which is what the pair meant
+    # before any kind declared anything. Adding a word here would be a second guess.
+    assert "unit" not in listed[crawl]["progress"], (
+        f"a price crawl counts sources and was given a unit: {listed[crawl]['progress']}")
+
+    # THE FETCH SIDE IS EMPTY FOR BOTH, which is the fact that makes the unit
+    # load-bearing rather than decorative.
+    for ref in (sweep, interpret):
+        assert not listed[ref]["fetch"]["requests"], listed[ref]["fetch"]
+        assert not listed[ref]["fetch"]["expected"], listed[ref]["fetch"]
