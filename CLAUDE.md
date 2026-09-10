@@ -57,6 +57,9 @@ active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are name
   the control.
 - **Diagnose, confirm, then fix.** Prove the cause with evidence, ask before editing.
 - **Answer a study with counts from live data**, not adjectives.
+- **He does not write code; advise before you comply.** An instruction that would worsen
+  the result gets the objection, its evidence and a better option — or a question, where
+  his reason is not visible. Then his word decides. Silent compliance is the failure.
 - **His decisions are his**: an un-computable mapping, a schema change, a released tag.
   Offer options with the measured cost of each.
 - **He asks in Arabic and expects Arabic back.** Code, comments, commits and PR prose
