@@ -449,8 +449,15 @@ HIS_JOBS = [
     {"job_ref": "job_5155b86ba455", "job_kind": "dataset_interpret", "status": "failed",
      "run_mode": "update", "source_keys": ["muqawil_org"],
      "current_source_key": "muqawil_org", "stage": None,
+     # NO UNIT AND NO FETCH, and both are the producer's doing rather than an
+     # omission. `record_source_fetch`'s callers are `capture`, `directoryjob` and the
+     # price crawl -- `datasetjob` is not among them and does not import `capture`, so
+     # `fetch` is empty for this kind by construction. `progress` is the seed
+     # `create_job` wrote (one source), because an interpretation that found no pairs
+     # to read never reached the line that replaces it -- and `_job_view` names a unit
+     # only over the runner's own number.
      "progress": {"done": 0, "total": 1},
-     "fetch": {"requests": 41, "expected": None, "basis": None, "as_of": None,
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
                "unknown_sources": ["muqawil_org"], "sources": {}},
      "queued_behind": None, "counters": {}, "created_at": "2026-09-07T14:31:42Z",
      "started_at": "2026-09-07T14:31:42Z", "finished_at": "2026-09-07T14:36:31Z",
@@ -530,11 +537,19 @@ def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel
     interpret = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
     assert "300 of 909 page pair(s)" in interpret.inner_text(), interpret.inner_text()
 
+    # AND A PAIR THAT NAMES NOTHING IS STILL READ AS SOURCES, which is the other half
+    # of the same fix. This queued sweep carries the seed `create_job` wrote -- one
+    # SOURCE, nothing to do with pages -- because no runner has entered it yet, and
+    # `_job_view` withholds the kind's unit until its own number replaces the seed. So
+    # the fallback is what this row says, and here the fallback is true.
+    queued = page.locator('#jobs-list .job-row[data-job="job_c7d0f31ab244"]')
+    assert queued.count() == 1, "the queued job was not drawn at all"
+    assert "0 of 1 source(s)" in queued.inner_text(), (
+        f"an unlabelled pair is no longer read as sources: {queued.inner_text()!r}")
+
     # THE NO-DENOMINATOR CASE IS ASSERTED IN `jobsview.test.mjs` AND NOT HERE, because
     # no fixture in `HIS_JOBS` carries that shape and inventing one would be the same
-    # mistake this test was written to answer: `progress_total` is `NOT NULL DEFAULT 0`,
-    # so a job states no total only before its runner has entered, and none of these
-    # rows is in that state.
+    # mistake this test was written to answer.
 
 
 def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
