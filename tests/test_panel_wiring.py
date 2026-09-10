@@ -353,7 +353,7 @@ def test_every_screen_loads_what_it_shows(screen, loaders):
 #: one commit away from the same fate.
 PANEL_MODULES = ["engine.js", "transport.js", "version.js", "releases.js",
                  "identity.js", "startup.js", "drive.js", "sheets.js",
-                 "bundleview.js"]
+                 "bundleview.js", "jobsview.js"]
 
 
 @pytest.mark.parametrize("module", PANEL_MODULES)
@@ -404,9 +404,15 @@ def test_no_two_inlined_modules_declare_the_same_top_level_name():
     Checked here rather than left to the harness because the failure this
     produces is unreadable at the point it happens, and one name is enough.
     """
+    # `app.js` AND `jobsview.js` WERE MISSING, and the omission cost an afternoon in
+    # #821: `app.js` already declared `waitingLine`, so the new module's `waitingLine`
+    # was silently overridden in the harness and every job's waiting line came back
+    # empty -- in the test only. That is this guard's own subject, and it could not see
+    # either file. `app.js` is the one every other module shares a scope with, so it is
+    # the one that matters most.
     modules = ["startup.js", "transport.js", "version.js", "releases.js",
                "identity.js", "accounts.js", "drive.js", "sheets.js",
-               "bundleview.js", "engine.js"]
+               "bundleview.js", "engine.js", "jobsview.js", "app.js"]
     seen: dict[str, str] = {}
     clashes: list[str] = []
     for name in modules:

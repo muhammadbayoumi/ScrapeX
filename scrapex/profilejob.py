@@ -283,7 +283,9 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # that is stable across a pause and a re-pick.
     run_ref = f"job-{job_ref}"
 
-    # BEFORE THE RESET -- issue 796, and the same silence sat in all three runners.
+    # ISSUE 796, and the same silence sat in all three runners. Above the reset for
+    # readability, not for correctness: the count comes from the `job` dict, and the
+    # UPDATE below writes the row.
     jobs.note_a_re_entry(
         conn, job, unit="page(s)", source_key=source_key,
         consequence=f"The pages already stored under {run_ref} are skipped rather "

@@ -211,8 +211,9 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     else:
         run_ref, pages = latest_crawl_run_ref(conn, source_key)
 
-    # BEFORE THE RESET -- issue 796. `note_a_re_entry` reports `progress_done` as it
-    # stands and the write below zeroes it, so the order is the contract.
+    # ISSUE 796. Above the reset because that is the order the sentence describes -- not
+    # because the order is load-bearing: `note_a_re_entry` reads the `job` dict fetched
+    # above, and the UPDATE below writes the row, not the dict.
     jobs.note_a_re_entry(
         conn, job, unit="page pair(s)", source_key=source_key,
         consequence="Every pair is read from disk again and the site is asked for "
