@@ -126,11 +126,11 @@ numbers. **No new `R-`/`REQ-`/`OP-` number is issued** — GitHub assigns the nu
 
 ## Two traps that cost an afternoon each
 
-**Several live checkouts, and both imports and edits default to the main one.** `scrapex`
-is pip-installed editable against `C:\Users\User01\source\repos\ScrapeX`, and the worktrees
-under `.claude\worktrees\` are full checkouts too. Derive every path from the worktree
-root, and in a scratch script assert on a **symbol you just added** — `__file__` catches a
-misdirected import, never a misdirected edit.
+**Several live checkouts, sharing one `.git`.** `scrapex` is pip-installed editable
+against `C:\Users\User01\source\repos\ScrapeX`; `.claude\worktrees\` holds more. Derive
+paths from the worktree root, and assert on a **symbol you just added** — `__file__`
+catches a misdirected import, never a misdirected edit. A shallow fetch is repo-WIDE:
+restore `.git/shallow` too, or the next session finds no merge base with `main`.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
