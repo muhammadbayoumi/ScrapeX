@@ -12,7 +12,9 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
-import { liveJob, rowsFrom, statusWords, summariseJobs } from "./jobsview.js";
+import {
+  liveJob, progressFraction, progressLine, rowsFrom, statusWords, summariseJobs,
+} from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
@@ -4830,15 +4832,32 @@ function renderLogs(entries, meta) {
 
 // The mini-player's own progress figure, drawn from the SAME fetch progress the
 // Activity bar uses — never the old sites-percentage that read 0% all run.
+/**
+ * How far along the mini-player's job is — through `jobsview`, not a second opinion.
+ *
+ * IT READ `fetch` ALONE AND THAT IS ONLY HALF THE JOBS. Measured on his live engine
+ * 2026-09-10: every `profile_crawl` and `dataset_interpret` returns
+ * `fetch.requests = 0` and `fetch.expected = null`, because neither runner is among
+ * `record_source_fetch`'s callers — they write their count into `progress` instead. So
+ * this helper drew "starting…" for a sweep at 620/938 and an indeterminate bar for as
+ * long as it ran. That is the "0% for 18 minutes" complaint one kind over, and it was
+ * invisible because both suites fed these kinds a `fetch` no producer emits.
+ *
+ * The two surfaces now answer from `progressLine` and `progressFraction`, so a job
+ * cannot read 620/938 on one screen and "starting…" on the other. The mini-player keeps
+ * its own SHAPE — a percentage and a bar that can be indeterminate — because that is
+ * what a one-line player has room for; what it stops keeping is its own arithmetic.
+ */
 function miniProgress(job) {
-  const f = job.fetch || {};
-  if (f.expected) {
-    const pct = Math.min(100, Math.round((f.requests / f.expected) * 100));
-    return { pct, text: `${pct}% · ${fmtCount(f.requests)}/${fmtCount(f.expected)}`,
-             indeterminate: false };
+  const text = progressLine(job);
+  const fraction = progressFraction(job);
+  if (fraction === null) {
+    // NO DENOMINATOR IS NOT ZERO. An indeterminate bar says "running, total unknown",
+    // which is true; a bar at 0% says nothing has happened, which may be false.
+    return { pct: 100, text: text || "starting…", indeterminate: true };
   }
-  return { pct: 100, text: f.requests ? `${fmtCount(f.requests)} requests` : "starting…",
-           indeterminate: true };
+  const pct = Math.round(fraction * 100);
+  return { pct, text: `${pct}% · ${text}`, indeterminate: false };
 }
 
 function renderMiniplayer(job, queued) {

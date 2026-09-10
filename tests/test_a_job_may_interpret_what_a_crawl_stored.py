@@ -584,7 +584,7 @@ def test_a_re_entered_interpretation_says_so_through_the_runner(conn, monkeypatc
     datasetjob.run_dataset_interpret_job_once(conn, ref)
 
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
-    assert "re-entered after a restart" in said, (
+    assert "not this job's first pass" in said, (
         f"the runner reset his bar to zero and said nothing: {said}")
     assert "300 page pair(s)" in said, (
         f"the number he watched disappear is not in the line: {said}")
@@ -602,4 +602,4 @@ def test_a_first_interpretation_says_nothing_about_a_restart(conn, monkeypatch):
     datasetjob.run_dataset_interpret_job_once(conn, ref)
 
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
-    assert "re-entered" not in said, said
+    assert "not this job's first pass" not in said, said

@@ -397,31 +397,31 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
 HIS_JOBS = [
     {"job_ref": "job_1a95d29ebf89", "job_kind": "profile_crawl", "status": "preparing",
      "run_mode": "update", "source_keys": ["muqawil_org"], "current_source_key": None,
-     "stage": None, "progress": {"done": 0, "total": 1},
-     "fetch": {"requests": 0, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 0, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "stage": None, "progress": {"done": 0, "total": 938, "unit": "page(s)"},
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None, "unknown_sources": [], "sources": {}}, "queued_behind": None,
      "counters": {}, "created_at": "2026-09-07T10:33:44Z", "started_at": None,
      "finished_at": None, "last_heartbeat_at": None, "error_summary": None},
     {"job_ref": "job_034c51a29deb", "job_kind": "profile_crawl", "status": "running",
      "run_mode": "update", "source_keys": ["muqawil_org"],
      "current_source_key": "muqawil_org", "stage": "fetching",
-     "progress": {"done": 0, "total": 1},
-     "fetch": {"requests": 620, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 620, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "progress": {"done": 620, "total": 938, "unit": "page(s)"},
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None, "unknown_sources": [], "sources": {}}, "queued_behind": None,
      "counters": {}, "created_at": "2026-09-07T10:33:25Z",
      "started_at": "2026-09-07T10:33:25Z", "finished_at": None,
      "last_heartbeat_at": "2026-09-07T10:55:00Z", "error_summary": None},
     {"job_ref": "job_0212decca681", "job_kind": "dataset_interpret", "status": "paused",
      "run_mode": "update", "source_keys": ["muqawil_org"],
      "current_source_key": "muqawil_org", "stage": None,
-     "progress": {"done": 0, "total": 1},
-     "fetch": {"requests": 300, "expected": 909, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 300, "expected": 909, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "progress": {"done": 300, "total": 909, "unit": "page pair(s)"},
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None, "unknown_sources": [], "sources": {}}, "queued_behind": None,
      "counters": {}, "created_at": "2026-09-06T14:01:14Z",
      "started_at": "2026-09-06T14:01:15Z", "finished_at": None,
      "last_heartbeat_at": "2026-09-06T14:07:16Z", "error_summary": None},
     {"job_ref": "job_7b891d5b67ac", "job_kind": "profile_crawl", "status": "completed",
      "run_mode": "update", "source_keys": ["muqawil_org"],
      "current_source_key": "muqawil_org", "stage": None,
-     "progress": {"done": 1, "total": 1},
-     "fetch": {"requests": 938, "expected": 938, "basis": "declared", "as_of": None, "unknown_sources": [], "sources": {"muqawil_org": {"state": "fetching", "requests": 938, "expected": 938, "basis": "declared", "as_of": None, "not_modified": 0}}}, "queued_behind": None,
+     "progress": {"done": 938, "total": 938, "unit": "page(s)"},
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None, "unknown_sources": [], "sources": {}}, "queued_behind": None,
      "counters": {}, "created_at": "2026-09-07T13:53:17Z",
      "started_at": "2026-09-07T13:53:18Z", "finished_at": "2026-09-07T14:23:50Z",
      "last_heartbeat_at": "2026-09-07T14:23:50Z", "error_summary": None},
@@ -471,6 +471,54 @@ HIS_JOBS = [
 ]
 
 JOBS_TAB = 'nav.side-rail button[data-view="jobs"]'
+
+
+def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel):
+    """THE GUARD THE WRONG UNIT NEEDED, AND ITS ABSENCE IS WHY THAT SHIPPED.
+
+    A merge-session panel found the page printing "469 of 469 source(s)" for 469 page
+    pairs -- two orders of magnitude out against twelve registered sources -- and nothing
+    caught it because no test read a RENDERED row. `git grep` over the head for
+    `job-bar`, `aria-valuenow` and a progress string hit only the pure-function
+    assertions in `jobsview.test.mjs`, which were themselves fed a `fetch` no producer
+    emits.
+
+    So this reads the row: its label, the number it prints, the bar's own value, and the
+    unit each kind declares. `_job_view` is where that word comes from -- the runner that
+    wrote the number is the only thing that knows what it counted.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    sweep = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    said = sweep.inner_text()
+    assert "Profile fetch" in said and "muqawil_org" in said, (
+        f"the row does not name the kind and the source: {said!r}")
+    assert "620 of 938 page(s)" in said, (
+        f"the row states its progress in the wrong unit, or not at all: {said!r}")
+    assert "source(s)" not in said, (
+        f"a 938-page sweep is counted in sources, against 12 registered ones: {said!r}")
+
+    # THE BAR CARRIES ITS VALUE, not only a width -- issue 725 is this omission on the
+    # crawl bar, where a screen reader was told there was a bar and never what it read.
+    bar = sweep.locator(".job-bar")
+    assert bar.count() == 1, "the row drew no bar for a job with a denominator"
+    assert bar.get_attribute("aria-valuenow") == "66", (
+        f"the bar's value is not the fraction it draws: "
+        f"{bar.get_attribute('aria-valuenow')}")
+    assert bar.get_attribute("role") == "progressbar"
+
+    # AND THE OTHER KIND COUNTS SOMETHING ELSE, which is the whole point of asking the
+    # payload rather than assuming one word for every job.
+    interpret = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
+    assert "300 of 909 page pair(s)" in interpret.inner_text(), interpret.inner_text()
+
+    # THE NO-DENOMINATOR CASE IS ASSERTED IN `jobsview.test.mjs` AND NOT HERE, because
+    # no fixture in `HIS_JOBS` carries that shape and inventing one would be the same
+    # mistake this test was written to answer: `progress_total` is `NOT NULL DEFAULT 0`,
+    # so a job states no total only before its runner has entered, and none of these
+    # rows is in that state.
 
 
 def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
