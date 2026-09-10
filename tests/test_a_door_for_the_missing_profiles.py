@@ -972,6 +972,26 @@ def test_the_route_says_what_each_kind_counted(served):
         interpret = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
         crawl = jobs.create_job(conn, [SITE])
         conn.commit()
+
+        # THE SEED FIRST, BECAUSE THE UNIT MUST NOT NAME IT. `create_job` writes
+        # `progress_total = len(source_keys)`, so every job above is sitting at 0 of 1
+        # SOURCE -- true, and nothing to do with pages. Declaring the kind's unit here
+        # made a queued 938-page sweep read "0 of 1 page(s)".
+        queued = {job["job_ref"]: job
+                  for job in client.get("/api/jobs").json()["jobs"]}
+        for ref, kind in ((sweep, "a sweep"), (interpret, "an interpretation")):
+            assert queued[ref]["progress"] == {"done": 0, "total": 1}, (
+                f"{kind} nobody has picked up yet names a unit over the source count "
+                f"the row was seeded with: {queued[ref]['progress']}")
+
+        # NOW THE RUNNER'S OWN NUMBERS, which is the only state the unit describes.
+        # `profilejob` writes `progress_total = wanted * 2` at the moment it goes
+        # PREPARING; `datasetjob` writes the pair count at its first closed pair.
+        jobs._update(conn, jobs.get_job(conn, sweep)["job_id"],
+                     progress_done=620, progress_total=938)
+        jobs._update(conn, jobs.get_job(conn, interpret)["job_id"],
+                     progress_done=300, progress_total=909)
+        conn.commit()
     finally:
         conn.close()
 
@@ -992,3 +1012,8 @@ def test_the_route_says_what_each_kind_counted(served):
     for ref in (sweep, interpret):
         assert not listed[ref]["fetch"]["requests"], listed[ref]["fetch"]
         assert not listed[ref]["fetch"]["expected"], listed[ref]["fetch"]
+
+    # AND THE NUMBERS SURVIVED THE WORD. A unit that arrived by rewriting the pair
+    # would pass every assertion above and tell him the wrong thing.
+    assert listed[sweep]["progress"]["done"] == 620, listed[sweep]["progress"]
+    assert listed[sweep]["progress"]["total"] == 938, listed[sweep]["progress"]

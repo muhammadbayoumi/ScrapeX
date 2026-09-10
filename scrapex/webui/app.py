@@ -4384,6 +4384,23 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     after the panel was closed."""
     total = job.get("progress_total") or 0
     done = job.get("progress_done") or 0
+    # WHOSE NUMBER THIS IS, WHICH DECIDES WHETHER ITS UNIT MAY BE NAMED AT ALL.
+    #
+    # `create_job` seeds `progress_total` with the number of SOURCES, and that is a
+    # true statement about a job nobody has picked up yet: 0 of 1 source. The runner
+    # replaces it with its own count later -- `profilejob` in the same UPDATE that
+    # sets PREPARING, `datasetjob` not until its first page pair closes, and never at
+    # all for an interpretation that finds no pairs to read.
+    #
+    # So a kind's unit describes the RUNNER's number and is a lie about the seed:
+    # declared unconditionally, a queued sweep read "0 of 1 page(s)" for a job that
+    # was about to fetch 938. Naming the unit only once the seed is gone leaves the
+    # queued row saying "0 of 1 source(s)", which is what that pair still means.
+    #
+    # A MULTI-SOURCE JOB WHOSE RUNNER HAPPENS TO COUNT EXACTLY AS MANY PAGES AS IT HAS
+    # SOURCES, at zero done, is read as unclaimed for that one poll. Both numbers are
+    # the same there, so the row states the right figure under the wider word.
+    claimed = bool(done) or total != len(job.get("source_keys") or [])
     return {
         "job_ref": job["job_ref"],
         "job_kind": job.get("job_kind", "crawl"),
@@ -4416,7 +4433,7 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
             "done": done,
             "total": total,
             **({"unit": PROGRESS_UNITS[job.get("job_kind")]}
-               if job.get("job_kind") in PROGRESS_UNITS else {}),
+               if claimed and job.get("job_kind") in PROGRESS_UNITS else {}),
         },
         # PAGES fetched against a stated denominator — what the bar draws.
         "fetch": _fetch_progress(job),
