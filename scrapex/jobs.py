@@ -1169,9 +1169,14 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     that this is a re-entry is a value they already read and discard. This turns it into
     a sentence.
 
-    READ BEFORE THE RESET, which is the whole contract of this function: it reports
-    `progress_done` as it stands, and the caller zeroes it immediately afterwards. Called
-    after that write it would say every job had done nothing.
+    THE COUNT COMES FROM THE SNAPSHOT HANDED IN, NOT FROM THE ROW, and that is what makes
+    it safe. `_as_job` returns a plain `dict(row)` and `_update` only issues an UPDATE
+    against `crawl_job`, so the caller's own `progress_done = 0` never reaches this dict
+    and the number survives it whichever order the two run in. The call still sits above
+    the reset at both sites because that is the order the sentence describes; what would
+    actually break it is re-reading the row here, which is exactly what
+    `test_the_count_survives_the_callers_reset` pins by doing the reset FIRST and still
+    expecting the number back.
 
     `consequence` IS THE CALLER'S AND NOT THIS FUNCTION'S. What a re-entry COSTS differs
     by kind -- an interpretation re-reads pages off disk and asks the site for nothing, a

@@ -231,10 +231,13 @@ def test_a_re_entry_says_so_and_names_what_the_last_pass_reached(conn):
         f"the caller's own consequence was dropped: {said}")
 
 
-def test_it_is_read_before_the_reset_and_not_after(conn):
-    """THE ORDER IS THE CONTRACT. Called after the entry write -- which zeroes
-    `progress_done` -- it would report every re-entry as having reached nothing, which
-    is the same silence with an extra line."""
+def test_the_count_survives_the_callers_reset(conn):
+    """THE SNAPSHOT IS THE CONTRACT, NOT THE ORDER. `note_a_re_entry` reads the `job`
+    dict it was handed; `_update` writes the row and cannot reach that dict. So the
+    number stands whichever side of the caller's `progress_done = 0` the call sits on --
+    and this drives the reset FIRST to prove it. What this refuses is a future version
+    that re-reads the row, which would report every re-entry as having reached nothing:
+    the same silence issue 796 is about, with an extra line."""
     ref = _job(conn, JobStatus.QUEUED)
     _entered(conn, ref, reached=620)
     job = jobs.get_job(conn, ref)

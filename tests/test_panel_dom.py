@@ -441,6 +441,49 @@ HIS_JOBS = [
      "counters": {}, "created_at": "2026-09-07T13:53:17Z",
      "started_at": "2026-09-07T13:53:18Z", "finished_at": "2026-09-07T14:23:50Z",
      "last_heartbeat_at": "2026-09-07T14:23:50Z", "error_summary": None},
+    # A FAILED JOB, AND THERE WAS NOT ONE HERE UNTIL REVIEW. 28 of his 163 were failures
+    # -- the second-largest group and the rows the page is opened to find -- and no
+    # fixture in this PR drew one. So `error_summary`'s paragraph was never rendered by
+    # any test, and neither was the failed badge, which is how `statusTone` came to
+    # return a class the kit does not define and nothing noticed.
+    {"job_ref": "job_5155b86ba455", "job_kind": "dataset_interpret", "status": "failed",
+     "run_mode": "update", "source_keys": ["muqawil_org"],
+     "current_source_key": "muqawil_org", "stage": None,
+     "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 41, "expected": None, "basis": None, "as_of": None,
+               "unknown_sources": ["muqawil_org"], "sources": {}},
+     "queued_behind": None, "counters": {}, "created_at": "2026-09-07T14:31:42Z",
+     "started_at": "2026-09-07T14:31:42Z", "finished_at": "2026-09-07T14:36:31Z",
+     "last_heartbeat_at": "2026-09-07T14:36:31Z",
+     "error_summary": "the source refused 41 pages in a row"},
+    # CANCELLED IS THE COMPARISON THAT MAKES THE FAILED ONE MEAN ANYTHING. `cancelled`
+    # carries no tone by design, so a failed job wearing an undefined class rendered
+    # identically to this row -- which is the defect stated exactly.
+    {"job_ref": "job_925080aad843", "job_kind": "directory_crawl", "status": "cancelled",
+     "run_mode": "update", "source_keys": ["muqawil_org"],
+     "current_source_key": "muqawil_org", "stage": None,
+     "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 3138, "expected": None, "basis": None, "as_of": None,
+               "unknown_sources": [], "sources": {}},
+     "queued_behind": None, "counters": {}, "created_at": "2026-09-05T09:12:03Z",
+     "started_at": "2026-09-05T09:12:04Z", "finished_at": "2026-09-05T13:20:41Z",
+     "last_heartbeat_at": "2026-09-05T13:20:41Z", "error_summary": None},
+    # A QUEUED JOB CARRYING `_queued_behind`'s REAL SHAPE, copied from the fixture the
+    # Run screen's queue guard already uses. There was no queued job here at all, and the
+    # node guard invented a shape no producer emits -- so the page's second reader of
+    # this payload was dead against the engine and both suites agreed it was fine.
+    {"job_ref": "job_c7d0f31ab244", "job_kind": "profile_crawl", "status": "queued",
+     "run_mode": "update", "source_keys": ["balady_gov_sa"],
+     "current_source_key": None, "stage": None,
+     "progress": {"done": 0, "total": 1},
+     "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
+               "unknown_sources": [], "sources": {}},
+     "queued_behind": {"position": 2, "capacity": 1, "running_count": 1,
+                       "running": [{"job_ref": "job_034c51a29deb",
+                                    "source_keys": ["muqawil_org"]}],
+                       "starting_now": False},
+     "counters": {}, "created_at": "2026-09-07T10:40:02Z", "started_at": None,
+     "finished_at": None, "last_heartbeat_at": None, "error_summary": None},
 ]
 
 JOBS_TAB = 'nav.side-rail button[data-view="jobs"]'
@@ -456,10 +499,10 @@ def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
     page.wait_for_timeout(300)
 
     rows = page.locator("#jobs-list .job-row")
-    assert rows.count() == 4, (
-        f"{rows.count()} of 4 jobs drawn -- a finished job is still unreachable")
+    assert rows.count() == 7, (
+        f"{rows.count()} of 7 jobs drawn -- a finished job is still unreachable")
     said = page.locator("#jobs-summary").inner_text()
-    assert "4 jobs" in said, said
+    assert "7 jobs" in said, said
     assert "1 completed" in said and "1 paused" in said, (
         f"the summary does not say what state they are in: {said!r}")
     # THE SETTLED ONE IS THERE, which is the whole request.
@@ -483,6 +526,7 @@ def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
         f"however many rows a stub happens to answer with: {asked}")
     assert all("limit=200" in one for one in whole), (
         f"the page asked for a handful rather than the list: {whole}")
+    assert not page.js_errors
 
 
 def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_panel):
@@ -502,6 +546,16 @@ def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_pane
         f"it named the job holding the worker, which the payload cannot tell it: {said!r}")
     paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').inner_text()
     assert "resume it" in paused, paused
+    # AND IT IS NOT WEARING THE "THIS ONE IS MOVING" DOT. The dot was drawn from "holds a
+    # worker", which includes `preparing` -- so this row said `preparing`, said it may be
+    # blocked, and lit a dot announcing "running" to a screen reader, all at once. The
+    # negative was never asserted although the row was in hand.
+    assert blocked.locator(".job-live").count() == 0, (
+        "the job that sat blocked for 33 minutes is drawn as the one doing the work")
+    assert page.locator(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"] .job-live').count() == 1, (
+        "the job actually running lost its dot")
+    assert not page.js_errors
 
 
 def test_the_controls_sit_on_the_job_they_belong_to(open_panel):
@@ -537,6 +591,7 @@ def test_the_controls_sit_on_the_job_they_belong_to(open_panel):
     assert reached, (
         f"Pause did not reach the job whose row it sits on: {writes}")
     assert reached[-1]["body"] == {"control": "pause"}, reached[-1]
+    assert not page.js_errors
 
 
 def test_the_miniplayer_adopts_the_job_doing_the_work(open_panel):
@@ -548,6 +603,199 @@ def test_the_miniplayer_adopts_the_job_doing_the_work(open_panel):
     drawn = page.locator("#miniplayer").inner_text()
     assert "620" in drawn, (
         f"the mini-player is still drawing whichever job was entered last: {drawn!r}")
+    assert not page.js_errors
+
+
+def test_the_jobs_reload_button_actually_reloads(open_panel):
+    """A BUTTON THAT CANNOT WORK IS WORSE THAN NO BUTTON, and this one shipped drawn
+    and wired to nothing: `jobs-reload` appeared exactly once in the repository, in the
+    markup that draws it. The page has no poll, so it was also the ONLY refresh -- while
+    the mini-player above it repolls every 1.5s, leaving a live player on a frozen list.
+
+    CI could not see it. Every button guard in this file is per-button, and this button
+    arrived without one; nothing checks that a drawn control is reachable at all."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.click("#jobs-reload")
+    page.wait_for_timeout(300)
+
+    again = [one for one in page.evaluate("() => window.__calls")
+             if one.startswith("/api/jobs?") and "active_only" not in one]
+    assert again, (
+        "Reload asked the engine for nothing -- the button is drawn and unwired, which "
+        "is what it did when it shipped")
+    assert page.locator("#jobs-list .job-row").count() == 7
+
+
+def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
+    """NO SILENT FAILURES. A 409 is the answer when the job settled between the draw
+    and the press, and `pressJobControl` wrote that sentence and then called `loadJobs`,
+    whose success path cleared the very node it had written. The message lived for one
+    round trip. A caught error erased by the same handler is a swallowed error."""
+    page = open_panel(jobs=HIS_JOBS, control_status=409)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    working.locator("summary").click()
+    page.wait_for_timeout(150)
+    working.locator("button").first.click()
+    page.wait_for_timeout(400)
+
+    said = page.locator("#jobs-blocked").inner_text()
+    assert "refused" in said, (
+        f"the refusal was written and then wiped by the reload: {said!r}")
+    # AND THE LIST WAS STILL RELOADED, because a 409 means the row on screen is the
+    # stale one that offered the button.
+    assert page.locator("#jobs-list .job-row").count() == 7
+
+
+def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
+    """THE CONTROLS SIT INSIDE THE ROW, so a blind `replaceChildren` shut the row he had
+    just pressed a button in, discarded the log it had fetched, and dropped keyboard
+    focus to <body> in a list of 173. That undoes the interaction this page is built
+    around -- `renderLogs` already records that a blind rebuild "destroys the selection
+    inside it"."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    working.locator("summary").click()
+    page.wait_for_timeout(300)
+    before = working.locator(".job-log").inner_text()
+    assert before, "the log did not load, so this guard would prove nothing"
+
+    working.locator("button").first.click()
+    page.wait_for_timeout(400)
+
+    reopened = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    assert reopened.evaluate("row => row.open"), (
+        "the row he pressed a button in closed under him")
+    assert reopened.locator(".job-log").inner_text() == before, (
+        "the fetched log was thrown away and has to be bought again")
+    focused = page.evaluate(
+        "() => document.activeElement && document.activeElement.tagName")
+    assert focused == "BUTTON", (
+        f"focus fell out of the row on a keyboard-operable page: {focused}")
+
+
+def test_a_failed_job_is_the_one_row_he_can_pick_out(open_panel):
+    """28 OF HIS 163 WERE FAILURES and they drew as plain grey, identical to the 23
+    cancelled ones and to a status this panel has never heard of.
+
+    `statusTone` returned `err`, which is a MESSAGE tone here and not a badge one:
+    `.badge.err` is not in the kit, `.err` sets only a colour 550 lines before
+    `.chip, .badge` sets `color: var(--muted)` at equal specificity, so the cascade won.
+    Nothing caught it because no fixture in this PR held a failed job at all -- so the
+    badge and the `error_summary` paragraph were rendered by no test."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    failed = page.locator('#jobs-list .job-row[data-job="job_5155b86ba455"]')
+    assert failed.count() == 1
+    tone = failed.locator(".badge").first.evaluate(
+        "(el) => getComputedStyle(el).backgroundColor")
+    plain = page.evaluate(
+        """() => {
+            const probe = document.createElement("span");
+            probe.className = "badge";
+            document.body.appendChild(probe);
+            const colour = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return colour;
+        }""")
+    assert tone != plain, (
+        f"the failed badge is the plain badge colour {plain}, so the rows he opens this "
+        "page to find draw no eye at all")
+    # AND NOT THE SAME AS CANCELLED, which is the defect stated exactly: those were the
+    # two he could not tell apart.
+    cancelled = page.locator('#jobs-list .job-row[data-job="job_925080aad843"]')
+    assert cancelled.locator(".badge").first.evaluate(
+        "(el) => getComputedStyle(el).backgroundColor") == plain, (
+        "cancelled carries no tone by design; if it gained one this guard proves nothing")
+
+    # THE REASON IS ON THE ROW. `error_summary` had no assertion anywhere.
+    failed.locator("summary").click()
+    page.wait_for_timeout(150)
+    assert "refused 41 pages" in failed.inner_text(), (
+        f"a failed job does not say why it failed: {failed.inner_text()!r}")
+    assert not page.js_errors
+
+
+def test_a_queued_job_is_told_what_holds_the_slots(open_panel):
+    """`_queued_behind` returns `{position, capacity, running_count, running,
+    starting_now}` and the page read `job_ref`, `current_source_key` and `source_keys` --
+    three fields no producer emits. So the branch was dead against the real engine, every
+    queued job fell through to the generic line, and the guard passed because it
+    fabricated the payload. The Run screen has read this shape correctly all along."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    queued = page.locator('#jobs-list .job-row[data-job="job_c7d0f31ab244"]')
+    said = queued.inner_text()
+    assert "muqawil_org" in said, (
+        f"the payload names what holds the slot and the row dropped it: {said!r}")
+    assert "1 at a time" in said, (
+        f"the capacity is in the payload and the row dropped it: {said!r}")
+    assert "waiting for a worker" not in said, (
+        f"it fell through to the generic line, which is what reading a field no "
+        f"producer emits looks like: {said!r}")
+    assert not page.js_errors
+
+
+def test_a_row_opens_its_own_log_and_stamps_it_in_his_zone(open_panel):
+    """`openJobLog` is the page's second-largest function and had no assertion at all --
+    neither its lines, nor its empty case, nor its failure. Two tests already OPENED rows
+    and so ran it, and asserted nothing about it.
+
+    THE STAMP IS THE OTHER HALF. `logged_at` is stored UTC and was printed raw, under a
+    row header rendered in his own zone -- two zones on one screen, which is the defect
+    `design/timezone.js` exists to remove."""
+    page = open_panel(jobs=HIS_JOBS, logs=_log_entries(3))
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    row = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    row.locator("summary").click()
+    page.wait_for_timeout(400)
+    log = row.locator(".job-log").inner_text()
+
+    assert "fetching — 0 requests so far" in log, f"the log did not render: {log!r}"
+    assert "2026-07-30T10:00:00Z" not in log, (
+        f"the stamp is raw UTC beside a header in his own zone: {log!r}")
+    assert "Jul" in log, (
+        f"the stamp did not go through ScrapeXTime at all: {log!r}")
+    assert not page.js_errors
+
+
+def test_a_job_with_no_log_and_a_log_that_cannot_be_read_both_say_so(open_panel):
+    """ERROR PATHS ARE TESTED LIKE HAPPY ONES. Both sentences existed and neither was
+    asserted; the empty one ran on every test that opened a row."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    row = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    row.locator("summary").click()
+    page.wait_for_timeout(400)
+    assert "wrote no log" in row.locator(".job-log").inner_text()
+
+    # `/api/jobs/` DOES NOT PREFIX `/api/jobs?limit=200`, so the list still loads and
+    # only the log fetch fails -- which is the state being tested.
+    broken = open_panel(jobs=HIS_JOBS, fail_routes=("/api/jobs/",))
+    broken.click(JOBS_TAB)
+    broken.wait_for_timeout(300)
+    hurt = broken.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    hurt.locator("summary").click()
+    broken.wait_for_timeout(400)
+    assert "could not be read" in hurt.locator(".job-log").inner_text(), (
+        "a log that failed to load left the row silent")
+    assert not broken.js_errors
 
 
 def test_a_stopped_engine_says_why_the_jobs_list_is_empty(open_panel):

@@ -27,6 +27,16 @@ const SETTLED = new Set(["cancelled", "completed", "completed_with_errors",
  *  runtime; anything else non-terminal is waiting for one or for him. */
 const HELD = new Set(["preparing", "running", "resuming", "pausing", "cancelling"]);
 
+/** Where the job is actually ADVANCING, which is not the same as holding a worker.
+ *
+ *  THE DOT MUST NOT DISAGREE WITH `ADOPTION_ORDER`. `app.css` calls the dot "ONE DOT FOR
+ *  'THIS IS THE ONE MOVING', which is the question the whole page exists to answer", and
+ *  it was drawn from `HELD` -- so it lit on the `preparing` job that sat blocked on the
+ *  politeness lane for 33 minutes, beside a badge reading `preparing` and a waiting line
+ *  saying it may be blocked, while announcing "running" to a screen reader. That is the
+ *  same wrong discriminator `ADOPTION_ORDER` below is built to reject. */
+const MOVING = new Set(["running", "resuming"]);
+
 /** Statuses that wait on HIM and never advance on their own — `BLOCKING_JOB_STATUSES`
  *  excludes them for the same reason. */
 const HIS_MOVE = new Set(["paused", "requires_review"]);
@@ -45,6 +55,19 @@ export function isSettled(job) {
 
 export function ownsAWorker(job) {
   return HELD.has(String(job?.status || ""));
+}
+
+/** Whether this is the one moving, which is what the row's dot claims. */
+export function isMoving(job) {
+  return MOVING.has(String(job?.status || ""));
+}
+
+/** `completed_with_errors` as `completed with errors`. The panel un-underscores a status
+ *  everywhere it shows one -- `renderActivity`, `renderMiniplayer` and `summariseJobs`
+ *  below -- and the row's badge was the one surface opting out, so the same screen spelt
+ *  one status two ways. */
+export function statusWords(status) {
+  return String(status || "").replace(/_/g, " ");
 }
 
 /**
@@ -103,27 +126,38 @@ export function jobLabel(job) {
  * `progress` COUNTS SOURCES AND IS THE FALLBACK, never the headline: a one-source job is
  * 0/1 for its whole duration, which is the 0% he watched for 18 minutes while 1,030
  * requests succeeded behind it.
+ *
+ * A GUESS WEARS A `~`, WHICH IS THE PANEL'S EXISTING CONVENTION AND NOT A NEW ONE.
+ * `renderProgress` marks an estimated denominator that way and says why -- "a declared
+ * total drops the `~` because it is a count, not a guess" -- and `_BASIS_RANK` calls an
+ * undated guess displayed as a fact the failure it exists to prevent. This row dropped
+ * `basis` entirely, so `620 of 938` read as a measurement whichever it was. The row is
+ * tighter than the Activity panel, so it takes the `~` and leaves the date there.
  */
 export function progressLine(job) {
-  const [done, total, unit] = counted(job);
+  const [done, total, unit, basis] = counted(job);
   if (!(total > 0)) {
     // A NUMERATOR WITH NO DENOMINATOR IS STILL NEWS. A crawl whose total is not yet
     // known has fetched a real number of pages, and saying nothing is what made a
     // working job look stopped.
     return done > 0 ? `${done.toLocaleString()} ${unit}` : "";
   }
-  return `${done.toLocaleString()} of ${total.toLocaleString()} ${unit}`;
+  const tilde = basis === "estimate" ? "~" : "";
+  return `${done.toLocaleString()} of ${tilde}${total.toLocaleString()} ${unit}`;
 }
 
-/** `[done, total, unit]`, from whichever of the two the job actually carries. */
+/** `[done, total, unit, basis]`, from whichever of the two the job actually carries.
+ *  `basis` is `measured`, `declared`, `estimate` or null, and only `fetch` states one. */
 function counted(job) {
   const fetch = job?.fetch || {};
   const requests = Number(fetch.requests || 0);
   const expected = Number(fetch.expected || 0);
-  if (requests > 0 || expected > 0) return [requests, expected, "requests"];
+  if (requests > 0 || expected > 0) {
+    return [requests, expected, "requests", fetch.basis || null];
+  }
   const progress = job?.progress || {};
   return [Number(progress.done || 0), Number(progress.total || 0),
-          progress.unit || "source(s)"];
+          progress.unit || "source(s)", null];
 }
 
 /** 0–1, or null when the job states no denominator. Null is not zero: a bar drawn at
@@ -142,15 +176,31 @@ export function progressFraction(job) {
  * silence: the job was `preparing`, nothing said why, and the honest answer is that it is
  * waiting for the site's turn rather than for a named job. Saying "waiting for job X"
  * when we do not know which is worse than saying we do not know.
+ *
+ * THE SHAPE IS `_queued_behind`'s AND WAS ASSUMED ONCE ALREADY. This read
+ * `behind.job_ref`, `current_source_key` and `source_keys` -- three fields no producer
+ * emits. `_queued_behind` (`scrapex/webui/app.py:4341-4356`) returns exactly
+ * `{position, capacity, running_count, running, starting_now}`, so the branch was dead
+ * against the real engine, every queued job fell through to "waiting for a worker", and
+ * the guard passed only because it fabricated the payload. Same defect as reading
+ * `fetch` as `done`/`total`, in a second field: an assumed payload is the same defect as
+ * an assumed file path.
  */
 export function jobWaitingLine(job) {
   const status = String(job?.status || "");
   if (isSettled(job) || ownsAWorker(job) && status === "running") return "";
   const behind = job?.queued_behind;
-  if (behind?.job_ref) {
-    const label = behind.current_source_key || (behind.source_keys || [])[0] || "";
-    return `waiting for ${behind.job_ref}${label ? ` · ${label}` : ""} to let go of `
-      + "the worker";
+  if (behind) {
+    // A JOB INSIDE THE FREE SLOTS IS NOT WAITING FOR ANYTHING. `_queued_behind` says so
+    // with `starting_now`, and its own comment forbids the panel calling that "queued":
+    // the worker starts it on the next poll.
+    if (behind.starting_now) return "a slot is free — it starts on the next poll";
+    const holders = (behind.running || [])
+      .map((one) => (one?.source_keys || []).join(", ")).filter(Boolean);
+    const ahead = Number(behind.position || 0) - 1;
+    return `waiting for a slot — the engine crawls ${behind.capacity} at a time and is `
+      + `busy with ${holders.length ? holders.join("; ") : "another job"}`
+      + (ahead > 0 ? ` · ${ahead} ahead of it` : "");
   }
   if (status === "paused") return "paused — it moves when you resume it";
   if (status === "requires_review") return "waiting for you to review it";
@@ -181,12 +231,21 @@ export function controlsFor(job) {
   return ["pause", "cancel"];
 }
 
-/** The badge class this status wears. `off` is the only amber badge in the panel; `warn`
- *  renders as plain grey, which is the mistake `renderEngineDetail` already records. */
+/** The badge class this status wears. The kit defines exactly three variants --
+ *  `.badge.ok`, `.badge.off` and `.badge.danger` (`design/components.css:644-661`) -- and
+ *  a class outside that set renders as plain grey, which is the mistake
+ *  `renderEngineDetail` already records about `warn`.
+ *
+ *  `failed` WORE `err` UNTIL REVIEW, AND `err` IS A MESSAGE TONE, NOT A BADGE ONE. `.err`
+ *  does exist (`components.css:75`, `color: var(--red)`) but `.chip, .badge` sets
+ *  `color: var(--muted)` at equal specificity 550 lines later, so the cascade won and
+ *  every failed job drew grey -- indistinguishable from `cancelled` and from a status
+ *  this file has never heard of. 28 of the 163 jobs measured on 2026-09-07 were failures,
+ *  and they are the rows he is looking for. */
 export function statusTone(status) {
   const value = String(status || "");
   if (value === "completed") return "ok";
-  if (value === "failed") return "err";
+  if (value === "failed") return "danger";
   if (value === "completed_with_errors" || value === "partially_completed"
       || value === "requires_review") return "off";
   if (value === "cancelled") return "";
@@ -213,7 +272,7 @@ export function summariseJobs(payload) {
   }
   const parts = [`${jobs.length.toLocaleString()} job${jobs.length === 1 ? "" : "s"}`];
   for (const [status, count] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
-    parts.push(`${count.toLocaleString()} ${status.replace(/_/g, " ")}`);
+    parts.push(`${count.toLocaleString()} ${statusWords(status)}`);
   }
   return parts.join(" · ");
 }
@@ -236,7 +295,7 @@ export function rowsFrom(payload) {
     waiting: jobWaitingLine(job),
     controls: controlsFor(job),
     settled: isSettled(job),
-    live: ownsAWorker(job),
+    live: isMoving(job),
     created_at: job.created_at,
     finished_at: job.finished_at,
     error_summary: job.error_summary || "",

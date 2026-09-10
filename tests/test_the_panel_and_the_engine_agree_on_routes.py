@@ -255,3 +255,70 @@ def test_no_page_calls_an_engine_route_that_does_not_exist(tmp_path):
 
     assert not missing, (
         f"the panel calls {missing}, which the engine does not serve")
+
+
+# ---- the job vocabulary crosses the same seam as the routes ------------------
+#
+# A ROUTE IS NOT THE ONLY PROMISE THE PANEL MAKES ABOUT THE ENGINE. It also hand-keeps
+# the engine's job statuses, in two files and now three copies, and until #821's review
+# nothing tied any of them to `vocab.py`. Change amplification measured then: adding one
+# `JobStatus` is one edit in the engine and up to five in the panel, and NOTHING fails if
+# any is missed -- `jobWaitingLine` returns "" for a status it does not know, which is
+# the silence issue 778 is about, and `controlsFor` falls through to offering Pause and
+# Cancel, which is the 409 button the page argues against.
+#
+# A GUARD RATHER THAN A GENERATED MODULE. The rate of change is about one status a year;
+# `sync_addin_contract`'s pipeline would be the wrong abstraction for that, and this
+# repository prefers duplication to it. The duplication is fine -- what was missing is
+# anything that notices when the copies drift.
+
+
+def _js_strings(path: str, name: str, opener: str, closer: str) -> set[str]:
+    """The string literals in a `const NAME = <opener> ... <closer>` declaration."""
+    body = (ROOT / path).read_text(encoding="utf-8")
+    found = re.search(rf"const {name} = {re.escape(opener)}(.*?){re.escape(closer)}",
+                      body, re.S)
+    assert found, f"{name} is no longer declared that way in {path}"
+    return set(re.findall(r'"([a-z_]+)"', found.group(1)))
+
+
+def test_the_panel_and_the_engine_agree_on_which_jobs_are_finished():
+    """Three copies of one fact: `vocab.TERMINAL_JOB_STATUSES`, `SETTLED` in
+    `jobsview.js` and `TERMINAL` in `enrichment.js`. Miss one when the engine gains a
+    terminal status and the Jobs page offers Pause on a job that has already ended."""
+    from scrapex import vocab
+
+    engine = {status.value for status in vocab.TERMINAL_JOB_STATUSES}
+    assert _js_strings("extension/jobsview.js", "SETTLED", "new Set([", "])") == engine
+    assert _js_strings("extension/enrichment.js", "TERMINAL", "new Set([", "])") == engine
+
+
+def test_the_panel_knows_every_status_the_engine_can_report():
+    """`ADOPTION_ORDER` decides which job the mini-player draws, and a status missing
+    from it sorts last silently -- which is how a blocked job came to be drawn over one
+    doing the work. It must name every status a job can be in and not be finished."""
+    from scrapex import vocab
+
+    terminal = {status.value for status in vocab.TERMINAL_JOB_STATUSES}
+    live = {status.value for status in vocab.JobStatus} - terminal
+    ranked = _js_strings("extension/jobsview.js", "ADOPTION_ORDER", "[", "]")
+    assert ranked == live, (
+        f"the panel ranks {sorted(ranked)} and the engine can report {sorted(live)}; "
+        "a status it has never heard of sorts last and says nothing")
+
+
+def test_held_and_moving_are_the_engines_idea_of_held_and_a_subset_of_it():
+    """`HELD` is `WORKER_HELD_STATUSES` plus the two transitional statuses `set_control`
+    parks a held job in. `MOVING` is the narrower question the row's dot asks -- it must
+    be a subset, because a job that is moving is by definition holding a worker."""
+    from scrapex import vocab
+
+    held = _js_strings("extension/jobsview.js", "HELD", "new Set([", "])")
+    moving = _js_strings("extension/jobsview.js", "MOVING", "new Set([", "])")
+
+    assert vocab.WORKER_HELD_STATUSES <= held, (
+        f"the panel thinks {sorted(held)} hold a worker and the engine says "
+        f"{sorted(vocab.WORKER_HELD_STATUSES)}")
+    assert held - set(vocab.WORKER_HELD_STATUSES) == {"pausing", "cancelling"}
+    assert moving < held, (
+        "the dot claims a job is moving that the engine does not consider held")

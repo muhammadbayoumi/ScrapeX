@@ -3,12 +3,11 @@
 // Every case here is a job that existed on his warehouse on 2026-09-07, when the panel
 // could show one active job out of 163.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
-  controlsFor, isSettled, jobLabel, jobWaitingLine, liveJob, ownsAWorker,
-  progressFraction, progressLine, rowsFrom, statusTone, summariseJobs,
+  controlsFor, isMoving, isSettled, jobLabel, jobWaitingLine, liveJob, ownsAWorker,
+  progressFraction, progressLine, rowsFrom, statusTone, statusWords, summariseJobs,
 } from "../jobsview.js";
 
 /** The pair that cost him 33 minutes: a blocked job entered 18 seconds after the one
@@ -61,15 +60,59 @@ test("a still job says what it waits for, and never invents a reason", () => {
   assert.match(said, /waiting for this site's turn/);
   assert.doesNotMatch(said, /job_/, `it named a job it does not know: ${said}`);
 
-  const behind = {...BLOCKED, status: "queued",
-                  queued_behind: {job_ref: "job_034c51a29deb",
-                                  current_source_key: "muqawil_org"}};
-  assert.match(jobWaitingLine(behind), /job_034c51a29deb/);
-  assert.match(jobWaitingLine(behind), /muqawil_org/);
-
   assert.match(jobWaitingLine(PAUSED), /you resume it/);
   assert.equal(jobWaitingLine(WORKING), "", "a running job was given a waiting line");
   assert.equal(jobWaitingLine(DONE), "", "a finished job was given a waiting line");
+});
+
+// THE SHAPE BELOW IS `_queued_behind`'s, COPIED FROM THE ENGINE AND NOT INVENTED.
+// `scrapex/webui/app.py:_queued_behind` returns exactly these five keys. The first
+// version of this guard fabricated `{job_ref, current_source_key}` -- three fields no
+// producer emits -- so it passed against a branch that could never run against the real
+// engine, and every queued job silently fell through to "waiting for a worker".
+const QUEUED_BEHIND = {
+  position: 3, capacity: 2, running_count: 2,
+  running: [{job_ref: "job_034c51a29deb", source_keys: ["muqawil_org"]},
+            {job_ref: "job_7b891d5b67ac", source_keys: ["balady_gov_sa"]}],
+  starting_now: false,
+};
+
+test("a queued job is told what holds the slots, in the payload's own shape", () => {
+  const waiting = {...BLOCKED, status: "queued", queued_behind: QUEUED_BEHIND};
+  const said = jobWaitingLine(waiting);
+
+  assert.match(said, /2 at a time/, `the capacity is in the payload and was dropped: ${said}`);
+  assert.match(said, /muqawil_org/, `the holders are named in the payload: ${said}`);
+  assert.match(said, /balady_gov_sa/, said);
+  assert.match(said, /2 ahead of it/, `position ${QUEUED_BEHIND.position} means 2 ahead: ${said}`);
+  assert.doesNotMatch(said, /waiting for a worker/,
+    "it fell through to the generic line, which is what reading a field no producer "
+    + `emits looks like: ${said}`);
+});
+
+test("a job inside the free slots is not called queued", () => {
+  // `_queued_behind`'s own comment: "True when this job is within the free slots -- it is
+  // not really waiting, it starts on the next poll. The panel must not call that
+  // 'queued'." `starting_now` was ignored entirely, so it did.
+  const soon = {...BLOCKED, status: "queued",
+                queued_behind: {...QUEUED_BEHIND, position: 1, starting_now: true}};
+  const said = jobWaitingLine(soon);
+
+  assert.match(said, /starts on the next poll/, said);
+  assert.doesNotMatch(said, /waiting/,
+    `a job the engine says is starting was told it is waiting: ${said}`);
+});
+
+test("the first job ahead is not miscounted, and a nameless holder still reads", () => {
+  const first = {...BLOCKED, status: "queued",
+                 queued_behind: {...QUEUED_BEHIND, position: 1}};
+  assert.doesNotMatch(jobWaitingLine(first), /ahead of it/,
+    "position 1 means nothing is ahead of it");
+
+  const nameless = {...BLOCKED, status: "queued",
+                    queued_behind: {...QUEUED_BEHIND, position: 1, running: []}};
+  assert.match(jobWaitingLine(nameless), /another job/,
+    "with no source key to name, it must still say what it is waiting for");
 });
 
 test("the controls offered are the ones set_control can honour", () => {
@@ -98,6 +141,23 @@ test("progress is counted in the unit the job measures", () => {
   assert.equal(progressLine({fetch: {requests: 41, expected: null}}), "41 requests");
 });
 
+test("an estimated total wears a tilde and a counted one does not", () => {
+  // `_BASIS_RANK`: "claiming otherwise is how an undated guess gets displayed as a
+  // fact." The mini-player marks it and this row dropped `basis` entirely, so a
+  // denominator seeded from the LAST crawl read exactly like a measurement.
+  assert.equal(progressLine({fetch: {requests: 620, expected: 938, basis: "estimate"}}),
+    "620 of ~938 requests");
+  assert.equal(progressLine({fetch: {requests: 620, expected: 938, basis: "declared"}}),
+    "620 of 938 requests", "a declared total is a count and must not wear a ~");
+  assert.equal(progressLine({fetch: {requests: 620, expected: 938, basis: "measured"}}),
+    "620 of 938 requests");
+  assert.equal(progressLine({fetch: {requests: 620, expected: 938}}),
+    "620 of 938 requests", "no basis stated is not a guess stated");
+  // The source-count fallback states no basis at all, so it never wears one.
+  assert.equal(progressLine({progress: {done: 3, total: 7}, fetch: {}}),
+    "3 of 7 source(s)");
+});
+
 test("a job with no denominator gets no bar rather than a bar at zero", () => {
   assert.equal(progressFraction(WORKING), 620 / 938);
   assert.equal(progressFraction({}), null,
@@ -117,12 +177,56 @@ test("the label names the kind in words and the source it is working", () => {
     "an unknown kind must still name itself rather than reading 'Job'");
 });
 
-test("amber is `off`, because `warn` renders as plain grey in this panel", () => {
+test("every tone is a badge variant the kit actually defines", () => {
+  // THE DEFECT CLASS, NOT THE ONE STATUS. `failed` returned `err`, which is a MESSAGE
+  // tone in this panel and not a badge one -- `.badge.err` does not exist, so the
+  // cascade fell back to `color: var(--muted)` and 28 of his 163 jobs drew grey,
+  // indistinguishable from `cancelled`. An invalid `var()` and an undefined badge class
+  // fail the same silent way, which is why this asserts the whole range.
+  const DEFINED = new Set(["ok", "off", "danger", ""]);
+  const STATUSES = ["completed", "failed", "completed_with_errors",
+                    "partially_completed", "requires_review", "cancelled", "paused",
+                    "running", "preparing", "queued", "scheduled", "resuming",
+                    "pausing", "cancelling", "something_new"];
+  for (const status of STATUSES) {
+    assert.ok(DEFINED.has(statusTone(status)),
+      `statusTone(${status}) = "${statusTone(status)}", which components.css does not `
+      + "define -- it renders as plain grey and says nothing");
+  }
+
   assert.equal(statusTone("completed"), "ok");
-  assert.equal(statusTone("failed"), "err");
+  assert.equal(statusTone("failed"), "danger",
+    "a failed job must be the one colour he can pick out of 163 rows");
   assert.equal(statusTone("partially_completed"), "off");
   assert.equal(statusTone("paused"), "off");
-  assert.notEqual(statusTone("partially_completed"), "warn");
+});
+
+test("a status is spelt one way per screen", () => {
+  // The badge printed the raw status while the summary directly above it un-underscored
+  // the same word, so one screen read `completed_with_errors` and `completed with
+  // errors` at once.
+  assert.equal(statusWords("completed_with_errors"), "completed with errors");
+  assert.equal(statusWords("running"), "running");
+  assert.equal(statusWords(null), "");
+  assert.match(summariseJobs({jobs: [{job_ref: "j", status: "completed_with_errors"}]}),
+    /completed with errors/);
+});
+
+test("the dot means moving, not merely holding a worker", () => {
+  // `app.css` calls it "ONE DOT FOR 'THIS IS THE ONE MOVING'", and it was drawn from
+  // `ownsAWorker` -- which is the discriminator `ADOPTION_ORDER` exists to reject. It lit
+  // on the `preparing` job that sat blocked for 33 minutes and announced "running".
+  assert.equal(isMoving(WORKING), true);
+  assert.equal(isMoving({status: "resuming"}), true);
+  assert.equal(isMoving(BLOCKED), false,
+    "the blocked job that cost him 33 minutes was called moving");
+  assert.equal(ownsAWorker(BLOCKED), true,
+    "it does hold a worker -- which is exactly why the two must not be one question");
+  for (const status of ["pausing", "cancelling", "queued", "paused"]) {
+    assert.equal(isMoving({status}), false, status);
+  }
+  assert.equal(rowsFrom({jobs: [BLOCKED]})[0].live, false,
+    "the row's dot still comes from 'holds a worker'");
 });
 
 test("the summary says how many and in what state", () => {
@@ -163,24 +267,17 @@ test("held and settled are read off the vocabulary, not guessed", () => {
     "a paused job is not finished; it is waiting for him");
 });
 
-test("no name here collides with one app.js already defines", async () => {
-  // A COLLISION THE HARNESS EXPOSES AND PRODUCTION HIDES. The panel's modules are
-  // separate scopes when the browser loads them and ONE scope in
-  // `tools/panel_harness.py`, which inlines them all. `app.js` already had
-  // `waitingLine(s)` for the dataset card's amber lines, so `rowsFrom` called THAT one
-  // and every job's waiting line came back empty -- silently, and only in the test. The
-  // fix was the rename; this is what makes the next one loud.
-  //
-  // A LITERAL SEARCH AND NOT A REGEX, deliberately: `function name(` is exactly what a
-  // declaration in app.js looks like, and a hand-escaped pattern is a second thing to
-  // get wrong -- it was, on the first attempt here.
-  const here = await import("../jobsview.js");
-  const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
-  const clashes = Object.keys(here).filter(
-    (name) => app.includes(`function ${name}(`));
-
-  assert.deepEqual(clashes, [],
-    `app.js declares its own ${clashes.join(", ")}, and the harness inlines both into `
-    + "one scope -- whichever loads last wins and the other stops working in silence");
-});
+// THE COLLISION GUARD LIVES IN `tests/test_panel_wiring.py`, NOT HERE.
+//
+// A version of it was written in this file first and it was the weaker of the two. It
+// compared `Object.keys(exports)` against the literal `function name(` in `app.js`, so
+// it could not see a non-exported top-level name (`SETTLED`, `HELD`, `KIND_LABELS`,
+// `ADOPTION_ORDER`, `counted`), could not see a `const` declaration in `app.js` -- this
+// module's own `JOBS_LIMIT` is one -- and looked at exactly one of the thirteen files
+// `panel_harness.py` flattens into a single scope. A `const` clash is a SyntaxError that
+// kills the whole harness page, which is the 2026-08-12 failure that guard records.
+//
+// `test_no_two_inlined_modules_declare_the_same_top_level_name` already holds that rule
+// properly, for every pair of inlined modules; `jobsview.js` and `app.js` were simply
+// missing from its list and are now in it. One rule, one home.
 
