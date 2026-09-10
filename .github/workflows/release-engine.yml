@@ -129,8 +129,8 @@ jobs:
         # measured: `database-status` answered "Needs a newer ScrapeX (schema v12;
         # this build reads v10)".
         #
-        # `migration-authority` in ci.yml cannot catch this: it reads the diff of
-        # the branch it runs on and knows nothing of any other branch. Nothing
+        # CI's own suite cannot catch this: it reads the diff of the branch it
+        # runs on and knows nothing of any other branch. Nothing
         # else in this repository can see across branches, and nothing at all can
         # see the owner's machine -- which is what the pre-push hook in
         # `.githooks/` is for. This is the CI half of R-64.
