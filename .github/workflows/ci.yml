@@ -408,12 +408,18 @@ jobs:
         # brackets 92s; the PERCENTAGE does not travel, because a local suite is
         # ~345s against CI's ~651s.)
         #
-        # AND THE WALL CLOCK BARELY MOVES, because the job removed was PARALLEL
-        # and only 75-95s longer than this one. Absorbing +92s puts this step
-        # back at almost exactly the old critical path: 785s before, 750s after,
-        # measured on the two branches' own runs, and 17% better at the median of
-        # 802 full runs. The win being bought is compute, not latency — 69.5% of
-        # this workflow's billed runner-minutes across all three edits.
+        # AND THE WALL CLOCK IS UNCHANGED WITHIN THE NOISE, which is the most
+        # this measurement can say. The job removed ran in PARALLEL, so what a
+        # merge waited on was max(test, migration-authority): 785, 785, 780,
+        # 851, 700, 772s over the base branch's six runs — median 782.5s,
+        # spread 151s. This step now decides alone, at 750s and 824s. Two
+        # observations cannot resolve a few percent against that spread, so
+        # neither "faster" nor "slower" is claimable, and the two earlier
+        # versions of this paragraph claimed both by picking one run each.
+        #
+        # WHAT IS MEASURED IS THE COMPUTE: 69.5% of this workflow's billed
+        # runner-minutes across all three edits, over 1,322 runs. That is the
+        # win being bought, and it does not need a latency story.
         #
         # THE FLAG IS ON THIS STEP, NOT ON THE JOB, and that is load-bearing.
         # The seven tests in tests/test_fast_migrations.py SKIP when it is set,
