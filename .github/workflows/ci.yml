@@ -412,10 +412,12 @@ jobs:
         # this measurement can say. The job removed ran in PARALLEL, so what a
         # merge waited on was max(test, migration-authority): 785, 785, 780,
         # 851, 700, 772s over the base branch's six runs — median 782.5s,
-        # spread 151s. This step now decides alone, at 750s and 824s. Two
-        # observations cannot resolve a few percent against that spread, so
-        # neither "faster" nor "slower" is claimable, and the two earlier
-        # versions of this paragraph claimed both by picking one run each.
+        # spread 151s. This step now decides alone, and lands in 750-838s.
+        # A HANDFUL OF RUNS CANNOT RESOLVE A FEW PERCENT AGAINST A 151s SPREAD,
+        # so neither "faster" nor "slower" is claimable — and both earlier
+        # versions of this paragraph claimed one, each by picking a single run.
+        # Stated as a range rather than a list of runs on purpose: a list is
+        # stale by the next push, and it was, twice.
         #
         # WHAT IS MEASURED IS THE COMPUTE: 69.5% of this workflow's billed
         # runner-minutes across all three edits, over 1,322 runs. That is the
