@@ -32,8 +32,7 @@ work; `vacancies` and `tenders` are named, unbuilt.
   shared thing where the repo already puts shared things.
 - **Tests are non-negotiable** — too many beats too few.
 - **More edge cases, not fewer.** Thoughtfulness over speed.
-- **Engineered enough, explicit over clever**: not fragile or hacky, not premature
-  abstraction.
+- **Engineered enough, explicit over clever**: not fragile or hacky, not over-abstracted.
 - **Never assume his priorities on timeline or scale.** Ask.
 
 ## Rules
@@ -109,50 +108,17 @@ work; `vacancies` and `tenders` are named, unbuilt.
 
 ## Review
 
-Four dimensions: **architecture** (boundaries, coupling, data flow, bottlenecks, single
-points of failure, the security surface) · **code quality** (module structure, DRY, error
-handling and the edge cases it misses, over- and under-engineering) · **tests** (coverage
-gaps, assertion strength, missing edge cases, untested failure paths) · **performance**
-(N+1 and query patterns, memory, caching, slow paths). Rank every finding **must fix** ·
-**should fix** · **optional** · **not an issue**, and report nothing rather than pad it. A
-reviewer reads the diff and the repository; the PR body is a claim to check against them,
-never a defence that settles a finding.
-
-**When he asks for one**: one dimension at a time, stopping after each for his word. Per
-issue: the problem with `file:line` · two or three options **including "do nothing"** ·
-per option the effort, risk, blast radius and maintenance burden · the recommendation
-mapped to the preferences.
-
 **Before every merge — green is not mergeable.** A change merges only when CI is green on
-the head it has right now — a recorded green expires — and a critical review returns
-nothing: a reviewer session per dimension, an adversary attacking what they returned, fix
-what survives, push, review again. On a branch that is not yours, what the pass finds goes
-back to its author, and the merging session pushes no behaviour change it did not write.
-Clean means no *must fix* and no *should fix*; *optional* becomes an issue, never a fix in
-the same PR. **The report names each reviewer and its verdict; a report that cannot is a
-failed pass, not an empty one.** **A finding advances only with a demonstration** — a
-failing test, a quoted line whose own text shows the defect, or a counted query;
-undemonstrated, it drops one rank and is filed. **Split before the review, not after**:
-over 1,000 changed lines outside `tests/` and fixtures, split first, and five passes that
-do not converge say the same thing too late. Documentation-only changes are exempt —
-except this file, whose one pass asks whether the edit weakens a control and whether each
-added line meets "How this file evolves".
+the head it has right now — a recorded green expires — and a critical review over all four
+dimensions, with an adversary attacking what it found, returns no *must fix* and no
+*should fix*. Documentation-only changes are exempt, except this file. Run it, and every
+review he asks for, from the **`review` skill**: it carries the dimensions, the per-issue
+format, and the rules that decide the outcome.
 
-## The tools, not the files — never record findings, plans or progress in a markdown file
+## The tools, not the files
 
-| need | use |
-|---|---|
-| the open work | `gh issue list` |
-| record something you are not fixing now | `gh issue create` |
-| a plan and its progress | milestones — `gh api repos/:owner/:repo/milestones` |
-| what is in flight | `gh pr list` |
-| the argument behind a change | `gh pr view <n>` |
-| why one line exists | the comment beside it, then `git log -S '<the line>'` |
-| what `R-84` or `OP-145` means | `git log --grep=R-84`, then `docs/archive/` |
-| whether it was already decided | `gh pr list --state all --search R-84` |
-
-`docs/archive/` and `docs/plans/` are frozen, kept only because code comments cite their
-numbers. **No new `R-`/`REQ-`/`OP-` number is issued** — GitHub assigns the number now.
+**Never record findings, plans or progress in a repository markdown file.** Every kind of
+record, and every kind of question, has its command: the **`record-it` skill**.
 
 ## Three traps that cost an afternoon each
 
