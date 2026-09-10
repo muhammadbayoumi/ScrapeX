@@ -1,7 +1,24 @@
 name: CI
 
+# PUSH IS NARROWED TO main, AND THAT IS THE WHOLE OF #646. Unfiltered, every
+# commit on a branch with an open pull request ran this matrix TWICE — measured
+# over 30 days: 617 runs across 378 SHAs, 231 of them run twice, and the
+# duplicate copies alone cost 4,438 of 11,529 runner-minutes, 38% of all CI
+# compute. Every branch commit is still covered by the `pull_request` run, and
+# main keeps its post-merge run, so nothing loses coverage.
+#
+# WHAT DOES CHANGE, and it is a behaviour change rather than a tidy-up: a branch
+# with NO open pull request stops being tested on push. Work travels here as
+# branch -> PR -> squash, so that window is the time before the PR is opened.
+#
+# It also removes an ambiguity the duplication created. The two runs tiered
+# differently — `push` computed the scope base from the branch's previous tip,
+# `pull_request` from the base commit — and both rows were called `test`, so a
+# reader who opened the wrong one could see `test` pass while the engine tier
+# never ran. Only the run that describes the whole change is left.
 on:
   push:
+    branches: [main]
   pull_request:
 
 # THE TOKEN IS READ-ONLY HERE, said out loud rather than inherited. Nothing in
