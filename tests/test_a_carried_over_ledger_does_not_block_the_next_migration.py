@@ -18,8 +18,8 @@ with no file having changed. The warehouse could not be opened by any build, on
 WHY THIS FILE IS THE POINT AND NOT THE FIX. **No existing test could have caught
 it.** A fresh `init-db` writes only the engine's own rows, so the number space above
 5 is empty and nothing collides — and **CI always starts from a fresh database**. 273
-tracked test files and the `migration-authority` job, which runs the whole suite
-against the real migration stream, all passed while the defect sat there. The
+tracked test files and the `migration-authority` job, which then ran the whole
+suite against the real migration stream, all passed while the defect sat there. The
 collision needs a warehouse that CARRIED OVER, and no fixture had one.
 
 So this file builds that fixture: a real engine database with foreign rows planted in
