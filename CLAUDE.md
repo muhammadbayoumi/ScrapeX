@@ -3,7 +3,7 @@
 ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to the
 Google Sheet the mbiX Excel add-in reads ([README.md](README.md)). **It collects in
 categories; price is one of them, not the whole tool.** `products` (12 registered, 7
-active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbuilt.
+active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are named, unbuilt.
 
 ## The loop
 
@@ -27,8 +27,9 @@ active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbu
   `file:line` before calling it duplication, and prefer duplication to the wrong
   abstraction: no helper with one caller, no generic wrapper, nothing that makes control
   flow harder to read. Put a shared thing where the repo already puts shared things.
-- **Tests are non-negotiable** — too many beats too few, and more edge cases not fewer.
-- **Engineered enough, explicit over clever**: not fragile, not premature abstraction.
+- **Tests are non-negotiable** — too many beats too few.
+- **More edge cases, not fewer.** Thoughtfulness over speed.
+- **Engineered enough, explicit over clever**: not fragile or hacky, not premature abstraction.
 - **Never assume his priorities on timeline or scale.** Ask.
 
 ## Rules
@@ -38,13 +39,13 @@ active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbu
 - **The panel is the operating system; everything else is an app, the engine included.**
   It is the only surface, it chooses which app runs a job, and it starts them —
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
-  launches nothing. Every app starts that same way through the one native host, so no app
-  depends on another and dropping one costs nothing.
+  launches nothing. Every app is started that same way, through the one native host, so no
+  app depends on another and dropping one costs nothing.
 - **An app brings its own way of working, and holds only the permissions it needs.**
   Adding a project like Scrapy is worth it for its own network path and concurrency, not
   to be wrapped in ours; ours grows where the external ones do not serve and neither
   pauses the other. Choose per run by measured performance, not by authorship. More
-  permission than an app needs is a defect to fix. Registries:
+  permission than an app needs is a defect to fix, not a status to keep. Registries:
   `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
 - **The warehouse write permission is exclusive, and the panel cannot hold it.** One
   writer at a time, whichever app it is. Not a privilege — a measurement: the warehouse is
@@ -64,8 +65,9 @@ active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbu
   controls strings that reach the warehouse and the panel.
 - **Secrets never in code.** A browser key that must ship is restricted, not hidden.
 - **No silent failures.** No bare `except`; a caught error becomes a visible, structured
-  record, one source failing never kills a run, and a red check is never argued past —
-  re-run it once, and a flip is a flakiness event recorded against the named test.
+  record. One source failing never kills a run and is never swallowed.
+- **A red check is never argued past.** Re-run it once; if it flips, `gh issue create`
+  against the named test, and the green re-run stands.
 - **Every parse asserts its shape**, so a site changing fails loudly at the parse rather
   than quietly as wrong data.
 - **The warehouse is append-only where the schema says so**; triggers enforce it. A
@@ -74,9 +76,9 @@ active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbu
 - **A backup before anything destructive**, named out loud, and the copies are bounded.
 - **Parsing lives in one `normalize` module.** A connector parsing money, units,
   Arabic-Indic digits or VAT locally fails review.
-- **A change to `normalize` or a connector proves itself against a frozen page corpus**:
-  the same rows come out, or every changed cell is explained in the PR body. Reading a
-  page wrong is invisible to every reviewer and every mutant.
+- **A change to `normalize` or a connector proves itself against the frozen corpora**:
+  re-freeze `contract/normalize-vectors.v1.json`, run the connector against
+  `tests/fixtures/live/`, and explain every changed vector and row in the PR body.
 - **No module without its test file**, and error paths are tested like happy ones.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
 - **Respect the politeness budget.** A crawl that hammers a site is a defect.
@@ -99,12 +101,14 @@ mapped to the preferences.
 **Before every merge — green is not mergeable.** A code change merges only when a critical
 review returns nothing: a panel over all four dimensions, an adversary attacking what it
 found, fix what survives, push, review again. Clean means no *must fix* and no *should
-fix*; *optional* becomes an issue, never a fix in the same PR. **A pass that cannot say
-how many reviewers returned is a failed pass, not an empty one.** **A must fix advances
-only with a demonstration** — a failing test, a `file:line` read or a counted query; what
-cannot be demonstrated becomes *optional* and is filed. **Split before the review, not
-after**: over 1,000 changed lines, split first. Documentation-only changes are exempt —
-except this file, whose one pass asks only whether the edit weakens a control.
+fix*; *optional* becomes an issue, never a fix in the same PR. **The panel's report names
+each reviewer and its verdict; a report that cannot is a failed pass, not an empty one.**
+**A finding advances only with a demonstration** — a failing test, a `file:line` read or a
+counted query; undemonstrated, it drops one rank and is filed. **Split before the review,
+not after**: over 1,000 changed lines outside `tests/` and fixtures, split first, and five
+passes that do not converge say the same thing too late. Documentation-only changes are
+exempt — except this file, whose one pass asks whether the edit weakens a control and
+whether each added line meets "How this file evolves".
 
 ## The tools, not the files
 
