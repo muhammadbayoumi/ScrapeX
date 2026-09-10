@@ -619,7 +619,12 @@ def _cells(payload, field: str):
     tabs = dataset_workbook_tables(payload)
     sheet = openpyxl.load_workbook(BytesIO(workbook_bytes(tabs))).worksheets[0]
     header = [cell.value for cell in sheet[1]]
-    column = header.index(field) + 1
+    # THE HEADER IS DISPLAY LABELS, and `field` is a key. They are equal in this
+    # fixture and nowhere promised to be, so the label is looked up rather than
+    # assumed — otherwise a renamed column turns this into `index()`'s ValueError.
+    label = next(c["label"] or c["key"] for c in payload["columns"]
+                 if c["key"] == field)
+    column = header.index(label) + 1
     return [row[0].value for row in
             sheet.iter_rows(min_row=2, min_col=column, max_col=column)]
 
@@ -629,16 +634,8 @@ def test_a_multi_value_field_becomes_one_readable_cell(conn):
     the owner pressed Export to Excel and got no file and no message.
 
     A record is stored as JSON, so a field published as an array reaches the
-    workbook as a `list`, and openpyxl refuses one outright — "Cannot convert
-    ['email_domain_candidate', 'source', 'website'] to Excel". Measured over
-    the whole warehouse: 36,318 such cells, every one of them in
-    `contractor_enrichment` — `providers_checked` and `evidence_urls` on all
-    17,304 rows, then `contact_emails` (768), `contact_phones` (750),
-    `iso_certifications` (170) and `core_specialties` (22).
-
-    ", " is the owner's ruling: the screen renders `a,b,c` because that is
-    Tabulator's default `String()` over an array, and a workbook is printed and
-    mailed, so its cell is spaced to be read.
+    workbook as a `list`, and openpyxl refuses one outright. The counts and the
+    reasoning live once, beside the code, in `publish.dataset_workbook_tables`.
     """
     payload = stored(conn)
     payload["rows"][0]["membership_level"] = ["Grade 1", "Grade 2"]
@@ -652,6 +649,21 @@ def test_a_multi_value_field_becomes_one_readable_cell(conn):
     # list should be — the same thing an absent key has always written.
     assert _cells(payload, "membership_level")[:4] == [
         "Grade 1, Grade 2", "Grade 3", None, "Grade 4"]
+
+
+def test_a_number_in_a_list_reaches_the_cell_as_text(conn):
+    """`str()` inside the join is load-bearing, and nothing was holding it.
+
+    Every list element in every other test here is already a `str`, so dropping
+    `str(...)` leaves them all green — while `[1, 2.5]` then raises a bare
+    `TypeError` out of `str.join`. That is NOT an `UnexportableCell`, so
+    `webui/app.py` does not catch it and the button is back to the empty-bodied
+    500 this change exists to remove.
+    """
+    payload = stored(conn)
+    payload["rows"][0]["membership_level"] = [1, 2.5]
+
+    assert _cells(payload, "membership_level")[0] == "1, 2.5"
 
 
 def test_a_nested_object_names_its_field_instead_of_landing_as_wrong_data(conn):
@@ -680,6 +692,15 @@ def test_a_nested_object_names_its_field_instead_of_landing_as_wrong_data(conn):
     mapping["rows"][0]["membership_level"] = {"grade": 1}
     with pytest.raises(UnexportableCell, match="membership_level"):
         dataset_workbook_tables(mapping)
+
+    # A nested LIST, which is the shape the class docstring names first and the
+    # one `isinstance(one, (list, dict))` exists for. Narrow that check to
+    # `dict` alone and every other test here still passes, while `[["a", "b"]]`
+    # joins to the string "['a', 'b']" in a cell.
+    inner = stored(conn)
+    inner["rows"][0]["membership_level"] = [["Grade 1", "Grade 2"]]
+    with pytest.raises(UnexportableCell, match="membership_level"):
+        dataset_workbook_tables(inner)
 
 
 # ---- the FIFTH leak, and the partition is what exposed it --------------------

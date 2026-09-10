@@ -109,9 +109,14 @@ def dataset_workbook_tables(payload: dict,
     `core_specialties`).
 
     HERE RATHER THAN IN THE XLSX WRITER, for the reason `workbook_tables` states
-    about itself: it has THREE consumers, and the Apps Script funnel and the
-    Google sink were sending nested arrays into a flat tab for the same reason
-    the download was failing. One place decides how a multi-value field reads.
+    about itself: it has THREE consumers, and putting the join in the writer
+    would leave the Apps Script funnel and the Google sink sending a flat tab
+    the text `"['a', 'b']"` — `outputs._canonical_cell` stringifies anything it
+    does not recognise, so that one is silent rather than loud. CAN send, not
+    were sending: the Exports and Sync pages offer only `source_site` keys and
+    cannot select a dataset, but `cli.py`'s `export` and `/api/outputs/excel/
+    export` both reach this branch, and `_source_keys` validates nothing.
+    One place decides how a multi-value field reads.
 
     ", " AND NOT "," — the owner's ruling. The screen renders `a,b,c`, which is
     Tabulator's default `String()` over an array; a workbook outlives the screen
@@ -135,11 +140,10 @@ def dataset_workbook_tables(payload: dict,
                 # "{'name': ...}" in a cell as if it were the value, and a
                 # workbook is read by people who cannot see it is wrong.
                 raise UnexportableCell(
-                    f"{payload['source_key']}.{key} holds a nested "
-                    f"{type(value).__name__}, which no spreadsheet cell can "
-                    f"carry: {value!r:.120}. Flatten that field where it "
-                    f"is written, or hide the column from the table — a hidden "
-                    f"column leaves the export with it.")
+                    f"{payload['source_key']}.{key} nests a value that no "
+                    f"spreadsheet cell can carry: {value!r:.120}. Flatten that "
+                    f"field where it is written, or hide the column — hiding "
+                    f"it takes the column out of the export too.")
             cells.append(value)
         rows.append(cells)
     return [(tab or payload["source_key"], header, rows)]

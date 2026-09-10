@@ -765,7 +765,7 @@ def _cmd_install_native_host(args: argparse.Namespace) -> int:
 def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     """Shared body for `push` (Google) and `export` (local): same data, same
     arrangement, different sink."""
-    from .publish import publish_source
+    from .publish import UnexportableCell, publish_source
 
     db_path = _engine_path(args)
     if not Path(db_path).exists():
@@ -776,7 +776,10 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
         n, location = publish_source(conn, args.source, sink, args.folder, args.workbook,
                                      schema=getattr(args, "schema", "original"))
         conn.commit()   # apply_schema registers any newly-seen columns
-    except ValueError as exc:
+    except (ValueError, UnexportableCell) as exc:
+        # `UnexportableCell` is named because it is NOT a ValueError: before it
+        # existed openpyxl's own ValueError reached this line from inside the
+        # sink, and a traceback here would be a worse answer than the sentence.
         print(f"error: {exc}", file=sys.stderr)
         return 1
     finally:
