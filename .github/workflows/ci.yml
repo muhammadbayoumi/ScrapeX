@@ -408,16 +408,21 @@ jobs:
         # brackets 92s; the PERCENTAGE does not travel, because a local suite is
         # ~345s against CI's ~651s.)
         #
-        # AND THE WALL CLOCK IS UNCHANGED WITHIN THE NOISE, which is the most
-        # this measurement can say. The job removed ran in PARALLEL, so what a
-        # merge waited on was max(test, migration-authority): 785, 785, 780,
-        # 851, 700, 772s over the base branch's six runs — median 782.5s,
-        # spread 151s. This step now decides alone, and lands in 750-838s.
-        # A HANDFUL OF RUNS CANNOT RESOLVE A FEW PERCENT AGAINST A 151s SPREAD,
-        # so neither "faster" nor "slower" is claimable — and both earlier
-        # versions of this paragraph claimed one, each by picking a single run.
-        # Stated as a range rather than a list of runs on purpose: a list is
-        # stale by the next push, and it was, twice.
+        # AND IT BUYS COMPUTE, NOT LATENCY — said this way because three earlier
+        # versions of this paragraph each claimed a wall-clock result and each
+        # was falsified by the next CI run. The job removed ran in PARALLEL, so
+        # what a merge waited on was max(test, migration-authority): 700-851s,
+        # median 782.5s, over the base branch's six runs. This step now decides
+        # alone and carries +92s it did not carry before, which puts it in the
+        # same band. Four runs against a 151s spread resolve nothing, and the
+        # early ones leaned each way in turn.
+        #
+        # SO NO NUMBER FOR THE CRITICAL PATH IS RECORDED HERE. Whoever needs one
+        # should measure it from the Actions API over a real sample rather than
+        # trust a figure in a comment — the four that were written here were
+        # stale within a day, each time by a single run. What does not move is
+        # the compute: 69.5% of this workflow's billed runner-minutes across all
+        # three edits, over 1,322 runs.
         #
         # WHAT IS MEASURED IS THE COMPUTE: 69.5% of this workflow's billed
         # runner-minutes across all three edits, over 1,322 runs. That is the
