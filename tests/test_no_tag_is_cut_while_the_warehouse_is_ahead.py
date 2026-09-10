@@ -9,7 +9,7 @@ Two guards, and they cover different blind spots:
 
 * **CI** — `release-engine.yml` refuses a tag while any unmerged branch has NUMBERED a
   migration the release does not carry. It is the only thing that can see across branches.
-  `migration-authority` in `ci.yml` cannot: it reads the diff of the branch it runs on.
+  The suite in `ci.yml` cannot: it reads the diff of the branch it runs on.
 * **This machine** — `.githooks/pre-push` refuses to push an `engine-v*` tag while the local
   warehouse is at a version this code cannot open. CI cannot see a developer's machine.
 

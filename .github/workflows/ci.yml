@@ -1,7 +1,27 @@
 name: CI
 
+# PUSH IS NARROWED TO main, AND THAT IS THE WHOLE OF #646. Unfiltered, every
+# commit on a branch with an open pull request ran this matrix TWICE. Measured
+# over 2026-08-11..09-10 from the Actions API: 1,322 runs across 820 SHAs, 465
+# of them run twice, and the duplicate copies cost 8,591 of 23,369 runner-
+# minutes — 36.8%. (#646 quotes 617 runs and 11,529 minutes for the same shape;
+# that is the most recent 617 runs, not the window, and it reproduces on that
+# slice. The share it derives, 38%, is the number that survives.) Every branch
+# commit is still covered by the `pull_request` run, and main keeps its
+# post-merge run, so nothing loses coverage.
+#
+# WHAT DOES CHANGE, and it is a behaviour change rather than a tidy-up: a branch
+# with NO open pull request stops being tested on push. Work travels here as
+# branch -> PR -> squash, so that window is the time before the PR is opened.
+#
+# It also removes an ambiguity the duplication created. The two runs tiered
+# differently — `push` computed the scope base from the branch's previous tip,
+# `pull_request` from the base commit — and both rows were called `test`, so a
+# reader who opened the wrong one could see `test` pass while the engine tier
+# never ran. Only the run that describes the whole change is left.
 on:
   push:
+    branches: [main]
   pull_request:
 
 # THE TOKEN IS READ-ONLY HERE, said out loud rather than inherited. Nothing in
@@ -12,6 +32,37 @@ on:
 # is the same discipline applied to the file that runs on every push.
 permissions:
   contents: read
+
+# A SUPERSEDED RUN IS AN ANSWER ABOUT A COMMIT NOBODY IS WAITING ON. Pushing
+# again to a branch used to leave the previous matrix running to completion —
+# a median full run is ~13 minutes of wall clock and ~22 runner-minutes, spent
+# describing a tree that has already moved (#647).
+#
+# `main` LEAVES THE GROUP ENTIRELY, and `cancel-in-progress: false` would NOT
+# have been enough. GitHub's rule is that "any existing pending job or workflow
+# in the same concurrency group will be canceled" — unconditionally, whatever
+# `cancel-in-progress` says, because that flag governs only the RUNNING slot.
+# A group holds one running and one pending run, so three merges inside one
+# run's wall clock evict the middle one while it is still pending.
+#
+# THAT WOULD COST A RELEASE, NOT JUST A ROW. `tag-the-release.yml` consumes this
+# workflow through `workflow_run` and tags only on `conclusion == 'success'`; a
+# cancelled run publishes nothing, so a `VERSION` bump merged in the middle of a
+# burst would never be tagged — the defect R-87 built that mechanism to remove.
+# Simulated over the last 297 squash merges at the 13.2-minute median run:
+# 10 of them (3.4%) would have lost their post-merge run.
+#
+# `github.run_id` is unique per run, so main's expression yields a group of one
+# and nothing of main's is ever grouped or cancelled. Pull requests group by
+# `refs/pull/<n>/merge`, unique per PR — two PRs on the same head branch cannot
+# collide, and no PR can share a group with main.
+#
+# It is NOT a flake remedy. With CI on both triggers an intermittent had two to
+# four chances to fire per SHA and now has fewer, which lowers exposure without
+# fixing a single flaky test — see #649 for the ones that are real.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # ITS OWN JOB, and deliberately not a step inside `test`. A style failure that
@@ -46,12 +97,11 @@ jobs:
       - name: Lint the JavaScript (eslint)
         run: npx --yes eslint@9.39.0 extension scrapex/webui/static contract apps_script --no-warn-ignored
 
-  # ITS OWN JOB, and it was a step inside `test` until 2026-08-19. Two jobs need
-  # the answer now — `test` and `migration-authority` — and they must run in
-  # PARALLEL, so neither can compute it for the other: `needs: test` would
-  # serialise six minutes in front of twelve and make the split pointless.
-  # Computing it twice would mean two copies of the base-detection reasoning
-  # below, and the copy that drifts is always the one nobody reads.
+  # ITS OWN JOB, and it was a step inside `test` until 2026-08-19. It was split
+  # out when TWO jobs needed the answer and had to run in parallel; #645 removed
+  # the second, so `test` is the only consumer left and the original reason is
+  # spent. It stays a job here because folding it back is a separate change with
+  # its own argument, not a rider on a cost fix — recorded as an issue.
   #
   # It is seconds long: a checkout and a `git diff --name-only`. No Python.
   scope:
@@ -337,24 +387,88 @@ jobs:
 
       - name: Tests (Python engine + Python-vs-frozen contract)
         if: needs.scope.outputs.scope == 'full'
-        # THE FULL SUITE, ON THE SCHEMA TEMPLATE. `SCRAPEX_FULL_MIGRATIONS` moved
-        # out of this step and into the `migration-authority` job below, and the
-        # guarantee did NOT move with it — that job runs the same suite with the
-        # real stream, in parallel, on every change this step runs on.
+        # THE FULL SUITE, ONCE, AGAINST THE REAL MIGRATION STREAM. This ran on
+        # `tests/conftest.py`'s schema template until #645, with a second job
+        # replaying the real stream beside it — the same 3,600 tests twice, for
+        # a difference the squash had already collapsed.
         #
-        # WHAT IT BUYS, MEASURED 2026-08-19. tests/conftest.py restores a prebuilt
-        # schema template instead of replaying the migrations per test. Real
-        # `migrate()` is 396ms against a 3.6ms template restore, and a full suite
-        # makes 927 of those calls: 895 restored, 32 real. So the variable was
-        # adding roughly 350 seconds to a step that is 92% of this job's 12m49s.
-        # Splitting it means the ordinary green signal lands in about six minutes
-        # while the authoritative one keeps running beside it.
+        # THE ARGUMENT IS "RUN IT ONCE, PROPERLY", NOT "THE REAL STREAM BUYS
+        # NOTHING". Every pull request now exercises the real stream, which
+        # before this only the second job did, so this is strictly MORE
+        # protection than the step it replaces.
         #
-        # IT DOES NOT MAKE A MERGE FASTER BY ITSELF. If branch protection
-        # requires `migration-authority` too — and it should — the slowest
-        # required check still decides. What changes is that a failure unrelated
-        # to migrations surfaces in six minutes instead of thirteen.
+        # WHAT IT COSTS, MEASURED ON CI, not on a developer machine. Run
+        # 34428035437 ran both suites off one tree: this step unflagged 651s,
+        # the deleted job's identical `pytest -q` flagged 743s. So +92s, +14.1%.
+        # #645 budgeted +15.7s, measured when db/engine/migrations/ was EMPTY —
+        # 0018 through 0020 have landed since, so every real migrate() replays
+        # the baseline and three files instead of one. The 396ms-per-call figure
+        # this comment used to carry is older still: it measured the 57-file
+        # chain R-84 squashed away. (Locally the delta is +73s and +100s, which
+        # brackets 92s; the PERCENTAGE does not travel, because a local suite is
+        # ~345s against CI's ~651s.)
+        #
+        # AND IT BUYS COMPUTE, NOT LATENCY — said this way because three earlier
+        # versions of this paragraph each claimed a wall-clock result and each
+        # was falsified by the next CI run. The job removed ran in PARALLEL, so
+        # what a merge waited on was max(test, migration-authority): 700-851s,
+        # median 782.5s, over the base branch's six runs. This step now decides
+        # alone and carries +92s it did not carry before, which puts it in the
+        # same band. Four runs against a 151s spread resolve nothing, and the
+        # early ones leaned each way in turn.
+        #
+        # SO NO NUMBER FOR THE CRITICAL PATH IS RECORDED HERE. Whoever needs one
+        # should measure it from the Actions API over a real sample rather than
+        # trust a figure in a comment — the four that were written here were
+        # stale within a day, each time by a single run. What does not move is
+        # the compute: 69.5% of this workflow's billed runner-minutes across all
+        # three edits, over 1,322 runs.
+        #
+        # WHAT IS MEASURED IS THE COMPUTE: 69.5% of this workflow's billed
+        # runner-minutes across all three edits, over 1,322 runs. That is the
+        # win being bought, and it does not need a latency story.
+        #
+        # THE FLAG IS ON THIS STEP, NOT ON THE JOB, and that is load-bearing.
+        # The seven tests in tests/test_fast_migrations.py SKIP when it is set,
+        # and the step below is their only remaining home; a job-level `env:`
+        # would reach that step too and silence them where nothing would notice.
+        env:
+          SCRAPEX_FULL_MIGRATIONS: "1"
         run: python -m pytest -q
+
+      - name: The schema template still has a suite, and the run above skips it
+        if: needs.scope.outputs.scope == 'full'
+        # SEVEN TESTS THAT ONLY RUN WITHOUT THE FLAG. They are the only thing
+        # pinning the template mechanism `tests/conftest.py` uses to make a local
+        # suite bearable. Until #645 they ran in THIS job, which had no flag —
+        # the flag lived in the job that was deleted. Moving it onto the step
+        # above took their home away, so they get a step of their own,
+        # deliberately with no `env:` block.
+        #
+        # AND IT HAS A FLOOR, because without one the step is green either way:
+        # all seven skip when the flag reaches them and pytest still exits 0
+        # under `-q`. Measured: 7 passed without it, 7 skipped with it, exit 0
+        # both times. That is the shape #644 hid for 25 commits, and the shape
+        # the step below this one exists to stop.
+        #
+        # `raise SystemExit`, NOT `assert`: #833 is open against the sibling
+        # floor below for exactly this — PYTHONOPTIMIZE strips an assert and the
+        # step goes green with every test skipped.
+        run: |
+          python -m pytest tests/test_fast_migrations.py --junitxml=/tmp/fast.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suite = ET.parse("/tmp/fast.xml").getroot().find("testsuite")
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"fast-migrations: {ran} tests, {skipped} skipped")
+          if skipped:
+              raise SystemExit(
+                  "the template suite skipped, so nothing pins the mechanism "
+                  "tests/conftest.py restores from; SCRAPEX_FULL_MIGRATIONS has "
+                  "reached this step")
+          if ran < 7:
+              raise SystemExit(f"the template suite ran {ran} tests, and there were seven")
+          PY
 
       - name: The pre-squash suite must RUN, not skip
         # THE COLLECT-ONLY FLOORS ABOVE CANNOT SEE THIS ONE. A browser suite
@@ -404,82 +518,6 @@ jobs:
               "tests are the only proof his warehouse still opens")
           assert ran >= 6, f"the pre-squash suite ran {ran} tests, and there were six"
           PY
-
-  migration-authority:
-    # THE GUARANTEE THAT USED TO BE AN ENVIRONMENT VARIABLE ON ANOTHER JOB'S
-    # STEP. `tests/conftest.py` restores a prebuilt schema template instead of
-    # replaying the real migration stream, which is what makes a local suite
-    # bearable. This job is the line that keeps that a developer-loop convenience
-    # and nothing more: it runs the SAME suite with `SCRAPEX_FULL_MIGRATIONS=1`,
-    # so the real stream is exercised exactly as it was before conftest existed.
-    #
-    # SEPARATE, AND IN PARALLEL, RATHER THAN INLINE. Measured 2026-08-19: real
-    # `migrate()` costs 396ms against a 3.6ms template restore, and a full suite
-    # makes 927 of those calls. Inline, that put ~350s in front of every other
-    # answer the suite had to give. Beside it, the ordinary failures arrive in
-    # about six minutes and this one keeps running.
-    #
-    # ⚠ IT IS NOT A REQUIRED CHECK UNTIL SOMEONE MAKES IT ONE. A new job is not
-    # automatically added to branch protection. Until `migration-authority` is
-    # required, a migration-stream failure here will NOT block a merge — which
-    # would be strictly weaker than the inline variable it replaced. Add it to
-    # the required set for `main`.
-    #
-    # It reads the same scope, so a documentation change does not replay 61
-    # migration files 927 times to prove a Markdown edit is safe.
-    needs: scope
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # FULL HISTORY, and it is not for the scope diff. Two guards in this
-          # suite ask git when something last really changed, and BOTH SKIP
-          # rather than fail on a grafted clone:
-          #   tests/test_the_privacy_policy_is_true.py:433 -- the "Last updated"
-          #     staleness guard, added 2026-08-12 after the policy was edited
-          #     three times in a day while still claiming an older date;
-          #   tests/test_version.py:231 -- every capability's cited commit hash.
-          # A depth-1 checkout turns both into skips, which `-q` reports as green.
-          # Measured: edit docs/privacy-policy.md, leave its date, and full
-          # history fails while depth 1 passes.
-          #
-          # publish-docs.yml and release-extension.yml pin this for the same
-          # reason, and the helper's own comment names them. This job is NEW, so
-          # it never had the history to lose -- it was born shallow, which is the
-          # easier half of the same mistake to make.
-          # tests/test_the_workflows_check_out_enough_history.py now guards it.
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        if: needs.scope.outputs.scope == 'full'
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      # The browser extra is here for the same reason it is in `test`: this runs
-      # the WHOLE suite, and the panel suites need a real Chromium or they
-      # collect nothing and report a skip.
-      - name: Cache the browser download
-        if: needs.scope.outputs.scope == 'full'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ms-playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: ms-playwright-${{ runner.os }}-
-      - name: Install
-        if: needs.scope.outputs.scope == 'full'
-        run: |
-          pip install -e .[dev,browser]
-          python -m playwright install --with-deps chromium
-      - name: The whole suite, against the real migration stream
-        if: needs.scope.outputs.scope == 'full'
-        env:
-          SCRAPEX_FULL_MIGRATIONS: "1"
-        run: python -m pytest -q
-      - name: Nothing to replay
-        if: needs.scope.outputs.scope != 'full'
-        # The job still reports, which is what branch protection needs — see the
-        # note on `paths:` filters in the `scope` job. It just costs seconds.
-        run: echo "scope is ${{ needs.scope.outputs.scope }}; no engine change to replay migrations for"
 
   contract-parity:
     # The two-engine guardrail: the JS engine must reproduce the FROZEN contract
