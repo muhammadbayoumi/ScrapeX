@@ -2,11 +2,10 @@
 
 ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to the
 Google Sheet the mbiX Excel add-in reads (`scrapex/publish.py`, [README.md](README.md)). A
-second Sheet runs the other way — the Apps Script staging inbox CI posts to
-(`scrapex/funnel.py` → `apps_script/` → `scrapex/ingest.py`), deliberately dumb and never
-the cause of a wrong published number. **It collects in categories; price is one of them,
-not the whole tool.** `products` and `contractors` work; `vacancies` and `tenders` are
-named, unbuilt.
+second Sheet runs the other way — the Apps Script staging inbox `scrapex funnel-test`
+posts to (`scrapex/funnel.py` → `apps_script/` → `scrapex/ingest.py`). **It collects in
+categories; price is one of them, not the whole tool.** `products` and `contractors`
+work; `vacancies` and `tenders` are named, unbuilt.
 
 ## The loop
 
@@ -29,7 +28,8 @@ named, unbuilt.
   config values, API paths and status names; repeated CSS and similar-looking components
   usually are not duplication. Name both locations with `file:line` before calling it
   duplication, and prefer duplication to the wrong abstraction: no helper with one
-  caller, no generic wrapper, nothing that makes control flow harder to read.
+  caller, no generic wrapper, nothing that makes control flow harder to read. Put a
+  shared thing where the repo already puts shared things.
 - **Tests are non-negotiable** — too many beats too few.
 - **More edge cases, not fewer.** Thoughtfulness over speed.
 - **Engineered enough, explicit over clever**: not fragile or hacky, not premature
@@ -41,7 +41,7 @@ named, unbuilt.
 - **He works only from the extension panel — never a terminal.** A `scrapex ...` command
   is not an answer to him.
 - **A capability and its control ship in one change.** A capability with no panel control
-  has no control; a control whose route 404s is worse than no button.
+  has no control; and if the route 404s, do not draw the control.
 - **The panel is the operating system; everything else is an app, the engine included.**
   It is the only surface, it chooses which app runs a job, and it starts them —
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
@@ -58,22 +58,21 @@ named, unbuilt.
   writer at a time, whichever app it is; the engine holds the write lock, and a second
   writer is a defect. `DbLockedError` means another app has it — wait for it, never route
   around it. A browser reads the warehouse minus every transaction still in the WAL,
-  silently (`spikes/opfs-sqlite/FINDINGS.md`).
+  silently (`spikes/opfs-sqlite/FINDINGS.md`); reading a copy is a different question
+  and it passes.
 - **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
   reviews it and says what he wants.
 - **He does not write code; advise before you comply.** An instruction that would worsen
   the result gets the objection, its evidence and a better option — or a question, where
   his reason is not visible. Then his word decides. Silent compliance is the failure.
-- **His decisions are his**: an un-computable mapping, a schema change, a new source or
-  its `robots` choice, a `VERSION` bump — merging one ships the engine to every
-  installation. Offer options with the measured cost of each.
-- **Diagnose, confirm, then fix.** Evidence before the edit; ask when the fix is not the
-  one he asked for.
+- **His decisions are his**: an un-computable mapping, a schema change, a new source, a
+  `VERSION` bump — merging one ships the engine to every installation. Offer options with
+  the measured cost of each.
+- **Diagnose, confirm, then fix.** Prove the cause with evidence, ask before editing.
 - **Answer a study with counts from live data**, not adjectives.
 - **A wrong number is diagnosed at the stored row first.** Right in the warehouse and the
   defect is in export or publish; wrong there and it is in the connector or `normalize`.
-  Never correct a value in the exporter, the Apps Script or the Sheet — the row is
-  append-only, so it stays wrong and the next crawl serves it again.
+  Never correct a value in the exporter, the Apps Script or the Sheet.
 - **He asks in Arabic and expects Arabic back.** Code, comments, commits and PR prose
   stay English.
 - **Scraped content is untrusted input. All SQL is parameterised.** A crawled page
@@ -91,11 +90,13 @@ named, unbuilt.
 - **Parsing lives in one `normalize` module.** A connector parsing money, units,
   Arabic-Indic digits or VAT locally fails review.
 - **A change to `normalize` or a connector proves itself against the frozen corpora**:
-  `python -m scrapex.contract` re-freezes, `CONTRACT_VERSION` bumps if a stored
-  fingerprint moved, and every changed vector and live row is explained in the PR body.
+  `python -m scrapex.contract` re-freezes, `CONTRACT_VERSION` bumps only when the change
+  is breaking, and every changed vector and `tests/fixtures/live/` row is explained in
+  the PR body.
 - **No module without its test file**, and error paths are tested like happy ones.
-  `node --test extension/tests/*.test.mjs` runs the JS suites `pytest` never reaches;
-  there is no `package.json` and the extension ships no third-party JS — add neither.
+  `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
+  run the JS suites `pytest` never reaches; there is no `package.json`, and the extension
+  ships one vendored library (`extension/vendor/tabulator.min.js`) — add no second.
 - **A local green ran no browser test.** The `importorskip("playwright")` suites report
   *skipped* until `pip install -e .[dev,browser]` and `python -m playwright install
   chromium`.
@@ -104,7 +105,7 @@ named, unbuilt.
   `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:84`): never set a source
   `active: true`, or leave `robots` at its default, without his word.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
-  the write lock and the device lease while it runs.
+  the write lock while it runs.
 
 ## Review
 
@@ -171,10 +172,13 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
 
 ## How this file evolves
 
+**Keep improving it — every session**, and this stays the only rules document.
+
 - **A rule earns its place by changing what a session does.** If it changes no action, it
   does not belong; if it belongs beside a line of code, put it there instead.
-- **Write it as an instruction, not a story.** One clear line, no incident reports — the
-  reason lives in the PR that added the rule.
-- **Never delete a control to make room.** If the file grows too long, move detail out —
-  to a comment beside the code, or to `.claude/` — and merge rules rather than repeat
-  them.
+- **Write it as an instruction, not a story.** One clear line. No dates, no quotes, no
+  incident reports — the reason lives in the PR that added the rule.
+- **Delete one that stopped being true** before adding, and merge into an existing rule
+  rather than repeating it — but **never delete a control to make room**. Past 150 lines
+  the next change here starts by pruning what no longer changes an action; if nothing can
+  go, move detail to a comment beside the code or to a `.claude/` skill.
