@@ -685,8 +685,20 @@ def test_a_nested_object_names_its_field_instead_of_landing_as_wrong_data(conn):
         dataset_workbook_tables(nested)
     assert "Sara" in str(inside.value), (
         "the message must carry the value he has to go and look at")
-    assert not isinstance(inside.value, ValueError), (
-        "a ValueError here is reported to him as 'crawl and ingest it first'")
+
+    # THE BEHAVIOUR, not the base class. Every catch site now names
+    # `UnexportableCell` ahead of its own `except ValueError`, so an isinstance
+    # check here would pass on clause order alone. What the base class is FOR
+    # is the caller that never learned the type — and this is that caller.
+    try:
+        dataset_workbook_tables(nested)
+    except ValueError as swallowed:
+        raise AssertionError(
+            "a bare `except ValueError` swallowed the refusal, and every "
+            "caller with one reports it as 'crawl and ingest it first': "
+            f"{swallowed}") from None
+    except UnexportableCell:
+        pass
 
     mapping = stored(conn)
     mapping["rows"][0]["membership_level"] = {"grade": 1}

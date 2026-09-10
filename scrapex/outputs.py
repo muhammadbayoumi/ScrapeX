@@ -149,8 +149,8 @@ def excel_export(conn: sqlite3.Connection, source_keys: list[str], *,
         except (ValueError, UnexportableCell) as exc:
             # TWO CONDITIONS, ONE CONSEQUENCE: nothing to publish for that
             # source, or a shape no cell can carry. Both are ONE source's
-            # problem and neither may kill a run over the others (P?: "one
-            # source failing never kills a run and is never swallowed").
+            # problem and neither may kill a run over the others — CLAUDE.md,
+            # "one source failing never kills a run and is never swallowed".
             #
             # `UnexportableCell` IS NAMED HERE BECAUSE IT IS NOT A ValueError.
             # openpyxl raised its own `ValueError("Cannot convert [...] to
@@ -293,10 +293,11 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     try:
         tables = workbook_tables(conn, source_key)
     except UnexportableCell as exc:
-        # ITS OWN SENTENCE, and that is the whole reason `UnexportableCell` is
-        # not a ValueError: reported through the clause below it would tell him
-        # to crawl and ingest a source that is already ingested, sending him to
-        # re-run a crawl that was never the problem.
+        # ITS OWN SENTENCE, and THIS CLAUSE — ahead of the one below — is what
+        # produces it. Reported through that one it would tell him to crawl and
+        # ingest a source that is already ingested, sending him to re-run a
+        # crawl that was never the problem. The class's TypeError base is the
+        # separate guard, for a caller that never learned the type at all.
         raise NotConfiguredError(str(exc)) from None
     except ValueError:
         # workbook_tables refuses a source with no priced rows, which is the

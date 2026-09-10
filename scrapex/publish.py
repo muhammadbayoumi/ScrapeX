@@ -19,11 +19,17 @@ from .reports import export_details_table, export_history_table, export_source_t
 class UnexportableCell(TypeError):
     """A dataset cell holds a shape no flat table can carry.
 
-    A TypeError and deliberately NOT a ValueError: both the `.xlsx` route and
-    `outputs.apps_script_send` read a ValueError out of `workbook_tables` as
-    "nothing ingested for this source yet", so a shape defect raised as one
-    would be reported to the owner as "crawl and ingest it first" — a confident
-    wrong answer, which is the silent failure this class exists to prevent.
+    A TypeError and deliberately NOT a ValueError — but not for the reason it
+    looks like. Every caller that catches this today names it explicitly and
+    AHEAD of its own `except ValueError`, so clause order, not the base class,
+    is what keeps those four right; flipping the base changes nothing they do.
+
+    What the base class buys is the caller that has NOT been taught the type.
+    Three such callers existed the day this class was added and all three read
+    a ValueError out of `workbook_tables` as "nothing ingested for this source
+    yet" — so inheriting from it would have had them tell the owner to crawl
+    and ingest a source that is already ingested. The fifth consumer arrives
+    the same way, unaware, and this is what stops it swallowing the refusal.
     """
 
 

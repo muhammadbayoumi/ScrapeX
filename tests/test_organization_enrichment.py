@@ -590,8 +590,9 @@ def test_the_enrichment_output_downloads_as_a_workbook(registry, monkeypatch, tm
     and opens the file that comes back.
 
     The path the download takes is shared: `publish.workbook_tables` also feeds
-    the Apps Script funnel and the Google sink, and both were sending nested
-    arrays into a flat tab for the same reason.
+    the Apps Script funnel and the Google sink, and both CAN reach this branch
+    — from `cli.py`'s `export` and from `/api/outputs/excel/export`, which
+    validates no key. The test below holds that half.
     """
     openpyxl = pytest.importorskip("openpyxl")
     from io import BytesIO
@@ -665,7 +666,8 @@ def test_the_funnel_and_the_sink_carry_the_same_flattened_cell(conn, monkeypatch
     client = FakeFunnel()
     outputs.apps_script_send(conn, "contractor_enrichment", client=client)
     sent = client.sent[0]
-    assert all(isinstance(cell, str) for row in sent.rows for cell in row)
+    # Not `isinstance(cell, str)`: `_canonical_cell` returns a string on every
+    # branch, so that can never fail. The TEXT is the pin.
     assert {row[sent.header.index("providers_checked")] for row in sent.rows} == {flat}
 
 
@@ -735,6 +737,100 @@ def test_the_funnel_says_what_is_wrong_instead_of_sending_him_to_crawl(conn, mon
     assert "key_decision_makers" in str(refusal.value)
     assert "crawl" not in str(refusal.value), (
         "it sent him to re-run a crawl that was never the problem")
+
+
+def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
+        registry, monkeypatch, tmp_path, capsys):
+    """WHY `cli.py` carries no `UnexportableCell` clause, recorded rather than
+    argued — and this test passes against `main` on purpose.
+
+    Two reviews in a row said the CLI's `except ValueError` had turned a
+    sentence into a traceback, and both were wrong. `cli.main` wraps every
+    command in `except Exception` and prints `error: {exc}`, so the refusal
+    already reaches stderr with exit 1 and a clause in `_publish_with` would
+    change nothing observable. It was written, measured against a revert,
+    found to be dead code, and taken back out.
+
+    What this holds is the backstop the decision rests on: remove it and the
+    export path answers a person with a traceback.
+    """
+    from scrapex import cli
+
+    conn = registry.engine.connect()
+    try:
+        definition = enrichment.create_definition(conn, _request(conn))
+        _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+        conn.execute(
+            "UPDATE generic_record SET data_json = json_set(data_json, "
+            "'$.key_decision_makers', json('[{\"name\": \"Sara\"}]')) "
+            "WHERE dataset_definition_id = (SELECT output_dataset_id "
+            "  FROM organization_enrichment_definition LIMIT 1)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    code = cli.main(["export", "contractor_enrichment",
+                     "--db", str(registry.engine.path),
+                     "--folder", str(tmp_path), "--workbook", "book"])
+
+    assert code == 1
+    stderr = capsys.readouterr().err
+    assert stderr.startswith("error: "), f"a traceback, not a sentence: {stderr!r}"
+    assert "key_decision_makers" in stderr
+
+
+def test_every_caller_of_the_export_path_names_the_type_it_can_raise(conn):
+    """A four-place invariant, and this change is the proof it can be missed.
+
+    `workbook_tables` refuses two different ways — `ValueError` for "nothing
+    ingested", `UnexportableCell` for a shape no cell can carry — and a caller
+    that catches only the first swallows the second into the wrong sentence or
+    lets it kill a run. Three of the four sites were missed on the first pass
+    of this very change; the fifth consumer is one `except ValueError` away
+    from the same miss, and nothing but this would notice.
+
+    Read from the AST rather than by regex, so a reformatted `except` line or
+    a renamed local cannot make the guard quietly stop looking.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parent.parent / "scrapex"
+    raisers = {"workbook_tables", "publish_source"}
+    missed = []
+    for path in sorted(root.rglob("*.py")):
+        if path.name == "publish.py":       # where both are defined
+            continue
+        if path.name == "cli.py":
+            # MEASURED, not assumed: `cli.main` catches `Exception` and prints
+            # `error: {exc}`, so no clause there can produce a wrong answer —
+            # its ValueError handler and that backstop say the same sentence.
+            # `test_the_cli_needs_no_clause_of_its_own_and_this_is_why` holds
+            # the backstop this exemption depends on.
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            calls = {c.func.id for c in ast.walk(node)
+                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            if not (calls & raisers):
+                continue
+            # PER TRY BLOCK AND IN ORDER, not per handler: both correct
+            # spellings must pass — one clause naming the pair, or a dedicated
+            # `except UnexportableCell` AHEAD of the `except ValueError`.
+            # Order is checked even though the TypeError base makes it moot
+            # today, so the guard still holds if that base is ever changed.
+            seen = False
+            for handler in node.handlers:
+                names = {n.id for n in ast.walk(handler.type or ast.Pass())
+                         if isinstance(n, ast.Name)}
+                seen = seen or "UnexportableCell" in names
+                if "ValueError" in names and not seen:
+                    missed.append(f"{path.name}:{handler.lineno}")
+
+    assert not missed, (
+        "these catch a ValueError from the export path and would swallow an "
+        f"UnexportableCell into the wrong answer: {missed}")
 
 
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
