@@ -96,6 +96,13 @@ DOCUMENTS = (
     # one thing `LESSONS` 21 says must never be repointed.
     "CLAUDE.md",
     "README.md",
+    # WIDENED when the Review section and the tools table moved out of CLAUDE.md into
+    # skills. They are governed rules a session acts on, exactly like the lines they
+    # replaced, and moving them here would otherwise have carried them out of the only
+    # set whose citations are verified -- `skip` below excludes `.claude` from the file
+    # index, so nothing else in this test would ever have looked at them.
+    ".claude/skills/review/SKILL.md",
+    ".claude/skills/record-it/SKILL.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by

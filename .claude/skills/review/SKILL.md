@@ -39,9 +39,12 @@ One dimension at a time, stopping after each for his word. Per issue:
 `CLAUDE.md` binds this: green is not mergeable. Run it before every merge of a code,
 test or workflow change.
 
-1. **Check CI on the head the branch has right now.** A recorded green expires — a
-   commit can land after the green that produced it. `gh pr checks <n>` and
-   `gh pr view <n> --json headRefOid`.
+1. **Identify the green by head SHA, never by a tally.** A recorded green expires — a
+   commit can land after the green that produced it. And a row count is an artifact of
+   the CI config, not a number of checks: `gh pr checks` prints a row per run, so an
+   unfiltered `on: push` doubles most rows, and it exits non-zero while any duplicate is
+   still pending, which reads as red on a head that is green. Take `headRefOid`, then
+   read the check-runs for that exact SHA and require each context by name.
 2. **A reviewer session per dimension**, all four, over the same diff.
 3. **An adversary attacks what they returned.** It opens every cited `file:line`, kills
    what the line does not support, demands a demonstration for every must fix, and then
@@ -56,9 +59,11 @@ test or workflow change.
 
 Three rules that decide the outcome:
 
-- **The report names each reviewer and its verdict.** A report that cannot is a **failed
-  pass, not an empty one** — a panel whose reviewers died reports the same silence as a
-  panel that found nothing.
+- **The report names each reviewer and its verdict**, and for one that returned no
+  verdict, which of three it was: it died, it timed out, or it was **refused before it
+  started**. A report that cannot is a **failed pass, not an empty one** — all three read
+  as "this dimension found nothing", and a refusal never reaches the runner at all, so
+  the dimensions most likely to be blocked are the ones that touch secrets and identity.
 - **A finding advances only with a demonstration**: a failing test, a quoted line whose
   own text shows the defect, or a counted query. Undemonstrated, it drops one rank and is
   filed.
