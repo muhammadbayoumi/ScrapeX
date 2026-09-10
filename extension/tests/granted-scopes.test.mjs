@@ -53,6 +53,33 @@ test("a failure is still a failure, whatever the scopes say", () => {
   assert.equal(result.state, "misconfigured");
 });
 
+test("a Chrome with no Google account is not read as a failure", () => {
+  // WHY THIS IS NOT `failed`. The panel shows `failed` even on the silent check
+  // it runs on every open, so a browser nobody has signed into met the panel
+  // with Chrome's raw error string printed across it — having pressed nothing.
+  // A profile with no account is the ordinary first state, not a fault.
+  const result = readTokenResult(
+    undefined, { message: "The user is not signed in." }, EVERYTHING);
+
+  assert.equal(result.state, "no-chrome-account");
+  assert.doesNotMatch(result.detail, /user is not signed in/i,
+    `Chrome's raw message reached the copy: ${result.detail}`);
+  assert.match(result.detail, /no Google account signed in/,
+    `the copy does not name the cause: ${result.detail}`);
+});
+
+test("an unexplained refusal is still reported, and still carries Chrome's words", () => {
+  // THE OTHER HALF OF THE FIX, and the reason it is one branch and not a
+  // deletion: `failed` is visible on the silent check ON PURPOSE (#152), so a
+  // panel that cannot check the account says why instead of sitting blank.
+  // Narrowing one known message must not buy that silence back.
+  const result = readTokenResult(
+    undefined, { message: "Something Chrome has never said before." }, EVERYTHING);
+
+  assert.equal(result.state, "failed");
+  assert.equal(result.detail, "Something Chrome has never said before.");
+});
+
 // ---- asking again ----------------------------------------------------------
 
 function chromeThatGrants(first, second) {

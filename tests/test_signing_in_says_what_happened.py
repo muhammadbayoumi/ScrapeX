@@ -237,6 +237,44 @@ def test_oauth2_not_granted_uses_neutral_authorization_required_copy(open_panel)
     assert "revoked" not in problem.lower()
 
 
+NO_CHROME_ACCOUNT = "The user is not signed in."
+
+
+def test_a_chrome_with_no_account_is_not_greeted_with_chromes_own_error(open_panel):
+    """THE FIRST THING A NEW USER SAW, having pressed nothing.
+
+    The panel checks the account silently on every open, and it shows two of the
+    states that check can return — `timeout` and `failed` — so that a panel
+    which cannot check says why instead of sitting blank (`#152`). Chrome's
+    message for a profile with no Google account matched none of the shapes
+    `readTokenResult` knew, fell through to `failed`, and was printed verbatim.
+    A browser nobody has signed into is the ordinary first state of the product,
+    not a fault to report.
+    """
+    page = open_panel(signin_error=NO_CHROME_ACCOUNT)
+    page.wait_for_selector("#welcome-signed-out:visible", timeout=8000)
+
+    assert page.text_content("#signin-problem").strip() == "", (
+        "the silent check reported a browser with no account as a problem")
+    assert page.is_hidden("#signin-problem")
+
+
+def test_pressing_sign_in_with_no_chrome_account_says_what_to_do(open_panel):
+    """Silent is not the same as secret. Someone who PRESSED the button is owed
+    an answer, and Chrome's raw sentence is not one — it names no next step."""
+    page = open_panel(signin_error=NO_CHROME_ACCOUNT)
+    page.click("#signin")
+    page.wait_for_function(
+        "() => document.getElementById('signin-problem').textContent !== ''",
+        timeout=8000)
+
+    problem = page.text_content("#signin-problem")
+    assert "no Google account signed in" in problem
+    assert "Add your account to Chrome" in problem
+    assert NO_CHROME_ACCOUNT not in problem, (
+        "Chrome's own words reached the panel instead of the panel's")
+
+
 def test_signing_out_puts_the_machine_back_where_it_started(open_panel):
     """Chrome's cached token is dropped, the account mark comes back, and the
     button returns. A sign-out that left the photo on the rail would be a lie
