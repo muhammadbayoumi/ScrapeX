@@ -361,7 +361,7 @@ jobs:
         # disappears at COLLECTION; this file always collects six and loses five
         # at RUN TIME, because `pre_squash_chain` returns None and every test that
         # needs a real pre-squash database skips. `addopts` carries `-q`, so the
-        # file then reports green. Measured: 6 tests, 0 skipped, ~1.5s in CI.
+        # file then reports green. Measured in CI: 6 tests, 0 skipped, 1s.
         #
         # The subject is the owner's own warehouse, which predates the squash:
         # whether it still opens, upgrades, and refuses what it should is the one
@@ -375,12 +375,18 @@ jobs:
         # it sits here. Those floors are `--collect-only`: they can fail for a
         # missing suite and nothing else. This one EXECUTES six tests against
         # EngineDatabase, so it can go red for a product reason — and above the
-        # suite it would abort the job and take ~11.8 minutes of unrelated answers
-        # with it, the failure `lint` was made its own job to avoid. Below the
-        # suite, a product defect reddens the suite with every other answer
-        # already reported, and this step is left saying only what nothing else
-        # can: that the six ran. On `docs` and `extension` the suite step is
-        # skipped, so the guard still lands in about forty seconds.
+        # suite it would abort the job and take the suite with it -- measured on
+        # this branch, 638s of answers nobody then gets, the failure `lint` was
+        # made its own job to avoid. Below it, a product defect reddens the suite
+        # with every other answer already reported, and this step is left saying
+        # only what nothing else can: that the six ran.
+        #
+        # A RED SUITE SKIPS THIS STEP, and that is not a hole: the job is already
+        # failing, so no GREEN build ever reaches a merge without this having run
+        # and passed. What the order costs is only how soon a skip is reported --
+        # 46s before the suite, 685s after it, measured. That is the right trade,
+        # because a skip is a CI-integrity fault nobody iterates on, while a
+        # product failure is the thing someone is waiting on.
         #
         # SKIPS ARE COUNTED, NOT COLLECTIONS, and the floor is a number rather
         # than "at least one" for the same reason the panel's is: five of six
