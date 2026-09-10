@@ -6879,10 +6879,11 @@ async function loadJobs({keepNotice = false} = {}) {
     : "");
 
   // WHAT HE WAS LOOKING AT SURVIVES THE REDRAW. The controls sit INSIDE the row, so a
-  // blind `replaceChildren` shut the row he had just pressed a button in, threw away the
-  // log it had fetched, and dropped keyboard focus to <body> in a list of 173. That
-  // undoes the interaction this page was designed around, so the open rows, their logs
-  // and the focused control are carried across.
+  // blind `replaceChildren` shut the row he had just pressed a button in and threw away
+  // the log it had fetched -- undoing the interaction this page was designed around. The
+  // FOCUS half of that is restored by `pressJobControl` and deliberately not here: that
+  // handler disables the button on its first line, and disabling a focused element moves
+  // focus to <body>, so by the time this runs there is nothing left to read.
   const wasOpen = new Map();
   for (const previous of list.querySelectorAll("details.job-row[open]")) {
     const had = previous.querySelector(".job-log")?.textContent || "";
@@ -6891,10 +6892,6 @@ async function loadJobs({keepNotice = false} = {}) {
     // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
     wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
   }
-  const focused = document.activeElement;
-  const focusedRow = focused?.closest?.("details.job-row")?.dataset.job || "";
-  const focusedLabel = focusedRow ? focused.textContent : "";
-
   list.replaceChildren(...rows.map((row) => {
     const box = drawJobRow(row);
     if (!wasOpen.has(row.job_ref)) return box;
@@ -6904,13 +6901,6 @@ async function loadJobs({keepNotice = false} = {}) {
     box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
     return box;
   }));
-
-  if (focusedRow) {
-    const again = [...list.querySelectorAll("details.job-row[data-job] button")]
-      .find((button) => button.closest("details.job-row").dataset.job === focusedRow
-                        && button.textContent === focusedLabel);
-    if (again) again.focus();
-  }
 }
 
 /**
@@ -7086,6 +7076,21 @@ async function pressJobControl(jobRef, control, button) {
   // row on screen is the stale one that offered the button. `keepNotice` is what stops
   // that reload erasing the sentence explaining why.
   await loadJobs({keepNotice: refused});
+
+  // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
+  // itself: `button.disabled = true` above moves focus to <body> immediately, so by the
+  // time the redraw runs there is nothing to read back. The element is gone either way
+  // -- what is restored is its replacement, found by job and by label. If the press
+  // changed the job's status the label may no longer be offered, and then the row's own
+  // summary takes focus so it stays where he left it rather than on <body>.
+  // Matched on `dataset.job` rather than a built selector, so a job ref never has to be
+  // escaped into one.
+  const row = [...$("jobs-list").querySelectorAll("details.job-row")]
+    .find((one) => one.dataset.job === jobRef);
+  if (!row) return;
+  const again = [...row.querySelectorAll("button")]
+    .find((one) => one.textContent === was);
+  (again || row.querySelector("summary"))?.focus();
 }
 
 async function loadDatabase() {

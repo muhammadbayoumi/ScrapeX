@@ -634,8 +634,15 @@ def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
     """NO SILENT FAILURES. A 409 is the answer when the job settled between the draw
     and the press, and `pressJobControl` wrote that sentence and then called `loadJobs`,
     whose success path cleared the very node it had written. The message lived for one
-    round trip. A caught error erased by the same handler is a swallowed error."""
-    page = open_panel(jobs=HIS_JOBS, control_status=409)
+    round trip. A caught error erased by the same handler is a swallowed error.
+
+    THE HARNESS REFUSES WITH A 500 AND THAT IS THE SAME PATH. `pressJobControl` catches
+    whatever `post` throws and writes one sentence for all of them; what is under test is
+    that the sentence survives the reload the press itself triggers, which does not
+    depend on the status. `/api/jobs/` does not prefix `/api/jobs?limit=200`, so the list
+    still loads -- which is the state being tested."""
+    page = open_panel(jobs=HIS_JOBS,
+                      fail_routes=("/api/jobs/job_034c51a29deb/control",))
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
