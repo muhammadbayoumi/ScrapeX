@@ -13,6 +13,24 @@ on:
 permissions:
   contents: read
 
+# A SUPERSEDED RUN IS AN ANSWER ABOUT A COMMIT NOBODY IS WAITING ON. Pushing
+# again to a branch used to leave the previous matrix running to completion —
+# a median full run is ~13 minutes of wall clock and ~22 runner-minutes, spent
+# describing a tree that has already moved (#647).
+#
+# `main` IS EXCLUDED BY THE EXPRESSION, NOT BY OMISSION. A post-merge run on
+# main is the record that the merged tree is green, and cancelling it because
+# the next merge arrived erases exactly the signal this repository reads. The
+# group still covers main so its runs queue rather than overlap; only the
+# cancellation is withheld.
+#
+# It is NOT a flake remedy. With CI on both triggers an intermittent had two to
+# four chances to fire per SHA and now has fewer, which lowers exposure without
+# fixing a single flaky test — see #649 for the ones that are real.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   # ITS OWN JOB, and deliberately not a step inside `test`. A style failure that
   # aborts the suite hides every real failure behind it, and the one thing a
