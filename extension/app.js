@@ -6127,6 +6127,77 @@ function snapshotLabel(snapshot) {
  * request: two reads of one fact are how the count and the list come to
  * disagree, which this card has done once already.
  */
+/**
+ * Bundles waiting in the backup folder, and what to do with one.
+ *
+ * A bundle downloaded from Drive on another machine has to become a copy
+ * before anything can restore it. The engine does the unpacking -- the panel
+ * never holds the bytes and never sends a path, only the NAME of a file the
+ * engine itself listed.
+ */
+function renderBundles(bundles, { detail = '' } = {}) {
+  const card = $("db-bundles");
+  if (!card) return;
+  card.textContent = "";
+  $("db-bundle-count").textContent = detail ? "—" : String(bundles.length);
+
+  if (detail) {
+    out("db-bundle-hint", esc(detail), "muted");
+    return;
+  }
+  if (!bundles.length) {
+    // The card STAYS, because this is where somebody arriving on a new machine
+    // finds out what to do -- and that is precisely the moment there is nothing
+    // in the folder yet.
+    out("db-bundle-hint",
+        "Put a backup .zip from your Drive in this folder and it will appear "
+        + "here. Unpacking it makes a copy you can then restore.", "muted");
+    return;
+  }
+  out("db-bundle-hint",
+      "Unpacking writes the database inside as a copy. It does not replace "
+      + "anything -- restoring is a separate press.", "muted");
+
+  for (const found of bundles) {
+    card.append(manageRow(found.name, {
+      sub: financeDateTime(found.modified_at, "Time not recorded"),
+      figure: fmtMegabytes(found.bytes || 0),
+      lead: "storage",
+      onClick: () => adoptBundle(found),
+    }));
+  }
+}
+
+/**
+ * Unpack one, and say what it became.
+ *
+ * NO CONFIRMATION, deliberately: this destroys nothing. It writes a new copy
+ * beside the others, and the destructive decision -- putting one in place --
+ * keeps its own question. A dialog here would train him to dismiss the one
+ * that matters.
+ */
+async function adoptBundle(found) {
+  const rows = $("db-bundles").querySelectorAll("button");
+  rows.forEach((row) => { row.disabled = true; });
+  out("db-bundle-hint", esc(`Unpacking ${found.name}…`), "muted");
+  try {
+    // Bounded by `bundleBuild`, the same 600,000 ms the build gets: this
+    // unpacks a database as big as the warehouse and verifies every file's
+    // digest, which is the same order of work in the other direction.
+    const made = await post("/api/storage/adopt-bundle", { name: found.name });
+    // The whole page: a new copy changes the count, the folder's free space and
+    // the list below it.
+    await loadDatabase();
+    out("db-msg", esc(made.detail || "The bundle is unpacked."), "ok");
+  } catch (error) {
+    // THE ENGINE'S OWN WORDS. It refuses for reasons only it can know -- a
+    // bundle that did not verify, one carrying no database, too little room to
+    // unpack into -- and each is a different thing to do next.
+    out("db-bundle-hint", esc(
+    `${found.name} was not unpacked: ${(error && error.message) || "the engine did not answer"}`), "err");
+    rows.forEach((row) => { row.disabled = false; });
+  }
+}
 function renderSnapshots(backups, { detail = '' } = {}) {
   const card = $("db-snapshots");
   if (!card) return;
@@ -6406,6 +6477,7 @@ async function loadDatabase() {
     // EVERY COPY, from the list this function already has. The row above
     // names the newest; these are the ones a restore can choose between.
     renderSnapshots(s.backups || []);
+    renderBundles(s.bundles || []);
     out("db-msg", "", "ok");
   } catch (error) {
     // THE CONTROL STAYS USABLE, AND THIS IS THE HALF A GUARD ARGUED FOR RATHER THAN
@@ -6438,6 +6510,7 @@ async function loadDatabase() {
     // still offer a restore, and `restore` refuses a path it can no longer list --
     // so a stale row is a button that looks live and cannot work.
     renderSnapshots([], { detail: (error && error.message) || "the engine did not answer" });
+    renderBundles([], { detail: "The engine did not answer, so the folder could not be read." });
     out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
   }
 }
@@ -7848,6 +7921,25 @@ function wireGoogleControls() {
   // taking a backup -- `backUpToDrive` is still the only one -- but a second
   // door to it, reporting into Manage account's own status line and refreshing
   // the list below when it lands.
+  // WHERE TO PUT THE FILE, which is the first thing somebody arriving with a
+  // download needs and had no control at all: `POST /api/storage/open-folder`
+  // has existed, taking `which` from a fixed set so no path can come from the
+  // page, and nothing in this panel called it (#868).
+  const showFolder = $("db-open-backups");
+  if (showFolder) {
+    showFolder.addEventListener("click", async () => {
+      showFolder.disabled = true;
+      try {
+        await post("/api/storage/open-folder", { which: "backups" });
+      } catch (error) {
+        out("db-bundle-hint", esc(
+        `The folder could not be opened: ${(error && error.message) || "the engine did not answer"}`), "err");
+      } finally {
+        showFolder.disabled = false;
+      }
+    });
+  }
+
   const manage = $("manage-backup");
   if (manage) {
     manage.addEventListener("click", () => runGoogleAction(

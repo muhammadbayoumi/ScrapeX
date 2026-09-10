@@ -759,6 +759,30 @@ def base_stem(db_path: Path | str) -> str:
     return stem
 
 
+def list_bundles(db_path: Path | str, folder: Path | None = None) -> list[dict]:
+    """Bundle archives in the backup folder, newest first.
+
+    A BUNDLE IS NOT A BACKUP THIS FILE CAN RESTORE, and keeping them in
+    separate lists is the whole point. `list_backups` returns databases the
+    engine can put in place; these are zips that have to be unpacked first, and
+    a screen that mixed them would offer Restore on a file `restore` refuses.
+
+    WHY THEY ARE LISTED AT ALL: a bundle downloaded from Drive on another
+    machine has no way into this product. The panel cannot hand the engine 625
+    MB, and it must never hand it a path -- so the engine looks in the one
+    folder it already owns and reports what it finds by NAME.
+    """
+    path = Path(db_path)
+    where = Path(folder) if folder else path.parent
+    if not where.is_dir():
+        return []
+    found = [{"name": p.name, "bytes": _size(p),
+              "modified_at": _mtime_iso(p)}
+             for p in where.glob("*.zip") if p.is_file()]
+    return sorted(found, key=lambda b: (b["modified_at"], b["name"]),
+                  reverse=True)
+
+
 def row_counts(db_path: Path | str) -> dict[str, int]:
     """Every table and how many rows it holds.
 
@@ -1610,6 +1634,10 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "sizes": sizes,
         "health": verdict,
         "backups": list_backups(path, folder),
+        # THE ZIPS BESIDE THEM, AS A SEPARATE LIST. A bundle has to be unpacked
+        # before `restore` will look at it, so offering the two in one list would
+        # put a Restore button on a file that route refuses.
+        "bundles": list_bundles(path, folder),
         "backup_folder": str(folder),
         "space_warning": space_warning(path),
         "last": settings.get_state(conn, "storage_last"),

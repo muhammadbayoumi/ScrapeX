@@ -113,6 +113,19 @@ const LOCAL_POLICIES = [
   // and inherited `destinationData`'s 5,000 ms -- a bound derived from fetching a
   // page of rows, applied to copying and verifying a whole warehouse twice.
   [/^\/api\/storage\/restore(?:[/?]|$)/, STARTUP_DEADLINES.restoreCopy],
+  // AND ABOVE IT FOR THE SAME REASON, pointing at `bundleBuild` rather than a new
+  // name: unpacking a bundle is the SAME KNOWLEDGE as packing one. It writes a
+  // database as big as the warehouse and then reads every file back to check its
+  // digest -- the build's work in the other direction -- and both change for the
+  // same reason, which is the warehouse growing.
+  //
+  // DERIVED, not chosen. MEASURED 2026-09-09: a cold read of a 2,148,061,184-byte
+  // file is 42,874 ms, about 50 MB/s on this disk, and this does one write and one
+  // read of that much -- roughly 90 s, plus the zip's own decompression. Under the
+  // 5,000 ms it inherited from the `storage` rule, the panel would report failure
+  // over an unpack the engine goes on to finish, which is the wrong record about
+  // the one path a second machine has to its own data.
+  [/^\/api\/storage\/adopt-bundle(?:[/?]|$)/, STARTUP_DEADLINES.bundleBuild],
   // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
   // `GET /api/update` costs one third-party fetch of the release manifest, which
   // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and

@@ -22,6 +22,7 @@ caller that was missed, not a new idea.
 """
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 from pathlib import Path
@@ -492,3 +493,169 @@ def test_a_table_this_build_cannot_read_is_reported_and_not_dropped(tmp_path):
     assert counted["broken"] == -1, counted
     assert counted["keep"] == 50, (
         "one bad table stopped the others being counted: " + repr(counted))
+
+
+# ---- a bundle from Drive becomes a copy this product understands ----------
+#
+# THE PATH THAT DID NOT EXIST. The copy in Drive is the only one that survives
+# losing a machine, and on a second machine there was no way from it to a
+# working warehouse: the panel cannot carry 625 MB through its own document
+# (that is what came back 0 bytes on 2026-09-03), and `bundle.unpack` had no
+# caller anywhere in the product. The owner hit this for real on 2026-09-10.
+
+
+def _a_bundle_in(folder: Path, db_path: Path, name: str) -> Path:
+    """A real bundle, built and packed by the shipped code."""
+    from scrapex import bundle as bundle_mod
+    staging = folder / "built"
+    bundle_mod.build(db_path, staging)
+    archive = folder / name
+    bundle_mod.pack(staging, archive)
+    shutil.rmtree(staging, ignore_errors=True)
+    assert archive.is_file(), archive
+    return archive
+
+
+def test_a_bundle_in_the_folder_is_offered_apart_from_the_copies(served):
+    """A bundle is a zip. `restore` refuses one, so it is a separate list.
+
+    Offering both under one heading would put a Restore button on a file that
+    route declines -- `A button that cannot work is worse than no button` -- and
+    the two need different verbs: a bundle is unpacked, a copy is put in place.
+    """
+    client, path = served
+    _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+
+    seen = client.get("/api/storage").json()
+
+    assert [b["name"] for b in seen["bundles"]] == [
+        "scrapex-bundle-20260910-000000.zip"], seen["bundles"]
+    assert seen["backups"] == [], (
+        "the zip was offered as something restorable, and `restore` refuses a zip")
+    assert seen["bundles"][0]["bytes"] > 0, seen["bundles"][0]
+
+
+def test_unpacking_a_bundle_produces_a_copy_the_restore_path_already_reads(served):
+    """THE WHOLE DESIGN, asserted rather than described.
+
+    The unpacked database is written under this product's own naming, which is
+    what `list_backups` reads and what `restore` checks against. So the bundle
+    arrives at every guard downstream instead of at a special case that would
+    have to be trusted: it is listed, it can be health-checked, and it is put in
+    place by the same confirmation as any other copy.
+
+    AND IT DOES NOT RESTORE. Unpacking and replacing a warehouse are two
+    decisions; running them together would take the second one away from him.
+    """
+    client, path = served
+    _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    # A MARK THE BUNDLE CANNOT CONTAIN, written AFTER it was packed. Comparing
+    # sizes cannot see this: the bundle was built from this warehouse, so a copy
+    # of it back over the original is byte-identical in length. A mutant that
+    # replaced the live file survived a size assertion, and this is what caught
+    # it.
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash) "
+            "VALUES ('https://example.test/after-the-bundle', 'text/html', "
+            "X'00', 'afterbundle')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    answer = client.post("/api/storage/adopt-bundle",
+                         json={"name": "scrapex-bundle-20260910-000000.zip"})
+
+    assert answer.status_code == 200, answer.text
+    made = answer.json()
+    assert made["bytes"] > 0, made
+
+    after = client.get("/api/storage").json()
+    listed = [b["name"] for b in after["backups"]]
+    assert made["name"] in listed, (
+        "the unpacked database is not listed as a copy, so nothing can restore "
+        f"it: {listed}")
+    conn = dbmod.connect(path)
+    try:
+        still_there = conn.execute(
+            "SELECT count(*) FROM generic_page_snapshot "
+            "WHERE content_hash = 'afterbundle'").fetchone()[0]
+    finally:
+        conn.close()
+    assert still_there == 1, (
+        "unpacking replaced the live warehouse -- the row written after the "
+        "bundle was packed is gone. That is a separate decision with its own "
+        "confirmation.")
+
+    # AND THE STAGING TREE IS GONE. It holds a second full copy of the
+    # warehouse, and the owner's drive had 26.1 GB free with 12 GB already
+    # taken by copies.
+    left = [p.name for p in path.parent.glob("adopt-*")]
+    assert left == [], f"a staging tree was left behind: {left}"
+
+
+def test_only_a_bundle_the_engine_itself_listed_can_be_named(served):
+    """A NAME, NEVER A PATH, and the reason is the port this listens on.
+
+    Every tab in the browser can reach loopback, so a route that took a path
+    would unpack whatever it was pointed at. The engine resolves its own backup
+    folder and accepts only a file it found there -- the same rule
+    `open-folder` states for the same reason.
+    """
+    client, path = served
+    elsewhere = path.parent / "elsewhere"
+    elsewhere.mkdir()
+    outside = _a_bundle_in(elsewhere, path, "scrapex-bundle-20260910-111111.zip")
+
+    by_path = client.post("/api/storage/adopt-bundle",
+                          json={"name": str(outside)})
+    by_traversal = client.post("/api/storage/adopt-bundle",
+                               json={"name": "../elsewhere/scrapex-bundle-20260910-111111.zip"})
+    missing = client.post("/api/storage/adopt-bundle",
+                          json={"name": "no-such-bundle.zip"})
+
+    for refused in (by_path, by_traversal, missing):
+        assert refused.status_code == 400, refused.text
+    assert by_path.json()["detail"] == missing.json()["detail"], (
+        "naming a real file outside the folder is refused differently from naming nothing, so the refusal says whether a path exists")
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "something outside the backup folder was unpacked anyway")
+
+
+def test_a_bundle_that_does_not_verify_is_refused_and_leaves_nothing(served):
+    """`unpack` verifies, and every fault is reported rather than the first.
+
+    A bundle arrives from Drive, which is outside this machine. Half of one is
+    worse than none: it would be listed as a copy, pass a health check on a
+    database that is intact and truncated, and be restored over a working
+    warehouse.
+    """
+    client, path = served
+    archive = _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    # Rewrite the manifest so its digests no longer match the files beside it.
+    import zipfile
+    intact = archive.read_bytes()
+    broken = archive.with_name("scrapex-bundle-20260910-222222.zip")
+    with zipfile.ZipFile(archive) as source:
+        with zipfile.ZipFile(broken, "w") as out:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename == "manifest.json":
+                    text = json.loads(data)
+                    for named in (text.get("files") or {}).values():
+                        named["sha256"] = "0" * 64
+                    data = json.dumps(text).encode()
+                out.writestr(entry.filename, data)
+    assert archive.read_bytes() == intact, "the good bundle was modified"
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": broken.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "did not verify" in refused.json()["detail"], refused.json()
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "a bundle that failed verification still produced a restorable copy")
+    left = [p.name for p in path.parent.glob("adopt-*")]
+    assert left == [], f"a staging tree was left behind on refusal: {left}"

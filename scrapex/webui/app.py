@@ -147,12 +147,16 @@ from ..snapshotcrawl import stored_under_run
 from ..sourceresolver import SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
+    FREE_SPACE_MARGIN,
     StorageRefused,
     backup_folder,
     backup_now,
+    base_stem,
     check_move,
     export_database,
+    free_space,
     list_backups,
+    list_bundles,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -3680,6 +3684,100 @@ def create_app(
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
+
+    @app.post("/api/storage/adopt-bundle")
+    def api_storage_adopt_bundle(body: dict):
+        """Unpack a bundle into a copy the restore path already understands.
+
+        THIS IS THE STEP THAT HAD NO WAY IN. A bundle in Drive is the only copy
+        that survives losing this machine, and on a second machine there was no
+        path from it to a working warehouse: the panel cannot carry 625 MB
+        through a side-panel document -- that is what returned 0 bytes on
+        2026-09-03 -- and `bundle.unpack` had no caller anywhere in the product.
+
+        A NAME, NEVER A PATH, for the reason `open-folder` gives below: the page
+        is on a loopback port every tab in the browser can reach. The engine
+        resolves its own backup folder and accepts only a file it found there,
+        so nothing outside it can be named.
+
+        IT DOES NOT RESTORE. The unpacked database is written into the backup
+        folder under this product's own naming, which is what `list_backups`
+        reads -- so it appears as a copy, gets checked like any other copy, and
+        is put in place by the SAME confirmation and the same guards. Unpacking
+        and replacing a warehouse are two decisions, and running them together
+        would take the second one away from him.
+        """
+        asked = str((body or {}).get("name") or "").strip()
+        conn = read_conn()
+        try:
+            folder = backup_folder(conn, app.state.db_path)
+        finally:
+            conn.close()
+
+        offered = {entry["name"]
+                   for entry in list_bundles(app.state.db_path, folder)}
+        if asked not in offered:
+            raise HTTPException(
+                status_code=400,
+                detail=("ScrapeX unpacks only a bundle it found in the backup "
+                        "folder. Put the .zip there, reopen this page, then "
+                        "pick it again."))
+        archive = folder / asked
+
+        # THE UNPACKED DATABASE IS AS BIG AS THE WAREHOUSE, and the zip is
+        # already on this disk -- so this needs room for a second full copy
+        # before it starts, not halfway through. MEASURED on the owner's
+        # machine: a 655,174,914-byte bundle holds a 2,148,061,184-byte
+        # database, and his drive had 26.1 GB free with 12 GB already taken by
+        # copies. `startup.js` predicted this: the disk runs out before the
+        # deadline does.
+        needed = int(bundle.unpacked_size(archive) * FREE_SPACE_MARGIN)
+        if free_space(folder) < needed:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Unpacking {asked} needs about "
+                        f"{needed // (1024 * 1024)} MB free in {folder} and "
+                        f"there is less than that. Remove an older copy first."))
+
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        staging = folder / f"adopt-{stamp}"
+        try:
+            report = bundle.unpack(archive, staging)
+            if not report.ok:
+                spoken = "; ".join(
+                    f"{fault.path}: {fault.problem}" for fault in report.faults[:4])
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"{asked} did not verify, so nothing was taken from "
+                            f"it: {spoken}"))
+            inside = staging / "warehouse.db"
+            if not inside.is_file():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"{asked} verified but carries no warehouse.db, so "
+                            "there is no database in it to adopt."))
+            # THE NAME IS WHAT MAKES IT REACHABLE. `list_backups` decides what a
+            # backup is by naming, and `restore` refuses anything that listing
+            # did not return -- so writing it under this product's own pattern is
+            # what lets every guard downstream apply, rather than a special case
+            # that would have to be trusted instead.
+            adopted = folder / f"{base_stem(app.state.db_path)}.bundle-{stamp}"
+            adopted = adopted.with_name(adopted.name + ".backup"
+                                        + Path(app.state.db_path).suffix)
+            inside.replace(adopted)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+        verdict = storage_health(adopted, integrity=False)
+        return {
+            "ok": True,
+            "name": adopted.name,
+            "path": str(adopted),
+            "bytes": adopted.stat().st_size,
+            "from_bundle": asked,
+            "health": verdict,
+            "detail": (f"{asked} is unpacked. It is listed as a copy now -- check it, then restore it from the same card."),
+        }
 
     @app.post("/api/storage/open-folder")
     def api_storage_open_folder(body: dict):

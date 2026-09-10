@@ -1486,6 +1486,26 @@
         <div class="manage-account-rows" id="db-snapshots"></div>
       </div>
 
+      <!-- A BUNDLE FROM DRIVE, WHICH HAD NO WAY IN. The copy in Drive is the
+           only one that survives losing this machine, and on a second machine
+           there was no path from it to a working warehouse: the panel cannot
+           carry 625 MB through its own document -- that is what came back 0
+           bytes on 2026-09-03 -- and `bundle.unpack` had no caller anywhere.
+
+           SEPARATE FROM THE COPIES ABOVE, because a bundle is a zip that has
+           to be unpacked before `restore` will look at it. One list would put
+           a Restore button on a file that route refuses. -->
+      <div class="card">
+        <div class="kv"><strong>Bundles in the backup folder</strong>
+          <span id="db-bundle-count" class="muted">—</span></div>
+        <p class="muted text-xs" id="db-bundle-hint">&nbsp;</p>
+        <div class="engine-maintenance-actions">
+          <button id="db-open-backups" class="ghost engine-action" type="button">
+            Show me the folder</button>
+        </div>
+        <div class="manage-account-rows" id="db-bundles"></div>
+      </div>
+
       <p class="muted text-xs" id="db-msg" role="status">&nbsp;</p>
     </section>
 
