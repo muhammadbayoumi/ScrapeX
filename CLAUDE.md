@@ -1,13 +1,9 @@
 # ScrapeX — how we change this code
 
-One live document. The retired ones are frozen in `docs/archive/`.
-
-ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to
-the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](README.md).
-
-**It collects in categories; price is one of them, not the whole tool.** `products`
-(12 sources registered, 7 active) and `contractors` (muqawil.org) work; `vacancies` and
-`tenders` are named and unbuilt.
+ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to the
+Google Sheet the mbiX Excel add-in reads ([README.md](README.md)). **It collects in
+categories; price is one of them, not the whole tool.** `products` (12 registered, 7
+active) and `contractors` (muqawil.org) work; `vacancies` and `tenders` are unbuilt.
 
 ## The loop
 
@@ -17,25 +13,22 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
    passes against the old code tests nothing.
 4. **The argument goes in the PR body**, beside its own diff. A finding you are not
    fixing now becomes an issue, never a paragraph in a file.
-5. **One session merges.** Ask; default to not merging.
+5. **One session merges.** Ask; default to not merging. That session rebases what it
+   merges; a conflict whose resolution picks a behaviour goes back to the author.
 
 ## Preferences that decide close calls
 
-- **DRY = one source of truth per piece of knowledge**, not fewer repeated lines.
-  Merge two things only if they hold the same knowledge **and would change for the
-  same reason**; otherwise leave them apart, however alike they look. Judge it by
-  change amplification — how many places one conceptual change must touch, and what
-  breaks if one is missed. Scrutinise rules, validation, permissions, mappings, state
-  transitions, config values, API paths and status names; repeated CSS and
-  similar-looking components usually are not duplication. Name both locations with
+- **DRY = one source of truth per piece of knowledge**, not fewer repeated lines. Merge
+  two things only if they hold the same knowledge **and would change for the same
+  reason**. Judge it by change amplification — how many places one conceptual change must
+  touch, and what breaks if one is missed. Scrutinise rules, validation, permissions,
+  mappings, state transitions, config values, API paths and status names; repeated CSS
+  and similar-looking components usually are not duplication. Name both locations with
   `file:line` before calling it duplication, and prefer duplication to the wrong
-  abstraction: no helper with one caller, no generic wrapper, nothing that makes the
-  control flow harder to read. Put a shared thing where the repo already puts shared
-  things.
-- **Tests are non-negotiable** — too many beats too few.
-- **Engineered enough**: not fragile or hacky, not premature abstraction.
-- **More edge cases, not fewer.** Thoughtfulness over speed.
-- **Explicit over clever.**
+  abstraction: no helper with one caller, no generic wrapper, nothing that makes control
+  flow harder to read. Put a shared thing where the repo already puts shared things.
+- **Tests are non-negotiable** — too many beats too few, and more edge cases not fewer.
+- **Engineered enough, explicit over clever**: not fragile, not premature abstraction.
 - **Never assume his priorities on timeline or scale.** Ask.
 
 ## Rules
@@ -45,19 +38,18 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 - **The panel is the operating system; everything else is an app, the engine included.**
   It is the only surface, it chooses which app runs a job, and it starts them —
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
-  launches nothing. Every app is started that same way, through the one native host, so no
-  app depends on another and dropping one costs nothing.
+  launches nothing. Every app starts that same way through the one native host, so no app
+  depends on another and dropping one costs nothing.
 - **An app brings its own way of working, and holds only the permissions it needs.**
-  Adding a project like Scrapy is worth it for its own network path and concurrency, not to
-  be wrapped in ours; ours grows where the external ones do not serve and neither pauses
-  the other. Choose per run by measured performance, not by authorship. More permission
-  than an app needs is a defect to fix, not a status to keep. Registries:
+  Adding a project like Scrapy is worth it for its own network path and concurrency, not
+  to be wrapped in ours; ours grows where the external ones do not serve and neither
+  pauses the other. Choose per run by measured performance, not by authorship. More
+  permission than an app needs is a defect to fix. Registries:
   `scrapex/connectors/factory.py`, `scrapex/enrichment/providers/__init__.py`.
-- **The warehouse write permission is exclusive, and the panel cannot hold it.** One writer
-  at a time, whichever app it is. Not a privilege — a measurement: the warehouse is WAL, no
-  OPFS VFS implements `xShmMap`, and a browser reads it minus every transaction still in
-  the WAL, silently (`spikes/opfs-sqlite/FINDINGS.md`). Reading a copy is a different
-  question and it passes.
+- **The warehouse write permission is exclusive, and the panel cannot hold it.** One
+  writer at a time, whichever app it is. Not a privilege — a measurement: the warehouse is
+  WAL, no OPFS VFS implements `xShmMap`, and a browser silently reads it minus every
+  transaction still in the WAL (`spikes/opfs-sqlite/FINDINGS.md`). Reading a copy passes.
 - **A recorded plan is not an approved plan.** Nothing in a milestone is built until he
   reviews it and says what he wants.
 - **A button that cannot work is worse than no button.** If the route 404s, do not draw
@@ -72,7 +64,8 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
   controls strings that reach the warehouse and the panel.
 - **Secrets never in code.** A browser key that must ship is restricted, not hidden.
 - **No silent failures.** No bare `except`; a caught error becomes a visible, structured
-  record. One source failing never kills a run and is never swallowed.
+  record, one source failing never kills a run, and a red check is never argued past —
+  re-run it once, and a flip is a flakiness event recorded against the named test.
 - **Every parse asserts its shape**, so a site changing fails loudly at the parse rather
   than quietly as wrong data.
 - **The warehouse is append-only where the schema says so**; triggers enforce it. A
@@ -81,6 +74,9 @@ the Google Sheet the mbiX Excel add-in reads. Setup and data flow: [README.md](R
 - **A backup before anything destructive**, named out loud, and the copies are bounded.
 - **Parsing lives in one `normalize` module.** A connector parsing money, units,
   Arabic-Indic digits or VAT locally fails review.
+- **A change to `normalize` or a connector proves itself against a frozen page corpus**:
+  the same rows come out, or every changed cell is explained in the PR body. Reading a
+  page wrong is invisible to every reviewer and every mutant.
 - **No module without its test file**, and error paths are tested like happy ones.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
 - **Respect the politeness budget.** A crawl that hammers a site is a defect.
@@ -93,6 +89,7 @@ handling and the edge cases it misses, over- and under-engineering) · **tests**
 gaps, assertion strength, missing edge cases, untested failure paths) · **performance**
 (N+1 and query patterns, memory, caching, slow paths). Rank every finding **must fix** ·
 **should fix** · **optional** · **not an issue**, and report nothing rather than pad it.
+A panel reads the diff and the repository, never the author's intent.
 
 **When he asks for one**: one dimension at a time, stopping after each for his word. Per
 issue: the problem with `file:line` · two or three options **including "do nothing"** ·
@@ -100,11 +97,14 @@ per option the effort, risk, blast radius and maintenance burden · the recommen
 mapped to the preferences.
 
 **Before every merge — green is not mergeable.** A code change merges only when a critical
-review returns nothing. On green: run a panel over all four dimensions, let an adversary
-attack what it found, fix what survives, push, review again. Clean means no *must fix* and
-no *should fix*; *optional* becomes an issue, never a fix in the same PR. The biggest
-finding here arrived on the fifth pass — and if five passes do not converge the change is
-too big to review, so split it. Documentation-only changes are exempt.
+review returns nothing: a panel over all four dimensions, an adversary attacking what it
+found, fix what survives, push, review again. Clean means no *must fix* and no *should
+fix*; *optional* becomes an issue, never a fix in the same PR. **A pass that cannot say
+how many reviewers returned is a failed pass, not an empty one.** **A must fix advances
+only with a demonstration** — a failing test, a `file:line` read or a counted query; what
+cannot be demonstrated becomes *optional* and is filed. **Split before the review, not
+after**: over 1,000 changed lines, split first. Documentation-only changes are exempt —
+except this file, whose one pass asks only whether the edit weakens a control.
 
 ## The tools, not the files
 
@@ -137,8 +137,6 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
 
 ## How this file evolves
 
-**Keep improving it — every session.** But growth here means *sharper*, not *longer*.
-
 - **A rule earns its place by changing what a session does.** If it changes no action, it
   does not belong; if it belongs beside a line of code, put it there instead.
 - **Write it as an instruction, not a story.** One clear, unambiguous line. No dates, no
@@ -147,4 +145,4 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
   merge into an existing rule rather than repeating it.
 
 Every session reads this before every task, so a wasted line is paid for on every read.
-Keep it under 150.
+Keep improving it every session — sharper, not longer. Keep it under 150.
