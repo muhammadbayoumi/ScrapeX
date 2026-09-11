@@ -6188,7 +6188,14 @@ async function adoptBundle(found) {
     // The whole page: a new copy changes the count, the folder's free space and
     // the list below it.
     await loadDatabase();
-    out("db-msg", esc(made.detail || "The bundle is unpacked."), "ok");
+    // AND THE ENGINE'S VERDICT ON WHAT IT UNPACKED DECIDES THE COLOUR. The zip
+    // verifying says its digests match, not that the database inside is one this
+    // engine can open -- a bundle built by a newer engine verifies and then
+    // fails the identity check, which is exactly the second machine this control
+    // exists for. Announcing that in the success colour is how a file `restore`
+    // will refuse arrives looking like the way back.
+    out("db-msg", esc(made.detail || "The bundle is unpacked."),
+        made.ok === false ? "err" : "ok");
   } catch (error) {
     // THE ENGINE'S OWN WORDS. It refuses for reasons only it can know -- a
     // bundle that did not verify, one carrying no database, too little room to
@@ -6333,7 +6340,16 @@ function rowVerdict(verdict) {
   const live = verdict.live_rows || {};
   const biggest = Object.keys(live)
     .sort((a, b) => (live[b] || 0) - (live[a] || 0))[0];
-  if (!biggest) return "This copy opens and passes its checks.";
+  if (!biggest) {
+    // NOT SILENTLY "it passes". The comparison is the whole point of the
+    // counts, and an empty live side means it could not be made -- the engine
+    // answers with no counts rather than a 500 when SQLite cannot open a file,
+    // and the Database page behind this dialog carries that file's own verdict.
+    // Saying only that this copy passes, in the one place the empty-copy
+    // warning would appear, is how that warning disappears without a word.
+    return "This copy opens and passes its checks. The database in use now "
+      + "could not be counted, so there is nothing here to compare it against.";
+  }
   const inCopy = rows[biggest];
   const inLive = live[biggest];
   if (inCopy === 0 && inLive > 0) {

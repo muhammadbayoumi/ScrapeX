@@ -800,9 +800,19 @@ def row_counts(db_path: Path | str) -> dict[str, int]:
     A table this build cannot read is reported as -1 rather than skipped. A
     missing count and a count of zero are different findings, and silently
     dropping the unreadable one is how a broken table reads as an absent one.
+
+    THE PATH IS ESCAPED INTO THE URI, NEVER INTERPOLATED. `file:{path}?mode=ro`
+    hands SQLite's URI parser a filesystem path to read as a URI, and it does:
+    `#` starts a fragment, so `…/Drive #2/harvest.db` truncated to `…/Drive`
+    and swallowed `?mode=ro` whole -- the connection was NOT read-only, SQLite
+    CREATED an empty database at the truncated name, and a warehouse of 412,903
+    rows reported `{}`. A `%` decoded into a path that does not exist and raised
+    instead. `as_uri()` percent-escapes both, which is the one place that
+    knowledge belongs.
     """
     counts: dict[str, int] = {}
-    conn = sqlite3.connect(f"file:{Path(db_path)}?mode=ro", uri=True)
+    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro",
+                           uri=True)
     try:
         named = [row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' "
@@ -822,12 +832,24 @@ def row_counts(db_path: Path | str) -> dict[str, int]:
 
 
 def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
-    """Backups produced by this product, newest first."""
+    """Backups produced by this product, newest first.
+
+    ONE SPELLING OF EACH PATH LEAVES HERE, resolved. The folder prefix is
+    whatever `backup_folder` or the pointer file holds -- a string somebody
+    typed, expanded no further than `expanduser()` -- and every guard that reads
+    this list resolves BOTH sides before comparing. The one comparison that
+    cannot is the panel's: `POST /api/storage/integrity` echoes
+    `str(Path(asked).resolve())` so a caller can tell understanding from
+    politeness, and a panel holding a path under a folder spelled `backups`
+    against an echo of the same file under `Backups` reported a working engine
+    as too old to check a copy. Resolving at the source is what keeps the offer
+    and every rule that reads it in the same words.
+    """
     path = Path(db_path)
     where = Path(folder) if folder else path.parent
     if not where.is_dir():
         return []
-    found = [{"path": str(p), "name": p.name, "bytes": _size(p),
+    found = [{"path": str(p.resolve()), "name": p.name, "bytes": _size(p),
               "modified_at": _mtime_iso(p),
               # WHEN THE PRODUCT ACTED, falling back to the file's clock only for a
               # name that carries no stamp — the hand-named copies, which are never

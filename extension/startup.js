@@ -16,10 +16,17 @@ export const STARTUP_DEADLINES = Object.freeze({
   // DERIVED FROM A MEASUREMENT RATHER THAN CHOSEN, for the same reason as `bundleBuild`
   // and `updateReport`: the work is O(FILE SIZE), so a chosen number expires as the
   // warehouse grows. (`bundleBuild` still calls itself "the only" derived one here; it
-  // was, before `updateReport`. Not corrected in passing -- one claim, one diff.) `PRAGMA quick_check` plus `foreign_key_check` cost
-  // 5.9 s on his warehouse at 2.08 GB -- about 2.8 s a gigabyte -- so this covers a file
-  // roughly 40 GB before it needs revisiting. It sits far above `localMutation` because
-  // this is not a poll: he pressed a control and is watching it.
+  // was, before `updateReport`. Not corrected in passing -- one claim, one diff.)
+  //
+  // AND IT IS THE COLD FIGURE THAT GOVERNS IT, because this now bounds the COPY
+  // check as well: a backup nobody has touched comes off the disk, not out of the
+  // page cache. MEASURED 2026-09-09 on a 2,148,061,184-byte file -- `health()`
+  // 42,874 ms cold against 5,045 ms warm, about 20 s a gigabyte cold -- so 120,000
+  // covers a file near 6 GB, which is 2.7x headroom at his 2.1 GB today. An earlier
+  // draft of this line read `roughly 40 GB` off the warm 5.9 s, and that is the scan
+  // of a warehouse the engine already has open rather than the file this check
+  // opens. It sits far above `localMutation` because this is not a poll: he pressed
+  // a control and is watching it.
   integrityScan: 120000,
   // DERIVED FROM A MEASUREMENT, like `bundleBuild` and `integrityScan`, because a
   // restore is O(FILE SIZE) four times over and a chosen number expires as the
