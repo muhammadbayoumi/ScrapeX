@@ -788,7 +788,7 @@ def test_the_funnel_says_what_is_wrong_instead_of_sending_him_to_crawl(conn, mon
 def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
         registry, monkeypatch, tmp_path, capsys):
     """WHY `cli.py` carries no `UnexportableCell` clause, recorded rather than
-    argued — and this test passes against `main` on purpose.
+    argued.
 
     Two reviews in a row said the CLI's `except ValueError` had turned a
     sentence into a traceback, and both were wrong. `cli.main` wraps every
@@ -797,8 +797,16 @@ def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
     change nothing observable. It was written, measured against a revert,
     found to be dead code, and taken back out.
 
-    What this holds is the backstop the decision rests on: remove it and the
-    export path answers a person with a traceback.
+    IT HOLDS TWO THINGS, and an earlier sentence here claimed it held neither
+    by saying it "passes against `main` on purpose". It does not pass against a
+    tree without this change: openpyxl's own refusal names the VALUE and never
+    the field, so `assert "key_decision_makers" in stderr` fails there. What it
+    holds is (1) the backstop the exemption depends on — remove `cli.main`'s
+    `except Exception` and the export path answers a person with a traceback —
+    and (2) that the sentence he reads names the FIELD he has to go and look at.
+
+    Neither is incidental, and the deleted sentence invited a reader to remove
+    this test as noise under rule 3 of the loop.
     """
     from scrapex import cli
 
