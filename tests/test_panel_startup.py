@@ -719,8 +719,11 @@ def test_the_interactive_wait_does_not_end_on_the_mark_it_used_to_wait_on(browse
 
 
 def test_the_real_panel_emits_the_mark_the_harness_refuses_on(browser, tmp_path):
-    """The three tests above drive SYNTHETIC pages, so none of them binds the name
+    """Every test above drives a SYNTHETIC page, so none of them binds the name
     `tools/panel_harness.py` watches for to the name `extension/app.js` emits.
+
+    Counted rather than numbered on purpose: this sentence said "the three tests
+    above" and a later commit inserted two more directly above it without noticing.
 
     A merge gate named the surviving mutation: rename `markStartup("startup-failed"
     ...)` in the panel and every one of those tests stays green while both helpers
