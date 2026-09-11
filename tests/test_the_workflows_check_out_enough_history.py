@@ -142,8 +142,10 @@ def test_this_checkout_has_not_grafted_itself():
     went quiet in the same run: 23 skips where there had been 21, and both extra ones
     were "no git history here -- the comparison cannot be made".
 
-    NOT A GIT REPOSITORY IS NOT THE SAME FAULT. A pip install from a tarball has no
-    `.git` and no history to lose, so that skips. A repository that HAS a graft is the
+    NOT A GIT REPOSITORY IS NOT THE SAME FAULT. A source export -- `git archive`, or a
+    zip of the tree -- has no `.git` and no history to lose, so that skips. (Not a pip
+    install: `pyproject.toml` includes only `scrapex*` and there is no MANIFEST.in, so
+    no wheel or sdist carries this file at all.) A repository that HAS a graft is the
     one this catches, and it fails rather than skipping for the reason the docstring
     at the top of this file gives: a skip reports green.
     """
@@ -151,10 +153,28 @@ def test_this_checkout_has_not_grafted_itself():
 
     asked = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
                            cwd=ROOT, capture_output=True, text=True)
-    if asked.returncode != 0:
-        pytest.skip("not a git checkout, so there is no history to have lost")
+    answer = asked.stdout.strip()
 
-    assert asked.stdout.strip() == "false", (
+    # GIT SAYS WHY, SO SAY WHAT GIT SAID. This branch used to relabel every
+    # non-zero exit "not a git checkout" while git's own sentence sat unread in
+    # `asked.stderr`. Measured: `GIT_TEST_ASSUME_DIFFERENT_OWNER=1` makes this
+    # very checkout exit 128 with "detected dubious ownership", and the skip then
+    # claimed it was not a repository. A guard added to stop a skip reporting
+    # green must not itself skip for a reason it never checked.
+    if asked.returncode != 0:
+        pytest.skip(f"git could not answer: {asked.stderr.strip() or asked.returncode}")
+
+    # AND rc 0 IS NOT A YES. `git rev-parse` ECHOES an unrecognised flag and exits
+    # 0 -- measured: `--is-shallow-repositoryZZZ` prints itself, rc 0 -- so if the
+    # flag is ever renamed this reader stops asking what it believes it asks, and
+    # the assertion below would blame the checkout for it.
+    assert answer in ("true", "false"), (
+        f"git answered {answer!r}, which is neither `true` nor `false`. This reader "
+        "has stopped asking what it thinks it asks -- most likely the flag was "
+        "renamed and git echoed it back. Fix the reader; this says nothing about "
+        "whether the checkout is grafted.")
+
+    assert answer == "false", (
         "this checkout is grafted: `.git/shallow` is set, so the two guards named at "
         "the top of this file will SKIP and report green, and a merge base with main "
         "may not exist at all. Run `git fetch --unshallow`. If a session shallowed it "
