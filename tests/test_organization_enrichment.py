@@ -713,6 +713,48 @@ def test_an_unexportable_dataset_skips_its_own_source_without_killing_the_run(
         "the run left no record, so nothing on the page can say what happened")
 
 
+def test_a_control_character_skips_its_source_instead_of_killing_the_run(
+        conn, monkeypatch, tmp_path):
+    """The same invariant as the test above, for the refusal that reaches the
+    REAL writer rather than `workbook_tables`.
+
+    This change is what lets these rows reach openpyxl at all: on `main` the
+    list itself was refused first, with openpyxl's own `ValueError` that
+    `excel_export` caught. Joining the list moves the refusal to a character
+    openpyxl will not carry, and `IllegalCharacterError` inherits straight from
+    `Exception` — so before `_append_rows` converted it, this run aborted before
+    `conn.commit()` and before the run record. Measured on the same input:
+    `main` wrote 4 rows and left a record, this branch left neither.
+
+    The real `LocalSink`, deliberately, and not the `FakeSink` above: the whole
+    defect lives inside openpyxl's `append`, and a fake sink never calls it.
+    """
+    pytest.importorskip("openpyxl")
+    from scrapex import outputs, settings
+
+    definition = enrichment.create_definition(conn, _request(conn))
+    _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    # A control character in a list cell — a crawled page controls this string,
+    # and CLAUDE.md rules scraped content untrusted input.
+    conn.execute(
+        "UPDATE generic_record SET data_json = json_set(data_json, "
+        "'$.evidence_urls', json('[\"http://a\u0001b\"]')) "
+        "WHERE generic_record_id = (SELECT MIN(generic_record_id) FROM generic_record "
+        "  WHERE dataset_definition_id = (SELECT output_dataset_id "
+        "    FROM organization_enrichment_definition LIMIT 1))")
+    settings.save(conn, {"excel_folder": str(tmp_path), "excel_workbook": "book.xlsx"})
+
+    result = outputs.excel_export(conn, ["contractor_enrichment", "contractors"])
+
+    assert "Skipped" in result.detail
+    assert "Evidence" in result.detail or "evidence_urls" in result.detail, (
+        f"the refusal must name the column he has to go and look at: {result.detail}")
+    assert result.rows > 0, (
+        "the other source was dropped with the failing one — the run was killed")
+    assert outputs.excel_status(conn)["last"] is not None, (
+        "the run left no record, so nothing on the page can say what happened")
+
+
 def test_the_funnel_says_what_is_wrong_instead_of_sending_him_to_crawl(conn, monkeypatch):
     """The whole reason `UnexportableCell` is not a `ValueError`.
 

@@ -11,8 +11,8 @@ from openpyxl import load_workbook  # noqa: E402
 
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.ingest import ingest_payloads  # noqa: E402
-from scrapex.localsheets import LocalSink, _safe_title  # noqa: E402
-from scrapex.publish import publish_source, workbook_tables  # noqa: E402
+from scrapex.localsheets import LocalSink, _append_rows, _safe_title  # noqa: E402
+from scrapex.publish import UnexportableCell, publish_source, workbook_tables  # noqa: E402
 from scrapex.reports import EXPORT_HEADER  # noqa: E402
 from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
 
@@ -167,3 +167,49 @@ def test_publish_empty_source_raises(tmp_path: Path):
             publish_source(c, "ELSEWEDYSHOP", LocalSink(), str(tmp_path), "ScrapeX Data")
     finally:
         c.close()
+
+
+def _one_sheet():
+    from openpyxl import Workbook
+
+    return Workbook().active
+
+
+def test_a_control_character_names_its_column_instead_of_escaping_uncaught():
+    """openpyxl's `IllegalCharacterError` inherits straight from `Exception`, so
+    it reached NONE of the clauses that handle a cell no spreadsheet can carry —
+    and one such character aborted a whole `excel_export` run before the commit
+    and before the run record, taking every other source with it.
+
+    The COLUMN is asserted, not just the type: openpyxl quotes the value with
+    the offending character already stripped (`http://ab cannot be used in
+    worksheets`), which is a string he cannot find by searching for it.
+    """
+    with pytest.raises(UnexportableCell, match="Evidence URLs") as refusal:
+        _append_rows(_one_sheet(), "contractor_enrichment",
+                     ["Name", "Evidence URLs"],
+                     [["Acme", "http://a\x01b, http://c"]])
+
+    assert r"\x01" in str(refusal.value), (
+        "he gets the character as the visible text \x01 and not as an "
+        "invisible byte in an HTTP body he can neither see nor search for")
+    assert not isinstance(refusal.value, ValueError), (
+        "four callers read a ValueError out of this path as 'nothing ingested "
+        "yet', which would send him to re-run a crawl that was never the problem")
+
+
+def test_a_tab_or_a_newline_is_not_a_refusal_and_a_clean_row_still_writes():
+    """It must refuse exactly what openpyxl refuses and not one character more.
+    A tab and a newline are legal in a cell, and address fields carry both.
+    """
+    sheet = _one_sheet()
+    _append_rows(sheet, "s", ["A"], [["a\tb\nc"], ["plain"]])
+
+    assert [row[0].value for row in sheet.iter_rows(min_row=2)] == ["a\tb\nc", "plain"]
+
+
+def test_a_control_character_in_a_column_label_says_label_rather_than_naming_a_cell():
+    """The header goes through the same call, and a refusal there that reported
+    a cell would point at a row that is fine."""
+    with pytest.raises(UnexportableCell, match="column label"):
+        _append_rows(_one_sheet(), "s", ["A\x01B"], [["fine"]])

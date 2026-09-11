@@ -13,6 +13,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 
+from .publish import UnexportableCell
+
 if TYPE_CHECKING:                    # openpyxl is an optional extra: types only
     from openpyxl.workbook import Workbook
 
@@ -58,9 +60,7 @@ def workbook_bytes(tabs: list[tuple[str, list[str], list[list]]]) -> bytes:
             title = f"{title[:28]}_{len(used)}"
         used.add(title)
         sheet = book.create_sheet(title)
-        sheet.append(list(header))
-        for row in rows:
-            sheet.append(list(row))
+        _append_rows(sheet, tab, header, rows)
         sheet.freeze_panes = "A2"        # the header stays put while scrolling
     stream = BytesIO()
     book.save(stream)
@@ -77,6 +77,52 @@ def _openpyxl() -> ModuleType:
     return openpyxl
 
 
+def _append_rows(sheet, tab: str, header: list[str], rows: list[list]) -> None:
+    """Write the header and every row, turning openpyxl's refusal into ours.
+
+    `IllegalCharacterError` inherits straight from `Exception`, so it reached
+    NONE of the clauses that handle a cell no spreadsheet can carry. A control
+    character in one source therefore aborted the whole `excel_export` run
+    before `conn.commit()` and before the run record, taking every other source
+    with it. Measured on the same input: against `main`, where openpyxl refused
+    a list with a `ValueError` those clauses did catch, the run completed with
+    4 rows and a record; here it ended with neither. CLAUDE.md: "One source
+    failing never kills a run and is never swallowed."
+
+    IT NAMES THE COLUMN. openpyxl quotes the value with the offending character
+    ALREADY STRIPPED — `http://ab cannot be used in worksheets` for
+    `http://ab` — so its own message points at a string he cannot find by
+    searching for it. The column is located with openpyxl's own
+    `ILLEGAL_CHARACTERS_RE` rather than a second copy of that rule here.
+
+    Both writers append through this one function: `_write_sheet` for the batch
+    and the CLI, `workbook_bytes` for the download. They already appended
+    identically, so this is one home for the knowledge and not a new one.
+    """
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+    from openpyxl.utils.exceptions import IllegalCharacterError
+
+    try:
+        sheet.append(list(header))
+    except IllegalCharacterError as exc:
+        raise UnexportableCell(
+            f"{tab}: a column label holds a character no spreadsheet cell can "
+            f"carry: {header!r:.120}.") from exc
+    for row in rows:
+        try:
+            sheet.append(list(row))
+        except IllegalCharacterError as exc:
+            at = next((i for i, cell in enumerate(row) if isinstance(cell, str)
+                       and ILLEGAL_CHARACTERS_RE.search(cell)), None)
+            column = header[at] if at is not None and at < len(header) else "?"
+            value = row[at] if at is not None else ""
+            raise UnexportableCell(
+                f"{tab}.{column} holds a character no spreadsheet cell can "
+                f"carry: {value!r:.120}. Strip it where the value is written, "
+                f"or hide the column — hiding it takes the column out of "
+                f"the export too.") from exc
+
+
 def _write_sheet(book: Workbook, tab: str, header: list[str], rows: list[list],
                  *, fresh: bool) -> None:
     """Put one tab into an OPEN workbook. `fresh` = the book was created here,
@@ -85,9 +131,7 @@ def _write_sheet(book: Workbook, tab: str, header: list[str], rows: list[list],
     if title in book.sheetnames:
         del book[title]              # replace the tab (idempotent, like the Google sink)
     sheet = book.create_sheet(title)
-    sheet.append(list(header))
-    for row in rows:
-        sheet.append(list(row))
+    _append_rows(sheet, tab, header, rows)
     if fresh and "Sheet" in book.sheetnames and title != "Sheet":
         del book["Sheet"]            # drop openpyxl's default empty sheet
 
