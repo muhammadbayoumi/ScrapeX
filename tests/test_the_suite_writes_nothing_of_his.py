@@ -37,18 +37,32 @@ pytestmark = pytest.mark.docs
 HIS = (Path.home() / ".scrapex", Path.home() / "ScrapeX")
 
 
-def _module_paths():
-    """Every `NAME: Path` a `scrapex` module froze at import, with its module."""
+def _walk():
+    """Every `NAME: Path` a `scrapex` module froze at import -- and what it could not read.
+
+    THE SKIPS ARE RETURNED, NOT SWALLOWED. A module that fails to import has its
+    constants checked by nothing, so a swallowed ImportError is exactly how this
+    guard would cover less than it claims while staying green -- the failure it
+    exists to catch, one level up. `test_the_walk_reaches_every_module` asserts on
+    the list.
+    """
     import scrapex
 
+    constants, skipped = [], []
     for found in pkgutil.walk_packages(scrapex.__path__, "scrapex."):
         try:
             module = importlib.import_module(found.name)
-        except Exception:  # noqa: BLE001 -- an optional extra, not this test's subject
+        except Exception as exc:            # reported below, never dropped
+            skipped.append(f"{found.name}: {type(exc).__name__}: {exc}")
             continue
         for name, value in vars(module).items():
             if name.isupper() and isinstance(value, Path):
-                yield f"{found.name}.{name}", value
+                constants.append((f"{found.name}.{name}", value))
+    return constants, skipped
+
+
+def _module_paths():
+    return _walk()[0]
 
 
 def test_no_constant_points_at_a_directory_of_his():
@@ -69,6 +83,24 @@ def test_no_constant_points_at_a_directory_of_his():
         + "\n\nEach should derive from `scrapex.databases.registry.DATABASE_ROOT`, "
           "which `tests/conftest.py` redirects before the first import. A default "
           "written as its own `Path.home() / \".scrapex\" / ...` reads no redirect.")
+
+
+def test_the_walk_reaches_every_module():
+    """The floor above counts what was FOUND; this counts what was missed.
+
+    CI installs `.[dev,browser]`, so nothing under `scrapex/` has an unmet import
+    there -- measured, 118 of 118 import in 0.82s. Anything in this list is a real
+    defect or a new optional extra, and either way it must be named rather than
+    quietly reduce what the guard covers.
+    """
+    constants, skipped = _walk()
+
+    assert not skipped, (
+        "these modules could not be imported, so their path constants were "
+        "checked by nothing:\n  " + "\n  ".join(skipped)
+        + f"\n\n{len(constants)} constants were still found, which is why the "
+        "floor below stays green -- a count of what was found cannot notice "
+        "what was skipped.")
 
 
 def test_the_walk_actually_finds_constants():
