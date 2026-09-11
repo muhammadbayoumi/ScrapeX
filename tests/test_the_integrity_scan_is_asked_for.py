@@ -782,6 +782,12 @@ def test_the_copy_the_page_offered_is_the_copy_the_engine_will_check(served):
     client, path = served
     real = path.parent / "Backups"
     real.mkdir()
+    # AND `here` IS A REAL DIRECTORY, because `..` is not a string on POSIX.
+    # Windows normalises it lexically, so `<missing>/../Backups` is still a
+    # directory there and this test passed on the machine it was written on;
+    # Linux resolves each component against the filesystem, `here` was not
+    # there, and the folder read as absent. CI is what caught that.
+    (path.parent / "here").mkdir()
     conn = dbmod.connect(path)
     try:
         settings.save(conn, {"backup_folder": str(path.parent / "here" / ".."
@@ -822,6 +828,10 @@ def test_the_offer_names_one_resolved_spelling_of_each_copy(tmp_path):
     sqlite3.connect(db).close()
     folder = tmp_path / "Backups"
     folder.mkdir()
+    # A REAL DIRECTORY TO GO THROUGH: POSIX resolves `..` against the
+    # filesystem, so a missing `here` makes the whole path absent there while
+    # Windows normalises it away and finds the folder anyway.
+    (tmp_path / "here").mkdir()
     copy = folder / "harvest.manual-20260101T000000Z.backup.db"
     shutil.copy(db, copy)
 
