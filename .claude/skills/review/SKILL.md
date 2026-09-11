@@ -39,13 +39,20 @@ One dimension at a time, stopping after each for his word. Per issue:
 `CLAUDE.md` binds this: green is not mergeable. Run it before every merge of a code,
 test or workflow change.
 
+0. **Read the record before you spawn anything.** `gh issue list --search`, the branch's
+   own PRs, and the comments on them. The most expensive finding of the study that wrote
+   this section was already written down: one `gh issue list` surfaced a recorded *must
+   fix* that fourteen reviewer sessions had not found, because it was recorded rather
+   than hidden in the code.
 1. **Identify the green by head SHA, never by a tally.** A recorded green expires — a
    commit can land after the green that produced it. And a row count is an artifact of
    the CI config, not a number of checks: `gh pr checks` prints a row per run, so an
    unfiltered `on: push` doubles most rows, and it exits non-zero while any duplicate is
    still pending, which reads as red on a head that is green. Take `headRefOid`, then
    read the check-runs for that exact SHA and require each context by name.
-2. **A reviewer session per dimension**, all four, over the same diff.
+2. **Reviewers after the green, never before it, and only as many as the change earns**
+   — see *What a pass may spend*. Each covers one dimension over the same diff. A panel
+   launched at a head whose CI then goes red bought nothing.
 3. **An adversary attacks what they returned.** It opens every cited `file:line`, kills
    what the line does not support, demands a demonstration for every must fix, and then
    reads the change cold to find what all four walked past. It records **every kill with
@@ -69,6 +76,38 @@ Three rules that decide the outcome:
   filed.
 - **Split before the review, not after.** Over 1,000 changed lines outside `tests/` and
   fixtures, split first. Five passes that do not converge say the same thing too late.
+
+## What a pass may spend
+
+A review is paid for in tokens, and an agent that reads the wrong tree — or a tree CI is
+about to reject — buys nothing. These counts are the rule, not a target to reach.
+
+**Before any fan-out the orchestrator proves the environment once, itself, cheaply:** the
+head SHA it means to review, where `import scrapex` resolves from, and a symbol the change
+itself added. `__file__` catches a misdirected import and never a misdirected edit, so it
+takes both. Seconds, and no tokens — and it is the whole distance between a panel and
+eight green mutations that measured nothing.
+
+**How many, from the lines changed outside `tests/` and fixtures:**
+
+| changed | reviewers |
+|---|---|
+| ≤ 50 | **none** — read it and run the mutations yourself |
+| 51–200 | 1–2, the dimensions the diff actually touches |
+| 201–600 | 4, one per dimension |
+| 601–1000 | 4, plus one adversary per **surviving** finding |
+| > 1000 | split first, by the rule above |
+
+**A cold read is for a change that crosses a surface** — panel ↔ engine ↔ warehouse — not
+for every pass.
+
+**No agent without a falsifiable question and a demonstration it must run.** "Review this"
+is not a question, and what comes back from one cannot be ranked.
+
+**After a fix, re-run the dimension whose file changed**, not the panel.
+
+**Eight agents is the ceiling for one PR.** Needing more is evidence the change is too big
+to review — the same answer the line-count rule already gives.
 
 Documentation-only changes are exempt — **except `CLAUDE.md`**, which takes one pass, not
 the loop, asking whether the edit weakens a control and whether each added line meets
