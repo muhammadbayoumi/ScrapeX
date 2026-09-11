@@ -23,10 +23,9 @@ if TYPE_CHECKING:                    # openpyxl is an optional extra: types only
 # It follows `SCRAPEX_DATA_ROOT` only when that is redirected away from home --
 # which is what a test run does -- so a suite never writes ~/ScrapeX while a
 # real run still puts the workbook where he looks for it.
-DEFAULT_EXPORT_DIR = Path(os.environ.get(
-    "SCRAPEX_EXPORT_DIR",
-    str(Path.home() / "ScrapeX" if DATABASE_ROOT == Path.home() / ".scrapex"
-        else DATABASE_ROOT / "ScrapeX")))
+_REDIRECTED = Path.home() / ".scrapex" != DATABASE_ROOT
+_DEFAULT_EXPORT = DATABASE_ROOT / "ScrapeX" if _REDIRECTED else Path.home() / "ScrapeX"
+DEFAULT_EXPORT_DIR = Path(os.environ.get("SCRAPEX_EXPORT_DIR", str(_DEFAULT_EXPORT)))
 
 # Excel worksheet titles: max 31 chars, and these characters are forbidden.
 _BAD_TITLE_CHARS = set(r"[]:*?/\\")

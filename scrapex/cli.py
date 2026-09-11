@@ -19,13 +19,12 @@ import os
 import sys
 from pathlib import Path
 
-from .databases.registry import DATABASE_ROOT
 from . import contractors, localinbox, version, vocab
 from . import db as dbmod
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
 from .databases import DatabaseRegistry
-from .databases.registry import REGISTRY_FILE
+from .databases.registry import DATABASE_ROOT, REGISTRY_FILE
 from .funnel import FunnelClient
 from .ingest import ingest_payloads
 from .payload import (

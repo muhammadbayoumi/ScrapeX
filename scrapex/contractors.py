@@ -42,15 +42,14 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from pathlib import Path
 
 from . import catalog, runs, taxonomy
-from .databases.registry import DATABASE_ROOT
 from . import validators as validator_store
 from .catalog_models import SiteCreate
 from .connectors.base import HttpFetcher, declare_frontier
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
+from .databases.registry import DATABASE_ROOT
 from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
