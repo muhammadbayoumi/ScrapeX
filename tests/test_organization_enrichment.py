@@ -825,6 +825,101 @@ def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
     assert "key_decision_makers" in stderr
 
 
+def test_every_caller_of_the_export_path_names_the_type_it_can_raise():
+    """A four-place invariant, and #828 is the proof it can be missed.
+
+    `workbook_tables` refuses two different ways — `ValueError` for "nothing
+    ingested", `UnexportableCell` for a shape no cell can carry — and a caller
+    that catches only the first swallows the second into the wrong sentence or
+    lets it kill a run. Three of the four sites were missed on the first pass of
+    that change; the fifth consumer is one `except ValueError` away from the
+    same miss, and nothing but this would notice.
+
+    Read from the AST rather than by regex, so a reformatted `except` line
+    cannot make the guard quietly stop looking. What a rename does to it is the
+    floor's business, below.
+    """
+    import ast
+
+    from scrapex import publish
+
+    root = Path(__file__).resolve().parent.parent / "scrapex"
+    # DERIVED, NEVER TYPED. Spelled as strings, a rename left this scanning for
+    # a name that no longer existed — finding nothing, reporting green, and
+    # doing it permanently. Read off the objects, the same rename either updates
+    # this set or fails the import on the line above.
+    raisers = {publish.workbook_tables.__name__,
+               publish.dataset_workbook_tables.__name__,   # where the raise is
+               publish.publish_source.__name__}
+    missed, inspected = [], []
+    for path in sorted(root.rglob("*.py")):
+        if path == root / "cli.py":
+            # MEASURED, not assumed: `cli.main` catches `Exception` and prints
+            # `error: {exc}`, so no clause there can produce a wrong answer —
+            # its ValueError handler and that backstop say the same sentence.
+            # `test_the_cli_needs_no_clause_of_its_own_and_this_is_why` holds
+            # the backstop this exemption depends on. BY PATH AND NOT BY NAME:
+            # `scrapex/` already carries six duplicated basenames, and exempting
+            # by basename would exempt every future `**/cli.py` tree-wide.
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        # An alias is a name this guard would otherwise never see.
+        aliases = {a.asname: a.name for node in ast.walk(tree)
+                   if isinstance(node, ast.ImportFrom)
+                   for a in node.names if a.asname}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            # A CALL IS A CALL WHICHEVER WAY IT IS SPELLED. `workbook_tables(...)`
+            # is an `ast.Name`; `publish.workbook_tables(...)` is an
+            # `ast.Attribute` and is how ~20 modules here already spell their
+            # imports, so reading only the first was blind to the majority style.
+            calls = set()
+            for call in ast.walk(node):
+                if not isinstance(call, ast.Call):
+                    continue
+                if isinstance(call.func, ast.Name):
+                    calls.add(aliases.get(call.func.id, call.func.id))
+                elif isinstance(call.func, ast.Attribute):
+                    calls.add(call.func.attr)
+            if not (calls & raisers):
+                continue
+            inspected.append(f"{path.relative_to(root).as_posix()}:{node.lineno}")
+            # PER TRY BLOCK AND IN ORDER, not per handler: both correct
+            # spellings must pass — one clause naming the pair, or a dedicated
+            # `except UnexportableCell` AHEAD of the `except ValueError`.
+            # Order is checked even though the TypeError base makes it moot
+            # today, so the guard still holds if that base is ever changed.
+            seen = False
+            for handler in node.handlers:
+                caught = handler.type or ast.Pass()
+                # `except publish.UnexportableCell` is a correct site spelled
+                # dotted; reading only `ast.Name` reported it as a miss.
+                names = {n.id for n in ast.walk(caught) if isinstance(n, ast.Name)}
+                names |= {n.attr for n in ast.walk(caught)
+                          if isinstance(n, ast.Attribute)}
+                seen = seen or "UnexportableCell" in names
+                if "ValueError" in names and not seen:
+                    missed.append(
+                        f"{path.relative_to(root).as_posix()}:{handler.lineno}")
+
+    # THE FLOOR, and it is the whole reason this test can be trusted. A source
+    # scanner that stops finding anything passes, and this repo has been bitten
+    # by exactly that twice — `test_the_crawls_own_report_names_no_command.py:98`
+    # and `test_a_lit_capability_is_a_switch_and_not_a_claim.py:209` both carry
+    # one for the same reason. Raise this number when a consumer is added; a
+    # failure here means the guard stopped looking, not that the code is wrong.
+    assert len(inspected) >= 3, (
+        "this guard inspects fewer call sites than it is meant to, so it is no "
+        f"longer guarding anything: {inspected}")
+
+    assert not missed, (
+        "these catch a ValueError from the export path, and UnexportableCell is "
+        "NOT one — it is a TypeError, so it never lands in these clauses at all. "
+        "It escapes them, uncaught, which is the run killed past the commit and "
+        "the bare 500 with nothing to read that #828 exists to remove. Name it "
+        f"in the clause, or ahead of the ValueError: {missed}")
+
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     definition = enrichment.create_definition(conn, _request(conn))
     provider = _SystemFailureProvider()
