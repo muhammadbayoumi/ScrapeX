@@ -140,10 +140,17 @@ def open_panel(browser, tmp_path):
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
-        page.wait_for_timeout(500)
+        _wait_for_boot(page)
         if view is not None:
             page.click(f'nav.side-rail button[data-view="{view}"]')
-            page.wait_for_timeout(400)
+            # A CONDITION, NOT A CLOCK, and not nothing either. This replaced an
+            # unconditional `wait_for_timeout(400)`; measured, removing it outright
+            # left all 229 tests green, and the docstring above says why that is not
+            # evidence -- "a green run under load is not evidence of synchrony". The
+            # view's visibility IS decided by the click's own task, so this resolves
+            # at once; what it adds over nothing is that a click which never landed
+            # fails here, by name, instead of somewhere later as a missing element.
+            page.wait_for_selector(f"#view-{view}", state="visible")
         page.js_errors = errors
         pages.append(page)
         return page
@@ -157,6 +164,38 @@ def open_panel(browser, tmp_path):
 
 def text_of(page, selector: str) -> str:
     return (page.text_content(selector) or "").strip()
+
+
+def _wait_for_boot(page) -> None:
+    """The panel says when it has finished booting; this asks it instead of guessing.
+
+    WHAT THIS REPLACED: an unconditional `wait_for_timeout(500)` here, paid by every
+    test in this file. Measured boot on this harness -- dom-content-loaded 119ms,
+    shell-interactive 133ms, load 134ms, fully-settled 141ms -- and `page.goto()`
+    already waits for `load`, so that sleep started after the panel had finished and
+    ran roughly 359ms past it (#648).
+
+    SHELL-INTERACTIVE, NOT FULLY-SETTLED, and the difference is not cosmetic.
+    `fully-settled` hangs off `Promise.allSettled([accountPromise, enginePromise])`
+    (`extension/app.js`), so a test that stubs a slow account -- `signin_delay_ms`
+    -- pushes that mark out behind its own delay, and waiting for it here would be
+    LONGER than the sleep it replaced. Found by this change:
+    `test_the_profile_card_shows_checking_while_chrome_answers` opens with a 1000ms
+    delay to observe `aria-busy`, and read `false` because the wait had outlasted
+    the window the test exists to see. `shell-interactive` is marked immediately
+    after `showView("profile", false)`, before any promise, which is exactly what
+    this fixture means by open.
+
+    Duplicated rather than shared with `tests/test_panel_startup.py:67`:
+    `tests/conftest.py` is imported by every test in the repository and holds no
+    browser code, so putting a Playwright helper there couples far more than these
+    six lines do.
+    """
+    page.wait_for_function(
+        "() => performance.getEntriesByName('scrapex:shell-interactive').length === 1",
+        polling=25,
+        timeout=5_000,
+    )
 
 
 def settle_view(page, name: str) -> None:
