@@ -213,3 +213,21 @@ def test_a_control_character_in_a_column_label_says_label_rather_than_naming_a_c
     a cell would point at a row that is fine."""
     with pytest.raises(UnexportableCell, match="column label"):
         _append_rows(_one_sheet(), "s", ["A\x01B"], [["fine"]])
+
+
+def test_a_row_wider_than_its_header_says_so_instead_of_raising_indexerror():
+    """`header[at]` is guarded by `at < len(header)`, and nothing held that.
+
+    Widen the comparison to `<=` and every other test here still passes, while a
+    refusal turns into a bare `IndexError` — which is neither a `ValueError` nor
+    an `UnexportableCell`, so `outputs.excel_export` does not catch it and one
+    bad cell kills the whole run again.
+    """
+    with pytest.raises(UnexportableCell, match=r"\?"):
+        _append_rows(_one_sheet(), "t", ["A", "B"], [["ok", "ok", "xy"]])
+
+
+def test_an_empty_header_still_refuses_without_indexing_into_nothing():
+    with pytest.raises(UnexportableCell):
+        _append_rows(_one_sheet(), "t", [], [["xy"]])
+

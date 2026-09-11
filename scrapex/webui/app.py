@@ -1653,6 +1653,14 @@ def create_app(
             conn.close()
         try:
             body = workbook_bytes(tabs)
+        except UnexportableCell as exc:
+            # THE SECOND TRY NEEDS ITS OWN CLAUSE. `workbook_tables` above
+            # refuses a nested SHAPE; the writer refuses a CHARACTER no cell can
+            # carry, and that refusal is raised in here — so without this the
+            # named column is built and then thrown away, and the button is back
+            # to the bare 500 with an empty body that the clause four lines above
+            # exists to remove.
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         except RuntimeError as exc:    # openpyxl absent: name the install
             raise HTTPException(status_code=501, detail=str(exc)) from exc
         name = f"{source_key}-{utc_now_iso()[:10]}.xlsx"

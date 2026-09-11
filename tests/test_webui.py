@@ -330,6 +330,35 @@ def test_an_unexportable_shape_names_the_field_instead_of_an_empty_500(client, m
     assert "Sara" in detail, "the value he has to go and look at is missing"
 
 
+def test_a_control_character_reaches_the_button_as_a_sentence_not_an_empty_500(
+        client, monkeypatch):
+    """The route has TWO try blocks, and this is the second one.
+
+    The first refuses a nested SHAPE, raised by `workbook_tables`. A character
+    no cell can carry is refused by the WRITER instead, inside `workbook_bytes`
+    — whose only handler was `except RuntimeError`, so the named column was
+    built and thrown away and the button was back to the bare 500 with an empty
+    body that the first clause exists to remove.
+
+    `workbook_tables` is faked to supply the DATA, deliberately, but everything
+    that decides the answer is real: `workbook_bytes`, `_append_rows`, openpyxl
+    and the route. Route `workbook_bytes` around `_append_rows` and this fails.
+    """
+    pytest.importorskip("openpyxl")
+
+    monkeypatch.setattr(app_module, "workbook_tables", lambda *a, **k: [
+        ("ELSEWEDYSHOP", ["Name", "Arabic name"], [["Floodlight", "LEDكشاف"]])])
+
+    r = client.get("/export/ELSEWEDYSHOP.xlsx")
+
+    assert r.status_code == 500
+    detail = r.json()["detail"]
+    assert "Arabic name" in detail, (
+        f"he cannot act on a refusal that does not name the column: {detail}")
+    assert r.headers["content-type"].startswith("application/json"), (
+        "an empty-bodied 500 is what this whole change exists to remove")
+
+
 def test_exports_page_is_a_guided_multi_source_workspace(client):
     response = client.get("/exports")
 
