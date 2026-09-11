@@ -19,17 +19,26 @@ from .reports import export_details_table, export_history_table, export_source_t
 class UnexportableCell(TypeError):
     """A dataset cell holds a shape no flat table can carry.
 
-    A TypeError and deliberately NOT a ValueError — but not for the reason it
-    looks like. Every caller that catches this today names it explicitly and
-    AHEAD of its own `except ValueError`, so clause order, not the base class,
-    is what keeps those four right; flipping the base changes nothing they do.
+    A TypeError and deliberately NOT a ValueError. Three writings of this
+    paragraph got the reason wrong in two different directions, so it is stated
+    here as the three separate things it actually is:
 
-    What the base class buys is the caller that has NOT been taught the type.
-    Three such callers existed the day this class was added and all three read
-    a ValueError out of `workbook_tables` as "nothing ingested for this source
-    yet" — so inheriting from it would have had them tell the owner to crawl
-    and ingest a source that is already ingested. The fifth consumer arrives
-    the same way, unaware, and this is what stops it swallowing the refusal.
+    THE BASE CLASS is what keeps every site right. `issubclass(UnexportableCell,
+    ValueError)` is False, so a lone `except ValueError` never catches this at
+    all — the refusal escapes it rather than being swallowed into the wrong
+    answer. That is what stops a caller which has NOT been taught the type from
+    reporting a shape defect as "nothing ingested for this source yet" and
+    sending him to re-run a crawl that was never the problem. Three such callers
+    existed the day this class was added; the next one arrives the same way.
+
+    THE EXPLICIT CLAUSES produce the right message, not the right behaviour.
+    Every caller that catches this names it, and that is what makes the sentence
+    say which field rather than which exception.
+
+    CLAUSE ORDER is moot while the base is a TypeError, and only then. Measured:
+    move `except ValueError` ahead of the `UnexportableCell` clause at either
+    ordered site and every behavioural test stays green. The guard checks order
+    anyway, so that this paragraph stays true if the base is ever changed.
     """
 
 
@@ -116,7 +125,7 @@ def dataset_workbook_tables(payload: dict,
 
     HERE RATHER THAN IN THE XLSX WRITER, for the reason `workbook_tables` states
     about itself: it has THREE consumers, and putting the join in the writer
-    would leave the Apps Script funnel and the Google sink sending a flat tab
+    would leave the Apps Script funnel and the local sink sending a flat tab
     the text `"['a', 'b']"` — `outputs._canonical_cell` stringifies anything it
     does not recognise, so that one is silent rather than loud. CAN send, not
     were sending: the Exports and Sync pages offer only `source_site` keys and
