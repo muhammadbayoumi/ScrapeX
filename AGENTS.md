@@ -150,12 +150,13 @@ is pip-installed editable against a checkout that may not be this worktree —
 the worktree root, and in a scratch script assert on a **symbol you just added**;
 `__file__` catches a misdirected import, never a misdirected edit.
 
-**One machine, two accounts: `gh auth switch` is global.** It repoints every session on
-the machine, and the others fail mid-run with `Repository not found`. Scope it to your
-own process — `export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh`
-obeys over the active account and `git` inherits through gh's credential helper. It does
-not survive between commands: put it in front of every one that reaches GitHub, and
-never park it in a file to make it last.
+**One machine, two accounts: `gh auth switch` is global.** It repoints every session, and
+the others fail mid-run with `Repository not found` — GitHub answers 404, not 403, on a
+private repository the active token cannot see, so a wrong account reads as a deleted one.
+Ask `gh auth status` before believing it. Scope the account to your own process instead —
+`export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh` obeys over the
+active account and `git` takes through its github.com-scoped helper. Every command is a
+new process, so put it in front of each, and never park it in a file to make it last.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
