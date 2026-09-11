@@ -51,3 +51,8 @@ docs/screenshots/*/_tmp/
 # one machine only and `git add .` on the other would have committed an entire
 # nested repository. Note .claude/skills/ IS tracked, deliberately.
 .claude/worktrees/
+# Local settings hold machine paths — a `GH_CONFIG_DIR` pinning which GitHub
+# account this checkout uses, for one. `git add -A` would commit one person's
+# home directory into everyone's clone, and it is the file Claude Code writes
+# without being asked, so the guard belongs here rather than in a habit.
+.claude/settings.local.json
