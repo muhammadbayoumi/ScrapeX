@@ -5,6 +5,27 @@ description: Where ScrapeX keeps its work — the gh and git command for each ki
 
 # The tools, not the files
 
+## First, pin the account to THIS process
+
+```bash
+export GH_TOKEN=$(gh auth token --user <the account that owns the repository>)
+```
+
+**Never `gh auth switch`.** It writes global state: the active account changes for every
+session on this machine, and the others collapse mid-work with `Repository not found` —
+GitHub answers 404, not 403, for a private repository the active token cannot see, so the
+failure reads as a deleted repo rather than a wrong account. That happened on 2026-09-11,
+with three sessions running.
+
+`gh` ignores the active account entirely when `GH_TOKEN` is set, and `git push`/`fetch`
+take it through gh's credential helper. The variable is per-process, so two sessions can
+work on two different accounts at the same moment and neither touches the other, and no
+setting is changed permanently.
+
+Every command below is a `gh` command, so this comes first.
+
+## Where the work lives
+
 Work is never recorded in a repository markdown file. Every kind of record has a home,
 and every kind of question has a command.
 
