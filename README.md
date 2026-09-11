@@ -37,7 +37,12 @@ python -m scrapex.cli validate-manifest  # checks sources.yaml (same gate runs i
 git config core.hooksPath .githooks      # installs the pre-push guard (see below)
 ```
 
-> **What that last line buys.** `.githooks/pre-push` refuses to push an `engine-v*` tag
+> **What that last line buys — two refusals.** `.githooks/pre-push` refuses **any direct
+> push to `main`**: every change lands through a pull request, and this hook is the local
+> stand-in for the branch protection GitHub does not offer a private repository on a free
+> plan. `--no-verify` skips it and says so at the moment it refuses.
+>
+> It also refuses to push an `engine-v*` tag
 > while this machine's warehouse is at a schema version the code being tagged cannot
 > open. That has happened twice — `OP-33` and `OP-84` — and both times it only became
 > visible when the released engine was double-clicked and refused. **A hook is inert

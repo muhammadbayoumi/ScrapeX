@@ -19,9 +19,7 @@
 # two: a branch that is not main, a scrapex-v* tag, a tag push of any other kind. The
 # engine-tag check costs a database open, so nothing reaches it that cannot need it --
 # and the main refusal is a string comparison, so a refused push pays nothing either.
-#
-# (This sentence used to read "IT ONLY SPEAKS ABOUT ENGINE TAGS", and the merge gate's
-# reviewers caught that the change adding refusal 1 had left it standing.)
+
 
 set -uo pipefail
 
