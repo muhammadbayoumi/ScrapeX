@@ -225,7 +225,16 @@ def test_two_extension_releases_at_once_cannot_race_on_the_store_listing(extensi
     assert parsed["concurrency"].get("group") == "release-extension", (
         "the extension release shares a group with another path, so it waits "
         "on something that writes somewhere else")
-    assert "cancel-in-progress: false" in extension, (
+    # PARSED, LIKE THE TWO ABOVE IT, AND THIS ONE WAS NOT. It read
+    # `"cancel-in-progress: false" in extension` until a merge gate pointed out
+    # that the SAME commit added a comment containing that exact string -- so the
+    # assertion was satisfied by prose whatever the block said. The mutation that
+    # missed it: my own, which used `str.replace` and rewrote the comment along
+    # with the value, so both changed and it went red for the wrong reason.
+    #
+    # `is False`, not falsy: `.get` returns None for a deleted key and the STRING
+    # "false" for the quoted form, and neither is what GitHub obeys.
+    assert parsed["concurrency"].get("cancel-in-progress") is False, (
         "the loser of the race is cancelled rather than queued, which leaves "
         "the store holding whichever upload happened to arrive first")
 
