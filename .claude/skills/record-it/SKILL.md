@@ -34,9 +34,7 @@ numbers. **No new `R-`/`REQ-`/`OP-` number is issued** — GitHub assigns the nu
 
 ## On this machine
 
-`gh` is not on `PATH`. In bash: `export PATH="/c/Program Files/GitHub CLI:$PATH"`.
-
 Checking which credential helper `git` uses for GitHub needs the host-scoped key:
 `git config --get-urlmatch credential.helper https://github.com` shows gh's, while
-`--get-all credential.helper` answers `manager` and hides it. That matters when
-`GH_TOKEN` (`CLAUDE.md`, the four traps) appears not to reach `git`.
+`--get-all credential.helper` answers `manager` and hides it. That matters when the
+account trap in `CLAUDE.md` is followed and `GH_TOKEN` still appears not to reach `git`.
