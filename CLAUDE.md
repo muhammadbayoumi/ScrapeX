@@ -14,7 +14,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
 3. **Guard it, then break the fix on purpose and watch the guard fail.** A test that
    passes against the old code tests nothing.
 4. **The argument goes in the PR body**, beside its own diff. A finding you are not
-   fixing now becomes an issue, never a paragraph in a file.
+   fixing now becomes an issue, never a paragraph in a file — and what stopped being
+   true is closed the moment it is found, a `HANDOVER` by the session that reads it.
+   Never close a live finding to shorten the list.
 5. **One session merges.** Ask; default to not merging. Take it first —
    `gh pr edit <n> --add-assignee @me`; an already-assigned PR is another session's. That
    session rebases what it merges, and a conflict whose resolution picks a behaviour goes
@@ -68,7 +70,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
   `VERSION` bump — merging one ships the engine to every installation. Offer options with
   the measured cost of each.
 - **Diagnose, confirm, then fix.** Prove the cause with evidence, ask before editing.
-- **Answer a study with counts from live data**, not adjectives.
+- **Answer him with what he can re-run**: a study gets counts from live data, never
+  adjectives; a claim gets the one command that proves it. A confident wrong report
+  passes every gate here.
 - **A wrong number is diagnosed at the stored row first.** Right in the warehouse and the
   defect is in export or publish; wrong there and it is in the connector or `normalize`.
   Never correct a value in the exporter, the Apps Script or the Sheet.
