@@ -35,7 +35,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
 - **Tests are non-negotiable** — too many beats too few.
 - **More edge cases, not fewer.** Thoughtfulness over speed.
 - **Engineered enough, explicit over clever**: not fragile or hacky, not over-abstracted.
-- **Never assume his priorities on timeline or scale.** Ask.
+- **Never assume his priorities on timeline, scale or spend.** Ask, with a number and a
+  recommendation — a fan-out names its worst case before it runs, and one that multiplies
+  an unknown count has no ceiling at all.
 
 ## Rules
 
