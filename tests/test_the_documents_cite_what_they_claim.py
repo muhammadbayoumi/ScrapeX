@@ -96,6 +96,18 @@ DOCUMENTS = (
     # one thing `LESSONS` 21 says must never be repointed.
     "CLAUDE.md",
     "README.md",
+    # A POINTER, NOT A RULES DOCUMENT, and it is here for what `_read` does to
+    # it rather than for any citation it makes: the map asserts the file is in
+    # the repository, so deleting or renaming it fails this tier instead of
+    # passing in silence. The name attracts generators -- one wrote a full copy
+    # of `CLAUDE.md` under it, with `.claude/` rewritten to a `.Codex/` that
+    # does not exist -- and a tracked pointer turns the next such write into a
+    # diff somebody sees.
+    #
+    # WHAT THIS DOES NOT BUY, named rather than implied: `LINKED_CITATION`
+    # needs a `path:line` label over an `#L<n>` href, and a pointer has
+    # neither, so the link inside it is not checked by tier 1.
+    "AGENTS.md",
     # WIDENED when the Review section and the tools table moved out of CLAUDE.md into
     # skills. They are governed rules a session acts on, exactly like the lines they
     # replaced, and moving them here would otherwise have carried them out of the only
