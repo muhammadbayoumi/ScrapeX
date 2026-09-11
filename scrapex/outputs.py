@@ -25,7 +25,7 @@ from . import settings
 from .fields import ORIGINAL_SCHEMA
 from .ingest import _canon_amount
 from .payload import new_payload, utc_now_iso
-from .publish import publish_source
+from .publish import UnexportableCell, publish_source
 from .settings import RunResult  # the one shape every run reports in
 from .vocab import ExtractKind, PayloadClient
 
@@ -146,7 +146,19 @@ def excel_export(conn: sqlite3.Connection, source_keys: list[str], *,
             rows, location = publish_source(conn, key, sink, folder, book,
                                             schema=schema, tab=tab)
             total += rows
-        except ValueError as exc:          # nothing to publish for that source
+        except (ValueError, UnexportableCell) as exc:
+            # TWO CONDITIONS, ONE CONSEQUENCE: nothing to publish for that
+            # source, or a shape no cell can carry. Both are ONE source's
+            # problem and neither may kill a run over the others — CLAUDE.md,
+            # "one source failing never kills a run and is never swallowed".
+            #
+            # `UnexportableCell` IS NAMED HERE BECAUSE IT IS NOT A ValueError.
+            # openpyxl raised its own `ValueError("Cannot convert [...] to
+            # Excel")` from inside `sink.write_tab`, so this line already
+            # caught the nested case and recorded it as a skipped source.
+            # Refusing earlier, in `workbook_tables`, is the better place —
+            # but it moved the exception out of this catch, and widening it is
+            # what keeps the behaviour that change would otherwise remove.
             failures.append(f"{key}: {exc}")
     conn.commit()                          # apply_schema registers new columns
 
@@ -280,6 +292,13 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
 
     try:
         tables = workbook_tables(conn, source_key)
+    except UnexportableCell as exc:
+        # ITS OWN SENTENCE, and THIS CLAUSE — ahead of the one below — is what
+        # produces it. Reported through that one it would tell him to crawl and
+        # ingest a source that is already ingested, sending him to re-run a
+        # crawl that was never the problem. The class's TypeError base is the
+        # separate guard, for a caller that never learned the type at all.
+        raise NotConfiguredError(str(exc)) from None
     except ValueError:
         # workbook_tables refuses a source with no priced rows, which is the
         # same condition this function has always reported in its own words.

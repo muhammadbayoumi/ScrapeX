@@ -579,6 +579,252 @@ def test_runs_are_resumable_idempotent_and_keep_changed_fact_history(conn, monke
     assert enrichment.get_definition(conn, definition_id)["counts"]["organizations"] == 4
 
 
+def test_the_enrichment_output_downloads_as_a_workbook(registry, monkeypatch, tmp_path):
+    """He pressed Export to Excel on `/source/contractor_enrichment` and no file
+    arrived: the route answered 500 with an empty body.
+
+    An enrichment output declares SIX `json` fields (`enrichment/models.py`),
+    and `providers_checked` and `evidence_urls` are written on EVERY row — so
+    every row of this dataset carried a Python list into openpyxl, which
+    refuses one outright. This presses the actual button, through the route,
+    and opens the file that comes back.
+
+    The path the download takes is shared: `publish.workbook_tables` also feeds
+    the Apps Script funnel and the Google sink, and both CAN reach this branch
+    — from `cli.py`'s `export` and from `/api/outputs/excel/export`, which
+    validates no key. The test below holds that half.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
+    from io import BytesIO
+
+    conn = registry.engine.connect()
+    try:
+        definition = enrichment.create_definition(conn, _request(conn))
+        job = _run(conn, definition["enrichment_definition_id"], monkeypatch,
+                   _FakeWebsite())
+        assert job["status"] == "completed", job["error_summary"]
+    finally:
+        conn.close()
+
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(databases=registry, manifest_path=manifest))
+
+    response = client.get("/export/contractor_enrichment.xlsx")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].endswith("spreadsheetml.sheet")
+    sheet = openpyxl.load_workbook(BytesIO(response.content)).worksheets[0]
+    header = [cell.value for cell in sheet[1]]
+    rows = [dict(zip(header, [cell.value for cell in row], strict=True))
+            for row in sheet.iter_rows(min_row=2)]
+    assert len(rows) == 4, "the workbook lost rows the dataset holds"
+    # THE TEXT, not a repr: `['source', 'website']` in a cell would be a list
+    # that had merely survived the writer rather than one a reader can use.
+    # This fixture reproduces production's own three-provider cell, so the
+    # separator is proved here on a real row and not only on a made-up one.
+    assert {row["providers_checked"] for row in rows} == {
+        "email_domain_candidate, source, website"}
+    assert all(row["evidence_urls"].startswith("https://contractor-")
+               for row in rows), [row["evidence_urls"] for row in rows]
+
+
+def test_the_funnel_and_the_sink_carry_the_same_flattened_cell(conn, monkeypatch):
+    """WHERE the join lives is a claim, and nothing was holding it.
+
+    `publish.dataset_workbook_tables` argues the flattening belongs there and
+    not in the xlsx writer because `workbook_tables` has three consumers. Move
+    the join down into `localsheets.workbook_bytes` and every test of the
+    `.xlsx` download still passes — while these two consumers regress in
+    SILENCE: `outputs._canonical_cell` stringifies whatever it does not
+    recognise, so the Google Sheet the add-in reads would take the text
+    `"['email_domain_candidate', 'source', 'website']"` with no exception
+    raised and no test going red.
+    """
+    from scrapex import outputs
+    from scrapex.publish import publish_source, workbook_tables
+    from tests.test_outputs import FakeFunnel, FakeSink
+
+    definition = enrichment.create_definition(conn, _request(conn))
+    _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    flat = "email_domain_candidate, source, website"
+
+    # THE PIN: the tabs leave `workbook_tables` already flat, which is what
+    # makes the join's location a fact rather than an intention.
+    _, header, rows = workbook_tables(conn, "contractor_enrichment")[0]
+    column = header.index("providers_checked")
+    assert all(isinstance(row[column], str) for row in rows), (
+        "a cell left `workbook_tables` still a list, so the join moved out of "
+        "it — the funnel and the sink now carry a repr into a flat tab")
+    assert {row[column] for row in rows} == {flat}
+
+    sink = FakeSink()
+    publish_source(conn, "contractor_enrichment", sink, "folder", "book")
+    sink_header, sink_rows = sink.tabs["contractor_enrichment"]
+    assert {row[sink_header.index("providers_checked")] for row in sink_rows} == {flat}
+
+    client = FakeFunnel()
+    outputs.apps_script_send(conn, "contractor_enrichment", client=client)
+    sent = client.sent[0]
+    # Not `isinstance(cell, str)`: `_canonical_cell` returns a string on every
+    # branch, so that can never fail. The TEXT is the pin.
+    assert {row[sent.header.index("providers_checked")] for row in sent.rows} == {flat}
+
+
+def test_an_unexportable_dataset_skips_its_own_source_without_killing_the_run(
+        conn, monkeypatch, tmp_path):
+    """One source failing never kills a run, and `UnexportableCell` nearly took
+    that away.
+
+    `outputs.excel_export` catches per source INSIDE the loop so the others are
+    still written. openpyxl used to raise its own `ValueError("Cannot convert
+    [...] to Excel")` from within `sink.write_tab`, and that clause caught it.
+    Refusing earlier in `workbook_tables` is the better place — but it moved
+    the exception out of that catch, and a `TypeError` would have aborted the
+    whole run before `conn.commit()` and before the run record, reaching
+    `_integration`, which maps only `NotConfiguredError`: the bare 500 with
+    nothing to read that this change exists to remove.
+    """
+    from scrapex import outputs, settings
+    from tests.test_outputs import FakeSink
+
+    definition = enrichment.create_definition(conn, _request(conn))
+    _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    # A nested cell, written the way a provider would write one. `json` is the
+    # declared type of six output fields, so this is the shape the next
+    # provider can produce and not an invented one.
+    conn.execute(
+        "UPDATE generic_record SET data_json = json_set(data_json, "
+        "'$.key_decision_makers', json('[{\"name\": \"Sara\"}]')) "
+        "WHERE generic_record_id = (SELECT MIN(generic_record_id) FROM generic_record "
+        "  WHERE dataset_definition_id = (SELECT output_dataset_id "
+        "    FROM organization_enrichment_definition LIMIT 1))")
+    settings.save(conn, {"excel_folder": str(tmp_path), "excel_workbook": "book.xlsx"})
+
+    result = outputs.excel_export(
+        conn, ["contractor_enrichment", "contractors"], sink=FakeSink())
+
+    assert "key_decision_makers" in result.detail, (
+        "the refusal must name the field he has to go and look at")
+    assert "Skipped" in result.detail
+    assert result.rows > 0, (
+        "the other source was dropped with the failing one — the run was killed")
+    assert outputs.excel_status(conn)["last"] is not None, (
+        "the run left no record, so nothing on the page can say what happened")
+
+
+def test_a_control_character_skips_its_source_instead_of_killing_the_run(
+        conn, monkeypatch, tmp_path):
+    """The same invariant as the test above, for the refusal that reaches the
+    REAL writer rather than `workbook_tables`.
+
+    This change is what lets these rows reach openpyxl at all: on `main` the
+    list itself was refused first, with openpyxl's own `ValueError` that
+    `excel_export` caught. Joining the list moves the refusal to a character
+    openpyxl will not carry, and `IllegalCharacterError` inherits straight from
+    `Exception` — so before `_append_rows` converted it, this run aborted before
+    `conn.commit()` and before the run record. Measured on the same input:
+    `main` wrote 4 rows and left a record, this branch left neither.
+
+    The real `LocalSink`, deliberately, and not the `FakeSink` above: the whole
+    defect lives inside openpyxl's `append`, and a fake sink never calls it.
+    """
+    pytest.importorskip("openpyxl")
+    from scrapex import outputs, settings
+
+    definition = enrichment.create_definition(conn, _request(conn))
+    _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    # A control character in a list cell — a crawled page controls this string,
+    # and CLAUDE.md rules scraped content untrusted input.
+    # PARAMETERISED, and json.dumps writes the escape SQLite's JSON parser
+    # needs: a raw control byte inside a JSON literal is malformed JSON, which
+    # this machine's SQLite accepted and CI's rejected.
+    conn.execute(
+        "UPDATE generic_record SET data_json = json_set(data_json, "
+        "'$.evidence_urls', json(?)) "
+        "WHERE generic_record_id = (SELECT MIN(generic_record_id) FROM generic_record "
+        "  WHERE dataset_definition_id = (SELECT output_dataset_id "
+        "    FROM organization_enrichment_definition LIMIT 1))",
+        (json.dumps(["http://a\x01b"]),))
+    settings.save(conn, {"excel_folder": str(tmp_path), "excel_workbook": "book.xlsx"})
+
+    result = outputs.excel_export(conn, ["contractor_enrichment", "contractors"])
+
+    assert "Skipped" in result.detail
+    assert "Evidence" in result.detail or "evidence_urls" in result.detail, (
+        f"the refusal must name the column he has to go and look at: {result.detail}")
+    assert result.rows > 0, (
+        "the other source was dropped with the failing one — the run was killed")
+    assert outputs.excel_status(conn)["last"] is not None, (
+        "the run left no record, so nothing on the page can say what happened")
+
+
+def test_the_funnel_says_what_is_wrong_instead_of_sending_him_to_crawl(conn, monkeypatch):
+    """The whole reason `UnexportableCell` is not a `ValueError`.
+
+    `apps_script_send` reads a ValueError out of `workbook_tables` as "nothing
+    ingested", so a shape defect reported through that clause would tell him to
+    crawl and ingest a source that is already ingested.
+    """
+    from scrapex import outputs
+    from tests.test_outputs import FakeFunnel
+
+    definition = enrichment.create_definition(conn, _request(conn))
+    _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+    conn.execute(
+        "UPDATE generic_record SET data_json = json_set(data_json, "
+        "'$.key_decision_makers', json('[{\"name\": \"Sara\"}]')) "
+        "WHERE dataset_definition_id = (SELECT output_dataset_id "
+        "  FROM organization_enrichment_definition LIMIT 1)")
+
+    with pytest.raises(outputs.NotConfiguredError) as refusal:
+        outputs.apps_script_send(conn, "contractor_enrichment", client=FakeFunnel())
+
+    assert "key_decision_makers" in str(refusal.value)
+    assert "crawl" not in str(refusal.value), (
+        "it sent him to re-run a crawl that was never the problem")
+
+
+def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
+        registry, monkeypatch, tmp_path, capsys):
+    """WHY `cli.py` carries no `UnexportableCell` clause, recorded rather than
+    argued — and this test passes against `main` on purpose.
+
+    Two reviews in a row said the CLI's `except ValueError` had turned a
+    sentence into a traceback, and both were wrong. `cli.main` wraps every
+    command in `except Exception` and prints `error: {exc}`, so the refusal
+    already reaches stderr with exit 1 and a clause in `_publish_with` would
+    change nothing observable. It was written, measured against a revert,
+    found to be dead code, and taken back out.
+
+    What this holds is the backstop the decision rests on: remove it and the
+    export path answers a person with a traceback.
+    """
+    from scrapex import cli
+
+    conn = registry.engine.connect()
+    try:
+        definition = enrichment.create_definition(conn, _request(conn))
+        _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
+        conn.execute(
+            "UPDATE generic_record SET data_json = json_set(data_json, "
+            "'$.key_decision_makers', json('[{\"name\": \"Sara\"}]')) "
+            "WHERE dataset_definition_id = (SELECT output_dataset_id "
+            "  FROM organization_enrichment_definition LIMIT 1)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    code = cli.main(["export", "contractor_enrichment",
+                     "--db", str(registry.engine.path),
+                     "--folder", str(tmp_path), "--workbook", "book"])
+
+    assert code == 1
+    stderr = capsys.readouterr().err
+    assert stderr.startswith("error: "), f"a traceback, not a sentence: {stderr!r}"
+    assert "key_decision_makers" in stderr
+
+
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     definition = enrichment.create_definition(conn, _request(conn))
     provider = _SystemFailureProvider()

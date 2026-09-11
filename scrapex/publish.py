@@ -16,6 +16,23 @@ from .payload import utc_now_iso
 from .reports import export_details_table, export_history_table, export_source_table, source_summary
 
 
+class UnexportableCell(TypeError):
+    """A dataset cell holds a shape no flat table can carry.
+
+    A TypeError and deliberately NOT a ValueError — but not for the reason it
+    looks like. Every caller that catches this today names it explicitly and
+    AHEAD of its own `except ValueError`, so clause order, not the base class,
+    is what keeps those four right; flipping the base changes nothing they do.
+
+    What the base class buys is the caller that has NOT been taught the type.
+    Three such callers existed the day this class was added and all three read
+    a ValueError out of `workbook_tables` as "nothing ingested for this source
+    yet" — so inheriting from it would have had them tell the owner to crawl
+    and ingest a source that is already ingested. The fifth consumer arrives
+    the same way, unaware, and this is what stops it swallowing the refusal.
+    """
+
+
 class SheetSink(Protocol):
     """A destination that holds a 'workbook' of per-source tabs."""
 
@@ -85,10 +102,56 @@ def dataset_workbook_tables(payload: dict,
     The header is the DISPLAY labels, in the schema's own field order, and the
     cells are read through the same key order — so a column cannot land under
     another column's name if the payload's key order ever changes.
+
+    A MULTI-VALUE FIELD IS ONE CELL, AND THIS IS WHERE IT BECOMES ONE. A record
+    is stored as JSON, so a field the site or an enrichment publishes as an
+    array arrives here as a `list` and openpyxl refuses it outright — "Cannot
+    convert ['email_domain_candidate', 'source', 'website'] to Excel", which is
+    how `/export/contractor_enrichment.xlsx` came to answer 500 with an empty
+    body and the button came to produce no file at all. Measured over the whole
+    warehouse: 36,318 such cells, every one in `contractor_enrichment`
+    (`providers_checked` and `evidence_urls` on all 17,304 rows, then
+    `contact_emails`, `contact_phones`, `iso_certifications`,
+    `core_specialties`).
+
+    HERE RATHER THAN IN THE XLSX WRITER, for the reason `workbook_tables` states
+    about itself: it has THREE consumers, and putting the join in the writer
+    would leave the Apps Script funnel and the Google sink sending a flat tab
+    the text `"['a', 'b']"` — `outputs._canonical_cell` stringifies anything it
+    does not recognise, so that one is silent rather than loud. CAN send, not
+    were sending: the Exports and Sync pages offer only `source_site` keys and
+    cannot select a dataset, but `cli.py`'s `export` and `/api/outputs/excel/
+    export` both reach this branch, and `_source_keys` validates nothing.
+    One place decides how a multi-value field reads.
+
+    ", " AND NOT "," — the owner's ruling. The screen renders `a,b,c`, which is
+    Tabulator's default `String()` over an array; a workbook outlives the screen
+    it came from and gets printed and mailed, so the cell is spaced to be read.
     """
     keys = [column["key"] for column in payload["columns"]]
     header = [column["label"] or column["key"] for column in payload["columns"]]
-    rows = [[row.get(key, "") for key in keys] for row in payload["rows"]]
+    rows = []
+    for record in payload["rows"]:
+        cells: list = []
+        for key in keys:
+            value = record.get(key, "")
+            if isinstance(value, list) and not any(
+                    isinstance(one, (list, dict)) for one in value):
+                # A null inside the list is dropped rather than written: a cell
+                # reading "None" is wrong data that looks like a value, and an
+                # absent element carries nothing to lose.
+                value = ", ".join(str(one) for one in value if one is not None)
+            elif isinstance(value, (list, dict)):
+                # NAMED, NOT SWALLOWED. Joining a list of objects would put
+                # "{'name': ...}" in a cell as if it were the value, and a
+                # workbook is read by people who cannot see it is wrong.
+                raise UnexportableCell(
+                    f"{payload['source_key']}.{key} nests a value that no "
+                    f"spreadsheet cell can carry: {value!r:.120}. Flatten that "
+                    f"field where it is written, or hide the column — hiding "
+                    f"it takes the column out of the export too.")
+            cells.append(value)
+        rows.append(cells)
     return [(tab or payload["source_key"], header, rows)]
 
 
