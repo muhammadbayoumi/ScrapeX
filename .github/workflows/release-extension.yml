@@ -29,6 +29,26 @@ on:
 permissions:
   contents: read
 
+# TWO TAGS MINUTES APART ARE TWO UPLOADS OF TWO VERSIONS TO ONE LISTING, in no
+# order, and Google reviews whichever it ends up holding. Every other workflow
+# that writes something already declares a group — `release-engine.yml` and
+# `publish-docs.yml` share one because "two writers on one file is a lost
+# update" (publish-docs.yml), and `tag-the-release.yml` has its own. This one
+# writes further away than any of them and had none.
+#
+# NOT THE `release-engine` GROUP. The engine and the extension publish to
+# different places — GitHub Releases and the Chrome Web Store — so serialising
+# them against each other delays both and protects neither.
+#
+# `cancel-in-progress: false`, because the loser here must QUEUE rather than
+# die: a cancelled upload leaves the store holding whatever arrived first, which
+# is the outcome the group exists to prevent. Read #861 before trusting that
+# alone — a THIRD queued run evicts the second while it is still pending,
+# regardless of this flag.
+concurrency:
+  group: release-extension
+  cancel-in-progress: false
+
 jobs:
   package:
     runs-on: ubuntu-latest
