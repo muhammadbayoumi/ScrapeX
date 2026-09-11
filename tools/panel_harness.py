@@ -929,12 +929,7 @@ def wait_until_settled(page, timeout: int = 5_000) -> None:
     individual marks by name and on their number, which is a different question
     from "is the panel ready", and merging them would make one helper serve two.
     """
-    page.wait_for_function(
-        "() => performance.getEntriesByName('scrapex:fully-settled').length"
-        " + performance.getEntriesByName('scrapex:startup-failed').length > 0",
-        polling=10,
-        timeout=timeout,
-    )
+    _wait_for_either(page, "fully-settled", timeout)
 
 
 def wait_until_interactive(page, timeout: int = 5_000) -> None:
@@ -958,9 +953,44 @@ def wait_until_interactive(page, timeout: int = 5_000) -> None:
     that threw during init will never mark anything else, and hanging for the full
     timeout would report the wait instead of the panel.
     """
+    _wait_for_either(page, "account-check-start", timeout)
+
+
+def _wait_for_either(page, mark: str, timeout: int) -> None:
+    """Wait for `mark` or for startup to fail — and RAISE if it failed.
+
+    RETURNING ON `startup-failed` WAS A SILENT PASS ACROSS EVERY CALL SITE, and a
+    merge gate demonstrated it: rename `id="signin"` in the generated page and
+    `wireStartupShell()` dies on its first statement, `init()` rejects,
+    `startPanel()` catches it (extension/app.js), and the mark is the only trace.
+    Measured on that page — the wait RETURNED after 31.0ms, `page.js_errors` was
+    empty because the rejection was caught, `window.__calls` was empty because the
+    panel never made a request, and the test then failed on whatever selector it
+    touched next with no mention of the panel having never started.
+
+    The mark carries the reason, so the reason is what gets raised: `markStartup`
+    records `{message: ...}` as the mark's `detail`, readable from Playwright.
+
+    `AssertionError`, not `pytest.fail`: `Failed` derives from BaseException, so a
+    caller writing `pytest.raises(Exception)` -- including this module's own tests
+    -- would not catch it, and neither would any `except Exception` a future
+    fixture wraps this in. Measured: all three new tests failed that way first.
+    """
     page.wait_for_function(
-        "() => performance.getEntriesByName('scrapex:shell-interactive').length"
+        "name => performance.getEntriesByName('scrapex:' + name).length"
         " + performance.getEntriesByName('scrapex:startup-failed').length > 0",
+        arg=mark,
         polling=10,
         timeout=timeout,
     )
+    # THE MARK'S PRESENCE DECIDES, NOT ITS MESSAGE. A first draft keyed on
+    # `detail.message` and passed silently on a mark carrying no detail -- caught
+    # because this file's own tests fire a bare `performance.mark(...)` and went
+    # green against a helper that was supposed to refuse them.
+    failed = page.evaluate(
+        "() => { const m = performance.getEntriesByName('scrapex:startup-failed');"
+        "        return m.length ? [m[0].detail?.message ?? 'unknown'] : null; }")
+    if failed is not None:
+        raise AssertionError(
+            "the panel failed to start, so this page can prove nothing about "
+            f"the product: {failed[0]}")

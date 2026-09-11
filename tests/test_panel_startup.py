@@ -639,41 +639,60 @@ def test_a_settled_panel_ends_the_wait(browser, tmp_path):
         page.close()
 
 
-def test_a_panel_that_failed_to_start_also_ends_it(browser, tmp_path):
+def test_a_panel_that_failed_to_start_is_refused_not_handed_over(browser, tmp_path):
     """`init()` throwing fires `startup-failed` and never `fully-settled`.
 
-    A fixture that waited only for the happy mark would hang for its whole
-    timeout on every test that stubs a startup failure on purpose — turning a
-    stubbed state into a five-second pause and, at the end of it, an error about
-    the wait rather than about the panel.
+    THE WAIT MUST END -- a fixture that hung here would report itself instead of
+    the panel -- BUT IT MUST NOT HAND THE PAGE OVER. A merge gate demonstrated
+    what returning costs: rename `id="signin"` in the generated page and
+    `wireStartupShell()` dies on its first statement, the wait returned after
+    31ms, `page.js_errors` was EMPTY because `startPanel()` caught the rejection,
+    `window.__calls` was empty because the panel never made a request, and the
+    test then failed on whatever selector it touched next with no mention of the
+    panel having never started. Across the converted fixtures that is a silent
+    pass at every call site.
+
+    So it ends the wait by FAILING, with the reason the mark carries.
     """
     page = _marked(browser, tmp_path,
-                   "<script>performance.mark('scrapex:startup-failed')</script>",
+                   "<script>performance.mark('scrapex:startup-failed',"
+                   " {detail: {message: 'the shell never wired'}})</script>",
                    "failed.html")
     try:
-        harness.wait_until_settled(page, timeout=2_000)
+        with pytest.raises(Exception, match="the shell never wired"):
+            harness.wait_until_settled(page, timeout=2_000)
     finally:
         page.close()
 
 
-def test_a_panel_that_failed_to_start_also_ends_the_interactive_wait(browser, tmp_path):
-    """The same clause, in the other helper, and it was guarded by nothing.
+def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path):
+    """The same contract in the other helper, which had no test of its own until
+    a single-dimension review removed its `startup-failed` arm and watched 289
+    tests stay green."""
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed',"
+                   " {detail: {message: 'the shell never wired'}})</script>",
+                   "failed-interactive.html")
+    try:
+        with pytest.raises(Exception, match="the shell never wired"):
+            harness.wait_until_interactive(page, timeout=2_000)
+    finally:
+        page.close()
 
-    `wait_until_interactive` carries the identical `startup-failed` arm for the
-    identical reason, and a single-dimension review removed it and watched 289
-    tests stay green. Measured while it was gone: a page firing only
-    `scrapex:startup-failed` raised `TimeoutError` after 3010ms, where the whole
-    helper exists so that a stubbed failure ends the wait instead of reporting
-    it — 19.3ms with the arm in place.
 
-    The two transient tests cover the `shell-interactive` half and neither stubs
-    a startup failure, so nothing reached this arm at all.
+def test_a_failure_with_no_reason_is_still_refused(browser, tmp_path):
+    """A mark carrying no `detail` must not read as success.
+
+    A first draft keyed the refusal on `detail.message` and passed silently on a
+    bare `performance.mark(...)` — green against a helper written to refuse it.
+    The mark's PRESENCE decides; the message is only what the reader is told.
     """
     page = _marked(browser, tmp_path,
                    "<script>performance.mark('scrapex:startup-failed')</script>",
-                   "failed-interactive.html")
+                   "failed-bare.html")
     try:
-        harness.wait_until_interactive(page, timeout=2_000)
+        with pytest.raises(Exception, match="unknown"):
+            harness.wait_until_settled(page, timeout=2_000)
     finally:
         page.close()
 
