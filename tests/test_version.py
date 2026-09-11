@@ -440,9 +440,26 @@ def test_the_changelog_cites_no_path_that_has_moved():
     """
     from scrapex import cli
 
+    # BY SUFFIX, NOT BY A LIST OF DIRECTORIES, which is how this repository
+    # already recognises a cited path -- `tests/test_the_documents_cite_what_they
+    # _claim.py:115`. An allow-list of top-level names approves in silence
+    # everything outside it, and there are fifteen top-level directories here.
+    # The lookbehind stops a match starting inside a longer path; a glob
+    # (`extension/tests/*.test.mjs`) cannot match because `*` is outside the
+    # segment class, and `path:line` matches the path and drops the line.
+    #
+    # WHAT IT STILL CANNOT SEE, named rather than implied: a top-level file with
+    # no directory ahead of it (`CLAUDE.md`), a directory with no suffix
+    # (`docs/plans/`), and a suffix this list omits. All three are absent from
+    # the rendered changelog today.
+    #
+    # THE TRAILING LOOKAHEAD IS LOAD-BEARING: the alternation is ordered, so
+    # without it `js` matches inside `.json` and the guard reports a real file
+    # as missing under a truncated name.
+    suffixes = "py|js|mjs|css|html|json|yml|yaml|sh|md|toml|sql"
     cited = set(
         re.findall(
-            r"`((?:docs|scrapex|tests|extension|db|apps_script)/[^`\s]+)`",
+            r"(?<![\w/.\-])((?:[\w.\-]+/)+[\w.\-]+\.(?:" + suffixes + r"))(?![\w.\-])",
             cli._render_changelog(),
         )
     )
