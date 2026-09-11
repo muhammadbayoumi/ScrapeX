@@ -680,6 +680,44 @@ def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path
         page.close()
 
 
+def test_the_interactive_wait_ends_on_the_mark_it_names(browser, tmp_path):
+    """The literal at `panel_harness.py:968` is the whole subject of that helper's
+    docstring, and until this it was bound by nothing.
+
+    Its only other test drives a page carrying `startup-failed` alone, which ends
+    the wait through the refusal arm both helpers share -- so it passes for EVERY
+    possible value of the mark name. A merge gate demonstrated it: set the literal
+    to `shell-interactive`, the spelling the docstring above it calls THE MISTAKE,
+    and all three tests that touch the helper stayed green, 30 of 30.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:account-check-start')</script>",
+                   "interactive.html")
+    try:
+        harness.wait_until_interactive(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_the_interactive_wait_does_not_end_on_the_mark_it_used_to_wait_on(browser, tmp_path):
+    """The other half of the same binding, aimed at the regression by name.
+
+    `shell-interactive` fires from `wireStartupShell()` BEFORE `init()` awaits its
+    paint opportunity, so a barrier keyed on it can return before `loadAccount()`
+    has called `setChecking(true)` -- and the two tests of that transient then
+    assert the shipped markup defaults and pass while testing nothing. This page
+    carries that mark and nothing else: the wait must refuse it.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:shell-interactive')</script>",
+                   "shell-only.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_interactive(page, timeout=800)
+    finally:
+        page.close()
+
+
 def test_the_real_panel_emits_the_mark_the_harness_refuses_on(browser, tmp_path):
     """The three tests above drive SYNTHETIC pages, so none of them binds the name
     `tools/panel_harness.py` watches for to the name `extension/app.js` emits.
