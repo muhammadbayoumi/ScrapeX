@@ -853,8 +853,6 @@ def test_every_caller_of_the_export_path_names_the_type_it_can_raise():
                publish.publish_source.__name__}
     missed, inspected = [], []
     for path in sorted(root.rglob("*.py")):
-        if path == root / "publish.py":     # where all three are defined
-            continue
         if path == root / "cli.py":
             # MEASURED, not assumed: `cli.main` catches `Exception` and prints
             # `error: {exc}`, so no clause there can produce a wrong answer —
@@ -916,8 +914,11 @@ def test_every_caller_of_the_export_path_names_the_type_it_can_raise():
         f"longer guarding anything: {inspected}")
 
     assert not missed, (
-        "these catch a ValueError from the export path and would swallow an "
-        f"UnexportableCell into the wrong answer: {missed}")
+        "these catch a ValueError from the export path, and UnexportableCell is "
+        "NOT one — it is a TypeError, so it never lands in these clauses at all. "
+        "It escapes them, uncaught, which is the run killed past the commit and "
+        "the bare 500 with nothing to read that #828 exists to remove. Name it "
+        f"in the clause, or ahead of the ValueError: {missed}")
 
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     definition = enrichment.create_definition(conn, _request(conn))
