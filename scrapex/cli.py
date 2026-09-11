@@ -459,9 +459,9 @@ def _render_changelog() -> str:
         "",
         "Each entry names the version a capability is GUARANTEED from and, where the",
         "work predates this file, the commit that built it — evidence read out of",
-        "`git log`, never remembered. `docs/BACKLOG.md` §7 remains the session-level",
-        "record of what was done; this file answers a narrower question: which version",
-        "has it.",
+        "`git log`, never remembered. The record of what was done is GitHub —",
+        "`gh pr list`, `gh issue list` — and this file answers a narrower question:",
+        "which version has it.",
         "",
     ]
     # A RELEASE THAT ADDED NO CAPABILITY STILL HAPPENED, and must still appear.

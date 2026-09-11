@@ -429,6 +429,30 @@ def test_the_changelog_is_generated_and_not_stale():
         "CHANGELOG.md is stale — run: python -m scrapex.cli export-version")
 
 
+def test_the_changelog_cites_no_path_that_has_moved():
+    """A repository path baked into the renderer's prose, re-emitted on every export.
+
+    `tests/test_the_documents_cite_what_they_claim.py` deliberately watches four
+    documents — the two live ones and the two skills — so code that WRITES a
+    document is outside it. And the staleness test above pins whatever the
+    renderer emits byte-for-byte, so a moved path is not merely uncaught: it is
+    enforced, and correcting the committed file alone fails the build.
+    """
+    from scrapex import cli
+
+    cited = set(
+        re.findall(
+            r"`((?:docs|scrapex|tests|extension|db|apps_script)/[^`\s]+)`",
+            cli._render_changelog(),
+        )
+    )
+    # NOT VACUOUS: if the prose stops citing any path the pattern matches, this
+    # test would pass against anything. It must fail loudly instead.
+    assert cited, "the pattern matched nothing; the guard would pass vacuously"
+    missing = sorted(path for path in cited if not (ROOT / path).exists())
+    assert not missing, f"the changelog cites paths that do not exist: {missing}"
+
+
 def test_the_changelog_carries_the_evidence_for_the_two_incidents():
     committed = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "c63ec21" in committed, "the crawl pace lost the commit that built it"
