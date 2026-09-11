@@ -13,12 +13,20 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 
+from .databases.registry import DATABASE_ROOT
 from .publish import UnexportableCell
 
 if TYPE_CHECKING:                    # openpyxl is an optional extra: types only
     from openpyxl.workbook import Workbook
 
-DEFAULT_EXPORT_DIR = Path(os.environ.get("SCRAPEX_EXPORT_DIR", str(Path.home() / "ScrapeX")))
+# NOT under the data root: this is where HIS spreadsheets land, and he opens it.
+# It follows `SCRAPEX_DATA_ROOT` only when that is redirected away from home --
+# which is what a test run does -- so a suite never writes ~/ScrapeX while a
+# real run still puts the workbook where he looks for it.
+DEFAULT_EXPORT_DIR = Path(os.environ.get(
+    "SCRAPEX_EXPORT_DIR",
+    str(Path.home() / "ScrapeX" if DATABASE_ROOT == Path.home() / ".scrapex"
+        else DATABASE_ROOT / "ScrapeX")))
 
 # Excel worksheet titles: max 31 chars, and these characters are forbidden.
 _BAD_TITLE_CHARS = set(r"[]:*?/\\")

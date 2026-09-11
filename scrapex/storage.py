@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
 
+from .databases.registry import DATABASE_ROOT
 from . import db as dbmod
 from . import settings
 from .archive import backup_database
@@ -45,7 +46,7 @@ from .settings import RunResult
 # The pointer lives next to the default database, never inside it: it must be
 # readable when the database itself is unreachable.
 POINTER_FILE = Path(
-    os.environ.get("SCRAPEX_LOCATION_FILE", str(Path.home() / ".scrapex" / "location.json"))
+    os.environ.get("SCRAPEX_LOCATION_FILE", str(DATABASE_ROOT / "location.json"))
 )
 
 # A move needs room for the copy plus headroom for the WAL and normal growth.

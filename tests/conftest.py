@@ -35,13 +35,32 @@ it, and two of them fail SILENTLY, which is why they are commented at length.
 """
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import sqlite3
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+# THE SUITE MUST NOT WRITE HIS WAREHOUSE, and this has to run before the import
+# below rather than in a fixture. `scrapex/databases/registry.py` freezes
+# `DATABASE_ROOT` from this variable at IMPORT time, so a fixture setting it has
+# already lost: by then the constant points at `~/.scrapex`, which is where
+# `databases.json` sends the panel. Observed before this line existed, during a
+# full run: `~/.scrapex/engine/scrapex-engine.db-wal` at 3.0 MB with a timestamp
+# inside the run, and `contractors.log` growing with it. CLAUDE.md calls a second
+# writer on that warehouse a defect, and a test run was being one (#910).
+#
+# `if not set` rather than an unconditional assignment: a developer or a workflow
+# pointing the suite somewhere deliberately keeps that choice. The default is the
+# only thing that must never be his home.
+if not os.environ.get("SCRAPEX_DATA_ROOT"):
+    _TEST_DATA_ROOT = tempfile.mkdtemp(prefix="scrapex-tests-")
+    os.environ["SCRAPEX_DATA_ROOT"] = _TEST_DATA_ROOT
+    atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)
 
 from scrapex import db as dbmod
 

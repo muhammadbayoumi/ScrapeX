@@ -45,6 +45,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from . import catalog, runs, taxonomy
+from .databases.registry import DATABASE_ROOT
 from . import validators as validator_store
 from .catalog_models import SiteCreate
 from .connectors.base import HttpFetcher, declare_frontier
@@ -87,7 +88,11 @@ from .vocab import RunStatus
 # needed a copy of this file (`REQ-27`). They now come from
 # `scrapex/directories.py`, which is to this module what `connectors/factory.py` is
 # to a products source.
-LOG = Path.home() / ".scrapex" / "contractors.log"
+# THE DATA ROOT IS DECIDED IN ONE PLACE. This used to be its own
+# `Path.home() / ".scrapex"`, which read no environment variable at all --
+# so `SCRAPEX_DATA_ROOT` moved every sibling path and left this one writing
+# his real home, including from a test run (#910).
+LOG = DATABASE_ROOT / "contractors.log"
 
 
 #: Seconds between requests, and THE ONLY PLACE THIS NUMBER IS WRITTEN. It was an

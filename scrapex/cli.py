@@ -19,6 +19,7 @@ import os
 import sys
 from pathlib import Path
 
+from .databases.registry import DATABASE_ROOT
 from . import contractors, localinbox, version, vocab
 from . import db as dbmod
 from .config import MANIFEST_FILE, load_manifest
@@ -1041,7 +1042,7 @@ def _cmd_schedule(args) -> int:
 # How long `run-due` waits for the write lock before deciding this tick is not
 # its turn. Short on purpose — a task on a 15-minute clock has somewhere to be.
 RUN_DUE_LOCK_TIMEOUT_S = 3.0
-RUN_DUE_LOG = Path.home() / ".scrapex" / "engine.log"
+RUN_DUE_LOG = DATABASE_ROOT / "engine.log"
 
 
 def _bind_log_streams() -> None:

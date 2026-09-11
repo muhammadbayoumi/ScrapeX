@@ -29,9 +29,10 @@ from pathlib import Path
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from .databases.registry import DATABASE_ROOT
 from .payload import FunnelPayload, split_into_chunks
 
-DEFAULT_OUTBOX_DIR = Path(os.environ.get("SCRAPEX_OUTBOX_DIR", str(Path.home() / ".scrapex" / "outbox")))
+DEFAULT_OUTBOX_DIR = Path(os.environ.get("SCRAPEX_OUTBOX_DIR", str(DATABASE_ROOT / "outbox")))
 
 # A6: alarm threshold — if this many undelivered batches accumulate, something
 # upstream is broken and the owner must know before the disk quietly fills.
