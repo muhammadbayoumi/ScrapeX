@@ -736,12 +736,16 @@ def test_a_control_character_skips_its_source_instead_of_killing_the_run(
     _run(conn, definition["enrichment_definition_id"], monkeypatch, _FakeWebsite())
     # A control character in a list cell — a crawled page controls this string,
     # and CLAUDE.md rules scraped content untrusted input.
+    # PARAMETERISED, and json.dumps writes the escape SQLite's JSON parser
+    # needs: a raw control byte inside a JSON literal is malformed JSON, which
+    # this machine's SQLite accepted and CI's rejected.
     conn.execute(
         "UPDATE generic_record SET data_json = json_set(data_json, "
-        "'$.evidence_urls', json('[\"http://a\u0001b\"]')) "
+        "'$.evidence_urls', json(?)) "
         "WHERE generic_record_id = (SELECT MIN(generic_record_id) FROM generic_record "
         "  WHERE dataset_definition_id = (SELECT output_dataset_id "
-        "    FROM organization_enrichment_definition LIMIT 1))")
+        "    FROM organization_enrichment_definition LIMIT 1))",
+        (json.dumps(["http://a\x01b"]),))
     settings.save(conn, {"excel_folder": str(tmp_path), "excel_workbook": "book.xlsx"})
 
     result = outputs.excel_export(conn, ["contractor_enrichment", "contractors"])

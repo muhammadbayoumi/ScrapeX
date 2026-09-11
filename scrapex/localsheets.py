@@ -91,7 +91,7 @@ def _append_rows(sheet, tab: str, header: list[str], rows: list[list]) -> None:
 
     IT NAMES THE COLUMN. openpyxl quotes the value with the offending character
     ALREADY STRIPPED — `http://ab cannot be used in worksheets` for
-    `http://ab` — so its own message points at a string he cannot find by
+    `http://a\x01b` — so its own message points at a string he cannot find by
     searching for it. The column is located with openpyxl's own
     `ILLEGAL_CHARACTERS_RE` rather than a second copy of that rule here.
 
