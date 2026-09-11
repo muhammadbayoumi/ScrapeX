@@ -76,6 +76,13 @@ Three rules that decide the outcome:
   filed.
 - **Split before the review, not after.** Over 1,000 changed lines outside `tests/` and
   fixtures, split first. Five passes that do not converge say the same thing too late.
+- **A split leaves a stack, and a squash merge breaks it.** Merging the parent collapses
+  its commits into one, so the child's `git rebase` fails outright — *"Could not apply"* —
+  because its commits correspond to nothing in `main`'s history. Do not force it past
+  that. Rebuild the child on `main` and carry its files over:
+  `git switch -c child-v2 origin/main`, then `git checkout <old-child> -- <its files>`.
+  That stages them, so read the result with `git diff HEAD` and confirm it is the addition
+  you expect — a plain `git diff` shows nothing and looks like an empty change.
 
 ## What a pass may spend
 
