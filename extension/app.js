@@ -8,7 +8,10 @@
 // markup goes through esc(), and content spans use unicode-bidi:plaintext so
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
-import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
+import {
+  autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase,
+  checkExtensionSync, applyExtensionSync,
+} from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
@@ -719,6 +722,129 @@ function renderVersionNotice(engine) {
   notice.innerHTML = "";
   notice.classList.add("hidden");
 }
+
+// ---- extension sync (extension/ files vs. origin/main) ----------------------
+// The other half of the gap `loadVersions` names above: "the extension only
+// updates when someone presses Reload in chrome://extensions." He works from
+// the panel, never a terminal, so the git pull that used to be a manual step
+// (docs/plans/2026-07-29-sync-green-main-and-merge.md) now runs through the
+// native host (scrapex/extensionsync.py) and is reported here. Checking is
+// automatic once this section has been opened — on open and on a timer, see
+// EXTENSION_SYNC_POLL_MS below — applying is always a deliberate click, so a
+// live job is never interrupted without warning.
+//
+// DEFERRED LIKE `maybeRenderAutostart`, AND FOR THE SAME REASON: a native
+// message spawns a host process, and nothing on this page may do that before
+// the owner has actually opened the section that shows the result —
+// `test_native_status_is_deferred_until_its_settings_section_is_visible`
+// holds this for Engine settings, and About is not exempt from it.
+let extensionSyncRunning = false;
+let extensionSyncLoaded = false;
+let extensionSyncLoadPromise = null;
+
+function maybeRenderExtensionSync() {
+  const aboutVisible = currentViewName() === "settings"
+    && !$("s-about").classList.contains("hidden");
+  if (!aboutVisible || extensionSyncLoaded) return extensionSyncLoadPromise;
+  if (!extensionSyncLoadPromise) {
+    extensionSyncLoadPromise = renderExtensionSync()
+      .catch(() => {})
+      .finally(() => {
+        extensionSyncLoaded = true;
+        extensionSyncLoadPromise = null;
+        // Continuous FROM HERE ONLY: the owner has looked at this section
+        // once, so a background timer keeps it current without being asked
+        // again — but nothing runs before that first, deliberate look.
+        extensionSyncTimer = setInterval(() => { renderExtensionSync(); },
+                                          EXTENSION_SYNC_POLL_MS);
+      });
+  }
+  return extensionSyncLoadPromise;
+}
+
+async function renderExtensionSync() {
+  const line = $("about-extension-sync");
+  const button = $("about-extension-sync-update");
+  if (!line || !button) return; // not every build of this page carries it
+  if (extensionSyncRunning) return;
+  extensionSyncRunning = true;
+  try {
+    const result = await checkExtensionSync();
+    renderExtensionSyncState(result);
+  } catch (_) {
+    // The native host being absent or unreachable is already explained on
+    // this same page, by the Engine card. Repeating it here as a second
+    // alarm would be noise about the one thing this page already said.
+    line.textContent = "Extension update status unavailable.";
+    button.classList.add("hidden");
+  } finally {
+    extensionSyncRunning = false;
+  }
+}
+
+function renderExtensionSyncState(result) {
+  const line = $("about-extension-sync");
+  const button = $("about-extension-sync-update");
+  button.classList.add("hidden");
+  button.disabled = false;
+  button.textContent = "Update now";
+  switch (result.state) {
+    case "up_to_date":
+      line.textContent = "This checkout matches GitHub's main.";
+      break;
+    case "behind": {
+      const n = result.commits_behind;
+      const first = (result.summary || [])[0];
+      line.textContent = `${n} commit${n === 1 ? "" : "s"} behind main` +
+        (first ? ` — ${first}${n > 1 ? " …" : ""}` : "") + ".";
+      button.classList.remove("hidden");
+      break;
+    }
+    case "dirty":
+    case "not_main":
+    case "offline":
+    case "no_git":
+    case "diverged":
+    case "error":
+      line.textContent = result.detail || "Extension sync is paused.";
+      break;
+    default:
+      line.textContent = result.detail || "Extension update status unavailable.";
+  }
+}
+
+async function applyExtensionUpdate() {
+  const button = $("about-extension-sync-update");
+  const line = $("about-extension-sync");
+  button.disabled = true;
+  button.textContent = "Updating…";
+  try {
+    const result = await applyExtensionSync();
+    if (result.state === "applied") {
+      line.textContent = `Updated to ${result.head}. Reloading…`;
+      button.classList.add("hidden");
+      // A brief pause so the confirmation is actually readable before the
+      // reload tears this page down — an instant reload would show a
+      // success message nobody had time to see.
+      setTimeout(() => chrome.runtime.reload(), 600);
+      return;
+    }
+    // Refused, or the remote moved again in the time between the last check
+    // and this click — render whatever it actually reports, never assume.
+    renderExtensionSyncState(result);
+  } catch (error) {
+    line.textContent = `Could not update the extension: ${error.message || error}.`;
+    button.disabled = false;
+    button.textContent = "Update now";
+  }
+}
+
+// Polled, not pushed, and only while the panel is actually open — the same
+// choice this file already makes for engine health. Five minutes: a git fetch
+// against GitHub is cheap, but there is no reason to run it on every tick of
+// a faster timer built for something else.
+const EXTENSION_SYNC_POLL_MS = 5 * 60 * 1000;
+let extensionSyncTimer = null;
 
 // Engine-only state refresh. Used by the Engine page recheck action so it does
 // not pull in sources, outputs, jobs, or other destination data — and by
@@ -7796,6 +7922,7 @@ function wireDeferredControls() {
       const open = body.classList.toggle("hidden");
       b.setAttribute("aria-expanded", String(!open));
       if (!open && b.dataset.sect === "s-engine") maybeRenderAutostart();
+      if (!open && b.dataset.sect === "s-about") maybeRenderExtensionSync();
     }));
 
   wireRuntimeRepair();
@@ -7998,6 +8125,7 @@ function wireDeferredControls() {
   // destination nobody is looking at when the panel opens, and none of the
   // three things it offers exists before the shell is on screen.
   bindEngineScreens();
+  $("about-extension-sync-update")?.addEventListener("click", applyExtensionUpdate);
 }
 
 function scheduleNonCriticalStartup(backendPromise) {
@@ -8058,6 +8186,8 @@ function closePanelWork() {
   engineGeneration += 1;
   clearTimeout(pollTimer);
   pollTimer = null;
+  clearInterval(extensionSyncTimer);
+  extensionSyncTimer = null;
   pageController.abort();
   abortBackend();
 }

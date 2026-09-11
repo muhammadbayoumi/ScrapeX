@@ -148,3 +148,15 @@ export function checkStartup() {
 export function upgradeDatabase() {
   return sendNative({command: "UPGRADE_DATABASE"}).then(unwrap);
 }
+
+// Whether extension/ in the checkout Chrome loaded unpacked from still matches
+// origin/main, and applying that update — both native-only for the reason
+// every command on this file is: only the host on the machine can run git.
+// See scrapex/extensionsync.py for the states these can answer with.
+export function checkExtensionSync() {
+  return sendNative({command: "CHECK_EXTENSION_SYNC"}).then(unwrap);
+}
+
+export function applyExtensionSync() {
+  return sendNative({command: "APPLY_EXTENSION_SYNC"}).then(unwrap);
+}

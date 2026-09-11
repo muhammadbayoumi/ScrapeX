@@ -61,6 +61,7 @@ PROTOCOL_VERSION = 1
 STANDALONE_COMMANDS = frozenset({
     "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
     "CHECK_STARTUP", "UPGRADE_DATABASE",
+    "CHECK_EXTENSION_SYNC", "APPLY_EXTENSION_SYNC",
 })
 
 
@@ -164,6 +165,17 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
         autostart.remove()
         return {"ok": True, "installed": False,
                 "path": str(autostart.launcher_path())}
+
+    if command == "CHECK_EXTENSION_SYNC":
+        # Native-only for the same reason as SET_AUTOSTART: a page cannot run
+        # git, and the loaded extension/ folder is a file on the machine this
+        # host already has its hands on.
+        from . import extensionsync
+        return extensionsync.check()
+
+    if command == "APPLY_EXTENSION_SYNC":
+        from . import extensionsync
+        return extensionsync.apply()
 
     return _error("unknown_command", f"unknown command {command!r}")
 

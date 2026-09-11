@@ -632,7 +632,7 @@ def test_the_retired_data_commands_are_gone_from_the_router(conn):
 
 
 def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkeypatch):
-    """The other half: retiring the data surface must not touch the six
+    """The other half: retiring the data surface must not touch the eight
     commands the panel genuinely uses. Grep the extension before changing this
     list — it is the whole reason this host exists."""
     from scrapex import native
@@ -642,7 +642,8 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkey
         assert handle(conn, {"command": command})["ok"] is True, command
     assert set(native.STANDALONE_COMMANDS) == {
         "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
-        "CHECK_STARTUP", "UPGRADE_DATABASE"}
+        "CHECK_STARTUP", "UPGRADE_DATABASE",
+        "CHECK_EXTENSION_SYNC", "APPLY_EXTENSION_SYNC"}
 
 
 def test_startup_check_names_the_database_action(monkeypatch):

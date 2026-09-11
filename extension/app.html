@@ -2212,6 +2212,13 @@
                 <span id="about-minimum-version" class="tech">—</span></div>
               <div id="about-latest-source" class="text-xs mt-2"></div>
               <div id="about-capabilities" class="text-xs mt-2"></div>
+              <!-- extension/ vs. GitHub main. Checked automatically (on open,
+                   on Recheck, and on a timer); applying is always this click —
+                   see extension/transport.js and scrapex/extensionsync.py. -->
+              <div class="kv mt-2"><span>Extension source</span>
+                <span id="about-extension-sync" class="tech">Checking…</span></div>
+              <button id="about-extension-sync-update" type="button"
+                      class="ghost hidden">Update now</button>
             </div>
           </article>
         </div>
