@@ -123,3 +123,60 @@ def test_it_notices_a_job_that_runs_pytest_at_all():
         f"only {len(running)} workflow jobs look like they run pytest ({running}). "
         "The step parser has probably stopped matching, which makes the guard above "
         "pass over nothing.")
+
+
+def test_this_checkout_has_not_grafted_itself():
+    """The tests above make CI PROVIDE the history. This one says so when the machine
+    running the suite has thrown it away, which CI can never see.
+
+    A SHALLOW FETCH IS REPO-WIDE. `.git/shallow` sits beside the object store, and
+    every worktree under `.claude/worktrees/` shares that store -- so one session
+    fetching at depth 1, to see what a grafted clone does, grafts every other session
+    too. Restoring the files it touched restores nothing: `git status` stays clean
+    while `git rev-list --count HEAD` has collapsed.
+
+    Measured 2026-09-10, after a review agent did exactly that. The branch fell from
+    669 commits to 6, `git merge-base origin/main HEAD` answered nothing, and
+    `git merge-tree` refused with "unrelated histories" -- a merge that needed
+    `git fetch --unshallow` and a rebase to land. The two guards this file exists for
+    went quiet in the same run: 23 skips where there had been 21, and both extra ones
+    were "no git history here -- the comparison cannot be made".
+
+    NOT A GIT REPOSITORY IS NOT THE SAME FAULT. A source export -- `git archive`, or a
+    zip of the tree -- has no `.git` and no history to lose, so that skips. (Not a pip
+    install: `pyproject.toml` includes only `scrapex*` and there is no MANIFEST.in, so
+    no wheel or sdist carries this file at all.) A repository that HAS a graft is the
+    one this catches, and it fails rather than skipping for the reason the docstring
+    at the top of this file gives: a skip reports green.
+    """
+    import subprocess
+
+    asked = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                           cwd=ROOT, capture_output=True, text=True)
+    answer = asked.stdout.strip()
+
+    # GIT SAYS WHY, SO SAY WHAT GIT SAID. This branch used to relabel every
+    # non-zero exit "not a git checkout" while git's own sentence sat unread in
+    # `asked.stderr`. Measured: `GIT_TEST_ASSUME_DIFFERENT_OWNER=1` makes this
+    # very checkout exit 128 with "detected dubious ownership", and the skip then
+    # claimed it was not a repository. A guard added to stop a skip reporting
+    # green must not itself skip for a reason it never checked.
+    if asked.returncode != 0:
+        pytest.skip(f"git could not answer: {asked.stderr.strip() or asked.returncode}")
+
+    # AND rc 0 IS NOT A YES. `git rev-parse` ECHOES an unrecognised flag and exits
+    # 0 -- measured: `--is-shallow-repositoryZZZ` prints itself, rc 0 -- so if the
+    # flag is ever renamed this reader stops asking what it believes it asks, and
+    # the assertion below would blame the checkout for it.
+    assert answer in ("true", "false"), (
+        f"git answered {answer!r}, which is neither `true` nor `false`. This reader "
+        "has stopped asking what it thinks it asks -- most likely the flag was "
+        "renamed and git echoed it back. Fix the reader; this says nothing about "
+        "whether the checkout is grafted.")
+
+    assert answer == "false", (
+        "this checkout is grafted: `.git/shallow` is set, so the two guards named at "
+        "the top of this file will SKIP and report green, and a merge base with main "
+        "may not exist at all. Run `git fetch --unshallow`. If a session shallowed it "
+        "deliberately, restoring the working tree was not enough -- .git is shared "
+        "with every worktree under .claude/worktrees/.")
