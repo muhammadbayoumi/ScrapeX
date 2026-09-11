@@ -35,3 +35,23 @@ numbers. **No new `R-`/`REQ-`/`OP-` number is issued** — GitHub assigns the nu
 ## On this machine
 
 `gh` is not on `PATH`. In bash: `export PATH="/c/Program Files/GitHub CLI:$PATH"`.
+
+**Never run `gh auth switch`.** It rewrites the ACTIVE ACCOUNT for every session
+on this machine, so the others start failing mid-work with `Repository not
+found` — a message that reads as a network blip and gets diagnosed as one. It
+has already cost a session an interrupted merge.
+
+Pin the account to your own process instead, and the accounts stay independent:
+
+```bash
+export GH_TOKEN=$(gh auth token --user <the account that owns the repo>)
+```
+
+`gh` then ignores the active account entirely, and `git push`/`fetch` pick the
+same token up through `gh`'s credential helper. Two sessions can work as two
+different accounts at the same moment, and nothing on disk changes.
+
+**It does not survive between tool calls** — a shell here keeps its working
+directory and loses its environment — so put it in front of every command that
+reaches GitHub rather than once at the start. Do NOT park the token in a file to
+make it last: that writes a secret to disk.
