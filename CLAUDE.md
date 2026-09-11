@@ -126,7 +126,7 @@ format, and the rules that decide the outcome.
 **Never record findings, plans or progress in a repository markdown file.** Every kind of
 record, and every kind of question, has its command: the **`record-it` skill**.
 
-## Three traps that cost an afternoon each
+## Four traps that cost an afternoon each
 
 **A running engine is not your edit.** Python imports once, so an engine started before
 your change keeps serving the tree it loaded, and `__file__` is correct throughout.
@@ -138,6 +138,14 @@ is pip-installed editable against a checkout that may not be this worktree —
 `python -c "import scrapex; print(scrapex.__file__)"` says which. Derive every path from
 the worktree root, and in a scratch script assert on a **symbol you just added**;
 `__file__` catches a misdirected import, never a misdirected edit.
+
+**One machine, two accounts: `gh auth switch` is global.** It repoints every session on
+the machine, and the others fail mid-run with `Repository not found`. Scope the account
+to your own process instead — `export GH_TOKEN=$(gh auth token --user <the repo's
+owner>)` — which `gh` obeys over the active account, and which `git` inherits wherever
+gh is one of its credential helpers — which is a HOST-SCOPED key here, so ask
+`git config --get-urlmatch credential.helper https://github.com` and not
+`--get-all credential.helper`, which answers `manager` and hides it.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
