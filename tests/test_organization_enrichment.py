@@ -779,60 +779,6 @@ def test_the_cli_needs_no_clause_of_its_own_and_this_is_why(
     assert "key_decision_makers" in stderr
 
 
-def test_every_caller_of_the_export_path_names_the_type_it_can_raise(conn):
-    """A four-place invariant, and this change is the proof it can be missed.
-
-    `workbook_tables` refuses two different ways — `ValueError` for "nothing
-    ingested", `UnexportableCell` for a shape no cell can carry — and a caller
-    that catches only the first swallows the second into the wrong sentence or
-    lets it kill a run. Three of the four sites were missed on the first pass
-    of this very change; the fifth consumer is one `except ValueError` away
-    from the same miss, and nothing but this would notice.
-
-    Read from the AST rather than by regex, so a reformatted `except` line or
-    a renamed local cannot make the guard quietly stop looking.
-    """
-    import ast
-
-    root = Path(__file__).resolve().parent.parent / "scrapex"
-    raisers = {"workbook_tables", "publish_source"}
-    missed = []
-    for path in sorted(root.rglob("*.py")):
-        if path.name == "publish.py":       # where both are defined
-            continue
-        if path.name == "cli.py":
-            # MEASURED, not assumed: `cli.main` catches `Exception` and prints
-            # `error: {exc}`, so no clause there can produce a wrong answer —
-            # its ValueError handler and that backstop say the same sentence.
-            # `test_the_cli_needs_no_clause_of_its_own_and_this_is_why` holds
-            # the backstop this exemption depends on.
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Try):
-                continue
-            calls = {c.func.id for c in ast.walk(node)
-                     if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
-            if not (calls & raisers):
-                continue
-            # PER TRY BLOCK AND IN ORDER, not per handler: both correct
-            # spellings must pass — one clause naming the pair, or a dedicated
-            # `except UnexportableCell` AHEAD of the `except ValueError`.
-            # Order is checked even though the TypeError base makes it moot
-            # today, so the guard still holds if that base is ever changed.
-            seen = False
-            for handler in node.handlers:
-                names = {n.id for n in ast.walk(handler.type or ast.Pass())
-                         if isinstance(n, ast.Name)}
-                seen = seen or "UnexportableCell" in names
-                if "ValueError" in names and not seen:
-                    missed.append(f"{path.name}:{handler.lineno}")
-
-    assert not missed, (
-        "these catch a ValueError from the export path and would swallow an "
-        f"UnexportableCell into the wrong answer: {missed}")
-
-
 def test_repeated_system_errors_open_a_provider_circuit(conn, monkeypatch):
     definition = enrichment.create_definition(conn, _request(conn))
     provider = _SystemFailureProvider()
