@@ -680,6 +680,46 @@ def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path
         page.close()
 
 
+def test_the_real_panel_emits_the_mark_the_harness_refuses_on(browser, tmp_path):
+    """The three tests above drive SYNTHETIC pages, so none of them binds the name
+    `tools/panel_harness.py` watches for to the name `extension/app.js` emits.
+
+    A merge gate named the surviving mutation: rename `markStartup("startup-failed"
+    ...)` in the panel and every one of those tests stays green while both helpers
+    silently lose the arm that refuses a dead panel. `fully-settled` and
+    `account-check-start` are already bound to the real panel by the mark-ordering
+    test above; `startup-failed` is not, because it fires only on failure.
+
+    So this breaks the real panel and watches the real refusal. `wireStartupShell()`
+    opens by wiring `#signin`, so a page whose signin button has been renamed makes
+    `init()` reject, `startPanel()` catch it, and the mark carry the reason -- the
+    exact sequence the gate demonstrated.
+    """
+    page_file = harness.build_page(tmp_path, harness.stub(), name="broken.html")
+    markup = page_file.read_text(encoding="utf-8")
+    assert markup.count('id="signin"') == 1, (
+        "the page no longer carries exactly one #signin, so this test is breaking "
+        "something other than the shell's first statement")
+    page_file.write_text(markup.replace('id="signin"', 'id="signin-renamed"'),
+                         encoding="utf-8")
+
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.goto(page_file.as_uri())
+        with pytest.raises(AssertionError, match="failed to start"):
+            harness.wait_until_settled(page, timeout=5_000)
+        # AND THE REASON CAME FROM THE PANEL, not from the harness's own wording:
+        # `startPanel()` catches the rejection, so `pageerror` never fires and the
+        # message exists nowhere else a test can reach.
+        detail = page.evaluate(
+            "() => performance.getEntriesByName('scrapex:startup-failed')[0]"
+            "?.detail?.message ?? null")
+        assert detail and "addEventListener" in detail, (
+            f"the panel marked a failure without saying what it was: {detail!r}")
+    finally:
+        page.close()
+
+
 def test_a_failure_with_no_reason_is_still_refused(browser, tmp_path):
     """A mark carrying no `detail` must not read as success.
 

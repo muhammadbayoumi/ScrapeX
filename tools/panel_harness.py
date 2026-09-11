@@ -944,14 +944,26 @@ def wait_until_interactive(page, timeout: int = 5_000) -> None:
     tests OF the transient -- `test_the_profile_card_shows_checking_while_chrome_answers`
     and `test_the_initial_state_is_checking_then_resolves_to_signed_out`.
 
-    `shell-interactive` is fired by `wireStartupShell()` before any of that work
-    starts (`extension/app.js`), measured at 52ms against `fully-settled` at 60ms
-    on an undelayed page -- so on the ordinary path the two are nearly the same
-    moment, and on a delayed one they are as far apart as the stub says.
+    `account-check-start` IS THE MARK, AND `shell-interactive` WAS THE MISTAKE.
+    The first version of this helper waited on `shell-interactive`, which
+    `wireStartupShell()` fires BEFORE `init()` awaits its paint opportunity --
+    while `loadAccount()` marks `account-check-start` and only then calls
+    `setChecking(true)`. Measured: `shell-interactive` at 77-83ms against
+    `account-check-start` at 79-197ms, so the barrier could return before the
+    panel had entered the state under test. Both assertions in those two tests are
+    the SHIPPED MARKUP DEFAULTS, so they stayed green while testing nothing.
 
-    `startup-failed` ends this wait too, for the reason it ends the other: a panel
-    that threw during init will never mark anything else, and hanging for the full
-    timeout would report the wait instead of the panel.
+    Named by mutation -- invert `setChecking(true)` to `setChecking(false)`, the
+    exact state those tests are named for:
+
+        the 500ms sleep this replaced   mutant passed  0/10
+        the shell-interactive barrier   mutant passed  3/10
+        this one                        mutant passed  0/10
+
+    So the barrier is stronger than the sleep it replaces, not merely faster.
+
+    `startup-failed` ends this wait too -- see `_wait_for_either`, which is where
+    both helpers decide what a failed start means.
     """
     _wait_for_either(page, "account-check-start", timeout)
 
