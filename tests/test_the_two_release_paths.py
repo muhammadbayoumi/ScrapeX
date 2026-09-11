@@ -198,6 +198,38 @@ def test_two_releases_at_once_cannot_race_on_the_published_manifest(engine):
         "and pointing the manifest at it")
 
 
+def test_two_extension_releases_at_once_cannot_race_on_the_store_listing(extension):
+    """The sibling of the guard above, for the path that was left without one.
+
+    ONE LISTING, and Google reviews whichever upload it ends up holding. Two
+    `scrapex-v*` tags pushed minutes apart start two uploads of two different
+    versions with no ordering between them, and the review that follows takes a
+    day or three — so the wrong version is in front of Google's reviewers long
+    before anyone can look. Every check in this file passed while that was true.
+
+    NOT THE `release-engine` GROUP, which `release-engine.yml` and
+    `publish-docs.yml` share because they write to the same file in mbiX-hub.
+    The store is somewhere else entirely; sharing would delay both paths and
+    protect neither.
+
+    Parsed rather than searched, for the reason the engine's guard records: a
+    key renamed to `x-concurrency:` still contains the substring, and GitHub
+    would ignore the block.
+    """
+    yaml = pytest.importorskip("yaml")
+    parsed = yaml.safe_load(extension)
+
+    assert parsed.get("concurrency"), (
+        "no concurrency group: two tags pushed close together upload two "
+        "versions to one Chrome Web Store listing, in no order")
+    assert parsed["concurrency"].get("group") == "release-extension", (
+        "the extension release shares a group with another path, so it waits "
+        "on something that writes somewhere else")
+    assert "cancel-in-progress: false" in extension, (
+        "the loser of the race is cancelled rather than queued, which leaves "
+        "the store holding whichever upload happened to arrive first")
+
+
 def test_the_manifest_is_written_from_the_engine_and_not_typed(engine):
     """`minimum_extension_version` and `protocol_version` are published so the
     panel can say "this needs a newer extension" BEFORE anything is downloaded.
