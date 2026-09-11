@@ -133,7 +133,9 @@ def test_a_broken_probe_refuses_rather_than_passing(tmp_path):
 
 
 @pytest.mark.parametrize("ref", [
-    "refs/heads/main",
+    # `refs/heads/main` WAS IN THIS LIST and moved to tests of its own below,
+    # where it is asserted refused AND still free of a database open. The
+    # property this list exists for is re-asserted there, not dropped.
     "refs/heads/feat/anything",
     "refs/tags/scrapex-v0.3.3",
 ])
@@ -155,13 +157,63 @@ def test_it_finds_the_engine_tag_among_several_refs(tmp_path):
     A hook that only reads the first line passes whenever the engine tag is not first, and
     `git push --tags` orders them however it likes.
     """
-    refs = ("refs/heads/main a1 refs/heads/main b1\n"
+    # THE FILLER WAS `refs/heads/main` until main became a refusal of its own,
+    # which would stop this hook before it ever looked for the tag -- and this
+    # test would then pass while measuring nothing. A branch is the same filler.
+    refs = ("refs/heads/feat/x a1 refs/heads/feat/x b1\n"
             "refs/tags/scrapex-v0.3.3 a2 refs/tags/scrapex-v0.3.3 b2\n"
             "refs/tags/engine-v0.5.0 a3 refs/tags/engine-v0.5.0 b3\n")
     proc = _run(tmp_path, refs, probe=AHEAD)
     assert proc.returncode != 0, (
         "the engine tag was third of three and the hook did not see it")
     assert "engine-v0.5.0" in proc.stderr
+
+
+def test_it_refuses_a_direct_push_to_main(tmp_path):
+    """`main` has no branch protection -- GitHub offers it on a public repository or a
+    paid plan and this one is neither -- so this hook is the only thing between an
+    agent and the trunk. Several agents run against this repository on this machine.
+    """
+    proc = _run(tmp_path, "refs/heads/main a1 refs/heads/main b1\n", probe=AHEAD)
+    assert proc.returncode != 0, (
+        "a direct push to main was allowed, so the one local stand-in for branch "
+        "protection does not exist")
+    assert "REFUSED: a direct push to main." in proc.stderr
+    assert not proc.asked, (
+        "refusing main ran `database-status`. The refusal is free and must stay free, "
+        "or every blocked push pays for a database open it never needed.")
+
+
+def test_it_reads_the_remote_ref_not_the_local_one(tmp_path):
+    """`git push origin HEAD:main` from a branch named anything at all.
+
+    Reading `local_ref` would let exactly that through, and it is the form a session
+    reaches for when it wants to land something without switching branches.
+    """
+    proc = _run(tmp_path, "refs/heads/my-work a1 refs/heads/main b1\n", probe=AHEAD)
+    assert proc.returncode != 0, (
+        "pushing a local branch onto remote main was allowed because the hook read "
+        "the local name")
+    assert "REFUSED: a direct push to main." in proc.stderr
+
+
+def test_the_refusal_says_what_to_do_instead(tmp_path):
+    """A guard that only says no is one somebody works around rather than with."""
+    proc = _run(tmp_path, "refs/heads/main a1 refs/heads/main b1\n", probe=AHEAD)
+    assert "--no-verify" in proc.stderr, "the refusal hides its own escape hatch"
+    assert "git switch -c" in proc.stderr, "the refusal names no way forward"
+
+
+def test_main_is_refused_before_an_engine_tag_is_even_considered(tmp_path):
+    """A push carrying both must be refused, and refused for the cheaper reason."""
+    refs = ("refs/heads/main a1 refs/heads/main b1\n"
+            "refs/tags/engine-v0.5.0 a2 refs/tags/engine-v0.5.0 b2\n")
+    proc = _run(tmp_path, refs, probe=AHEAD)
+    assert proc.returncode != 0
+    assert "REFUSED: a direct push to main." in proc.stderr
+    assert not proc.asked, (
+        "the engine-tag probe ran anyway, so a refused push still paid for a database "
+        "open")
 
 
 def test_the_ci_half_exists_and_runs_before_the_build():
