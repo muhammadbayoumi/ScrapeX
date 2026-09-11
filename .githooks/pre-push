@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Guard 2 of the two: refuse to push an engine tag while THIS machine's warehouse is
-# ahead of the code being tagged.
+# Two refusals, and they are unrelated to each other:
+#   1. any push whose REMOTE ref is `refs/heads/main`, for the reason below its own block;
+#   2. an engine tag pushed while THIS machine's warehouse is ahead of the code tagged.
 #
 # WHY IT EXISTS. Twice now the owner's warehouse has ended up at a schema version no
 # engine built from `main` could open: migrations 0007/0008 on 2026-08-21 (OP-33) and
@@ -14,8 +15,13 @@
 # .github/workflows/release-engine.yml, which runs on the tag whatever any machine has
 # configured. This hook exists because CI cannot see this machine, and R-64 asked for both.
 #
-# IT ONLY SPEAKS ABOUT ENGINE TAGS. Every other push -- a branch, a scrapex-v* tag --
-# passes through untouched and pays nothing, because the check costs a database open.
+# WHAT STILL PASSES UNTOUCHED, AND PAYS NOTHING. Every push that is neither of those
+# two: a branch that is not main, a scrapex-v* tag, a tag push of any other kind. The
+# engine-tag check costs a database open, so nothing reaches it that cannot need it --
+# and the main refusal is a string comparison, so a refused push pays nothing either.
+#
+# (This sentence used to read "IT ONLY SPEAKS ABOUT ENGINE TAGS", and the merge gate's
+# reviewers caught that the change adding refusal 1 had left it standing.)
 
 set -uo pipefail
 

@@ -216,6 +216,62 @@ def test_main_is_refused_before_an_engine_tag_is_even_considered(tmp_path):
         "open")
 
 
+def test_main_is_found_when_it_is_not_the_first_ref(tmp_path):
+    """`git push origin feat/x main` hands the hook both, in whatever order it likes.
+
+    Every other test here leads with main, so a hook that read only the first ref line
+    would keep the whole suite green while the trunk took a direct push. The engine-tag
+    half already has this test (`test_it_finds_the_engine_tag_among_several_refs`); this
+    is the same hole on the other guard, and the merge gate's reviewers found it open.
+    """
+    refs = ("refs/heads/feat/x a1 refs/heads/feat/x b1\n"
+            "refs/tags/scrapex-v0.3.3 a2 refs/tags/scrapex-v0.3.3 b2\n"
+            "refs/heads/main a3 refs/heads/main b3\n")
+    proc = _run(tmp_path, refs, probe=AHEAD)
+    assert proc.returncode != 0, (
+        "main was third of three and the hook did not see it, so `git push origin "
+        "feat/x main` reaches the trunk")
+    assert "REFUSED: a direct push to main." in proc.stderr
+
+
+def test_it_refuses_a_push_that_would_DELETE_main(tmp_path):
+    """`git push origin :main`, which is the most destructive push this guard exists for.
+
+    git sends a delete as `(delete) 0000... refs/heads/main <sha>` -- the LOCAL ref is the
+    literal string "(delete)", which is why reading the remote ref is what makes this work
+    at all. The shipped hook already refuses it; nothing pinned that, so an edit exempting
+    a zero local sha passed the entire suite.
+    """
+    zeroes = "0" * 40
+    proc = _run(tmp_path, f"(delete) {zeroes} refs/heads/main abc123\n", probe=AHEAD)
+    assert proc.returncode != 0, (
+        "deleting main was allowed; a delete is a push and this guard must see it")
+    assert "REFUSED: a direct push to main." in proc.stderr
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/heads/maintenance",
+    "refs/heads/main-fix",
+    "refs/heads/mainline",
+    "refs/heads/Main",
+])
+def test_it_does_not_refuse_a_branch_that_merely_resembles_main(tmp_path, ref):
+    """PRECISION, which nothing else here asserts: what the guard must NOT refuse.
+
+    Every other test proves the refusal fires. A one-character widening to
+    `refs/heads/main*)` passes all of them and starts refusing `maintenance`, and a guard
+    that blocks ordinary work is one somebody turns off with --no-verify by habit -- which
+    disables the refusal that matters along with it.
+
+    `refs/heads/Main` is here because git branch names are case-sensitive: it is a
+    DIFFERENT branch, not a spelling of main.
+    """
+    proc = _run(tmp_path, f"{ref} a1 {ref} b1\n", probe=AHEAD)
+    assert proc.returncode == 0, (
+        f"{ref} was refused as if it were main; the pattern is wider than the rule")
+    assert not proc.asked, f"{ref} paid for a database open it cannot need"
+
+
 def test_the_ci_half_exists_and_runs_before_the_build():
     """The half that cannot be skipped, and the ordering is the point.
 
