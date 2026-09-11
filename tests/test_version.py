@@ -470,6 +470,33 @@ def test_the_changelog_cites_no_path_that_has_moved():
     assert not missing, f"the changelog cites paths that do not exist: {missing}"
 
 
+def test_agents_md_still_carries_every_rule():
+    """What an agent that is not Claude Code loads, and the only control there is.
+
+    `main` has no branch protection -- GitHub offers Pro or a public repository and
+    this one is neither -- so nothing mechanical stops another agent pushing. That
+    makes this file's contents the boundary, not a convenience.
+
+    CONTAINS, NOT EQUALS, and the difference is the whole design. Another agent
+    APPENDING its own notes is not a defect and must not redden the build; another
+    agent REPLACING the rules is exactly what this catches. An equality pin would go
+    red on every such run, and a guard that cries wolf is a guard somebody switches
+    off -- which is how the repository already reasons about `--select ALL` at
+    `pyproject.toml:103`.
+    """
+    rules = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    # NOT VACUOUS: an empty or trivial CLAUDE.md would be "contained" in anything.
+    assert len(rules.strip()) > 2000, (
+        "CLAUDE.md is too small to be the rules; this guard would pass against "
+        "anything")
+    assert rules.strip() in agents, (
+        "AGENTS.md no longer carries CLAUDE.md whole — every agent that reads that "
+        "name is now working to different rules, or to none. Run: "
+        "python -m scrapex.cli export-version")
+
+
 def test_the_changelog_carries_the_evidence_for_the_two_incidents():
     committed = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "c63ec21" in committed, "the crawl pace lost the commit that built it"
