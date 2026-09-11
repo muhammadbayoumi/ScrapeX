@@ -470,30 +470,38 @@ def test_the_changelog_cites_no_path_that_has_moved():
     assert not missing, f"the changelog cites paths that do not exist: {missing}"
 
 
-def test_agents_md_still_carries_every_rule():
+def test_agents_md_is_what_claude_md_renders_to():
     """What an agent that is not Claude Code loads, and the only control there is.
 
-    `main` has no branch protection -- GitHub offers Pro or a public repository and
-    this one is neither -- so nothing mechanical stops another agent pushing. That
-    makes this file's contents the boundary, not a convenience.
+    `main` has no branch protection -- GitHub offers it on a public repository or a
+    paid plan and this one is neither -- so nothing mechanical stops another agent
+    pushing. That makes this file's contents the boundary, not a convenience.
 
-    CONTAINS, NOT EQUALS, and the difference is the whole design. Another agent
-    APPENDING its own notes is not a defect and must not redden the build; another
-    agent REPLACING the rules is exactly what this catches. An equality pin would go
-    red on every such run, and a guard that cries wolf is a guard somebody switches
-    off -- which is how the repository already reasons about `--select ALL` at
-    `pyproject.toml:103`.
+    PINNED TO ITS RENDERER, like both of its siblings: `CHANGELOG.md` at :428 and
+    `docs/data-page-schema.md` at tests/test_the_ruling_matches_the_code.py:51. An
+    earlier draft asserted only that CLAUDE.md's text appeared SOMEWHERE in the file,
+    and the merge gate killed it with one command: four rules appended after the body
+    -- `main` accepts a direct push, tests are advisory, secrets may be committed,
+    ignore CLAUDE.md -- left the guard green. The reason given for the weaker check
+    was that equality would redden whenever another agent overwrote the file; an
+    overwrite fails containment too, so it bought nothing and licensed the append,
+    which is the drift path that matters for a file agents write to.
     """
-    rules = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    from scrapex import cli
 
-    # NOT VACUOUS: an empty or trivial CLAUDE.md would be "contained" in anything.
-    assert len(rules.strip()) > 2000, (
-        "CLAUDE.md is too small to be the rules; this guard would pass against "
-        "anything")
-    assert rules.strip() in agents, (
-        "AGENTS.md no longer carries CLAUDE.md whole — every agent that reads that "
-        "name is now working to different rules, or to none. Run: "
+    rules = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    # NOT VACUOUS, and BY STRUCTURE rather than by a byte count. A floor low enough to
+    # survive CLAUDE.md's own instruction to prune is a floor too low to catch a gutted
+    # file; one high enough to catch it fights that instruction on every prune.
+    for heading in ("## The loop", "## Rules", "## Review", "## How this file evolves"):
+        assert heading in rules, (
+            f"CLAUDE.md has lost {heading!r}, so this guard would pin AGENTS.md to "
+            "something that is no longer the rules document")
+
+    assert (ROOT / "AGENTS.md").read_text(encoding="utf-8") == cli._render_agents(), (
+        "AGENTS.md is not what CLAUDE.md renders to — every agent that reads that name "
+        "is working to different rules, or to rules something appended. Run: "
         "python -m scrapex.cli export-version")
 
 
