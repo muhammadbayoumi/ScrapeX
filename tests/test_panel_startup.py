@@ -656,6 +656,28 @@ def test_a_panel_that_failed_to_start_also_ends_it(browser, tmp_path):
         page.close()
 
 
+def test_a_panel_that_failed_to_start_also_ends_the_interactive_wait(browser, tmp_path):
+    """The same clause, in the other helper, and it was guarded by nothing.
+
+    `wait_until_interactive` carries the identical `startup-failed` arm for the
+    identical reason, and a single-dimension review removed it and watched 289
+    tests stay green. Measured while it was gone: a page firing only
+    `scrapex:startup-failed` raised `TimeoutError` after 3010ms, where the whole
+    helper exists so that a stubbed failure ends the wait instead of reporting
+    it — 19.3ms with the arm in place.
+
+    The two transient tests cover the `shell-interactive` half and neither stubs
+    a startup failure, so nothing reached this arm at all.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed')</script>",
+                   "failed-interactive.html")
+    try:
+        harness.wait_until_interactive(page, timeout=2_000)
+    finally:
+        page.close()
+
+
 def test_a_panel_that_never_settles_raises_rather_than_passing(browser, tmp_path):
     """The third state: `init()` returns early on a cancelled paint opportunity
     and fires NEITHER mark. There is nothing to wait for, and the wait must say
