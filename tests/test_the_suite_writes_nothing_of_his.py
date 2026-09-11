@@ -32,7 +32,9 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.docs
+# NOT `pytest.mark.docs`: this guards no document, it imports 118 modules and
+# reads their constants. The mark would put a full-package import walk into the
+# documentation-only CI tier and make the mark mean two things.
 
 HIS = (Path.home() / ".scrapex", Path.home() / "ScrapeX")
 
@@ -56,9 +58,35 @@ def _walk():
             skipped.append(f"{found.name}: {type(exc).__name__}: {exc}")
             continue
         for name, value in vars(module).items():
-            if name.isupper() and isinstance(value, Path):
-                constants.append((f"{found.name}.{name}", value))
+            if not name.isupper():
+                continue
+            for label, path in _paths_in(f"{found.name}.{name}", value):
+                constants.append((label, path))
     return constants, skipped
+
+
+def _paths_in(label, value, depth=0):
+    """Every path inside `value`, whatever shape it was written in.
+
+    A FIRST VERSION MATCHED `isinstance(value, Path)` AND NOTHING ELSE, and an
+    adversary killed it with two constants this repository already contains:
+    `scrapex/cli.py`'s `str(Path.home() / "ScrapeX")` and
+    `scrapex/nativehost.py:20`'s `{"win32": Path.home() / ...}`. Both name a
+    directory of his, both passed green. A guard blind to a shape is the same
+    defect as a guard blind to a module -- it covers less than it says while
+    staying green.
+    """
+    if isinstance(value, Path):
+        yield label, value
+    elif isinstance(value, str):
+        # Only an absolute path: a bare word is a name, not a location, and
+        # every relative string would resolve against the working directory.
+        if len(value) > 3 and Path(value).is_absolute():
+            yield label, Path(value)
+    elif depth == 0 and isinstance(value, (dict, list, tuple, set, frozenset)):
+        members = value.values() if isinstance(value, dict) else value
+        for index, member in enumerate(members):
+            yield from _paths_in(f"{label}[{index}]", member, depth + 1)
 
 
 def _module_paths():
@@ -66,16 +94,21 @@ def _module_paths():
 
 
 def test_no_constant_points_at_a_directory_of_his():
-    offenders = []
+    offenders, unresolvable = [], []
     for name, value in _module_paths():
         try:
             resolved = value.resolve()
         except OSError:
+            unresolvable.append(name)     # reported below, never dropped
             continue
         for his in HIS:
             if resolved == his or his in resolved.parents:
                 offenders.append(f"{name} = {value}")
 
+    assert not unresolvable, (
+        "these constants could not be resolved, so they were compared against "
+        "nothing: " + ", ".join(unresolvable) + ". Dropping them silently is the "
+        "failure this file exists to catch, one level down.")
     assert not offenders, (
         "these constants point into a directory the owner uses, so a test run "
         "writes his data rather than a temporary copy:\n  "
@@ -113,3 +146,24 @@ def test_the_walk_actually_finds_constants():
         f"only {len(found)} module-level Path constants found across scrapex/, "
         "which is too few to be real -- the walker has probably stopped importing "
         "or stopped matching, and the guard above is passing over nothing.")
+
+
+def test_the_export_folder_is_decided_in_one_place():
+    """A path the guard above cannot see, because it is a local, not a constant.
+
+    `scrapex export --folder` defaulted to its own `str(Path.home() / "ScrapeX")`
+    inside `build_parser()`. That agreed with `localsheets.DEFAULT_EXPORT_DIR` until
+    the constant started following `SCRAPEX_DATA_ROOT` -- after which the panel's
+    route followed the redirect and the CLI wrote his real folder, with the walk
+    above green because a lowercase local in a function body is not a module
+    constant. Found by an adversary, not by the guard.
+    """
+    from scrapex import localsheets
+    from scrapex.cli import build_parser
+
+    asked = build_parser().parse_args(["export", "any-source"]).folder
+
+    assert asked == str(localsheets.DEFAULT_EXPORT_DIR), (
+        f"`scrapex export` defaults to {asked!r} and the panel exports to "
+        f"{str(localsheets.DEFAULT_EXPORT_DIR)!r}. Two spellings of one decision, "
+        "and under a redirect only one of them follows it.")

@@ -1310,7 +1310,13 @@ def build_parser() -> argparse.ArgumentParser:
     # it writes an .xlsx on this machine and involves no account at all.
 
 
-    home_scrapex = str(Path.home() / "ScrapeX")
+    # ONE PLACE DECIDES WHERE A WORKBOOK LANDS. This read `str(Path.home() /
+    # "ScrapeX")` and agreed with `localsheets.DEFAULT_EXPORT_DIR` only by
+    # coincidence: once that constant started following `SCRAPEX_DATA_ROOT`, the
+    # panel's route followed it and `scrapex export` did not. An adversary found
+    # the divergence; it is the same knowledge changing for the same reason.
+    from .localsheets import DEFAULT_EXPORT_DIR
+    home_scrapex = str(DEFAULT_EXPORT_DIR)
     p = sub.add_parser("export", help="export a source's current prices to a local .xlsx (no Google)")
     p.add_argument("source", help="source_key from sources.yaml")
     p.add_argument("--folder", default=home_scrapex, help=f"local folder (default: {home_scrapex})")

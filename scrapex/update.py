@@ -42,7 +42,6 @@ pretend otherwise. See `swap_is_possible`.
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -94,7 +93,12 @@ def staging_dir(root: Path | None = None) -> Path:
     the owner's real directory.
     """
     if root is None:
-        root = Path(os.environ.get("SCRAPEX_DATA_ROOT", str(Path.home() / ".scrapex")))
+        # The registry already read `SCRAPEX_DATA_ROOT` at import. Re-reading it
+        # here was a verbatim second copy of the same decision, and the two could
+        # hold different roots in one process because this one re-read the
+        # environment on every call while the registry froze it.
+        from .databases.registry import DATABASE_ROOT
+        root = DATABASE_ROOT
     target = Path(root) / STAGING_DIRNAME
     target.mkdir(parents=True, exist_ok=True)
     return target
