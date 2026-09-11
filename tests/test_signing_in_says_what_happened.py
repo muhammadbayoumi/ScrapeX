@@ -50,12 +50,13 @@ def browser():
 def open_panel(browser, tmp_path):
     pages = []
 
-    def opener(**stub_kwargs):
+    def opener(*, ready="settled", **stub_kwargs):
         page_file = harness.build_page(tmp_path, harness.stub(**stub_kwargs),
                                        name=f"signin{len(pages)}.html")
         page = browser.new_page(viewport={"width": 400, "height": 900})
         page.goto(page_file.as_uri())
-        page.wait_for_timeout(500)
+        (harness.wait_until_settled if ready == "settled"
+         else harness.wait_until_interactive)(page)
         pages.append(page)
         return page
 
@@ -98,7 +99,7 @@ def test_the_initial_state_is_checking_then_resolves_to_signed_out(open_panel):
     promises it. `slow=True` holds Chrome's answer back so the waiting state can
     actually be SEEN before it resolves.
     """
-    slow_page = open_panel(signin_delay_ms=1200)
+    slow_page = open_panel(signin_delay_ms=1200, ready="interactive")
     assert slow_page.is_visible("#welcome-checking"), (
         "the panel never shows a waiting state while Chrome is deciding, so a "
         "slow answer looks like a signed-out account")

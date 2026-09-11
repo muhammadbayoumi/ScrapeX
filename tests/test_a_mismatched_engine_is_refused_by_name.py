@@ -61,7 +61,7 @@ def open_run(browser, tmp_path):
                                        name=f"refusal{len(pages)}.html")
         page = browser.new_page(viewport={"width": 400, "height": 900})
         page.goto(page_file.as_uri())
-        page.wait_for_timeout(500)
+        harness.wait_until_settled(page)
         page.click(RUN_TAB)
         page.wait_for_timeout(400)
         pages.append(page)

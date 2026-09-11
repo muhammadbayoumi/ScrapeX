@@ -130,7 +130,7 @@ def open_panel(browser, tmp_path):
     """Open the panel with a given stub and return the live page."""
     pages = []
 
-    def opener(*, view=None, **stub_kwargs):
+    def opener(*, view=None, ready="settled", **stub_kwargs):
         """`view` navigates after load. The panel opens on Welcome, and a test
         about Source has to get to Source the way an owner would — by pressing
         its rail button — rather than by asserting on a page it never entered."""
@@ -140,7 +140,10 @@ def open_panel(browser, tmp_path):
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
-        page.wait_for_timeout(500)
+        # `ready="interactive"` for a test OF the transient: see
+        # panel_harness.wait_until_interactive.
+        (harness.wait_until_settled if ready == "settled"
+         else harness.wait_until_interactive)(page)
         if view is not None:
             page.click(f'nav.side-rail button[data-view="{view}"]')
             page.wait_for_timeout(400)
@@ -4189,7 +4192,7 @@ def test_another_account_is_offered_as_a_switch_not_as_a_signed_out_row(open_pan
 def test_the_profile_card_shows_checking_while_chrome_answers(open_panel):
     """While the token is in flight the card announces busy, keeps the product
     greeting as the stable heading, and shows the status as a separate line."""
-    page = open_panel(signed_in=ACCOUNT, signin_delay_ms=1000)
+    page = open_panel(signed_in=ACCOUNT, signin_delay_ms=1000, ready="interactive")
     stage = page.locator("#profile-stage")
     assert stage.get_attribute("aria-busy") == "true"
     assert page.is_visible("#welcome-checking")

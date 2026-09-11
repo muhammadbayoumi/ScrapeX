@@ -610,3 +610,74 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     page.click(RUN_TAB)
     page.wait_for_timeout(300)
     assert not page.js_errors
+
+
+# ---- what the fixtures wait on ---------------------------------------------
+
+def _marked(browser, tmp_path, body: str, name: str):
+    """A page carrying exactly the marks named, and nothing else of the panel.
+
+    Deliberately NOT the real panel: the three states below are what
+    `wait_until_settled` must do about the marks, and driving them through a
+    real boot would test app.js's timing instead of this helper's rule.
+    """
+    page_file = tmp_path / name
+    page_file.write_text(f"<!doctype html><html><body>{body}</body></html>",
+                         encoding="utf-8")
+    page = browser.new_page()
+    page.goto(page_file.as_uri())
+    return page
+
+
+def test_a_settled_panel_ends_the_wait(browser, tmp_path):
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled')</script>",
+                   "settled.html")
+    try:
+        harness.wait_until_settled(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_a_panel_that_failed_to_start_also_ends_it(browser, tmp_path):
+    """`init()` throwing fires `startup-failed` and never `fully-settled`.
+
+    A fixture that waited only for the happy mark would hang for its whole
+    timeout on every test that stubs a startup failure on purpose — turning a
+    stubbed state into a five-second pause and, at the end of it, an error about
+    the wait rather than about the panel.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed')</script>",
+                   "failed.html")
+    try:
+        harness.wait_until_settled(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_a_panel_that_never_settles_raises_rather_than_passing(browser, tmp_path):
+    """The third state: `init()` returns early on a cancelled paint opportunity
+    and fires NEITHER mark. There is nothing to wait for, and the wait must say
+    so instead of returning — a helper that gave up quietly would put every
+    fixture back to guessing."""
+    page = _marked(browser, tmp_path, "<p>no marks at all</p>", "silent.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_settled(page, timeout=1_000)
+    finally:
+        page.close()
+
+
+def test_a_mark_that_merely_starts_the_same_way_does_not_end_it(browser, tmp_path):
+    """`getEntriesByName` is exact, and this pins that it stays exact: a prefix
+    match would let any future `scrapex:fully-settled-*` mark end the wait early,
+    which is the quiet kind of wrong this whole change is removing."""
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled-ish')</script>",
+                   "near.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_settled(page, timeout=800)
+    finally:
+        page.close()

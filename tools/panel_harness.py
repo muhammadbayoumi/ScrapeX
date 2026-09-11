@@ -900,3 +900,67 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"{engine_js}\n{backend_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page
+
+
+def wait_until_settled(page, timeout: int = 5_000) -> None:
+    """Block until the panel has finished booting, instead of sleeping past it.
+
+    WHAT IT REPLACED, AND BY HOW MUCH. Every fixture that opened this page used
+    to follow `page.goto()` with `wait_for_timeout(500)`. Measured 2026-09-11 on
+    `e868486`, twelve samples of the real stub page: after `goto()` RETURNS the
+    panel settles in a median of **16.6ms** (min 15.6, max 112.3). `goto()`
+    already waits for `load`, and the marks put `load` at 53ms and
+    `fully-settled` at 60ms from navigation start, so the sleep began after the
+    work was essentially done and overshot by ~483ms every time. Across the three
+    fixtures that opened the panel that was 130.5s of a 224.8s sleep bill (#648).
+
+    EITHER MARK ENDS THE WAIT, and waiting for `fully-settled` alone would hang
+    on a real path. `extension/app.js` fires it from `Promise.allSettled`, so a
+    down engine or a refused account still settles — but `init()` throwing fires
+    `startup-failed` instead, and a cancelled paint opportunity returns early
+    firing NEITHER. The first two are states a test may legitimately stub; the
+    third is why this keeps a bounded timeout and raises rather than waiting on.
+
+    A TIMEOUT HERE IS A REAL FAILURE, not a slow machine. The margin is 5s
+    against a measured 112ms worst case — a factor of 44 — so a test that trips
+    it has a panel that never finished booting, which is the thing worth knowing.
+
+    `tests/test_panel_startup.py` keeps its own `_wait_for_mark`: it asserts on
+    individual marks by name and on their number, which is a different question
+    from "is the panel ready", and merging them would make one helper serve two.
+    """
+    page.wait_for_function(
+        "() => performance.getEntriesByName('scrapex:fully-settled').length"
+        " + performance.getEntriesByName('scrapex:startup-failed').length > 0",
+        polling=10,
+        timeout=timeout,
+    )
+
+
+def wait_until_interactive(page, timeout: int = 5_000) -> None:
+    """Block until the shell is usable, WITHOUT waiting for the slow work behind it.
+
+    A test that stubs a delayed answer -- `signin_delay_ms=1200` -- is asking to
+    see the panel while that answer is still in flight, and `wait_until_settled`
+    is the wrong wait for it: `fully-settled` fires from
+    `Promise.allSettled([accountPromise, enginePromise])`, so it lands AFTER the
+    delay it was stubbed to outlast, and the transient state is gone by the time
+    the fixture returns. Measured: two tests went red that way, both of them
+    tests OF the transient -- `test_the_profile_card_shows_checking_while_chrome_answers`
+    and `test_the_initial_state_is_checking_then_resolves_to_signed_out`.
+
+    `shell-interactive` is fired by `wireStartupShell()` before any of that work
+    starts (`extension/app.js`), measured at 52ms against `fully-settled` at 60ms
+    on an undelayed page -- so on the ordinary path the two are nearly the same
+    moment, and on a delayed one they are as far apart as the stub says.
+
+    `startup-failed` ends this wait too, for the reason it ends the other: a panel
+    that threw during init will never mark anything else, and hanging for the full
+    timeout would report the wait instead of the panel.
+    """
+    page.wait_for_function(
+        "() => performance.getEntriesByName('scrapex:shell-interactive').length"
+        " + performance.getEntriesByName('scrapex:startup-failed').length > 0",
+        polling=10,
+        timeout=timeout,
+    )
