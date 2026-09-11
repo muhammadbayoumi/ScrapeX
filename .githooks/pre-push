@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Guard 2 of the two: refuse to push an engine tag while THIS machine's warehouse is
-# ahead of the code being tagged.
+# Two refusals, and they are unrelated to each other:
+#   1. any push whose REMOTE ref is `refs/heads/main`, for the reason below its own block;
+#   2. an engine tag pushed while THIS machine's warehouse is ahead of the code tagged.
 #
 # WHY IT EXISTS. Twice now the owner's warehouse has ended up at a schema version no
 # engine built from `main` could open: migrations 0007/0008 on 2026-08-21 (OP-33) and
@@ -14,17 +15,58 @@
 # .github/workflows/release-engine.yml, which runs on the tag whatever any machine has
 # configured. This hook exists because CI cannot see this machine, and R-64 asked for both.
 #
-# IT ONLY SPEAKS ABOUT ENGINE TAGS. Every other push -- a branch, a scrapex-v* tag --
-# passes through untouched and pays nothing, because the check costs a database open.
+# WHAT STILL PASSES UNTOUCHED, AND PAYS NOTHING. Every push that is neither of those
+# two: a branch that is not main, a scrapex-v* tag, a tag push of any other kind. The
+# engine-tag check costs a database open, so nothing reaches it that cannot need it --
+# and the main refusal is a string comparison, so a refused push pays nothing either.
+
 
 set -uo pipefail
 
 engine_tag=""
-while read -r local_ref _local_sha _remote_ref _remote_sha; do
+to_main=""
+while read -r local_ref _local_sha remote_ref _remote_sha; do
     case "$local_ref" in
         refs/tags/engine-v*) engine_tag="${local_ref#refs/tags/}" ;;
     esac
+    # The REMOTE ref, not the local one: what matters is what this push would
+    # become on the server, whatever the branch is called here.
+    case "$remote_ref" in
+        refs/heads/main) to_main="yes" ;;
+    esac
 done
+
+# NO DIRECT PUSH TO MAIN, and it is checked before anything costs a database open.
+#
+# WHY IT IS HERE AND NOT ON GITHUB. Branch protection is the right home for this
+# and this repository cannot have it: GitHub offers it on a public repository or a
+# paid plan, and this one is private and free. So `main` has no server-side gate at
+# all -- CI runs and blocks nothing, and the merge gate in CLAUDE.md holds only for
+# a session that has read it.
+#
+# WHAT IT ACTUALLY BUYS, and it is narrower than branch protection. It stops a push,
+# not a merge: `gh pr merge` happens on GitHub and this hook never sees it, so a red
+# pull request can still be merged. What it does stop is the thing that actually
+# happens here -- an agent or a session pushing straight to main, having never read
+# the rules. Several agents now run against this repository on this one machine, so
+# a local guard covers nearly all of the real surface.
+#
+# AND WHAT IT CANNOT DO. `--no-verify` skips it, and a machine that has never run
+# `git config core.hooksPath .githooks` never had it. Both are deliberate acts, and
+# this guard is aimed at the accident.
+if [ -n "$to_main" ]; then
+    echo >&2
+    echo "REFUSED: a direct push to main." >&2
+    echo >&2
+    echo "main takes no direct push. Every change lands through a pull request that" >&2
+    echo "passed its checks -- see CLAUDE.md, 'green is not mergeable'." >&2
+    echo >&2
+    echo "  git switch -c <a-branch> && git push -u origin HEAD   then open the PR" >&2
+    echo >&2
+    echo "If you are certain this must go straight to main, push with --no-verify" >&2
+    echo "and say why." >&2
+    exit 1
+fi
 
 [ -n "$engine_tag" ] || exit 0
 
