@@ -404,6 +404,22 @@ def pack(bundle_dir: Path | str, archive_path: Path | str) -> dict:
             "uncompressed_bytes": report.bytes}
 
 
+def unpacked_size(archive_path: Path | str) -> int:
+    """How much room unpacking this bundle needs, from its own directory.
+
+    ASKED BEFORE UNPACKING, NOT DISCOVERED HALFWAY. The database inside is as
+    big as the warehouse it came from -- measured on the owner's machine, a
+    655,174,914-byte bundle carries a 2,148,061,184-byte database -- and the zip
+    is already on the same disk. A caller that started and ran out of space
+    would leave a part-written copy beside a full drive.
+
+    The zip's central directory carries every entry's uncompressed size, so this
+    reads no file contents at all.
+    """
+    with zipfile.ZipFile(Path(archive_path)) as bundled:
+        return sum(entry.file_size for entry in bundled.infolist())
+
+
 def unpack(archive_path: Path | str, out_dir: Path | str) -> BundleReport:
     """Extract a bundle and verify it, refusing anything that escapes the folder.
 

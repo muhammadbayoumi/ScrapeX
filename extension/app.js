@@ -6127,6 +6127,84 @@ function snapshotLabel(snapshot) {
  * request: two reads of one fact are how the count and the list come to
  * disagree, which this card has done once already.
  */
+/**
+ * Bundles waiting in the backup folder, and what to do with one.
+ *
+ * A bundle downloaded from Drive on another machine has to become a copy
+ * before anything can restore it. The engine does the unpacking -- the panel
+ * never holds the bytes and never sends a path, only the NAME of a file the
+ * engine itself listed.
+ */
+function renderBundles(bundles, { detail = '' } = {}) {
+  const card = $("db-bundles");
+  if (!card) return;
+  card.textContent = "";
+  $("db-bundle-count").textContent = detail ? "—" : String(bundles.length);
+
+  if (detail) {
+    out("db-bundle-hint", esc(detail), "muted");
+    return;
+  }
+  if (!bundles.length) {
+    // The card STAYS, because this is where somebody arriving on a new machine
+    // finds out what to do -- and that is precisely the moment there is nothing
+    // in the folder yet.
+    out("db-bundle-hint",
+        "Put a backup .zip from your Drive in this folder and it will appear "
+        + "here. Unpacking it makes a copy you can then restore.", "muted");
+    return;
+  }
+  out("db-bundle-hint",
+      "Unpacking writes the database inside as a copy. It does not replace "
+      + "anything -- restoring is a separate press.", "muted");
+
+  for (const found of bundles) {
+    card.append(manageRow(found.name, {
+      sub: financeDateTime(found.modified_at, "Time not recorded"),
+      figure: fmtMegabytes(found.bytes || 0),
+      lead: "storage",
+      onClick: () => adoptBundle(found),
+    }));
+  }
+}
+
+/**
+ * Unpack one, and say what it became.
+ *
+ * NO CONFIRMATION, deliberately: this destroys nothing. It writes a new copy
+ * beside the others, and the destructive decision -- putting one in place --
+ * keeps its own question. A dialog here would train him to dismiss the one
+ * that matters.
+ */
+async function adoptBundle(found) {
+  const rows = $("db-bundles").querySelectorAll("button");
+  rows.forEach((row) => { row.disabled = true; });
+  out("db-bundle-hint", esc(`Unpacking ${found.name}…`), "muted");
+  try {
+    // Bounded by `bundleBuild`, the same 600,000 ms the build gets: this
+    // unpacks a database as big as the warehouse and verifies every file's
+    // digest, which is the same order of work in the other direction.
+    const made = await post("/api/storage/adopt-bundle", { name: found.name });
+    // The whole page: a new copy changes the count, the folder's free space and
+    // the list below it.
+    await loadDatabase();
+    // AND THE ENGINE'S VERDICT ON WHAT IT UNPACKED DECIDES THE COLOUR. The zip
+    // verifying says its digests match, not that the database inside is one this
+    // engine can open -- a bundle built by a newer engine verifies and then
+    // fails the identity check, which is exactly the second machine this control
+    // exists for. Announcing that in the success colour is how a file `restore`
+    // will refuse arrives looking like the way back.
+    out("db-msg", esc(made.detail || "The bundle is unpacked."),
+        made.ok === false ? "err" : "ok");
+  } catch (error) {
+    // THE ENGINE'S OWN WORDS. It refuses for reasons only it can know -- a
+    // bundle that did not verify, one carrying no database, too little room to
+    // unpack into -- and each is a different thing to do next.
+    out("db-bundle-hint", esc(
+    `${found.name} was not unpacked: ${(error && error.message) || "the engine did not answer"}`), "err");
+    rows.forEach((row) => { row.disabled = false; });
+  }
+}
 function renderSnapshots(backups, { detail = '' } = {}) {
   const card = $("db-snapshots");
   if (!card) return;
@@ -6188,6 +6266,101 @@ function trapRestoreFocus(event) {
  * question, and so is the thing people get wrong about a restore: it is not a
  * merge. Everything collected since that copy was taken is not in it.
  */
+/**
+ * Ask the engine whether this copy is sound, and say so before he commits.
+ *
+ * THE REPLY IS CHECKED AGAINST WHAT WAS ASKED. An engine that predates the
+ * `backup_path` field ignores it and answers about the LIVE warehouse -- a
+ * verdict that reads as reassurance about the wrong file. `checked` is echoed
+ * back so this side can tell understanding from politeness, which a version
+ * gate could not: the field is not a contract change and the engine version
+ * does not move for it.
+ */
+async function checkTheCopy(snapshot) {
+  const line = $("restore-check");
+  if (!line) return;
+  // The confirm button waits. Pressing Restore while the verdict is still
+  // coming would be deciding without the answer this line exists to give.
+  const confirm = $("restore-confirm");
+  confirm.disabled = true;
+  out("restore-check", "Checking this copy…", "muted");
+  try {
+    // Bounded by `integrityScan`, which is what this route has always been
+    // bounded by: the scan is O(file size) and reads every page.
+    const verdict = await post("/api/storage/integrity",
+                               { backup_path: snapshot.path });
+    if (pendingRestore !== snapshot) return;      // he moved on
+    if (verdict.checked !== snapshot.path) {
+      // THE RESTORE IS STILL OFFERED, and a guard caught this being wrong: the
+      // first draft returned here without re-enabling, so an owner whose engine
+      // predates the field could not restore at all -- a regression against the
+      // control that shipped in #819, introduced by the check meant to help it.
+      // The check failing to RUN says nothing about the copy.
+      confirm.disabled = false;
+      out("restore-check",
+          "This engine is too old to check a copy, so nothing here has been "
+          + "verified. The restore still works.", "muted");
+      return;
+    }
+    if (!verdict.ok) {
+      out("restore-check", esc(
+      `This copy does not pass a health check (${verdict.status}): ${verdict.detail} Restoring it would replace a working database with a broken one.`), "err");
+      // AND THE BUTTON STAYS DISABLED. `storage.restore` refuses an unhealthy
+      // backup anyway, so pressing it could only produce a refusal -- and a
+      // button that cannot work is worse than no button.
+      return;
+    }
+    confirm.disabled = false;
+    out("restore-check", esc(rowVerdict(verdict)), "ok");
+  } catch (error) {
+    if (pendingRestore !== snapshot) return;
+    confirm.disabled = false;
+    // NOT A REFUSAL OF THE RESTORE. The check failing says nothing about the
+    // copy, so the choice stays his -- with the plain fact that it is unchecked.
+    // `muted` AND NOT `warn`: `.warn` exists only as `.card.warn`, so a bare
+    // span carrying it is styled as ordinary text -- a caution that does not
+    // look like one. The caution is in the words instead.
+    out("restore-check", esc(
+    `This copy could not be checked: ${(error && error.message) || "the engine did not answer"}. Restoring it is still possible, unverified.`), "muted");
+  }
+}
+
+/**
+ * What the counts mean, without pretending to know what he wants.
+ *
+ * A count on its own says nothing: 17,274 rows is a healthy copy beside 17,300
+ * live and a catastrophe beside 400,000. So both are shown and the comparison
+ * is left to the person making the decision. The one judgement made here is
+ * that a copy with NO rows where the live warehouse has some is worth naming --
+ * `quick_check` passes on a database that is intact and empty, and that is the
+ * disaster this check exists for.
+ */
+function rowVerdict(verdict) {
+  const rows = verdict.rows || {};
+  const live = verdict.live_rows || {};
+  const biggest = Object.keys(live)
+    .sort((a, b) => (live[b] || 0) - (live[a] || 0))[0];
+  if (!biggest) {
+    // NOT SILENTLY "it passes". The comparison is the whole point of the
+    // counts, and an empty live side means it could not be made -- the engine
+    // answers with no counts rather than a 500 when SQLite cannot open a file,
+    // and the Database page behind this dialog carries that file's own verdict.
+    // Saying only that this copy passes, in the one place the empty-copy
+    // warning would appear, is how that warning disappears without a word.
+    return "This copy opens and passes its checks. The database in use now "
+      + "could not be counted, so there is nothing here to compare it against.";
+  }
+  const inCopy = rows[biggest];
+  const inLive = live[biggest];
+  if (inCopy === 0 && inLive > 0) {
+    return `This copy opens, but ${biggest} is EMPTY in it and holds ${inLive.toLocaleString()} rows now. Restoring it would lose them.`;
+  }
+  const unreadable = Object.keys(rows).filter((t) => rows[t] === -1);
+  if (unreadable.length) {
+    return `This copy opens, but ${unreadable.length} table(s) could not be read: ${unreadable.slice(0, 3).join(", ")}.`;
+  }
+  return `Checked: it opens, passes its checks, and holds ${(inCopy || 0).toLocaleString()} rows in ${biggest} against ${(inLive || 0).toLocaleString()} now.`;
+}
 function openRestoreDialog(snapshot) {
   const veil = $("restore-veil");
   if (!veil) return;
@@ -6198,6 +6371,9 @@ function openRestoreDialog(snapshot) {
     + "The database in use now is moved aside under a name that says what it is, not deleted, and this copy takes its place. Anything collected since this copy was taken is not in it.";
   veil.classList.remove("hidden");
   $("restore-dialog").focus({ preventScroll: true });
+  // EVERY TIME IT OPENS, not once per session: the answer is about a file on
+  // a disk that another process may have touched since.
+  checkTheCopy(snapshot);
 }
 
 function closeRestoreDialog({ restoreFocus = true } = {}) {
@@ -6205,6 +6381,11 @@ function closeRestoreDialog({ restoreFocus = true } = {}) {
   if (!veil || veil.classList.contains("hidden")) return;
   veil.classList.add("hidden");
   pendingRestore = null;
+  // CLEARED, or the next copy opens under the previous one's verdict -- which
+  // is the failure this whole check exists to prevent, wearing a friendlier
+  // face.
+  out("restore-check", "", "muted");
+  $("restore-confirm").disabled = false;
   if (restoreFocus && restoreReturnFocus && restoreReturnFocus.isConnected) {
     restoreReturnFocus.focus({ preventScroll: true });
   }
@@ -6312,6 +6493,7 @@ async function loadDatabase() {
     // EVERY COPY, from the list this function already has. The row above
     // names the newest; these are the ones a restore can choose between.
     renderSnapshots(s.backups || []);
+    renderBundles(s.bundles || []);
     out("db-msg", "", "ok");
   } catch (error) {
     // THE CONTROL STAYS USABLE, AND THIS IS THE HALF A GUARD ARGUED FOR RATHER THAN
@@ -6344,6 +6526,7 @@ async function loadDatabase() {
     // still offer a restore, and `restore` refuses a path it can no longer list --
     // so a stale row is a button that looks live and cannot work.
     renderSnapshots([], { detail: (error && error.message) || "the engine did not answer" });
+    renderBundles([], { detail: "The engine did not answer, so the folder could not be read." });
     out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
   }
 }
@@ -7754,6 +7937,25 @@ function wireGoogleControls() {
   // taking a backup -- `backUpToDrive` is still the only one -- but a second
   // door to it, reporting into Manage account's own status line and refreshing
   // the list below when it lands.
+  // WHERE TO PUT THE FILE, which is the first thing somebody arriving with a
+  // download needs and had no control at all: `POST /api/storage/open-folder`
+  // has existed, taking `which` from a fixed set so no path can come from the
+  // page, and nothing in this panel called it (#868).
+  const showFolder = $("db-open-backups");
+  if (showFolder) {
+    showFolder.addEventListener("click", async () => {
+      showFolder.disabled = true;
+      try {
+        await post("/api/storage/open-folder", { which: "backups" });
+      } catch (error) {
+        out("db-bundle-hint", esc(
+        `The folder could not be opened: ${(error && error.message) || "the engine did not answer"}`), "err");
+      } finally {
+        showFolder.disabled = false;
+      }
+    });
+  }
+
   const manage = $("manage-backup");
   if (manage) {
     manage.addEventListener("click", () => runGoogleAction(

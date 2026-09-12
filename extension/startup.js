@@ -16,10 +16,17 @@ export const STARTUP_DEADLINES = Object.freeze({
   // DERIVED FROM A MEASUREMENT RATHER THAN CHOSEN, for the same reason as `bundleBuild`
   // and `updateReport`: the work is O(FILE SIZE), so a chosen number expires as the
   // warehouse grows. (`bundleBuild` still calls itself "the only" derived one here; it
-  // was, before `updateReport`. Not corrected in passing -- one claim, one diff.) `PRAGMA quick_check` plus `foreign_key_check` cost
-  // 5.9 s on his warehouse at 2.08 GB -- about 2.8 s a gigabyte -- so this covers a file
-  // roughly 40 GB before it needs revisiting. It sits far above `localMutation` because
-  // this is not a poll: he pressed a control and is watching it.
+  // was, before `updateReport`. Not corrected in passing -- one claim, one diff.)
+  //
+  // AND IT IS THE COLD FIGURE THAT GOVERNS IT, because this now bounds the COPY
+  // check as well: a backup nobody has touched comes off the disk, not out of the
+  // page cache. MEASURED 2026-09-09 on a 2,148,061,184-byte file -- `health()`
+  // 42,874 ms cold against 5,045 ms warm, about 20 s a gigabyte cold -- so 120,000
+  // covers a file near 6 GB, which is 2.7x headroom at his 2.1 GB today. An earlier
+  // draft of this line read `roughly 40 GB` off the warm 5.9 s, and that is the scan
+  // of a warehouse the engine already has open rather than the file this check
+  // opens. It sits far above `localMutation` because this is not a poll: he pressed
+  // a control and is watching it.
   integrityScan: 120000,
   // DERIVED FROM A MEASUREMENT, like `bundleBuild` and `integrityScan`, because a
   // restore is O(FILE SIZE) four times over and a chosen number expires as the
@@ -27,11 +34,25 @@ export const STARTUP_DEADLINES = Object.freeze({
   //
   // `storage.restore` DOES NOT RENAME. It health-checks the backup, copies it
   // beside the live warehouse, health-checks the copy, and compares both files
-  // byte for byte -- and only then switches. MEASURED on the owner's machine
-  // 2026-09-09: `health()` alone is 30,784 ms on a 2,148,061,184-byte file and it
-  // runs TWICE; the copy and the comparison move 6.45 GB, which at the 126 MB/s
-  // measured on this disk the same day is another 51 s. About 52 s a gigabyte, so
-  // roughly 113 s for his warehouse as it stands.
+  // byte for byte -- and only then switches.
+  //
+  // MEASURED on the owner's machine 2026-09-09, on a 2,148,061,184-byte file:
+  //
+  //     health() cold          42,874 ms      the file comes off the disk
+  //     health() warm           5,045 ms      the page cache still holds it
+  //     PRAGMA quick_check      2,168 ms
+  //     PRAGMA foreign_key_check 1,532 ms
+  //     health(integrity=False)      6 ms
+  //
+  // COLD IS THE CASE THAT GOVERNS A RESTORE, and reconciling the two is the
+  // point of listing both: `integrityScan` above is derived from the WARM
+  // figure -- 5.9 s, correct for a scan of the warehouse the engine has open --
+  // and a first draft of this row quoted a cold reading as if it were the same
+  // measurement. It is not. A restore reads a backup nobody has touched, twice,
+  // and then moves 6.45 GB copying and comparing, which at the 126 MB/s measured
+  // on this disk the same day is another 51 s. Call it 130 s for his warehouse
+  // as it stands, and the spread between cold and warm is why the bound is not
+  // set near the measurement.
   //
   // 600000 covers a warehouse near 11 GB, AND THAT IS ALSO ITS EXPIRY DATE.
   //
@@ -99,6 +120,19 @@ const LOCAL_POLICIES = [
   // and inherited `destinationData`'s 5,000 ms -- a bound derived from fetching a
   // page of rows, applied to copying and verifying a whole warehouse twice.
   [/^\/api\/storage\/restore(?:[/?]|$)/, STARTUP_DEADLINES.restoreCopy],
+  // AND ABOVE IT FOR THE SAME REASON, pointing at `bundleBuild` rather than a new
+  // name: unpacking a bundle is the SAME KNOWLEDGE as packing one. It writes a
+  // database as big as the warehouse and then reads every file back to check its
+  // digest -- the build's work in the other direction -- and both change for the
+  // same reason, which is the warehouse growing.
+  //
+  // DERIVED, not chosen. MEASURED 2026-09-09: a cold read of a 2,148,061,184-byte
+  // file is 42,874 ms, about 50 MB/s on this disk, and this does one write and one
+  // read of that much -- roughly 90 s, plus the zip's own decompression. Under the
+  // 5,000 ms it inherited from the `storage` rule, the panel would report failure
+  // over an unpack the engine goes on to finish, which is the wrong record about
+  // the one path a second machine has to its own data.
+  [/^\/api\/storage\/adopt-bundle(?:[/?]|$)/, STARTUP_DEADLINES.bundleBuild],
   // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
   // `GET /api/update` costs one third-party fetch of the release manifest, which
   // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and

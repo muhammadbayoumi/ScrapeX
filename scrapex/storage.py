@@ -759,13 +759,97 @@ def base_stem(db_path: Path | str) -> str:
     return stem
 
 
-def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
-    """Backups produced by this product, newest first."""
+def list_bundles(db_path: Path | str, folder: Path | None = None) -> list[dict]:
+    """Bundle archives in the backup folder, newest first.
+
+    A BUNDLE IS NOT A BACKUP THIS FILE CAN RESTORE, and keeping them in
+    separate lists is the whole point. `list_backups` returns databases the
+    engine can put in place; these are zips that have to be unpacked first, and
+    a screen that mixed them would offer Restore on a file `restore` refuses.
+
+    WHY THEY ARE LISTED AT ALL: a bundle downloaded from Drive on another
+    machine has no way into this product. The panel cannot hand the engine 625
+    MB, and it must never hand it a path -- so the engine looks in the one
+    folder it already owns and reports what it finds by NAME.
+    """
     path = Path(db_path)
     where = Path(folder) if folder else path.parent
     if not where.is_dir():
         return []
-    found = [{"path": str(p), "name": p.name, "bytes": _size(p),
+    found = [{"name": p.name, "bytes": _size(p),
+              "modified_at": _mtime_iso(p)}
+             for p in where.glob("*.zip") if p.is_file()]
+    return sorted(found, key=lambda b: (b["modified_at"], b["name"]),
+                  reverse=True)
+
+
+def row_counts(db_path: Path | str) -> dict[str, int]:
+    """Every table and how many rows it holds.
+
+    WHY THIS EXISTS BESIDE `health`. `PRAGMA quick_check` passes on a database
+    that is intact and EMPTY, and an empty warehouse restored over a full one is
+    the disaster a restore check is for. So the file has to be asked a question
+    it can only answer with its contents.
+
+    EVERY TABLE, NOT A CHOSEN FEW. `quick_check` has already read every page by
+    the time this runs, so the counts come off a warm cache: MEASURED on the
+    owner's machine 2026-09-09, all 67 tables of a 2,148,061,184-byte file cost
+    123 ms against that file's 6,953 ms health check -- 2%. A hand-picked list
+    would cost the same and go stale at the next migration.
+
+    A table this build cannot read is reported as -1 rather than skipped. A
+    missing count and a count of zero are different findings, and silently
+    dropping the unreadable one is how a broken table reads as an absent one.
+
+    THE PATH IS ESCAPED INTO THE URI, NEVER INTERPOLATED. `file:{path}?mode=ro`
+    hands SQLite's URI parser a filesystem path to read as a URI, and it does:
+    `#` starts a fragment, so `…/Drive #2/harvest.db` truncated to `…/Drive`
+    and swallowed `?mode=ro` whole -- the connection was NOT read-only, SQLite
+    CREATED an empty database at the truncated name, and a warehouse of 412,903
+    rows reported `{}`. A `%` decoded into a path that does not exist and raised
+    instead. `as_uri()` percent-escapes both, which is the one place that
+    knowledge belongs.
+    """
+    counts: dict[str, int] = {}
+    conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro",
+                           uri=True)
+    try:
+        named = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        for table in named:
+            try:
+                # The name comes from `sqlite_master`, never from a caller, and
+                # it is quoted anyway: this file's rule is that all SQL is
+                # parameterised and an identifier cannot be a parameter.
+                counts[table] = conn.execute(
+                    f'SELECT count(*) FROM "{table}"').fetchone()[0]
+            except sqlite3.DatabaseError:
+                counts[table] = -1
+    finally:
+        conn.close()
+    return counts
+
+
+def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
+    """Backups produced by this product, newest first.
+
+    ONE SPELLING OF EACH PATH LEAVES HERE, resolved. The folder prefix is
+    whatever `backup_folder` or the pointer file holds -- a string somebody
+    typed, expanded no further than `expanduser()` -- and every guard that reads
+    this list resolves BOTH sides before comparing. The one comparison that
+    cannot is the panel's: `POST /api/storage/integrity` echoes
+    `str(Path(asked).resolve())` so a caller can tell understanding from
+    politeness, and a panel holding a path under a folder spelled `backups`
+    against an echo of the same file under `Backups` reported a working engine
+    as too old to check a copy. Resolving at the source is what keeps the offer
+    and every rule that reads it in the same words.
+    """
+    path = Path(db_path)
+    where = Path(folder) if folder else path.parent
+    if not where.is_dir():
+        return []
+    found = [{"path": str(p.resolve()), "name": p.name, "bytes": _size(p),
               "modified_at": _mtime_iso(p),
               # WHEN THE PRODUCT ACTED, falling back to the file's clock only for a
               # name that carries no stamp — the hand-named copies, which are never
@@ -1572,6 +1656,10 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "sizes": sizes,
         "health": verdict,
         "backups": list_backups(path, folder),
+        # THE ZIPS BESIDE THEM, AS A SEPARATE LIST. A bundle has to be unpacked
+        # before `restore` will look at it, so offering the two in one list would
+        # put a Restore button on a file that route refuses.
+        "bundles": list_bundles(path, folder),
         "backup_folder": str(folder),
         "space_warning": space_warning(path),
         "last": settings.get_state(conn, "storage_last"),
@@ -1579,6 +1667,12 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         # THE LAST WIDE VERDICT, so a page can say WHEN corruption was last looked for
         # rather than leaving the reader to assume it just was.
         "integrity": settings.get_state(conn, "storage_integrity"),
+        # AND THE LAST COPY THAT WAS CHECKED, for the same reason one step further
+        # out: until this existed, `0 restore errors` was not a measurement but an
+        # assumption -- no copy had ever been opened to find out. It carries the
+        # path it checked, so a reader can tell a verdict about THIS copy from a
+        # verdict about another one.
+        "copy_check": settings.get_state(conn, "storage_copy_check"),
         # THE SCHEMA, BECAUSE THE PANEL'S DATABASE PAGE HAS TO SAY MORE THAN "HEALTHY".
         # `_about` reported these to the ENGINE'S OWN WEB PAGE and nowhere else, so the
         # panel could show the file's size and its health and not the one number that

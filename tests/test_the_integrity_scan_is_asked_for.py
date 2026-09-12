@@ -22,6 +22,7 @@ caller that was missed, not a new idea.
 """
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 from pathlib import Path
@@ -272,3 +273,786 @@ def test_the_routine_route_is_not_the_slow_one_any_more(served):
     assert wide["integrity_checked"] is True
     assert set(cheap) >= {"path", "sizes", "schema", "backups", "health", "integrity"}, (
         "the cheap route stopped carrying something the Database page draws")
+
+
+# ---- checking a copy before it is trusted ---------------------------------
+#
+# Until this existed nothing had ever opened a backup to find out whether it
+# could be opened. `verifyLatest` asks Drive whether an object of the right size
+# is there, which proves an object exists and not that it restores -- so
+# `0 restore errors` was an assumption wearing the clothes of a measurement.
+#
+# THE SAME ROUTE, because it is the same knowledge: is this file a healthy
+# ScrapeX warehouse, and record the answer. A change to what `healthy` means
+# has to change both, so they are one thing rather than two that resemble
+# each other.
+
+
+def _a_copy_of(path: Path, tag: str = 'manual') -> Path:
+    """A backup with this product's own naming, so `list_backups` sees it."""
+    from scrapex.archive import backup_database
+    made = backup_database(path, tag=tag)
+    made = Path(made if isinstance(made, (str, Path)) else made.path)
+    assert made.is_file(), made
+    return made
+
+
+def test_the_caller_that_was_already_there_still_gets_the_live_warehouse(served):
+    """The panel posts this route with no body at all.
+
+    An optional field that broke the existing caller would be a worse defect than
+    the one it was added for: the corruption scan is the only wide verdict the
+    Database page has. It must keep answering, and it must SAY which file it
+    answered about -- the echo is what a caller checks to know it was understood.
+    """
+    client, path = served
+
+    answer = client.post("/api/storage/integrity")
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["integrity_checked"] is True, verdict
+    assert verdict["checked"] == str(path), (
+        "the reply does not say which file it checked, so no caller can tell "
+        "understanding from politeness")
+    assert verdict["rows"], "the live verdict carries no row counts"
+
+
+def test_a_copy_can_be_checked_and_the_verdict_names_that_copy(served):
+    """A verdict about one copy must not read as a verdict about another.
+
+    The two are recorded under different keys for the same reason: the live
+    warehouse's corruption verdict decides whether the page says `ready`, and a
+    finding about a two-week-old backup has nothing to do with that.
+    """
+    client, path = served
+    copy = _a_copy_of(path)
+
+    before = client.get("/api/storage").json()
+    assert before["copy_check"] is None, "a verdict exists before anyone asked"
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": str(copy)})
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["checked"] == str(copy.resolve()), verdict
+    assert verdict["ok"] is True and verdict["integrity_checked"] is True, verdict
+    assert verdict["rows"] and verdict["live_rows"], (
+        "both sides are needed: a count on its own says nothing")
+
+    after = client.get("/api/storage").json()
+    assert after["copy_check"]["checked"] == str(copy.resolve())
+    assert after["integrity"] is None, (
+        "checking a COPY was recorded as a verdict about the live warehouse, so "
+        "the page would date its corruption scan from a backup it read")
+
+
+def test_a_path_the_engine_never_listed_is_refused_and_tells_no_tales(served):
+    """`backup_path` arrives from the network on a loopback port.
+
+    Every page in the browser can reach it, and every other check asks whether
+    the file is a healthy warehouse rather than whether it is one of ours. So the
+    listing decides, exactly as `storage.restore` decides.
+
+    AND THE TWO REFUSALS MUST BE THE SAME WORDS. A refusal that differs for a
+    file that exists is an existence oracle: it answers `is there a database at
+    this path` for any page that can reach the port, which is a question this
+    engine has no business answering.
+    """
+    client, path = served
+    outsider = path.parent / "not-a-backup-of-ours.db"
+    import sqlite3 as _sqlite3
+    _sqlite3.connect(outsider).close()          # a real file, never listed
+    missing = path.parent / "nothing-here-at-all.db"
+
+    real = client.post("/api/storage/integrity",
+                       json={"backup_path": str(outsider)})
+    fake = client.post("/api/storage/integrity",
+                       json={"backup_path": str(missing)})
+
+    assert real.status_code == 400, real.text
+    assert fake.status_code == 400, fake.text
+    assert real.json()["detail"] == fake.json()["detail"], (
+        "the refusal differs for a file that exists, so it answers whether one "
+        "does")
+
+
+def test_a_copy_that_is_intact_and_empty_is_told_apart_from_a_full_one(served):
+    """THE DISASTER THIS CHECK EXISTS FOR, and the one health cannot see.
+
+    `PRAGMA quick_check` passes on a database that is intact and EMPTY. So a copy
+    taken before a crawl -- or a copy of a warehouse that was reset -- is
+    perfectly healthy and restoring it loses everything. Health is necessary and
+    it is not sufficient, which is why the counts are asked for at all.
+    """
+    client, path = served
+    copy = _a_copy_of(path)                      # taken while empty
+
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash) "
+            "VALUES ('https://example.test/a', 'text/html', X'00', 'abc123')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    verdict = client.post("/api/storage/integrity",
+                          json={"backup_path": str(copy)}).json()
+
+    assert verdict["ok"] is True, (
+        "an intact empty copy was reported unhealthy; health is not the question "
+        "the counts answer")
+    assert verdict["rows"]["generic_page_snapshot"] == 0, verdict["rows"]
+    assert verdict["live_rows"]["generic_page_snapshot"] == 1, (
+        "the live side was not read, so nothing can be compared against it")
+
+
+def test_a_damaged_copy_is_a_finding_and_not_a_failed_request(served):
+    """A page that cannot tell `the check failed` from `the copy is damaged`
+    tells the owner neither. The route answers 200 with bad news in it, exactly as
+    it does for the live warehouse."""
+    client, path = served
+    copy = _a_copy_of(path)
+    _plant_a_foreign_key_violation(copy)
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": str(copy)})
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["ok"] is False and verdict["status"] == "damaged", verdict
+    assert client.get("/api/storage").json()["ready"] is True, (
+        "a finding about a BACKUP made the live warehouse read as not ready")
+
+
+def test_every_table_is_counted_and_none_is_invented(warehouse):
+    """Counting all of them rather than a chosen few is affordable.
+
+    `quick_check` has already read every page by the time this runs: MEASURED on
+    the owner's machine 2026-09-09, all 67 tables of a 2,148,061,184-byte file
+    cost 123 ms against that file's 6,953 ms health check. A hand-picked list
+    would cost the same and go stale at the next migration, which is why this
+    asserts the SET and not a sample."""
+    conn, path = warehouse
+    named = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%'")}
+
+    counted = storage.row_counts(path)
+
+    assert set(counted) == named, (
+        "the counts do not cover every table: "
+        f"missing {sorted(named - set(counted))}, "
+        f"invented {sorted(set(counted) - named)}")
+    assert all(isinstance(v, int) and v >= 0 for v in counted.values()), counted
+
+
+def test_a_table_this_build_cannot_read_is_reported_and_not_dropped(tmp_path):
+    """A missing count and a count of zero are DIFFERENT FINDINGS.
+
+    Silently dropping the unreadable one is how a broken table reads as an absent
+    one -- and on a restore check that is the difference between `this copy is
+    damaged` and `this copy has a slightly older schema`.
+
+    THE FIRST VERSION OF THIS TEST ASSERTED IT AND CHECKED NOTHING. It ran on a
+    freshly migrated warehouse where every table reads, so the `except` branch
+    never executed; replacing `counts[table] = -1` with `pass` did not fail it.
+    A mutant is what found that, and this is the test that survives it: one table
+    is made genuinely unreadable by overwriting its root page, and the others go
+    on counting."""
+    hurt = tmp_path / "one-bad-table.db"
+    conn = sqlite3.connect(hurt)
+    try:
+        conn.execute("CREATE TABLE keep (a)")
+        conn.execute("CREATE TABLE broken (a)")
+        conn.executemany(
+            "INSERT INTO keep VALUES (?)", [(n,) for n in range(50)])
+        conn.executemany(
+            "INSERT INTO broken VALUES (?)", [(n,) for n in range(50)])
+        conn.commit()
+        page = conn.execute("PRAGMA page_size").fetchone()[0]
+        root = conn.execute(
+            "SELECT rootpage FROM sqlite_master WHERE name = 'broken'").fetchone()[0]
+    finally:
+        conn.close()
+
+    # A page whose first byte is not 2, 5, 10 or 13 is not a b-tree page, so
+    # SQLite refuses THIS TABLE and reads the rest of the file normally.
+    with open(hurt, "r+b") as handle:
+        handle.seek((root - 1) * page)
+        handle.write(b"\xff" * page)
+
+    counted = storage.row_counts(hurt)
+
+    assert "broken" in counted, (
+        "the unreadable table was dropped, so a damaged copy reads as one with a "
+        "table this build has not heard of")
+    assert counted["broken"] == -1, counted
+    assert counted["keep"] == 50, (
+        "one bad table stopped the others being counted: " + repr(counted))
+
+
+# ---- a bundle from Drive becomes a copy this product understands ----------
+#
+# THE PATH THAT DID NOT EXIST. The copy in Drive is the only one that survives
+# losing a machine, and on a second machine there was no way from it to a
+# working warehouse: the panel cannot carry 625 MB through its own document
+# (that is what came back 0 bytes on 2026-09-03), and `bundle.unpack` had no
+# caller anywhere in the product. The owner hit this for real on 2026-09-10.
+
+
+def _a_bundle_in(folder: Path, db_path: Path, name: str) -> Path:
+    """A real bundle, built and packed by the shipped code."""
+    from scrapex import bundle as bundle_mod
+    staging = folder / "built"
+    bundle_mod.build(db_path, staging)
+    archive = folder / name
+    bundle_mod.pack(staging, archive)
+    shutil.rmtree(staging, ignore_errors=True)
+    assert archive.is_file(), archive
+    return archive
+
+
+def test_a_bundle_in_the_folder_is_offered_apart_from_the_copies(served):
+    """A bundle is a zip. `restore` refuses one, so it is a separate list.
+
+    Offering both under one heading would put a Restore button on a file that
+    route declines -- `A button that cannot work is worse than no button` -- and
+    the two need different verbs: a bundle is unpacked, a copy is put in place.
+    """
+    client, path = served
+    _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+
+    seen = client.get("/api/storage").json()
+
+    assert [b["name"] for b in seen["bundles"]] == [
+        "scrapex-bundle-20260910-000000.zip"], seen["bundles"]
+    assert seen["backups"] == [], (
+        "the zip was offered as something restorable, and `restore` refuses a zip")
+    assert seen["bundles"][0]["bytes"] > 0, seen["bundles"][0]
+
+
+def test_unpacking_a_bundle_produces_a_copy_the_restore_path_already_reads(served):
+    """THE WHOLE DESIGN, asserted rather than described.
+
+    The unpacked database is written under this product's own naming, which is
+    what `list_backups` reads and what `restore` checks against. So the bundle
+    arrives at every guard downstream instead of at a special case that would
+    have to be trusted: it is listed, it can be health-checked, and it is put in
+    place by the same confirmation as any other copy.
+
+    AND IT DOES NOT RESTORE. Unpacking and replacing a warehouse are two
+    decisions; running them together would take the second one away from him.
+    """
+    client, path = served
+    _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    # A MARK THE BUNDLE CANNOT CONTAIN, written AFTER it was packed. Comparing
+    # sizes cannot see this: the bundle was built from this warehouse, so a copy
+    # of it back over the original is byte-identical in length. A mutant that
+    # replaced the live file survived a size assertion, and this is what caught
+    # it.
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash) "
+            "VALUES ('https://example.test/after-the-bundle', 'text/html', "
+            "X'00', 'afterbundle')")
+        conn.commit()
+    finally:
+        conn.close()
+
+    answer = client.post("/api/storage/adopt-bundle",
+                         json={"name": "scrapex-bundle-20260910-000000.zip"})
+
+    assert answer.status_code == 200, answer.text
+    made = answer.json()
+    assert made["bytes"] > 0, made
+
+    after = client.get("/api/storage").json()
+    listed = [b["name"] for b in after["backups"]]
+    assert made["name"] in listed, (
+        "the unpacked database is not listed as a copy, so nothing can restore "
+        f"it: {listed}")
+    conn = dbmod.connect(path)
+    try:
+        still_there = conn.execute(
+            "SELECT count(*) FROM generic_page_snapshot "
+            "WHERE content_hash = 'afterbundle'").fetchone()[0]
+    finally:
+        conn.close()
+    assert still_there == 1, (
+        "unpacking replaced the live warehouse -- the row written after the "
+        "bundle was packed is gone. That is a separate decision with its own "
+        "confirmation.")
+
+    # AND THE STAGING TREE IS GONE. It holds a second full copy of the
+    # warehouse, and the owner's drive had 26.1 GB free with 12 GB already
+    # taken by copies.
+    left = [p.name for p in path.parent.glob("adopt-*")]
+    assert left == [], f"a staging tree was left behind: {left}"
+
+
+def test_only_a_bundle_the_engine_itself_listed_can_be_named(served):
+    """A NAME, NEVER A PATH, and the reason is the port this listens on.
+
+    Every tab in the browser can reach loopback, so a route that took a path
+    would unpack whatever it was pointed at. The engine resolves its own backup
+    folder and accepts only a file it found there -- the same rule
+    `open-folder` states for the same reason.
+    """
+    client, path = served
+    elsewhere = path.parent / "elsewhere"
+    elsewhere.mkdir()
+    outside = _a_bundle_in(elsewhere, path, "scrapex-bundle-20260910-111111.zip")
+
+    by_path = client.post("/api/storage/adopt-bundle",
+                          json={"name": str(outside)})
+    by_traversal = client.post("/api/storage/adopt-bundle",
+                               json={"name": "../elsewhere/scrapex-bundle-20260910-111111.zip"})
+    missing = client.post("/api/storage/adopt-bundle",
+                          json={"name": "no-such-bundle.zip"})
+
+    for refused in (by_path, by_traversal, missing):
+        assert refused.status_code == 400, refused.text
+    assert by_path.json()["detail"] == missing.json()["detail"], (
+        "naming a real file outside the folder is refused differently from naming nothing, so the refusal says whether a path exists")
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "something outside the backup folder was unpacked anyway")
+
+
+def test_a_bundle_that_does_not_verify_is_refused_and_leaves_nothing(served):
+    """`unpack` verifies, and every fault is reported rather than the first.
+
+    A bundle arrives from Drive, which is outside this machine. Half of one is
+    worse than none: it would be listed as a copy, pass a health check on a
+    database that is intact and truncated, and be restored over a working
+    warehouse.
+    """
+    client, path = served
+    archive = _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    # Rewrite the manifest so its digests no longer match the files beside it.
+    import zipfile
+    intact = archive.read_bytes()
+    broken = archive.with_name("scrapex-bundle-20260910-222222.zip")
+    with zipfile.ZipFile(archive) as source:
+        with zipfile.ZipFile(broken, "w") as out:
+            for entry in source.infolist():
+                data = source.read(entry.filename)
+                if entry.filename == "manifest.json":
+                    text = json.loads(data)
+                    for named in (text.get("files") or {}).values():
+                        named["sha256"] = "0" * 64
+                    data = json.dumps(text).encode()
+                out.writestr(entry.filename, data)
+    assert archive.read_bytes() == intact, "the good bundle was modified"
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": broken.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "did not verify" in refused.json()["detail"], refused.json()
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "a bundle that failed verification still produced a restorable copy")
+    left = [p.name for p in path.parent.glob("adopt-*")]
+    assert left == [], f"a staging tree was left behind on refusal: {left}"
+
+
+# ---- what the review of #877 found, and the guards that hold it ------------
+#
+# Two must fix and seven should fix came back on this branch. The two that
+# mattered most were both about a file this check exists to OPEN: a path SQLite
+# read as a URI, and a copy it could not read at all.
+
+
+def test_a_folder_the_uri_parser_would_eat_is_counted_and_creates_nothing(tmp_path):
+    """`row_counts` built its connection string by interpolation.
+
+    `file:{path}?mode=ro` hands a filesystem path to SQLite's URI parser, and it
+    reads one: `#` starts a fragment, so a warehouse under a folder named
+    `Drive #2` was truncated at the `#` AND had its whole `?mode=ro` swallowed
+    into the fragment. The connection was not read-only, SQLite CREATED an empty
+    database at the truncated name, and a file holding 412,903 rows answered
+    `{}` with no exception and no warning.
+
+    THE CONSEQUENCE IS THE ONE THIS REPOSITORY SINGLES OUT -- a confident wrong
+    number, on the screen where a warehouse is about to be replaced. With `rows`
+    and `live_rows` both empty the panel has no table to compare, so the
+    empty-copy warning (the entire reason the counts are taken) disappears while
+    Restore stays enabled.
+    """
+    folder = tmp_path / "Drive #2"
+    folder.mkdir()
+    db = folder / "harvest.db"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("CREATE TABLE generic_page_snapshot (a)")
+        conn.executemany("INSERT INTO generic_page_snapshot VALUES (?)",
+                         [(n,) for n in range(1000)])
+        conn.commit()
+    finally:
+        conn.close()
+
+    counted = storage.row_counts(db)
+
+    assert counted == {"generic_page_snapshot": 1000}, (
+        "a warehouse of 1,000 rows under a folder named `Drive #2` reported "
+        f"{counted!r}: the path was read as a URI, not as a path")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Drive #2"], (
+        "a read-only count created a file: "
+        f"{sorted(p.name for p in tmp_path.iterdir())}")
+
+
+def test_a_percent_in_the_path_is_a_count_and_not_a_failed_request(tmp_path):
+    """The other half of the same defect, and it fails the opposite way.
+
+    `%` is a percent-escape to a URI parser, so `Drive %41` decoded to a folder
+    that does not exist and `row_counts` raised `OperationalError` -- which no
+    handler in `webui/app.py` catches, so it reached the owner as "Internal
+    Server Error" on a route that had a perfectly good verdict in hand.
+    """
+    folder = tmp_path / "Drive %41"
+    folder.mkdir()
+    db = folder / "harvest.db"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("CREATE TABLE generic_page_snapshot (a)")
+        conn.execute("INSERT INTO generic_page_snapshot VALUES (7)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert storage.row_counts(db) == {"generic_page_snapshot": 1}
+
+
+def test_a_copy_that_is_not_a_database_is_a_verdict_and_not_a_crash(served):
+    """THE EXACT FILE THIS CHECK WAS BUILT TO CATCH.
+
+    `health` produces the correct structured verdict -- `unreadable`, with
+    SQLite's own words -- and the route then asked the same file for row counts
+    unconditionally. `row_counts` opens the database itself, so it raised past
+    the three handlers `webui/app.py` registers and the request became a 500,
+    throwing the verdict away. Downstream the panel took `checkTheCopy`'s catch,
+    printed "Restoring it is still possible, unverified" and RE-ENABLED Restore:
+    a file that is not a database, offered for restore in a calm sentence.
+
+    The existing damaged-copy test plants a foreign key violation, which is the
+    one damage that leaves the file READABLE -- so nothing here could catch it.
+    """
+    client, path = served
+    copy = _a_copy_of(path)
+    with open(copy, "r+b") as handle:
+        handle.write(b"\x00" * 4096)          # the header, gone
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": str(copy)})
+
+    assert answer.status_code == 200, answer.text
+    verdict = answer.json()
+    assert verdict["ok"] is False and verdict["status"] == "unreadable", verdict
+    assert "could not read" in verdict["detail"], (
+        "the reply does not carry SQLite's own reason, so the panel has nothing "
+        "to show: " + repr(verdict["detail"]))
+    assert verdict["rows"] == {}, (
+        "a file SQLite cannot open reported counts: " + repr(verdict["rows"]))
+    assert verdict["live_rows"], (
+        "the live side was not counted, so an unreadable COPY took the live "
+        "warehouse's counts down with it")
+    assert client.get("/api/storage").json()["copy_check"]["status"] == "unreadable", (
+        "the verdict was not recorded, so the page cannot say what was found")
+
+
+def test_the_copy_the_page_offered_is_the_copy_the_engine_will_check(served):
+    """ONE SPELLING, FROM ONE LIST, THROUGH BOTH GUARDS.
+
+    Two defects met here. The copy-check guard derived its permitted set from
+    `list_backups(db_path)` with no folder, while the panel's list comes from
+    `list_backups(path, backup_folder(...))` -- so every copy the page offered
+    failed the guard the moment the backup folder was anywhere but beside the
+    warehouse. And the reply echoes `str(Path(asked).resolve())` while the offer
+    carried the folder's own spelling unresolved, so the panel's echo check --
+    the thing that tells understanding from politeness -- fired on a correct
+    verdict and said the engine was too old to give one.
+
+    The folder here is spelled the way a typed setting is: not normalised.
+    """
+    client, path = served
+    real = path.parent / "Backups"
+    real.mkdir()
+    # AND `here` IS A REAL DIRECTORY, because `..` is not a string on POSIX.
+    # Windows normalises it lexically, so `<missing>/../Backups` is still a
+    # directory there and this test passed on the machine it was written on;
+    # Linux resolves each component against the filesystem, `here` was not
+    # there, and the folder read as absent. CI is what caught that.
+    (path.parent / "here").mkdir()
+    conn = dbmod.connect(path)
+    try:
+        settings.save(conn, {"backup_folder": str(path.parent / "here" / ".."
+                                                  / "Backups")})
+        conn.commit()
+    finally:
+        conn.close()
+    copy = real / "harvest.manual-20260101T000000Z.backup.db"
+    shutil.copy(path, copy)
+
+    offered = client.get("/api/storage").json()["backups"]
+    assert [b["name"] for b in offered] == [copy.name], (
+        f"the page does not offer the copy in the configured folder: {offered}")
+    assert ".." not in offered[0]["path"], (
+        "the offer carries the folder's unresolved spelling, and every guard "
+        f"that reads it resolves first: {offered[0]['path']}")
+
+    answer = client.post("/api/storage/integrity",
+                         json={"backup_path": offered[0]["path"]})
+
+    assert answer.status_code == 200, (
+        "the engine refused a copy its own page offered: " + answer.text)
+    assert answer.json()["checked"] == offered[0]["path"], (
+        "the echo and the offer are different strings for the same file, so the "
+        "panel reports a working engine as too old to check a copy: "
+        f"{answer.json()['checked']!r} against {offered[0]['path']!r}")
+
+
+def test_the_offer_names_one_resolved_spelling_of_each_copy(tmp_path):
+    """The rule above, asserted where it is enforced.
+
+    `backup_folder` expands no further than `expanduser()`, and `read_pointer`
+    does not even do that, so the folder prefix is whatever somebody typed. One
+    spelling has to leave `list_backups` or every comparison downstream needs to
+    know which one it got.
+    """
+    db = tmp_path / "harvest.db"
+    sqlite3.connect(db).close()
+    folder = tmp_path / "Backups"
+    folder.mkdir()
+    # A REAL DIRECTORY TO GO THROUGH: POSIX resolves `..` against the
+    # filesystem, so a missing `here` makes the whole path absent there while
+    # Windows normalises it away and finds the folder anyway.
+    (tmp_path / "here").mkdir()
+    copy = folder / "harvest.manual-20260101T000000Z.backup.db"
+    shutil.copy(db, copy)
+
+    listed = storage.list_backups(db, tmp_path / "here" / ".." / "Backups")
+
+    assert [b["name"] for b in listed] == [copy.name], listed
+    assert listed[0]["path"] == str(copy.resolve()), (
+        "the listed path carries the caller's spelling of the folder rather "
+        f"than the file's own: {listed[0]['path']!r}")
+
+
+# ---- the archive failures the route did not anticipate ---------------------
+
+
+def _repacked(archive: Path, name: str, *, drop: tuple[str, ...] = (),
+              replace: dict[str, bytes] | None = None) -> Path:
+    """The same bundle with files dropped or swapped, and a manifest to match.
+
+    `verify` checks every digest, so a bundle edited without its manifest is
+    refused for the wrong reason and proves nothing about the branch under test.
+    """
+    import hashlib
+    import zipfile
+    swapped = replace or {}
+    rebuilt = archive.with_name(name)
+    with zipfile.ZipFile(archive) as source:
+        manifest = json.loads(source.read("manifest.json"))
+        for gone in drop:
+            manifest["files"].pop(gone, None)
+        for relative, data in swapped.items():
+            manifest["files"][relative] = {
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest()}
+        with zipfile.ZipFile(rebuilt, "w") as out:
+            for entry in source.infolist():
+                if entry.filename in drop:
+                    continue
+                if entry.filename == "manifest.json":
+                    out.writestr(entry.filename,
+                                 json.dumps(manifest, indent=2) + "\n")
+                    continue
+                out.writestr(entry.filename,
+                             swapped[entry.filename]
+                             if entry.filename in swapped
+                             else source.read(entry.filename))
+    return rebuilt
+
+
+def test_half_a_zip_from_drive_is_refused_in_words_the_panel_can_show(served):
+    """THE LIKELIEST STATE OF A DOWNLOADED BUNDLE, and it was the unstructured
+    failure.
+
+    `unpacked_size` is the first thing the route does with the file's contents
+    and it sat outside every try, so `BadZipFile` became a bare 500.
+    `backend.js` lifts a `detail` out of a JSON body and Starlette's 500 page is
+    not JSON, so what the owner read was "<name>.zip was not unpacked: Internal
+    Server Error" -- while the same route spends four careful 400s on the
+    failures it did anticipate.
+    """
+    client, path = served
+    archive = _a_bundle_in(path.parent, path,
+                           "scrapex-bundle-20260910-000000.zip")
+    whole = archive.read_bytes()
+    archive.write_bytes(whole[: len(whole) // 2])
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": archive.name})
+
+    assert refused.status_code == 400, refused.text
+    detail = refused.json()["detail"]
+    assert "could not be read as a bundle" in detail, detail
+    assert "Download it from Drive again" in detail, (
+        "the refusal does not say what to do about it: " + detail)
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "half a zip produced something the Restore list offers")
+
+
+def test_an_entry_that_would_escape_the_folder_is_a_refusal_not_a_crash(served):
+    """`unpack`'s traversal guard raises, and the route ran it inside a try
+    that had a `finally` and no `except`.
+
+    A zip entry named `../…` is the oldest trick there is and `unpack` refuses
+    it correctly -- with a `ValueError` that reached the owner as a 500 rather
+    than as the refusal it is.
+    """
+    import zipfile
+    client, path = served
+    archive = path.parent / "scrapex-bundle-20260910-333333.zip"
+    with zipfile.ZipFile(archive, "w") as out:
+        out.writestr("manifest.json", json.dumps({"bundle_format": 1,
+                                                  "files": {}}) + "\n")
+        out.writestr("../escaped.txt", "out of the folder")
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": archive.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "could not be unpacked" in refused.json()["detail"], refused.json()
+    # ONE LEVEL UP FROM THE STAGING TREE, which is the backup folder itself:
+    # `unpack` resolves `<staging>/../escaped.txt` to exactly here, so this is
+    # where the file lands if the guard stops working.
+    assert not (path.parent / "escaped.txt").exists(), (
+        "the entry escaped the folder it was unpacked into")
+    assert [p.name for p in path.parent.glob("adopt-*")] == [], (
+        "a staging tree was left behind on refusal")
+
+
+def test_a_bundle_says_how_much_room_it_needs_from_its_own_directory(tmp_path,
+                                                                     warehouse):
+    """`unpacked_size` is the number behind the only guard with a measurement.
+
+    The database inside is as big as the warehouse it came from -- measured on
+    the owner's machine, a 655,174,914-byte bundle carries a 2,148,061,184-byte
+    database -- and the zip is already on the same disk. It reads the central
+    directory only, so it costs nothing and it must agree with what actually
+    comes out.
+    """
+    from scrapex import bundle as bundle_mod
+    _conn, path = warehouse
+    archive = _a_bundle_in(tmp_path, path, "scrapex-bundle-20260910-000000.zip")
+
+    asked = bundle_mod.unpacked_size(archive)
+
+    out = tmp_path / "unpacked"
+    report = bundle_mod.unpack(archive, out)
+    assert report.ok, report.faults
+    on_disk = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
+    assert asked == on_disk, (
+        f"the guard asks for {asked} bytes and unpacking writes {on_disk}")
+    assert asked >= (out / "warehouse.db").stat().st_size, (
+        "the number does not even cover the database inside it")
+
+
+def test_unpacking_asks_for_room_before_it_starts(served, monkeypatch):
+    """NOT HALFWAY THROUGH. The owner's drive had 26.1 GB free with 12 GB
+    already taken by copies, and a route that started and ran out would leave a
+    part-written database in the folder `list_backups` reads.
+
+    The refusal names the number and the folder, because "not enough space" with
+    neither is not something anybody can act on.
+    """
+    from scrapex.webui import app as app_module
+    client, path = served
+    _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    monkeypatch.setattr(app_module, "free_space", lambda _folder: 1)
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": "scrapex-bundle-20260910-000000.zip"})
+
+    assert refused.status_code == 400, refused.text
+    detail = refused.json()["detail"]
+    assert "MB free" in detail and "Remove an older copy first" in detail, detail
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "a refusal for want of space still wrote a copy")
+    assert [p.name for p in path.parent.glob("adopt-*")] == [], (
+        "a staging tree was left behind")
+
+
+def test_a_bundle_that_verifies_and_carries_no_warehouse_is_refused(served):
+    """`bundle.verify` checks that the zip is what its manifest says.
+
+    It does not check that a warehouse is in it -- a bundle whose manifest names
+    only datasets verifies perfectly -- so the route asks separately, and that
+    branch had no test either.
+    """
+    client, path = served
+    good = _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    hollow = _repacked(good, "scrapex-bundle-20260910-444444.zip",
+                       drop=("warehouse.db",))
+    good.unlink()
+
+    refused = client.post("/api/storage/adopt-bundle",
+                          json={"name": hollow.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "carries no warehouse.db" in refused.json()["detail"], refused.json()
+    assert client.get("/api/storage").json()["backups"] == [], (
+        "a bundle with no database in it produced a restorable copy")
+    assert [p.name for p in path.parent.glob("adopt-*")] == [], (
+        "a staging tree was left behind on refusal")
+
+
+def test_a_bundle_this_engine_cannot_open_is_not_announced_as_a_way_back(served):
+    """THE SECOND MACHINE IS THE WHOLE POINT OF THIS ROUTE, and it is exactly
+    where the digests stop being enough.
+
+    `bundle.verify` checks that the zip arrived whole. It says nothing about
+    whether the database inside is one THIS engine can open -- a bundle built by
+    a newer engine verifies perfectly and then fails `_warehouse_identity`. The
+    route computed that verdict and answered `ok: True` three lines later with no
+    branch between them, so a file `storage.restore` will refuse joined the
+    Restore list, counted against the folder's free space, and was announced in
+    the success colour.
+    """
+    client, path = served
+    stranger = path.parent / "stranger.db"
+    conn = sqlite3.connect(stranger)
+    try:
+        conn.execute("CREATE TABLE not_ours (a)")
+        conn.commit()
+    finally:
+        conn.close()
+    good = _a_bundle_in(path.parent, path, "scrapex-bundle-20260910-000000.zip")
+    foreign = _repacked(good, "scrapex-bundle-20260910-555555.zip",
+                        replace={"warehouse.db": stranger.read_bytes()})
+    good.unlink()
+
+    answer = client.post("/api/storage/adopt-bundle",
+                         json={"name": foreign.name})
+
+    assert answer.status_code == 200, (
+        "a bundle that verified was refused: " + answer.text)
+    made = answer.json()
+    assert made["ok"] is False, (
+        "a database this engine cannot open was announced as a way back: "
+        + repr(made["detail"]))
+    assert made["health"]["ok"] is False, made["health"]
+    assert "not one this engine can use" in made["detail"], made["detail"]
+    assert made["name"] in made["detail"], (
+        "the sentence does not name the copy it became, so he cannot find it: "
+        + made["detail"])
+    assert made["name"] in [b["name"] for b in
+                            client.get("/api/storage").json()["backups"]], (
+        "it is not listed, so it cannot be seen or removed")

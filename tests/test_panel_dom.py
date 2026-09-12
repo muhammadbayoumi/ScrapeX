@@ -7892,3 +7892,372 @@ def test_an_engine_that_cannot_be_read_offers_no_copy_to_restore(open_panel):
         f"{buttons.count()} copies are still offered by an engine that did not answer")
     assert "could not be read" in page.inner_text("#db-snapshots"), (
         page.inner_text("#db-snapshots"))
+
+
+def test_opening_the_question_checks_the_copy_it_is_asking_about(open_panel):
+    """The check runs where the decision is made, not where it is remembered.
+
+    #808's own brief called an on-demand check the weak option, and said why: a
+    check nobody runs reports nothing, and silence reads as health. Putting it
+    inside the confirmation removes that -- it cannot be skipped, because it is
+    part of the only moment the answer matters.
+
+    THE ROW COUNTS ARE IN THE VERDICT, because health is not the question. A copy
+    that is intact and EMPTY passes every pragma there is, and restoring it loses
+    everything.
+    """
+    page = _open_database(open_panel)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /Checked|could not|too old/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "Checked" in said, said
+    assert "12" in said, ("the verdict names no row count, so an intact empty "
+                          "copy would read the same as a full one: " + said)
+
+    # AND IT ASKED ABOUT THE COPY HE PRESSED, not the live warehouse.
+    writes = page.evaluate("() => window.__writes || []")
+    asked = [w for w in writes
+             if w.get("path") == "/api/storage/integrity"]
+    assert len(asked) == 1, f"asked {len(asked)} times: {writes}"
+    assert asked[0]["body"] == {"backup_path": HARNESS_NEWEST_SNAPSHOT}, asked[0]
+
+    # The restore stays available: a sound copy is the case where it should be.
+    assert page.is_enabled("#restore-confirm")
+
+
+def test_a_copy_that_fails_its_check_cannot_be_restored(open_panel):
+    """`storage.restore` refuses an unhealthy backup anyway.
+
+    So leaving the button live could only produce a refusal, and a button that
+    cannot work is worse than no button. The verdict carries the engine's own
+    words, because a failed health check and a foreign database need different
+    things done next.
+    """
+    page = _open_database(open_panel, copy_check={
+        "ok": False, "status": "damaged",
+        "detail": "1 foreign key violation.",
+    })
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /does not pass/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "damaged" in said and "1 foreign key violation." in said, (
+        "the engine's own reason was replaced by a generic one: " + said)
+    assert "broken one" in said, (
+        "the consequence is not stated, so the reader has to infer it: " + said)
+
+    assert page.is_disabled("#restore-confirm"), (
+        "a copy that fails its check can still be pressed into place")
+
+
+def test_an_engine_too_old_to_check_a_copy_says_so_instead_of_reassuring(open_panel):
+    """THE FAILURE A VERSION GATE WOULD NOT HAVE CAUGHT.
+
+    `backup_path` is an optional field on an existing route, so it is not a
+    contract change and the engine version does not move for it. An engine that
+    predates it ignores the field and answers about the LIVE warehouse -- a
+    healthy verdict, about the wrong file, arriving in the place the reader is
+    looking for reassurance about this copy.
+
+    The reply echoes what it read, and this side checks the echo. That is why the
+    guard works without knowing anything about versions.
+    """
+    page = _open_database(open_panel, copy_check_echoes=False)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /too old/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "nothing here has been verified" in said, (
+        "an unverified copy was not said to be unverified: " + said)
+    assert "Checked" not in said, (
+        "a verdict about the live warehouse was shown as a verdict about this "
+        "copy: " + said)
+
+    # AND THE RESTORE IS STILL OFFERED. The check failing says nothing about the
+    # copy, so the choice stays his -- with the plain fact that it is unchecked.
+    assert page.is_enabled("#restore-confirm")
+
+
+def test_the_verdict_does_not_carry_over_to_the_next_copy(open_panel):
+    """A stale verdict is the failure this check exists to prevent.
+
+    If the line survived a close, the second copy would open under the first
+    one's answer -- reassurance about a file nobody checked, which is exactly
+    what `0 restore errors` used to be.
+    """
+    page = _open_database(open_panel)
+    rows = page.locator("#db-snapshots button.manage-account-row-button")
+
+    rows.nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /Checked/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#restore-veil", state="hidden")
+
+    assert page.inner_text("#restore-check").strip() == "", (
+        "the verdict outlived the question it answered")
+
+    rows.nth(1).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    # It asks again, about the second copy, rather than reusing the first answer.
+    page.wait_for_function(
+        "() => (window.__writes || []).filter("
+        "w => w.path === '/api/storage/integrity').length === 2", timeout=10_000)
+    asked = page.evaluate("() => (window.__writes || [])"
+                          ".filter(w => w.path === '/api/storage/integrity')")
+    assert asked[1]["body"] == {"backup_path": HARNESS_OLDER_SNAPSHOT}, asked[1]
+
+
+# ---- the bundle card, which shipped with no test of any kind ---------------
+#
+# +186 lines of app.js and +28 of app.html went out behind a route that had five
+# tests of its own. `renderBundles`, `adoptBundle`, `rowVerdict` and
+# `#db-open-backups` -- the first control this panel has ever had for
+# `POST /api/storage/open-folder` -- returned nothing at all to a grep over
+# tests/, extension/tests/, apps_script/tests/ and tools/.
+
+HARNESS_ZIP_IN_THE_FOLDER = "scrapex-bundle-20260906-021500.zip"
+
+
+def test_the_bundle_card_lists_the_zips_apart_from_the_copies(open_panel):
+    """A bundle is a zip, and `restore` refuses one.
+
+    So it is its own card with its own verb: a bundle is unpacked, a copy is put
+    in place. One list would put a Restore button on a file that route declines,
+    and `a button that cannot work is worse than no button`.
+    """
+    page = _open_database(open_panel)
+
+    rows = page.locator("#db-bundles button.manage-account-row-button")
+    assert rows.count() == 1, (
+        f"{rows.count()} bundles drawn for the one in the folder")
+    assert HARNESS_ZIP_IN_THE_FOLDER in rows.nth(0).inner_text(), rows.nth(0).inner_text()
+    assert text_of(page, "#db-bundle-count") == "1", (
+        "the count and the list disagree: " + text_of(page, "#db-bundle-count"))
+    assert HARNESS_ZIP_IN_THE_FOLDER not in page.inner_text("#db-snapshots"), (
+        "the zip is offered among the copies, where every row leads to Restore")
+    assert "Unpacking writes the database inside as a copy" in page.inner_text(
+        "#db-bundle-hint"), page.inner_text("#db-bundle-hint")
+
+
+def test_an_empty_backup_folder_still_says_what_to_put_in_it(open_panel):
+    """THE CARD STAYS WHEN THERE IS NOTHING IN IT.
+
+    This is where somebody arriving on a new machine finds out what to do, and
+    that is precisely the moment the folder is empty. A card that disappeared
+    when it had nothing to list would vanish exactly when it is needed.
+    """
+    page = _open_database(open_panel, bundles=[])
+
+    assert page.locator("#db-bundles button").count() == 0
+    assert text_of(page, "#db-bundle-count") == "0"
+    said = page.inner_text("#db-bundle-hint")
+    assert "Put a backup .zip from your Drive in this folder" in said, said
+
+
+def test_the_panel_can_say_where_to_put_the_file(open_panel):
+    """THE FIRST STEP OF THE PATH THIS WHOLE CARD EXISTS TO CREATE.
+
+    `POST /api/storage/open-folder` has existed and nothing in this panel called
+    it: the owner was told to put a file in a folder no control would show him.
+    `which` comes from a fixed set so no path can ever come from the page -- this
+    listens on a loopback port every tab in the browser can reach.
+    """
+    page = _open_database(open_panel)
+
+    page.click("#db-open-backups")
+    page.wait_for_function(
+        "() => (window.__writes || []).some("
+        "w => w.path === '/api/storage/open-folder')", timeout=10_000)
+
+    asked = page.evaluate("() => (window.__writes || [])"
+                          ".filter(w => w.path === '/api/storage/open-folder')")
+    assert len(asked) == 1, asked
+    assert asked[0]["body"] == {"which": "backups"}, (
+        "the panel named something other than the backup folder, or sent a "
+        f"path: {asked[0]}")
+
+
+def test_unpacking_a_bundle_says_what_it_became_and_re_reads_the_page(open_panel):
+    """NO CONFIRMATION, DELIBERATELY: this destroys nothing.
+
+    It writes a new copy beside the others, and the destructive decision --
+    putting one in place -- keeps its own question. A dialog here would train him
+    to dismiss the one that matters.
+
+    AND THE WHOLE PAGE IS RE-READ, because a new copy changes the count, the
+    folder's free space and the list of copies below it.
+    """
+    page = _open_database(open_panel)
+    page.evaluate("() => { window.__calls = []; }")
+
+    page.locator("#db-bundles button.manage-account-row-button").nth(0).click()
+    page.wait_for_function(
+        "() => /unpacked as/.test("
+        "document.getElementById('db-msg').innerText)", timeout=10_000)
+
+    asked = page.evaluate("() => (window.__writes || [])"
+                          ".filter(w => w.path === '/api/storage/adopt-bundle')")
+    assert len(asked) == 1, asked
+    assert asked[0]["body"] == {"name": HARNESS_ZIP_IN_THE_FOLDER}, (
+        "the panel sent something other than the name the engine listed: "
+        f"{asked[0]}")
+    said = page.inner_text("#db-msg")
+    assert "harvest.bundle-20260906T021500Z.backup.db" in said, (
+        "the sentence does not name the copy it became: " + said)
+    assert page.locator("#db-msg span").get_attribute("class") != "err", (
+        "a bundle that unpacked cleanly was announced as a failure")
+    assert page.evaluate("() => (window.__calls || [])"
+                         ".filter(c => c === '/api/storage').length") >= 1, (
+        "the page was not re-read, so the count, the free space and the list of "
+        "copies all still show the state before the copy existed")
+
+
+def test_a_bundle_the_engine_refused_says_why_and_gives_the_row_back(open_panel):
+    """THE ENGINE'S OWN WORDS, because it refuses for reasons only it can know.
+
+    A bundle that did not verify, one carrying no database, a half-downloaded
+    zip, too little room to unpack into -- each is a different thing to do next,
+    and a panel that replaced them with one sentence would take that away.
+
+    AND THE ROW COMES BACK. It was disabled to stop a second press; leaving it
+    disabled after a refusal means the only way to try again is to reload.
+    """
+    page = _open_database(open_panel,
+                          fail_routes=("/api/storage/adopt-bundle",))
+
+    page.locator("#db-bundles button.manage-account-row-button").nth(0).click()
+    page.wait_for_function(
+        "() => /was not unpacked/.test("
+        "document.getElementById('db-bundle-hint').innerText)", timeout=10_000)
+
+    said = page.inner_text("#db-bundle-hint")
+    assert "the engine could not do that" in said, (
+        "the engine's own reason was replaced by a generic one: " + said)
+    assert HARNESS_ZIP_IN_THE_FOLDER in said, ("the refusal does not say which bundle: "
+                                    + said)
+    assert page.locator("#db-bundle-hint span").get_attribute("class") == "err", (
+        "a refusal was drawn in the ordinary colour")
+    assert page.is_enabled("#db-bundles button.manage-account-row-button"), (
+        "the row stayed disabled after a refusal, so the only way to try again "
+        "is to reload the panel")
+
+
+def test_a_bundle_this_engine_cannot_use_is_not_announced_in_the_success_colour(
+        open_panel):
+    """`bundle.verify` checks that the zip arrived whole.
+
+    It says nothing about whether the database inside is one this engine can
+    open -- a bundle built by a NEWER engine verifies its digests perfectly and
+    then fails the identity check, and a second machine running a different
+    engine is precisely what this control exists for. The engine answers `ok:
+    false` for that, and a panel that ignored it would announce a file `restore`
+    will refuse as the way back.
+    """
+    page = _open_database(open_panel, adopt={
+        "ok": False,
+        "health": {"status": "incompatible", "ok": False},
+        "detail": ("scrapex-bundle-20260906-021500.zip is unpacked as "
+                   "harvest.bundle-20260906T021500Z.backup.db, but the database "
+                   "in it is not one this engine can use (incompatible)."),
+    })
+
+    page.locator("#db-bundles button.manage-account-row-button").nth(0).click()
+    page.wait_for_function(
+        "() => /not one this engine can use/.test("
+        "document.getElementById('db-msg').innerText)", timeout=10_000)
+
+    assert page.locator("#db-msg span").get_attribute("class") == "err", (
+        "a database this engine cannot open was announced in the success "
+        "colour, on the screen where the next press is Restore")
+
+
+# ---- the comparison the counts exist for ----------------------------------
+
+
+def test_the_verdict_reads_the_copy_and_the_live_warehouse_the_right_way_round(
+        open_panel):
+    """A COUNT ON ITS OWN SAYS NOTHING.
+
+    17,274 rows is a healthy copy beside 17,300 live and a catastrophe beside
+    400,000, so both sides are shown and the comparison is left to the person
+    making the decision. The harness used to answer 12 on BOTH sides, so the one
+    assertion on this line could not tell them apart and swapping them in
+    `rowVerdict` was a surviving mutation.
+    """
+    page = _open_database(open_panel)
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /Checked/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "12 rows" in said, ("the copy's own count is not in the sentence: "
+                              + said)
+    assert "against 340 now" in said, (
+        "the live count is missing or the two sides are the wrong way round: "
+        + said)
+    assert said.index("12 rows") < said.index("against 340 now"), said
+
+
+def test_a_copy_that_is_empty_beside_a_full_warehouse_says_what_would_be_lost(
+        open_panel):
+    """THE DISASTER THE COUNTS EXIST FOR, and health cannot see it.
+
+    `PRAGMA quick_check` passes on a database that is intact and EMPTY, so the
+    verdict is `ok` and #restore-confirm stays ENABLED -- this sentence is the
+    only thing between him and replacing a full warehouse with nothing. It had
+    no test on either side of the wire.
+    """
+    page = _open_database(open_panel, copy_check={
+        "rows": {"generic_page_snapshot": 0}})
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /EMPTY/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "generic_page_snapshot is EMPTY in it" in said, said
+    assert "340" in said and "Restoring it would lose them" in said, (
+        "the sentence does not say how many rows are at stake: " + said)
+    # AND THE BUTTON IS STILL LIVE, which is why the words have to carry it: the
+    # copy passes every health check there is, and `storage.restore` would take
+    # it. The decision is his, and this is the fact he needs to make it.
+    assert page.is_enabled("#restore-confirm")
+
+
+def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
+        open_panel):
+    """AN EMPTY LIVE SIDE MEANS THE COMPARISON COULD NOT BE MADE.
+
+    The engine answers with no counts rather than a 500 when SQLite cannot open
+    a file, so this is what the panel meets when the warehouse in use is
+    unreadable -- the very situation somebody opens the restore dialog in. The
+    line used to say only "This copy opens and passes its checks.", which is the
+    empty-copy warning disappearing without a word.
+    """
+    page = _open_database(open_panel, copy_check={"live_rows": {}})
+    page.locator("#db-snapshots button.manage-account-row-button").nth(0).click()
+    page.wait_for_selector("#restore-veil", state="visible")
+    page.wait_for_function(
+        "() => /passes its checks/.test("
+        "document.getElementById('restore-check').innerText)", timeout=10_000)
+
+    said = page.inner_text("#restore-check")
+    assert "could not be counted" in said, (
+        "a comparison that could not be made was reported as a pass: " + said)
+    assert "nothing here to compare it against" in said, said

@@ -137,6 +137,7 @@ OUTPUTS = [
 def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=None,
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
          fail_routes=(), storage=None, logs=None, extension_version=None,
+         copy_check=None, copy_check_echoes=True, bundles=None, adopt=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
          protocol_version=None, engine_manifest=None,
@@ -264,7 +265,18 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
                  "name": "harvest.manual-20260830T045246Z.backup.db",
                  "bytes": 4194304, "taken_at": "2026-08-30T04:52:46Z",
                  "modified_at": "2026-08-30T04:52:52Z", "tag": "manual"},
-            ]},
+            ],
+            # A ZIP IN THE FOLDER BY DEFAULT, so the state with a control to
+            # press is the one every test meets unless it asks otherwise. This
+            # is what somebody arriving on a second machine has: a bundle
+            # downloaded out of Drive and nothing yet that `restore` will look
+            # at. `bundles=[]` is the empty folder, which is its own branch --
+            # the card stays and explains what to put there.
+            "bundles": [
+                {"name": "scrapex-bundle-20260906-021500.zip",
+                 "bytes": 655360000,
+                 "modified_at": "2026-09-06T02:15:00Z"},
+            ] if bundles is None else bundles},
         "/api/rates/google-finance": rates_status if rates_status is not None else {
             "automatic": True,
             "refresh_hours": 6,
@@ -328,6 +340,30 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "status": "healthy", "ok": True, "integrity_checked": True,
             "problems": [], "foreign_key_problems": 0,
             "at": "2026-09-06T12:45:10Z", "detail": "No problems found."},
+        # WHERE TO PUT THE FILE. The engine opens the folder and answers a
+        # state; the panel reads nothing out of it, so the assertion a test can
+        # make is that the request was sent AND which folder was named --
+        # `which` comes from a fixed set precisely so no path can come from the
+        # page.
+        "/api/storage/open-folder": {"ok": True, "opened": True,
+                                     "detail": "The folder is open."},
+        # WHAT UNPACKING ONE ANSWERS. `ok` is the ENGINE'S verdict on the
+        # database that came out, not on whether the zip was read: a bundle
+        # built by a newer engine verifies its digests perfectly and then is not
+        # a warehouse this build can open. `adopt=` is how a test reaches that.
+        "/api/storage/adopt-bundle": dict({
+            "ok": True,
+            "name": "harvest.bundle-20260906T021500Z.backup.db",
+            "path": r"C:\Users\Owner\.scrapex"
+                    r"\harvest.bundle-20260906T021500Z.backup.db",
+            "bytes": 4194304,
+            "from_bundle": "scrapex-bundle-20260906-021500.zip",
+            "health": {"status": "healthy", "ok": True},
+            "detail": ("scrapex-bundle-20260906-021500.zip is unpacked as "
+                       "harvest.bundle-20260906T021500Z.backup.db. It is listed "
+                       "as a copy now -- check it, then restore it from the "
+                       "same card."),
+        }, **(adopt or {})),
     }
     # The job log endpoint. A distinct shape from the jobs LIST (both live under
     # /api/jobs), and matched ahead of it by the interceptor's `/logs` check —
@@ -513,6 +549,14 @@ const LOG_PAYLOAD = {json.dumps(log_payload)};
 const ENGINE_UP = {str(engine_up).lower()};
 const SLOW = {str(slow).lower()};
 const FAIL = {json.dumps(list(fail_routes))};
+// THE COPY CHECK. `POST /api/storage/integrity` grew an optional
+// `backup_path`, and the verdict ECHOES the file it read -- an engine that
+// predates the field ignores it and answers about the live warehouse, which
+// would read as reassurance about the wrong file. `copy_check_echoes=False`
+// is that older engine, and it is the only way to test the panel's guard
+// against it.
+const COPY_CHECK = {json.dumps(copy_check)};
+const COPY_CHECK_ECHOES = {str(copy_check_echoes).lower()};
 // The release feed is not the engine, and must be answered BEFORE the
 // engine-down branch below. Letting a stopped engine make the endpoint
 // unreachable would have tested the Engines page — the one page whose whole
@@ -708,6 +752,35 @@ window.fetch = async (url, options = {{}}) => {{
                   return null;
                 }}}},
                 blob: async () => filler(end - start), json: async () => ({{}}) }};
+    }}
+  }}
+
+  // THE COPY CHECK, BEFORE THE FLAT TABLE. It cannot be a row in `ROUTES`:
+  // that table answers a fixed payload, and this verdict has to depend on the
+  // REQUEST -- it echoes the path it was given. A fixed answer would make the
+  // panel's echo check pass by accident on every path it ever sent.
+  if (path === "/api/storage/integrity" && method === "POST") {{
+    let asked = null;
+    try {{ asked = JSON.parse((options && options.body) || "null"); }}
+    catch (_) {{}}
+    const wanted = asked && asked.backup_path;
+    if (wanted) {{
+      const verdict = Object.assign(
+        {{status: "healthy", ok: true, integrity_checked: true,
+         problems: [], foreign_key_problems: 0,
+         at: "2026-09-09T10:00:00Z", detail: "No problems found.",
+         // THE TWO SIDES DIFFER, and that is the whole point of the stub.
+         // Both were 12, so the one assertion on the rendered verdict could
+         // not tell `rows` from `live_rows`: swapping them in `rowVerdict`
+         // was a surviving mutation, and the comparison the counts exist for
+         // was never actually read.
+         rows: {{generic_page_snapshot: 12}},
+         live_rows: {{generic_page_snapshot: 340}}}},
+        COPY_CHECK || {{}});
+      // The echo, or the older engine that never learnt the field.
+      verdict.checked = COPY_CHECK_ECHOES
+        ? wanted : "C:\\Users\\Owner\\.scrapex\\harvest.db";
+      return {{ok: true, status: 200, json: async () => verdict}};
     }}
   }}
 

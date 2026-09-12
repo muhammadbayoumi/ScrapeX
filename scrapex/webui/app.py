@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import zipfile
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -147,11 +148,16 @@ from ..snapshotcrawl import stored_under_run
 from ..sourceresolver import SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
+    FREE_SPACE_MARGIN,
     StorageRefused,
     backup_folder,
     backup_now,
+    base_stem,
     check_move,
     export_database,
+    free_space,
+    list_backups,
+    list_bundles,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -164,6 +170,7 @@ from ..storage import (
 )
 from ..storage import compact as storage_compact
 from ..storage import health as storage_health
+from ..storage import row_counts as storage_row_counts
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..vocab import (
     TERMINAL_JOB_STATUSES,
@@ -3212,8 +3219,31 @@ def create_app(
         finally:
             conn.close()
 
+    def _counted(path: Path | str) -> dict[str, int]:
+        """Row counts, or none at all when SQLite cannot open the file.
+
+        `row_counts` opens the database itself, so on the exact file this check
+        exists to catch -- a copy whose header is gone -- it raised
+        `sqlite3.DatabaseError` past the three handlers registered at the top of
+        this module and the request became a 500. `health` had already produced
+        the correct structured verdict two lines above, and it was thrown away;
+        downstream the panel took its catch, called the file merely unverified
+        and RE-ENABLED Restore on a file that is not a database.
+
+        NOT SWALLOWED. For the file this route checked, the reason is `status`
+        and `detail` in this same reply. For the live warehouse counted beside a
+        copy, it is that warehouse's own verdict on `GET /api/storage`, which is
+        the card the restore dialog opens over. An empty set of counts is the
+        honest report of a file there is nothing to count in, and the panel says
+        so rather than comparing against it.
+        """
+        try:
+            return storage_row_counts(path)
+        except (sqlite3.DatabaseError, OSError):
+            return {}
+
     @app.post("/api/storage/integrity")
-    def api_storage_integrity():
+    def api_storage_integrity(body: dict | None = None):
         """The WIDE verdict, because somebody asked for it.
 
         `GET /api/storage` stopped running the corruption scan: it is O(file size) and
@@ -3230,14 +3260,75 @@ def create_app(
         incidental. `health` opens its own read connection, so a 5.7 s scan taken under
         the lock would stall a running crawl's writes for its whole duration for the
         sake of a status card. The lock is taken for the one small write at the end.
+
+        `backup_path` ASKS THE SAME QUESTION OF A COPY, and it is this route rather
+        than a new one because it is the same knowledge: is this file a healthy
+        ScrapeX warehouse, and record the answer. A change to what `healthy` means
+        has to change both, so they are one thing. Until this existed nothing had
+        ever opened a backup to find out -- `0 restore errors` was an assumption,
+        and `verifyLatest` only asks Drive whether an object of the right size is
+        there.
+
+        THE REPLY ECHOES WHAT IT CHECKED, and that is not decoration. An older
+        engine ignores an unknown body field and answers about the LIVE warehouse,
+        so a panel that trusted the reply would show a verdict about the wrong
+        file -- a silently wrong answer, which is worse than a refusal. `checked`
+        lets the caller confirm the engine understood, without a version gate that
+        would drift out of step with what the engine can actually do.
         """
-        verdict = storage_health(app.state.db_path, integrity=True)
-        state = dict(verdict)
-        state["at"] = utc_now_iso()
+        asked = str((body or {}).get("backup_path") or "").strip()
+        if not asked:
+            verdict = storage_health(app.state.db_path, integrity=True)
+            state = dict(verdict)
+            state["at"] = utc_now_iso()
+            state["checked"] = str(app.state.db_path)
+            state["rows"] = _counted(app.state.db_path)
+            key = "storage_integrity"
+        else:
+            # ONLY A BACKUP THIS PRODUCT LISTED, asked first and for the reason
+            # `storage.restore` gives at greater length: `backup_path` arrives from
+            # the network on a loopback port every page in the browser can reach,
+            # and every other check below asks whether the file is a healthy
+            # warehouse rather than whether it is one of ours. Both guards derive
+            # the permitted set from `list_backups`, so one function decides what a
+            # backup is and the rule cannot drift away from the offer.
+            #
+            # AND IT IS ASKED WITH THE CONFIGURED FOLDER, which is the argument
+            # `storage_status` fills the panel's list with. Without it the
+            # permitted set is whatever sits beside the warehouse, so every copy
+            # the page offered failed this guard the moment the owner moved his
+            # backups anywhere else.
+            conn = read_conn()
+            try:
+                where = backup_folder(conn, app.state.db_path)
+            finally:
+                conn.close()
+            try:
+                offered = {Path(entry["path"]).resolve()
+                           for entry in list_backups(app.state.db_path, where)}
+                chosen = Path(asked).resolve()
+            except OSError:
+                offered, chosen = set(), None
+            if chosen is None or chosen not in offered:
+                raise HTTPException(
+                    status_code=400,
+                    detail=("ScrapeX checks only a backup it listed for this "
+                            "database. Reopen the page to refresh the list, then "
+                            "pick the copy again."))
+            verdict = storage_health(chosen, integrity=True)
+            state = dict(verdict)
+            state["at"] = utc_now_iso()
+            state["checked"] = str(chosen)
+            # BOTH SIDES, because a count on its own says nothing. 17,274 rows is
+            # a healthy copy beside 17,300 live and a catastrophe beside 400,000,
+            # and only the reader knows which. The comparison is not made here.
+            state["rows"] = _counted(chosen)
+            state["live_rows"] = _counted(app.state.db_path)
+            key = "storage_copy_check"
         with dbmod.write_lock(app.state.db_path):
             conn = _write_conn()
             try:
-                set_settings_state(conn, "storage_integrity", state)
+                set_settings_state(conn, key, state)
                 conn.commit()
             finally:
                 conn.close()
@@ -3628,6 +3719,141 @@ def create_app(
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
+
+    @app.post("/api/storage/adopt-bundle")
+    def api_storage_adopt_bundle(body: dict):
+        """Unpack a bundle into a copy the restore path already understands.
+
+        THIS IS THE STEP THAT HAD NO WAY IN. A bundle in Drive is the only copy
+        that survives losing this machine, and on a second machine there was no
+        path from it to a working warehouse: the panel cannot carry 625 MB
+        through a side-panel document -- that is what returned 0 bytes on
+        2026-09-03 -- and `bundle.unpack` had no caller anywhere in the product.
+
+        A NAME, NEVER A PATH, for the reason `open-folder` gives below: the page
+        is on a loopback port every tab in the browser can reach. The engine
+        resolves its own backup folder and accepts only a file it found there,
+        so nothing outside it can be named.
+
+        IT DOES NOT RESTORE. The unpacked database is written into the backup
+        folder under this product's own naming, which is what `list_backups`
+        reads -- so it appears as a copy, gets checked like any other copy, and
+        is put in place by the SAME confirmation and the same guards. Unpacking
+        and replacing a warehouse are two decisions, and running them together
+        would take the second one away from him.
+        """
+        asked = str((body or {}).get("name") or "").strip()
+        conn = read_conn()
+        try:
+            folder = backup_folder(conn, app.state.db_path)
+        finally:
+            conn.close()
+
+        offered = {entry["name"]
+                   for entry in list_bundles(app.state.db_path, folder)}
+        if asked not in offered:
+            raise HTTPException(
+                status_code=400,
+                detail=("ScrapeX unpacks only a bundle it found in the backup "
+                        "folder. Put the .zip there, reopen this page, then "
+                        "pick it again."))
+        archive = folder / asked
+
+        # THE UNPACKED DATABASE IS AS BIG AS THE WAREHOUSE, and the zip is
+        # already on this disk -- so this needs room for a second full copy
+        # before it starts, not halfway through. MEASURED on the owner's
+        # machine: a 655,174,914-byte bundle holds a 2,148,061,184-byte
+        # database, and his drive had 26.1 GB free with 12 GB already taken by
+        # copies. `startup.js` predicted this: the disk runs out before the
+        # deadline does.
+        # AND A BUNDLE FROM DRIVE IS A FILE THAT CROSSED A NETWORK. Reading its
+        # directory is the first thing done with its contents, and a
+        # half-downloaded zip -- the likeliest state of one -- raised
+        # `BadZipFile` outside every try. `backend.js` can only lift a `detail`
+        # out of a JSON body and Starlette's 500 page is not JSON, so that
+        # reached the owner as "Internal Server Error": the route spends four
+        # careful refusals on the failures it anticipated and answered the one a
+        # second machine actually hits with a status line.
+        try:
+            needed = int(bundle.unpacked_size(archive) * FREE_SPACE_MARGIN)
+        except (zipfile.BadZipFile, OSError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"{asked} could not be read as a bundle, so nothing was "
+                        f"taken from it: {exc}. Download it from Drive again --"
+                        " a part-downloaded zip looks like this."))
+        if free_space(folder) < needed:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Unpacking {asked} needs about "
+                        f"{needed // (1024 * 1024)} MB free in {folder} and "
+                        f"there is less than that. Remove an older copy first."))
+
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        staging = folder / f"adopt-{stamp}"
+        try:
+            report = bundle.unpack(archive, staging)
+            if not report.ok:
+                spoken = "; ".join(
+                    f"{fault.path}: {fault.problem}" for fault in report.faults[:4])
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"{asked} did not verify, so nothing was taken from "
+                            f"it: {spoken}"))
+            inside = staging / "warehouse.db"
+            if not inside.is_file():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"{asked} verified but carries no warehouse.db, so "
+                            "there is no database in it to adopt."))
+            # THE NAME IS WHAT MAKES IT REACHABLE. `list_backups` decides what a
+            # backup is by naming, and `restore` refuses anything that listing
+            # did not return -- so writing it under this product's own pattern is
+            # what lets every guard downstream apply, rather than a special case
+            # that would have to be trusted instead.
+            adopted = folder / f"{base_stem(app.state.db_path)}.bundle-{stamp}"
+            adopted = adopted.with_name(adopted.name + ".backup"
+                                        + Path(app.state.db_path).suffix)
+            inside.replace(adopted)
+        except (zipfile.BadZipFile, ValueError, OSError) as exc:
+            # THE SAME REFUSAL, ONE STEP LATER. `unpack` raises ValueError for an
+            # entry that would escape the destination and OSError when the disk
+            # answers -- a bundle truncated past its directory reaches here
+            # rather than the read above. The `finally` still removes the staging
+            # tree, and an `HTTPException` raised inside this try is not caught
+            # by it: the two refusals above keep their own words.
+            raise HTTPException(
+                status_code=400,
+                detail=(f"{asked} could not be unpacked, so nothing was taken "
+                        f"from it: {exc}"))
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+        # WHAT IT BECAME, ANSWERED HONESTLY. `bundle.verify` checks the
+        # manifest's digests -- that the zip arrived whole -- and says nothing
+        # about whether the database inside is one THIS engine can open: a bundle
+        # built by a newer engine verifies perfectly and then fails
+        # `_warehouse_identity`, and a second machine running a different engine
+        # is precisely what this route exists for. `ok: True` over a verdict
+        # computed two lines above it announced that file in the success colour,
+        # on the Restore list, where `storage.restore` refuses it.
+        verdict = storage_health(adopted, integrity=False)
+        return {
+            "ok": bool(verdict["ok"]),
+            "name": adopted.name,
+            "path": str(adopted),
+            "bytes": adopted.stat().st_size,
+            "from_bundle": asked,
+            "health": verdict,
+            "detail": (
+                f"{asked} is unpacked as {adopted.name}. It is listed as a copy "
+                "now -- check it, then restore it from the same card."
+                if verdict["ok"] else
+                f"{asked} is unpacked as {adopted.name}, but the database in it "
+                f"is not one this engine can use ({verdict['status']}): "
+                f"{verdict['detail']} It is listed as a copy so you can find it, "
+                "and Restore will refuse it."),
+        }
 
     @app.post("/api/storage/open-folder")
     def api_storage_open_folder(body: dict):
