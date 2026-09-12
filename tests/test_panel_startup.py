@@ -718,6 +718,56 @@ def test_the_interactive_wait_does_not_end_on_the_mark_it_used_to_wait_on(browse
         page.close()
 
 
+def test_the_idle_wait_ends_on_the_mark_it_names(browser, tmp_path):
+    """The third barrier's literal, bound the way round 3 said the second one was not.
+
+    `tools/panel_harness.py`'s `wait_until_idle_work_done` waits on
+    `scrapex:idle-work-done`. Without this the name is held in place by nothing and
+    could drift to any spelling while every test stayed green -- which is exactly
+    what a merge gate demonstrated about `account-check-start`.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:idle-work-done')</script>",
+                   "idle.html")
+    try:
+        harness.wait_until_idle_work_done(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_the_idle_wait_does_not_end_on_the_settled_mark(browser, tmp_path):
+    """The distinction the whole barrier exists for, as a test.
+
+    `fully-settled` fires from the account and engine promises; the deferred phase
+    -- `ScrapeXAppearance.connect`, `ScrapeXTime.connect`, `reattachToRunningJob` --
+    runs AFTER it, in an `afterIdle` callback. A page carrying only `fully-settled`
+    must NOT satisfy this wait, or two tests reading `ScrapeXTime.get().zone` go
+    back to reading an empty string.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled')</script>",
+                   "settled-only.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_idle_work_done(page, timeout=800)
+    finally:
+        page.close()
+
+
+def test_the_panel_emits_the_idle_mark_the_third_barrier_waits_on():
+    """The synthetic pages above prove the helper's rule; this ties its name to the
+    panel's. A rename in `extension/app.js` alone would leave both of them green and
+    every `ready="idle"` fixture waiting five seconds for a mark nobody fires."""
+    app = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    assert 'markStartup("idle-work-done"' in app, (
+        "extension/app.js no longer emits `idle-work-done`, which "
+        "tools/panel_harness.py's wait_until_idle_work_done blocks on.")
+    assert app.index('markStartup("idle-work-done"') > app.index("afterIdle("), (
+        "the mark must fire inside the deferred callback -- emitted before it, it "
+        "says the deferred work is done while it has not started.")
+
+
 def test_the_real_panel_emits_the_mark_the_harness_refuses_on(browser, tmp_path):
     """Every test above drives a SYNTHETIC page, so none of them binds the name
     `tools/panel_harness.py` watches for to the name `extension/app.js` emits.

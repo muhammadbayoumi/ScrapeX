@@ -140,10 +140,13 @@ def open_panel(browser, tmp_path):
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
-        # `ready="interactive"` for a test OF the transient: see
-        # panel_harness.wait_until_interactive.
-        (harness.wait_until_settled if ready == "settled"
-         else harness.wait_until_interactive)(page)
+        # Three states, because the panel has three: `interactive` for a test OF
+        # the transient, `idle` for one that reads what the deferred phase sets
+        # (ScrapeXTime, appearance, the reattach), `settled` for everything else.
+        # See the three helpers in tools/panel_harness.py.
+        {"settled": harness.wait_until_settled,
+         "interactive": harness.wait_until_interactive,
+         "idle": harness.wait_until_idle_work_done}[ready](page)
         if view is not None:
             page.click(f'nav.side-rail button[data-view="{view}"]')
             page.wait_for_timeout(400)
@@ -3702,7 +3705,9 @@ def test_choosing_a_zone_shares_it_with_the_engine_for_the_web_page(open_panel):
 def test_a_zone_saved_on_the_other_surface_arrives_here(open_panel):
     """The other direction of 6.9: the engine already holds a zone, so the
     panel adopts it on connect rather than starting from its own detection."""
-    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE],
+    # `ready="idle"`: ScrapeXTime.connect runs in the deferred phase, AFTER
+    # `fully-settled`. Reading it behind the settled barrier is an empty string.
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE], ready="idle",
                       timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
     assert page.evaluate("() => window.ScrapeXTime.get().zone") == "Asia/Riyadh"
     _run_tab(page)
@@ -3805,7 +3810,9 @@ def test_an_invalid_zone_falls_back_down_the_chain_and_says_which_step(open_pane
     — must fall back in order, must NOT rewrite the stored preference, and must
     say where it landed instead of failing silently.
     """
-    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE],
+    # `ready="idle"`, for the same reason as the test above: the fallback chain
+    # runs on connect, and connect is deferred work.
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE], ready="idle",
                       timezone={"zone": "Mars/Phobos", "updatedAt": 9_999_999_999_999})
 
     state = page.evaluate("() => window.ScrapeXTime.resolution()")

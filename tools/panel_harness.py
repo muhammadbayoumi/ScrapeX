@@ -968,6 +968,26 @@ def wait_until_interactive(page, timeout: int = 5_000) -> None:
     _wait_for_either(page, "account-check-start", timeout)
 
 
+def wait_until_idle_work_done(page, timeout: int = 5_000) -> None:
+    """Block until the deferred phase has finished, not merely until startup has.
+
+    `fully-settled` FIRES BEFORE THE PANEL HAS FINISHED. It comes from
+    `Promise.allSettled([accountPromise, enginePromise])`, and
+    `scheduleNonCriticalStartup` then runs `ScrapeXAppearance.connect`,
+    `ScrapeXTime.connect` and `reattachToRunningJob` in an `afterIdle` callback
+    afterwards. A test that reads any of those needs this wait, not the settled one.
+
+    MEASURED, AND THE REASON THIS EXISTS: replacing the fixture's flat
+    `wait_for_timeout(500)` with `wait_until_settled` turned
+    `test_a_zone_saved_on_the_other_surface_arrives_here` and
+    `test_an_invalid_zone_falls_back_down_the_chain_and_says_which_step` red in CI,
+    both reading `window.ScrapeXTime.get().zone` as an empty string. The sleep had
+    been covering the gap by accident and not always -- `startup.js`'s `afterIdle`
+    falls back at 750ms, which is longer than the 500 it was racing.
+    """
+    _wait_for_either(page, "idle-work-done", timeout)
+
+
 def _wait_for_either(page, mark: str, timeout: int) -> None:
     """Wait for `mark` or for startup to fail — and RAISE if it failed.
 

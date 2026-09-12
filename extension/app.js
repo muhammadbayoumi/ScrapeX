@@ -8002,6 +8002,7 @@ function wireDeferredControls() {
 
 function scheduleNonCriticalStartup(backendPromise) {
   afterIdle(async () => {
+    let failure = null;
     try {
       const backend = await backendPromise;
       await Promise.allSettled([
@@ -8016,7 +8017,16 @@ function scheduleNonCriticalStartup(backendPromise) {
       // that the startup path is forbidden to touch — three tests hold that
       // rule and they are right to. Idle time is where the two fit together.
       await reattachToRunningJob();
-    } catch (_) {}
+    } catch (error) {
+      failure = error && error.message || "unknown";
+    }
+    // THE PHASE SAYS WHEN IT IS DONE. `fully-settled` fires from the account and
+    // engine promises and is NOT the end of startup: ScrapeXAppearance, ScrapeXTime
+    // and the reattach all land here, afterwards. A test that read one of them was
+    // relying on a 500ms sleep outlasting this, which it did not always do --
+    // `afterIdle`'s own fallback is 750ms. Marked so a barrier can wait for it
+    // instead of guessing, and marked in every path so a waiter cannot hang.
+    markStartup("idle-work-done", {failure});
   });
 }
 
