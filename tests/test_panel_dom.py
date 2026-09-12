@@ -149,7 +149,17 @@ def open_panel(browser, tmp_path):
          "idle": harness.wait_until_idle_work_done}[ready](page)
         if view is not None:
             page.click(f'nav.side-rail button[data-view="{view}"]')
-            page.wait_for_timeout(400)
+            # A CONDITION, NOT A CLOCK. This replaced `wait_for_timeout(400)`, paid
+            # by the 27 tests that take a `view`. Measured: removing it outright left
+            # all 229 green, and the module docstring says why that is not evidence --
+            # "a green run under load is not evidence of synchrony". Visibility IS
+            # decided by the click's own task, so this resolves at once; what it adds
+            # over nothing is that a click which never landed fails HERE, by name,
+            # instead of later as a missing element in whichever test read it first.
+            # It is not `settle_view`: that waits out a 180ms entry animation only the
+            # few tests that MEASURE a box need, and the docstring above forbids
+            # waiting for visibility.
+            page.wait_for_selector(f"#view-{view}", state="visible")
         page.js_errors = errors
         pages.append(page)
         return page
