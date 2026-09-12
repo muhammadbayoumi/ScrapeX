@@ -24,7 +24,7 @@ from . import db as dbmod
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
 from .databases import DatabaseRegistry
-from .databases.registry import REGISTRY_FILE
+from .databases.registry import DATABASE_ROOT, REGISTRY_FILE
 from .funnel import FunnelClient
 from .ingest import ingest_payloads
 from .payload import (
@@ -1041,7 +1041,7 @@ def _cmd_schedule(args) -> int:
 # How long `run-due` waits for the write lock before deciding this tick is not
 # its turn. Short on purpose — a task on a 15-minute clock has somewhere to be.
 RUN_DUE_LOCK_TIMEOUT_S = 3.0
-RUN_DUE_LOG = Path.home() / ".scrapex" / "engine.log"
+RUN_DUE_LOG = DATABASE_ROOT / "engine.log"
 
 
 def _bind_log_streams() -> None:
@@ -1310,7 +1310,13 @@ def build_parser() -> argparse.ArgumentParser:
     # it writes an .xlsx on this machine and involves no account at all.
 
 
-    home_scrapex = str(Path.home() / "ScrapeX")
+    # ONE PLACE DECIDES WHERE A WORKBOOK LANDS. This read `str(Path.home() /
+    # "ScrapeX")` and agreed with `localsheets.DEFAULT_EXPORT_DIR` only by
+    # coincidence: once that constant started following `SCRAPEX_DATA_ROOT`, the
+    # panel's route followed it and `scrapex export` did not. An adversary found
+    # the divergence; it is the same knowledge changing for the same reason.
+    from .localsheets import DEFAULT_EXPORT_DIR
+    home_scrapex = str(DEFAULT_EXPORT_DIR)
     p = sub.add_parser("export", help="export a source's current prices to a local .xlsx (no Google)")
     p.add_argument("source", help="source_key from sources.yaml")
     p.add_argument("--folder", default=home_scrapex, help=f"local folder (default: {home_scrapex})")

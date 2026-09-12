@@ -25,6 +25,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .databases.registry import DATABASE_ROOT
 from .payload import (
     PAYLOAD_COMPAT_VERSION,
     FunnelPayload,
@@ -32,8 +33,8 @@ from .payload import (
     compat_problem,
 )
 
-DEFAULT_INBOX_DIR = Path(os.environ.get("SCRAPEX_INBOX_DIR", str(Path.home() / ".scrapex" / "inbox")))
-JOURNAL_DIR = Path(os.environ.get("SCRAPEX_JOURNAL_DIR", str(Path.home() / ".scrapex" / "job-journal")))
+DEFAULT_INBOX_DIR = Path(os.environ.get("SCRAPEX_INBOX_DIR", str(DATABASE_ROOT / "inbox")))
+JOURNAL_DIR = Path(os.environ.get("SCRAPEX_JOURNAL_DIR", str(DATABASE_ROOT / "job-journal")))
 
 # token__rest.json — "__" separates the page token from the uniqueness suffix,
 # so listing tokens is a filename scan, never a JSON parse of 400 files.
