@@ -610,3 +610,246 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     page.click(RUN_TAB)
     page.wait_for_timeout(300)
     assert not page.js_errors
+
+
+# ---- what the fixtures wait on ---------------------------------------------
+
+def _marked(browser, tmp_path, body: str, name: str):
+    """A page carrying exactly the marks named, and nothing else of the panel.
+
+    Deliberately NOT the real panel: the three states below are what
+    `wait_until_settled` must do about the marks, and driving them through a
+    real boot would test app.js's timing instead of this helper's rule.
+    """
+    page_file = tmp_path / name
+    page_file.write_text(f"<!doctype html><html><body>{body}</body></html>",
+                         encoding="utf-8")
+    page = browser.new_page()
+    page.goto(page_file.as_uri())
+    return page
+
+
+def test_a_settled_panel_ends_the_wait(browser, tmp_path):
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled')</script>",
+                   "settled.html")
+    try:
+        harness.wait_until_settled(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_a_panel_that_failed_to_start_is_refused_not_handed_over(browser, tmp_path):
+    """`init()` throwing fires `startup-failed` and never `fully-settled`.
+
+    THE WAIT MUST END -- a fixture that hung here would report itself instead of
+    the panel -- BUT IT MUST NOT HAND THE PAGE OVER. A merge gate demonstrated
+    what returning costs: rename `id="signin"` in the generated page and
+    `wireStartupShell()` dies on its first statement, the wait returned after
+    31ms, `page.js_errors` was EMPTY because `startPanel()` caught the rejection,
+    `window.__calls` was empty because the panel never made a request, and the
+    test then failed on whatever selector it touched next with no mention of the
+    panel having never started. Across the converted fixtures that is a silent
+    pass at every call site.
+
+    So it ends the wait by FAILING, with the reason the mark carries.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed',"
+                   " {detail: {message: 'the shell never wired'}})</script>",
+                   "failed.html")
+    try:
+        with pytest.raises(Exception, match="the shell never wired"):
+            harness.wait_until_settled(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path):
+    """The same contract in the other helper, which had no test of its own until
+    a single-dimension review removed its `startup-failed` arm and watched 289
+    tests stay green."""
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed',"
+                   " {detail: {message: 'the shell never wired'}})</script>",
+                   "failed-interactive.html")
+    try:
+        with pytest.raises(Exception, match="the shell never wired"):
+            harness.wait_until_interactive(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_the_interactive_wait_ends_on_the_mark_it_names(browser, tmp_path):
+    """The literal at `panel_harness.py:968` is the whole subject of that helper's
+    docstring, and until this it was bound by nothing.
+
+    Its only other test drives a page carrying `startup-failed` alone, which ends
+    the wait through the refusal arm both helpers share -- so it passes for EVERY
+    possible value of the mark name. A merge gate demonstrated it: set the literal
+    to `shell-interactive`, the spelling the docstring above it calls THE MISTAKE,
+    and all three tests that touch the helper stayed green, 30 of 30.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:account-check-start')</script>",
+                   "interactive.html")
+    try:
+        harness.wait_until_interactive(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_the_interactive_wait_does_not_end_on_the_mark_it_used_to_wait_on(browser, tmp_path):
+    """The other half of the same binding, aimed at the regression by name.
+
+    `shell-interactive` fires from `wireStartupShell()` BEFORE `init()` awaits its
+    paint opportunity, so a barrier keyed on it can return before `loadAccount()`
+    has called `setChecking(true)` -- and the two tests of that transient then
+    assert the shipped markup defaults and pass while testing nothing. This page
+    carries that mark and nothing else: the wait must refuse it.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:shell-interactive')</script>",
+                   "shell-only.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_interactive(page, timeout=800)
+    finally:
+        page.close()
+
+
+def test_the_idle_wait_ends_on_the_mark_it_names(browser, tmp_path):
+    """The third barrier's literal, bound the way round 3 said the second one was not.
+
+    `tools/panel_harness.py`'s `wait_until_idle_work_done` waits on
+    `scrapex:idle-work-done`. Without this the name is held in place by nothing and
+    could drift to any spelling while every test stayed green -- which is exactly
+    what a merge gate demonstrated about `account-check-start`.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:idle-work-done')</script>",
+                   "idle.html")
+    try:
+        harness.wait_until_idle_work_done(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_the_idle_wait_does_not_end_on_the_settled_mark(browser, tmp_path):
+    """The distinction the whole barrier exists for, as a test.
+
+    `fully-settled` fires from the account and engine promises; the deferred phase
+    -- `ScrapeXAppearance.connect`, `ScrapeXTime.connect`, `reattachToRunningJob` --
+    runs AFTER it, in an `afterIdle` callback. A page carrying only `fully-settled`
+    must NOT satisfy this wait, or two tests reading `ScrapeXTime.get().zone` go
+    back to reading an empty string.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled')</script>",
+                   "settled-only.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_idle_work_done(page, timeout=800)
+    finally:
+        page.close()
+
+
+def test_the_panel_emits_the_idle_mark_the_third_barrier_waits_on():
+    """The synthetic pages above prove the helper's rule; this ties its name to the
+    panel's. A rename in `extension/app.js` alone would leave both of them green and
+    every `ready="idle"` fixture waiting five seconds for a mark nobody fires."""
+    app = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    assert 'markStartup("idle-work-done"' in app, (
+        "extension/app.js no longer emits `idle-work-done`, which "
+        "tools/panel_harness.py's wait_until_idle_work_done blocks on.")
+    assert app.index('markStartup("idle-work-done"') > app.index("afterIdle("), (
+        "the mark must fire inside the deferred callback -- emitted before it, it "
+        "says the deferred work is done while it has not started.")
+
+
+def test_the_real_panel_emits_the_mark_the_harness_refuses_on(browser, tmp_path):
+    """Every test above drives a SYNTHETIC page, so none of them binds the name
+    `tools/panel_harness.py` watches for to the name `extension/app.js` emits.
+
+    Counted rather than numbered on purpose: this sentence said "the three tests
+    above" and a later commit inserted two more directly above it without noticing.
+
+    A merge gate named the surviving mutation: rename `markStartup("startup-failed"
+    ...)` in the panel and every one of those tests stays green while both helpers
+    silently lose the arm that refuses a dead panel. `fully-settled` and
+    `account-check-start` are already bound to the real panel by the mark-ordering
+    test above; `startup-failed` is not, because it fires only on failure.
+
+    So this breaks the real panel and watches the real refusal. `wireStartupShell()`
+    opens by wiring `#signin`, so a page whose signin button has been renamed makes
+    `init()` reject, `startPanel()` catch it, and the mark carry the reason -- the
+    exact sequence the gate demonstrated.
+    """
+    page_file = harness.build_page(tmp_path, harness.stub(), name="broken.html")
+    markup = page_file.read_text(encoding="utf-8")
+    assert markup.count('id="signin"') == 1, (
+        "the page no longer carries exactly one #signin, so this test is breaking "
+        "something other than the shell's first statement")
+    page_file.write_text(markup.replace('id="signin"', 'id="signin-renamed"'),
+                         encoding="utf-8")
+
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.goto(page_file.as_uri())
+        with pytest.raises(AssertionError, match="failed to start"):
+            harness.wait_until_settled(page, timeout=5_000)
+        # AND THE REASON CAME FROM THE PANEL, not from the harness's own wording:
+        # `startPanel()` catches the rejection, so `pageerror` never fires and the
+        # message exists nowhere else a test can reach.
+        detail = page.evaluate(
+            "() => performance.getEntriesByName('scrapex:startup-failed')[0]"
+            "?.detail?.message ?? null")
+        assert detail and "addEventListener" in detail, (
+            f"the panel marked a failure without saying what it was: {detail!r}")
+    finally:
+        page.close()
+
+
+def test_a_failure_with_no_reason_is_still_refused(browser, tmp_path):
+    """A mark carrying no `detail` must not read as success.
+
+    A first draft keyed the refusal on `detail.message` and passed silently on a
+    bare `performance.mark(...)` — green against a helper written to refuse it.
+    The mark's PRESENCE decides; the message is only what the reader is told.
+    """
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:startup-failed')</script>",
+                   "failed-bare.html")
+    try:
+        with pytest.raises(Exception, match="unknown"):
+            harness.wait_until_settled(page, timeout=2_000)
+    finally:
+        page.close()
+
+
+def test_a_panel_that_never_settles_raises_rather_than_passing(browser, tmp_path):
+    """The third state: `init()` returns early on a cancelled paint opportunity
+    and fires NEITHER mark. There is nothing to wait for, and the wait must say
+    so instead of returning — a helper that gave up quietly would put every
+    fixture back to guessing."""
+    page = _marked(browser, tmp_path, "<p>no marks at all</p>", "silent.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_settled(page, timeout=1_000)
+    finally:
+        page.close()
+
+
+def test_a_mark_that_merely_starts_the_same_way_does_not_end_it(browser, tmp_path):
+    """`getEntriesByName` is exact, and this pins that it stays exact: a prefix
+    match would let any future `scrapex:fully-settled-*` mark end the wait early,
+    which is the quiet kind of wrong this whole change is removing."""
+    page = _marked(browser, tmp_path,
+                   "<script>performance.mark('scrapex:fully-settled-ish')</script>",
+                   "near.html")
+    try:
+        with pytest.raises(Exception, match="imeout"):
+            harness.wait_until_settled(page, timeout=800)
+    finally:
+        page.close()

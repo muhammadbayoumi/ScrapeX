@@ -973,3 +973,129 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"{engine_js}\n{backend_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page
+
+
+def wait_until_settled(page, timeout: int = 5_000) -> None:
+    """Block until the panel has finished booting, instead of sleeping past it.
+
+    WHAT IT REPLACED, AND BY HOW MUCH. Every fixture that opened this page used
+    to follow `page.goto()` with `wait_for_timeout(500)`. Measured 2026-09-11 on
+    `e868486`, twelve samples of the real stub page: after `goto()` RETURNS the
+    panel settles in a median of **16.6ms** (min 15.6, max 112.3). `goto()`
+    already waits for `load`, and the marks put `load` at 53ms and
+    `fully-settled` at 60ms from navigation start, so the sleep began after the
+    work was essentially done and overshot by ~483ms every time. Across the three
+    fixtures that opened the panel that was 130.5s of a 224.8s sleep bill (#648).
+
+    EITHER MARK ENDS THE WAIT, and waiting for `fully-settled` alone would hang
+    on a real path. `extension/app.js` fires it from `Promise.allSettled`, so a
+    down engine or a refused account still settles — but `init()` throwing fires
+    `startup-failed` instead, and a cancelled paint opportunity returns early
+    firing NEITHER. The first two are states a test may legitimately stub; the
+    third is why this keeps a bounded timeout and raises rather than waiting on.
+
+    A TIMEOUT HERE IS A REAL FAILURE, not a slow machine. The margin is 5s
+    against a measured 112ms worst case — a factor of 44 — so a test that trips
+    it has a panel that never finished booting, which is the thing worth knowing.
+
+    `tests/test_panel_startup.py` keeps its own `_wait_for_mark`: it asserts on
+    individual marks by name and on their number, which is a different question
+    from "is the panel ready", and merging them would make one helper serve two.
+    """
+    _wait_for_either(page, "fully-settled", timeout)
+
+
+def wait_until_interactive(page, timeout: int = 5_000) -> None:
+    """Block until the shell is usable, WITHOUT waiting for the slow work behind it.
+
+    A test that stubs a delayed answer -- `signin_delay_ms=1200` -- is asking to
+    see the panel while that answer is still in flight, and `wait_until_settled`
+    is the wrong wait for it: `fully-settled` fires from
+    `Promise.allSettled([accountPromise, enginePromise])`, so it lands AFTER the
+    delay it was stubbed to outlast, and the transient state is gone by the time
+    the fixture returns. Measured: two tests went red that way, both of them
+    tests OF the transient -- `test_the_profile_card_shows_checking_while_chrome_answers`
+    and `test_the_initial_state_is_checking_then_resolves_to_signed_out`.
+
+    `account-check-start` IS THE MARK, AND `shell-interactive` WAS THE MISTAKE.
+    The first version of this helper waited on `shell-interactive`, which
+    `wireStartupShell()` fires BEFORE `init()` awaits its paint opportunity --
+    while `loadAccount()` marks `account-check-start` and only then calls
+    `setChecking(true)`. Measured: `shell-interactive` at 77-83ms against
+    `account-check-start` at 79-197ms, so the barrier could return before the
+    panel had entered the state under test. Both assertions in those two tests are
+    the SHIPPED MARKUP DEFAULTS, so they stayed green while testing nothing.
+
+    Named by mutation -- invert `setChecking(true)` to `setChecking(false)`, the
+    exact state those tests are named for:
+
+        the 500ms sleep this replaced   mutant passed  0/10
+        the shell-interactive barrier   mutant passed  3/10
+        this one                        mutant passed  0/10
+
+    So the barrier is stronger than the sleep it replaces, not merely faster.
+
+    `startup-failed` ends this wait too -- see `_wait_for_either`, which is where
+    both helpers decide what a failed start means.
+    """
+    _wait_for_either(page, "account-check-start", timeout)
+
+
+def wait_until_idle_work_done(page, timeout: int = 5_000) -> None:
+    """Block until the deferred phase has finished, not merely until startup has.
+
+    `fully-settled` FIRES BEFORE THE PANEL HAS FINISHED. It comes from
+    `Promise.allSettled([accountPromise, enginePromise])`, and
+    `scheduleNonCriticalStartup` then runs `ScrapeXAppearance.connect`,
+    `ScrapeXTime.connect` and `reattachToRunningJob` in an `afterIdle` callback
+    afterwards. A test that reads any of those needs this wait, not the settled one.
+
+    MEASURED, AND THE REASON THIS EXISTS: replacing the fixture's flat
+    `wait_for_timeout(500)` with `wait_until_settled` turned
+    `test_a_zone_saved_on_the_other_surface_arrives_here` and
+    `test_an_invalid_zone_falls_back_down_the_chain_and_says_which_step` red in CI,
+    both reading `window.ScrapeXTime.get().zone` as an empty string. The sleep had
+    been covering the gap by accident and not always -- `startup.js`'s `afterIdle`
+    falls back at 750ms, which is longer than the 500 it was racing.
+    """
+    _wait_for_either(page, "idle-work-done", timeout)
+
+
+def _wait_for_either(page, mark: str, timeout: int) -> None:
+    """Wait for `mark` or for startup to fail — and RAISE if it failed.
+
+    RETURNING ON `startup-failed` WAS A SILENT PASS ACROSS EVERY CALL SITE, and a
+    merge gate demonstrated it: rename `id="signin"` in the generated page and
+    `wireStartupShell()` dies on its first statement, `init()` rejects,
+    `startPanel()` catches it (extension/app.js), and the mark is the only trace.
+    Measured on that page — the wait RETURNED after 31.0ms, `page.js_errors` was
+    empty because the rejection was caught, `window.__calls` was empty because the
+    panel never made a request, and the test then failed on whatever selector it
+    touched next with no mention of the panel having never started.
+
+    The mark carries the reason, so the reason is what gets raised: `markStartup`
+    records `{message: ...}` as the mark's `detail`, readable from Playwright.
+
+    `AssertionError`, not `pytest.fail`: `Failed` derives from BaseException, so a
+    caller writing `pytest.raises(Exception)` -- including this module's own tests
+    -- would not catch it, and neither would any `except Exception` a future
+    fixture wraps this in. Measured: all three new tests failed that way first.
+    """
+    page.wait_for_function(
+        "name => performance.getEntriesByName('scrapex:' + name).length"
+        " + performance.getEntriesByName('scrapex:startup-failed').length > 0",
+        arg=mark,
+        polling=10,
+        timeout=timeout,
+    )
+    # THE MARK'S PRESENCE DECIDES, NOT ITS MESSAGE. A first draft keyed on
+    # `detail.message` and passed silently on a mark carrying no detail -- caught
+    # because this file's own tests fire a bare `performance.mark(...)` and went
+    # green against a helper that was supposed to refuse them.
+    failed = page.evaluate(
+        "() => { const m = performance.getEntriesByName('scrapex:startup-failed');"
+        "        return m.length ? [m[0].detail?.message ?? 'unknown'] : null; }")
+    if failed is not None:
+        raise AssertionError(
+            "the panel failed to start, so this page can prove nothing about "
+            f"the product: {failed[0]}")
