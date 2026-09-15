@@ -136,7 +136,7 @@ def _healthy_or_died(process, url: str, seconds: float) -> None:
         try:
             _get(f"{url}/api/health")
             return
-        except Exception:                      # not up yet; the loop is the bound
+        except (URLError, OSError, TimeoutError):   # not up yet; the loop bounds it
             time.sleep(0.05)
     raise AssertionError(
         f"waited {seconds}s for the engine to answer at {url} and it never did, "
@@ -280,10 +280,23 @@ class Engine:
                       60, "the orphan sweep to finish")
 
     def kill(self) -> None:
-        """No handler, no finally, no flush — TerminateProcess / SIGKILL."""
+        """No handler, no finally, no flush — TerminateProcess / SIGKILL.
+
+        AND IT ASSERTS THE PROCESS IS GONE, because nothing else in this file
+        does. A merge gate neutered this method -- recording the process instead
+        of killing it -- and the whole file stayed green 5 of 5: with the shop
+        released, the engine that was never killed simply finished its own crawl,
+        the job settled, and the bounded wait accepted that. The file's docstring
+        asks whether the sweep is reached "when a real process is really killed",
+        and until this line nothing required the kill to have landed.
+        """
         if self.process and self.process.poll() is None:
             self.process.kill()
             self.process.wait(timeout=30)
+        if self.process is not None:
+            assert self.process.poll() is not None, (
+                "the engine is still running after kill(), so anything this test "
+                "says about a crash is about a crash that never happened")
 
 
 def _reclaim_marker(db: Path) -> str | None:

@@ -446,17 +446,36 @@ jobs:
         # by running in parallel, which is the number to check first when a
         # parallel suite suddenly gets fast.
         #
-        # A RUNNER IS 4 vCPU AND THIS BOX IS 24, so expect less here. The figure
-        # that settles it is this job's own duration before and after, not the
-        # one above; #654 asked for that distinction and it is kept.
+        # THE RUNNER'S SIZE IS PRINTED, NOT ASSUMED. This comment said "a runner
+        # is 4 vCPU" as if measured; it was not. `ubuntu-latest` on a PRIVATE
+        # repository is GitHub's 2-core standard runner -- 4-core is the public
+        # tier -- so `-n 4` may be oversubscribed, and that is a live question
+        # rather than a settled one. The `nproc` line below puts the answer in
+        # every run's log so the next session tunes `-n` against a fact. On the
+        # runner the job went 787s (median of five full-suite serial runs) to
+        # 563s; the dev box's 3.13x is a fact about the dev box.
         #
         # `-n 4` RATHER THAN `-n auto`: auto follows the machine, so a
         # contributor on 24 cores runs a shape CI never runs and meets failures
-        # nobody else can reproduce. `--dist loadfile` because several files
-        # assert on wall-clock margins and would tighten under three siblings
-        # sharing a 4-vCPU runner; whole files to one worker keeps each file's
-        # own timing assumptions intact.
-        run: python -m pytest -n 4 --dist loadfile
+        # nobody else can reproduce.
+        #
+        # `--dist loadfile` AND WHAT IT ACTUALLY BUYS. The reason first written
+        # here -- that wall-clock assertions "would tighten under three siblings
+        # sharing a runner" -- is false: `-n 4` fixes the worker count in BOTH
+        # modes, so `loadfile` changes WHICH tests share a worker, never how many
+        # run at once. What it does buy is module-scoped fixtures built once
+        # instead of once per worker, which for the nine browser files is a
+        # chromium launch each. Measured on the dev box, the two modes are the
+        # same wall clock (309.68s loadfile, 309.22s load).
+        #
+        # AND ITS COST, WHICH IS NOW THE BINDING ONE: under `loadfile` a file is
+        # indivisible, so the suite can never finish before its slowest file
+        # does -- and `tests/test_panel_dom.py` is very nearly the whole run.
+        # Three workers finish early and idle. Splitting that file, not changing
+        # this flag, is where the next second comes from.
+        run: |
+          echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
+          python -m pytest -n 4 --dist loadfile
 
       - name: The schema template still has a suite, and the run above skips it
         if: needs.scope.outputs.scope == 'full'

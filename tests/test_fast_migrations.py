@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import importlib
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from scrapex import db as dbmod
+
+ROOT = Path(__file__).resolve().parent.parent
 
 # `retention_policy.updated_at` defaults to strftime('%Y-%m-%dT%H:%M:%SZ','now')
 # (db/migrations/0011_retention.sql), so two HONEST migrations a second apart
@@ -217,3 +220,48 @@ def test_the_file_that_tests_migrate_itself_is_declared(schema_template):
         assert (Path(__file__).parent / f"{name}.py").is_file(), (
             f"{name} is excluded from the schema template but no such test file "
             f"exists — the exclusion is now protecting nothing")
+
+
+def test_the_alarm_still_fires_when_the_suite_runs_in_parallel(tmp_path):
+    """`STATS` is a module global and every xdist worker is its own process.
+
+    THE CONTROLLER IS THE ONLY PROCESS THAT PRINTS THE SUMMARY, and before the
+    hooks this pins, it counted zero, took the early return, and the whole line
+    -- including the "only N restores across M tests" warning that exists to
+    catch a silent 10x slowdown -- disappeared under `-n`. That is the shape this
+    file is about: a mechanism that breaks without ever going red.
+
+    Thirty-one lines of cross-process plumbing (`pytest_sessionfinish` writing
+    `workeroutput`, `pytest_testnodedown` summing it) had no guard until this. A
+    one-word drift between the two keys restores the regression silently, and a
+    merge gate demonstrated exactly that.
+
+    Run as a subprocess because the thing under test is what happens BETWEEN
+    processes; there is no in-process way to ask it.
+    """
+    import os
+    import re
+    import subprocess
+    import sys
+
+    environment = {key: value for key, value in os.environ.items()
+                   if key != "SCRAPEX_FULL_MIGRATIONS"}   # the alarm's own branch
+    environment["SCRAPEX_DATA_ROOT"] = str(tmp_path)
+
+    run = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
+         "-n", "2", "--dist", "loadfile", "tests/test_jobs.py"],
+        cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+        errors="replace", env=environment, timeout=600)
+
+    assert "schema template:" in run.stdout, (
+        "the schema-template summary did not survive `-n 2`, so the restore "
+        "alarm cannot fire under parallel workers -- the controller is counting "
+        "its own empty STATS instead of the workers'.\n"
+        f"stdout tail:\n{run.stdout[-1500:]}")
+
+    counted = re.search(r"schema template: (\d+) restored", run.stdout)
+    assert counted and int(counted.group(1)) > 0, (
+        "the summary printed but counted zero restores across two workers, "
+        "which is the same blindness one layer down: the line survives and the "
+        f"number it carries does not.\nline: {counted.group(0) if counted else None}")
