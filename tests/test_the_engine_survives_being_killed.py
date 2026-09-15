@@ -39,10 +39,16 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Enough products, answered slowly enough, that the crawl is still in flight
-# when the kill lands. A shop that answers instantly would finish before this
-# test could stage the crash, and the test would pass without ever testing it.
-SLOW_DETAIL_S = 0.6
+# A HELD SHOP, NOT A SLOW ONE. This was 12 products x a 0.6s sleep -- a 7.2s
+# budget the test raced to get its kill in, and under load the crawl won: the job
+# settled first and the run proved nothing about a crash. Measured failing twice
+# in full serial runs here, and #654 saw it again at `-n 8`, which is what a
+# fixed budget does on a machine whose speed is not fixed.
+#
+# Now the shop BLOCKS on an event the test releases, so the crawl cannot finish
+# until the test says so. Deterministic in both directions, and ~7s faster:
+# nothing sleeps.
+HOLD_TIMEOUT_S = 30
 PRODUCTS = [{"product_id": 200 + n, "product_enname": f"Slow Product {n}",
              "product_arname": f"منتج بطيء {n}", "price": 100 + n, "stock": 3}
             for n in range(12)]
@@ -50,12 +56,21 @@ BY_ID = {str(p["product_id"]): p for p in PRODUCTS}
 
 
 class _SlowShop(BaseHTTPRequestHandler):
+    """A shop that answers when it is told to, not when a clock says so."""
+
+    asked_for_a_detail = threading.Event()   # the crawl has genuinely started
+    may_answer = threading.Event()           # the test lets it finish
+
     def do_GET(self) -> None:                              # noqa: N802
         path = self.path.split("?", 1)[0]
         if path == "/api/products":
             body = {"data": PRODUCTS, "pagination": {"totalPages": 1}}
         elif path.startswith("/api/products/"):
-            time.sleep(SLOW_DETAIL_S)                      # the crawl's real cost
+            _SlowShop.asked_for_a_detail.set()
+            # Bounded, so a test that forgets to release fails as itself rather
+            # than hanging the suite. ThreadingHTTPServer gives each request its
+            # own thread, so holding one does not hold the others.
+            _SlowShop.may_answer.wait(HOLD_TIMEOUT_S)
             body = BY_ID.get(path.rsplit("/", 1)[-1])
         else:
             body = None
@@ -104,13 +119,36 @@ def _wait_for(predicate, seconds: float, what: str):
     pytest.fail(f"timed out after {seconds}s waiting for {what}")
 
 
+class _Shop:
+    """The running shop, and the two levers a test has over it."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def hold(self) -> None:
+        """Answer no detail until released -- the crawl cannot finish."""
+        _SlowShop.may_answer.clear()
+
+    def release(self) -> None:
+        _SlowShop.may_answer.set()
+
+    def wait_until_asked(self, seconds: float = 60) -> None:
+        assert _SlowShop.asked_for_a_detail.wait(seconds), (
+            "the shop was never asked for a product detail, so the crawl never "
+            "reached the work this test holds it in the middle of")
+
+
 @pytest.fixture
 def shop():
+    _SlowShop.asked_for_a_detail.clear()
+    _SlowShop.may_answer.set()               # answering by default: only the
+                                             # crash test holds it
     server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowShop)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        yield f"http://127.0.0.1:{server.server_address[1]}"
+        yield _Shop(f"http://127.0.0.1:{server.server_address[1]}")
     finally:
+        _SlowShop.may_answer.set()           # never leave a held thread behind
         server.shutdown()
         server.server_close()
 
@@ -122,7 +160,7 @@ def manifest(tmp_path, shop) -> Path:
 sources:
   - source_key: SLOWSHOP
     source_name: Slow Shop
-    base_url: {shop}
+    base_url: {shop.url}
     family: custom-json-api
     cadence: daily
     authority: shop
@@ -232,7 +270,7 @@ def _job_status(db: Path, job_ref: str) -> str:
 IN_FLIGHT = {"preparing", "running", "resuming"}
 
 
-def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest):
+def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest, shop):
     """The whole point, in one sentence: after a crash, nothing may still say
     'running' — because `_source_is_busy` reads exactly that, and a source stuck
     busy is a source that silently stops being crawled with no error anywhere."""
@@ -240,9 +278,15 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
     engine = Engine(manifest, db, _free_port())
     engine.create_database()
     engine.start()
+    # HELD, NOT RACED. Until this is released the shop answers no product
+    # detail, so the crawl physically cannot finish and the kill below always
+    # lands mid-flight. The assertion after it is therefore a statement about
+    # the engine, not about which of two clocks won.
+    shop.hold()
     try:
         job_ref = _post(f"{engine.url}/api/jobs", {"source_keys": ["SLOWSHOP"]})["job_ref"]
 
+        shop.wait_until_asked()
         _wait_for(lambda: _job_status(db, job_ref) in IN_FLIGHT, 60,
                   "the crawl to actually start")
 
@@ -252,9 +296,11 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
 
         assert _job_status(db, job_ref) in IN_FLIGHT, (
             "the job settled before the kill landed, so this run proved nothing "
-            "about a crash — the shop is answering faster than it is meant to")
+            "about a crash — and the shop was HELD, so this is no longer the "
+            "race it used to be: something else finished the job")
     finally:
         engine.kill()
+        shop.release()
 
     # And now the part that matters: start again over the same database.
     survivor = Engine(manifest, db, _free_port())
@@ -262,6 +308,16 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
     # the port. See Engine.start's docstring (OP-19).
     survivor.start(swept=True)
     try:
+        # BOUNDED WAIT, NOT AN INSTANT READ. The sweep moves the orphan to
+        # `queued` (jobs.reclaim_orphaned_jobs), and a queued job is immediately
+        # re-dispatched -- so it is legitimately `running` again moments later,
+        # and an instantaneous read catches whichever of the two it happens to
+        # land on. That read is what made this test intermittent once the crash
+        # started landing reliably. The product's promise is that the job does
+        # not stay in flight, and this is that promise.
+        _wait_for(lambda: _job_status(db, job_ref) not in IN_FLIGHT, 60,
+                  "the job to stop claiming it is running")
+
         status = _job_status(db, job_ref)
         assert status not in IN_FLIGHT, (
             f"after a crash and a restart the job still says {status!r}. "
