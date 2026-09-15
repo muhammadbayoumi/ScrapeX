@@ -49,6 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # until the test says so. Deterministic in both directions, and ~7s faster:
 # nothing sleeps.
 HOLD_TIMEOUT_S = 30
+PORT_ATTEMPTS = 3
 PRODUCTS = [{"product_id": 200 + n, "product_enname": f"Slow Product {n}",
              "product_arname": f"منتج بطيء {n}", "price": 100 + n, "stock": 3}
             for n in range(12)]
@@ -89,6 +90,14 @@ class _SlowShop(BaseHTTPRequestHandler):
 
 
 def _free_port() -> int:
+    """A port that was free a moment ago -- which is not the same as free now.
+
+    The socket is closed before the child binds it, and under `pytest-xdist` a
+    sibling worker can be handed the same number inside that window (#654 names
+    this). There is no way to hand an already-bound socket to `scrapex.cli ui`,
+    so `Engine.start` retries instead: the window cannot be closed, but losing
+    it costs a second rather than a red suite.
+    """
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -104,6 +113,16 @@ def _post(url: str, payload: dict, timeout: float = 10.0):
                       headers={"Content-Type": "application/json"}, method="POST")
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _died_within(process, seconds: float) -> str | None:
+    """The process's output if it exited inside `seconds`, else None."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return (process.stdout.read() if process.stdout else "") or "(no output)"
+        time.sleep(0.05)
+    return None
 
 
 def _wait_for(predicate, seconds: float, what: str):
@@ -180,13 +199,17 @@ sources:
 class Engine:
     """The engine as a process, because that is the only thing you can kill."""
 
-    def __init__(self, manifest: Path, db: Path, port: int) -> None:
+    def __init__(self, manifest: Path, db: Path) -> None:
         self._db = str(db)
-        self._args = [sys.executable, "-m", "scrapex.cli", "ui",
-                      "--port", str(port), "--no-open", "--db", str(db)]
         self._env = dict(os.environ, SCRAPEX_SOURCES=str(manifest))
-        self.url = f"http://127.0.0.1:{port}"
         self.process: subprocess.Popen | None = None
+        self._take_a_port()
+
+    def _take_a_port(self) -> None:
+        port = _free_port()
+        self._args = [sys.executable, "-m", "scrapex.cli", "ui",
+                      "--port", str(port), "--no-open", "--db", self._db]
+        self.url = f"http://127.0.0.1:{port}"
 
     def create_database(self) -> None:
         """`ui --db` REFUSES a path that does not exist, on purpose — it will not
@@ -217,9 +240,22 @@ class Engine:
         which cannot pass early on a fast machine or fail late on a slow one.
         """
         started = _reclaim_marker(self._db)
-        self.process = subprocess.Popen(
-            self._args, cwd=str(ROOT), env=self._env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for attempt in range(PORT_ATTEMPTS):
+            self.process = subprocess.Popen(
+                self._args, cwd=str(ROOT), env=self._env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # A LOST PORT RACE EXITS AT ONCE; a healthy engine is still alive.
+            # Told apart by the process, not by a clock: waiting 90s for health
+            # on a process that died two seconds ago reports "the engine never
+            # answered" for what is really "something else already had 51423".
+            died = _died_within(self.process, 2.0)
+            if died is None:
+                break
+            if attempt == PORT_ATTEMPTS - 1:
+                raise AssertionError(
+                    f"the engine exited {PORT_ATTEMPTS} times before answering; "
+                    f"last output: {died}")
+            self._take_a_port()
         _wait_for(lambda: _get(f"{self.url}/api/health"), 90, "the engine to answer")
         if swept:
             _wait_for(lambda: _reclaim_marker(self._db) not in (None, started),
@@ -275,7 +311,7 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
     'running' — because `_source_is_busy` reads exactly that, and a source stuck
     busy is a source that silently stops being crawled with no error anywhere."""
     db = tmp_path / "engine.db"
-    engine = Engine(manifest, db, _free_port())
+    engine = Engine(manifest, db)
     engine.create_database()
     engine.start()
     # HELD, NOT RACED. Until this is released the shop answers no product
@@ -303,7 +339,7 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
         shop.release()
 
     # And now the part that matters: start again over the same database.
-    survivor = Engine(manifest, db, _free_port())
+    survivor = Engine(manifest, db)
     # The sweep is the thing under test here, so wait for IT rather than for
     # the port. See Engine.start's docstring (OP-19).
     survivor.start(swept=True)
@@ -341,7 +377,7 @@ def test_the_database_still_answers_after_the_kill(tmp_path, manifest):
     database.
     """
     db = tmp_path / "engine.db"
-    engine = Engine(manifest, db, _free_port())
+    engine = Engine(manifest, db)
     engine.create_database()
     engine.start()
     try:
