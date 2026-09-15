@@ -434,7 +434,29 @@ jobs:
         # would reach that step too and silence them where nothing would notice.
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
-        run: python -m pytest -q
+        # `-n 4 --dist loadfile`, and both halves are measured rather than chosen.
+        #
+        # MEASURED HERE, same tree, same machine, back to back with the engine
+        # running in both arms, so the two saw the same load:
+        #
+        #     serial                    970.27s   4016 passed, 11 skipped, 0 failed
+        #     -n 4 --dist loadfile      309.68s   4016 passed, 11 skipped, 0 failed
+        #
+        # 3.13x, and the counts are IDENTICAL -- nothing was dropped or skipped
+        # by running in parallel, which is the number to check first when a
+        # parallel suite suddenly gets fast.
+        #
+        # A RUNNER IS 4 vCPU AND THIS BOX IS 24, so expect less here. The figure
+        # that settles it is this job's own duration before and after, not the
+        # one above; #654 asked for that distinction and it is kept.
+        #
+        # `-n 4` RATHER THAN `-n auto`: auto follows the machine, so a
+        # contributor on 24 cores runs a shape CI never runs and meets failures
+        # nobody else can reproduce. `--dist loadfile` because several files
+        # assert on wall-clock margins and would tighten under three siblings
+        # sharing a 4-vCPU runner; whole files to one worker keeps each file's
+        # own timing assumptions intact.
+        run: python -m pytest -n 4 --dist loadfile
 
       - name: The schema template still has a suite, and the run above skips it
         if: needs.scope.outputs.scope == 'full'
