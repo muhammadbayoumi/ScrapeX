@@ -115,14 +115,32 @@ def _post(url: str, payload: dict, timeout: float = 10.0):
         return json.loads(response.read().decode("utf-8"))
 
 
-def _died_within(process, seconds: float) -> str | None:
-    """The process's output if it exited inside `seconds`, else None."""
+class _EngineExited(Exception):
+    """The process died instead of answering -- carries what it printed."""
+
+
+def _healthy_or_died(process, url: str, seconds: float) -> None:
+    """Wait for the engine to answer, or raise saying why it never will.
+
+    RACED, NOT SEQUENCED. The first version waited a flat 2.0s to see whether the
+    process died and only THEN began asking for health -- so every healthy start,
+    which is every start in every green run, paid two seconds to learn nothing.
+    Three starts in this file, six seconds a run. Found by an audit of the suite's
+    own cost, not by a failure, which is why it survived review: it was never red.
+    """
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            return (process.stdout.read() if process.stdout else "") or "(no output)"
-        time.sleep(0.05)
-    return None
+            raise _EngineExited(
+                (process.stdout.read() if process.stdout else "") or "(no output)")
+        try:
+            _get(f"{url}/api/health")
+            return
+        except Exception:                      # not up yet; the loop is the bound
+            time.sleep(0.05)
+    raise AssertionError(
+        f"waited {seconds}s for the engine to answer at {url} and it never did, "
+        "and it is still running -- so this is not a lost port race")
 
 
 def _wait_for(predicate, seconds: float, what: str):
@@ -248,15 +266,15 @@ class Engine:
             # Told apart by the process, not by a clock: waiting 90s for health
             # on a process that died two seconds ago reports "the engine never
             # answered" for what is really "something else already had 51423".
-            died = _died_within(self.process, 2.0)
-            if died is None:
+            try:
+                _healthy_or_died(self.process, self.url, 90)
                 break
-            if attempt == PORT_ATTEMPTS - 1:
-                raise AssertionError(
-                    f"the engine exited {PORT_ATTEMPTS} times before answering; "
-                    f"last output: {died}")
-            self._take_a_port()
-        _wait_for(lambda: _get(f"{self.url}/api/health"), 90, "the engine to answer")
+            except _EngineExited as exited:
+                if attempt == PORT_ATTEMPTS - 1:
+                    raise AssertionError(
+                        f"the engine exited {PORT_ATTEMPTS} times before "
+                        f"answering; last output: {exited}") from exited
+                self._take_a_port()
         if swept:
             _wait_for(lambda: _reclaim_marker(self._db) not in (None, started),
                       60, "the orphan sweep to finish")
@@ -290,6 +308,33 @@ def _reclaim_marker(db: Path) -> str | None:
         return None
     finally:
         conn.close()
+
+
+def _settled_status(db: Path, job_ref: str, seconds: float) -> str:
+    """The status the job had the moment it stopped claiming to be in flight.
+
+    BOUNDED WAIT, NOT AN INSTANT READ. `reclaim_orphaned_jobs` moves the orphan to
+    `queued`, and a queued job is re-dispatched at once -- so it is legitimately
+    `running` again moments later. An instantaneous read caught whichever of the
+    two it landed on, which is what made this test intermittent once the crash
+    started landing reliably.
+
+    AND IT RETURNS WHAT THE WAIT SAW. Reading the status a second time after the
+    wait re-opens exactly the race the wait closed: the value that satisfied it can
+    already be stale by the next statement, and the assertion then fails on correct
+    behaviour. Found by an audit, not by a failure.
+    """
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        status = _job_status(db, job_ref)
+        if status not in IN_FLIGHT:
+            return status
+        time.sleep(0.1)
+    raise AssertionError(
+        f"after a crash and a restart the job still says "
+        f"{_job_status(db, job_ref)!r} {seconds}s later. _source_is_busy reads "
+        "this, so SLOWSHOP is now blocked from every future crawl and nothing "
+        "anywhere says why")
 
 
 def _job_status(db: Path, job_ref: str) -> str:
@@ -344,21 +389,9 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
     # the port. See Engine.start's docstring (OP-19).
     survivor.start(swept=True)
     try:
-        # BOUNDED WAIT, NOT AN INSTANT READ. The sweep moves the orphan to
-        # `queued` (jobs.reclaim_orphaned_jobs), and a queued job is immediately
-        # re-dispatched -- so it is legitimately `running` again moments later,
-        # and an instantaneous read catches whichever of the two it happens to
-        # land on. That read is what made this test intermittent once the crash
-        # started landing reliably. The product's promise is that the job does
-        # not stay in flight, and this is that promise.
-        _wait_for(lambda: _job_status(db, job_ref) not in IN_FLIGHT, 60,
-                  "the job to stop claiming it is running")
-
-        status = _job_status(db, job_ref)
-        assert status not in IN_FLIGHT, (
-            f"after a crash and a restart the job still says {status!r}. "
-            "_source_is_busy reads this, so SLOWSHOP is now blocked from every "
-            "future crawl and nothing anywhere says why")
+        # Raises with the whole finding if it never settles. ONE READ, not a wait
+        # followed by a second read -- see _settled_status.
+        _settled_status(db, job_ref, 60)
 
         # It must also still be READABLE — a hard kill over an open connection
         # is where a corrupt database would show, and asking for the job list is
