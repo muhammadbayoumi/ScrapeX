@@ -3513,6 +3513,38 @@ def create_app(
             except OSError:
                 pass
 
+    def _land_fetched_bundle(partial: Path, archive: Path, folder: Path,
+                             total: int) -> dict:
+        """Turn a `.part` already PROVED to be the archive into the archive.
+
+        ONE LANDING, TWO ENTRANCES. A transfer lands here on its last chunk, and
+        a `.part` an engine was killed beside lands here on the press that finds
+        it at full length -- the same rename, the same retention bound, the same
+        four keys. Two copies of it meant `keep=1` was enforced twice and pinned
+        once: deleting the prune from the second copy left the whole suite green.
+
+        AND A RENAME IS NOT A WRITE, which is why it is lifted out of the caller's
+        `except OSError`. That arm deletes the `.part` and reports that a piece
+        could not be written -- correct for the append it was derived for, and
+        inverted here: the digest matched one line ago, so this file IS his
+        backup, and hashing 625 MB is exactly what wakes a scanner or a sync
+        client whose handle makes `replace` raise on Windows. Losing the whole
+        transfer to that, on the machine he is restoring onto, and calling it a
+        piece that could not be written -- about a press that carried no bytes at
+        all. The bytes stay where they are and the next press finishes the job.
+        """
+        try:
+            partial.replace(archive)
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(f"The backup arrived complete and verified, and could "
+                        f"not be renamed into place: {exc}. Every byte is still "
+                        f"here as {partial.name} -- press again to finish it."))
+        _prune_fetched_bundles(folder)
+        return {"received": total, "total": total, "complete": True,
+                "name": archive.name, "already_here": False}
+
     def _sweep_orphan_staging(folder: Path) -> None:
         """Remove staging trees left by a build that never reached its `finally`.
 
@@ -3885,10 +3917,7 @@ def create_app(
                 # on his own disk. The pruner's docstring names this state, six
                 # hours later; this ends it on the next press.
                 if bundle.sha256_of(partial) == sha256:
-                    partial.replace(archive)
-                    _prune_fetched_bundles(folder)
-                    return {"received": total, "total": total, "complete": True,
-                            "name": archive.name, "already_here": False}
+                    return _land_fetched_bundle(partial, archive, folder, total)
                 partial.unlink(missing_ok=True)
                 have = 0
             # A QUESTION CHANGES NOTHING, and this one used to change everything:
@@ -3946,10 +3975,7 @@ def create_app(
                     detail=("The backup arrived complete and does not match the "
                             "digest Drive recorded for it, so it was discarded. "
                             "Press again."))
-            partial.replace(archive)
-            _prune_fetched_bundles(folder)
-            return {"received": received, "total": total, "complete": True,
-                    "name": archive.name, "already_here": False}
+            return _land_fetched_bundle(partial, archive, folder, total)
         except OSError as exc:
             partial.unlink(missing_ok=True)
             raise HTTPException(

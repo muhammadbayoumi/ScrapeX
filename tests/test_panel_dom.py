@@ -7397,11 +7397,17 @@ def test_the_fetch_button_is_drawn_wired_and_answers_where_it_was_pressed(open_p
 
     page.click("#drive-fetch")
     # THE VERDICT, NOT THE TRANSIENT. `runGoogleAction` writes "Fetching the
-    # backup from Drive…" into this same line before the action runs, so
-    # waiting for the first non-empty text reads the working sentence and any
-    # answer at all would pass -- including the `undefined` one the merge gate
-    # caught. `out()` wraps a failure in `span.err` and a success in `span.ok`,
-    # so the class is what says the run is over and which way it went.
+    # backup from Drive…" into this same line before the action runs, so waiting
+    # for the first non-empty text reads the working sentence and asserts about a
+    # run that has not finished. `out()` wraps a failure in `span.err`, so that
+    # class is what says this one is over -- and here the verdict is always a
+    # failure, because Drive is left unstubbed on purpose.
+    #
+    # WHICH IS ALSO WHAT THIS TEST CANNOT REACH. The sentence the merge gate
+    # caught reporting `undefined` is the SUCCESS one, and it is never drawn in
+    # this harness. It is guarded where it can be run, over the real app.js:
+    # `extension/tests/the-backup-comes-back-in-pieces.test.mjs`, "the sentence
+    # the panel ends on names the file that landed".
     page.wait_for_selector("#drive-msg span.err", timeout=15000)
     page.wait_for_function(
         "() => !document.querySelector('#drive-fetch').disabled", timeout=15000)
@@ -7409,8 +7415,8 @@ def test_the_fetch_button_is_drawn_wired_and_answers_where_it_was_pressed(open_p
     said = page.inner_text("#drive-msg").strip()
     assert said, "the button ran and said nothing on the screen it was pressed from"
     assert "undefined" not in said, (
-        "the fetch reported a name it does not have, which is exactly what the "
-        f"merge gate caught: {said!r}")
+        "the refusal was assembled out of something the panel does not have: "
+        f"{said!r}")
     assert not page.eval_on_selector("#drive-backup", "b => b.disabled"), (
         "the row it disabled was never given back")
 

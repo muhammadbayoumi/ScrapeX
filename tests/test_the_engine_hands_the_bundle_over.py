@@ -1106,3 +1106,94 @@ def test_a_transfer_in_flight_survives_a_bundle_build(client):
     rest = _send(connected, body[half:], sha, offset=half, total=len(body))
     assert rest.status_code == 200, rest.text
     assert rest.json()["complete"] is True
+
+
+def _rename_refused(monkeypatch):
+    """Windows, one second after the digest read the whole file: a scanner or a
+    sync client still holds it and the rename raises. Only a `.part` is made to
+    fail, so nothing else the route or the build does is disturbed.
+
+    Returned as a switch rather than undone with `monkeypatch.undo()`, which
+    would also lift the `backup_folder` patch this whole file runs under and
+    point the next press at the owner's real backup folder.
+    """
+    refusing = {"on": True}
+    real = Path.replace
+
+    def held(self, target):
+        if refusing["on"] and self.suffix == bundle.PARTIAL_SUFFIX:
+            raise PermissionError(13, "The process cannot access the file")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", held)
+    return refusing
+
+
+def test_a_rename_that_fails_keeps_the_backup_that_was_proved(client, monkeypatch):
+    """THE ONE PRESS THAT COULD DESTROY 625 MB. The last chunk of a transfer
+    lands under an `except OSError` that deletes the `.part` and says a piece
+    could not be written -- and by then the digest has matched, so those bytes
+    ARE his backup. A rename is not a write, and a transient refusal must cost
+    a press, not the transfer."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+
+    refusing = _rename_refused(monkeypatch)
+    refused = _send(connected, body, sha, offset=0, total=len(body))
+
+    assert refused.status_code == 409, refused.text
+    said = refused.json()["detail"]
+    assert "could not be written" not in said, (
+        f"a rename was reported as a failed write: {said!r}")
+    assert partial.name in said, said
+    assert partial.read_bytes() == body, "the proved archive was deleted"
+
+    refusing["on"] = False
+    sealed = _send(connected, b"", sha, offset=0, total=len(body))
+    assert sealed.status_code == 200, sealed.text
+    assert (backups / sealed.json()["name"]).read_bytes() == body
+
+
+def test_a_rename_that_fails_on_the_healing_press_keeps_it_too(client, monkeypatch):
+    """The second entrance to the same landing: the press that finds a full
+    `.part` a killed engine left behind. This one is the commit's own, and it is
+    the press written to HEAL that state -- it must never be the press that ends
+    it."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(body)
+
+    _rename_refused(monkeypatch)
+    refused = _send(connected, b"", sha, offset=0, total=len(body))
+
+    assert refused.status_code == 409, refused.text
+    assert "could not be written" not in refused.json()["detail"]
+    assert partial.read_bytes() == body, (
+        "the healing press deleted the bytes it had just verified")
+
+
+def test_the_healing_press_keeps_one_fetched_archive_like_every_other_landing(
+        client):
+    """`keep=1` is why a fetched archive does not accumulate at 625 MB a copy,
+    and the press that seals a `.part` is a second place that has to enforce it.
+    It enforces it by landing the same way, which is what this asserts from the
+    outside."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    older = _send(connected, body, sha, offset=0).json()["name"]
+    # Older by the clock as well as by the order, because the pruner sorts by
+    # mtime and a landing that happens in the same tick is a coin toss.
+    os.utime(backups / older, (0, 0))
+
+    other = body + b"a second backup"
+    other_sha = hashlib.sha256(other).hexdigest()
+    (backups / f"from-drive-{other_sha[:16]}.zip.part").write_bytes(other)
+    sealed = _send(connected, b"", other_sha, offset=0, total=len(other))
+    assert sealed.status_code == 200, sealed.text
+
+    kept = sorted(p.name for p in backups.glob("from-drive-*.zip"))
+    assert kept == [sealed.json()["name"]], (
+        f"the sealed landing left fetched archives unbounded: {kept}")
+    assert not (backups / older).exists()

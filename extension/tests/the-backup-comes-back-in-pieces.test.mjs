@@ -8,6 +8,9 @@
 
 import {test} from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {fileURLToPath} from "node:url";
+import {dirname, join} from "node:path";
 
 import {
   readLatestInPieces, BUNDLE_FORMAT, LATEST,
@@ -404,4 +407,79 @@ test("Google's own refusal keeps its kind and stops the read", async () => {
     });
   assert.ok(engine.at() > 0 && engine.at() < ARCHIVE.length,
             "the read neither started nor stopped where the refusal happened");
+});
+
+// THE SENTENCE HE READS WHEN IT WORKS, which nothing in this repository ran.
+//
+// The first merge-gate pass caught the panel reporting `Fetched 0.0 MB as
+// undefined` -- a success sentence built from a reply that carried no name --
+// and the guard written for it was a DOM test that leaves Drive unstubbed, so
+// every run there ends in the failure branch and the success sentence is never
+// drawn. The third pass proved it: `as ${landed.name}` could be replaced with
+// `as ${undefined}` in `extension/app.js` and the whole repository stayed green.
+//
+// Read out of app.js rather than imported, the way `escaping.test.mjs` reads
+// `esc()`: app.js is the panel's entry point and touches chrome.* at module
+// scope. Reading the two lines under test keeps this honest -- if they move,
+// this fails loudly instead of testing a copy that has drifted.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PANEL = readFileSync(join(HERE, "..", "app.js"), "utf8");
+
+function loadTheSentences() {
+  const found = PANEL.match(
+    // `\r?\n`, because `.gitattributes` stores LF and Windows checks out CRLF:
+    // a guard that reads the panel's own source has to read it on both.
+    /async function fetchBackupFromDrive[^]*?\r?\n(  if \(landed\.already_here\) \{[^]*?)\r?\n\}/);
+  assert.ok(found,
+    "fetchBackupFromDrive no longer ends with the two sentences this reads");
+  // eslint-disable-next-line no-new-func
+  return new Function("landed", "fmtMegabytes", found[1]);
+}
+
+const sentences = loadTheSentences();
+// The panel's own formatter, read the same way, so the size in the sentence
+// is its arithmetic rather than this file's idea of it.
+function loadMegabytes() {
+  const found = PANEL.match(/function fmtMegabytes\(n\) \{\r?\n([^]*?)\r?\n\}/);
+  assert.ok(found, "fmtMegabytes is no longer where this guard reads it from");
+  // eslint-disable-next-line no-new-func
+  return new Function("n", found[1]);
+}
+
+const megabytes = loadMegabytes();
+
+test("the sentence the panel ends on names the file that landed", () => {
+  const said = sentences(
+    {complete: true, received: 4194304, total: 4194304,
+     name: "from-drive-1a2b3c4d5e6f7a8b.zip", already_here: false},
+    megabytes);
+
+  assert.match(said, /from-drive-1a2b3c4d5e6f7a8b\.zip/,
+    `the fetch did not say what it made: ${said}`);
+  assert.ok(!said.includes("undefined"),
+    `the panel reported a value it does not have: ${said}`);
+  assert.match(said, /^Fetched 4\.0 MB as /, said);
+});
+
+test("a backup already on this computer is named too, not called undefined", () => {
+  const said = sentences(
+    {complete: true, received: 10, total: 10,
+     name: "from-drive-00112233445566aa.zip", already_here: true},
+    megabytes);
+
+  assert.match(said, /already on this computer as from-drive-00112233445566aa\.zip/,
+    said);
+  assert.ok(!said.includes("undefined"), said);
+});
+
+test("both sentences send him to the card that unpacks it", () => {
+  // The fetch leaves an archive; only `adopt-bundle` turns it into a warehouse.
+  // A sentence that stops at "Fetched 597.0 MB" is a dead end on the day he is
+  // restoring, which is the only day this control is ever pressed.
+  for (const already_here of [true, false]) {
+    const said = sentences(
+      {complete: true, received: 1, total: 1, name: "from-drive-x.zip",
+       already_here}, megabytes);
+    assert.match(said, /Open Database and press it to unpack it\./, said);
+  }
 });
