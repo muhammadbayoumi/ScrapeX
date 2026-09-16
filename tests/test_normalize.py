@@ -35,7 +35,16 @@ def test_ascii_passes_through():
         ("SAR 168.78", Decimal("168.78")),
         ("ر.س 112.50", Decimal("112.50")),
         ("1,234", Decimal("1234")),            # single comma, 3 trailing -> thousands
-        ("12,5", Decimal("12.5")),             # single comma, 1-2 trailing -> decimal
+        # BOTH SIDES OF THE 1-2 BOUNDARY, because the comment above used to claim
+        # "1-2" while only the 1 was here. Mutation proved the cost: `<= 2` -> `< 2`
+        # publishes 12,50 as 1250 with all 4022 tests green (#967). The two-digit
+        # tail is the commonest Arabic and European price shape, so it is the row
+        # whose absence was most expensive.
+        ("12,5", Decimal("12.5")),             # single comma, 1 trailing -> decimal
+        ("12,50", Decimal("12.50")),           # 2 trailing -> decimal, the boundary
+        ("1,50", Decimal("1.50")),             # 2 trailing, one digit before it
+        ("0,75", Decimal("0.75")),             # 2 trailing, leading zero
+        ("1,2345", Decimal("12345")),          # 4 trailing -> thousands, the far side
         ("1,234,567", Decimal("1234567")),     # multi comma -> thousands
         ("820", Decimal("820")),
         ("0.004", Decimal("0.004")),           # globalpetrolprices Venezuela case
