@@ -208,6 +208,14 @@ def test_splitting_a_bilingual_brand_leaves_the_price_key_untouched():
                       "شركة الوطني للبولي اثيلين",     # Arabic only
                       "AL ZAMIL",                     # Latin, two words
                       "3M",                           # digits stay Latin
+                      # AN ARABIC TOKEN THAT DOES NOT START WITH AN ARABIC LETTER.
+                      # Every string above it did, which is the one case where
+                      # `search` and `match` agree — so `search` -> `match` at
+                      # normalize.py:286 passed this loop and the whole suite,
+                      # while `ALSWEED/السويد` came back ('', '') and the brand
+                      # vanished from the price key (#968).
+                      "(الشركة السعودية) SCC",        # opens with a bracket
+                      "ALSWEED/السويد",                # opens with Latin, one token
                       "هيونداي Hyundai Power Products"):
         arabic, latin = split_brand(published)
         assert joined_brand(arabic, latin) == published, "the split lost or reordered text"

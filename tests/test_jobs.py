@@ -714,6 +714,57 @@ def test_a_worker_failure_is_recorded_where_a_person_can_find_it(conn):
     assert "the connector exploded" in health["detail"]
 
 
+def test_the_failure_record_does_not_carry_the_failed_pass_in_with_it(warehouse):
+    """The one line that keeps a half-written crawl out of the warehouse.
+
+    `_record_failure` is handed the LIVE WORKER CONNECTION (jobs.py:1638, and
+    :1439, :1454, :1533) the moment a pass raises, and that connection is
+    holding whatever the pass had written so far — `db.connect()` leaves
+    sqlite3 in implicit-transaction mode, so the DML has an open transaction.
+    `record_worker_failure` rolls that back BEFORE its own `conn.commit()`.
+
+    Delete the rollback and the commit takes the partial pass with it: the
+    failure record still lands, so nothing looks wrong, while half a shop's
+    observations sit in the warehouse indistinguishable from a complete pass
+    and flow out through publish. Mutation left all 4022 tests green (#971).
+
+    Read back through a SECOND connection, because the writer's own would
+    report its uncommitted rows either way.
+    """
+    from scrapex.jobs import WORKER_ERROR_KEY, record_worker_failure
+
+    conn = dbmod.connect(warehouse)
+    try:
+        conn.execute("INSERT INTO scrapex_meta (key, value) VALUES (?, ?)",
+                     ("half-written-pass", "rows the failed crawl had staged"))
+        assert conn.in_transaction, (
+            "nothing is pending, so the rollback below has nothing to undo and "
+            "this test would pass against code that never rolls back")
+
+        record_worker_failure(conn, RuntimeError("the connector exploded"), fatal=False)
+    finally:
+        conn.close()
+
+    other = dbmod.connect(warehouse)
+    try:
+        landed = other.execute(
+            "SELECT COUNT(*) FROM scrapex_meta WHERE key = ?",
+            ("half-written-pass",)).fetchone()[0]
+        recorded = other.execute(
+            "SELECT COUNT(*) FROM scrapex_meta WHERE key = ?",
+            (WORKER_ERROR_KEY,)).fetchone()[0]
+    finally:
+        other.close()
+
+    assert landed == 0, (
+        "the failed pass's uncommitted rows were committed by the failure "
+        "recorder itself — a partial crawl is now in the warehouse and reads "
+        "as a complete one")
+    assert recorded == 1, (
+        "the failure record did not land, so the rollback took the report away "
+        "with what it was reporting")
+
+
 def test_a_recovered_worker_stops_showing_the_fault_it_survived(conn):
     from scrapex.jobs import (WORKER_ERROR_KEY, clear_worker_failure,
                               record_worker_failure)

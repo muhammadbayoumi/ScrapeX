@@ -153,6 +153,53 @@ def test_write_lock_releases_on_exit(tmp_path: Path):
     assert not Path(str(db_path) + ".lock").exists()
 
 
+def _expected_lock_text() -> str:
+    """What `write_lock` must have written: our pid AND our start stamp.
+
+    Every reclamation test below hand-writes its own lock file, so between them
+    they pin `_reclaim_if_stale` and nothing pins the WRITER. A mutation that
+    dropped the stamp from `db.py:480` left all 4022 tests green (#969).
+    """
+    stamp = dbmod._process_started_at(os.getpid())
+    assert stamp, "this platform gave no start stamp, so the comparison below is vacuous"
+    return f"{os.getpid()}:{stamp}"
+
+
+def test_the_lock_write_lock_writes_is_the_one_reclaim_can_judge(tmp_path: Path):
+    """End to end, with no hand-written lock file anywhere in it.
+
+    The five tests below each supply their own lock text, so all five agree with
+    `_reclaim_if_stale` about a format none of them got from `write_lock`. This
+    one closes the loop: let `write_lock` create the file, then ask
+    `_reclaim_if_stale` about that exact file with the pid forced dead. A writer
+    that emits a bare pid answers False here and the crawl is refused forever.
+    """
+    db = tmp_path / "h.db"
+    lock = Path(str(db) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+
+    with dbmod.write_lock(db, timeout_s=2.0):
+        written = lock.read_text(encoding="ascii")
+    assert not lock.exists()
+
+    # Put the writer's own bytes back and make the pid unmistakably dead. A
+    # stampless file cannot survive this: `_reclaim_if_stale` has nothing to
+    # disagree with and refuses, which is the immortal lock.
+    lock.write_text(written, encoding="ascii")
+    assert dbmod._reclaim_if_stale(lock) is False, (
+        "our own live pid with our own stamp is a genuine holder")
+
+    dead = written.split(":", 1)
+    assert len(dead) == 2 and dead[1], (
+        f"write_lock wrote {written!r}, which carries no start stamp — a recycled "
+        "pid is then indistinguishable from the original holder and the lock "
+        "never clears")
+    lock.write_text(f"{dead[0]}:000000000000", encoding="ascii")
+    assert dbmod._reclaim_if_stale(lock) is True, (
+        "same pid, a start stamp from another run: that is a dead holder")
+    assert not lock.exists()
+
+
 def test_stale_lock_from_a_dead_process_is_reclaimed(tmp_path: Path):
     """Regression: a hard-killed runtime left a lock file that bricked every
     future crawl until someone deleted it by hand."""
@@ -163,8 +210,11 @@ def test_stale_lock_from_a_dead_process_is_reclaimed(tmp_path: Path):
 
     with dbmod.write_lock(db, timeout_s=2.0):
         assert lock.exists()                            # we now own it
-        # pid:start-stamp — the stamp is what makes a RECYCLED pid detectable.
-        assert lock.read_text(encoding="ascii").split(":")[0] == str(os.getpid())
+        # pid:start-stamp — the stamp is what makes a RECYCLED pid detectable,
+        # so READ IT. `.split(":")[0]` was here, and "12345".split(":")[0] is
+        # "12345": this passed against a write_lock that emitted no stamp at
+        # all, which is the shape that bricks on pid reuse (#969).
+        assert lock.read_text(encoding="ascii") == _expected_lock_text()
     assert not lock.exists()
 
 
@@ -202,7 +252,7 @@ def test_a_recycled_pid_does_not_keep_a_dead_holders_lock(tmp_path: Path):
     lock.write_text(f"{os.getpid()}:000000000000", encoding="ascii")
 
     with dbmod.write_lock(db, timeout_s=2.0):
-        assert lock.read_text(encoding="ascii").split(":")[0] == str(os.getpid())
+        assert lock.read_text(encoding="ascii") == _expected_lock_text()
     assert not lock.exists()
 
 

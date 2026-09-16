@@ -120,10 +120,28 @@ def test_magento_end_to_end_into_warehouse():
     try:
         dbmod.migrate(conn)
         result = ingest_payloads(conn, entry, [table.to_payload()])
+
+        # THE PRODUCT'S OWN SKU, READ BACK FROM WHERE IT LANDED. This fixture
+        # already carries both shapes `_product_sku` (ingest.py:193) is written
+        # for, and eighteen end-to-end tests walk that line with a parent_sku
+        # and a differing external_sku — none of them, and nothing else in the
+        # suite, read source_product.external_sku afterwards. Swapping its two
+        # arguments left all 4022 tests green while every variable product wore
+        # one of its variations' skus (#977).
+        stored = {row[0]: row[1] for row in conn.execute(
+            "SELECT external_product_id, external_sku FROM source_product")}
     finally:
         conn.close()
     assert result.observations == 4 and result.products == 3 and result.variants == 4
     assert not result.errors
+    # NDY3Mg== is configurable: its two rows carry 120151248 and 120151848, and
+    # the product must wear neither — it wears the parent's.
+    assert stored["NDY3Mg=="] == "12015-FRP"
+    assert stored["Q0VNMg=="] == "70502001"      # 70502001-W is the variation
+    # And the fallback half of the same rule: no parent_sku, so the row's own
+    # sku IS the product's. An assertion on the parent alone would pass against
+    # a function that always returned parent_sku and dropped the fallback.
+    assert stored["Q0VNQg=="] == "CEMBOARD"
 
 
 def test_the_deepest_filing_is_the_classification_that_rides_every_row():
