@@ -223,7 +223,14 @@
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
   #view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-  #view-appearance, #view-finance, #view-settings, #view-engines {
+  #view-appearance, #view-finance, #view-settings, #view-engines,
+  /* AND #view-database, WHICH WAS IN NO ENUMERATION AND HAD NO `.view-scroll`.
+     `main` is `overflow: hidden`, so a view that does not scroll itself simply
+     ends at the fold: the owner reached this page to unpack a 625 MB backup he
+     had just fetched from Drive, and Backups -- the card the whole page exists
+     to reach -- was below the edge with no way down. Every other screen is here
+     or wraps its body; this one was missed, and nothing in the file named it. */
+  #view-database {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -237,15 +244,18 @@
     scrollbar-color: var(--muted) transparent;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar {
+      #view-appearance, #view-finance, #view-settings, #view-engines,
+      #view-database)::-webkit-scrollbar {
     width: .45rem;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar-track {
+      #view-appearance, #view-finance, #view-settings, #view-engines,
+      #view-database)::-webkit-scrollbar-track {
     background: transparent;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar-thumb {
+      #view-appearance, #view-finance, #view-settings, #view-engines,
+      #view-database)::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: var(--radius-pill);
     background: var(--muted);
@@ -2109,7 +2119,7 @@
 
   /* ---- Profile › Manage account ----------------------------------------
      Its own view section rather than a child of #view-profile, and its own
-     layout rather than a place in the nine-id enumerations near the top of this
+     layout rather than a place in the view enumerations near the top of this
      file: the header is pinned and only the body scrolls, which none of those
      screens do. */
   #view-manage-account {
