@@ -282,21 +282,16 @@ class Engine:
     def kill(self) -> None:
         """No handler, no finally, no flush — TerminateProcess / SIGKILL.
 
-        AND IT ASSERTS THE PROCESS IS GONE, because nothing else in this file
-        does. A merge gate neutered this method -- recording the process instead
-        of killing it -- and the whole file stayed green 5 of 5: with the shop
-        released, the engine that was never killed simply finished its own crawl,
-        the job settled, and the bounded wait accepted that. The file's docstring
-        asks whether the sweep is reached "when a real process is really killed",
-        and until this line nothing required the kill to have landed.
+        THE ASSERTION THAT THE KILL LANDED IS NOT HERE, AND THAT IS THE POINT.
+        A first attempt put it in this method's body -- the same body a gate's
+        mutation replaces -- so the mutation deleted the killer and the detector
+        together and the file stayed green 4 of 4. A detector produced by the
+        code it is watching detects nothing. It lives at the call site instead;
+        see `_assert_it_really_died`.
         """
         if self.process and self.process.poll() is None:
             self.process.kill()
             self.process.wait(timeout=30)
-        if self.process is not None:
-            assert self.process.poll() is not None, (
-                "the engine is still running after kill(), so anything this test "
-                "says about a crash is about a crash that never happened")
 
 
 def _reclaim_marker(db: Path) -> str | None:
@@ -323,6 +318,26 @@ def _reclaim_marker(db: Path) -> str | None:
         conn.close()
 
 
+def _assert_it_really_died(engine: Engine) -> None:
+    """The kill landed -- asserted by the test, never by `Engine.kill()`.
+
+    ROUND 1 OF A MERGE GATE NEUTERED `kill()` and this file stayed green 5 of 5:
+    with the shop released, the engine that was never killed finished its own
+    crawl, the job settled, and the bounded wait accepted that. Round 2 then
+    neutered it again and got green 4 of 4 against the first fix, because that
+    fix asserted inside `kill()` -- so the mutation removed the assertion along
+    with the kill.
+
+    The file's docstring asks whether the sweep is reached "when a real process
+    is really killed". This is the line that requires it, and it is outside the
+    method under suspicion on purpose.
+    """
+    assert engine.process is not None, "the engine was never started"
+    assert engine.process.poll() is not None, (
+        "the engine is still running, so anything this test says about a crash "
+        "is about a crash that never happened")
+
+
 def _settled_status(db: Path, job_ref: str, seconds: float) -> str:
     """The status the job had the moment it stopped claiming to be in flight.
 
@@ -338,16 +353,21 @@ def _settled_status(db: Path, job_ref: str, seconds: float) -> str:
     behaviour. Found by an audit, not by a failure.
     """
     deadline = time.monotonic() + seconds
+    seen = None
     while time.monotonic() < deadline:
-        status = _job_status(db, job_ref)
-        if status not in IN_FLIGHT:
-            return status
+        seen = _job_status(db, job_ref)
+        if seen not in IN_FLIGHT:
+            return seen
         time.sleep(0.1)
+    # THE LAST OBSERVATION, NOT A FRESH READ. The docstring above forbids a
+    # second read because the value can be stale by the next statement -- and
+    # the first version of this message then took one, inside the failure it
+    # raises. A read taken after the deadline can report a settled job in a
+    # message that says the job never settled.
     raise AssertionError(
-        f"after a crash and a restart the job still says "
-        f"{_job_status(db, job_ref)!r} {seconds}s later. _source_is_busy reads "
-        "this, so SLOWSHOP is now blocked from every future crawl and nothing "
-        "anywhere says why")
+        f"after a crash and a restart the job still said {seen!r} through "
+        f"{seconds}s of polling. _source_is_busy reads this, so SLOWSHOP is now "
+        "blocked from every future crawl and nothing anywhere says why")
 
 
 def _job_status(db: Path, job_ref: str) -> str:
@@ -387,6 +407,7 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
         # The crash. Not a shutdown — the process is destroyed where it stands,
         # holding an open SQLite connection and a half-finished crawl.
         engine.kill()
+        _assert_it_really_died(engine)
 
         assert _job_status(db, job_ref) in IN_FLIGHT, (
             "the job settled before the kill landed, so this run proved nothing "

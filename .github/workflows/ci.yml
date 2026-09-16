@@ -462,28 +462,44 @@ jobs:
         # answer is to match the machine, not to widen a budget the panel is
         # supposed to meet.
         #
-        # On the runner, `test` job wall clock: 787s serial (median of five
-        # full-suite runs), 563s and 473.87s at -n 4. The dev box's 3.13x is a
-        # fact about the dev box and does not transfer.
+        # ONE METER FOR THE WHOLE SERIES: this job's own wall clock, read from
+        # the check-run, never pytest's self-reported time. An earlier version of
+        # this comment put "563s and 473.87s" side by side -- the first is the
+        # job, the second is what pytest printed inside it -- and a merge gate
+        # caught the mix. The two differ by about 70s of checkout, install and
+        # gates, so a series that mixes them invents a speed-up.
         #
-        # `-n 4` RATHER THAN `-n auto`: auto follows the machine, so a
+        #     serial, median of five full-suite runs        787s
+        #     -n 4, first run                               563s   green
+        #     -n 4, second run                              541s   RED (below)
+        #     -n 2                                          541s   green
+        #
+        # `-n 2` IS NOT SLOWER THAN `-n 4` HERE -- same 541s, and one of them is
+        # a red check. Two cores cannot run four workers faster than two; the
+        # oversubscription bought nothing and cost a failure. Against serial that
+        # is -246s, -31%. The dev box's 3.13x is a fact about the dev box.
+        #
+        # `-n 2` RATHER THAN `-n auto`: auto follows the machine, so a
         # contributor on 24 cores runs a shape CI never runs and meets failures
         # nobody else can reproduce.
         #
         # `--dist loadfile` AND WHAT IT ACTUALLY BUYS. The reason first written
         # here -- that wall-clock assertions "would tighten under three siblings
-        # sharing a runner" -- is false: `-n 4` fixes the worker count in BOTH
+        # sharing a runner" -- is false: `-n` fixes the worker count in BOTH
         # modes, so `loadfile` changes WHICH tests share a worker, never how many
         # run at once. What it does buy is module-scoped fixtures built once
-        # instead of once per worker, which for the nine browser files is a
-        # chromium launch each. Measured on the dev box, the two modes are the
+        # instead of once per worker. Nine files launch a chromium; EIGHT of them
+        # qualify, because tests/test_grid_dom.py launches inside `open_grid()`
+        # once per test rather than in a module-scoped fixture, so `loadfile`
+        # saves it nothing (#945). Measured on the dev box, the two modes are the
         # same wall clock (309.68s loadfile, 309.22s load).
         #
         # AND ITS COST, WHICH IS NOW THE BINDING ONE: under `loadfile` a file is
         # indivisible, so the suite can never finish before its slowest file
-        # does -- and `tests/test_panel_dom.py` is very nearly the whole run.
-        # Three workers finish early and idle. Splitting that file, not changing
-        # this flag, is where the next second comes from.
+        # does -- and `tests/test_panel_dom.py` is very nearly the whole run. At
+        # `-n 2` that leaves one worker idling while the other finishes it.
+        # Splitting that file, not changing this flag, is where the next second
+        # comes from (#944).
         run: |
           echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
           python -m pytest -n 2 --dist loadfile
@@ -498,10 +514,18 @@ jobs:
         # deliberately with no `env:` block.
         #
         # AND IT HAS A FLOOR, because without one the step is green either way:
-        # all seven skip when the flag reaches them and pytest still exits 0
-        # under `-q`. Measured: 7 passed without it, 7 skipped with it, exit 0
-        # both times. That is the shape #644 hid for 25 commits, and the shape
-        # the step below this one exists to stop.
+        # the template tests skip when the flag reaches them and pytest still
+        # exits 0 under `-q`. Measured: 7 passed without it, 7 skipped with it,
+        # exit 0 both times. That is the shape #644 hid for 25 commits, and the
+        # shape the step below this one exists to stop.
+        #
+        # THE FLOOR IS EIGHT, AND THE EIGHTH IS NOT A TEMPLATE TEST.
+        # `test_the_controller_sums_what_every_worker_restored` pins the
+        # cross-process plumbing that carries each xdist worker's restore count
+        # to the controller, so it carries no `schema_template.disabled` guard
+        # and is the one test in this file that survives the flag. It was added
+        # while the floor still read seven, which loosened the floor by one
+        # without anybody choosing to -- a merge gate found that, not a red run.
         #
         # `raise SystemExit`, NOT `assert`: #833 is open against the sibling
         # floor below for exactly this — PYTHONOPTIMIZE strips an assert and the
@@ -518,8 +542,8 @@ jobs:
                   "the template suite skipped, so nothing pins the mechanism "
                   "tests/conftest.py restores from; SCRAPEX_FULL_MIGRATIONS has "
                   "reached this step")
-          if ran < 7:
-              raise SystemExit(f"the template suite ran {ran} tests, and there were seven")
+          if ran < 8:
+              raise SystemExit(f"the template suite ran {ran} tests, and there were eight")
           PY
 
       - name: The pre-squash suite must RUN, not skip

@@ -222,46 +222,69 @@ def test_the_file_that_tests_migrate_itself_is_declared(schema_template):
             f"exists — the exclusion is now protecting nothing")
 
 
-def test_the_alarm_still_fires_when_the_suite_runs_in_parallel(tmp_path):
+def test_the_controller_sums_what_every_worker_restored(tmp_path):
     """`STATS` is a module global and every xdist worker is its own process.
 
-    THE CONTROLLER IS THE ONLY PROCESS THAT PRINTS THE SUMMARY, and before the
-    hooks this pins, it counted zero, took the early return, and the whole line
-    -- including the "only N restores across M tests" warning that exists to
-    catch a silent 10x slowdown -- disappeared under `-n`. That is the shape this
-    file is about: a mechanism that breaks without ever going red.
+    THE CONTROLLER IS THE ONLY PROCESS THAT PRINTS THE SUMMARY, and without the
+    hooks this pins it counts zero, takes the early return, and the whole line --
+    including the "only N restores across M tests" warning that exists to catch a
+    silent 10x slowdown -- disappears under `-n`. That is the shape this file is
+    about: a mechanism that breaks without ever going red.
 
-    Thirty-one lines of cross-process plumbing (`pytest_sessionfinish` writing
-    `workeroutput`, `pytest_testnodedown` summing it) had no guard until this. A
-    one-word drift between the two keys restores the regression silently, and a
-    merge gate demonstrated exactly that.
+    IT ASSERTS THE SUM, NOT MERELY A NUMBER, and that took two attempts. The
+    first version ran ONE file; under `--dist loadfile` a file is indivisible, so
+    one worker got all of it and the other got nothing, and the controller's
+    `STATS[key] = STATS.get(key, 0) + value` was never once executed against a
+    second contribution. `STATS[key] = value` -- the natural `.update()`
+    simplification -- passed it five times out of five. Two files and an equality
+    against the serial total close that: a dropped worker changes the sum.
 
-    Run as a subprocess because the thing under test is what happens BETWEEN
-    processes; there is no in-process way to ask it.
+    NOT test_jobs.py, WHICH IS THE SUITE'S CONCURRENCY FILE. The first version
+    used it, and it holds `threading.Barrier(2, timeout=10)` and event handshakes
+    that assert one job is held while another runs -- driven from a nested pytest
+    while the outer suite may be running the same file in a sibling worker.
+
+    WORST CASE THIS TEST CREATES, SAID OUT LOUD: under CI's `-n 2` it spawns a
+    controller and two workers of its own, so six pytest processes share the
+    runner's two cores for roughly the length of one nested run. That is the same
+    oversubscription `ci.yml` removed when it went from `-n 4` to `-n 2`, and it
+    is bounded to this test rather than the whole suite.
+
+    Run as subprocesses because what is under test happens BETWEEN processes;
+    there is no in-process way to ask it.
     """
     import os
     import re
     import subprocess
     import sys
 
-    environment = {key: value for key, value in os.environ.items()
-                   if key != "SCRAPEX_FULL_MIGRATIONS"}   # the alarm's own branch
-    environment["SCRAPEX_DATA_ROOT"] = str(tmp_path)
+    files = ["tests/test_catalog.py", "tests/test_catalog_api.py"]
 
-    run = subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
-         "-n", "2", "--dist", "loadfile", "tests/test_jobs.py"],
-        cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
-        errors="replace", env=environment, timeout=600)
+    def restores(*flags: str) -> int:
+        environment = {key: value for key, value in os.environ.items()
+                       if key != "SCRAPEX_FULL_MIGRATIONS"}   # the alarm's own branch
+        environment["SCRAPEX_DATA_ROOT"] = str(tmp_path)
+        run = subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *flags, *files],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", env=environment, timeout=600)
+        assert run.returncode == 0, (
+            f"the child pytest exited {run.returncode}, so nothing below is "
+            f"about the plumbing. stderr tail: {run.stderr[-800:]!r}")
+        counted = re.search(r"schema template: (\d+) restored", run.stdout)
+        assert counted, (
+            "the schema-template summary is missing, so the controller is "
+            "counting its own empty STATS instead of the workers'. stdout "
+            f"tail: {run.stdout[-1000:]!r}")
+        return int(counted.group(1))
 
-    assert "schema template:" in run.stdout, (
-        "the schema-template summary did not survive `-n 2`, so the restore "
-        "alarm cannot fire under parallel workers -- the controller is counting "
-        "its own empty STATS instead of the workers'.\n"
-        f"stdout tail:\n{run.stdout[-1500:]}")
+    parallel = restores("-n", "2", "--dist", "loadfile")
+    serial = restores()
 
-    counted = re.search(r"schema template: (\d+) restored", run.stdout)
-    assert counted and int(counted.group(1)) > 0, (
-        "the summary printed but counted zero restores across two workers, "
-        "which is the same blindness one layer down: the line survives and the "
-        f"number it carries does not.\nline: {counted.group(0) if counted else None}")
+    assert serial > 0, (
+        "these files restored nothing even serially, so the comparison below "
+        "would hold for the wrong reason -- pick files that use the template.")
+    assert parallel == serial, (
+        f"the controller summed {parallel} restores across two workers, but the "
+        f"same files restore {serial} serially. A worker's count is being "
+        "dropped rather than added, which is the undercount the alarm reads.")
