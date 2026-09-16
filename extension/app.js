@@ -17,7 +17,7 @@ import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
 import {
-  backUp, blobSource, fetchPanelPack,
+  backUp, blobSource, fetchPanelPack, readLatestInPieces,
   FOLDER_NAME, KEEP, folderId, listing, readLatest, verifyLatest,
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
@@ -35,7 +35,8 @@ import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
 // flattens modules by stripping imports and relies on the names matching.
 import {
   abortBackend, activateBackend, api, backendBase, backendGeneration,
-  backendSignal, del, pageController, post, whenBackendChanges, bytes, raw, sourceFor,
+  backendSignal, del, pageController, post, sendBundleChunk,
+  whenBackendChanges, bytes, raw, sourceFor,
 } from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
@@ -7618,8 +7619,8 @@ async function runGoogleAction(button, working, action, {
                 "top of the panel.", "err");
     return;
   }
-  const buttons = ["drive-backup", "drive-restore", "sheet-create",
-                   "manage-backup"];
+  const buttons = ["drive-backup", "drive-restore", "drive-fetch",
+                   "sheet-create", "manage-backup"];
   buttons.forEach((id) => { if ($(id)) $(id).disabled = true; });
   out(report, esc(working), "");
   try {
@@ -7640,6 +7641,44 @@ async function runGoogleAction(button, working, action, {
     driveProgress(null, bar[0], bar[1]);
     buttons.forEach((id) => { if ($(id)) $(id).disabled = false; });
   }
+}
+
+async function fetchBackupFromDrive(token, report = "drive-msg") {
+  // THE STEP THAT WAS HIS TO DO BY HAND. "Check the latest backup" asks Drive
+  // and downloads nothing, so the only way from a Drive object to this machine
+  // was: open Drive in a tab, read `latest.json` to learn which zip is current,
+  // download it, and drop it in the backup folder. Three manual steps between
+  // his backup and his data, on the day he most needs them.
+  //
+  // THE PANEL NEVER HOLDS THE ARCHIVE and the engine never holds the token:
+  // `readLatestInPieces` reads a window from Drive, `sendBundleChunk` hands
+  // that window to the engine, and the file is assembled on the side that owns
+  // the disk. Neither half learns the other's secret, which is his ruling of
+  // 2026-08-11 read backwards.
+  out(report, "Asking Drive for the latest backup…", "");
+  const landed = await readLatestInPieces(token, {
+    deliver: (piece, about) => sendBundleChunk(piece, about),
+    onProgress: ({received, total}) => {
+      const fraction = total ? received / total : 0;
+      driveProgress(fraction);
+      driveProgress(fraction, "manage-backup-progress",
+                    "manage-backup-progress-fill");
+    },
+  });
+  // THE CARD BELOW IS WHERE HE GOES NEXT, so it must not still be empty when he
+  // gets there. Wrapped because a refresh that fails is not a fetch that
+  // failed: the bytes are on the disk either way, and reporting otherwise
+  // would send him to fetch them again.
+  try {
+    await loadDatabase();
+  } catch (_) { /* the file landed; the list catches up when the page opens */ }
+
+  if (landed.already_here) {
+    return `That backup is already on this computer as ${landed.name}. `
+         + "Open Database and press it to unpack it.";
+  }
+  return `Fetched ${fmtMegabytes(landed.total)} as ${landed.name}. `
+       + "Open Database and press it to unpack it.";
 }
 
 async function backUpToDrive(token, report = "drive-msg") {
@@ -7928,6 +7967,8 @@ function wireGoogleControls() {
   const actions = [
     ["drive-backup", "Backing up…", backUpToDrive],
     ["drive-restore", "Asking Drive about the latest backup…", fetchFromDrive],
+    ["drive-fetch", "Fetching the backup from Drive…",
+     fetchBackupFromDrive],
     ["sheet-create", "Creating the spreadsheet…", createSpreadsheet],
   ];
   // Wired apart from the three above because it does NOT follow their shape:

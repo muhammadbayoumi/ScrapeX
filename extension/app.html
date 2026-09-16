@@ -2082,6 +2082,15 @@
                        he reads, and it promised a restore this has never done. -->
                   <button id="drive-restore" class="button ghost" type="button">
                     Check the latest backup</button>
+                  <!-- AND THE ONE THAT ACTUALLY BRINGS IT BACK. The button
+                       above asks Drive and downloads nothing, so until this
+                       existed the only route from a backup to this machine
+                       ran through a browser tab, `latest.json` and a manual
+                       file move. This reads it in 4 MB pieces and hands each
+                       one to the engine, which is the half that owns the
+                       disk. -->
+                  <button id="drive-fetch" class="button ghost" type="button">
+                    Fetch the latest backup</button>
                   <button id="sheet-create" class="button ghost" type="button">
                     Create a spreadsheet</button>
                   <!-- The chooser opens in a TAB, not here: Google Picker loads

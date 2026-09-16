@@ -160,6 +160,35 @@ async function request(path, options = {}) {
   return res;
 }
 
+/**
+ * Hand the engine one piece of a backup being read out of Drive.
+ *
+ * THE ONE REQUEST IN THIS FILE THAT SENDS BYTES RATHER THAN JSON, and it goes
+ * through `request` for the reason the comment above records: a bare `fetch`
+ * is how the status gets thrown away, and this is the path where a refusal is
+ * the whole answer -- the engine names the offset it is actually at, and the
+ * panel resumes from it.
+ *
+ * ITS DEADLINE IS NOT SET HERE, and that is the point. The last piece makes the
+ * engine hash the finished archive -- seconds on a 625 MB file -- and an empty
+ * press asks it to hash one it may already hold, so the 5,000 ms a POST gets by
+ * default is wrong for it. That knowledge lives in `LOCAL_POLICIES`
+ * (`extension/startup.js`) with every other route whose bound is not the
+ * default, where one test can see them all; a number written at a call site is
+ * a second home for the same fact and is how the two drift.
+ */
+export async function sendBundleChunk(piece, {offset, total, sha256}) {
+  const query = new URLSearchParams({
+    offset: String(offset), total: String(total), sha256,
+  });
+  const res = await request(`/api/storage/receive-bundle?${query}`, {
+    method: "POST",
+    headers: {"content-type": "application/octet-stream"},
+    body: piece,
+  });
+  return res.json();
+}
+
 export async function api(path, options = {}) {
   return (await request(path, options)).json();
 }

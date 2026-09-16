@@ -1,5 +1,5 @@
 {
-  "version": "0.4.14",
+  "version": "0.4.15",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql",
@@ -102,6 +102,7 @@
     "POST /api/storage/integrity",
     "POST /api/storage/move",
     "POST /api/storage/open-folder",
+    "POST /api/storage/receive-bundle",
     "POST /api/storage/repair",
     "POST /api/storage/restore",
     "POST /api/storage/start-fresh",

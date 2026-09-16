@@ -7367,6 +7367,60 @@ def test_a_backup_can_be_taken_from_the_page_that_lists_the_backups(open_panel):
         f"{inside}")
 
 
+def test_the_fetch_button_is_drawn_wired_and_answers_where_it_was_pressed(open_panel):
+    """THE PANEL HALF OF #959, which the merge gate found untested.
+
+    SIGNED IN, for the reason the test below records: he cannot fetch from a
+    Drive he is not signed into, and the signed-out branch tests a situation he
+    is never in.
+
+    DRIVE IS LEFT UNSTUBBED (`drive=None`, the harness default) so its first
+    read fails deterministically. The subject is not the failure: it is that the
+    control EXISTS, that `wireGoogleControls` reached it, that it disables the
+    Google row while it runs and re-enables it after, and that its answer lands
+    in the status line on the screen it was pressed from.
+
+    The successful path cannot be driven here, for the same reason the backup
+    button's cannot: the harness stubs Drive's reads and not a ranged archive
+    read. That half is proven in `extension/tests/the-backup-comes-back-in-pieces.test.mjs`
+    against the real `drive.js`, and end to end against the live engine in
+    `tests/test_the_engine_hands_the_bundle_over.py`.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click('[data-view="settings"]')
+    page.wait_for_selector("#view-settings:visible")
+    page.click('[data-sect="s-output"]')
+    page.wait_for_selector("#drive-fetch:visible")
+
+    assert page.inner_text("#drive-fetch").strip() == "Fetch the latest backup"
+
+    page.click("#drive-fetch")
+    # THE VERDICT, NOT THE TRANSIENT. `runGoogleAction` writes "Fetching the
+    # backup from Drive…" into this same line before the action runs, so waiting
+    # for the first non-empty text reads the working sentence and asserts about a
+    # run that has not finished. `out()` wraps a failure in `span.err`, so that
+    # class is what says this one is over -- and here the verdict is always a
+    # failure, because Drive is left unstubbed on purpose.
+    #
+    # WHICH IS ALSO WHAT THIS TEST CANNOT REACH. The sentence the merge gate
+    # caught reporting `undefined` is the SUCCESS one, and it is never drawn in
+    # this harness. It is guarded where it can be run, over the real app.js:
+    # `extension/tests/the-backup-comes-back-in-pieces.test.mjs`, "the sentence
+    # the panel ends on names the file that landed".
+    page.wait_for_selector("#drive-msg span.err", timeout=15000)
+    page.wait_for_function(
+        "() => !document.querySelector('#drive-fetch').disabled", timeout=15000)
+
+    said = page.inner_text("#drive-msg").strip()
+    assert said, "the button ran and said nothing on the screen it was pressed from"
+    assert "undefined" not in said, (
+        "the refusal was assembled out of something the panel does not have: "
+        f"{said!r}")
+    assert not page.eval_on_selector("#drive-backup", "b => b.disabled"), (
+        "the row it disabled was never given back")
+
+
 def test_the_backup_button_answers_on_its_own_screen_not_the_other_one(open_panel):
     """SIGNED IN, because that is the only state in which this button is used.
 

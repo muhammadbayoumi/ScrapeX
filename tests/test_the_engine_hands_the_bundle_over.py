@@ -9,12 +9,21 @@ never crosses the boundary cannot leak from the far side of it.
 The rest is the handover: a bundle that verifies, an archive whose bytes are
 the ones described, and a download that cannot be pointed at a file outside the
 backup folder.
+
+AND THE RETURN LEG, `POST /api/storage/receive-bundle`: the same ruling read
+backwards. The panel reads the archive out of Drive a piece at a time and hands
+the pieces here, because it is the panel that holds the Google token and the
+engine that holds the disk -- and because 625 MB through a side-panel document
+is what returned 0 bytes four times (#788).
 """
 from __future__ import annotations
 
+import hashlib
 import inspect
 import io
 import json
+import os
+import threading
 import zipfile
 from pathlib import Path
 
@@ -727,3 +736,464 @@ def test_a_stale_validator_makes_the_engine_answer_with_everything(client):
         "a stale If-Range still got a 206, so a rebuilt archive would be served "
         "chunk by chunk as though nothing had changed and the panel could not "
         "tell one build from another")
+
+
+# ---------------------------------------------------------------------------
+# The return leg: a backup comes back from Drive, a piece at a time.
+# ---------------------------------------------------------------------------
+
+RECEIVE = "/api/storage/receive-bundle"
+
+
+def _send(connected, payload, sha, *, offset, total=None):
+    """One piece, posted the way the panel posts it."""
+    return connected.post(
+        RECEIVE,
+        params={"offset": offset,
+                "total": total if total is not None else len(payload),
+                "sha256": sha},
+        content=payload,
+        headers={"content-type": "application/octet-stream"})
+
+
+def _an_archive(connected):
+    """A real bundle, and the digest Drive would be holding for it."""
+    described = connected.post("/api/bundle").json()
+    body = connected.get("/api/bundle/archive").content
+    assert hashlib.sha256(body).hexdigest() == described["sha256"], (
+        "the test's own premise is wrong: the served bytes are not the ones "
+        "the build described")
+    return body, described["sha256"]
+
+
+def test_a_backup_comes_back_in_pieces_and_becomes_a_bundle_the_page_can_unpack(
+        client, monkeypatch):
+    """THE WHOLE POINT, end to end: build, send it back in three pieces as the
+    panel would, and unpack it with the control that already exists."""
+    connected, backups = client
+    # `storage_status` resolves the backup folder through storage.py's own
+    # import, which the fixture's patch of app.py's name does not reach --
+    # so without this the card would be asked about the wrong folder and
+    # report nothing for a reason that has nothing to do with the route.
+    import scrapex.storage as storage_module
+    monkeypatch.setattr(storage_module, "backup_folder",
+                        lambda conn, path: backups)
+    body, sha = _an_archive(connected)
+    cut = len(body) // 3
+
+    first = _send(connected, body[:cut], sha, offset=0, total=len(body))
+    assert first.status_code == 200, first.text
+    assert first.json() == {"received": cut, "total": len(body), "complete": False}
+
+    second = _send(connected, body[cut:2 * cut], sha, offset=cut, total=len(body))
+    assert second.status_code == 200, second.text
+    assert second.json()["complete"] is False
+
+    last = _send(connected, body[2 * cut:], sha, offset=2 * cut, total=len(body))
+    assert last.status_code == 200, last.text
+    landed = last.json()
+    assert landed["complete"] is True and landed["already_here"] is False
+    assert landed["name"] == "from-drive-" + sha[:16] + ".zip"
+
+    on_disk = backups / landed["name"]
+    assert on_disk.read_bytes() == body, "the reassembled file is not the archive"
+    assert not list(backups.glob("*.part")), "a .part outlived the transfer"
+
+    listed = {entry["name"] for entry in
+              connected.get("/api/storage").json()["bundles"]}
+    assert landed["name"] in listed, (
+        "the file landed and the Bundles card cannot see it, so there is "
+        "nothing to press")
+
+    unpacked = connected.post("/api/storage/adopt-bundle",
+                              json={"name": landed["name"]})
+    assert unpacked.status_code == 200, unpacked.text
+    assert unpacked.json().get("ok") is not False, unpacked.json()
+
+
+def test_a_received_backup_is_not_mistaken_for_this_engines_own_build(client):
+    """THE NEGATIVE ONE THAT MATTERS. `_newest` serves `scrapex-bundle-*` and
+    `_prune_old_bundles` deletes them, so a file fetched FROM Drive wearing that
+    prefix would be uploaded back as a local build and pruned as one."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    mine = sorted(p.name for p in backups.glob("scrapex-bundle-*.zip"))
+
+    landed = _send(connected, body, sha, offset=0).json()
+    assert not landed["name"].startswith("scrapex-bundle-"), (
+        "a received bundle is named like one this engine built")
+
+    still = connected.get("/api/bundle/archive")
+    assert still.status_code == 200
+    assert hashlib.sha256(still.content).hexdigest() == sha
+    assert sorted(p.name for p in backups.glob("scrapex-bundle-*.zip")) == mine, (
+        "receiving a bundle disturbed the engine's own builds")
+
+
+def test_a_piece_that_does_not_continue_the_transfer_is_refused(client):
+    """Two chunks that overlap or skip produce a file whose digest cannot match
+    anything, and the refusal has to say where the transfer actually is."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+
+    _send(connected, body[:100], sha, offset=0, total=len(body))
+    refused = _send(connected, body[200:300], sha, offset=200, total=len(body))
+    assert refused.status_code == 409, refused.text
+    assert "100" in refused.json()["detail"], (
+        "the refusal does not say where to send from, so the panel cannot resume")
+
+
+def test_a_piece_that_would_overrun_the_declared_size_is_refused(client):
+    connected, _ = client
+    body, sha = _an_archive(connected)
+    refused = _send(connected, body, sha, offset=0, total=len(body) - 1)
+    assert refused.status_code == 400, refused.text
+    assert str(len(body) - 1) in refused.json()["detail"]
+
+
+def test_an_archive_that_does_not_match_the_digest_drive_recorded_is_discarded(client):
+    """A truncated or tampered download must not reach the Bundles card, and
+    the evidence that it did not is that NOTHING is left behind."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    wrong = bytearray(body)
+    wrong[-1] ^= 0xFF
+
+    refused = _send(connected, bytes(wrong), sha, offset=0, total=len(body))
+    assert refused.status_code == 400, refused.text
+    assert "digest" in refused.json()["detail"]
+    assert not list(backups.glob("from-drive-*")), (
+        "a file that failed its digest was kept")
+
+
+def test_the_digest_must_be_one(client):
+    """ON THE SENTENCE, NOT THE STATUS. The gate proved the status alone cannot
+    fail: with the validator deleted, a nonsense digest still ends in 400 --
+    from the comparison at the end of the transfer, about a different thing.
+    The refusal has to be THIS one."""
+    connected, _ = client
+    for attempt in ("", "not-a-digest", "A" * 64, "ab" * 31, "a" * 64 + "\n"):
+        refused = _send(connected, b"x", attempt, offset=0, total=1)
+        assert refused.status_code == 400, (attempt, refused.text)
+        assert "that is not one" in refused.json()["detail"], (attempt, refused.text)
+
+
+def test_a_transfer_must_say_how_big_it_is(client):
+    """The sentence again, for the same reason: without the guard, `total=0`
+    still refuses -- as an overrun, which is a different defect."""
+    connected, _ = client
+    sha = hashlib.sha256(b"x").hexdigest()
+    for total in (0, -1):
+        refused = _send(connected, b"x", sha, offset=0, total=total)
+        assert refused.status_code == 400, (total, refused.text)
+        assert "how many bytes" in refused.json()["detail"], (total, refused.text)
+
+
+def test_a_negative_offset_is_refused(client):
+    connected, _ = client
+    sha = hashlib.sha256(b"x").hexdigest()
+    refused = _send(connected, b"x", sha, offset=-1, total=1)
+    assert refused.status_code == 400, refused.text
+
+
+def test_room_is_checked_before_the_first_byte_not_after_the_last(client, monkeypatch):
+    """A 625 MB transfer that fills the disk and says so at the last chunk has
+    already cost fifteen minutes and taken the space with it."""
+    connected, backups = client
+    import scrapex.webui.app as module
+    monkeypatch.setattr(module, "free_space", lambda folder: 1)
+
+    sha = hashlib.sha256(b"x" * 10).hexdigest()
+    refused = _send(connected, b"x" * 10, sha, offset=0, total=10)
+    assert refused.status_code == 400, refused.text
+    assert "free" in refused.json()["detail"]
+    assert not list(backups.glob("from-drive-*")), (
+        "the refusal wrote the piece anyway")
+
+
+def test_a_second_press_from_zero_drops_the_tail_of_the_first(client):
+    """Starting again is not resuming: keeping the old bytes would append one
+    archive to another and fail the digest for a reason nobody could read."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+
+    _send(connected, body[:50], sha, offset=0, total=len(body))
+    again = _send(connected, body, sha, offset=0, total=len(body))
+    assert again.status_code == 200, again.text
+    assert again.json()["complete"] is True
+    assert (backups / again.json()["name"]).read_bytes() == body
+
+
+def test_a_backup_already_here_is_not_fetched_again(client):
+    connected, _ = client
+    body, sha = _an_archive(connected)
+    first = _send(connected, body, sha, offset=0).json()
+    assert first["already_here"] is False
+
+    repeat = _send(connected, b"", sha, offset=0, total=len(body))
+    assert repeat.status_code == 200, repeat.text
+    assert repeat.json() == {"received": len(body), "total": len(body),
+                             "complete": True, "name": first["name"],
+                             "already_here": True}
+
+
+def test_a_file_wearing_the_right_name_and_the_wrong_bytes_is_not_trusted(client):
+    """The short-circuit above is what makes this reachable: a file of the right
+    length under the right name is not the same as the right file."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    impostor = backups / ("from-drive-" + sha[:16] + ".zip")
+    impostor.write_bytes(b"\x00" * len(body))
+
+    landed = _send(connected, body, sha, offset=0, total=len(body))
+    assert landed.status_code == 200, landed.text
+    assert landed.json()["already_here"] is False, (
+        "a file with the right name and the wrong contents was taken as the backup")
+    assert impostor.read_bytes() == body
+
+
+def test_one_transfer_at_a_time(client, monkeypatch):
+    """Two presses writing one `.part` interleave their chunks and produce a
+    file whose digest cannot match anything."""
+    connected, _ = client
+    body, sha = _an_archive(connected)
+
+    import scrapex.webui.app as module
+    inside = threading.Event()
+    go = threading.Event()
+    real_free = module.free_space
+
+    def slow(folder):
+        inside.set()
+        go.wait(10)
+        return real_free(folder)
+
+    monkeypatch.setattr(module, "free_space", slow)
+
+    answers = {}
+
+    def first():
+        answers["first"] = _send(connected, body, sha, offset=0, total=len(body))
+
+    runner = threading.Thread(target=first, daemon=True)
+    runner.start()
+    assert inside.wait(10), "the first transfer never reached the route"
+
+    second = _send(connected, body, sha, offset=0, total=len(body))
+    go.set()
+    runner.join(30)
+
+    assert second.status_code == 409, second.text
+    assert "already being fetched" in second.json()["detail"]
+    assert answers["first"].status_code == 200, answers["first"].text
+
+
+def test_asking_where_a_transfer_stands_does_not_destroy_it(client, monkeypatch):
+    """THE ONE THE MERGE GATE CAUGHT. The panel opens every fetch by asking at
+    offset 0 with no bytes. This route read that as `starting over` and deleted
+    the tail of the last attempt -- so the resume it implements, and the 409 that
+    names the offset, could never be reached by its only caller."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    half = len(body) // 2
+
+    sent = _send(connected, body[:half], sha, offset=0, total=len(body))
+    assert sent.json()["received"] == half
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    assert partial.stat().st_size == half
+
+    asked = _send(connected, b"", sha, offset=0, total=len(body))
+    assert asked.status_code == 200, asked.text
+    assert asked.json() == {"received": half, "total": len(body), "complete": False}
+    assert partial.stat().st_size == half, "the question deleted what it asked about"
+
+    rest = _send(connected, body[half:], sha, offset=half, total=len(body))
+    assert rest.status_code == 200, rest.text
+    assert rest.json()["complete"] is True
+    assert (backups / rest.json()["name"]).read_bytes() == body
+
+
+def test_a_digest_with_a_newline_cannot_delete_a_verified_archive(client):
+    """`$` matches before a trailing newline in Python, and the crafted value
+    produced the same 16-character name, failed the comparison against the real
+    file, and unlinked it."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    landed = _send(connected, body, sha, offset=0).json()
+    archive = backups / landed["name"]
+    assert archive.is_file()
+
+    refused = _send(connected, b"", sha + "\n", offset=0, total=len(body))
+    assert refused.status_code == 400, refused.text
+    assert archive.is_file(), "a crafted digest deleted a verified archive"
+
+
+def test_fetched_archives_are_bounded_and_abandoned_ones_are_reaped(client):
+    """The rename that keeps a fetched archive out of `_newest` kept it out of
+    every pruner too: one archive per distinct backup, for ever, plus a `.part`
+    for every transfer an engine restart interrupted."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    first = _send(connected, body, sha, offset=0).json()["name"]
+
+    other = body + b"a second backup"
+    other_sha = hashlib.sha256(other).hexdigest()
+    second = _send(connected, other, other_sha, offset=0).json()["name"]
+
+    kept = sorted(p.name for p in backups.glob("from-drive-*.zip"))
+    assert kept == [second], f"fetched archives are unbounded: {kept}"
+    assert not (backups / first).exists()
+
+    orphan = backups / "from-drive-0123456789abcdef.zip.part"
+    orphan.write_bytes(b"x" * 64)
+    os.utime(orphan, (0, 0))
+    connected.post("/api/bundle")
+    assert not orphan.exists(), "an abandoned transfer is never reaped"
+
+
+def test_a_full_part_that_was_never_sealed_is_decided_on_the_next_press(client):
+    """THE STATE THE SECOND PASS FOUND, and the resume is what made it reachable.
+
+    An engine killed between the last chunk and the rename leaves a `.part` at
+    full length that nothing hashes: a real chunk is an overrun, a question
+    changes nothing, and the panel -- which now resumes from what the engine
+    says it holds -- asks Drive for a backwards range and reads the refusal in
+    Google's name. It is ended here, on the press that finds it.
+    """
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(body)
+
+    sealed = _send(connected, b"", sha, offset=0, total=len(body))
+    assert sealed.status_code == 200, sealed.text
+    assert sealed.json()["complete"] is True
+    assert not partial.exists()
+    assert (backups / sealed.json()["name"]).read_bytes() == body
+
+
+def test_a_full_part_that_is_not_the_archive_is_discarded_not_sealed(client):
+    """The other half of the same decision: full length is not the same as
+    right, and a file that does not match Drive's digest must not be offered."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(b"\x00" * len(body))
+
+    asked = _send(connected, b"", sha, offset=0, total=len(body))
+    assert asked.status_code == 200, asked.text
+    assert asked.json() == {"received": 0, "total": len(body), "complete": False}
+    assert not partial.exists()
+    assert not (backups / f"from-drive-{sha[:16]}.zip").exists()
+
+
+def test_a_transfer_in_flight_survives_a_bundle_build(client):
+    """THE AGE GUARD, which nothing pinned: delete it and the reap takes a
+    `.part` that is being written, mid-fetch, on a machine that also backs up.
+    The old orphan in the test above proves the sweep runs; this proves it can
+    tell the two apart."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    half = len(body) // 2
+    _send(connected, body[:half], sha, offset=0, total=len(body))
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    assert partial.is_file()
+
+    connected.post("/api/bundle")
+
+    assert partial.is_file(), "a build reaped a transfer that was in flight"
+    assert partial.stat().st_size == half
+    rest = _send(connected, body[half:], sha, offset=half, total=len(body))
+    assert rest.status_code == 200, rest.text
+    assert rest.json()["complete"] is True
+
+
+def _rename_refused(monkeypatch):
+    """Windows, one second after the digest read the whole file: a scanner or a
+    sync client still holds it and the rename raises. Only a `.part` is made to
+    fail, so nothing else the route or the build does is disturbed.
+
+    Returned as a switch rather than undone with `monkeypatch.undo()`, which
+    would also lift the `backup_folder` patch this whole file runs under and
+    point the next press at the owner's real backup folder.
+    """
+    refusing = {"on": True}
+    real = Path.replace
+
+    def held(self, target):
+        if refusing["on"] and self.suffix == bundle.PARTIAL_SUFFIX:
+            raise PermissionError(13, "The process cannot access the file")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", held)
+    return refusing
+
+
+def test_a_rename_that_fails_keeps_the_backup_that_was_proved(client, monkeypatch):
+    """THE ONE PRESS THAT COULD DESTROY 625 MB. The last chunk of a transfer
+    lands under an `except OSError` that deletes the `.part` and says a piece
+    could not be written -- and by then the digest has matched, so those bytes
+    ARE his backup. A rename is not a write, and a transient refusal must cost
+    a press, not the transfer."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+
+    refusing = _rename_refused(monkeypatch)
+    refused = _send(connected, body, sha, offset=0, total=len(body))
+
+    assert refused.status_code == 409, refused.text
+    said = refused.json()["detail"]
+    assert "could not be written" not in said, (
+        f"a rename was reported as a failed write: {said!r}")
+    assert partial.name in said, said
+    assert partial.read_bytes() == body, "the proved archive was deleted"
+
+    refusing["on"] = False
+    sealed = _send(connected, b"", sha, offset=0, total=len(body))
+    assert sealed.status_code == 200, sealed.text
+    assert (backups / sealed.json()["name"]).read_bytes() == body
+
+
+def test_a_rename_that_fails_on_the_healing_press_keeps_it_too(client, monkeypatch):
+    """The second entrance to the same landing: the press that finds a full
+    `.part` a killed engine left behind. This one is the commit's own, and it is
+    the press written to HEAL that state -- it must never be the press that ends
+    it."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(body)
+
+    _rename_refused(monkeypatch)
+    refused = _send(connected, b"", sha, offset=0, total=len(body))
+
+    assert refused.status_code == 409, refused.text
+    assert "could not be written" not in refused.json()["detail"]
+    assert partial.read_bytes() == body, (
+        "the healing press deleted the bytes it had just verified")
+
+
+def test_the_healing_press_keeps_one_fetched_archive_like_every_other_landing(
+        client):
+    """`keep=1` is why a fetched archive does not accumulate at 625 MB a copy,
+    and the press that seals a `.part` is a second place that has to enforce it.
+    It enforces it by landing the same way, which is what this asserts from the
+    outside."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    older = _send(connected, body, sha, offset=0).json()["name"]
+    # Older by the clock as well as by the order, because the pruner sorts by
+    # mtime and a landing that happens in the same tick is a coin toss.
+    os.utime(backups / older, (0, 0))
+
+    other = body + b"a second backup"
+    other_sha = hashlib.sha256(other).hexdigest()
+    (backups / f"from-drive-{other_sha[:16]}.zip.part").write_bytes(other)
+    sealed = _send(connected, b"", other_sha, offset=0, total=len(other))
+    assert sealed.status_code == 200, sealed.text
+
+    kept = sorted(p.name for p in backups.glob("from-drive-*.zip"))
+    assert kept == [sealed.json()["name"]], (
+        f"the sealed landing left fetched archives unbounded: {kept}")
+    assert not (backups / older).exists()
