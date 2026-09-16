@@ -3873,6 +3873,24 @@ def create_app(
                 archive.unlink()
 
             have = partial.stat().st_size if partial.is_file() else 0
+            if have and have == total:
+                # A `.part` AT FULL LENGTH THAT WAS NEVER SEALED, and only this
+                # side can end it. The digest is computed as a side effect of a
+                # write (below), so a transfer killed between the last chunk and
+                # the rename leaves a file the one check that could finish it
+                # never looks at: a real chunk is refused as an overrun, and a
+                # question is answered without changing anything. The panel then
+                # asks Drive to continue from `total`, which is a backwards range
+                # -- and the owner reads a refusal in Google's name about a file
+                # on his own disk. The pruner's docstring names this state, six
+                # hours later; this ends it on the next press.
+                if bundle.sha256_of(partial) == sha256:
+                    partial.replace(archive)
+                    _prune_fetched_bundles(folder)
+                    return {"received": total, "total": total, "complete": True,
+                            "name": archive.name, "already_here": False}
+                partial.unlink(missing_ok=True)
+                have = 0
             # A QUESTION CHANGES NOTHING, and this one used to change everything:
             # the panel opens every fetch by asking at offset 0 with no bytes, and
             # the rule below read that as "starting over" and deleted the tail of

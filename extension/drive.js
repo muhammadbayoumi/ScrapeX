@@ -721,6 +721,11 @@ export async function readLatestInPieces(token, {
   // bytes on the disk; starting at zero anyway threw them away and cost the
   // whole transfer again, every time.
   let offset = known && Number.isFinite(known.received) ? known.received : 0;
+  // AND NEVER PAST THE END. `bytes=100-99` is a range Google refuses in its own
+  // words, and the owner would read that refusal as Google's fault about a file
+  // on his own disk. The engine decides that state properly now; this is the
+  // belt, because a destination that answers `total` is still answering.
+  if (offset >= total) offset = 0;
   let answer = known || null;
   if (onProgress) onProgress({received: offset, total});
 
@@ -793,8 +798,8 @@ export async function readLatestInPieces(token, {
   if (!answer || answer.complete !== true || offset < total) {
     throw new DriveError(
       `The backup stopped at ${offset} of ${total} bytes, so it was not `
-      + "fetched. Nothing on this machine was replaced -- press again, and it "
-      + "will carry on from where it stopped.", null, "truncated");
+      + "fetched. Nothing on this machine was replaced -- press again.",
+      null, "truncated");
   }
   return {pointer, ...answer};
 }

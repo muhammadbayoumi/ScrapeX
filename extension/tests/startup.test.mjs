@@ -262,3 +262,15 @@ test("closing the panel cancels a pending paint opportunity", async () => {
   assert.deepEqual(await resultPromise, {source: "cancelled"});
   assert.equal(cancelledHandle, 31);
 });
+
+test("the route that brings a backup back gets the bundle deadline, not a POST's", () => {
+  // THE TRAP THREE ROWS IN LOCAL_POLICIES ALREADY CARRY A COMMENT ABOUT: the
+  // `storage` pattern ends `(?:[/?]|$)`, so every `/api/storage/...` route
+  // inherits a bound derived from fetching a page of rows. The piece that
+  // completes a transfer makes the engine hash the whole archive, and a
+  // body-less press asks it to hash one it may already hold.
+  assert.equal(
+    deadlineForLocalRequest("/api/storage/receive-bundle?offset=0&total=1", "POST"),
+    STARTUP_DEADLINES.bundleBuild);
+  assert.notEqual(STARTUP_DEADLINES.bundleBuild, STARTUP_DEADLINES.localMutation);
+});

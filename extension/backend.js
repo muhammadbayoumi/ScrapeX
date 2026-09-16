@@ -169,10 +169,13 @@ async function request(path, options = {}) {
  * the whole answer -- the engine names the offset it is actually at, and the
  * panel resumes from it.
  *
- * ITS OWN DEADLINE, and it is generous on purpose. The last piece makes the
- * engine hash the finished archive -- seconds on a 625 MB file -- and the
- * empty first press asks it to hash one it may already hold. The default for a
- * POST is written for a request that answers out of the database.
+ * ITS DEADLINE IS NOT SET HERE, and that is the point. The last piece makes the
+ * engine hash the finished archive -- seconds on a 625 MB file -- and an empty
+ * press asks it to hash one it may already hold, so the 5,000 ms a POST gets by
+ * default is wrong for it. That knowledge lives in `LOCAL_POLICIES`
+ * (`extension/startup.js`) with every other route whose bound is not the
+ * default, where one test can see them all; a number written at a call site is
+ * a second home for the same fact and is how the two drift.
  */
 export async function sendBundleChunk(piece, {offset, total, sha256}) {
   const query = new URLSearchParams({
@@ -182,7 +185,6 @@ export async function sendBundleChunk(piece, {offset, total, sha256}) {
     method: "POST",
     headers: {"content-type": "application/octet-stream"},
     body: piece,
-    deadlineMs: 600000,
   });
   return res.json();
 }

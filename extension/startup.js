@@ -133,6 +133,13 @@ const LOCAL_POLICIES = [
   // over an unpack the engine goes on to finish, which is the wrong record about
   // the one path a second machine has to its own data.
   [/^\/api\/storage\/adopt-bundle(?:[/?]|$)/, STARTUP_DEADLINES.bundleBuild],
+  // AND THE ROUTE THAT BRINGS THE BUNDLE HERE, above the `storage` rule for the
+  // third time and for the third identical reason. `bundleBuild` again rather
+  // than a new name: the piece that completes a transfer makes the engine hash
+  // the whole archive, which is the same work as verifying one it packed, and
+  // both change for the same reason -- the warehouse growing. A body-less press
+  // asks it to hash an archive it may already hold, which is the same read.
+  [/^\/api\/storage\/receive-bundle(?:[/?]|$)/, STARTUP_DEADLINES.bundleBuild],
   // ABOVE THE ENGINE'S OWN, and that is the whole reason it is written down.
   // `GET /api/update` costs one third-party fetch of the release manifest, which
   // `scrapex/release.py` bounds at `CHECK_TIMEOUT_S = 4.0` -- uncached, and

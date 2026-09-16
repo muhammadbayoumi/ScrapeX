@@ -1049,3 +1049,60 @@ def test_fetched_archives_are_bounded_and_abandoned_ones_are_reaped(client):
     os.utime(orphan, (0, 0))
     connected.post("/api/bundle")
     assert not orphan.exists(), "an abandoned transfer is never reaped"
+
+
+def test_a_full_part_that_was_never_sealed_is_decided_on_the_next_press(client):
+    """THE STATE THE SECOND PASS FOUND, and the resume is what made it reachable.
+
+    An engine killed between the last chunk and the rename leaves a `.part` at
+    full length that nothing hashes: a real chunk is an overrun, a question
+    changes nothing, and the panel -- which now resumes from what the engine
+    says it holds -- asks Drive for a backwards range and reads the refusal in
+    Google's name. It is ended here, on the press that finds it.
+    """
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(body)
+
+    sealed = _send(connected, b"", sha, offset=0, total=len(body))
+    assert sealed.status_code == 200, sealed.text
+    assert sealed.json()["complete"] is True
+    assert not partial.exists()
+    assert (backups / sealed.json()["name"]).read_bytes() == body
+
+
+def test_a_full_part_that_is_not_the_archive_is_discarded_not_sealed(client):
+    """The other half of the same decision: full length is not the same as
+    right, and a file that does not match Drive's digest must not be offered."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    partial.write_bytes(b"\x00" * len(body))
+
+    asked = _send(connected, b"", sha, offset=0, total=len(body))
+    assert asked.status_code == 200, asked.text
+    assert asked.json() == {"received": 0, "total": len(body), "complete": False}
+    assert not partial.exists()
+    assert not (backups / f"from-drive-{sha[:16]}.zip").exists()
+
+
+def test_a_transfer_in_flight_survives_a_bundle_build(client):
+    """THE AGE GUARD, which nothing pinned: delete it and the reap takes a
+    `.part` that is being written, mid-fetch, on a machine that also backs up.
+    The old orphan in the test above proves the sweep runs; this proves it can
+    tell the two apart."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    half = len(body) // 2
+    _send(connected, body[:half], sha, offset=0, total=len(body))
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    assert partial.is_file()
+
+    connected.post("/api/bundle")
+
+    assert partial.is_file(), "a build reaped a transfer that was in flight"
+    assert partial.stat().st_size == half
+    rest = _send(connected, body[half:], sha, offset=half, total=len(body))
+    assert rest.status_code == 200, rest.text
+    assert rest.json()["complete"] is True

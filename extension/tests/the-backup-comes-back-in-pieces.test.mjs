@@ -99,6 +99,9 @@ function driveHolding(archive, {ranged = true, pointer = {}, serves = null} = {}
 function anEngine({completeAt = null, holding = 0} = {}) {
   const held = [];
   let received = holding;
+  // A REAL CHUNK AT ZERO IS A RESTART, which is what the route does with one:
+  // the tail it was holding is dropped rather than appended to.
+  const restart = () => { received = 0; held.length = 0; };
   const deliver = async (piece, about) => {
     const bytes = new Uint8Array(await piece.arrayBuffer());
     if (bytes.length === 0 && completeAt === 0) {
@@ -108,6 +111,7 @@ function anEngine({completeAt = null, holding = 0} = {}) {
     if (bytes.length === 0) {
       return {received, total: about.total, complete: false};
     }
+    if (about.offset === 0 && received) restart();
     if (bytes.length) held.push(bytes);
     received += bytes.length;
     return {
@@ -282,6 +286,59 @@ test("a fetch resumes from what the destination is already holding", async () =>
                "the fetch restarted from zero over bytes the engine already had");
   assert.equal(landed.complete, true);
   assert.deepEqual(joined(engine.held), ARCHIVE.slice(40));
+});
+
+test("a stream restarts the transfer, because a 200 cannot resume", async () => {
+  // WHERE THIS CHANGE'S TWO NEW BEHAVIOURS MEET, and the line that makes them
+  // agree could be deleted with every suite green. A 200 is the whole file from
+  // byte zero; announcing those pieces at the offset the engine was holding
+  // would write them past the end -- 140 bytes of a 100-byte archive, reported
+  // as complete.
+  const drive = driveHolding(ARCHIVE, {ranged: false});
+  const engine = anEngine({holding: 40});
+  const at = [];
+  const deliver = async (piece, about) => {
+    const bytes = new Uint8Array(await piece.arrayBuffer());
+    if (bytes.length) at.push(about.offset);
+    return engine.deliver(piece, about);
+  };
+
+  const landed = await readLatestInPieces("tok", {
+    chunkBytes: 32, deliver, fetchImpl: drive.fetchImpl,
+  });
+
+  assert.equal(at[0], 0, "the stream was announced from where the engine was");
+  assert.deepEqual(joined(engine.held), ARCHIVE);
+  assert.equal(landed.complete, true);
+  assert.equal(landed.received, ARCHIVE.length,
+               `the engine ended holding ${landed.received} of ${ARCHIVE.length}`);
+});
+
+test("a destination that says it holds everything never gets a backwards range", async () => {
+  // THE BELT on the engine's answer. `bytes=100-99` is a range Google refuses
+  // in its own words, and the owner would read that refusal as Google's fault
+  // about a file on his own disk -- the failure `refuse()` in drive.js was
+  // written against. The engine decides that state properly now; this is what
+  // stops a number from ever becoming that request.
+  const drive = driveHolding(ARCHIVE);
+  const deliver = async (piece, about) => {
+    const bytes = new Uint8Array(await piece.arrayBuffer());
+    if (bytes.length === 0) {
+      return {received: about.total, total: about.total, complete: false};
+    }
+    const at = Math.min(about.offset + bytes.length, about.total);
+    return {received: at, total: about.total, complete: at >= about.total,
+            name: "from-drive-test.zip", already_here: false};
+  };
+
+  await readLatestInPieces("tok", {
+    chunkBytes: 32, deliver, fetchImpl: drive.fetchImpl,
+  });
+
+  for (const range of drive.asked.filter((c) => c.range).map((c) => c.range)) {
+    const [, from, to] = /bytes=(\d+)-(\d+)/.exec(range);
+    assert.ok(Number(to) >= Number(from), `Drive was asked for ${range}`);
+  }
 });
 
 test("a pointer with no digest is refused before anything is read", async () => {
