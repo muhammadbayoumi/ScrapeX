@@ -446,14 +446,25 @@ jobs:
         # by running in parallel, which is the number to check first when a
         # parallel suite suddenly gets fast.
         #
-        # THE RUNNER'S SIZE IS PRINTED, NOT ASSUMED. This comment said "a runner
-        # is 4 vCPU" as if measured; it was not. `ubuntu-latest` on a PRIVATE
-        # repository is GitHub's 2-core standard runner -- 4-core is the public
-        # tier -- so `-n 4` may be oversubscribed, and that is a live question
-        # rather than a settled one. The `nproc` line below puts the answer in
-        # every run's log so the next session tunes `-n` against a fact. On the
-        # runner the job went 787s (median of five full-suite serial runs) to
-        # 563s; the dev box's 3.13x is a fact about the dev box.
+        # THE RUNNER IS 2 vCPU, AND THAT IS MEASURED. The `nproc` line below
+        # printed `runner: 2 vCPU, 7938 MB RAM` on 2026-09-15. An earlier version
+        # of this comment asserted 4 as if measured; it was not, and it was wrong
+        # -- `ubuntu-latest` on a PRIVATE repository is GitHub's 2-core standard
+        # runner, 4-core being the public tier. The line stays so the number is
+        # re-read rather than re-assumed.
+        #
+        # SO `-n 2`, NOT `-n 4`, AND A RED CHECK IS WHY. At `-n 4` the suite went
+        # green once and then failed on
+        # tests/test_panel_startup.py:137 -- `shell-interactive` minus
+        # `document-first-script` measured 323.6ms against that test's 250ms
+        # budget. Four workers on two cores is a 2x oversubscription, and what it
+        # stretches first is a startup-timing assertion about the product. The
+        # answer is to match the machine, not to widen a budget the panel is
+        # supposed to meet.
+        #
+        # On the runner, `test` job wall clock: 787s serial (median of five
+        # full-suite runs), 563s and 473.87s at -n 4. The dev box's 3.13x is a
+        # fact about the dev box and does not transfer.
         #
         # `-n 4` RATHER THAN `-n auto`: auto follows the machine, so a
         # contributor on 24 cores runs a shape CI never runs and meets failures
@@ -475,7 +486,7 @@ jobs:
         # this flag, is where the next second comes from.
         run: |
           echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
-          python -m pytest -n 4 --dist loadfile
+          python -m pytest -n 2 --dist loadfile
 
       - name: The schema template still has a suite, and the run above skips it
         if: needs.scope.outputs.scope == 'full'
