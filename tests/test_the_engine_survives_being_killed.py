@@ -457,12 +457,23 @@ def test_the_database_still_answers_after_the_kill(tmp_path, manifest, shop):
     engine.start()
     shop.hold()
     try:
-        _post(f"{engine.url}/api/jobs", {"source_keys": ["SLOWSHOP"]})
+        job_ref = _post(f"{engine.url}/api/jobs",
+                        {"source_keys": ["SLOWSHOP"]})["job_ref"]
         shop.wait_until_asked()              # the crawl is really in flight
     finally:
         engine.kill()
         shop.release()
     _assert_it_really_died(engine)
+    # THE PREMISE IS REQUIRED, NOT MERELY ARRANGED. `wait_until_asked()` stages
+    # the mid-crawl moment; without this line nothing checks it worked, and a
+    # gate proved it: make that helper return immediately and this test kills an
+    # engine whose job is still `queued`, then reports that a hard kill cost the
+    # warehouse nothing -- because a migrated database passes `integrity_check`
+    # and has a `crawl_job` table whether or not anything was ever written.
+    assert _job_status(db, job_ref) in IN_FLIGHT, (
+        "the crawl was not in flight when the kill landed, so there was no open "
+        "write-ahead log for the kill to cost anything and this run proved "
+        "nothing about a crash")
 
     conn = sqlite3.connect(str(db))
     try:

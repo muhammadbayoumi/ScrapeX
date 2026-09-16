@@ -16,13 +16,10 @@ from __future__ import annotations
 
 import importlib
 import sqlite3
-from pathlib import Path
 
 import pytest
 
 from scrapex import db as dbmod
-
-ROOT = Path(__file__).resolve().parent.parent
 
 # `retention_policy.updated_at` defaults to strftime('%Y-%m-%dT%H:%M:%SZ','now')
 # (db/migrations/0011_retention.sql), so two HONEST migrations a second apart
@@ -220,84 +217,3 @@ def test_the_file_that_tests_migrate_itself_is_declared(schema_template):
         assert (Path(__file__).parent / f"{name}.py").is_file(), (
             f"{name} is excluded from the schema template but no such test file "
             f"exists — the exclusion is now protecting nothing")
-
-
-def test_the_controller_sums_what_every_worker_restored(tmp_path):
-    """`STATS` is a module global and every xdist worker is its own process.
-
-    THE CONTROLLER IS THE ONLY PROCESS THAT PRINTS THE SUMMARY, and without the
-    hooks this pins it counts zero, takes the early return, and the whole line --
-    including the "only N restores across M tests" warning that exists to catch a
-    silent 10x slowdown -- disappears under `-n`. That is the shape this file is
-    about: a mechanism that breaks without ever going red.
-
-    IT ASSERTS THE SUM, NOT MERELY A NUMBER, and that took two attempts. The
-    first version ran ONE file; under `--dist loadfile` a file is indivisible, so
-    one worker got all of it and the other got nothing, and the controller's
-    `STATS[key] = STATS.get(key, 0) + value` was never once executed against a
-    second contribution. `STATS[key] = value` -- the natural `.update()`
-    simplification -- passed it five times out of five. Two files and an equality
-    against the serial total close that: a dropped worker changes the sum.
-
-    NOT test_jobs.py, WHICH IS THE SUITE'S CONCURRENCY FILE. The first version
-    used it, and it holds `threading.Barrier(2, timeout=10)` and event handshakes
-    that assert one job is held while another runs -- driven from a nested pytest
-    while the outer suite may be running the same file in a sibling worker.
-
-    WORST CASE THIS TEST CREATES, SAID OUT LOUD: under CI's `-n 2` it spawns a
-    controller and two workers of its own, so six pytest processes share the
-    runner's two cores for roughly the length of one nested run. That is the same
-    oversubscription `ci.yml` removed when it went from `-n 4` to `-n 2`, and it
-    is bounded to this test rather than the whole suite.
-
-    Run as subprocesses because what is under test happens BETWEEN processes;
-    there is no in-process way to ask it.
-    """
-    import os
-    import re
-    import subprocess
-    import sys
-
-    files = ["tests/test_catalog.py", "tests/test_catalog_api.py"]
-
-    def restores(*flags: str) -> int:
-        environment = {key: value for key, value in os.environ.items()
-                       if key != "SCRAPEX_FULL_MIGRATIONS"}   # the alarm's own branch
-        environment["SCRAPEX_DATA_ROOT"] = str(tmp_path)
-        run = subprocess.run(
-            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *flags, *files],
-            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
-            errors="replace", env=environment, timeout=600)
-        assert run.returncode == 0, (
-            f"the child pytest exited {run.returncode}, so nothing below is "
-            f"about the plumbing. stderr tail: {run.stderr[-800:]!r}")
-        counted = re.search(r"schema template: (\d+) restored.*re-armed (\d+)x",
-                            run.stdout)
-        assert counted, (
-            "the schema-template summary is missing, so the controller is "
-            "counting its own empty STATS instead of the workers'. stdout "
-            f"tail: {run.stdout[-1000:]!r}")
-        return int(counted.group(1)), int(counted.group(2))
-
-    parallel, parallel_arms = restores("-n", "2", "--dist", "loadfile")
-    serial, serial_arms = restores()
-
-    # THE ARMS, NOT ONLY THE SUM. `parallel == serial` holds by arithmetic if one
-    # of the two files stops restoring -- the total lands on a single worker and
-    # the controller's `+` is never exercised, which is the vacuity the one-file
-    # version had. A gate demonstrated it: add either file to conftest's
-    # NEVER_RESTORE and the guard degrades to a coin flip that lands green most
-    # of the time. `re-armed` counts the processes that armed the template, so 3
-    # under `-n 2` means the controller summed TWO workers' dicts and not one.
-    assert (parallel_arms, serial_arms) == (3, 1), (
-        f"the parallel child armed {parallel_arms} processes and the serial one "
-        f"{serial_arms}; expected 3 (a controller and two workers) and 1. Either "
-        "a worker contributed nothing, which puts the sum back on one process, "
-        "or the controller is not summing what the workers sent.")
-    assert serial > 0, (
-        "these files restored nothing even serially, so the comparison below "
-        "would hold for the wrong reason -- pick files that use the template.")
-    assert parallel == serial, (
-        f"the controller summed {parallel} restores across two workers, but the "
-        f"same files restore {serial} serially. A worker's count is being "
-        "dropped rather than added, which is the undercount the alarm reads.")

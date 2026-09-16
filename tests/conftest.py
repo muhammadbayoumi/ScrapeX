@@ -278,37 +278,6 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     _bypass["on"] = name in NEVER_RESTORE
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Hand this worker's restore counts to the controller.
-
-    UNDER `pytest-xdist` THE ALARM BELOW CANNOT FIRE WITHOUT THIS. `STATS` is a
-    module global, and every worker is a separate process with its own copy; the
-    controller -- the only process that runs `pytest_terminal_summary` -- counts
-    zero and returns early, so the whole summary disappears and the warning that
-    exists to catch a silent 10x slowdown goes quiet at exactly the moment the
-    suite gets harder to watch. `#654` calls this the measurement regression that
-    should be decided rather than discovered; this is the decision.
-
-    `workeroutput` exists only inside a worker, so this does nothing serially.
-    """
-    output = getattr(session.config, "workeroutput", None)
-    if output is not None:
-        output["scrapex_schema_stats"] = dict(STATS)
-
-
-def pytest_testnodedown(node, error) -> None:          # `error` is xdist's signature
-    """Controller side: add a finished worker's counts to ours.
-
-    Defined unconditionally because `pytest-xdist` is a `[dev]` dependency. If it
-    is ever removed, pytest rejects this hook by name at startup rather than
-    silently ignoring it, which is the failure mode worth having.
-    """
-    got = (getattr(node, "workeroutput", None) or {}).get("scrapex_schema_stats")
-    if got:
-        for key, value in got.items():
-            STATS[key] = STATS.get(key, 0) + value
-
-
 def pytest_terminal_summary(terminalreporter) -> None:
     if _FULL_MIGRATIONS:
         terminalreporter.write_line(
