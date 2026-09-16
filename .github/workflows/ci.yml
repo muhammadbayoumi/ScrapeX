@@ -447,10 +447,19 @@ jobs:
         # deliberately with no `env:` block.
         #
         # AND IT HAS A FLOOR, because without one the step is green either way:
-        # all seven skip when the flag reaches them and pytest still exits 0
-        # under `-q`. Measured: 7 passed without it, 7 skipped with it, exit 0
-        # both times. That is the shape #644 hid for 25 commits, and the shape
-        # the step below this one exists to stop.
+        # the template tests skip when the flag reaches them and pytest still
+        # exits 0 under `-q`. That is the shape #644 hid for 25 commits, and the
+        # shape the step below this one exists to stop.
+        #
+        # THE FLOOR COUNTS TESTS AND THE FILE NOW HOLDS TWO POPULATIONS, which is
+        # a weaker guard than it was. Seven tests pin the template and skip under
+        # the flag; `test_the_controller_sums_what_every_worker_restored` pins the
+        # cross-process plumbing instead, carries no `schema_template.disabled`
+        # guard, and is the one test here that survives the flag. So `ran < 8`
+        # means "eight tests ran", not "all seven template tests ran" -- adding a
+        # ninth non-template test would loosen it again, silently, exactly as
+        # adding the eighth did while this read seven. Counting the population
+        # rather than the file is #955.
         #
         # `raise SystemExit`, NOT `assert`: #833 is open against the sibling
         # floor below for exactly this — PYTHONOPTIMIZE strips an assert and the
@@ -467,8 +476,8 @@ jobs:
                   "the template suite skipped, so nothing pins the mechanism "
                   "tests/conftest.py restores from; SCRAPEX_FULL_MIGRATIONS has "
                   "reached this step")
-          if ran < 7:
-              raise SystemExit(f"the template suite ran {ran} tests, and there were seven")
+          if ran < 8:
+              raise SystemExit(f"the template suite ran {ran} tests, and there were eight")
           PY
 
       - name: The pre-squash suite must RUN, not skip
