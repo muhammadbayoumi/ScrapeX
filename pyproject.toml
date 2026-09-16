@@ -47,8 +47,11 @@ commodity = ["pycountry>=23.12"]
 # uvicorn is here and not only in [ui] because a test drives `scrapex ui` to prove
 # the engine REFUSES to serve a database it cannot read. Without it the CLI exits
 # earlier, on "needs the ui extra", and the guard silently stops being tested.
-dev = ["pytest>=8.2", "fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1", "httpx>=0.27",
-       "openpyxl>=3.1", "pycountry>=23.12"]
+# `pytest-xdist` is here rather than only in CI so the local and CI story are the
+# same command: a suite that only parallelises on the runner is a suite whose
+# parallel failures are only ever seen by the runner.
+dev = ["pytest>=8.2", "pytest-xdist>=3.8", "fastapi>=0.110", "uvicorn>=0.29",
+       "jinja2>=3.1", "httpx>=0.27", "openpyxl>=3.1", "pycountry>=23.12"]
 
 [project.scripts]
 scrapex = "scrapex.cli:main"

@@ -39,10 +39,17 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Enough products, answered slowly enough, that the crawl is still in flight
-# when the kill lands. A shop that answers instantly would finish before this
-# test could stage the crash, and the test would pass without ever testing it.
-SLOW_DETAIL_S = 0.6
+# A HELD SHOP, NOT A SLOW ONE. This was 12 products x a 0.6s sleep -- a 7.2s
+# budget the test raced to get its kill in, and under load the crawl won: the job
+# settled first and the run proved nothing about a crash. Measured failing twice
+# in full serial runs here, and #654 saw it again at `-n 8`, which is what a
+# fixed budget does on a machine whose speed is not fixed.
+#
+# Now the shop BLOCKS on an event the test releases, so the crawl cannot finish
+# until the test says so. Deterministic in both directions, and ~7s faster:
+# nothing sleeps.
+HOLD_TIMEOUT_S = 30
+PORT_ATTEMPTS = 3
 PRODUCTS = [{"product_id": 200 + n, "product_enname": f"Slow Product {n}",
              "product_arname": f"منتج بطيء {n}", "price": 100 + n, "stock": 3}
             for n in range(12)]
@@ -50,12 +57,21 @@ BY_ID = {str(p["product_id"]): p for p in PRODUCTS}
 
 
 class _SlowShop(BaseHTTPRequestHandler):
+    """A shop that answers when it is told to, not when a clock says so."""
+
+    asked_for_a_detail = threading.Event()   # the crawl has genuinely started
+    may_answer = threading.Event()           # the test lets it finish
+
     def do_GET(self) -> None:                              # noqa: N802
         path = self.path.split("?", 1)[0]
         if path == "/api/products":
             body = {"data": PRODUCTS, "pagination": {"totalPages": 1}}
         elif path.startswith("/api/products/"):
-            time.sleep(SLOW_DETAIL_S)                      # the crawl's real cost
+            _SlowShop.asked_for_a_detail.set()
+            # Bounded, so a test that forgets to release fails as itself rather
+            # than hanging the suite. ThreadingHTTPServer gives each request its
+            # own thread, so holding one does not hold the others.
+            _SlowShop.may_answer.wait(HOLD_TIMEOUT_S)
             body = BY_ID.get(path.rsplit("/", 1)[-1])
         else:
             body = None
@@ -74,6 +90,14 @@ class _SlowShop(BaseHTTPRequestHandler):
 
 
 def _free_port() -> int:
+    """A port that was free a moment ago -- which is not the same as free now.
+
+    The socket is closed before the child binds it, and under `pytest-xdist` a
+    sibling worker can be handed the same number inside that window (#654 names
+    this). There is no way to hand an already-bound socket to `scrapex.cli ui`,
+    so `Engine.start` retries instead: the window cannot be closed, but losing
+    it costs a second rather than a red suite.
+    """
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
@@ -91,6 +115,34 @@ def _post(url: str, payload: dict, timeout: float = 10.0):
         return json.loads(response.read().decode("utf-8"))
 
 
+class _EngineExited(Exception):
+    """The process died instead of answering -- carries what it printed."""
+
+
+def _healthy_or_died(process, url: str, seconds: float) -> None:
+    """Wait for the engine to answer, or raise saying why it never will.
+
+    RACED, NOT SEQUENCED. The first version waited a flat 2.0s to see whether the
+    process died and only THEN began asking for health -- so every healthy start,
+    which is every start in every green run, paid two seconds to learn nothing.
+    Three starts in this file, six seconds a run. Found by an audit of the suite's
+    own cost, not by a failure, which is why it survived review: it was never red.
+    """
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise _EngineExited(
+                (process.stdout.read() if process.stdout else "") or "(no output)")
+        try:
+            _get(f"{url}/api/health")
+            return
+        except (URLError, OSError, TimeoutError):   # not up yet; the loop bounds it
+            time.sleep(0.05)
+    raise AssertionError(
+        f"waited {seconds}s for the engine to answer at {url} and it never did, "
+        "and it is still running -- so this is not a lost port race")
+
+
 def _wait_for(predicate, seconds: float, what: str):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -104,13 +156,36 @@ def _wait_for(predicate, seconds: float, what: str):
     pytest.fail(f"timed out after {seconds}s waiting for {what}")
 
 
+class _Shop:
+    """The running shop, and the two levers a test has over it."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def hold(self) -> None:
+        """Answer no detail until released -- the crawl cannot finish."""
+        _SlowShop.may_answer.clear()
+
+    def release(self) -> None:
+        _SlowShop.may_answer.set()
+
+    def wait_until_asked(self, seconds: float = 60) -> None:
+        assert _SlowShop.asked_for_a_detail.wait(seconds), (
+            "the shop was never asked for a product detail, so the crawl never "
+            "reached the work this test holds it in the middle of")
+
+
 @pytest.fixture
 def shop():
+    _SlowShop.asked_for_a_detail.clear()
+    _SlowShop.may_answer.set()               # answering by default: only the
+                                             # crash test holds it
     server = ThreadingHTTPServer(("127.0.0.1", 0), _SlowShop)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        yield f"http://127.0.0.1:{server.server_address[1]}"
+        yield _Shop(f"http://127.0.0.1:{server.server_address[1]}")
     finally:
+        _SlowShop.may_answer.set()           # never leave a held thread behind
         server.shutdown()
         server.server_close()
 
@@ -122,7 +197,7 @@ def manifest(tmp_path, shop) -> Path:
 sources:
   - source_key: SLOWSHOP
     source_name: Slow Shop
-    base_url: {shop}
+    base_url: {shop.url}
     family: custom-json-api
     cadence: daily
     authority: shop
@@ -142,13 +217,17 @@ sources:
 class Engine:
     """The engine as a process, because that is the only thing you can kill."""
 
-    def __init__(self, manifest: Path, db: Path, port: int) -> None:
+    def __init__(self, manifest: Path, db: Path) -> None:
         self._db = str(db)
-        self._args = [sys.executable, "-m", "scrapex.cli", "ui",
-                      "--port", str(port), "--no-open", "--db", str(db)]
         self._env = dict(os.environ, SCRAPEX_SOURCES=str(manifest))
-        self.url = f"http://127.0.0.1:{port}"
         self.process: subprocess.Popen | None = None
+        self._take_a_port()
+
+    def _take_a_port(self) -> None:
+        port = _free_port()
+        self._args = [sys.executable, "-m", "scrapex.cli", "ui",
+                      "--port", str(port), "--no-open", "--db", self._db]
+        self.url = f"http://127.0.0.1:{port}"
 
     def create_database(self) -> None:
         """`ui --db` REFUSES a path that does not exist, on purpose — it will not
@@ -179,16 +258,37 @@ class Engine:
         which cannot pass early on a fast machine or fail late on a slow one.
         """
         started = _reclaim_marker(self._db)
-        self.process = subprocess.Popen(
-            self._args, cwd=str(ROOT), env=self._env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        _wait_for(lambda: _get(f"{self.url}/api/health"), 90, "the engine to answer")
+        for attempt in range(PORT_ATTEMPTS):
+            self.process = subprocess.Popen(
+                self._args, cwd=str(ROOT), env=self._env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            # A LOST PORT RACE EXITS AT ONCE; a healthy engine is still alive.
+            # Told apart by the process, not by a clock: waiting 90s for health
+            # on a process that died two seconds ago reports "the engine never
+            # answered" for what is really "something else already had 51423".
+            try:
+                _healthy_or_died(self.process, self.url, 90)
+                break
+            except _EngineExited as exited:
+                if attempt == PORT_ATTEMPTS - 1:
+                    raise AssertionError(
+                        f"the engine exited {PORT_ATTEMPTS} times before "
+                        f"answering; last output: {exited}") from exited
+                self._take_a_port()
         if swept:
             _wait_for(lambda: _reclaim_marker(self._db) not in (None, started),
                       60, "the orphan sweep to finish")
 
     def kill(self) -> None:
-        """No handler, no finally, no flush — TerminateProcess / SIGKILL."""
+        """No handler, no finally, no flush — TerminateProcess / SIGKILL.
+
+        THE ASSERTION THAT THE KILL LANDED IS NOT HERE, AND THAT IS THE POINT.
+        A first attempt put it in this method's body -- the same body a gate's
+        mutation replaces -- so the mutation deleted the killer and the detector
+        together and the file stayed green 4 of 4. A detector produced by the
+        code it is watching detects nothing. It lives at the call site instead;
+        see `_assert_it_really_died`.
+        """
         if self.process and self.process.poll() is None:
             self.process.kill()
             self.process.wait(timeout=30)
@@ -218,6 +318,58 @@ def _reclaim_marker(db: Path) -> str | None:
         conn.close()
 
 
+def _assert_it_really_died(engine: Engine) -> None:
+    """The kill landed -- asserted by the test, never by `Engine.kill()`.
+
+    ROUND 1 OF A MERGE GATE NEUTERED `kill()` and this file stayed green 5 of 5:
+    with the shop released, the engine that was never killed finished its own
+    crawl, the job settled, and the bounded wait accepted that. Round 2 then
+    neutered it again and got green 4 of 4 against the first fix, because that
+    fix asserted inside `kill()` -- so the mutation removed the assertion along
+    with the kill.
+
+    The file's docstring asks whether the sweep is reached "when a real process
+    is really killed". This is the line that requires it, and it is outside the
+    method under suspicion on purpose.
+    """
+    assert engine.process is not None, "the engine was never started"
+    assert engine.process.poll() is not None, (
+        "the engine is still running, so anything this test says about a crash "
+        "is about a crash that never happened")
+
+
+def _settled_status(db: Path, job_ref: str, seconds: float) -> str:
+    """The status the job had the moment it stopped claiming to be in flight.
+
+    BOUNDED WAIT, NOT AN INSTANT READ. `reclaim_orphaned_jobs` moves the orphan to
+    `queued`, and a queued job is re-dispatched at once -- so it is legitimately
+    `running` again moments later. An instantaneous read caught whichever of the
+    two it landed on, which is what made this test intermittent once the crash
+    started landing reliably.
+
+    AND IT RETURNS WHAT THE WAIT SAW. Reading the status a second time after the
+    wait re-opens exactly the race the wait closed: the value that satisfied it can
+    already be stale by the next statement, and the assertion then fails on correct
+    behaviour. Found by an audit, not by a failure.
+    """
+    deadline = time.monotonic() + seconds
+    seen = None
+    while time.monotonic() < deadline:
+        seen = _job_status(db, job_ref)
+        if seen not in IN_FLIGHT:
+            return seen
+        time.sleep(0.1)
+    # THE LAST OBSERVATION, NOT A FRESH READ. The docstring above forbids a
+    # second read because the value can be stale by the next statement -- and
+    # the first version of this message then took one, inside the failure it
+    # raises. A read taken after the deadline can report a settled job in a
+    # message that says the job never settled.
+    raise AssertionError(
+        f"after a crash and a restart the job still said {seen!r} through "
+        f"{seconds}s of polling. _source_is_busy reads this, so SLOWSHOP is now "
+        "blocked from every future crawl and nothing anywhere says why")
+
+
 def _job_status(db: Path, job_ref: str) -> str:
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
@@ -232,41 +384,48 @@ def _job_status(db: Path, job_ref: str) -> str:
 IN_FLIGHT = {"preparing", "running", "resuming"}
 
 
-def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest):
+def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest, shop):
     """The whole point, in one sentence: after a crash, nothing may still say
     'running' — because `_source_is_busy` reads exactly that, and a source stuck
     busy is a source that silently stops being crawled with no error anywhere."""
     db = tmp_path / "engine.db"
-    engine = Engine(manifest, db, _free_port())
+    engine = Engine(manifest, db)
     engine.create_database()
     engine.start()
+    # HELD, NOT RACED. Until this is released the shop answers no product
+    # detail, so the crawl physically cannot finish and the kill below always
+    # lands mid-flight. The assertion after it is therefore a statement about
+    # the engine, not about which of two clocks won.
+    shop.hold()
     try:
         job_ref = _post(f"{engine.url}/api/jobs", {"source_keys": ["SLOWSHOP"]})["job_ref"]
 
+        shop.wait_until_asked()
         _wait_for(lambda: _job_status(db, job_ref) in IN_FLIGHT, 60,
                   "the crawl to actually start")
 
         # The crash. Not a shutdown — the process is destroyed where it stands,
         # holding an open SQLite connection and a half-finished crawl.
         engine.kill()
+        _assert_it_really_died(engine)
 
         assert _job_status(db, job_ref) in IN_FLIGHT, (
             "the job settled before the kill landed, so this run proved nothing "
-            "about a crash — the shop is answering faster than it is meant to")
+            "about a crash — and the shop was HELD, so this is no longer the "
+            "race it used to be: something else finished the job")
     finally:
         engine.kill()
+        shop.release()
 
     # And now the part that matters: start again over the same database.
-    survivor = Engine(manifest, db, _free_port())
+    survivor = Engine(manifest, db)
     # The sweep is the thing under test here, so wait for IT rather than for
     # the port. See Engine.start's docstring (OP-19).
     survivor.start(swept=True)
     try:
-        status = _job_status(db, job_ref)
-        assert status not in IN_FLIGHT, (
-            f"after a crash and a restart the job still says {status!r}. "
-            "_source_is_busy reads this, so SLOWSHOP is now blocked from every "
-            "future crawl and nothing anywhere says why")
+        # Raises with the whole finding if it never settles. ONE READ, not a wait
+        # followed by a second read -- see _settled_status.
+        _settled_status(db, job_ref, 60)
 
         # It must also still be READABLE — a hard kill over an open connection
         # is where a corrupt database would show, and asking for the job list is
@@ -277,22 +436,44 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
         survivor.kill()
 
 
-def test_the_database_still_answers_after_the_kill(tmp_path, manifest):
+def test_the_database_still_answers_after_the_kill(tmp_path, manifest, shop):
     """A hard kill with the write-ahead log open must not cost the warehouse.
 
     Separate from the test above because it fails for a different reason and the
     owner would act on it differently: one is a stuck job, this is a lost
     database.
+
+    ITS PREMISE IS HELD, NOT TIMED, and the kill is asserted -- for the same two
+    reasons as its sibling, found in the same file one round apart. It used to
+    stage "the WAL is open" with `time.sleep(2.0)` and hope, and it called
+    `kill()` only inside a `finally:` with nothing checking the kill landed. A
+    gate proved the second half: with `kill()` neutered it passed 3 of 3, happily
+    reporting that a hard kill cost the warehouse nothing while the engine was
+    still alive and serving.
     """
     db = tmp_path / "engine.db"
-    engine = Engine(manifest, db, _free_port())
+    engine = Engine(manifest, db)
     engine.create_database()
     engine.start()
+    shop.hold()
     try:
-        _post(f"{engine.url}/api/jobs", {"source_keys": ["SLOWSHOP"]})
-        time.sleep(2.0)                      # let it get properly under way
+        job_ref = _post(f"{engine.url}/api/jobs",
+                        {"source_keys": ["SLOWSHOP"]})["job_ref"]
+        shop.wait_until_asked()              # the crawl is really in flight
     finally:
         engine.kill()
+        shop.release()
+    _assert_it_really_died(engine)
+    # THE PREMISE IS REQUIRED, NOT MERELY ARRANGED. `wait_until_asked()` stages
+    # the mid-crawl moment; without this line nothing checks it worked, and a
+    # gate proved it: make that helper return immediately and this test kills an
+    # engine whose job is still `queued`, then reports that a hard kill cost the
+    # warehouse nothing -- because a migrated database passes `integrity_check`
+    # and has a `crawl_job` table whether or not anything was ever written.
+    assert _job_status(db, job_ref) in IN_FLIGHT, (
+        "the crawl was not in flight when the kill landed, so there was no open "
+        "write-ahead log for the kill to cost anything and this run proved "
+        "nothing about a crash")
 
     conn = sqlite3.connect(str(db))
     try:
