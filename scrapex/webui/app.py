@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -3741,6 +3741,149 @@ def create_app(
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
+
+    #: What a bundle fetched from Drive is called once it lands. NOT
+    #: `scrapex-bundle-`: that prefix is what `_newest` serves as THIS engine's
+    #: own archive and what `_prune_old_bundles` deletes, so a file downloaded
+    #: from Drive wearing it would be uploaded back as a local build and pruned
+    #: as one. It still ends `.zip`, which is what `list_bundles` globs, so the
+    #: Bundles card lists it and `adopt-bundle` accepts it by name.
+    RECEIVED_PREFIX = "from-drive-"
+
+    #: One transfer at a time. Two presses writing one `.part` interleave their
+    #: chunks and produce a file whose digest cannot match anything.
+    _receive_lock = threading.Lock()
+
+    _SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+
+    @app.post("/api/storage/receive-bundle")
+    def api_storage_receive_bundle(
+        # DEFAULT EMPTY, so a body-less press is a QUESTION rather than a
+        # 422: at offset 0 with no bytes this answers whether the archive is
+        # already here, which is what lets the panel skip 625 MB it has
+        # already fetched instead of reading Drive to find out.
+        body: bytes = Body(default=b""),
+        offset: int = Query(...),
+        total: int = Query(...),
+        sha256: str = Query(...),
+    ):
+        """Take one piece of a backup the panel is reading out of Drive.
+
+        THE PANEL HOLDS GOOGLE AND THE ENGINE HOLDS THE DISK, which is his
+        ruling of 2026-08-11, and it is why the bytes arrive here rather than
+        the engine fetching them: no Google credential exists on this side and
+        none is accepted here. What crosses is opaque bytes plus three numbers.
+
+        AND THE PANEL NEVER HOLDS THE WHOLE ARCHIVE. 625 MB through a side-panel
+        document is what returned 0 bytes four times (#788); a 4 MB piece at a
+        time is the same shape as the upload that has actually worked.
+
+        NO NAME AND NO PATH FROM THE CALLER, for the reason `open-folder` gives
+        below: this page is on a loopback port every tab in the browser can
+        reach. The file is named from the digest the caller DECLARES, so two
+        different archives cannot collide and no request can choose where
+        anything is written.
+
+        THE DIGEST IS DECLARED BEFORE THE FIRST BYTE, not computed from what
+        arrived. Drive's pointer carries the digest the engine wrote at build
+        time, so a file that verifies here is provably the archive this product
+        packed -- a guarantee the manual download it replaces never had.
+        """
+        if not _SHA256_TEXT.match(sha256 or ""):
+            raise HTTPException(
+                status_code=400,
+                detail="A backup is identified by its sha256, and that is not one.")
+        if total <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="A transfer has to say how many bytes it is bringing.")
+        if offset < 0:
+            raise HTTPException(
+                status_code=400, detail="An offset cannot be negative.")
+
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+        folder.mkdir(parents=True, exist_ok=True)
+        archive = folder / f"{RECEIVED_PREFIX}{sha256[:16]}.zip"
+        partial = archive.with_name(archive.name + bundle.PARTIAL_SUFFIX)
+
+        if not _receive_lock.acquire(blocking=False):
+            raise HTTPException(
+                status_code=409,
+                detail=("A backup is already being fetched -- wait for it to "
+                        "finish and press again."))
+        try:
+            # ALREADY HERE, AND PROVED SO RATHER THAN ASSUMED. A press that
+            # repeats a transfer that already finished should not spend fifteen
+            # minutes re-reading Drive -- but a file the right length under the
+            # right name is not the same as the right file, so the digest
+            # decides and nothing is skipped on a name alone.
+            if offset == 0 and archive.is_file() and archive.stat().st_size == total:
+                if bundle.sha256_of(archive) == sha256:
+                    return {"received": total, "total": total, "complete": True,
+                            "name": archive.name, "already_here": True}
+                archive.unlink()
+
+            have = partial.stat().st_size if partial.is_file() else 0
+            if offset == 0 and have:
+                # A PREVIOUS ATTEMPT LEFT A TAIL. The caller asked to start at
+                # zero, so it is not resuming; keeping the old bytes would
+                # append one archive to another.
+                partial.unlink()
+                have = 0
+            if offset != have:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(f"This transfer is at {have} bytes, not {offset}. "
+                            "Send from there, or start again from zero."))
+            if have + len(body) > total:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"That piece would take the file past the "
+                            f"{total} bytes it was declared to be."))
+            # ROOM FIRST, AND ONLY ONCE. Checking every chunk would ask the
+            # filesystem 160 times for an answer that cannot change enough to
+            # matter; checking none is how a 625 MB transfer fills a disk and
+            # reports it at the last chunk.
+            if have == 0 and free_space(folder) < int(total * FREE_SPACE_MARGIN):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"Fetching this backup needs about "
+                            f"{int(total * FREE_SPACE_MARGIN) // (1024 * 1024)} MB "
+                            f"free in {folder} and there is less than that. "
+                            "Remove an older copy first."))
+
+            with partial.open("ab") as fh:
+                fh.write(body)
+            received = partial.stat().st_size
+            if received < total:
+                return {"received": received, "total": total, "complete": False}
+
+            digest = bundle.sha256_of(partial)
+            if digest != sha256:
+                # NOTHING PARTIAL KEEPS A NAME THAT LOOKS FINISHED. A file that
+                # does not match what Drive says it is has no use here, and
+                # leaving it would put a corrupt archive in the Bundles card.
+                partial.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail=("The backup arrived complete and does not match the "
+                            "digest Drive recorded for it, so it was discarded. "
+                            "Press again."))
+            partial.replace(archive)
+            return {"received": received, "total": total, "complete": True,
+                    "name": archive.name, "already_here": False}
+        except OSError as exc:
+            partial.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail=(f"The piece could not be written into {folder}: {exc}. "
+                        "Nothing was kept."))
+        finally:
+            _receive_lock.release()
 
     @app.post("/api/storage/adopt-bundle")
     def api_storage_adopt_bundle(body: dict):
