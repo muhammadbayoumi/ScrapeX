@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -422,6 +423,226 @@ def test_the_host_never_runs_the_unified_migrations_over_a_marketlens_database(t
     (n,) = struct.unpack("<I", reply.read(4))
     answer = json.loads(reply.read(n))
     assert answer["ok"] and answer["request_id"] == "b1"
+
+
+# ---- _spawn_engine: the hand that actually reaches the machine ---------------
+#
+# Every test above monkeypatches `_spawn_engine` away, and rightly so — each is
+# about `start_engine`'s DECISION, not about the spawn. The cost was that the
+# body had no caller anywhere in the suite and not one of its lines had ever run
+# (`#962`), while it is the exact place where "the panel sends START_ENGINE and
+# native.py obeys" does the obeying. So it is driven here directly with
+# `subprocess.Popen` patched: four decisions live in those ten lines and not one
+# of them needs a process to be asserted.
+
+# DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP exist only on Windows, and CI is
+# Linux — so the win32 branch is driven with the documented Win32 values supplied
+# where the platform has none. Where the real pair exists, the flags are left
+# alone and these literals are what the branch is measured against.
+DETACHED_PROCESS = 0x00000008
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+
+class _RecordsInsteadOfStarting:
+    """A stand-in for `subprocess.Popen` that records the launch and starts nothing."""
+
+    def __init__(self, fails: Exception | None = None):
+        self.calls: list[dict] = []
+        self.fails = fails
+
+    def __call__(self, command, **kwargs):
+        # OPEN-AT-SPAWN IS RECORDED HERE AND NOWHERE ELSE, because afterwards it
+        # cannot be recovered. Asserting only that the handle ends up closed is
+        # satisfied just as well by one closed BEFORE the child was given it —
+        # `Popen` raises on a closed file object, so the panel's start button
+        # would never work again, and every assertion below would still be green.
+        streams = {name: kwargs[name] for name in ("stdout", "stderr")
+                   if hasattr(kwargs.get(name), "closed")}
+        self.calls.append({"command": command,
+                           "open_at_spawn": {n: not s.closed for n, s in streams.items()},
+                           **kwargs})
+        if self.fails is not None:
+            raise self.fails
+        # Nothing is returned because nothing is kept: the child must outlive us.
+
+    @property
+    def last(self) -> dict:
+        assert self.calls, "the engine was never spawned at all"
+        return self.calls[-1]
+
+
+@pytest.fixture()
+def spawn(monkeypatch, tmp_path):
+    """Arm `_spawn_engine` to be called for real: no process starts, no `~/.scrapex`.
+
+    THE LOG IS REDIRECTED AT `relaunch.engine_log` and not at `open_engine_log`,
+    which keeps the real opener inside the path under test — folder creation,
+    rotation, append mode — pointed at tmp_path. Redirecting it somewhere is not
+    optional: `engine_log()` is `Path.home() / ".scrapex" / "engine.log"` and
+    reads no environment variable (`scrapex/relaunch.py:145`), so conftest's data
+    root does not reach it and an unpatched call appends to the owner's live log.
+
+    `sys.platform` is DRIVEN, never read: the dev box is Windows and CI is Linux,
+    so a creationflags test that read the platform would assert one branch on one
+    machine, the other branch on the other, and both branches nowhere.
+    """
+    from scrapex import relaunch
+
+    monkeypatch.setattr(relaunch, "engine_log",
+                        lambda: tmp_path / ".scrapex" / "engine.log")
+
+    def arrange(*, platform: str = "linux",
+                fails: Exception | None = None) -> _RecordsInsteadOfStarting:
+        popen = _RecordsInsteadOfStarting(fails)
+        monkeypatch.setattr(subprocess, "Popen", popen)
+        monkeypatch.setattr(sys, "platform", platform)
+        for name, value in (("DETACHED_PROCESS", DETACHED_PROCESS),
+                            ("CREATE_NEW_PROCESS_GROUP", CREATE_NEW_PROCESS_GROUP)):
+            if not hasattr(subprocess, name):
+                monkeypatch.setattr(subprocess, name, value, raising=False)
+        return popen
+
+    return arrange
+
+
+def test_the_spawned_engine_is_the_ui_command_enginelaunch_builds(spawn):
+    """`OP-36`, from the other side. This built `[sys.executable, "-m",
+    "scrapex.cli", ...]` for itself, and a frozen build does not honour `-m`: the
+    child fell through to the native messaging host and the owner got a mute
+    stranger instead of an engine. The argv comes from `enginelaunch`, whole.
+
+    `tests/test_the_frozen_engine_can_start_itself.py` already pins that argv —
+    but by re-building it beside the function rather than by calling it, which is
+    a copy of the decision and not the decision. This is the call.
+
+    The port arrives as a string because that is what an argv is; an int is a
+    TypeError at the spawn on POSIX.
+    """
+    from scrapex import enginelaunch, native
+
+    popen = spawn()
+    native._spawn_engine(8099)
+
+    assert popen.last["command"] == enginelaunch.engine_argv("ui", "--port", "8099"), (
+        "the argv is being built here again instead of by enginelaunch (OP-36)")
+    assert popen.last["command"][-3:] == ["ui", "--port", "8099"], (
+        "the subcommand or the requested port never reached the child")
+    assert popen.last["cwd"] == str(Path(native.__file__).resolve().parent.parent), (
+        "the engine was started somewhere other than the repository root")
+
+
+def test_a_frozen_build_is_not_handed_dash_m_which_its_bootloader_ignores(spawn,
+                                                                          monkeypatch):
+    """THE ONE ASSERTION THAT PROVES `enginelaunch` WAS ACTUALLY ASKED, and the
+    reason the test above cannot: comparing the argv to `engine_argv(...)` moves
+    both sides at once, so code that rebuilds `[runner(), "-m", "scrapex.cli",
+    ...]` right here — `OP-36`'s own defect, one source install away from
+    identical — passes it on every platform. The frozen build is where the two
+    answers differ, so the frozen build is where delegation is measurable.
+
+    `sys.frozen` is what PyInstaller sets (`scrapex/enginelaunch.py:39`). Under it
+    the bootloader does not honour `-m`: `packaging/engine_entry.py` receives
+    `["-m", "scrapex.cli", "ui", ...]`, does not recognise `scrapex.cli`, and
+    falls through to this very native messaging host. The engine asks to be
+    replaced and a mute stranger arrives.
+    """
+    from scrapex import native
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    popen = spawn()
+    native._spawn_engine(8000)
+
+    command = popen.last["command"]
+    assert command[0] == sys.executable, (
+        "a frozen build must re-run its own executable, not something beside it")
+    assert command[1:] == ["ui", "--port", "8000"], (
+        "the argv is being built here again: a frozen build ignores `-m` and the "
+        "child comes up as a second native messaging host (OP-36)")
+
+
+def test_both_streams_are_one_open_engine_log_and_the_child_is_given_no_stdin(
+        spawn, tmp_path):
+    """A detached process with no log is undiagnosable the day it fails to come
+    up, and every failure message in the panel sends the owner to read this one
+    file — so stdout and stderr are the SAME open handle on it, not two openers
+    of one path racing each other's appends. stdin is DEVNULL: Chrome's pipe
+    belongs to this host, and an engine that inherits it can consume the frames
+    the host was about to read.
+
+    The handle is ours only until the child has it. It is closed on the way out
+    of the happy path as well as the failing one, because a handle nobody closes
+    is a file nothing can rotate.
+    """
+    from scrapex import native
+
+    popen = spawn()
+    native._spawn_engine(8000)
+
+    launch = popen.last
+    assert launch["stdout"] is launch["stderr"], (
+        "stderr was sent somewhere other than stdout; half the evidence is lost")
+    assert Path(launch["stdout"].name) == tmp_path / ".scrapex" / "engine.log", (
+        "the engine's output does not land in the engine log")
+    assert launch["stdin"] is subprocess.DEVNULL, (
+        "the child inherited a stdin, which on this host is Chrome's own pipe")
+    # ORDER, not just the end state. A close that happens before the spawn leaves
+    # the handle closed too, and hands `Popen` a closed file object: on that code
+    # the button raises every time and the engine never starts.
+    assert launch["open_at_spawn"] == {"stdout": True, "stderr": True}, (
+        "the log was closed before the child was given it; the spawn cannot work")
+    assert launch["stdout"].closed, (
+        "our handle on the log was left open after a successful start")
+
+
+def test_windows_gets_a_detached_process_group_because_the_engine_must_outlive_us(spawn):
+    """Chrome tears the stdio host down right after the reply, so the engine is
+    started as its own process group with no console — otherwise it dies with the
+    host that started it, or flashes a console window at the owner every time.
+    """
+    from scrapex import native
+
+    popen = spawn(platform="win32")
+    native._spawn_engine(8000)
+
+    assert popen.last["creationflags"] == DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, (
+        "the engine is tied to the host that started it, or comes up with a console")
+
+
+def test_no_other_platform_is_handed_a_creationflags_word(spawn):
+    """`creationflags` is Windows-only: anything but 0 elsewhere is a ValueError at
+    the spawn, which on this path means the button silently does nothing.
+
+    Both branches are asserted on every machine because the platform is driven
+    and not read — see the fixture.
+    """
+    from scrapex import native
+
+    for platform in ("linux", "darwin"):
+        popen = spawn(platform=platform)
+        native._spawn_engine(8000)
+        assert popen.last["creationflags"] == 0, (
+            f"{platform} was handed Windows creation flags")
+
+
+def test_the_log_handle_is_closed_even_when_the_spawn_fails(spawn):
+    """THE `finally`, and the failure it guards is not the failed launch — that one
+    is loud. It is the handle the failed launch leaves behind: nothing else in
+    this process will ever close it, and on Windows an open handle is exactly what
+    makes `rotate_engine_log`'s rename fail (`scrapex/relaunch.py`), so one failed
+    start would be enough to leave the log unbounded from then on.
+
+    The error itself still travels: a spawn that could not happen is not reported
+    as a start that did.
+    """
+    from scrapex import native
+
+    popen = spawn(fails=OSError(2, "No such file or directory"))
+
+    with pytest.raises(OSError):
+        native._spawn_engine(8000)
+
+    assert popen.last["stdout"].closed, (
+        "the spawn failed and left the engine log open; nothing can rotate it now")
 
 
 # ---- the host must survive the fault the owner needs it to repair ------------
