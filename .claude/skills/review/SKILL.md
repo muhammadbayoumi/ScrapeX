@@ -105,6 +105,10 @@ eight green mutations that measured nothing.
 | 601–1000 | 4, plus one adversary per **surviving** finding |
 | > 1000 | split first, by the rule above |
 
+**The table sizes the fan-out and nothing else.** Steps 0 and 1 — the record, and the
+green proved by head SHA — run at every size including **none**: they are the two
+cheapest checks in the gate, and no reviewer buys either.
+
 **A cold read is for a change that crosses a surface** — panel ↔ engine ↔ warehouse — not
 for every pass.
 
