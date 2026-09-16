@@ -774,3 +774,283 @@ def test_the_version_string_cannot_do_this_job(loaded):
     if tagged.returncode == 0:
         assert tagged.stdout.strip().startswith("451468d"), \
             "engine-v0.3.0 is not the commit this file's account rests on"
+
+
+# ---- and the remedy the report names ----------------------------------------
+
+class _CapturedThread:
+    """Stands in for `threading.Thread` and KEEPS the target instead of running it.
+
+    THIS IS THE ONE THING THIS SECTION MAY NOT GET WRONG. `restart_engine`'s
+    thread sleeps 1.5 s and then calls `os._exit(0)` -- a hard exit that runs no
+    `atexit` hook, no finaliser and none of pytest's reporting. Let the real
+    `threading.Thread` run inside a pytest process and the session does not go
+    red, it VANISHES: the dots stop mid-line, there is no summary, and the shell
+    is handed exit code 0. Measured, not feared -- moving the call inline while
+    only one test patched `os._exit` ended a 38-test run at 36 dots and no report.
+
+    So `scrapex.webui.app.threading` is this for the duration, `start()` records
+    that it was asked to run and does nothing, and the target is called
+    deliberately -- once, in `test_the_bow_out_answers_first_and_exits_second`.
+    """
+
+    def __init__(self, made: list, target=None, daemon=None, **kwargs):
+        self.made = made
+        self.target = target
+        self.daemon = daemon
+        self.kwargs = kwargs
+        self.started = False
+        made.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+
+@pytest.fixture
+def panel(tmp_path, monkeypatch):
+    """The real app behind a real client, with every way out of the process shut.
+
+    THE KILLERS ARE DECLAWED HERE AND NOT PER TEST, which is the correction to a
+    first draft that patched them only where it meant to call them. A test that
+    merely drives the route does not choose whether `os._exit` is real -- the
+    route does -- so leaving it real anywhere makes one edit to `app.py` the
+    difference between a red and a disappeared run. `time.sleep` goes with it, so
+    an inline sleep costs the suite 1.5 s once rather than silently.
+
+    They are recorded rather than merely blocked: `panel.order` is the evidence
+    that a route which is supposed to ANSWER first has done nothing else yet.
+    Both are patched as single attributes on the real modules, restored by
+    `monkeypatch` -- not by swapping the modules out from under `app`, which runs
+    middleware entitled to a real `os`.
+
+    `spawn_helper` is NOT given a working default here: its two outcomes are the
+    two halves of this route, and a default would quietly supply whichever half a
+    test forgot to state. It is replaced with a REFUSAL instead, because the real
+    one starts a detached process and appends to `Path.home() / ".scrapex" /
+    "engine.log"` -- `relaunch.engine_log` reads no environment variable
+    (`scrapex/relaunch.py:145`), so conftest's `SCRAPEX_DATA_ROOT` does not reach
+    it and a test that merely forgot to patch would write into the owner's live
+    log and leave a real helper polling a real port. The refusal cannot be
+    mistaken for either half: the route turns it into a 500 whose detail carries
+    this sentence rather than the errno each test supplies.
+
+    The client's `base_url` carries an explicit port on purpose: `restart_engine`
+    reads `request.url.port` to tell the helper which port to re-bind, and a client
+    with no port in its base_url falls through to the literal 8000 that the body
+    also hardcodes as its fallback -- so it could not tell a read from a constant.
+    """
+    pytest.importorskip("fastapi", reason="needs the ui extra")
+    from fastapi.testclient import TestClient
+
+    from scrapex import relaunch
+    from scrapex.databases import DatabaseRegistry
+    from scrapex.databases.domain import EngineDatabase
+    from scrapex.webui import app as app_module
+
+    registry = DatabaseRegistry(
+        EngineDatabase(tmp_path / "marketlens" / "scrapex-engine.db"),
+        pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    api = app_module.create_app(databases=registry)
+
+    def unstated(port: int) -> int:
+        raise AssertionError(
+            "this test drove /api/engine/restart without saying what spawn_helper "
+            "does, and the real one starts a detached process and writes to the "
+            "owner's ~/.scrapex/engine.log")
+
+    monkeypatch.setattr(relaunch, "spawn_helper", unstated)
+
+    made: list[_CapturedThread] = []
+    order: list[tuple] = []
+    monkeypatch.setattr(app_module, "threading", types.SimpleNamespace(
+        Thread=lambda **kw: _CapturedThread(made, **kw)))
+    monkeypatch.setattr(app_module.time, "sleep",
+                        lambda seconds: order.append(("slept", seconds)))
+    monkeypatch.setattr(app_module.os, "_exit",
+                        lambda code: order.append(("exited", code)))
+    return types.SimpleNamespace(
+        module=app_module, app=api, threads=made, order=order,
+        client=lambda port: TestClient(api, base_url=f"http://127.0.0.1:{port}"))
+
+
+def test_a_helper_that_cannot_start_leaves_the_engine_running_and_says_where_to_go(
+        panel, monkeypatch):
+    """THE FAILURE THAT MUST NOT COMPOUND. This route is the only way out of a
+    warehouse written by a newer build -- migrations go forward only, so Upgrade
+    database cannot help -- and the owner reaches it from a button, never a
+    terminal. If the helper does not start and the engine exits anyway, the panel
+    is gone, the port is free, and nothing is coming to take it: the one repair
+    has become the outage.
+
+    So the order in the body is load-bearing, and both halves are asserted: a 500
+    that names the Startup folder (his other way in, and he has to be told to use
+    it), AND no bow-out at all. The second is the one a reader would skip;
+    scheduling the exit above the `try` passes every string check here.
+    """
+    from scrapex import relaunch
+
+    def refuses(port: int) -> int:
+        raise OSError("[Errno 13] Permission denied: 'engine.log'")
+
+    monkeypatch.setattr(relaunch, "spawn_helper", refuses)
+
+    answer = panel.client(8123).post("/api/engine/restart")
+
+    assert answer.status_code == 500, answer.text
+    detail = answer.json()["detail"]
+    assert "Startup" in detail, (
+        "the owner has exactly one other way to start an engine and this is where "
+        f"he is told to use it. Got: {detail}")
+    assert "still running" in detail, (
+        "he is about to reload the page; the message decides whether he expects "
+        f"an engine to be there. Got: {detail}")
+    assert "[Errno 13]" in detail, (
+        "the cause is carried through rather than swallowed -- no silent failures")
+    assert panel.threads == [], (
+        "the helper never started, so nothing will bring this engine back and it "
+        "must not schedule its own exit")
+    assert panel.order == [], (
+        f"it exited anyway, with no helper coming. Got: {panel.order}")
+
+
+def test_the_helper_is_told_the_port_this_request_arrived_on(panel, monkeypatch):
+    """A HELPER THAT REBINDS THE WRONG PORT IS A SILENT LOSS. The engine comes
+    back, answers nobody, and the panel -- which polls the port it was opened on --
+    reports an engine that never returned.
+
+    Two different ports through the same app, because one port cannot tell a read
+    from a constant: `8000` is in this function's own body as the fallback, so a
+    single-port test would pass against `port = 8000`.
+    """
+    from scrapex import relaunch
+
+    asked: list[int] = []
+    monkeypatch.setattr(relaunch, "spawn_helper",
+                        lambda port: asked.append(port) or 4242)
+
+    first = panel.client(8123).post("/api/engine/restart").json()
+    second = panel.client(9010).post("/api/engine/restart").json()
+
+    assert [first["port"], second["port"]] == [8123, 9010], (first, second)
+    assert asked == [8123, 9010], (
+        "the port in the answer is cosmetic; the port the helper was given is the "
+        f"one the engine comes back on. Got: {asked}")
+    assert first["ok"] is True
+    assert first["helper_pid"] == 4242, (
+        "the pid is the only handle the owner has on a detached process that "
+        "outlives this one")
+    assert len(panel.threads) == 2 and all(t.started for t in panel.threads), (
+        "a helper is now waiting for this port; an engine that does not exit holds "
+        "it until the helper gives up and says so in the log")
+    assert all(t.daemon is True for t in panel.threads), (
+        "a non-daemon thread would hold the interpreter open for the whole sleep "
+        "even where the engine was asked to stop in the meantime")
+
+
+def test_the_bow_out_answers_first_and_exits_second(panel, monkeypatch):
+    """THE ORDER IS THE WHOLE DESIGN -- "This answers FIRST and exits a moment
+    later, so the browser gets a reply instead of a dropped connection."
+
+    A dropped connection and a restart look identical from the panel, so getting
+    this backwards costs the owner the one message that tells him to wait and
+    reload rather than conclude the button is broken.
+
+    "Answers first" is a claim about what has NOT happened by the time the
+    response is in hand, so it is asserted while the recorder is already
+    listening -- see the fixture, which is what makes `panel.order` evidence
+    rather than an empty list compared with itself. An inline `os._exit`, or an
+    inline 1.5 s sleep (the other way to get this wrong), puts an entry there
+    before the response exists.
+    """
+    from scrapex import relaunch
+
+    monkeypatch.setattr(relaunch, "spawn_helper", lambda port: 4242)
+
+    answer = panel.client(8123).post("/api/engine/restart")
+
+    assert answer.status_code == 200
+    assert "reload" in answer.json()["message"].lower(), (
+        "the answer is the only instruction he gets before the page stops "
+        "responding")
+    assert panel.order == [], (
+        "the reply is in hand and the engine has neither slept nor exited: the "
+        f"answer beat the exit, which is what the detached thread is for. Got: "
+        f"{panel.order}")
+
+    panel.threads[0].target()
+
+    assert panel.order == [("slept", 1.5), ("exited", 0)], (
+        "it must wait and then exit: exiting first drops the connection the sleep "
+        "exists to protect, and a non-zero code tells the helper's log that the "
+        f"engine crashed rather than stood aside. Got: {panel.order}")
+
+
+def test_a_helper_that_fails_for_any_other_reason_gets_the_same_way_out(
+        panel, monkeypatch):
+    """AN ERRNO IS NOT THE ONLY WAY THIS FAILS, and the test above proves only that
+    one. `spawn_helper` builds its command line first (`enginelaunch.engine_argv`,
+    `scrapex/relaunch.py:154`), and a build that cannot work out what to run does not
+    raise `OSError`. Measured: with only the errno test present, `except Exception`
+    narrows to `except OSError` and the whole file stays green.
+
+    What that costs is not a worse message but no message: an exception the route
+    does not catch never becomes an `HTTPException`, so the body carries no `detail`
+    at all -- and `detail` is the only thing the three callers read
+    (the panel's `app.js`, `settings.html`, `database_unavailable.html` each fall back
+    to "The engine refused (HTTP 500)."). The owner is on the one screen he can still
+    reach, and it tells him nothing and sends him nowhere.
+    """
+    from scrapex import relaunch
+
+    def refuses(port: int) -> int:
+        raise RuntimeError("cannot work out what to run")
+
+    monkeypatch.setattr(relaunch, "spawn_helper", refuses)
+
+    answer = panel.client(8123).post("/api/engine/restart")
+
+    assert answer.status_code == 500, answer.text
+    detail = answer.json()["detail"]
+    assert "Startup" in detail, (
+        "every failure to start the helper ends at the same one other way in, "
+        f"whatever the exception was. Got: {detail}")
+    assert "cannot work out what to run" in detail, (
+        "no silent failures -- the cause reaches the panel however it was raised")
+    assert panel.threads == [] and panel.order == [], (
+        f"no helper started, so the engine must still be here to say so. "
+        f"Got threads={panel.threads}, order={panel.order}")
+
+
+def test_a_request_that_names_no_port_falls_back_to_the_engine_default(
+        panel, monkeypatch):
+    """THE ONE LINE OF THIS ROUTE THE PORT TEST CANNOT REACH. `request.url.port` is
+    None whenever the Host header carries no port, and the body answers that with a
+    fallback -- so the test above, which sends two explicit ports precisely so a read
+    cannot be confused with a constant, never executes the fallback at all. Measured:
+    `or 8000` becomes `or 0` and every other test here still passes, while the helper
+    is told to bring the engine back on an ephemeral port the panel will never poll.
+
+    The expected value is read from `native.DEFAULT_ENGINE_PORT` rather than written
+    again here: that is where the number lives (`autostart` says in a comment that its
+    own copy mirrors it), and this route holds a third, bare copy. If they ever
+    disagree, this is the test that says so.
+    """
+    from fastapi.testclient import TestClient
+
+    from scrapex import native, relaunch
+
+    asked: list[int] = []
+    monkeypatch.setattr(relaunch, "spawn_helper",
+                        lambda port: asked.append(port) or 4242)
+
+    # No port in the base_url, so no port in the Host header -- `localhost` is on
+    # LOOPBACK_HOSTS, so TrustedHostMiddleware passes it through to the route.
+    answer = TestClient(panel.app, base_url="http://localhost").post(
+        "/api/engine/restart")
+
+    assert answer.status_code == 200, answer.text
+    assert asked == [native.DEFAULT_ENGINE_PORT], (
+        "a request with no port still has to name a real one, and the only sane "
+        f"guess is the port the engine starts on. Got: {asked}")
+    assert answer.json()["port"] == native.DEFAULT_ENGINE_PORT
