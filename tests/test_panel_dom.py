@@ -6501,6 +6501,55 @@ def test_a_failed_creation_does_not_abandon_the_workbook_in_force(open_panel):
 # explains why it is needed.
 
 
+def test_the_database_page_can_be_scrolled_to_its_backups(open_panel):
+    """THE PAGE THAT COULD NOT MOVE, found on his machine mid-restore.
+
+    `main` is `overflow: hidden` and every list-shaped view carries its own
+    scrollport -- either by being named in the enumerations at the top of
+    `extension/app.css` or by wrapping its body in `.view-scroll`. #view-database
+    was in neither, so the page simply ended at the fold: he had just fetched a
+    625 MB backup from Drive and the Backups card, the one this page exists to
+    reach, was below the edge with nothing that would move it.
+
+    THE WHEEL, NOT `scrollTop`. An element with `overflow: hidden` is still
+    scrollable PROGRAMMATICALLY -- `scrollIntoView` and `scrollTop` both work on
+    it -- so a test that scrolls by script passes against the broken page and
+    proves nothing. What the owner has is a wheel, and that is what this turns.
+    """
+    page = open_panel()
+    page.click('nav.side-rail button[data-view="database"]')
+    settle_view(page, "database")
+    # A panel short enough that the page must move to finish itself. 520px is
+    # taller than the 400x520 this repo already sizes its tightest screens to.
+    page.set_viewport_size({"width": 360, "height": 520})
+    page.wait_for_timeout(200)
+
+    where = """() => {
+      const card = document.querySelector('#db-bundles').closest('.card')
+                || document.querySelector('#db-bundles');
+      const box = card.getBoundingClientRect();
+      return {top: Math.round(box.top), bottom: Math.round(box.bottom),
+              viewport: window.innerHeight};
+    }"""
+    before = page.evaluate(where)
+    assert before["top"] > before["viewport"], (
+        "the Backups card already fits, so this test is no longer measuring "
+        f"anything: {before}")
+
+    page.mouse.move(180, 300)
+    page.mouse.wheel(0, 3000)
+    page.wait_for_timeout(300)
+    after = page.evaluate(where)
+
+    assert after["top"] < before["top"], (
+        "the wheel moved nothing on the Database page, so everything below the "
+        f"fold is unreachable: the Backups card stayed at y={after['top']} in a "
+        f"{after['viewport']}px panel")
+    assert after["bottom"] <= after["viewport"] + 1, (
+        f"the Backups card still ends {after['bottom'] - after['viewport']}px "
+        "past the bottom after scrolling to the end")
+
+
 def test_the_database_page_states_the_schema_and_offers_the_upgrade(open_panel):
     """THE ONE NUMBER THAT DECIDES WHETHER HE HAS SOMETHING TO PRESS.
 
