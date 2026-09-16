@@ -3382,6 +3382,16 @@ def create_app(
 
     BUNDLE_PREFIX = "scrapex-bundle-"
 
+    #: What a bundle fetched from Drive is called once it lands. NOT
+    #: `scrapex-bundle-`: that prefix is what `_newest` serves as THIS engine's
+    #: own archive and what `_prune_old_bundles` deletes, so a file downloaded
+    #: from Drive wearing it would be uploaded back as a local build and pruned
+    #: as one. It still ends `.zip`, which is what `list_bundles` globs, so the
+    #: Bundles card lists it and `adopt-bundle` accepts it by name -- and it has
+    #: its own retention in `_prune_fetched_bundles`, which is the other half of
+    #: that decision.
+    RECEIVED_PREFIX = "from-drive-"
+
     #: The panel pack lifted out of the bundle, named so the two files of one
     #: backup share a stamp and sort together.
     PANEL_SUFFIX = "-panel.jsonl.gz"
@@ -3466,6 +3476,43 @@ def create_app(
                     # open. Housekeeping must never fail a backup that worked.
                     pass
 
+    def _prune_fetched_bundles(folder: Path, keep: int = 1) -> None:
+        """Bound the archives fetched FROM Drive, and reap abandoned transfers.
+
+        `_prune_old_bundles` above cannot do this: it groups by the build stamp in
+        `scrapex-bundle-<stamp>`, and a fetched archive is named from its digest
+        because it must never be served or pruned AS a local build. The naming
+        that protects it from that pruner is what left it outside every one --
+        so it gets its own rule rather than a share of one that means something
+        else.
+
+        KEEP ONE, where a build keeps two: a fetched archive is the most
+        replaceable file in the folder, because the copy it came from is still in
+        Drive. What is not replaceable is the room it takes on the machine he is
+        restoring onto -- 625 MB of it per distinct backup, for ever, until this.
+        """
+        made = sorted((path for path in folder.glob(f"{RECEIVED_PREFIX}*.zip")
+                       if path.is_file()),
+                      key=lambda path: path.stat().st_mtime, reverse=True)
+        for path in made[keep:]:
+            try:
+                path.unlink()
+            except OSError:
+                # Windows refuses to unlink a file another process holds open.
+                # Housekeeping must never fail the transfer that just worked.
+                pass
+        # AND THE TRANSFERS THAT NEVER FINISHED. An engine restarted mid-fetch
+        # leaves a `.part` as large as whatever had arrived, and only a later
+        # press of that exact digest would ever have removed it.
+        cutoff = time.time() - STAGING_ORPHAN_AGE_S
+        for path in folder.glob(f"{RECEIVED_PREFIX}*{bundle.PARTIAL_SUFFIX}"):
+            try:
+                if not path.is_file() or path.stat().st_mtime > cutoff:
+                    continue
+                path.unlink()
+            except OSError:
+                pass
+
     def _sweep_orphan_staging(folder: Path) -> None:
         """Remove staging trees left by a build that never reached its `finally`.
 
@@ -3517,6 +3564,7 @@ def create_app(
         # Under the lock, so the only staging trees old enough to match are the
         # ones no build in this process is using.
         _sweep_orphan_staging(folder)
+        _prune_fetched_bundles(folder)
 
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         staging = folder / f"{BUNDLE_PREFIX}{stamp}"
@@ -3742,19 +3790,16 @@ def create_app(
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
 
-    #: What a bundle fetched from Drive is called once it lands. NOT
-    #: `scrapex-bundle-`: that prefix is what `_newest` serves as THIS engine's
-    #: own archive and what `_prune_old_bundles` deletes, so a file downloaded
-    #: from Drive wearing it would be uploaded back as a local build and pruned
-    #: as one. It still ends `.zip`, which is what `list_bundles` globs, so the
-    #: Bundles card lists it and `adopt-bundle` accepts it by name.
-    RECEIVED_PREFIX = "from-drive-"
-
     #: One transfer at a time. Two presses writing one `.part` interleave their
     #: chunks and produce a file whose digest cannot match anything.
     _receive_lock = threading.Lock()
 
-    _SHA256_TEXT = re.compile(r"^[0-9a-f]{64}$")
+    #: `fullmatch` and no anchors, because `$` in Python also matches BEFORE
+    #: a trailing newline -- and the gate proved where that lands: a digest
+    #: with one `%0A` on the end passed this, produced the SAME 16-character
+    #: file name, then failed the comparison against the real file and
+    #: deleted a verified archive.
+    _SHA256_TEXT = re.compile(r"[0-9a-f]{64}")
 
     @app.post("/api/storage/receive-bundle")
     def api_storage_receive_bundle(
@@ -3789,7 +3834,7 @@ def create_app(
         time, so a file that verifies here is provably the archive this product
         packed -- a guarantee the manual download it replaces never had.
         """
-        if not _SHA256_TEXT.match(sha256 or ""):
+        if not _SHA256_TEXT.fullmatch(sha256 or ""):
             raise HTTPException(
                 status_code=400,
                 detail="A backup is identified by its sha256, and that is not one.")
@@ -3828,10 +3873,20 @@ def create_app(
                 archive.unlink()
 
             have = partial.stat().st_size if partial.is_file() else 0
+            # A QUESTION CHANGES NOTHING, and this one used to change everything:
+            # the panel opens every fetch by asking at offset 0 with no bytes, and
+            # the rule below read that as "starting over" and deleted the tail of
+            # the last attempt. So the route carried a resume protocol -- a `.part`
+            # kept, a 409 naming the offset -- that its only caller destroyed on
+            # its way in. Answering where the transfer stands is what makes the
+            # resume reachable, and it is what the comment on `body` already
+            # claimed this did.
+            if not body:
+                return {"received": have, "total": total, "complete": False}
             if offset == 0 and have:
-                # A PREVIOUS ATTEMPT LEFT A TAIL. The caller asked to start at
-                # zero, so it is not resuming; keeping the old bytes would
-                # append one archive to another.
+                # A PREVIOUS ATTEMPT LEFT A TAIL, and this is a real chunk asking
+                # to start from the beginning rather than continue. Keeping the
+                # old bytes would append one archive to another.
                 partial.unlink()
                 have = 0
             if offset != have:
@@ -3874,6 +3929,7 @@ def create_app(
                             "digest Drive recorded for it, so it was discarded. "
                             "Press again."))
             partial.replace(archive)
+            _prune_fetched_bundles(folder)
             return {"received": received, "total": total, "complete": True,
                     "name": archive.name, "already_here": False}
         except OSError as exc:

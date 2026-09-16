@@ -716,13 +716,18 @@ export async function readLatestInPieces(token, {
 
   const url = `${FILES}/${encodeURIComponent(pointer.file_id)}`
             + `?${new URLSearchParams({alt: "media"})}`;
-  let offset = 0;
+  // WHERE THE DESTINATION SAYS IT IS, which is the whole reason the probe above
+  // is a question rather than a greeting. An interrupted fetch of 625 MB left
+  // bytes on the disk; starting at zero anyway threw them away and cost the
+  // whole transfer again, every time.
+  let offset = known && Number.isFinite(known.received) ? known.received : 0;
   let answer = known || null;
-  if (onProgress) onProgress({received: 0, total});
+  if (onProgress) onProgress({received: offset, total});
 
   const opening = await ask(
     fetchImpl, url,
-    {headers: headers(token, {Range: `bytes=0-${Math.min(chunkBytes, total) - 1}`})},
+    {headers: headers(token,
+                      {Range: `bytes=${offset}-${Math.min(offset + chunkBytes, total) - 1}`})},
     "reading the backup from Drive");
 
   if (opening.status === 206) {
@@ -739,38 +744,57 @@ export async function readLatestInPieces(token, {
       offset = answer.received;
       if (onProgress) onProgress({received: offset, total});
     }
-    return {pointer, ...answer};
-  }
-
-  // DRIVE IGNORED THE RANGE and is sending the whole file. Forwarding it as it
-  // streams is the only shape left that does not hold it: waiting for
-  // `.blob()` here would be the exact read this function exists to avoid.
-  const reader = opening.body && opening.body.getReader
-    ? opening.body.getReader() : null;
-  if (!reader) {
-    throw new DriveError(
-      "Google sent the whole backup at once and this browser cannot read it as " +
-      "a stream, so it was not fetched. Nothing was changed.", null, "no-stream");
-  }
-  let parts = [];
-  let waiting = 0;
-  for (;;) {
-    const {value, done} = await reader.read();
-    if (done) break;
-    parts.push(value);
-    waiting += value.length;
-    if (waiting >= chunkBytes) {
+  } else {
+    // DRIVE IGNORED THE RANGE and is sending the whole file. Forwarding it as
+    // it streams is the only shape left that does not hold it: waiting for
+    // `.blob()` here would be the exact read this function exists to avoid.
+    const reader = opening.body && opening.body.getReader
+      ? opening.body.getReader() : null;
+    if (!reader) {
+      throw new DriveError(
+        "Google sent the whole backup at once and this browser cannot read it " +
+        "as a stream, so it was not fetched. Nothing was changed.",
+        null, "no-stream");
+    }
+    // AND IT STARTS AT ZERO WHATEVER WE ASKED FOR. A 200 is the whole file, so
+    // a resume is not available on this path: the pieces are sent from the
+    // beginning, and the destination drops what it was holding when the first
+    // one arrives at offset 0.
+    offset = 0;
+    let parts = [];
+    let waiting = 0;
+    for (;;) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      parts.push(value);
+      waiting += value.length;
+      if (waiting >= chunkBytes) {
+        answer = await deliver(new Blob(parts), {offset, total, sha256});
+        offset = answer.received;
+        parts = [];
+        waiting = 0;
+        if (onProgress) onProgress({received: offset, total});
+      }
+    }
+    if (waiting) {
       answer = await deliver(new Blob(parts), {offset, total, sha256});
       offset = answer.received;
-      parts = [];
-      waiting = 0;
       if (onProgress) onProgress({received: offset, total});
     }
   }
-  if (waiting) {
-    answer = await deliver(new Blob(parts), {offset, total, sha256});
-    offset = answer.received;
-    if (onProgress) onProgress({received: offset, total});
+
+  // ONE GUARD FOR BOTH PATHS, AND IT IS THE POINT OF THE WHOLE FUNCTION. The
+  // ranged loop can only end at `total`; the stream ends when the stream ends,
+  // which on a connection that drops is any number at all -- including none,
+  // where `answer` is still the probe's reply and carries no name. Returning it
+  // told the owner his backup was fetched, called it `undefined`, and sent him
+  // to a card with nothing on it: #788's own symptom, reported as a success, by
+  // the change written for #788.
+  if (!answer || answer.complete !== true || offset < total) {
+    throw new DriveError(
+      `The backup stopped at ${offset} of ${total} bytes, so it was not `
+      + "fetched. Nothing on this machine was replaced -- press again, and it "
+      + "will carry on from where it stopped.", null, "truncated");
   }
   return {pointer, ...answer};
 }

@@ -48,8 +48,12 @@ function reply(status, {body = null, headers = {}, stream = false} = {}) {
   };
 }
 
-/** A Drive holding one archive, answering ranges or refusing to. */
-function driveHolding(archive, {ranged = true, pointer = {}} = {}) {
+/** A Drive holding one archive, answering ranges or refusing to.
+ *
+ * `serves` is what the 200 path actually delivers, which is not always what the
+ * pointer promised: a connection that drops mid-stream ends cleanly with less.
+ */
+function driveHolding(archive, {ranged = true, pointer = {}, serves = null} = {}) {
   const asked = [];
   const fetchImpl = async (url, init = {}) => {
     const text = String(url);
@@ -70,7 +74,9 @@ function driveHolding(archive, {ranged = true, pointer = {}} = {}) {
       return reply(200, {body: {id: "arch", size: String(archive.length)}});
     }
     if (text.includes("/arch") && text.includes("alt=media")) {
-      if (!ranged) return reply(200, {body: archive, stream: true});
+      if (!ranged) {
+        return reply(200, {body: serves || archive, stream: true});
+      }
       const match = /bytes=(\d+)-(\d+)/.exec((init.headers || {}).Range || "");
       if (!match) return reply(200, {body: archive, stream: true});
       const from = Number(match[1]);
@@ -85,15 +91,22 @@ function driveHolding(archive, {ranged = true, pointer = {}} = {}) {
   return {fetchImpl, asked};
 }
 
-/** An engine that keeps what it is given, and says where it is. */
-function anEngine({completeAt = null} = {}) {
+/** An engine that keeps what it is given, and says where it is.
+ *
+ * `holding` is a transfer it already has part of -- what a `.part` on the disk
+ * looks like from here.
+ */
+function anEngine({completeAt = null, holding = 0} = {}) {
   const held = [];
-  let received = 0;
+  let received = holding;
   const deliver = async (piece, about) => {
     const bytes = new Uint8Array(await piece.arrayBuffer());
-    if (bytes.length === 0 && received === 0 && completeAt === 0) {
+    if (bytes.length === 0 && completeAt === 0) {
       return {received: about.total, total: about.total, complete: true,
               name: "from-drive-already.zip", already_here: true};
+    }
+    if (bytes.length === 0) {
+      return {received, total: about.total, complete: false};
     }
     if (bytes.length) held.push(bytes);
     received += bytes.length;
@@ -211,6 +224,64 @@ test("a backup the engine already holds is not read at all", async () => {
                                           && call.url.includes("alt=media"));
   assert.equal(media.length, 0,
                "625 MB was read out of Drive for a file already on the disk");
+});
+
+test("a stream that stops short is a refusal, not a fetched backup", async () => {
+  // THE ONE THE MERGE GATE CAUGHT, and it is #788's own symptom: the read that
+  // returns less than it promised, reported in the success colour. The ranged
+  // loop cannot end early -- it is bounded by `total` -- but the streamed path
+  // ends when the stream ends, which on a dropped connection is any number.
+  const short = ARCHIVE.slice(0, 63);
+  const drive = driveHolding(ARCHIVE, {ranged: false, serves: short});
+  const engine = anEngine();
+
+  await assert.rejects(
+    () => readLatestInPieces("tok", {
+      chunkBytes: 32, deliver: engine.deliver, fetchImpl: drive.fetchImpl,
+    }),
+    (error) => {
+      assert.equal(error.kind, "truncated");
+      assert.match(error.message, /63 of 100/);
+      return true;
+    });
+});
+
+test("a stream that brings nothing at all is a refusal too", async () => {
+  // SHARPER THAN THE SHORT ONE: with no bytes delivered, the answer never moves
+  // off the opening probe's reply -- which has no name -- so the sentence the
+  // owner read was "Fetched 0.0 MB as undefined".
+  const drive = driveHolding(ARCHIVE, {ranged: false, serves: new Uint8Array(0)});
+  const engine = anEngine();
+
+  await assert.rejects(
+    () => readLatestInPieces("tok", {
+      chunkBytes: 32, deliver: engine.deliver, fetchImpl: drive.fetchImpl,
+    }),
+    (error) => {
+      assert.equal(error.kind, "truncated");
+      assert.match(error.message, /0 of 100/);
+      return true;
+    });
+  assert.equal(engine.held.length, 0);
+});
+
+test("a fetch resumes from what the destination is already holding", async () => {
+  // The probe is a QUESTION, and its answer is where this fetch starts. Before
+  // the gate, the panel asked and then began at zero anyway, so a failure at
+  // 99% cost the whole 625 MB again -- and the route's 409 resume branch had no
+  // caller at all.
+  const drive = driveHolding(ARCHIVE);
+  const engine = anEngine({holding: 40});
+
+  const landed = await readLatestInPieces("tok", {
+    chunkBytes: 32, deliver: engine.deliver, fetchImpl: drive.fetchImpl,
+  });
+
+  const ranges = drive.asked.filter((c) => c.range).map((c) => c.range);
+  assert.equal(ranges[0], "bytes=40-71",
+               "the fetch restarted from zero over bytes the engine already had");
+  assert.equal(landed.complete, true);
+  assert.deepEqual(joined(engine.held), ARCHIVE.slice(40));
 });
 
 test("a pointer with no digest is refused before anything is read", async () => {

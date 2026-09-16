@@ -22,6 +22,7 @@ import hashlib
 import inspect
 import io
 import json
+import os
 import threading
 import zipfile
 from pathlib import Path
@@ -866,18 +867,26 @@ def test_an_archive_that_does_not_match_the_digest_drive_recorded_is_discarded(c
 
 
 def test_the_digest_must_be_one(client):
+    """ON THE SENTENCE, NOT THE STATUS. The gate proved the status alone cannot
+    fail: with the validator deleted, a nonsense digest still ends in 400 --
+    from the comparison at the end of the transfer, about a different thing.
+    The refusal has to be THIS one."""
     connected, _ = client
-    for attempt in ("", "not-a-digest", "A" * 64, "ab" * 31):
+    for attempt in ("", "not-a-digest", "A" * 64, "ab" * 31, "a" * 64 + "\n"):
         refused = _send(connected, b"x", attempt, offset=0, total=1)
         assert refused.status_code == 400, (attempt, refused.text)
+        assert "that is not one" in refused.json()["detail"], (attempt, refused.text)
 
 
 def test_a_transfer_must_say_how_big_it_is(client):
+    """The sentence again, for the same reason: without the guard, `total=0`
+    still refuses -- as an overrun, which is a different defect."""
     connected, _ = client
     sha = hashlib.sha256(b"x").hexdigest()
     for total in (0, -1):
         refused = _send(connected, b"x", sha, offset=0, total=total)
         assert refused.status_code == 400, (total, refused.text)
+        assert "how many bytes" in refused.json()["detail"], (total, refused.text)
 
 
 def test_a_negative_offset_is_refused(client):
@@ -977,3 +986,66 @@ def test_one_transfer_at_a_time(client, monkeypatch):
     assert second.status_code == 409, second.text
     assert "already being fetched" in second.json()["detail"]
     assert answers["first"].status_code == 200, answers["first"].text
+
+
+def test_asking_where_a_transfer_stands_does_not_destroy_it(client, monkeypatch):
+    """THE ONE THE MERGE GATE CAUGHT. The panel opens every fetch by asking at
+    offset 0 with no bytes. This route read that as `starting over` and deleted
+    the tail of the last attempt -- so the resume it implements, and the 409 that
+    names the offset, could never be reached by its only caller."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    half = len(body) // 2
+
+    sent = _send(connected, body[:half], sha, offset=0, total=len(body))
+    assert sent.json()["received"] == half
+    partial = backups / f"from-drive-{sha[:16]}.zip.part"
+    assert partial.stat().st_size == half
+
+    asked = _send(connected, b"", sha, offset=0, total=len(body))
+    assert asked.status_code == 200, asked.text
+    assert asked.json() == {"received": half, "total": len(body), "complete": False}
+    assert partial.stat().st_size == half, "the question deleted what it asked about"
+
+    rest = _send(connected, body[half:], sha, offset=half, total=len(body))
+    assert rest.status_code == 200, rest.text
+    assert rest.json()["complete"] is True
+    assert (backups / rest.json()["name"]).read_bytes() == body
+
+
+def test_a_digest_with_a_newline_cannot_delete_a_verified_archive(client):
+    """`$` matches before a trailing newline in Python, and the crafted value
+    produced the same 16-character name, failed the comparison against the real
+    file, and unlinked it."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    landed = _send(connected, body, sha, offset=0).json()
+    archive = backups / landed["name"]
+    assert archive.is_file()
+
+    refused = _send(connected, b"", sha + "\n", offset=0, total=len(body))
+    assert refused.status_code == 400, refused.text
+    assert archive.is_file(), "a crafted digest deleted a verified archive"
+
+
+def test_fetched_archives_are_bounded_and_abandoned_ones_are_reaped(client):
+    """The rename that keeps a fetched archive out of `_newest` kept it out of
+    every pruner too: one archive per distinct backup, for ever, plus a `.part`
+    for every transfer an engine restart interrupted."""
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    first = _send(connected, body, sha, offset=0).json()["name"]
+
+    other = body + b"a second backup"
+    other_sha = hashlib.sha256(other).hexdigest()
+    second = _send(connected, other, other_sha, offset=0).json()["name"]
+
+    kept = sorted(p.name for p in backups.glob("from-drive-*.zip"))
+    assert kept == [second], f"fetched archives are unbounded: {kept}"
+    assert not (backups / first).exists()
+
+    orphan = backups / "from-drive-0123456789abcdef.zip.part"
+    orphan.write_bytes(b"x" * 64)
+    os.utime(orphan, (0, 0))
+    connected.post("/api/bundle")
+    assert not orphan.exists(), "an abandoned transfer is never reaped"
