@@ -408,19 +408,33 @@ jobs:
         # reach that step too and silence them where nothing would notice.
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
-        # `-n 2` BECAUSE THE RUNNER HAS TWO CORES, and the `nproc` line below
-        # prints that in every run so it is re-read rather than re-assumed
-        # (`ubuntu-latest` on a PRIVATE repository is the 2-core tier). At `-n 4`
-        # CI produced a red check: tests/test_panel_startup.py:137 measured
-        # `shell-interactive` minus `document-first-script` at 323.6ms against
-        # that test's 250ms budget. Four workers on two cores stretch a timing
-        # assertion about the PRODUCT, and the answer is to match the machine
-        # rather than widen a budget the panel is supposed to meet.
+        # `-n 2`, AND NOT BECAUSE OF THE CORE COUNT. This comment used to say
+        # the runner has two cores -- `ubuntu-latest` on a private repository --
+        # taken from GitHub's documented tier rather than from the machine. The
+        # `nproc` line below was added in the same commit SO THAT IT WOULD BE
+        # READ, and then it was not: it has printed `4 vCPU, ~16 GB` in every run
+        # it ever produced, six for six across three branches (#963). A control
+        # that only prints is not a control.
         #
-        # NOT A SPEED ARGUMENT, AND THE JOB CLOCKS SAY WHY: three `-n 4` runs on
-        # one branch came in at 396s, 541s and 563s. A 42% spread between runs of
-        # the same command settles no comparison, so the red check is the whole
-        # case for `-n 2` and the only one worth recording.
+        # WHAT DECIDES IT IS THE RED CHECK, WHICH SURVIVES THE CORRECTION. At
+        # `-n 4` CI failed tests/test_panel_startup.py:137: `shell-interactive`
+        # minus `document-first-script` measured 323.6ms against that test's
+        # 250ms budget. That budget is an assertion about the PRODUCT, so the
+        # answer is to match the machine rather than widen it. What changes is
+        # the explanation -- four workers were not oversubscribing two cores, and
+        # why four workers stretch a product timing on four cores is open.
+        #
+        # AND THE CLOCKS POINT THE SAME WAY, WHICH IS NOT WHAT IDLE CORES WOULD
+        # PREDICT: three `-n 4` runs came in at 396s, 541s and 563s, against
+        # 293s, 328s, 349s and 352s at `-n 2`. Different commits and a 42% spread
+        # within the `-n 4` arm, so this settles nothing on its own -- but the
+        # FASTEST `-n 4` run is still slower than the SLOWEST `-n 2` run, and no
+        # ordering of those seven numbers makes more workers look like a win.
+        #
+        # THE REASON IS BELOW, NOT HERE: `--dist loadfile` keeps
+        # tests/test_panel_dom.py whole and that file is very nearly the entire
+        # run, so the suite cannot finish before it does whatever `-n` says.
+        # Splitting it (#944) is what would make a higher `-n` mean anything.
         #
         # `-n 2` RATHER THAN `-n auto`: auto follows the machine, so a contributor
         # on 24 cores runs a shape CI never runs and meets failures nobody else
