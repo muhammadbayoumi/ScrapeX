@@ -271,16 +271,29 @@ def test_the_controller_sums_what_every_worker_restored(tmp_path):
         assert run.returncode == 0, (
             f"the child pytest exited {run.returncode}, so nothing below is "
             f"about the plumbing. stderr tail: {run.stderr[-800:]!r}")
-        counted = re.search(r"schema template: (\d+) restored", run.stdout)
+        counted = re.search(r"schema template: (\d+) restored.*re-armed (\d+)x",
+                            run.stdout)
         assert counted, (
             "the schema-template summary is missing, so the controller is "
             "counting its own empty STATS instead of the workers'. stdout "
             f"tail: {run.stdout[-1000:]!r}")
-        return int(counted.group(1))
+        return int(counted.group(1)), int(counted.group(2))
 
-    parallel = restores("-n", "2", "--dist", "loadfile")
-    serial = restores()
+    parallel, parallel_arms = restores("-n", "2", "--dist", "loadfile")
+    serial, serial_arms = restores()
 
+    # THE ARMS, NOT ONLY THE SUM. `parallel == serial` holds by arithmetic if one
+    # of the two files stops restoring -- the total lands on a single worker and
+    # the controller's `+` is never exercised, which is the vacuity the one-file
+    # version had. A gate demonstrated it: add either file to conftest's
+    # NEVER_RESTORE and the guard degrades to a coin flip that lands green most
+    # of the time. `re-armed` counts the processes that armed the template, so 3
+    # under `-n 2` means the controller summed TWO workers' dicts and not one.
+    assert (parallel_arms, serial_arms) == (3, 1), (
+        f"the parallel child armed {parallel_arms} processes and the serial one "
+        f"{serial_arms}; expected 3 (a controller and two workers) and 1. Either "
+        "a worker contributed nothing, which puts the sum back on one process, "
+        "or the controller is not summing what the workers sent.")
     assert serial > 0, (
         "these files restored nothing even serially, so the comparison below "
         "would hold for the wrong reason -- pick files that use the template.")

@@ -387,119 +387,52 @@ jobs:
 
       - name: Tests (Python engine + Python-vs-frozen contract)
         if: needs.scope.outputs.scope == 'full'
-        # THE FULL SUITE, ONCE, AGAINST THE REAL MIGRATION STREAM. This ran on
-        # `tests/conftest.py`'s schema template until #645, with a second job
-        # replaying the real stream beside it — the same 3,600 tests twice, for
-        # a difference the squash had already collapsed.
+        # THE FULL SUITE, ONCE, AGAINST THE REAL MIGRATION STREAM. #645 deleted
+        # the second job that used to replay it beside this one; the flag below
+        # kept the guarantee. The argument, the measurements and the four
+        # critical-path numbers that were each stale within a day are in #645 and
+        # #938 -- not here. What holds is the compute: this job is 69.5% of the
+        # workflow's billed runner-minutes.
         #
-        # THE ARGUMENT IS "RUN IT ONCE, PROPERLY", NOT "THE REAL STREAM BUYS
-        # NOTHING". Every pull request now exercises the real stream, which
-        # before this only the second job did, so this is strictly MORE
-        # protection than the step it replaces.
+        # THIS COMMENT WAS 113 LINES FOR A TWO-LINE COMMAND, and round 3 of a
+        # merge gate found six defects in the prose alone -- a paragraph repeated
+        # verbatim, two irreconcilable baselines 33 lines apart, a sentence
+        # forbidding critical-path numbers fifty lines above four of them, and a
+        # series that omitted its own fastest run and drew a false conclusion from
+        # what was left. A number in a comment here expires in about a day. Put
+        # measurements in the PR that makes them; keep only what changes an edit.
         #
-        # WHAT IT COSTS, MEASURED ON CI, not on a developer machine. Run
-        # 34428035437 ran both suites off one tree: this step unflagged 651s,
-        # the deleted job's identical `pytest -q` flagged 743s. So +92s, +14.1%.
-        # #645 budgeted +15.7s, measured when db/engine/migrations/ was EMPTY —
-        # 0018 through 0020 have landed since, so every real migrate() replays
-        # the baseline and three files instead of one. The 396ms-per-call figure
-        # this comment used to carry is older still: it measured the 57-file
-        # chain R-84 squashed away. (Locally the delta is +73s and +100s, which
-        # brackets 92s; the PERCENTAGE does not travel, because a local suite is
-        # ~345s against CI's ~651s.)
-        #
-        # AND IT BUYS COMPUTE, NOT LATENCY — said this way because three earlier
-        # versions of this paragraph each claimed a wall-clock result and each
-        # was falsified by the next CI run. The job removed ran in PARALLEL, so
-        # what a merge waited on was max(test, migration-authority): 700-851s,
-        # median 782.5s, over the base branch's six runs. This step now decides
-        # alone and carries +92s it did not carry before, which puts it in the
-        # same band. Four runs against a 151s spread resolve nothing, and the
-        # early ones leaned each way in turn.
-        #
-        # SO NO NUMBER FOR THE CRITICAL PATH IS RECORDED HERE. Whoever needs one
-        # should measure it from the Actions API over a real sample rather than
-        # trust a figure in a comment — the four that were written here were
-        # stale within a day, each time by a single run. What does not move is
-        # the compute: 69.5% of this workflow's billed runner-minutes across all
-        # three edits, over 1,322 runs.
-        #
-        # WHAT IS MEASURED IS THE COMPUTE: 69.5% of this workflow's billed
-        # runner-minutes across all three edits, over 1,322 runs. That is the
-        # win being bought, and it does not need a latency story.
-        #
-        # THE FLAG IS ON THIS STEP, NOT ON THE JOB, and that is load-bearing.
-        # The seven tests in tests/test_fast_migrations.py SKIP when it is set,
-        # and the step below is their only remaining home; a job-level `env:`
-        # would reach that step too and silence them where nothing would notice.
+        # THE FLAG IS ON THIS STEP, NOT ON THE JOB, and that is load-bearing. The
+        # template tests in tests/test_fast_migrations.py SKIP when it is set, and
+        # the step below is their only remaining home; a job-level `env:` would
+        # reach that step too and silence them where nothing would notice.
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
-        # `-n 4 --dist loadfile`, and both halves are measured rather than chosen.
+        # `-n 2` BECAUSE THE RUNNER HAS TWO CORES, and the `nproc` line below
+        # prints that in every run so it is re-read rather than re-assumed
+        # (`ubuntu-latest` on a PRIVATE repository is the 2-core tier). At `-n 4`
+        # CI produced a red check: tests/test_panel_startup.py:137 measured
+        # `shell-interactive` minus `document-first-script` at 323.6ms against
+        # that test's 250ms budget. Four workers on two cores stretch a timing
+        # assertion about the PRODUCT, and the answer is to match the machine
+        # rather than widen a budget the panel is supposed to meet.
         #
-        # MEASURED HERE, same tree, same machine, back to back with the engine
-        # running in both arms, so the two saw the same load:
+        # NOT A SPEED ARGUMENT, AND THE JOB CLOCKS SAY WHY: three `-n 4` runs on
+        # one branch came in at 396s, 541s and 563s. A 42% spread between runs of
+        # the same command settles no comparison, so the red check is the whole
+        # case for `-n 2` and the only one worth recording.
         #
-        #     serial                    970.27s   4016 passed, 11 skipped, 0 failed
-        #     -n 4 --dist loadfile      309.68s   4016 passed, 11 skipped, 0 failed
+        # `-n 2` RATHER THAN `-n auto`: auto follows the machine, so a contributor
+        # on 24 cores runs a shape CI never runs and meets failures nobody else
+        # can reproduce.
         #
-        # 3.13x, and the counts are IDENTICAL -- nothing was dropped or skipped
-        # by running in parallel, which is the number to check first when a
-        # parallel suite suddenly gets fast.
-        #
-        # THE RUNNER IS 2 vCPU, AND THAT IS MEASURED. The `nproc` line below
-        # printed `runner: 2 vCPU, 7938 MB RAM` on 2026-09-15. An earlier version
-        # of this comment asserted 4 as if measured; it was not, and it was wrong
-        # -- `ubuntu-latest` on a PRIVATE repository is GitHub's 2-core standard
-        # runner, 4-core being the public tier. The line stays so the number is
-        # re-read rather than re-assumed.
-        #
-        # SO `-n 2`, NOT `-n 4`, AND A RED CHECK IS WHY. At `-n 4` the suite went
-        # green once and then failed on
-        # tests/test_panel_startup.py:137 -- `shell-interactive` minus
-        # `document-first-script` measured 323.6ms against that test's 250ms
-        # budget. Four workers on two cores is a 2x oversubscription, and what it
-        # stretches first is a startup-timing assertion about the product. The
-        # answer is to match the machine, not to widen a budget the panel is
-        # supposed to meet.
-        #
-        # ONE METER FOR THE WHOLE SERIES: this job's own wall clock, read from
-        # the check-run, never pytest's self-reported time. An earlier version of
-        # this comment put "563s and 473.87s" side by side -- the first is the
-        # job, the second is what pytest printed inside it -- and a merge gate
-        # caught the mix. The two differ by about 70s of checkout, install and
-        # gates, so a series that mixes them invents a speed-up.
-        #
-        #     serial, median of five full-suite runs        787s
-        #     -n 4, first run                               563s   green
-        #     -n 4, second run                              541s   RED (below)
-        #     -n 2                                          541s   green
-        #
-        # `-n 2` IS NOT SLOWER THAN `-n 4` HERE -- same 541s, and one of them is
-        # a red check. Two cores cannot run four workers faster than two; the
-        # oversubscription bought nothing and cost a failure. Against serial that
-        # is -246s, -31%. The dev box's 3.13x is a fact about the dev box.
-        #
-        # `-n 2` RATHER THAN `-n auto`: auto follows the machine, so a
-        # contributor on 24 cores runs a shape CI never runs and meets failures
-        # nobody else can reproduce.
-        #
-        # `--dist loadfile` AND WHAT IT ACTUALLY BUYS. The reason first written
-        # here -- that wall-clock assertions "would tighten under three siblings
-        # sharing a runner" -- is false: `-n` fixes the worker count in BOTH
-        # modes, so `loadfile` changes WHICH tests share a worker, never how many
-        # run at once. What it does buy is module-scoped fixtures built once
-        # instead of once per worker. Nine files launch a chromium; EIGHT of them
-        # qualify, because tests/test_grid_dom.py launches inside `open_grid()`
-        # once per test rather than in a module-scoped fixture, so `loadfile`
-        # saves it nothing (#945). Measured on the dev box, the two modes are the
-        # same wall clock (309.68s loadfile, 309.22s load).
-        #
-        # AND ITS COST, WHICH IS NOW THE BINDING ONE: under `loadfile` a file is
-        # indivisible, so the suite can never finish before its slowest file
-        # does -- and `tests/test_panel_dom.py` is very nearly the whole run. At
-        # `-n 2` that leaves one worker idling while the other finishes it.
-        # Splitting that file, not changing this flag, is where the next second
-        # comes from (#944).
+        # `--dist loadfile` KEEPS A FILE IN ONE WORKER, so module-scoped fixtures
+        # are built once instead of once per worker -- a chromium launch each for
+        # the eight browser files that hold one (tests/test_grid_dom.py launches
+        # per test, so the mode saves it nothing: #945). Its cost is now the
+        # binding one: a file is indivisible, so the suite cannot finish before
+        # tests/test_panel_dom.py does, and that file is very nearly the whole
+        # run. Splitting it, not changing this flag, is the next win (#944).
         run: |
           echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
           python -m pytest -n 2 --dist loadfile
@@ -515,17 +448,18 @@ jobs:
         #
         # AND IT HAS A FLOOR, because without one the step is green either way:
         # the template tests skip when the flag reaches them and pytest still
-        # exits 0 under `-q`. Measured: 7 passed without it, 7 skipped with it,
-        # exit 0 both times. That is the shape #644 hid for 25 commits, and the
+        # exits 0 under `-q`. That is the shape #644 hid for 25 commits, and the
         # shape the step below this one exists to stop.
         #
-        # THE FLOOR IS EIGHT, AND THE EIGHTH IS NOT A TEMPLATE TEST.
-        # `test_the_controller_sums_what_every_worker_restored` pins the
-        # cross-process plumbing that carries each xdist worker's restore count
-        # to the controller, so it carries no `schema_template.disabled` guard
-        # and is the one test in this file that survives the flag. It was added
-        # while the floor still read seven, which loosened the floor by one
-        # without anybody choosing to -- a merge gate found that, not a red run.
+        # THE FLOOR COUNTS TESTS AND THE FILE NOW HOLDS TWO POPULATIONS, which is
+        # a weaker guard than it was. Seven tests pin the template and skip under
+        # the flag; `test_the_controller_sums_what_every_worker_restored` pins the
+        # cross-process plumbing instead, carries no `schema_template.disabled`
+        # guard, and is the one test here that survives the flag. So `ran < 8`
+        # means "eight tests ran", not "all seven template tests ran" -- adding a
+        # ninth non-template test would loosen it again, silently, exactly as
+        # adding the eighth did while this read seven. A merge gate found that,
+        # not a red run. Counting the population rather than the file is #955.
         #
         # `raise SystemExit`, NOT `assert`: #833 is open against the sibling
         # floor below for exactly this — PYTHONOPTIMIZE strips an assert and the

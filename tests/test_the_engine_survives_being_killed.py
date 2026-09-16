@@ -436,22 +436,33 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
         survivor.kill()
 
 
-def test_the_database_still_answers_after_the_kill(tmp_path, manifest):
+def test_the_database_still_answers_after_the_kill(tmp_path, manifest, shop):
     """A hard kill with the write-ahead log open must not cost the warehouse.
 
     Separate from the test above because it fails for a different reason and the
     owner would act on it differently: one is a stuck job, this is a lost
     database.
+
+    ITS PREMISE IS HELD, NOT TIMED, and the kill is asserted -- for the same two
+    reasons as its sibling, found in the same file one round apart. It used to
+    stage "the WAL is open" with `time.sleep(2.0)` and hope, and it called
+    `kill()` only inside a `finally:` with nothing checking the kill landed. A
+    gate proved the second half: with `kill()` neutered it passed 3 of 3, happily
+    reporting that a hard kill cost the warehouse nothing while the engine was
+    still alive and serving.
     """
     db = tmp_path / "engine.db"
     engine = Engine(manifest, db)
     engine.create_database()
     engine.start()
+    shop.hold()
     try:
         _post(f"{engine.url}/api/jobs", {"source_keys": ["SLOWSHOP"]})
-        time.sleep(2.0)                      # let it get properly under way
+        shop.wait_until_asked()              # the crawl is really in flight
     finally:
         engine.kill()
+        shop.release()
+    _assert_it_really_died(engine)
 
     conn = sqlite3.connect(str(db))
     try:
