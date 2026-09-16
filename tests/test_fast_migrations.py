@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import importlib
 import sqlite3
+from pathlib import Path
 
 import pytest
 
 from scrapex import db as dbmod
+
+ROOT = Path(__file__).resolve().parent.parent
 
 # `retention_policy.updated_at` defaults to strftime('%Y-%m-%dT%H:%M:%SZ','now')
 # (db/migrations/0011_retention.sql), so two HONEST migrations a second apart
@@ -217,3 +220,106 @@ def test_the_file_that_tests_migrate_itself_is_declared(schema_template):
         assert (Path(__file__).parent / f"{name}.py").is_file(), (
             f"{name} is excluded from the schema template but no such test file "
             f"exists — the exclusion is now protecting nothing")
+
+
+def test_the_controller_sums_what_every_worker_restored(tmp_path):
+    """`STATS` is a module global and every xdist worker is its own process.
+
+    THE CONTROLLER IS THE ONLY PROCESS THAT PRINTS THE SUMMARY, and without the
+    hooks this pins it counts zero, takes the early return, and the whole line --
+    including the "only N restores across M tests" warning that exists to catch a
+    silent 10x slowdown -- disappears under `-n`. That is the shape this file is
+    about: a mechanism that breaks without ever going red.
+
+    IT ASSERTS THE SUM AGAINST EACH FILE MEASURED ALONE, and that took three
+    attempts. The first ran ONE file; under `--dist loadfile` a file is
+    indivisible, so one worker got all of it and the other got nothing, and the
+    controller's `STATS[key] = STATS.get(key, 0) + value` was never once executed
+    against a second contribution -- `STATS[key] = value`, the natural `.update()`
+    simplification, passed it five times out of five. The second ran two files and
+    compared the parallel total against the same two run serially, which is still
+    arithmetic: if one file stops restoring, the whole total lands on one worker
+    and `parallel == serial` holds with the `+` never exercised. A gate
+    demonstrated that, green 4/4 with either file in `NEVER_RESTORE`. What closes
+    it is asking three separate questions -- both files really restore
+    (`min(alone) > 0`), two different processes really ran them (the worker
+    prefixes), and the total is their sum.
+
+    NOT test_jobs.py, WHICH IS THE SUITE'S CONCURRENCY FILE. The first version
+    used it, and it holds `threading.Barrier(2, timeout=10)` and event handshakes
+    that assert one job is held while another runs -- driven from a nested pytest
+    while the outer suite may be running the same file in a sibling worker.
+
+    WORST CASE THIS TEST CREATES, SAID OUT LOUD: three nested pytest runs, one
+    after another, and only the first at `-n 2` -- so under CI's own `-n 2` six
+    pytest processes share the runner's two cores for the length of that one arm.
+    The other two are serial and each carries half of what the combined serial arm
+    used to, so the total work is roughly unchanged. That peak is the same
+    oversubscription `ci.yml` removed when it went from `-n 4` to `-n 2`, and it
+    is bounded to this test rather than the whole suite.
+
+    Run as subprocesses because what is under test happens BETWEEN processes;
+    there is no in-process way to ask it.
+    """
+    import os
+    import re
+    import subprocess
+    import sys
+
+    files = ["tests/test_catalog.py", "tests/test_catalog_api.py"]
+
+    def child(*flags: str, only: "list[str] | None" = None) -> str:
+        environment = {key: value for key, value in os.environ.items()
+                       if key != "SCRAPEX_FULL_MIGRATIONS"}   # the alarm's own branch
+        environment["SCRAPEX_DATA_ROOT"] = str(tmp_path)
+        run = subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *flags,
+             *(only or files)],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", env=environment, timeout=600)
+        assert run.returncode == 0, (
+            f"the child pytest exited {run.returncode}, so nothing below is "
+            f"about the plumbing. stderr tail: {run.stderr[-800:]!r}")
+        return run.stdout
+
+    def restored(stdout: str) -> int:
+        # `re-armed` stays in the PATTERN, so a change to the summary's shape is
+        # caught, and out of every ASSERTION: it counts processes that armed the
+        # template, and anything rebinding `dbmod.migrate` arms it again --
+        # `importlib.reload(scrapex.db)`, which tests/test_db.py already does four
+        # times. A number pinned to it goes red for reasons that have nothing to
+        # do with this plumbing.
+        counted = re.search(r"schema template: (\d+) restored.*re-armed (\d+)x",
+                            stdout)
+        assert counted, (
+            "the schema-template summary is missing, so the controller is "
+            "counting its own empty STATS instead of the workers'. stdout "
+            f"tail: {stdout[-1000:]!r}")
+        return int(counted.group(1))
+
+    # `-v -v` cancels the `-q` in addopts and then asks for a line per test, each
+    # prefixed by the worker that ran it. That prefix is the only place the split
+    # is observable from outside the child, and the assertion below is worth its
+    # cost: `--dist loadfile` keeps a file whole but does not promise WHICH worker
+    # gets it, and if both files land on one, a controller that overwrites is
+    # indistinguishable from one that adds -- every remaining assertion passes.
+    output = child("-n", "2", "--dist", "loadfile", "-v", "-v")
+    parallel = restored(output)
+    ran_on = {name: set(re.findall(rf"^\[(gw\d+)\].*{re.escape(name)}::",
+                                   output, re.MULTILINE))
+              for name in files}
+    assert all(ran_on.values()) and not set.intersection(*ran_on.values()), (
+        f"the two files ran on {ran_on}, and this arm needs one worker each so "
+        "that two separate processes have a count to send. Either the run was "
+        "not split or the worker prefix changed shape.")
+
+    alone = [restored(child(only=[name])) for name in files]
+    assert min(alone) > 0, (
+        f"measured one at a time these files restore {alone}, so one of them "
+        "pins nothing and the sum below would hold with a single contributor. "
+        "Pick files that use the template.")
+    assert parallel == sum(alone), (
+        f"the controller summed {parallel} restores across two workers, but the "
+        f"files restore {alone} = {sum(alone)} when each is measured alone. A "
+        "worker's count is being dropped rather than added, which is the "
+        "undercount the alarm reads.")
