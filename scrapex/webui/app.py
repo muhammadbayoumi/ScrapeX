@@ -670,6 +670,28 @@ def create_app(
     for failure in (DatabaseUnavailableError, DatabaseMigrationError, DatabaseKindError):
         app.add_exception_handler(failure, _database_unavailable)
 
+    # CONTENTION IS NOT A FAULT, and it was reaching him as one. `DbLockedError`
+    # says another app holds the single write permission; the thing to do is wait
+    # and press again, which is a 409. Eighteen of the twenty-one `write_lock`
+    # sites in this file had no catch of their own — `restore` and `start-fresh`
+    # among them — so pressing one during a crawl answered with an unhandled
+    # failure about a database that was working perfectly.
+    #
+    # REGISTERED, NOT REPEATED: a per-route catch is a nineteenth chance to
+    # forget one. The three that remain (`_write`, `_general_write`, `/api/capture`)
+    # keep their own sentences, and `_general_write`'s names a DIFFERENT database.
+    #
+    # NO PAGE BRANCH, unlike the handler above: every `write_lock` site in this
+    # file is reached through an `/api/` route — measured, 21 of 21 — so an HTML
+    # branch here would be a screen nothing can open.
+    def _database_busy(request: Request, exc: Exception):
+        return JSONResponse(
+            {"ok": False, "error": "database_busy", "detail": str(exc)},
+            status_code=409,
+        )
+
+    app.add_exception_handler(dbmod.DbLockedError, _database_busy)
+
     def read_conn():
         if app.state.databases is not None:
             return app.state.databases.engine.connect()
