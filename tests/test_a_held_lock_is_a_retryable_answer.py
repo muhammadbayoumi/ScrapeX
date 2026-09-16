@@ -24,6 +24,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 
+# THE MARK, because the docstring below cites `extension/backend.js`. This file
+# reads no extension source, and the gate is deliberately broad about that:
+# "a false positive costs one marker, a false negative costs a guard nobody
+# notices is gone" (tests/test_the_extension_gate_is_complete.py:42).
+pytestmark = pytest.mark.extension
+
 #: A source_key the repository's own manifest carries, for the one route whose
 #: refusal must keep its own sentence.
 A_REAL_SOURCE = "ELSEWEDYSHOP"
