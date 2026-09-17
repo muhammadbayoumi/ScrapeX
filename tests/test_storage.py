@@ -335,6 +335,52 @@ def test_restore_validates_the_copy_before_moving_the_live_database(conn, db_pat
     assert not db_path.with_name(db_path.name + ".restore-incoming").exists()
 
 
+def test_a_copy_that_stayed_a_valid_warehouse_but_lost_rows_is_refused(conn, db_path,
+                                                                      monkeypatch):
+    """The other half of the same check, and the half health() cannot answer.
+
+    The test above tears the copy into something that is not SQLite at all, so
+    `health(incoming)` refuses it and the byte-identity term never decides. This
+    is the copy that passes health: `quick_check` is perfectly happy with a
+    warehouse that is intact and EMPTY. Installed, it renames the real database
+    aside to `.replaced-<stamp>` and the next publish pushes a thinned warehouse
+    to the Sheet — prices missing rather than wrong, which is the harder kind to
+    notice.
+    """
+    backup = Path(storage.backup_now(conn, db_path).location)
+    conn.close()
+    verdicts = []
+
+    def copy_a_valid_but_empty_warehouse(source, destination):
+        """What a copy that silently dropped rows looks like on disk."""
+        dest = Path(destination)
+        dest.unlink(missing_ok=True)
+        fresh = dbmod.connect(dest)
+        try:
+            dbmod.migrate(fresh)
+            fresh.commit()
+        finally:
+            fresh.close()
+        verdicts.append(storage.health(dest))
+
+    monkeypatch.setattr(storage.shutil, "copy2", copy_a_valid_but_empty_warehouse)
+    with pytest.raises(storage.StorageRefused, match="copied backup"):
+        storage.restore(db_path, backup)
+
+    assert verdicts and verdicts[0]["ok"] is True, (
+        "the substitute has to PASS the health check, or the identity half of the "
+        f"guard is never the deciding term: {verdicts}")
+    live = sqlite3.connect(str(db_path))
+    try:
+        assert live.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
+    finally:
+        live.close()
+    assert not list(db_path.parent.glob("harvest.replaced-*.db")), \
+        "the live warehouse was moved aside for a copy that had lost its rows"
+    assert not db_path.with_name(db_path.name + ".restore-incoming").exists()
+
+
 def test_copy_verification_includes_generic_catalogue_tables(db_path, tmp_path):
     source = db_path
     copied = tmp_path / "copied.db"
@@ -601,3 +647,34 @@ def test_a_fresh_file_that_fails_health_is_refused_before_the_switch(db_path):
     live = sqlite3.connect(db_path)
     assert live.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
     live.close()
+
+
+# ---- wipe-source: a delete that is not committed did not happen --------------
+
+def test_a_wipe_that_reports_success_has_committed_the_delete(conn, db_path):
+    """`wipe_source` opens its own BEGIN IMMEDIATE, so it owes its own commit.
+
+    Asked on the caller's connection, the rows look gone either way. The panel
+    happens to commit again after calling it, so its own surface survives the
+    mistake; the CLI closes the connection in a `finally` and sqlite3 discards
+    an open transaction, which turns this into `ok=True, rows=N` over a database
+    that lost nothing. That is the worst shape: the recrawl that follows then
+    merges the old USD-converted observations with the new local-price ones on
+    the same offers — the fictional price jump this function exists to prevent.
+    A FRESH connection is the only witness that the rows actually went.
+    """
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0, \
+        "the fixture lost its seed row; the test would prove nothing"
+
+    result = storage.wipe_source(conn, db_path, "ELSEWEDYSHOP")
+
+    assert result.ok and result.rows > 0
+    witness = sqlite3.connect(str(db_path))
+    try:
+        remaining = witness.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    finally:
+        witness.close()
+    assert remaining == 0, (
+        "the wipe reported success with its transaction still open — a caller "
+        "that closes rather than commits loses the whole delete silently")

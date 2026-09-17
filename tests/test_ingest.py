@@ -7,7 +7,7 @@ import pytest
 
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.ingest import ingest_payloads, scope_reason
+from scrapex.ingest import canary_breach, ingest_payloads, scope_reason
 from scrapex.payload import PAYLOAD_VERSION, FunnelPayload
 from scrapex.rowspec import PRODUCT_PRICES, RowBuilder
 from scrapex.vocab import CurationStatus, ExtractKind, ExtractScope
@@ -511,3 +511,84 @@ def test_the_trade_price_does_not_open_a_price_period(conn):
     hashes = {row[0] for row in conn.execute(
         "SELECT price_hash FROM price_observation")}
     assert len(hashes) == 1, "a trade-price move opened a new retail price period"
+
+
+# ---- F6 volume canary: where the declared floor actually sits ----------------
+
+def test_the_declared_floor_breaches_one_row_short_of_it():
+    """A rotting connector does not return zero — it returns a little less. The
+    floor is the last count still called healthy, so N-1 is already a breach;
+    move the comparison by one and a source that lost a row reports a clean run
+    while the warehouse quietly stops being complete."""
+    entry = make_entry(min_expected_rows=50)
+    breach = canary_breach(entry, 49)
+    # The numbers, not the prose: what an operator needs is which count failed
+    # against which floor. Asserting the sentence instead turns the guard red on
+    # any rewording of a line that is behaving correctly.
+    assert breach is not None and "49" in breach and "50" in breach
+    assert canary_breach(entry, 50) is None      # the floor itself is healthy
+    # The floor enforced is the one the MANIFEST declared, not a constant that
+    # happens to equal this entry's: a source declaring 5000 breaches at 100.
+    assert canary_breach(make_entry(min_expected_rows=5000), 100) is not None
+
+
+# ---- a stated zero is not a quantity ----------------------------------------
+
+def test_a_stated_zero_basis_is_clamped_before_it_splits_the_offer(conn):
+    """basis_quantity "0" is reachable from real data: woocommerce.selling_basis
+    returns its regex group unfiltered, and an Apps Script row carries the
+    column into ingest verbatim with no connector in between. Stored as 0 it
+    does two kinds of damage at once — basis_quantity is in
+    ux_source_offer_identity, so the next crawl stating "1" finds nothing and
+    mints a SECOND offer for the same variant; and _unit_with_basis hands
+    pricekey "0 m" instead of "m", so the product's history restarts from
+    nothing. Anything unusable stays 1 — the default the schema already assumes,
+    never a guess at what the site meant."""
+    entry = make_entry()
+    ingest_payloads(conn, entry, [make_payload([one_row(unit="m", basis_quantity="0")])])
+    ingest_payloads(conn, entry, [make_payload(
+        [one_row(unit="m", basis_quantity="1")], scraped_at="2026-07-17T10:00:00Z")])
+
+    assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 1
+    assert conn.execute("SELECT basis_quantity FROM source_offer").fetchone()[0] == 1.0
+    assert conn.execute(
+        "SELECT COUNT(DISTINCT price_hash) FROM price_observation").fetchone()[0] == 1
+
+    # The clamp must not swallow the USABLE values on its way past the zero.
+    # "1" above is also the fallback, so every assertion up to here is equally
+    # satisfied by `return 1.0` for every input — which would flatten the basis
+    # of every pack-priced offer in the warehouse. A negative is as unusable as
+    # a zero and lands on the same default.
+    ingest_payloads(conn, entry, [make_payload([
+        one_row(external_variant_id="5002", external_sku="SKU2",
+                unit="m", basis_quantity="6"),
+        one_row(external_variant_id="5003", external_sku="SKU3",
+                unit="m", basis_quantity="-2"),
+    ], scraped_at="2026-07-18T10:00:00Z")])
+    stored = dict(conn.execute(
+        "SELECT v.external_variant_id, o.basis_quantity FROM source_offer o "
+        "JOIN source_variant v USING (source_variant_id)").fetchall())
+    assert stored == {"5001": 1.0, "5002": 6.0, "5003": 1.0}
+
+
+def test_a_stated_zero_minimum_is_not_a_minimum(conn):
+    """The distinction these columns exist for is "requires a minimum of 1"
+    versus "states no minimum", and 0 is neither — a column read as "the
+    smallest you may buy" cannot say you may buy nothing. An unusable number
+    leaves it alone, exactly as an absent one does."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(minimum_quantity="0", quantity_increment="0")])])
+    stored = conn.execute(
+        "SELECT minimum_quantity, quantity_increment FROM source_offer").fetchone()
+    assert tuple(stored) == (None, None)
+
+    # NULL is also what a column nothing ever writes would hold, so state a
+    # usable minimum on the same offer: without this, `return None` for every
+    # input passes. A negative is as unusable as a zero, and leaves the column
+    # alone rather than storing a quantity nobody can buy.
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [one_row(minimum_quantity="5", quantity_increment="-1")],
+        scraped_at="2026-07-17T10:00:00Z")])
+    stored = conn.execute(
+        "SELECT minimum_quantity, quantity_increment FROM source_offer").fetchone()
+    assert tuple(stored) == (5.0, None)

@@ -72,6 +72,17 @@ def test_currency_only_fails_loud():
         parse_money("SAR")
 
 
+def test_text_beside_the_number_is_dropped_not_fatal():
+    """Decimal() strips surrounding whitespace itself, so '129.38 SAR' above
+    stays green with the numeric-keep sieve gone — these rows do not. Without
+    it any leftover letter or inner space reaches Decimal and the price raises
+    instead of parsing: a source stops publishing prices while every other
+    source keeps working (#970)."""
+    assert parse_money("Price: 100") == Decimal("100")
+    assert parse_money("1 234.56") == Decimal("1234.56")
+    assert parse_money("100 SAR/ton") == Decimal("100")
+
+
 # ---- option_fingerprint --------------------------------------------------------
 
 def test_fingerprint_is_sorted_lowercased_folded():
@@ -83,6 +94,16 @@ def test_fingerprint_deterministic_across_dict_order():
     a = option_fingerprint({"a": "1", "b": "2"})
     b = option_fingerprint({"b": "2", "a": "1"})
     assert a == b
+
+
+def test_a_padded_axis_name_folds_to_the_same_axis():
+    """The VALUE strip is pinned by the frozen contract vector; the KEY strip
+    was pinned by nothing. Two spellings of one axis then fingerprint
+    differently, and in an append-only warehouse that forks a variant into two
+    rows that never merge again (#970)."""
+    assert option_fingerprint({" Color ": "red"}) == "color=red"
+    assert option_fingerprint({"Size\t": "L"}) == "size=l"
+    assert option_fingerprint({" Color ": "red"}) == option_fingerprint({"Color": "red"})
 
 
 # ---- selling_unit_from -----------------------------------------------------------
@@ -119,6 +140,23 @@ def test_selling_unit_only_when_the_site_states_it_twice(name, weight, expected)
 def test_a_fractional_pack_size_keeps_its_fraction():
     assert selling_unit_from("Sika Something 2.5 kg", 2.5) == ("2.5", "kg")
     assert selling_unit_from("Sika Something 2,5 kg", 2.5) == ("2.5", "kg")
+
+
+def test_the_agreement_is_exact_not_within_a_kilogram():
+    """Every disagreement case above differs by 15-19 kg, so only the
+    EXISTENCE of the clamp is pinned, never its SIZE. A tolerance invents a
+    basis the shop never stated, and basis quantity sits in the offer's unique
+    key and its price key — a wrong one splits the offer's identity and
+    restarts its price history (#970).
+
+    The 20-vs-19.5 rows leave every tolerance under half a kilogram alive:
+    `> 1e-6` -> `> 0.05` keeps all 47 green. The last row closes that band. A
+    hundredth of a kilogram is below any pack size a site publishes and far
+    above the float noise the clamp exists to absorb, so it stays true of any
+    correct rewrite of the comparison."""
+    assert selling_unit_from("Sika Grout 200 ® 20 KG", 19.5) == ("", "")
+    assert selling_unit_from("Sika Grout 200 ® 20 KG", 20.9) == ("", "")
+    assert selling_unit_from("Sika Something 2.5 kg", 2.51) == ("", "")
 
 
 # ---- record_hash ----------------------------------------------------------------

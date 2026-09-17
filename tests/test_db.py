@@ -268,6 +268,43 @@ def test_the_live_holders_own_lock_is_still_never_stolen(tmp_path: Path):
             pass
 
 
+def test_an_unreadable_start_stamp_does_not_rob_a_live_holder(tmp_path: Path,
+                                                              monkeypatch):
+    """A stamp we CANNOT READ is not a stamp that disagrees.
+
+    `_process_started_at` returns "" on every failure path — GetProcessTimes
+    failing on a handle that opened, or /proc unreadable under hidepid — and
+    that is the case `not current` decides. Drop the arm and the lock of a
+    process `_pid_is_alive` has just confirmed is RUNNING gets unlinked,
+    because "000000000000" != "". Two writers then share a warehouse whose
+    write permission is exclusive: an ingest interleaves with another app's
+    instead of waiting, rows land half-written, and the run reports success —
+    a silently lost write in place of the 409 the panel exists to show.
+    `DbLockedError` is waited out, never routed around."""
+    db = tmp_path / "h.db"
+    lock = Path(str(db) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    # Our own pid, so the holder is alive by definition on either platform,
+    # and a stamp that is readable in the FILE but unknowable from the process.
+    lock.write_text(f"{os.getpid()}:000000000000", encoding="ascii")
+    # THE STUB MUST NOT OUTRUN THE REAL FUNCTION. "" is a contract, not an
+    # implementation detail: turn those failure returns into a non-empty
+    # sentinel and `not current` never fires again — the same live holder
+    # robbed, by a route the monkeypatch below would hide. pid 0 reaches a
+    # real failure return on both platforms without faking one (OpenProcess
+    # refuses it; there is no /proc/0), so this pins the sentinel rather than
+    # assuming it. It cannot reach the GetProcessTimes-failed return.
+    assert dbmod._process_started_at(0) == "", (
+        "the stamp this test substitutes is no longer what the real function "
+        "returns when it cannot read one, so the arm below is unreachable")
+    monkeypatch.setattr(dbmod, "_process_started_at", lambda pid: "")
+
+    assert dbmod._reclaim_if_stale(lock) is False, (
+        "the owner is alive and its lock was just stolen on the strength of a "
+        "stamp we failed to read")
+    assert lock.exists()
+
+
 # ---- 0047: the guard that stops a brand being dropped unseen -----------------
 
 def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypatch):

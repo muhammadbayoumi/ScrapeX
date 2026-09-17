@@ -10,6 +10,7 @@ Every case below is a real product from the live warehouse, quoted.
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 import pytest
@@ -24,6 +25,12 @@ def _sika() -> dict:
     manifest = yaml.safe_load((ROOT / "sources.yaml").read_text(encoding="utf-8"))
     sources = manifest["sources"] if isinstance(manifest, dict) and "sources" in manifest else manifest
     return next(s for s in sources if s.get("source_key") == "SIKAEGSHOP")
+
+
+def _madar() -> dict:
+    manifest = yaml.safe_load((ROOT / "sources.yaml").read_text(encoding="utf-8"))
+    sources = manifest["sources"] if isinstance(manifest, dict) and "sources" in manifest else manifest
+    return next(s for s in sources if s.get("source_key") == "MADAR")
 
 
 def test_a_source_with_no_charter_says_nothing_rather_than_guessing():
@@ -193,3 +200,63 @@ def test_every_resolution_can_name_the_field_it_was_read_from():
         # The witness names the field, the language, the charter version and
         # the literal text — enough to re-read the same statement later.
         assert "@" in resolution.witness and "/v" in resolution.witness
+
+
+def test_a_container_word_the_charter_never_declared_is_not_a_selling_unit():
+    """The allow-list is what stops ANY word after the slash being the unit.
+
+    MADAR declares four containers, each in both spellings — box/«صندوق»,
+    roll/«لفة», bag/«كيس», drum/«درم». "Carton" is not one of them, and it is
+    not a hypothetical word either: the frozen corpus already carries
+    «600mm-20PCS/CARTON» and «10 GAUGE*55gr(300/CARTON)». A site naming a
+    container nobody declared is the ordinary case, not the exotic one.
+
+    Today the container witness declines it and the quantity witness one rank
+    lower reads the shop's own «1000 Pcs» — piece, basis 1000. Admit the
+    undeclared word and _read_container RETURNS on it instead of falling
+    through, so three things go wrong at once: `unit` becomes "carton",
+    `basis_quantity` becomes 1, and the lower witnesses that would have found
+    the stated unit never get their turn. Both columns reach the Sheet the
+    Excel add-in reads."""
+    charter = charter_for(_madar())
+
+    resolution = charter.resolve({"variant_axes": json.dumps({"Size": "1000 Pcs/Carton"})})
+
+    assert resolution is not None
+    assert (resolution.unit, resolution.basis) == ("piece", "1000"), (
+        "a word the charter never declared became the selling unit, and the "
+        "witness below it that reads the shop's own «1000 Pcs» never ran")
+    assert (resolution.content_quantity, resolution.content_unit) == (None, ""), (
+        "contents were invented for a container the charter does not declare")
+
+    # And the split the list exists to prevent. With an undeclared word
+    # admitted, one product reads "carton" on the English axis and «كرتونة» on
+    # the Arabic one: two selling units, and two prices that stop comparing.
+    arabic = charter.resolve({"variant_axes_ar": json.dumps(
+        {"المقاس": "1000 قطعة/كرتونة"}, ensure_ascii=False)})
+    assert (arabic.unit, arabic.basis) == (resolution.unit, resolution.basis)
+
+
+def test_a_content_word_nobody_declared_refuses_the_value_instead_of_inventing_pieces():
+    """«10 Gauge/Box» — a container the charter declares, and a content word it
+    does not.
+
+    A unit here is only ever what the charter declared, so the value is refused
+    and the offer keeps no unit at all: «الحقائق الخام فقط», the raw facts only.
+    Reading the unknown word as pieces would write a fact the shop never
+    stated, and nothing downstream could tell that invention from a statement —
+    the same defect as admitting an undeclared container, one field over.
+
+    "Gauge" is refused by UNIT_WORDS rather than by this site's pack list. It
+    is a wire thickness and not a measurement anyone sells by, exactly like the
+    "A", "Gang", "P", "BB" and "In" the MADAR charter names in writing, so no
+    charter can admit it."""
+    charter = charter_for(_madar())
+
+    assert charter.resolve({"variant_axes": json.dumps({"Size": "10 Gauge/Box"})}) is None, (
+        "an unrecognised content word was recorded instead of refused")
+
+    # The same shape with a content word the charter DOES know still reads, so
+    # what the refusal above measures is the unknown word and not a dead rule.
+    known = charter.resolve({"variant_axes": json.dumps({"Size": "10 Kg/Box"})})
+    assert (known.unit, known.content_quantity, known.content_unit) == ("box", 10.0, "kg")
