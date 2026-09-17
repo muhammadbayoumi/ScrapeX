@@ -705,6 +705,18 @@ def test_an_invalid_manifest_does_not_take_the_host_down(tmp_path, monkeypatch):
     """sources.yaml is written by the engine's own Manage page, so an invalid
     one is a state the product can put itself into. It used to be fatal at
     startup, for every command."""
+    # HIS LOG IS NOT THIS TEST'S TO WRITE. `_engine_listening` is patched below to
+    # say an engine is already there, but `_engine_answering` only consults that
+    # before making a real request -- so where nothing answers the port (CI, and
+    # any box whose engine is stopped) `start_engine` spawns, and `_spawn_engine`
+    # opens `~/.scrapex/engine.log` with no argument. `engine_log()` reads no
+    # environment variable, so conftest's data-root redirect does not reach it
+    # (#983). Same shape as the `spawn` fixture at the top of this file.
+    from scrapex import relaunch as _relaunch
+
+    monkeypatch.setattr(_relaunch, "engine_log",
+                        lambda: tmp_path / ".scrapex" / "engine.log")
+
     from scrapex import config, native
 
     db = tmp_path / "scrapex-engine.db"
@@ -733,6 +745,18 @@ def test_an_invalid_manifest_does_not_take_the_host_down(tmp_path, monkeypatch):
 def test_the_warehouse_is_opened_once_and_only_when_a_command_needs_it(tmp_path, monkeypatch):
     """Lazy, not per-command: reopening on every frame would trade one fault
     for a slower one."""
+    # HIS LOG IS NOT THIS TEST'S TO WRITE. `_engine_listening` is patched below to
+    # say an engine is already there, but `_engine_answering` only consults that
+    # before making a real request -- so where nothing answers the port (CI, and
+    # any box whose engine is stopped) `start_engine` spawns, and `_spawn_engine`
+    # opens `~/.scrapex/engine.log` with no argument. `engine_log()` reads no
+    # environment variable, so conftest's data-root redirect does not reach it
+    # (#983). Same shape as the `spawn` fixture at the top of this file.
+    from scrapex import relaunch as _relaunch
+
+    monkeypatch.setattr(_relaunch, "engine_log",
+                        lambda: tmp_path / ".scrapex" / "engine.log")
+
     from scrapex import native
     from scrapex.databases.domain import EngineDatabase
 
@@ -852,10 +876,22 @@ def test_the_retired_data_commands_are_gone_from_the_router(conn):
         assert answer["request_id"] == "r"
 
 
-def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkeypatch):
+def test_the_control_commands_the_panel_actually_calls_still_answer(tmp_path, conn, monkeypatch):
     """The other half: retiring the data surface must not touch the six
     commands the panel genuinely uses. Grep the extension before changing this
     list — it is the whole reason this host exists."""
+    # HIS LOG IS NOT THIS TEST'S TO WRITE. `_engine_listening` is patched below to
+    # say an engine is already there, but `_engine_answering` only consults that
+    # before making a real request -- so where nothing answers the port (CI, and
+    # any box whose engine is stopped) `start_engine` spawns, and `_spawn_engine`
+    # opens `~/.scrapex/engine.log` with no argument. `engine_log()` reads no
+    # environment variable, so conftest's data-root redirect does not reach it
+    # (#983). Same shape as the `spawn` fixture at the top of this file.
+    from scrapex import relaunch as _relaunch
+
+    monkeypatch.setattr(_relaunch, "engine_log",
+                        lambda: tmp_path / ".scrapex" / "engine.log")
+
     from scrapex import native
 
     monkeypatch.setattr(native, "_engine_listening", lambda port: True)
