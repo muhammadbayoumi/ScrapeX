@@ -119,6 +119,13 @@ const state = {
   // mismatch: an engine built before the handshake moved here answers
   // nothing, and refusing it as incompatible would be a guess.
   engineProtocol: null, protocolMismatch: false,
+  // WHICH DATABASE FILE THE RUNNING ENGINE HAS OPEN, and "" until one has said.
+  // `/api/health` does not carry it and is deliberately not asked to; this is
+  // filled from `GET /api/storage` once per engine. Empty is NOT a verdict about
+  // the warehouse — the status line says nothing about it until this is known,
+  // because a wrong reassurance here is the whole defect (see
+  // `runningEngineSummary`).
+  warehousePath: "",
 };
 
 // ---- views ----------------------------------------------------------------
@@ -507,6 +514,10 @@ function renderSchemaLag(lag) {
 }
 
 function setStatus(engine) {
+  // Read BEFORE the write below, because "the engine has just come up" is the
+  // one moment the warehouse has to be asked for again and it is only visible
+  // here, in the difference between the two.
+  const wasUp = state.engineUp;
   state.engineUp = engine.running;
   state.engineReachable = engine.reachable;
   state.engineState = engine.running
@@ -530,6 +541,15 @@ function setStatus(engine) {
   state.engineProtocol = typeof engine.engineProtocol === "number"
     ? engine.engineProtocol : null;
   state.protocolMismatch = Boolean(engine.protocolMismatch);
+  // THE HELD WAREHOUSE IS DROPPED HERE AND ASKED FOR ELSEWHERE, and the split is
+  // not tidiness. Every health answer passes through this function, startup's
+  // included, and `test_panel_startup` forbids `/api/storage` on the startup path
+  // by name: the shell paints before remote work, and the owner narrowed that
+  // rule once, for the reattach, rather than abandoning it. So this only forgets
+  // — a stopped engine has no warehouse to name, and an engine that has just come
+  // up may have a different one — and `renderEngines` asks, when the screen that
+  // shows the answer is drawn. `runningEngineSummary` says why it is asked at all.
+  if (!engine.running || !wasUp) forgetWarehouse();
   $("dot").className = "dot " + (engine.running ? "on" : "off");
   // The word carries the state; the dot only reinforces it. "v0.2.0" here is
   // the ENGINE's — said in full in About, where the extension's own version now
@@ -3383,6 +3403,186 @@ function refreshEngineBusy() {
   setEngineBusy(engineRecheckRunning || state.engineState === "checking");
 }
 
+// ---- WHICH warehouse the engine has open -----------------------------------
+//
+// For a whole working day this panel served a test database in `%TEMP%` —
+// 880,640 bytes, every table empty — while the 2.1 GB warehouse it was supposed
+// to be reading (14 sources, 9,898 products, 99,731 price observations) sat
+// unopened beside it. The card said Healthy the entire time. The finding is not
+// that the wrong file was opened; it is that nothing on the screen could have
+// told him: "users will not be able to understand or even notice problems like
+// these when the tool ships". So the warehouse is named on the surface, always.
+//
+// IT IS READ FROM `GET /api/storage`, NOT `/api/health`, AND ONCE. The health
+// route's own comment refuses the weight — the path "would otherwise be re-sent
+// every few seconds to answer a question whose answer only changes when the
+// engine restarts" — and that is exactly right.
+//
+// SO IT IS ASKED BY THE SCREEN THAT SHOWS IT, when `renderEngines` draws the
+// Engines destination, and NOT by `setStatus`. `setStatus` was the obvious hook
+// and it is the wrong one: every health answer goes through it, startup's
+// included, and `/api/storage` is on the list of destination routes
+// `test_panel_startup` forbids the startup path — a rule the owner narrowed once,
+// for the reattach, rather than gave up. The answer is then held in
+// `state.warehousePath` and dropped when the engine goes away, when it comes back
+// up, when the backend address changes, and on a restart from this panel: those
+// are the moments it can move under a panel that is already open.
+
+// A WHOLE PATH SEGMENT, NEVER A SUBSTRING, and the false positive is what fixes
+// the shape rather than the true positive. `Templates`, `Contemporary` and a
+// shop folder called `tempur` all contain "temp", and a banner that cries wolf
+// over any of them teaches him to read past the one banner in this panel that
+// has to be believed. So the comparison is per directory, whole-name, lowercased.
+const TEMPORARY_FOLDERS = new Set(["temp", "tmp", ".tmp"]);
+
+// The two names that are temporary BY CONSTRUCTION rather than by convention:
+// `tests/conftest.py` builds its data root with
+// `tempfile.mkdtemp(prefix="scrapex-tests-")`, and pytest's `tmp_path` lives
+// under `pytest-of-<user>`. With a default TMPDIR both already sit inside a
+// `Temp` segment and the set above is enough; these are what still catches them
+// when TMPDIR has been moved somewhere not called Temp — which is precisely how
+// the same incident would go unnoticed a second time.
+const TEMPORARY_PREFIXES = ["scrapex-tests-", "pytest-of-"];
+
+const warehouseSegments = (path) => String(path).split(/[\\/]+/).filter(Boolean);
+
+/** The folder that makes this path a temporary one, or "" when none does.
+ *
+ * THE OUTERMOST ONE, because it is the folder that makes everything beneath it
+ * disposable. `…\Temp\scrapex-tests-7k2f9a\scrapex-engine.db` is named as `Temp`: the
+ * inner folder is a detail of who created it, and the whole path is printed
+ * underneath for anyone who wants the rest.
+ *
+ * DIRECTORIES ONLY — the last segment is the file and is skipped. A warehouse
+ * somebody chose to call `tmp.db` is a name, not a place, and refusing it would
+ * be exactly the false positive this rule cannot afford.
+ *
+ * A real warehouse deliberately kept in a folder called `Temp` DOES trip this,
+ * and that is the intended answer rather than an accepted cost: the sentence
+ * names the folder and prints the path, so a person who meant it can see at once
+ * that it is his — while a gigabyte of collected data in a folder Windows treats
+ * as disposable is worth saying out loud either way.
+ */
+function temporaryFolderIn(path) {
+  const folders = warehouseSegments(path).slice(0, -1);
+  for (const folder of folders) {
+    const name = folder.toLowerCase();
+    if (TEMPORARY_FOLDERS.has(name)) return folder;
+    if (TEMPORARY_PREFIXES.some((prefix) => name.startsWith(prefix))) return folder;
+  }
+  return "";
+}
+
+/** What a running engine's status says — which depends on what it is running ON.
+ *
+ * `text` STAYS EXACTLY "Running" IN THE ORDINARY CASE, and that is a constraint
+ * rather than a preference: the badge has said that one word since the row
+ * existed. The warehouse goes into `detail`, which both screens already render
+ * and which was empty in this branch, so naming the database costs no markup and
+ * disturbs nothing.
+ *
+ * AN UNKNOWN PATH CLAIMS NOTHING. `GET /api/storage` may not have answered yet,
+ * or may have failed outright; either way the detail stays empty rather than
+ * guessing. Saying the wrong warehouse confidently is the defect this exists to
+ * remove, and it would be worse arriving from here.
+ */
+function runningEngineSummary() {
+  const path = state.warehousePath;
+  if (!path) return { text: "Running", tone: "ok", detail: "" };
+  const temporary = temporaryFolderIn(path);
+  if (!temporary) {
+    // WHOLE, NEVER SHORTENED, and the same rule as the refusal below. A short
+    // form was written first and measured: on the layout the engine actually
+    // produces -- `~/.scrapex/engine/scrapex-engine.db`, `db.py:39` -- the last
+    // two segments are CONSTANTS, so seven realistic warehouses on four drives
+    // rendered the same line and two different files were indistinguishable.
+    // Telling him which database he is on is the whole point of this line, and
+    // an abbreviation that cannot do it repeats the failure it was added for.
+    return { text: "Running", tone: "ok", detail: `Database: ${path}` };
+  }
+  // NOBODY EVER MEANS THIS, so it is not a shade of Running and does not wear
+  // Running's tone. `danger` is the one the kit already gives a refusal
+  // (`.badge.danger`), and the sentence states the consequence before the cause:
+  // what is on these screens is not his data. The folder is named because "a
+  // temporary folder" is not somewhere he can go and look.
+  return {
+    text: "Temporary database",
+    tone: "danger",
+    detail: `Not your data. The engine has a database open inside «${temporary}», `
+      + `a folder meant to be thrown away, so nothing on these screens is your `
+      + `collection: ${path}`,
+  };
+}
+
+// ASKED ONCE PER ENGINE, and the in-flight promise IS the guard: the Engines
+// screen is drawn on entry, on Check again and after every update report, and
+// those all ask once between them. It is dropped on a failure so the next draw
+// may try again, and dropped on a new engine so the next one is asked rather
+// than described with the last one's answer.
+let warehouseAsk = null;
+
+// AND A COUNTER BESIDE IT, the same shape as `engineGeneration` at the top of
+// this file and for the same reason. Dropping the held path does not cancel a
+// request already out, so the previous engine's answer can still arrive — and
+// arriving late is indistinguishable from being right unless the question it
+// answered is numbered.
+let warehouseGeneration = 0;
+
+function forgetWarehouse() {
+  warehouseGeneration += 1;
+  state.warehousePath = "";
+  warehouseAsk = null;
+}
+
+// A different backend is a different engine and a different warehouse. Without
+// this the old path would go on being stated under the new engine's status —
+// which is the same lie this whole section exists to stop, told about a machine
+// instead of a folder.
+whenBackendChanges(forgetWarehouse);
+
+/** Take the path out of any `GET /api/storage` body, and repaint if it moved.
+ *
+ * TAKEN FROM A READ THE DATABASE PAGE ALREADY DOES, for free. `loadDatabase`
+ * asks this route again after a restore and after a bundle is adopted, so the two
+ * panel actions that can put a different file in place refresh the status line
+ * without a request of their own.
+ */
+function noteWarehouse(storage) {
+  const path = (storage && storage.path) ? String(storage.path) : "";
+  if (path === state.warehousePath) return;
+  state.warehousePath = path;
+  renderEngineStatusUI();
+}
+
+async function askWhichWarehouse() {
+  if (warehouseAsk) return warehouseAsk;
+  const backend = backendGeneration();
+  const asked = warehouseGeneration;
+  const current = () => backend === backendGeneration()
+    && asked === warehouseGeneration;
+  warehouseAsk = (async () => {
+    try {
+      const storage = await api("/api/storage");
+      // TWO WAYS THIS REPLY IS STALE BY THE TIME IT LANDS, and neither may be
+      // painted: the backend was re-pointed at a different engine while it was
+      // out, or the held path was dropped for a restart. Both mean a newer
+      // question is already being asked, and this is the old engine's answer.
+      if (!current()) return;
+      noteWarehouse(storage);
+    } catch (error) {
+      // NOT SWALLOWED, AND NOT TURNED INTO A VERDICT EITHER. "the panel cannot
+      // say which database is open" is a different thing from "the panel says
+      // the wrong one": the detail line stays empty, and the failure goes into
+      // the same trace every other startup fact goes into so it can be found
+      // afterwards rather than only noticed by its silence.
+      if (current()) warehouseAsk = null;
+      markStartup("warehouse-unknown",
+                  {message: (error && error.message) || "unknown"});
+    }
+  })();
+  return warehouseAsk;
+}
+
 function engineStatusFromState() {
   // THE CHECK IS STILL RUNNING is a state, not a verdict. The Engine check now
   // settles independently of the rest of startup, so this card can be read
@@ -3401,7 +3601,11 @@ function engineStatusFromState() {
     };
   }
   if (state.engineUp) {
-    return { text: "Running", tone: "ok", detail: "" };
+    // WHICH warehouse it is running on, said HERE and on no screen of its own.
+    // This object is the one summary `updateEngineStatus` writes to both the
+    // catalogue row and the detail banner, so a fact put into it appears
+    // everywhere the owner already looks, with no new markup to keep in step.
+    return runningEngineSummary();
   }
   // A DEADLINE THAT EXPIRED IS NOT AN ABSENT ENGINE. Without this the health
   // check's own timeout fell through to "Not detected" below and told the owner
@@ -4333,6 +4537,13 @@ async function renderEngines() {
   // hidden while waiting for the remote release feed.
   renderEngineCandidates();
   renderEngineStatusUI();
+  // A SCREEN LOADS WHAT IT SHOWS — the same rule `showView` already follows for
+  // Settings, which calls `loadStorage()` on entry. The status row and the detail
+  // banner are the two surfaces that name the warehouse, and both are on this
+  // destination, so this is where the question is asked. It costs one narrow
+  // request on the first draw and nothing on any later one: `askWhichWarehouse`
+  // hands back the answer it already has until an engine is replaced.
+  askWhichWarehouse();
 
   if (!latestRelease) {
     latestRelease = await latestEngineRelease();
@@ -6436,6 +6647,11 @@ async function loadDatabase() {
   try {
     const s = await api("/api/storage");
     $("db-path").textContent = s.path || "";
+    // THE SAME PATH, ON THE STATUS LINE, AT NO COST. This page is re-read after a
+    // restore and after a bundle is adopted — the two panel actions that can put
+    // a different file where the engine is looking — so the engine status picks
+    // both up from here rather than asking the route a second time.
+    noteWarehouse(s);
 
     const schema = s.schema || {};
     const at = schema.version;
@@ -7343,6 +7559,12 @@ function wireRuntimeRepair() {
           [restart, upgrade, $("runtime-check-action")].filter(Boolean)
             .forEach((button) => { button.disabled = false; });
           say("The engine is back.");
+          // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
+          // while this panel stays up, and `setStatus` never sees the engine go
+          // down here — the wait above polls `/api/health` directly. So the held
+          // path is dropped by hand, and the `render()` below asks the successor
+          // rather than repeating what its predecessor said.
+          forgetWarehouse();
           await render();
           return;
         }

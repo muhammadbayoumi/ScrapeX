@@ -4473,6 +4473,128 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
 
 
+#: What actually happened: `tempfile.mkdtemp(prefix="scrapex-tests-")` under the
+#: Windows per-user temp folder, which is where `tests/conftest.py:61` puts it.
+IN_THE_TEMP_FOLDER = (
+    "C:\\Users\\sapac\\AppData\\Local\\Temp\\scrapex-tests-7k2f9a\\scrapex-engine.db")
+
+#: `GET /api/storage` answering about that file. A whole body rather than a patch
+#: because the `storage` knob REPLACES the harness default — and a healthy one,
+#: deliberately: the incident's warehouse was perfectly healthy, it was simply not
+#: his, and a body that also reported a fault would let this pass for the wrong
+#: reason.
+STORAGE_IN_THE_TEMP_FOLDER = {
+    "path": IN_THE_TEMP_FOLDER,
+    "folder": "C:\\Users\\sapac\\AppData\\Local\\Temp\\scrapex-tests-7k2f9a",
+    "backup_folder": "C:\\Users\\sapac\\AppData\\Local\\Temp\\scrapex-tests-7k2f9a",
+    "sizes": {"db_bytes": 880640, "wal_bytes": 0, "shm_bytes": 0,
+              "free_bytes": 51539607552, "backup_bytes": 0, "backup_count": 0},
+    "health": {"status": "healthy", "ok": True, "integrity_checked": False,
+               "detail": "Readable, at the expected version."},
+    "schema": {"version": 18, "expected": 18, "pending": []},
+    "last": {}, "integrity": None, "backups": [], "bundles": [],
+}
+
+
+def _engine_status_settled(page) -> None:
+    """Open the catalogue and wait for the warehouse answer, not for a clock.
+
+    `renderEngines` asks `GET /api/storage` when this destination is drawn — the
+    Engines screen is where the status lives, and `setStatus` deliberately does
+    not ask, because every health answer goes through it including startup's and
+    `test_panel_startup` forbids this route there by name. So the sub-line is
+    empty for one round trip after the screen appears, and this waits for the
+    answer rather than for the screen.
+    """
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => (document.getElementById('engine-status-detail').textContent || '')"
+        " !== ''", timeout=10_000)
+
+
+def _reads_whole(page, surface: str, expected: str) -> None:
+    """The line says `expected`, and every character of it can be SEEN.
+
+    THE VISIBILITY CHECK IS NOT DECORATION, and it is here because its absence
+    made this guard pass over nothing. A hidden element reports `clientWidth` 0
+    and `scrollWidth` 0, so `scrollWidth <= clientWidth` is true of every element
+    on a screen that is not on show — measured: with `#view-engines` hidden behind
+    the engine's own screen, `#engine-status-detail` reported 0/0 and this
+    assertion held with the wrap rule deliberately removed. Each surface is now
+    read while its own screen is the one in front.
+
+    AND `textContent` IS NOT ENOUGH ON ITS OWN. An overflowing box still reports
+    the whole string, so a path with nine characters clipped out of its middle
+    satisfies an equality and satisfies nobody looking at the panel.
+    """
+    assert page.locator(surface).is_visible(), (
+        f"{surface} was measured on a screen that is not on show")
+    assert text_of(page, surface) == expected, text_of(page, surface)
+    assert page.evaluate(
+        "(id) => { const el = document.querySelector(id);"
+        " return el.scrollWidth <= el.clientWidth + 1; }", surface), (
+        f"{surface} clips the warehouse path it exists to show")
+    assert not page.evaluate(
+        "() => document.documentElement.scrollWidth"
+        " > document.documentElement.clientWidth + 1"), (
+        "the path pushed the whole panel sideways")
+
+
+def test_the_status_names_the_warehouse_on_both_screens(open_panel):
+    """THE 2026-09-16 INCIDENT, ON THE LINE HE ALREADY READS.
+
+    For a working day the panel served a test database in `%TEMP%` — 880,640
+    bytes, every table empty — while the real 2.1 GB warehouse sat unopened
+    beside it, and this row said Healthy throughout. His words are the brief:
+    "users will not be able to understand or even notice problems like these when
+    the tool ships".
+
+    BOTH SURFACES FROM ONE OBJECT. `engineStatusFromState()` returns one summary
+    and `updateEngineStatus()` writes it to the catalogue row AND the detail
+    banner, so the row can never name one warehouse over a banner naming another
+    — and the badge keeps the one word it has always had, because the warehouse
+    goes in the sub-line beneath it.
+    """
+    page = open_panel()
+    _engine_status_settled(page)
+
+    whole = "Database: C:\\Users\\Owner\\.scrapex\\engine\\scrapex-engine.db"
+    assert text_of(page, "#engine-status") == "Running"
+    _reads_whole(page, "#engine-status-detail", whole)
+
+    open_engine(page)
+    assert text_of(page, "#engine-state-text") == "Running"
+    _reads_whole(page, "#engine-state-detail", whole)
+
+
+def test_a_warehouse_in_the_temp_folder_is_refused_in_full(open_panel):
+    """The case that happened, and the two things it has to survive on screen.
+
+    THE TONE IS NOT `ok`, because nobody ever means this, and THE PATH IS NOT
+    CLIPPED, because the path is the whole payload. The second is a real defect
+    this caught: a Windows path contains no spaces, so with the default
+    `overflow-wrap` the banner reported `scrollWidth > clientWidth` and rendered
+    `…\\Local\\Temp\\s` above `tests-7k2f9a\\scrapex-engine.db` — seven characters gone
+    from the MIDDLE of the one string the reader is being asked to check, with no
+    scrollbar to say so. `overflow-wrap: anywhere` (extension/app.css) is what
+    `_reads_whole` measures.
+    """
+    page = open_panel(storage=STORAGE_IN_THE_TEMP_FOLDER)
+    _engine_status_settled(page)
+
+    said = ("Not your data. The engine has a database open inside «Temp», a folder "
+            "meant to be thrown away, so nothing on these screens is your "
+            f"collection: {IN_THE_TEMP_FOLDER}")
+    assert text_of(page, "#engine-status") == "Temporary database"
+    assert page.locator("#engine-status-badge").get_attribute("class") == "badge danger"
+    _reads_whole(page, "#engine-status-detail", said)
+
+    open_engine(page)
+    assert text_of(page, "#engine-state-text") == "Temporary database"
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "danger"
+    _reads_whole(page, "#engine-state-detail", said)
+
+
 def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     """THE 2026-08-23 INCIDENT, RENDERED ON THE SCREEN HE ACTUALLY READS.
 
