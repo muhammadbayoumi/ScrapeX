@@ -305,6 +305,153 @@ def test_an_unreadable_start_stamp_does_not_rob_a_live_holder(tmp_path: Path,
     assert lock.exists()
 
 
+def test_every_return_that_cannot_read_a_stamp_is_the_empty_string():
+    """The guard above pins the sentinel at two of its three producers. This
+    pins the third, which no test can reach by calling the function.
+
+    `_process_started_at` fails three ways — OpenProcess refused (`db.py:343`),
+    the handle opened but GetProcessTimes failed (`db.py:351`), `/proc`
+    unreadable (`db.py:358`) — and calling it reaches only two of them: pid 0
+    takes the first on Windows and the third on Linux. The middle one needs a
+    Win32 call to fail AFTER its handle opened, which nothing can arrange on
+    Linux CI, so it stayed unpinned: `db.py:351` could be changed to
+    `return "unknown"` and all 21 other tests in this file still passed (#986).
+
+    That is the dangerous one to leave loose. A lock written while the stamp was
+    readable, judged later when the read fails, hands `_reclaim_if_stale`
+    stamp="<real>" and current="unknown": `not stamp` false, `not current`
+    false, `stamp == current` false. It falls through and unlinks the lock of a
+    process `_pid_is_alive` has just confirmed is RUNNING — two writers on a
+    warehouse whose write permission is exclusive.
+
+    So the sentinel is read out of the source, where all three failure paths are
+    visible at once on either platform. "" is a CONTRACT the callers depend on,
+    not a mechanism of either operating system.
+
+    WHAT THIS PINS IS THE VALUE, NOT THE SHAPE OF THE CODE AROUND IT. A guard
+    that reddens on a correct refactor is worse than no guard, so the scan
+    resolves before it judges: the sentinel may be given a name, the two
+    platforms may be split into helpers, a branch may become a ternary, and this
+    stays green while the value is still "". It follows a named constant to its
+    module-level assignment, a `return _helper(...)` into that helper, and both
+    arms of a ternary. What defeats it is a local variable — `stamp = ...;
+    return stamp` — and the failure message below says so.
+
+    WHAT IT CANNOT SEE is a non-empty sentinel COMPUTED at run time:
+    `return f"unknown-{pid}"` is indistinguishable from a real stamp to any
+    scan of the source. Catching that needs the failure path executed, and on
+    `db.py:351` that means faking a Win32 call — which never runs on Linux CI.
+    That residual is a separate finding, not something this test pretends to
+    cover.
+    """
+    import ast
+    import inspect
+
+    # The WHOLE module, so `ret.lineno` is already the real scrapex/db.py line
+    # and module-level names are in scope to resolve.
+    module = ast.parse(inspect.getsource(dbmod))
+    functions = {node.name: node for node in module.body
+                 if isinstance(node, ast.FunctionDef)}
+    assert "_process_started_at" in functions, (
+        "_process_started_at is no longer a module-level function, so this scan "
+        "cannot find the producers it pins")
+
+    # A sentinel that is given a name is still the sentinel: `_UNKNOWN = ""`
+    # must read the same as a bare "", or naming it would blind the guard.
+    named: dict[str, object] = {}
+    for node in module.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    named[target.id] = node.value.value
+
+    def owned_returns(node: ast.AST) -> list[ast.Return]:
+        """Every `return` this function owns, in source order.
+
+        A nested `def` or `lambda` is skipped rather than descended into: its
+        returns are its own contract, and crediting them to this one would pin a
+        callback's value to "" for no reason.
+        """
+        found: list[ast.Return] = []
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            if isinstance(child, ast.Return):
+                found.append(child)
+            found.extend(owned_returns(child))
+        return found
+
+    def producing_returns(name: str, seen: tuple[str, ...] = ()) -> list[ast.Return]:
+        """Every return whose value reaches a caller of `name`.
+
+        `return _helper(pid)` is followed into that module-level helper, so
+        lifting the two platforms out into one function each — the obvious
+        tidy-up of this function — does not leave the scan with nothing to read.
+        """
+        found: list[ast.Return] = []
+        for ret in owned_returns(functions[name]):
+            call = ret.value
+            if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                    and call.func.id in functions and call.func.id not in seen):
+                found.extend(producing_returns(call.func.id, (*seen, name)))
+            else:
+                found.append(ret)
+        return found
+
+    def constants_of(expr: ast.expr | None) -> list[object]:
+        """The constant values this return expression can hand back.
+
+        A return that READ a stamp computes it — an f-string over the FILETIME
+        fields (`db.py:350`), a field sliced out of /proc/<pid>/stat
+        (`db.py:356`) — and so yields nothing to check. A return that could NOT
+        read one has nothing to compute and hands back a constant, whatever
+        syntax it wears.
+        """
+        if expr is None:
+            return [None]           # bare `return`: None against a `-> str`
+        if isinstance(expr, ast.Constant):
+            return [expr.value]
+        if isinstance(expr, ast.Name) and expr.id in named:
+            return [named[expr.id]]
+        if isinstance(expr, ast.IfExp):
+            return constants_of(expr.body) + constants_of(expr.orelse)
+        return []                   # genuinely computed: a stamp we did read
+
+    sentinels: list[tuple[int, object]] = []
+    computed = 0
+    for ret in producing_returns("_process_started_at"):
+        values = constants_of(ret.value)
+        if values:
+            sentinels.extend((ret.lineno, value) for value in values)
+        else:
+            computed += 1
+
+    # THE SCAN'S OWN EYESIGHT, because a walk that finds nothing asserts nothing
+    # — a guard that could not fail shipped in this repository the same week.
+    # Three failure paths and two computed ones when this was written, and the
+    # resolution above means an honest refactor keeps those numbers: dropping
+    # below either floor is a real change to how this function can fail, and has
+    # to be said out loud here.
+    assert len(sentinels) >= 3, (
+        f"only {len(sentinels)} constant return(s) reached from "
+        "_process_started_at, which had three failure paths — either one of them "
+        "is gone, or the scan has stopped seeing it. It follows named constants, "
+        "`return _helper(...)` and ternaries; a local variable holding the "
+        "sentinel defeats it and would need this walk taught about it")
+    assert computed, (
+        "no computed return found, so every return was read as a failure path — "
+        "the scan can no longer tell a real stamp from an unknowable one")
+
+    for line, value in sentinels:
+        assert value == "", (
+            f"scrapex/db.py:{line} returns {value!r} where every caller reads "
+            '"". `_reclaim_if_stale` decides on `not stamp or not current or '
+            "stamp == current`: a non-empty sentinel makes all three false for a "
+            "lock written while the stamp was readable and judged when it is "
+            "not, and unlinks the lock of a process _pid_is_alive has just "
+            "confirmed is RUNNING.")
+
+
 # ---- 0047: the guard that stops a brand being dropped unseen -----------------
 
 def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypatch):
