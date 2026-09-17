@@ -550,18 +550,35 @@ def undeclared_sources(conn) -> list[str]:
     Reads the CURRENT manifest each call rather than a cached one, because the
     failure mode is precisely that the manifest changed.
     """
+    from . import directories
     from .config import MANIFEST_FILE, load_manifest
     try:
         declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
     except Exception:
         return []
+    # AND THE OTHER REGISTRY, because this product has two and this check knew one.
+    # `sources.yaml` declares what `scrapex crawl` can take; a contractor directory
+    # is declared in `directories.py` and crawled by `scrapex contractors`, which
+    # `cli.py` says in as many words where that command is registered. So the
+    # largest dataset in his warehouse -- 17,304 organizations under `muqawil_org`,
+    # registered there and refreshable today -- was being reported as a source
+    # nothing can ever refresh, on every visit to the Database page. A warning that
+    # cries wolf on the biggest thing in the warehouse is how the real one below
+    # gets ignored.
+    declared |= set(directories.keys())
     try:
         # NO `WHERE active = 1`. That filter was here and did nothing: the column
         # is written once on insert and never set to 0, so every row matched it
         # and the clause only suggested a maintenance that was not happening.
         # It is also the wrong question — a source deleted from the manifest is
         # undeclared whatever flag its rows carry.
-        stored = {row[0] for row in conn.execute("SELECT source_key FROM source_site")}
+        # LIVE ROWS ONLY, BY THE WAREHOUSE'S OWN CLOCK. `valid_to` is the
+        # temporal column every other reader here filters on (`catalog.py`), and
+        # unlike `active` above it really is written when a source ends. A record
+        # the warehouse has already closed is not an undeclared source -- it is a
+        # source that is over, and reporting it reads the closure as the problem.
+        stored = {row[0] for row in conn.execute(
+            "SELECT source_key FROM source_site WHERE valid_to IS NULL")}
     except sqlite3.DatabaseError:
         return []                      # not a warehouse; health says so already
     return sorted(stored - declared)

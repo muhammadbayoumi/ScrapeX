@@ -215,6 +215,56 @@ def test_a_warehouse_whose_sources_are_all_declared_is_quiet(tmp_path):
     assert storage.undeclared_sources(_warehouse(tmp_path, *keys)) == []
 
 
+def test_a_directory_source_is_declared_though_sources_yaml_never_names_it(tmp_path):
+    """THIS PRODUCT HAS TWO REGISTRIES AND THIS CHECK KNEW ONE.
+
+    A contractor directory is not in `sources.yaml` by design -- `cli.py` says so
+    where it registers the `contractors` command -- it is in `directories.py`,
+    whose key field is documented as matching `source_site.source_key`. Reading
+    only the manifest made the largest dataset in his warehouse (17,304
+    organizations under `muqawil_org`) report as a source nothing can ever
+    refresh, on every visit to the Database page.
+    """
+    from scrapex import directories, storage
+    declared_in_yaml = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
+    key = directories.keys()[0]
+    assert key not in declared_in_yaml, (
+        f"{key} is in sources.yaml now, so this test no longer measures the two "
+        "registries being separate -- pick a key that is only in directories.py")
+
+    assert storage.undeclared_sources(_warehouse(tmp_path, key)) == []
+
+
+def test_a_source_the_warehouse_has_already_ended_is_not_reported(tmp_path):
+    """`valid_to` IS written when a source ends -- unlike `active`, whose dead
+    filter the comment above this function records. A closed record is not an
+    undeclared source; it is a source that is over, and reporting it reads the
+    closure as the problem. His warehouse carries exactly one: `muqawil`, closed
+    2026-08-29 when `muqawil_org` replaced it, holding no row in any table."""
+    from scrapex import storage
+    conn = _warehouse(tmp_path, "RETIRED_AND_CLOSED")
+    conn.execute("UPDATE source_site SET valid_to = '2026-08-29T10:56:06Z' "
+                 "WHERE source_key = ?", ("RETIRED_AND_CLOSED",))
+    conn.commit()
+
+    assert storage.undeclared_sources(conn) == []
+
+
+def test_a_live_undeclared_source_is_still_reported_beside_a_closed_one(tmp_path):
+    """THE HALF THE TWO ABOVE COULD QUIETLY TAKE AWAY. Both of them make the
+    check report LESS, and a check that reports nothing passes both. SPARK_ESHOP
+    is why this function exists -- 22% of every offer belonging to a source no
+    code could crawl -- so the live row must still come back with the closed one
+    beside it."""
+    from scrapex import storage
+    conn = _warehouse(tmp_path, "CLOSED_LONG_AGO", "STILL_LIVE_AND_FORGOTTEN")
+    conn.execute("UPDATE source_site SET valid_to = '2026-08-29T10:56:06Z' "
+                 "WHERE source_key = ?", ("CLOSED_LONG_AGO",))
+    conn.commit()
+
+    assert storage.undeclared_sources(conn) == ["STILL_LIVE_AND_FORGOTTEN"]
+
+
 def test_the_warehouse_says_it_on_the_page_the_owner_already_opens(tmp_path):
     """A function nobody calls is the same defect one layer down. It rides
     storage.health(), which the Storage page runs on every visit — and `ok`
