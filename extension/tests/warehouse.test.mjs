@@ -366,9 +366,24 @@ const lifecycle = (() => {
     + "\nreturn { forgetWarehouse, noteWarehouse,"
     + " generation: () => warehouseGeneration,"
     + " held: () => warehouseAsk, hold: (v) => { warehouseAsk = v; } };";
+  //
+  // `repaintRuntime` JOINED THE TWO OF THEM when the Settings runtime grid began
+  // reading `state.warehousePath` as well. It is declared here ONLY so these
+  // extractions still run: the bodies call it, and without the parameter
+  // `new Function` would throw `ReferenceError` on the first test. It is a
+  // no-op, and this file asserts NOTHING about it.
+  //
+  // WHICH MEANS THIS FILE DOES NOT GUARD THE REPAINT, and an earlier draft of
+  // this comment claimed it did — that the day either function stopped calling
+  // `repaintRuntime` these extractions would fail loudly. Measured, because a
+  // guard asserted in prose is the one kind nobody re-runs: with BOTH
+  // `repaintRuntime()` calls deleted from `noteWarehouse` and `forgetWarehouse`
+  // in app.js, this file reported 18 tests, 18 pass, 0 fail — byte-identical
+  // green. `extension/tests/healthy.test.mjs` is what goes red there (2 of its
+  // 21), and it is the only thing that does.
   // eslint-disable-next-line no-new-func
-  const make = new Function("state", "renderEngineStatusUI", body);
-  return (state, repaints) => make(state, () => { repaints.n += 1; });
+  const make = new Function("state", "renderEngineStatusUI", "repaintRuntime", body);
+  return (state, repaints) => make(state, () => { repaints.n += 1; }, () => {});
 })();
 
 test("forgetting the warehouse empties the path, the ask and the generation", () => {
