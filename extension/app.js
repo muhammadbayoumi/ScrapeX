@@ -125,6 +125,11 @@ const state = {
   // the warehouse — the status line says nothing about it until this is known,
   // because a wrong reassurance here is the whole defect (see
   // `runningEngineSummary`).
+  //
+  // TWO SCREENS READ IT NOW: the Engines status summary, and the Databases row
+  // in the Settings runtime grid, which cannot say Healthy about a path it has
+  // not seen. So it is also filled by `loadStorage` on entry to Settings, off
+  // the read that screen already makes.
   warehousePath: "",
 };
 
@@ -355,32 +360,150 @@ function currentViewName() {
   return VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden")) || "";
 }
 
+/** Is the database behind the code that is reading it?
+ *
+ * ONE SHAPE, TWO READERS, AND THEY HAVE TO AGREE. `renderSchemaLag` draws the
+ * banner that names the pending migrations and the button that applies them; the
+ * Databases row refuses to call a lagging database Healthy. Two hand-written
+ * copies of `lag.pending.length` would be two chances for the row to reassure
+ * over a banner that is warning — which is the one failure this file's whole
+ * Databases branch exists to end.
+ */
+const schemaIsBehind = (lag) => Boolean(lag && lag.pending && lag.pending.length);
+
 // ---- runtime status --------------------------------------------------------
+//
+// EVERY ROW STATES ITS OWN TONE, and it used to be guessed back out of the words
+// it had just written: `/Stopped|Unknown|Needs attention/i.test(value)`, with
+// everything else falling through to GREEN. That is a renderer whose default is
+// reassurance — any new phrase, however alarming, that failed to contain one of
+// three hard-coded words rendered as ready, and the whole of this file's subject
+// is a panel reassuring its owner about something it had not checked. A colour
+// re-derived from a string is that same defect one layer down, waiting for the
+// next wording. So the verdict and its colour are ONE object now and the
+// renderer copies the colour rather than inferring it.
+//
+// `ready` AND `warning` ARE THE ONLY TWO THE TILE PAINTS (`extension/app.css`,
+// `.engine-component[data-tone="ready"|"warning"]`); anything else, `neutral`
+// included, gets the plain grey tile, which is what "no claim" looks like here.
 const COMPONENTS = [
-  ["Core service", "dns", (e) => (e.running ? "Running" : "Stopped")],
-  ["Python runtime", "settings", (e) => (e.running ? "Ready" : "Unknown")],
-  ["HTTP fetcher", "link", (e) => (e.running ? "Ready" : "Unknown")],
+  ["Core service", "dns", (e) => (e.running
+    ? {text: "Running", tone: "ready"} : {text: "Stopped", tone: "warning"})],
+  ["Python runtime", "settings", (e) => (e.running
+    ? {text: "Ready", tone: "ready"} : {text: "Unknown", tone: "warning"})],
+  ["HTTP fetcher", "link", (e) => (e.running
+    ? {text: "Ready", tone: "ready"} : {text: "Unknown", tone: "warning"})],
   // The engine creates and owns both databases; the panel only reports them. A
   // reachable engine sitting on an unusable database read as healthy from here.
+  //
+  // AND `Healthy` NOW HAS TO EARN THE WORD. It was one boolean — `databases.ok`,
+  // which asks only "did the files open" — and for a whole working day it
+  // answered yes about an empty 880,640-byte test database in `%TEMP%` while the
+  // 2.1 GB warehouse sat unopened. Every part of that answer was true and the
+  // sentence it formed was false. So the word is the CONJUNCTION of the four
+  // questions it was always read as meaning, and any one of them false takes it
+  // away:
+  //
+  //   the worker is alive         `e.running` — `worker_alive` from /api/health
+  //   the databases opened        `e.databases.ok`
+  //   the file is not disposable  `temporaryFolderIn(state.warehousePath)`
+  //   the schema matches          `e.schema_lag`
+  //
+  // THE THIRD IS A HALF-ANSWER AND IS WRITTEN AS ONE. The panel cannot know
+  // which path was CONFIGURED — nothing it is served carries the intent — but it
+  // can know the case that actually happened, and here it MUST: the Engines
+  // screen has refused this exact path as "Temporary database" since #992, and
+  // this row sits on Settings. One panel calling a scratch folder Healthy on one
+  // screen while another says "Not your data" about it is the contradiction
+  // `updateEngineStatus` exists to make impossible, arriving through a second
+  // screen instead.
+  //
+  // MEASURED, because the tile clips in silence: `.engine-component-copy small`
+  // is `white-space: nowrap` with `text-overflow: ellipsis`, and the cell is
+  // 172px at the 360px panel `tests/test_panel_dom.py` opens — 29 characters of
+  // real text fit, 20 capital Ms do not. Every verdict below is inside that
+  // except the engine's own failure detail, which is the payload and is left
+  // whole.
   ["Databases", "storage", (e) => {
-    if (!e.running) return "Unknown";
-    if (!e.databases) return "Ready";
-    return e.databases.ok ? "Healthy" : `Needs attention — ${e.databases.detail}`;
+    // NOT RUNNING IS NOT A VERDICT ABOUT THE DATABASES, it is the absence of
+    // one: `/api/health` is what carries `databases`, and a worker that is not
+    // alive has said nothing about them. First, because everything below reads
+    // an answer this branch proves we do not have.
+    if (!e.running) return {text: "Unknown", tone: "warning"};
+    // THE FILES THEMSELVES NEXT. Nothing further down is worth saying about a
+    // database that did not open, and the engine's own detail is the only
+    // sentence here that can name the fault.
+    if (e.databases && !e.databases.ok) {
+      return {text: `Needs attention — ${e.databases.detail}`, tone: "warning"};
+    }
+    // THE ENGINES SCREEN'S OWN WORDS, deliberately reused: the two surfaces are
+    // read minutes apart and must never need reconciling. Ahead of the schema
+    // check because it outranks it — a lagging schema is a database to repair,
+    // a disposable folder is not his data at all.
+    if (temporaryFolderIn(state.warehousePath)) {
+      return {text: "Temporary database", tone: "warning"};
+    }
+    // The Run screen's banner says which migrations are pending and how to apply
+    // them; this is the same fact in the width a grid cell has, so Settings
+    // cannot read Healthy while that banner reads "Database is behind the
+    // engine". Settings is the only screen where the lag is otherwise invisible.
+    if (schemaIsBehind(e.schema_lag)) {
+      return {text: "Behind the engine", tone: "warning"};
+    }
+    // AN ENGINE THAT REPORTED NO `databases` BLOCK AT ALL keeps the narrower
+    // word it has always had. It is a build from before the block existed: it
+    // said nothing about its databases, so neither does this — and "Ready" is
+    // not "Healthy", which is the distinction the branch is for.
+    //
+    // BELOW THE TWO REFUSALS ABOVE, AND DELIBERATELY. The old code returned
+    // "Ready" here the moment the block was missing, which would now let an old
+    // build sit on a scratch folder wearing a green tile while the Engines
+    // screen called the same path "Not your data" — the contradiction this
+    // change exists to close, walking back in through the oldest branch. The
+    // path and the schema are facts the panel holds on its own; neither is the
+    // engine's to withhold by being old.
+    if (!e.databases) return {text: "Ready", tone: "ready"};
+    // THE PATH IS THE ONE QUESTION THAT CAN SIT UNANSWERED. It comes from
+    // `GET /api/storage`, a different request from the health poll, which may
+    // not have landed yet or may have failed outright. Saying Healthy here would
+    // claim the file is his without having read its name — the incident exactly.
+    // So the row states what it has and what it lacks, and wears the grey tile:
+    // an unanswered question is not a fault, and a red one on every Settings
+    // open before the answer lands is how a warning becomes furniture.
+    if (!state.warehousePath) return {text: "Open — path unknown", tone: "neutral"};
+    return {text: "Healthy", tone: "ready"};
   }],
-  ["Browser automation", "language", () => "Optional"],
+  ["Browser automation", "language", () => ({text: "Optional", tone: "neutral"})],
 ];
 
+// THE LAST HEALTH ANSWER, HELD. This row stopped being a pure function of the
+// health poll the moment the Databases verdict began reading
+// `state.warehousePath`: that path arrives from `GET /api/storage`, on its own
+// schedule, after the poll that painted the row. With nothing to repaint from, a
+// scratch folder went on reading Healthy here until something else happened to
+// cause a health answer — the incident itself, reproduced on the one screen this
+// change exists to repair.
+let lastHealth = null;
+
 function renderRuntime(engine) {
+  lastHealth = engine;
   $("components").innerHTML = COMPONENTS.map(([label, componentIcon, fn]) => {
-    const value = fn(engine);
-    const tone = /Stopped|Unknown|Needs attention/i.test(value)
-      ? "warning"
-      : /Optional/i.test(value) ? "neutral" : "ready";
+    // THE TONE IS TAKEN FROM THE VERDICT, never read back out of its words. The
+    // block above COMPONENTS says what that cost.
+    const {text, tone} = fn(engine);
     return `<article class="engine-component" data-tone="${tone}">` +
       `<span class="engine-component-icon">${icon(componentIcon, "sm")}</span>` +
       `<span class="engine-component-copy"><strong>${esc(label)}</strong>` +
-      `<small>${esc(value)}</small></span></article>`;
+      `<small>${esc(text)}</small></span></article>`;
   }).join("");
+}
+
+// The warehouse moved under a row that is already painted. Nothing is asked of
+// any engine: this repaints from the answer already in hand, and does nothing at
+// all before the first one has landed — so it is safe at module scope, where
+// `whenBackendChanges` can reach it before any health answer exists.
+function repaintRuntime() {
+  if (lastHealth) renderRuntime(lastHealth);
 }
 
 function renderRuntimeCheckAction(engine) {
@@ -489,7 +612,9 @@ function renderSchemaLag(lag) {
   // three things the owner needs — what is wrong, what breaks, what fixes it —
   // because the alternative he met was a raw SQLite error on a broken page.
   const box = $("schema-lag");
-  if (!lag || !lag.pending || !lag.pending.length) {
+  // THE SAME PREDICATE THE DATABASES ROW ASKS, so the banner here and the tile on
+  // Settings cannot disagree about whether there is a lag at all.
+  if (!schemaIsBehind(lag)) {
     box.classList.add("hidden");
     box.textContent = "";
     return;
@@ -3532,6 +3657,12 @@ function forgetWarehouse() {
   warehouseGeneration += 1;
   state.warehousePath = "";
   warehouseAsk = null;
+  // A DROPPED PATH IS A DROPPED VERDICT, on the Settings row as well. `setStatus`
+  // repaints that row a few lines after it calls this, but the other two callers
+  // do not: a backend pointed at a different machine, and the panel's own
+  // restart. Either would leave "Healthy" standing on Settings about a file this
+  // panel has just admitted it no longer knows.
+  repaintRuntime();
 }
 
 // A different backend is a different engine and a different warehouse. Without
@@ -3552,6 +3683,12 @@ function noteWarehouse(storage) {
   if (path === state.warehousePath) return;
   state.warehousePath = path;
   renderEngineStatusUI();
+  // AND THE SETTINGS SCREEN, which judges the same path from its own row. That
+  // row is painted by the health poll and the path arrives from a different
+  // request, so without this it went on showing the verdict it was last painted
+  // with — a scratch folder reading Healthy for as long as nothing else asked
+  // the engine anything.
+  repaintRuntime();
 }
 
 async function askWhichWarehouse() {
@@ -6172,6 +6309,19 @@ async function loadStorage() {
     $("storage-info").innerHTML = `
       <div class="kv"><span>Folder</span><span class="tech">${esc(s.folder)}</span></div>
       <div class="kv"><span>Described on</span><span>the Database page</span></div>`;
+    // THE SECOND ANSWER THIS READ ALREADY CARRIES, and it was thrown on the
+    // floor. `showView` runs this on EVERY entry to Settings, and the Databases
+    // row in the Engine connection section above now judges
+    // `state.warehousePath` — which until this line was filled only by the
+    // Engines screen. An owner who opened Settings first had a row asking a
+    // question nothing had fetched the answer to; this is the same route,
+    // already awaited, at no extra request.
+    //
+    // LAST, AFTER THIS FUNCTION'S OWN SCREEN IS PAINTED. The `catch` below turns
+    // anything thrown here into "Couldn't read storage status.", which would be
+    // the wrong sentence about the wrong thing — so the free extra runs only
+    // once the rows it is free of are on screen.
+    noteWarehouse(s);
   } catch (_) {
     $("storage-info").innerHTML = `<span class="err">Couldn't read storage status.</span>`;
   }
