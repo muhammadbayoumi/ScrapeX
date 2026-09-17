@@ -366,7 +366,6 @@ const lifecycle = (() => {
     + "\nreturn { forgetWarehouse, noteWarehouse,"
     + " generation: () => warehouseGeneration,"
     + " held: () => warehouseAsk, hold: (v) => { warehouseAsk = v; } };";
-  // eslint-disable-next-line no-new-func
   //
   // `repaintRuntime` JOINED THE TWO OF THEM when the Settings runtime grid began
   // reading `state.warehousePath` as well. It is declared here ONLY so these
@@ -382,6 +381,7 @@ const lifecycle = (() => {
   // in app.js, this file reported 18 tests, 18 pass, 0 fail — byte-identical
   // green. `extension/tests/healthy.test.mjs` is what goes red there (2 of its
   // 21), and it is the only thing that does.
+  // eslint-disable-next-line no-new-func
   const make = new Function("state", "renderEngineStatusUI", "repaintRuntime", body);
   return (state, repaints) => make(state, () => { repaints.n += 1; }, () => {});
 })();
