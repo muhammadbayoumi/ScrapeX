@@ -167,3 +167,40 @@ def test_the_export_folder_is_decided_in_one_place():
         f"`scrapex export` defaults to {asked!r} and the panel exports to "
         f"{str(localsheets.DEFAULT_EXPORT_DIR)!r}. Two spellings of one decision, "
         "and under a redirect only one of them follows it.")
+
+
+def test_the_engine_log_opener_is_wrapped_for_the_whole_run():
+    """#983: the log is the one path #910's redirect never reached.
+
+    `scrapex/relaunch.py:145` `engine_log()` is a bare `Path.home() / ".scrapex" /
+    "engine.log"` with no environment variable behind it, so `SCRAPEX_DATA_ROOT`
+    -- which `conftest.py` sets before the first `scrapex` import -- does not move
+    it. `open_engine_log()` then mkdirs, ROTATES and opens for append. A test that
+    calls it with no `path` writes the file every panel failure message tells him
+    to open, and can roll it aside under a running engine.
+
+    The walk at the top of this file cannot see it: that guard reads module-level
+    UPPERCASE `Path` constants, and `engine_log` is a function. So `conftest.py`
+    wraps the opener instead -- and THIS asks whether the wrapper is still there.
+
+    BY NAME, NOT BY CALLING. Calling the opener to find out would, on a conftest
+    where the wrapper was removed, perform the exact write this exists to prevent.
+    The name is enough: the wrapper is installed once at conftest import, before
+    any test runs, and nothing legitimate replaces it afterwards.
+
+    Without this, the wrapper was unfalsifiable: deleting its one assignment line
+    left tests/test_db.py, tests/test_relaunch_log.py and tests/test_native.py
+    green, 79 passed.
+    """
+    from scrapex import relaunch
+
+    # BOTH DOORS. `rotate_engine_log` carries the same `path or engine_log()`
+    # and is the worse of the two: it unlinks the kept copy and renames the live
+    # log. An adversary rolled a log aside through it while the opener's guard
+    # was installed and green.
+    for name in ("open_engine_log", "rotate_engine_log"):
+        installed = getattr(relaunch, name)
+        assert installed.__name__ == f"_guarded_{name}", (
+            f"`relaunch.{name}` is {installed.__name__!r}, so tests/conftest.py's "
+            f"wrapper is not installed and a call with no `path` reaches his real "
+            f"~/.scrapex/engine.log")

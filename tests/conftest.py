@@ -63,6 +63,179 @@ if not os.environ.get("SCRAPEX_DATA_ROOT"):
     atexit.register(shutil.rmtree, _TEST_DATA_ROOT, ignore_errors=True)
 
 from scrapex import db as dbmod
+from scrapex import relaunch
+
+# AND IT MUST NOT WRITE HIS ENGINE LOG, which the redirect above does not reach.
+# `relaunch.engine_log()` is `Path.home() / ".scrapex" / "engine.log"` — no
+# environment variable, no data root, no override (`scrapex/relaunch.py:145`) — and
+# `open_engine_log()` is not a read: it mkdirs the parent, calls `rotate_engine_log`
+# and opens the file for append (`scrapex/relaunch.py:89`). `scrapex/native.py:360`
+# calls it WITH NO ARGUMENT, so a test that reaches `_spawn_engine` appends to the
+# log every panel failure sends him to read, and can roll it out from under the
+# engine that is running.
+#
+# LATENT BY LUCK, NOT BY DESIGN (#983). #961's coverage has `open_engine_log`'s body
+# running while `engine_log()`'s return line never does: every caller in the suite
+# happens to pass an explicit `path=`, so the `or` short-circuits before
+# `Path.home()`, and the tests that do take the default branch stay safe only
+# because one fixture monkeypatches `relaunch.engine_log` to `tmp_path`
+# (`tests/test_native.py:491`). A convention held in one fixture is not a guard.
+#
+# THIS REPORTS THE ASYMMETRY, IT DOES NOT FIX IT. Teaching `engine_log()` the data
+# root changes where a SHIPPED engine writes, and that is his decision rather than a
+# test file's — so nothing under `scrapex/` moves and a silent write becomes a red
+# test, which is the failure mode this repository prefers.
+
+
+def _under(where: str, root: str) -> bool:
+    return where == root or where.startswith(root + os.sep)
+
+
+def _norm(path: Path | str) -> str:
+    """One spelling of a path, so that two of them can be compared at all.
+
+    `.resolve()` first: on Windows the temp directory can arrive 8.3-shortened
+    (`C:\\Users\\SAPAC~1\\...`) while `Path.home()` never is, and only the filesystem
+    knows those are one directory. `normcase` after it, for the part `.resolve()`
+    cannot answer — a directory that does not exist YET has no true case to be
+    restored to, so a `SCRAPEX_DATA_ROOT` pointing at an uncreated `DataRoot` would
+    not match a caller's `DATAROOT` and a file of the test's own would be refused.
+    Both are Windows facts; on Linux `normcase` is identity and two spellings
+    genuinely are two directories.
+    """
+    return os.path.normcase(str(Path(path).resolve()))
+
+
+_HIS_HOME = _norm(Path.home())
+# Where a test's OWN files land — and why "under his home" cannot be the whole
+# question. `tmp_path` lives under the temp directory, which on Windows is INSIDE
+# the home directory (`C:\Users\<him>\AppData\Local\Temp`) and on Linux is not: a
+# guard that asked only about home would be green in CI and red on the dev box for
+# every correct caller in the suite.
+#
+# `SCRAPEX_DATA_ROOT` is exempt for the other direction. If `engine_log()` is ever
+# given the data root (#983's other option, his to approve), the redirected log
+# becomes a file this run made for itself and this must not then refuse it — and a
+# developer who pointed the suite at a root of his own keeps that choice, the same
+# way the block above honours it.
+_NOT_HIS = (_norm(tempfile.gettempdir()), _norm(os.environ["SCRAPEX_DATA_ROOT"]))
+
+
+def _is_his(target: Path) -> bool:
+    """A file the owner reads, rather than a copy this run made for itself.
+
+    "His directories" is also decided in `tests/test_the_suite_writes_nothing_of_his.py:39`
+    (`~/.scrapex`, `~/ScrapeX`), and the two stay apart rather than merge. That file
+    asks which module CONSTANTS point into a directory of his and can therefore name
+    them; this asks where one CALL is about to write, and the answer has to cover a
+    path nobody listed — `open_engine_log(Path.home() / "engine.log")` is his home
+    just as much. Merging them would also mean conftest importing a test module at
+    import time, or a test module importing conftest under a second name.
+    """
+    where = _norm(target)
+    return _under(where, _HIS_HOME) and not any(_under(where, mine) for mine in _NOT_HIS)
+
+
+_REAL_OPEN_ENGINE_LOG = relaunch.open_engine_log
+
+
+def _guarded_open_engine_log(path=None):
+    """`relaunch.open_engine_log`, with his own log taken off the table.
+
+    `path or relaunch.engine_log()` mirrors `scrapex/relaunch.py:91` exactly, the
+    module-global lookup included: a test that redirects `relaunch.engine_log` to
+    `tmp_path` — which is how the suite reaches that branch at all — has to be
+    judged on the file it actually redirected to, not on the shipped default. The
+    argument is handed on untouched, so a caller that is allowed through gets the
+    real function's own resolution and not ours.
+
+    `pytest.fail` rather than an error of our own, BECAUSE THE CALLERS CATCH:
+    `relaunch._spawn_detached` wraps this call in `except OSError` and falls back
+    to a sibling file, and `scrapex/native.py` answers the panel out of an
+    `except Exception`. Either would turn a refusal into a quiet fallback and leave
+    the run green, which is the failure mode this exists to end. `Failed` derives
+    from BaseException and passes through both.
+    """
+    target = path or relaunch.engine_log()
+    if _is_his(target):
+        pytest.fail(
+            f"a test called relaunch.open_engine_log() on {target} — his own engine "
+            f"log, the file every panel failure tells him to open. It would have "
+            f"been appended to, and rotate_engine_log can roll it aside under the "
+            f"running engine. `engine_log()` reads no environment variable, so "
+            f"conftest's SCRAPEX_DATA_ROOT redirect does not reach it (#983): pass "
+            f"an explicit `path=` under tmp_path, or monkeypatch "
+            f"`relaunch.engine_log` the way tests/test_native.py:491 does.")
+    return _REAL_OPEN_ENGINE_LOG(path)
+
+
+relaunch.open_engine_log = _guarded_open_engine_log
+
+# THE OTHER DOOR IN THE SAME MODULE, and the more destructive of the two.
+# `rotate_engine_log` carries the identical `target = path or engine_log()`
+# (scrapex/relaunch.py:77) and does not append: it unlinks the kept copy and
+# RENAMES the live log (`:82-83`). Wrapping only the opener left a call with no
+# argument free to roll his log aside -- demonstrated by an adversary against
+# the first version of this guard, which stayed silent through it. Appending is
+# dirty; renaming the file every panel failure tells him to open is destructive,
+# and it leaves no trace except a log that is no longer there.
+ENGINE_LOG_KEEP_SUFFIX = getattr(relaunch, "ENGINE_LOG_KEEP", 1)
+_REAL_ROTATE_ENGINE_LOG = relaunch.rotate_engine_log
+
+
+def _guarded_rotate_engine_log(path=None):
+    """`relaunch.rotate_engine_log`, with his own log taken off the table.
+
+    Same shape as the opener above and for the same reasons: the module-global
+    lookup so a redirected `engine_log` is judged on what it was redirected to,
+    the argument handed on untouched, and `pytest.fail` because this caller
+    catches too -- `rotate_engine_log` swallows `OSError` itself (`:85`), so an
+    error of our own would become its `return False` and leave the run green.
+    """
+    target = path or relaunch.engine_log()
+    if _is_his(target):
+        pytest.fail(
+            f"a test called relaunch.rotate_engine_log() on {target} — his own "
+            f"engine log. It would have been RENAMED to {target.name}."
+            f"{ENGINE_LOG_KEEP_SUFFIX} and the previous copy deleted, under a "
+            f"running engine, leaving nothing behind to say so. `engine_log()` "
+            f"reads no environment variable, so conftest's SCRAPEX_DATA_ROOT "
+            f"redirect does not reach it (#983): pass an explicit `path=` under "
+            f"tmp_path, or monkeypatch `relaunch.engine_log`.")
+    return _REAL_ROTATE_ENGINE_LOG(path)
+
+
+relaunch.rotate_engine_log = _guarded_rotate_engine_log
+
+# AND IT ANSWERS ITS TWO QUESTIONS BEFORE THE FIRST TEST RUNS, once per worker.
+# Nothing in the suite calls `open_engine_log` on a file of his — that is the
+# point of the guard — so no test can go red when the predicate above stops
+# telling his log apart from a temporary one: measured, the whole suite returns
+# the identical 4111 outcomes with this block present and with it deleted. A
+# guard that nothing can notice failing is the failure mode this repository
+# keeps finding, so it is asked both questions here, on paths that are NEVER
+# opened and whose parents are never created.
+#
+# Not the third question, deliberately: whether the line above is still wired
+# cannot be asked here, because asking it means CALLING the opener, and on a
+# conftest where the line was deleted that call is the write. That one belongs
+# in a test file, where a monkeypatched `relaunch.engine_log` makes it safe.
+_GUARD_PROBE = Path.home() / "__scrapex_engine_log_guard_probe__" / "engine.log"
+_TMP_PROBE = Path(tempfile.gettempdir()) / "pytest-of-someone" / "test_0" / "engine.log"
+if not _is_his(_GUARD_PROBE):
+    raise RuntimeError(
+        f"the engine-log guard has stopped recognising {_GUARD_PROBE} as a file "
+        f"of his, so it would let a test write ~/.scrapex/engine.log (#983). "
+        f"Either `_is_his` is broken, or SCRAPEX_DATA_ROOT "
+        f"({os.environ['SCRAPEX_DATA_ROOT']}) or the temp directory "
+        f"({tempfile.gettempdir()}) now sits at or above {Path.home()}, which "
+        f"exempts his whole home.")
+if _is_his(_TMP_PROBE):
+    raise RuntimeError(
+        f"the engine-log guard now refuses {_TMP_PROBE}, which is where every "
+        f"correct caller in the suite writes (tmp_path). It would fail "
+        f"tests/test_relaunch_log.py and tests/test_native.py rather than the "
+        f"defect it is looking for (#983).")
 
 # Captured at import — before any test module can rebind them. `tests/conftest.py`
 # is imported before every test module, so these are the shipped originals.
