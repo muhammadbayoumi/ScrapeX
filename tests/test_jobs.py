@@ -253,6 +253,48 @@ def test_control_on_a_finished_job_is_refused(conn):
     assert set_control(conn, ref, JobControl.CANCEL) is False   # already completed
 
 
+def test_a_control_that_loses_the_compare_and_swap_reports_that_it_did_not_apply(conn):
+    """The worker settles the job in the gap between set_control's status read and
+    its compare-and-swap, so the UPDATE matches no row and NOTHING was written.
+
+    Saying True there is the silent failure: `applied` is the only thing the
+    /control route has to raise its 409 with, so a cancel click that never landed
+    comes back as a success, and he stops watching a job that is still holding the
+    write lock. Every other path through this function writes a row, so only the
+    lost race distinguishes the real answer from a hardcoded one.
+    """
+    ref = create_job(conn, ["A"], RunMode.UPDATE, status=JobStatus.RUNNING)
+
+    class _WorkerFinishesFirst:
+        """The real connection, with the worker's own commit landing in the gap."""
+        def __init__(self, real):
+            self.real, self.raced = real, False
+
+        def execute(self, sql, params=()):
+            # Match the statement's TARGET, not its column order: set_control issues
+            # exactly one UPDATE against crawl_job, so this still lands in the gap
+            # after the SET list is reordered or the assignments are rewritten.
+            if sql.upper().lstrip().startswith("UPDATE CRAWL_JOB") and not self.raced:
+                self.raced = True
+                self.real.execute(
+                    "UPDATE crawl_job SET status = ?, finished_at = ? WHERE job_ref = ?",
+                    (JobStatus.COMPLETED.value, "2026-01-01T00:00:00Z", ref))
+                self.real.commit()
+            return self.real.execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+
+    racing = _WorkerFinishesFirst(conn)
+    applied = set_control(racing, ref, JobControl.CANCEL)
+
+    assert racing.raced, "the swap never ran, so this test proved nothing"
+    assert applied is False, (
+        "set_control reported a cancel it did not write: the compare-and-swap "
+        "matched no row, and the panel was told the click had landed")
+    assert get_job(conn, ref)["status"] == JobStatus.COMPLETED.value
+
+
 def test_rerunning_a_terminal_job_is_a_no_op(conn):
     calls: list[str] = []
     ref = create_job(conn, ["A"], RunMode.UPDATE)
