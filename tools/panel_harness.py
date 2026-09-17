@@ -232,8 +232,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         # BEHIND BY ONE, so the default state exercises the branch that has a button to
         # press rather than the quiet one.
         "/api/storage": storage or {
-            "path": "C:\\Users\\Owner\\.scrapex\\harvest.db",
-            "folder": "C:\\Users\\Owner\\.scrapex",
+            # THE LAYOUT THE ENGINE ACTUALLY PRODUCES. `scrapex/db.py:39-40`
+            # says `~/.scrapex/harvest.db` is NOT the warehouse -- the real one
+            # is the engine database under `~/.scrapex/engine/` -- and `folder`
+            # is the directory that HOLDS it, which is what the live engine
+            # returns. The stub was wrong on both, and a status line designed
+            # against it could not tell two installations apart.
+            "path": "C:\\Users\\Owner\\.scrapex\\engine\\scrapex-engine.db",
+            "folder": "C:\\Users\\Owner\\.scrapex\\engine",
             "backup_folder": "C:\\Users\\Owner\\.scrapex",
             "sizes": {"db_bytes": 4194304, "wal_bytes": 8192, "shm_bytes": 32768,
                       "free_bytes": 51539607552, "backup_bytes": 8388608,

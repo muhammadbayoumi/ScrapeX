@@ -3549,6 +3549,13 @@
     font-size: var(--fs-sm);
     color: var(--muted);
     line-height: 1.35;
+    /* A WINDOWS PATH HAS NO SPACES IN IT, and this line names the warehouse now.
+       Measured at 360px with `overflow-wrap: normal`: the row reported
+       scrollWidth > clientWidth and `C:\Users\sapac\AppData\Local\Temp\
+       scrapex-tests-7k2f9a\scrapex-engine.db` clipped characters out of the MIDDLE of
+       the one string the reader is being asked to check. `anywhere` also lets
+       the box shrink to the container, which `break-word` does not. */
+    overflow-wrap: anywhere;
   }
   .engine-row-tags {
     display: flex;
@@ -3702,6 +3709,9 @@
   .engine-state-copy small {
     font-size: var(--fs-sm);
     line-height: 1.35;
+    /* The same summary object fills this as fills `.engine-row-sub`, so it takes
+       the same warehouse path and had the same clipped middle. See there. */
+    overflow-wrap: anywhere;
   }
   .engine-state-copy small:empty { display: none; }
 
