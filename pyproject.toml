@@ -10,7 +10,14 @@ version = "0.4.15"
 description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite warehouse. Categories: products, contractors"
 requires-python = ">=3.12"
 dependencies = [
-    "httpx>=0.27",
+    # `[http2]` pulls in `h2`. WHY IT IS NOT OPTIONAL: the crawl presents itself
+    # as Chrome (connectors/base.browser_headers), and Chrome has spoken HTTP/2
+    # to every site that offers it for years. A client announcing Chrome over
+    # HTTP/1.1 contradicts its own agent before it sends a byte of the request,
+    # which is the mismatch that work exists to remove. An extra that can be
+    # absent would make the contradiction depend on how the engine was
+    # installed, and the owner installs from the panel.
+    "httpx[http2]>=0.27",
     "pydantic>=2.7",
     "PyYAML>=6.0",
     "tenacity>=8.3",
