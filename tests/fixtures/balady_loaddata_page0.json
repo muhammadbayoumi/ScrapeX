@@ -1,0 +1,62 @@
+{
+ "draw": "1",
+ "recordsFiltered": 5468,
+ "recordsTotal": 5,
+ "data": [
+  {
+   "ClassificationGrade": "2",
+   "ClassificationStatus": null,
+   "MobileNo": null,
+   "OfficeId": "1010251919",
+   "HashedOfficeId": "bldyPrm34795F77350AFD48C73A44418FA05E5B874761011B90D419A2004940C22E1DCE",
+   "OfficeName": "شركة المدينه الانشائيه للمقاولات",
+   "X": "46.76989065429919",
+   "Y": "24.730443701999206",
+   "LogoUrl": "/Eservices/Inquiries/InquiryEngOffices/DownloadFile?url=bldyPrm1D28BC7C2BC9A177A186A5038F27B704836E5D61D69BF067F72743224D1643B1565BFD8723197F71D19F32331E1A5E66047E5DDD58A83A6886911DDEDB569A2E067E6DD3ED20602413C0270F7FEA20C1BC93DD9CFD86529C43CC7B82D383EB89020D4EEDDFA1E75C664FE7C42E87E0EDF6DBE610435B4DA4AA953E8D8B4DC40F"
+  },
+  {
+   "ClassificationGrade": null,
+   "ClassificationStatus": null,
+   "MobileNo": null,
+   "OfficeId": "5110203422",
+   "HashedOfficeId": "bldyPrmD9988FDDFD41BDFA9C02305385DD5C6F9B54766C13866C0D01CAA4B0E0812BAC",
+   "OfficeName": "المثلثات الحديثة للاستشارات الهندسية",
+   "X": null,
+   "Y": null,
+   "LogoUrl": "/Eservices/Inquiries/Content/images/em.jpg"
+  },
+  {
+   "ClassificationGrade": null,
+   "ClassificationStatus": null,
+   "MobileNo": null,
+   "OfficeId": "12/4205",
+   "HashedOfficeId": "bldyPrm8AE564A7C09B9217FFE53BA5E97F1510F4103C51CB6E0BA902ED38C94CDA373A",
+   "OfficeName": "البيت العصري للاستشارات الهندسية",
+   "X": null,
+   "Y": null,
+   "LogoUrl": "/Eservices/Inquiries/Content/images/em.jpg"
+  },
+  {
+   "ClassificationGrade": null,
+   "ClassificationStatus": null,
+   "MobileNo": null,
+   "OfficeId": "0",
+   "HashedOfficeId": "bldyPrmEBA15B62BA64F90C9235438F83D14B86D23F1F24C63E880E2AFF2E60D2016D25",
+   "OfficeName": "مكتب السند للاستشارات الهندسية\r\n",
+   "X": null,
+   "Y": null,
+   "LogoUrl": "/Eservices/Inquiries/Content/images/em.jpg"
+  },
+  {
+   "ClassificationGrade": "6",
+   "ClassificationStatus": null,
+   "MobileNo": null,
+   "OfficeId": "3453104188",
+   "HashedOfficeId": "bldyPrm5505E51C03A944C6E093B4104B68714373D2533D18B1B7D6803DA03D7B9E50E5",
+   "OfficeName": "مؤسسة أعمال العصرية للمقاولات العامة",
+   "X": "44.688281978913814",
+   "Y": "94.80877727564585",
+   "LogoUrl": "/Eservices/Inquiries/InquiryEngOffices/DownloadFile?url=bldyPrm65ED7919DCC0DD24F258210E4DBC21A362064DD125453F6A6C9B2BDAA41440953A9073957ADC8DE50167E1EBC988C547A4BE01F076EE9E71522BCE19A285EE6CF37D524FF4000641C7CD8557C26593DB36A13F56491429AA21C33F261C707B237798E4ACA89E5BFD1B082A367E42DC8FF9A16380A7976BF69C969FEF2E90AF8B"
+  }
+ ]
+}
