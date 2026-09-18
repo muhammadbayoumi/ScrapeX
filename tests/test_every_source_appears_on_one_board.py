@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from scrapex import sourceboard
+from scrapex import directories, sourceboard
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.vocab import SourceCategory
 
@@ -66,7 +66,31 @@ def test_the_board_reads_without_a_database(conn):
 
     assert found, "the manifest's own sources should be listed with no warehouse"
     assert {one.registry for one in found} == {"manifest", "code"}
-    assert [one.key for one in found if one.registry == "code"] == ["muqawil_org"]
+    # THE CODE HALF IS `directories.BUILDERS` AND NOTHING ELSE. This named the one
+    # key that registry happened to hold, so a SECOND directory arriving -- the
+    # change the registry exists for, and whose own docstring promises it -- read as
+    # a regression. The emptiness check is not decoration: against an emptied
+    # `BUILDERS` the comparison below passes while measuring nothing.
+    registered_in_code = [one.key for one in found if one.registry == "code"]
+    assert registered_in_code, "a build that can crawl directories listed none"
+    assert registered_in_code == sorted(directories.BUILDERS)
+
+
+def test_the_code_half_is_every_directory_this_build_registers():
+    """`from_code()` is read straight by the panel, IN THE ORDER IT RETURNS.
+
+    Nothing above measures that order: `board()` re-sorts everything it collects, so
+    un-sorting this function changes no board. `webui/app.py:984` appends these rows to
+    the source list as they come, which makes sorted-by-key the order he actually sees —
+    and makes a new directory land in a stable place rather than wherever `BUILDERS`
+    happens to hold it.
+    """
+    found = sourceboard.from_code()
+
+    assert [one.key for one in found] == sorted(directories.BUILDERS)
+    assert {one.registry for one in found} == {"code"}
+    assert {one.state for one in found} == {"built"}, (
+        "`built` is the vocabulary word for a collector that exists and is unscheduled")
 
 
 def test_a_warehouse_adds_to_the_list_rather_than_replacing_it(conn):
@@ -184,7 +208,14 @@ def test_filtering_by_category_returns_only_that_category(conn):
     found = sourceboard.board(conn, manifest_file=MANIFEST,
                               category=SourceCategory.CONTRACTORS)
 
-    assert [one.key for one in found] == ["muqawil_org"]
+    # THE FILTER IS A RESTRICTION, and that is the contract rather than today's
+    # keys: everything it returns is that category, and it drops nothing the
+    # unfiltered board puts in that category.
+    assert found, "the crawled directory is a contractors source and was filtered away"
+    assert {one.category for one in found} == {SourceCategory.CONTRACTORS}
+    assert [one.key for one in found] == [
+        one.key for one in sourceboard.board(conn, manifest_file=MANIFEST)
+        if one.category == SourceCategory.CONTRACTORS]
 
 
 def test_the_summary_counts_by_category_and_state(conn):
@@ -194,8 +225,15 @@ def test_the_summary_counts_by_category_and_state(conn):
     counted = sourceboard.summary(
         sourceboard.board(conn, manifest_file=MANIFEST))
 
-    assert counted["contractors"] == {"active": 1}, (
+    # EVERY DIRECTORY COUNTS ONCE, AND THE CRAWLED ONE COUNTS AS ITS WAREHOUSE ROW.
+    # `site()` above crawled exactly one of `directories.BUILDERS`; the others are
+    # `built` from the code half. The total catches what the single literal cell
+    # caught -- the crawled row and its code placeholder both counting would put the
+    # total one above the number of directories -- without pinning how many there are.
+    assert sum(counted["contractors"].values()) == len(directories.BUILDERS), (
         "the crawled row and the code registry's placeholder were both counted")
+    assert counted["contractors"]["active"] == 1, (
+        "the code registry's `built` overwrote the crawled row's real state")
     # THE PRODUCTS CELL IS THE MANIFEST, and it used to be compared against the whole
     # database-less board — which was the same number only while the manifest was the
     # only registry that needs no database. `from_manifest` names what it means.
