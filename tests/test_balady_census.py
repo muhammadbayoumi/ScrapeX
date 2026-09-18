@@ -19,6 +19,7 @@ from scrapex.sites.balady import (
     BOUND_COLUMNS,
     LOGO_PLACEHOLDER,
     PAGE_CAP,
+    VOLATILE_FIELDS,
     Census,
     CensusShapeError,
     census,
@@ -361,3 +362,55 @@ def test_an_office_with_no_hash_has_no_reachable_detail_page():
     hashless = type(office)(**{**office.__dict__, "hashed_office_id": ""})
     with pytest.raises(ValueError, match="reaches only the login page"):
         detail_url(hashless)
+
+
+# --- what may decide that an office changed --------------------------------------
+
+def test_the_two_volatile_census_fields_are_named():
+    """Measured across two responses seconds apart: the hash matched in 0 of 20
+    offices and the logo URL in 7, and those seven were the static placeholder."""
+    assert VOLATILE_FIELDS == {"HashedOfficeId", "LogoUrl"}
+
+
+def test_a_fresh_hash_for_the_same_office_is_not_a_change():
+    """The endpoint re-encrypts the id on every response. Including it in change
+    detection would report all 5,470 offices as edited on every run."""
+    first = read_office(_row(HashedOfficeId="bldyPrmAAAA"))
+    second = read_office(_row(HashedOfficeId="bldyPrmBBBB"))
+    assert first.hashed_office_id != second.hashed_office_id
+    assert first.content_fields() == second.content_fields()
+
+
+def test_a_re_encrypted_logo_url_is_not_a_change():
+    """Every real logo URL carries the same per-request ciphertext."""
+    base = "/Eservices/Inquiries/InquiryEngOffices/DownloadFile?url=bldyPrm"
+    first = read_office(_row(LogoUrl=base + "EE7D0C14"))
+    second = read_office(_row(LogoUrl=base + "DBA0E296"))
+    assert first.content_fields() == second.content_fields()
+
+
+def test_losing_the_logo_altogether_IS_a_change():
+    """Whether the office uploaded one is the stable half, and it is kept."""
+    with_logo = read_office(_row())
+    without = read_office(_row(LogoUrl=LOGO_PLACEHOLDER))
+    assert with_logo.content_fields() != without.content_fields()
+    assert with_logo.content_fields()["has_logo"] == "1"
+    assert without.content_fields()["has_logo"] == "0"
+
+
+@pytest.mark.parametrize("key,value", [
+    ("OfficeName", "اسم آخر"), ("ClassificationGrade", "5"),
+    ("MobileNo", "0500000000"), ("ClassificationStatus", "غير مصنف"),
+    ("X", "46.0"), ("Y", "24.0")])
+def test_every_field_the_site_can_really_edit_is_a_change(key, value):
+    assert read_office(_row()).content_fields() != read_office(
+        _row(**{key: value})).content_fields()
+
+
+def test_no_volatile_field_leaks_into_the_content():
+    content = read_office(_row()).content_fields()
+    assert "hashed_office_id" not in content
+    assert "logo_url" not in content
+    assert set(content) == {"office_id", "office_name", "mobile_no",
+                            "classification_grade", "classification_status",
+                            "has_logo", "x", "y"}

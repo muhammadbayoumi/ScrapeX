@@ -77,6 +77,29 @@ BOUND_COLUMNS = ("LogoUrl", "OfficeId", "OfficeName", "MobileNo",
 #: whole register; trusting a larger number would silently collect 2,000 of 5,470.
 PAGE_CAP = 2000
 
+#: CENSUS FIELDS THAT CHANGE ON EVERY RESPONSE WITHOUT THE OFFICE CHANGING, so a
+#: change detector that includes them reports every office as edited on every run.
+#: Measured on twenty offices across two census responses seconds apart:
+#:
+#:   * `HashedOfficeId` -- identical in **0 of 20**. It is a fresh ciphertext of the
+#:     same office each time, not a stable id. An old one keeps working: a hash minted
+#:     2026-09-17 fetched its office's page on 2026-09-18, 200 and no redirect. So it
+#:     is a usable token with many valid values per office and no identity value at
+#:     all -- `office_id` is the identity, always.
+#:   * `LogoUrl` -- identical in 7 of 20, and those seven are the static placeholder.
+#:     Every real logo URL carries the same per-request ciphertext.
+#:
+#: `X`, `Y`, `OfficeName` and `ClassificationGrade` were identical in 20 of 20 across
+#: both responses and across the 22 hours between them, so the volatility is these two
+#: fields and not the endpoint.
+#:
+#: The detail page has three more of these -- `startup.js?v=<clock>`, the same logo
+#: ciphertext, and an activity table whose ROW ORDER differs between consecutive
+#: fetches. A byte hash of that page therefore changes every time it is read, from
+#: three independent causes, which is why change detection here is over extracted
+#: fields and never over the response.
+VOLATILE_FIELDS = frozenset({"HashedOfficeId", "LogoUrl"})
+
 #: `LogoUrl` when the office has uploaded none. 39.5% of the register, and it travels
 #: with the coordinates: of 2,161 placeholder rows, 2,158 have no `X`. Both are the
 #: site's "this office completed a profile" signal, so the placeholder is worth naming
@@ -104,7 +127,7 @@ class Office:
     is `0`.
 
     `hashed_office_id` is the fetch key, and nothing else in the product can reach the
-    detail page without it.
+    detail page without it. **It is not an identity.** See `VOLATILE_FIELDS`.
     """
 
     office_id: str
@@ -133,6 +156,25 @@ class Office:
     @property
     def has_coordinates(self) -> bool:
         return bool(self.x) and bool(self.y)
+
+    def content_fields(self) -> dict[str, str | None]:
+        """What "this office changed" is allowed to be decided from.
+
+        Everything in `VOLATILE_FIELDS` is left out, and `has_logo` carries the only
+        part of `LogoUrl` that is stable -- whether the office uploaded one. Hashing
+        the URL itself would report all 3,307 offices that have a logo as edited on
+        every single run.
+        """
+        return {
+            "office_id": self.office_id,
+            "office_name": self.office_name,
+            "mobile_no": self.mobile_no,
+            "classification_grade": self.classification_grade,
+            "classification_status": self.classification_status,
+            "has_logo": "1" if self.has_logo else "0",
+            "x": self.x,
+            "y": self.y,
+        }
 
 
 @dataclass(frozen=True)
