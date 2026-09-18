@@ -46,7 +46,11 @@ is data and not a code change.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
+
+from ..pagesource import WHOLE, Cell, SliceNotSupported
 
 #: Matches `source_site.source_key`, as `directories.Directory.key` requires.
 SITE_KEY = "oman_tenderboard"
@@ -132,7 +136,8 @@ class CategorySplit:
     remainder: str
 
 
-def register_url(page: int, *, direction: str = LTR, base_url: str = BASE_URL) -> str:
+def listing_url(base_url: str = BASE_URL, *, locale: str = LTR, page: int = 1,
+                cell: Cell = WHOLE) -> str:
     """One page of the register.
 
     `pageNo` IS A GET PARAMETER, which is why this reader needs no form post and no
@@ -143,10 +148,16 @@ def register_url(page: int, *, direction: str = LTR, base_url: str = BASE_URL) -
     """
     if page < 1:
         raise ValueError(f"page must be at least 1, got {page}")
-    if direction not in DIRECTIONS:
-        raise ValueError(f"direction must be one of {DIRECTIONS}, got {direction!r}")
-    return (f"{base_url}{REGISTER_PATH}?CTRL_STRDIRECTION={direction}&PublicUrl=1"
-            f"&eventFlag={REGISTER_EVENT}&pageNo={page}")
+    if locale not in DIRECTIONS:
+        raise ValueError(f"locale must be one of {DIRECTIONS}, got {locale!r}")
+    url = (f"{base_url}{REGISTER_PATH}?CTRL_STRDIRECTION={locale}&PublicUrl=1"
+           f"&eventFlag={REGISTER_EVENT}&pageNo={page}")
+    # A CELL'S PARAMS GO IN ORDER, because the URL is the identity a resume matches on:
+    # `snapshotcrawl.already_stored` compares `generic_page_snapshot.source_url`, so two
+    # orderings of the same filter would re-fetch every page. `WHOLE` adds nothing.
+    for name, value in cell.params:
+        url += f"&{name}={value}"
+    return url
 
 
 def subcategory_url(category_code: str, *, direction: str = LTR,
@@ -414,3 +425,104 @@ def join_languages(english: tuple[Firm, ...],
             f"view by CR number: {unpaired[:6]}. The two views are the same fifty firms; "
             "a firm present in one and not the other is news, not a row to skip.")
     return tuple(paired)
+
+
+def read_ids(html: str) -> tuple[str, ...]:
+    """Every firm's record key on this page, in published order, keeping duplicates.
+
+    KEEPING DUPLICATES is the protocol's word and it is load-bearing: the sizing
+    arithmetic counts what the page published, and de-duplicating here would hide a
+    register that repeated a firm rather than report it. Measured over 102 rows there were
+    none, which is a reason to watch for one rather than to assume it away.
+    """
+    return tuple(firm.short_name for firm in read_rows(html))
+
+
+class OmanPageSource:
+    """The pages one cell of this register covers.
+
+    `PageSource` (`scrapex/pagesource.py`), implemented for a listing that is the whole
+    record.
+    """
+
+    site_key = SITE_KEY
+
+    def __init__(self, *, last_page: int, locales: Iterable[str] = DIRECTIONS,
+                 cell: Cell = WHOLE) -> None:
+        if last_page < 1:
+            raise ValueError(f"last_page must be at least 1, got {last_page}")
+        self._last_page = last_page
+        self._locales = tuple(locales)
+        if not self._locales:
+            raise ValueError("a page source with no locale fetches nothing")
+        self._cell = cell
+
+    def listing_urls(self, base_url: str) -> Iterable[str]:
+        """Every page, in both languages, PAGE BY PAGE rather than language by language.
+
+        THE ORDER IS DELIBERATE, and the reason is muqawil's own
+        (`scrapex/sites/muqawil.py`): `LTR p1`, `RTL p1`, `LTR p2`, ... so a run stopped
+        half way holds BOTH halves of the pages it reached. Here it is stronger than
+        there -- the two views are joined on the CR number to make one row, so an English
+        page whose Arabic twin was never fetched yields no rows at all, not half-rows.
+        """
+        for page in range(1, self._last_page + 1):
+            for locale in self._locales:
+                yield listing_url(base_url, locale=locale, page=page, cell=self._cell)
+
+    def detail_urls(self, page: Any) -> Iterable[str]:
+        """None, and that is this source's shape rather than an omission.
+
+        The listing row carries the whole record -- name, CR number, address, telephone,
+        fax, category, expiry and company type -- so 23,502 firms cost 471 requests and
+        no per-firm fetch. The three per-firm surfaces the page does link (the profile,
+        the certificate and the procurement activities) all answered a *Security Page*
+        asking for a sign-in, so there is no detail URL this crawl may fetch. `#1004` §4.
+        """
+        return ()
+
+    def belongs_to_slice(self, page: Any, row_index: int, slice_of: str) -> bool:
+        """Refused, because no slice scope is offered for this source.
+
+        NOT answered False, which is the distinction `SliceNotSupported` exists for: False
+        for every row is an empty crawl that looks like a successful one. The register
+        does publish category and company type on the row, so a slice COULD be built here
+        later -- but nothing asks for one today, and inventing the mapping from a
+        `slice_of` string onto those columns with no caller is the abstraction this
+        repository refuses until a second case proves it.
+        """
+        raise SliceNotSupported(
+            f"{SITE_KEY} offers no slice scope; the register is crawled whole in "
+            f"{ROWS_PER_PAGE}-row pages (asked for {slice_of!r})")
+
+
+class OmanPartition:
+    """`PartitionedListing` for a register that needs no partition.
+
+    ONE CELL, AND THE MEASUREMENT IS WHY. `Cell` exists because muqawil's listing order
+    is a cached random permutation that rolls every 157-282 s, so a page set has to be
+    small enough to read inside one generation. This register does not shuffle: page 1
+    fetched twice returned the same fifty firms in the same order, with the same record
+    keys. So `WHOLE` is the only cell, the exhaustiveness audit has nothing to sum, and
+    the empty cell removes the special case rather than adding one.
+    """
+
+    site_key = SITE_KEY
+    locales = DIRECTIONS
+    primary_locale = LTR
+
+    def cells(self) -> tuple[Cell, ...]:
+        return (WHOLE,)
+
+    def listing_url(self, base_url: str, *, locale: str, page: int,
+                    cell: Cell = WHOLE) -> str:
+        return listing_url(base_url, locale=locale, page=page, cell=cell)
+
+    def read_last_page(self, html: str) -> int:
+        return read_last_page(html)
+
+    def read_ids(self, html: str) -> tuple[str, ...]:
+        return read_ids(html)
+
+    def in_cell(self, cell: Cell, *, last_page: int) -> OmanPageSource:
+        return OmanPageSource(last_page=last_page, locales=self.locales, cell=cell)
