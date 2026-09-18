@@ -101,7 +101,12 @@ DOCUMENTS = (
     # replaced, and moving them here would otherwise have carried them out of the only
     # set whose citations are verified -- `skip` below excludes `.claude` from the file
     # index, so nothing else in this test would ever have looked at them.
-    ".claude/skills/review/SKILL.md",
+    # NARROWED AGAIN when the review skill became portable. The skill is now one file in
+    # the personal skills directory, identical in every project, and this repository keeps
+    # only the ScrapeX half it reads -- so the row that pointed at the skill points at the
+    # profile. `_read` asserts the file is there, which makes this row the guard that the
+    # profile cannot be deleted out from under the gate that requires it.
+    ".claude/review-profile.md",
     ".claude/skills/record-it/SKILL.md",
     # `study-a-source` JOINED THE MAP IN `CLAUDE.md` AND SO JOINS THIS TUPLE, in the same
     # commit -- `docs/ORCHESTRATION.md` is the precedent above for what happens when the
