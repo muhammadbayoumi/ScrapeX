@@ -146,14 +146,43 @@ def _muqawil() -> Directory:
     )
 
 
+def _oman_tenderboard() -> Directory:
+    # Imported inside the function for `_muqawil`'s reason: `scrapex status` should not
+    # pay to import a parser it never uses.
+    from .extract.oman_tenderboard import (
+        DATASET_KEY,
+        IDENTITY_FIELD,
+        bilingual_listing_candidate,
+    )
+    from .sites.oman_tenderboard import BASE_URL, SITE_KEY, OmanPartition
+
+    # NO `profiles`, AND THAT IS THE SOURCE'S SHAPE. The listing row carries the whole
+    # record -- name, CR number, address, telephone, fax, category, expiry and company
+    # type -- so 23,502 firms cost 471 requests and there is no detail page to read. The
+    # three per-firm surfaces the page links (profile, certificate, procurement
+    # activities) all answered a sign-in page, and `#1004` records them as gated.
+    return Directory(
+        key=SITE_KEY,
+        display_name="Oman Tender Board / ESNAD registered vendors",
+        base_url=BASE_URL,
+        dataset_key=DATASET_KEY,
+        identity_field=IDENTITY_FIELD,
+        candidate=bilingual_listing_candidate,
+        partition_factory=OmanPartition,
+    )
+
+
 #: Every directory this build can crawl. Keyed by `site_key`, because that is what
 #: the warehouse joins on and what the crawl's scope lookup uses.
 BUILDERS: dict[str, Callable[[], Directory]] = {
     "muqawil_org": _muqawil,
+    "oman_tenderboard": _oman_tenderboard,
 }
 
-#: The one there is. A default keeps every command line that predates `--source`
-#: working, including a crawl running right now.
+#: THE DEFAULT IS STILL MUQAWIL, AND STAYS SO. It exists to keep every command line that
+#: predates `--source` working, including a crawl running right now -- so it names the
+#: directory those commands meant, not the newest one. A second directory arriving is
+#: exactly when a default silently changing would be at its most expensive.
 DEFAULT_KEY = "muqawil_org"
 
 

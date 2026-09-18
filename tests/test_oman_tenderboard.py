@@ -17,6 +17,7 @@ import re
 
 import pytest
 
+from scrapex.pagesource import WHOLE
 from scrapex.sites.oman_tenderboard import (
     BASE_URL,
     DIRECTIONS,
@@ -24,16 +25,19 @@ from scrapex.sites.oman_tenderboard import (
     ROWS_PER_PAGE,
     RTL,
     CategorySplit,
+    OmanPageSource,
+    OmanPartition,
     RegisterShapeError,
     codes_for,
     decompose_categories,
     join_languages,
     read_categories,
     read_company_types,
+    read_ids,
     read_last_page,
     read_rows,
     read_subcategories,
-    register_url,
+    listing_url,
     subcategory_url,
 )
 
@@ -293,24 +297,24 @@ def test_the_unpairable_firm_is_named_in_the_refusal():
 # --- the urls ------------------------------------------------------------------------
 
 def test_the_register_url_pages_by_a_get_parameter():
-    url = register_url(2)
+    url = listing_url(page=2)
     assert url.startswith(BASE_URL) and "pageNo=2" in url
     assert "CTRL_STRDIRECTION=LTR" in url and "eventFlag=RegVendorPublic" in url
 
 
 def test_the_register_url_switches_language_by_the_same_parameter_the_site_uses():
-    assert "CTRL_STRDIRECTION=RTL" in register_url(1, direction=RTL)
+    assert "CTRL_STRDIRECTION=RTL" in listing_url(page=1, locale=RTL)
 
 
 @pytest.mark.parametrize("page", [0, -1])
 def test_the_register_url_refuses_a_page_below_one(page):
     with pytest.raises(ValueError, match="at least 1"):
-        register_url(page)
+        listing_url(page=page)
 
 
-def test_the_register_url_refuses_an_unknown_direction():
+def test_the_register_url_refuses_an_unknown_locale():
     with pytest.raises(ValueError, match="must be one of"):
-        register_url(1, direction="RTL2")
+        listing_url(page=1, locale="RTL2")
 
 
 def test_only_the_two_directions_the_site_has_are_allowed():
@@ -450,3 +454,121 @@ def test_a_paginator_whose_two_readings_disagree_raises():
 
 def test_the_two_agreeing_readings_are_accepted():
     assert read_last_page(_page([_row()], pages=7)) == 7
+
+
+# --- the partition, and why it has only one cell ------------------------------------
+
+def test_the_partition_satisfies_the_protocol_the_crawl_expects():
+    from scrapex.pagesource import PageSource
+    source = OmanPartition().in_cell(WHOLE, last_page=3)
+    assert isinstance(source, PageSource)
+
+
+def test_there_is_one_cell_because_this_register_does_not_shuffle():
+    """`Cell` exists for muqawil's cached random permutation. Page 1 fetched twice here
+    returned the same fifty firms in the same order with the same keys."""
+    assert OmanPartition().cells() == (WHOLE,)
+
+
+def test_the_partition_declares_both_locales_and_english_as_the_primary():
+    part = OmanPartition()
+    assert part.locales == ("LTR", "RTL") and part.primary_locale == "LTR"
+
+
+def test_the_pages_are_interleaved_by_language_not_grouped_by_it():
+    """A run stopped half way must hold BOTH halves of the pages it reached: the two
+    views become one row via the CR join, so a lone English page yields nothing."""
+    urls = list(OmanPartition().in_cell(WHOLE, last_page=2).listing_urls("https://x"))
+    assert [("RTL" in u, "pageNo=1" in u) for u in urls] == [
+        (False, True), (True, True), (False, False), (True, False)]
+
+
+def test_the_page_source_offers_no_detail_urls():
+    """The listing row is the record; the three per-firm surfaces are gated."""
+    assert list(OmanPartition().in_cell(WHOLE, last_page=1).detail_urls(None)) == []
+
+
+def test_a_slice_is_refused_rather_than_answered_false():
+    """False for every row is an empty crawl that looks like a successful one."""
+    from scrapex.pagesource import SliceNotSupported
+    source = OmanPartition().in_cell(WHOLE, last_page=1)
+    with pytest.raises(SliceNotSupported, match="no slice scope"):
+        source.belongs_to_slice(None, 0, "riyadh")
+
+
+def test_the_page_source_refuses_a_last_page_below_one():
+    with pytest.raises(ValueError, match="at least 1"):
+        OmanPartition().in_cell(WHOLE, last_page=0)
+
+
+def test_a_page_source_with_no_locale_fetches_nothing_and_says_so():
+    with pytest.raises(ValueError, match="fetches nothing"):
+        OmanPageSource(last_page=1, locales=())
+
+
+def test_read_ids_keeps_the_published_order_and_any_duplicate():
+    """The sizing arithmetic counts what the page published; de-duplicating here would
+    hide a repeated firm instead of reporting it."""
+    assert read_ids(_en()) == ("0000", "00169963", "ZYPHARSPH", "00004174")
+    twice = _page([_row(short="A", echo="A"), _row(short="A", echo="A")])
+    assert read_ids(twice) == ("A", "A")
+
+
+def test_a_cell_puts_its_params_in_the_url_in_order():
+    """The URL is the identity a resume matches on, so the order is load-bearing."""
+    from scrapex.pagesource import Cell
+    cell = Cell((("category", "Z1"), ("vendType", "0")))
+    url = OmanPartition().listing_url("https://x", locale=LTR, page=1, cell=cell)
+    assert url.endswith("&category=Z1&vendType=0")
+
+
+def test_the_whole_cell_adds_nothing_to_the_url():
+    plain = OmanPartition().listing_url("https://x", locale=LTR, page=1)
+    assert plain == OmanPartition().listing_url("https://x", locale=LTR, page=1,
+                                                cell=WHOLE)
+    assert "&category=" not in plain
+
+
+# --- the registry entry --------------------------------------------------------------
+
+def test_the_register_is_a_directory_this_build_can_crawl():
+    from scrapex import directories
+    assert "oman_tenderboard" in directories.keys()
+
+
+def test_the_entry_carries_the_four_facts_and_its_partition():
+    from scrapex import directories
+    from scrapex.extract.oman_tenderboard import bilingual_listing_candidate
+    entry = directories.get("oman_tenderboard")
+    assert entry.key == "oman_tenderboard"
+    assert entry.base_url == BASE_URL
+    assert entry.dataset_key == "oman_registered_vendors"
+    assert entry.identity_field == "short_name"
+    assert entry.candidate is bilingual_listing_candidate
+    assert isinstance(entry.partition(), OmanPartition)
+
+
+def test_the_entry_declares_no_profile_reader_because_there_is_no_detail_page():
+    """The listing row is the record, and the three per-firm surfaces are gated."""
+    from scrapex import directories
+    assert directories.get("oman_tenderboard").profiles is None
+
+
+def test_muqawil_is_still_the_default_and_a_second_directory_did_not_move_it():
+    """The default exists to keep command lines that predate `--source` working, so it
+    names the directory they meant — a silent change is most expensive exactly now."""
+    from scrapex import directories
+    assert directories.DEFAULT_KEY == "muqawil_org"
+    assert directories.get().key == "muqawil_org"
+
+
+def test_muqawil_still_resolves_and_keeps_its_profile_reader():
+    from scrapex import directories
+    muqawil = directories.get("muqawil_org")
+    assert muqawil.key == "muqawil_org" and muqawil.profiles is not None
+
+
+def test_an_unknown_key_is_still_refused_and_now_names_both():
+    from scrapex import directories
+    with pytest.raises(KeyError, match="oman_tenderboard"):
+        directories.get("tenderboard")
