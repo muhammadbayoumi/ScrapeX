@@ -8,7 +8,9 @@ description: How a ScrapeX change is reviewed, and the gate it passes before it 
 Four dimensions, and every review covers all four:
 
 - **architecture** — boundaries, coupling, data flow, bottlenecks, single points of
-  failure, the security surface.
+  failure, the security surface. Name the `CLAUDE.md` controls you opened the lines for:
+  SQL built by string, a bare `except`, a second writer to the warehouse, a secret in
+  code, parsing outside `normalize`, a source left `active: true` or at default `robots`.
 - **code quality** — module structure, DRY as `CLAUDE.md` defines it, error handling and
   the edge cases it misses, over- and under-engineering.
 - **tests** — coverage gaps, assertion strength, missing edge cases, untested failure
