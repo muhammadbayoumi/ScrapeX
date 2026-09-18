@@ -283,8 +283,31 @@ def test_the_join_is_on_the_number_and_not_on_position():
     assert [en.short_name for en, _ in pairs] == [f.short_name for f in english]
 
 
-def test_a_firm_with_no_cr_number_cannot_be_paired_and_says_so():
-    """It is 1 of 102 measured, and it is news rather than a row to skip."""
+def test_a_firm_with_no_cr_number_pairs_on_the_record_key_instead():
+    """A proof run over 40 real pages: pairing on the CR alone refused 3 of them and
+    lost 150 firms to protect three. All three carried no CR in EITHER view while their
+    counterpart sat in the Arabic view under the same short name."""
+    en = read_rows(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
+                               name="ATI PROJECT SRL")]))
+    ar = read_rows(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
+                               name="شفلهحقختثؤف سقم")]))
+    pairs = join_languages(en, ar)
+    assert len(pairs) == 1
+    assert pairs[0][0].name == "ATI PROJECT SRL"
+    assert pairs[0][1].name == "شفلهحقختثؤف سقم"
+
+
+def test_the_cr_number_still_wins_when_both_keys_could_pair():
+    """The record's own instruction is to join on the number; the key is the fallback."""
+    en = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE")]))
+    ar = read_rows(_page([_row(short="BBB", echo="bbb", cr="C1", name="AR ONE"),
+                          _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")]))
+    pairs = join_languages(en, ar)
+    assert pairs[0][1].name == "AR ONE", "matched on C1, not on the short name"
+
+
+def test_a_firm_neither_key_can_pair_is_still_news():
+    """It is the case worth raising on, and it did not occur in 1,850 firms."""
     with pytest.raises(RegisterShapeError, match="no counterpart"):
         join_languages(read_rows(_en()), read_rows(_ar()))
 
