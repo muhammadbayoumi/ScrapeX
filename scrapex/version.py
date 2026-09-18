@@ -137,12 +137,20 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability(
         key="crawl_pace",
         since="0.2.0",
-        summary="Choose whether each site's requested crawl delay is honoured, and "
-                "set the minimum seconds between requests and the request timeout.",
+        summary="Choose whether each site's requested crawl delay is honoured, "
+                "set the minimum seconds between requests and the request "
+                "timeout, and choose what the crawl calls itself.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
         panel_control="crawl_min_interval_s",
+        # `crawl_browser_user_agent` joins the capability that already owns
+        # `crawl_user_agent` rather than opening a new one: a new Capability
+        # moves the baseline and so demands a VERSION bump, which is the
+        # owner's call and not this change's to make. Both keys answer the same
+        # question — what the crawl calls itself — and reach the engine through
+        # the same panel surface.
         settings=("crawl_honour_delay", "crawl_min_interval_s",
-                  "crawl_timeout_s", "crawl_user_agent"),
+                  "crawl_timeout_s", "crawl_user_agent",
+                  "crawl_browser_user_agent", "crawl_browser_client_hints"),
         # Built and plumbed to HttpFetcher here; 2253308 moved the controls off
         # the display-only web page into the panel. This is incident one.
         commit="c63ec21",

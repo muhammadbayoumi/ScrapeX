@@ -52,7 +52,7 @@ from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
-from ..connectors.base import CrawlBlocked, HttpFetcher
+from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError,
@@ -2318,7 +2318,6 @@ def create_app(
         """
         import httpx
 
-        from ..connectors.base import DEFAULT_USER_AGENT
         from ..robots import RobotsChoice, RobotsCustom, decide, inspect
 
         try:
@@ -2329,7 +2328,7 @@ def create_app(
         conn = read_conn()
         try:
             crawl = crawl_settings(conn)
-            agent = entry.user_agent or crawl.get("user_agent") or DEFAULT_USER_AGENT
+            agent = resolve_user_agent(entry.user_agent, crawl)
             obeys_by_default = bool(crawl.get("obey_disallow"))
         finally:
             conn.close()
@@ -3009,7 +3008,28 @@ def create_app(
                             "detail": "No non-USD currencies are in use yet.",
                             **status,
                         }
-                    fetcher = HttpFetcher(**crawl_settings(conn))
+                    # NAMED, not `HttpFetcher(**crawl_settings(conn))`. The
+                    # splat tied this call to crawl_settings' exact key set,
+                    # which nothing enforced, and it hid a live defect: it
+                    # passed `user_agent=""` — the shipped default, since the
+                    # owner has typed none — straight into the client, so every
+                    # rate refresh went out with an EMPTY User-Agent header
+                    # while every crawl sent a real one. `resolve_user_agent`
+                    # is the same chain the crawl uses, and naming the rest
+                    # means the next key added to crawl_settings lands here as
+                    # nothing at all rather than as a TypeError.
+                    crawl = crawl_settings(conn)
+                    fetcher = HttpFetcher(
+                        user_agent=resolve_user_agent(None, crawl),
+                        # Same rule as the crawl: the panel's hints ride only
+                        # with the panel's own agent.
+                        client_hints=("" if crawl.get("user_agent")
+                                      else crawl.get("client_hints", "")),
+                        min_interval_s=crawl["min_interval_s"],
+                        timeout_s=crawl["timeout_s"],
+                        honour_crawl_delay=crawl["honour_crawl_delay"],
+                        obey_disallow=crawl["obey_disallow"],
+                    )
                     batch = rates.refresh_now(conn, fetcher)
                     status = google_finance_status(conn)
                 finally:
@@ -3158,7 +3178,6 @@ def create_app(
 
     def _about(conn) -> dict:
         from .. import __version__
-        from ..connectors.base import DEFAULT_USER_AGENT
         from ..contract import CONTRACT_VERSION
         from ..version import LATEST_SOURCE, MINIMUM_EXTENSION_VERSION, UPDATE_INSTRUCTIONS, VERSION
 
@@ -3189,7 +3208,12 @@ def create_app(
             # Says WHY when the answer is no, instead of leaving the owner
             # to infer it from a port that answers regardless.
             "worker": worker,
-            "default_user_agent": DEFAULT_USER_AGENT,
+            # The agent a crawl WOULD use, resolved here rather than rebuilt in
+            # the template. The page used to render
+            # `crawl_user_agent.value or default_user_agent`, a third copy of
+            # the chain that knew nothing of the panel's reported browser and
+            # so would have displayed an agent no crawl uses.
+            "effective_user_agent": resolve_user_agent(None, crawl_settings(conn)),
             "db_path": str(app.state.db_path),
             "log_entries": conn.execute(
                 "SELECT COUNT(*) FROM job_log_entry").fetchone()[0],

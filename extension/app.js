@@ -8615,7 +8615,78 @@ function wireDeferredControls() {
   bindEngineScreens();
 }
 
-function scheduleNonCriticalStartup(backendPromise) {
+// WHAT THE CRAWL CALLS ITSELF, taken from the browser this panel runs in.
+//
+// The engine used to name the tool in every request — `ScrapeX/0.1 (+contact:
+// owner)` — which told every site who was crawling it and bought nothing back:
+// "owner" is no contact, and no site keys a rule to that name. The engine's own
+// fallback is a fixed Chrome string; this makes it the REAL one, so it follows
+// Chrome's updates instead of ageing into a signature of its own, and so a site
+// seeing this machine browse and crawl from one IP sees one agent, not two.
+//
+// Reported, never asked: no field writes this key, and `crawl_user_agent` —
+// what the owner typed — still wins over it in `resolve_user_agent`.
+//
+// WRITES ONLY ON CHANGE. A POST costs the engine's write lock, which a running
+// crawl holds; Chrome's agent changes every few weeks, so comparing first turns
+// one write per panel open into a handful per year, and a crawling engine is
+// not disturbed by a panel that merely opened.
+// `Sec-CH-UA`, formatted exactly as Chrome sends it.
+//
+// COPIED, NOT COMPUTED. Chrome's GREASE entry — "Not?A_Brand" and its rotating
+// siblings — exists so that nobody can derive this list, and its version is not
+// the browser's. Building it from a version number in the engine would announce
+// a browser that does not exist, which is a sharper tell than sending nothing.
+// `navigator.userAgentData` is unavailable outside secure contexts and on
+// non-Chromium engines, and "" there is correct: the engine then falls back to
+// a derived value it knows is approximate.
+function reportedClientHints() {
+  const brands = navigator.userAgentData && navigator.userAgentData.brands;
+  if (!Array.isArray(brands) || !brands.length) return "";
+  return brands.map((b) => `"${b.brand}";v="${b.version}"`).join(", ");
+}
+
+async function reportBrowserUserAgent(engineReady) {
+  const agent = navigator.userAgent;
+  if (!agent) return;
+  const hints = reportedClientHints();
+  try {
+    // WAIT FOR THE ENGINE'S ANSWER BEFORE ASKING THE VERSION QUESTION. The
+    // gate below reads `state.engineVersion`, which `render()` settles, and
+    // idle time is independent of it — so without this the gate could read an
+    // unknown version, refuse for a reason that is not true, and leave the
+    // agent unreported on an engine that supports it perfectly well.
+    await engineReady;
+    // §1.6: an engine older than this key answers 400 "unknown setting" for
+    // the WHOLE request. Ask first, like every other capability.
+    const refusal = capabilityRefusal("crawl_browser_user_agent");
+    if (refusal) {
+      markStartup("browser-agent-not-reported", {reason: refusal});
+      return;
+    }
+    const stored = (await api("/api/settings")).settings || {};
+    const held = (key) => {
+      const raw = stored[key];
+      return raw && typeof raw === "object" ? raw.value : raw;
+    };
+    // BOTH, or neither. The hints describe the agent; sending one without the
+    // other leaves the engine building headers for a browser it is not using.
+    if (held("crawl_browser_user_agent") === agent
+        && held("crawl_browser_client_hints") === hints) return;
+    await post("/api/settings", {
+      crawl_browser_user_agent: agent,
+      crawl_browser_client_hints: hints,
+    });
+    markStartup("browser-agent-reported", {changed: true});
+  } catch (err) {
+    // NOT swallowed, and not fatal either: the crawl falls back to the engine's
+    // own Chrome string, which still names no tool. The panel records why so a
+    // stale agent is diagnosable rather than mysterious.
+    markStartup("browser-agent-not-reported", {reason: err && err.message || "unknown"});
+  }
+}
+
+function scheduleNonCriticalStartup(backendPromise, enginePromise) {
   afterIdle(async () => {
     let failure = null;
     try {
@@ -8626,6 +8697,10 @@ function scheduleNonCriticalStartup(backendPromise) {
         // preference has already painted the document.
         window.ScrapeXTime?.connect(backend),
         adoptUiContract(),
+        // Idle, like its neighbours: the agent matters at the next crawl, not
+        // at paint, and it must never hold up the shell. It waits on the engine
+        // answer for its version gate — see the function.
+        reportBrowserUserAgent(enginePromise),
       ]);
       // AFTER the shell is settled, never during it. A crawl that was already
       // running has to be found (issue 161), and /api/jobs is destination data
@@ -8675,7 +8750,7 @@ async function init() {
   });
 
   wireDeferredControls();
-  scheduleNonCriticalStartup(backendPromise);
+  scheduleNonCriticalStartup(backendPromise, enginePromise);
 }
 
 function closePanelWork() {

@@ -68,6 +68,21 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     Setting("crawl_min_interval_s", "1.0", label="Minimum seconds between requests"),
     Setting("crawl_timeout_s", "30", label="Request timeout in seconds"),
     Setting("crawl_user_agent", "", label="User agent"),
+    # NOT a knob — the panel REPORTS its own Chrome here on every start, and no
+    # field in app.html writes it. It is a setting because that is the only
+    # channel the panel has to the engine's crawl configuration, and because
+    # storing it lets a scheduled crawl use the right agent with no panel open.
+    # `crawl_user_agent` above still wins: what the owner typed beats what the
+    # browser reported. See `connectors.base.resolve_user_agent` for the chain.
+    Setting("crawl_browser_user_agent", "",
+            label="User agent reported by the panel's browser"),
+    # The same report's other half: `navigator.userAgentData.brands`, formatted
+    # as Chrome would send `Sec-CH-UA`. Chrome's GREASE brand is deliberately
+    # unstable and cannot be computed from a version number, so a header built
+    # here would announce a browser that does not exist. Sent only beside the
+    # agent it belongs to — see `connectors.base.browser_headers`.
+    Setting("crawl_browser_client_hints", "",
+            label="Client hints reported by the panel's browser"),
     # The owner's choice, per his ask (2026-07-28): may a crawl ignore the
     # Crawl-delay a site publishes? Ships as "1" — HONOUR — because a crawler
     # that goes faster than a site asked, by default, gets its owner blocked

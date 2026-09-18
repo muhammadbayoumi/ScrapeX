@@ -84,6 +84,13 @@ def crawl_settings(conn: sqlite3.Connection) -> dict:
         "min_interval_s": number("crawl_min_interval_s", 1.0),
         "timeout_s": number("crawl_timeout_s", 30.0),
         "user_agent": settings.get(conn, "crawl_user_agent"),
+        # What the panel's own Chrome calls itself, refreshed on every panel
+        # start. Used only when the owner typed nothing above — see
+        # `connectors.base.resolve_user_agent`.
+        "browser_user_agent": settings.get(conn, "crawl_browser_user_agent"),
+        # Its other half, kept beside it: the headers must be built from the
+        # agent they accompany or they contradict it.
+        "client_hints": settings.get(conn, "crawl_browser_client_hints"),
         # The owner's per-run choice (2026-07-28): may this crawl ignore the
         # Crawl-delay a site asks for? Absent reads as HONOUR — silence must
         # never be permission to go faster than a site asked.

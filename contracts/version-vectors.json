@@ -12,7 +12,7 @@
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
-          "summary": "Choose whether each site's requested crawl delay is honoured, and set the minimum seconds between requests and the request timeout."
+          "summary": "Choose whether each site's requested crawl delay is honoured, set the minimum seconds between requests and the request timeout, and choose what the crawl calls itself."
         },
         "robots_per_source": {
           "since": "0.2.2",
@@ -58,7 +58,7 @@
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
-          "summary": "Choose whether each site's requested crawl delay is honoured, and set the minimum seconds between requests and the request timeout."
+          "summary": "Choose whether each site's requested crawl delay is honoured, set the minimum seconds between requests and the request timeout, and choose what the crawl calls itself."
         },
         "robots_per_source": {
           "since": "0.2.2",
@@ -104,7 +104,7 @@
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
-          "summary": "Choose whether each site's requested crawl delay is honoured, and set the minimum seconds between requests and the request timeout."
+          "summary": "Choose whether each site's requested crawl delay is honoured, set the minimum seconds between requests and the request timeout, and choose what the crawl calls itself."
         },
         "robots_per_source": {
           "since": "0.2.2",
@@ -155,7 +155,7 @@
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
-          "summary": "Choose whether each site's requested crawl delay is honoured, and set the minimum seconds between requests and the request timeout."
+          "summary": "Choose whether each site's requested crawl delay is honoured, set the minimum seconds between requests and the request timeout, and choose what the crawl calls itself."
         },
         "robots_per_source": {
           "since": "0.2.2",
