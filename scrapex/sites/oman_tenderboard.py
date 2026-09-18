@@ -400,21 +400,32 @@ def codes_for(split: CategorySplit, vocabulary: dict[str, str]) -> tuple[str, ..
 
 def join_languages(english: tuple[Firm, ...],
                    arabic: tuple[Firm, ...]) -> tuple[tuple[Firm, Firm], ...]:
-    """Pair the two views of one page on the CR number.
+    """Pair the two views of one page: on the CR number, then on the record key.
 
-    ON THE NUMBER, NEVER ON POSITION -- `docs/GULF-EGYPT-SOURCES.md:338`. The order did
-    match on page 1, and the pairing still goes through the number, because an order that
-    happens to agree today is not a contract. A firm with no CR number cannot be paired and
-    is reported rather than dropped: measured, that is 1 of 102 rows.
+    ON THE NUMBER FIRST -- `docs/GULF-EGYPT-SOURCES.md:338` -- AND NEVER ON POSITION. The
+    real orders agree, and an order that happens to agree is not a contract.
+
+    THE FALLBACK IS THE RECORD KEY, AND A PROOF RUN OVER 40 REAL PAGES IS WHY. Pairing on
+    the CR number alone refused 3 of those 40 pages outright, losing 150 firms to protect
+    three. Diagnosed on all three: the firm carries **no CR number in EITHER view** --
+    `ATI PROJECT SRL`, `TEN DESIGN FZ LLC`, `VOLTAS OMAN LLC` -- while its counterpart is
+    sitting in the Arabic view under the same `Company Short Name`. Every CR present in
+    English was present in Arabic on all three pages; nothing was actually unmatched.
+
+    So the fallback is not a weakened guard, it is the identity this module already
+    declares: the short name is unique and present on **1,850 of 1,850** firms measured,
+    where the CR number is blank on about 2%. A firm neither key can pair is still
+    reported rather than dropped -- that is the case worth raising on, and it did not
+    occur in 1,850 firms.
     """
-    by_cr: dict[str, Firm] = {}
-    for firm in arabic:
-        if firm.cr_number:
-            by_cr[firm.cr_number] = firm
+    by_cr = {firm.cr_number: firm for firm in arabic if firm.cr_number}
+    by_key = {firm.short_name: firm for firm in arabic}
     paired: list[tuple[Firm, Firm]] = []
     unpaired: list[str] = []
     for firm in english:
         other = by_cr.get(firm.cr_number) if firm.cr_number else None
+        if other is None:
+            other = by_key.get(firm.short_name)
         if other is None:
             unpaired.append(firm.short_name)
             continue
@@ -422,8 +433,9 @@ def join_languages(english: tuple[Firm, ...],
     if unpaired:
         raise RegisterShapeError(
             f"{len(unpaired)} firm(s) on this page have no counterpart in the Arabic "
-            f"view by CR number: {unpaired[:6]}. The two views are the same fifty firms; "
-            "a firm present in one and not the other is news, not a row to skip.")
+            f"view by CR number or by record key: {unpaired[:6]}. The two views are the "
+            "same fifty firms; a firm present in one and not the other is news, not a "
+            "row to skip.")
     return tuple(paired)
 
 
