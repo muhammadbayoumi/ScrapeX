@@ -331,9 +331,14 @@ sources:
     currency: SAR
     default_region: SA
     vat_mode: incl
+    # Kept byte-identical to connectors.base.DEFAULT_USER_AGENT, which a test
+    # enforces: one Chrome string in this repository, not two that age apart.
+    # The declaration stays even though the default is now a browser agent too,
+    # because it is what guarantees this Zid source a browser agent whatever the
+    # owner later types in the panel.
     user_agent: >-
       Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
-      (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36
+      (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
     extract:
       - kind: product_prices
         scope: census

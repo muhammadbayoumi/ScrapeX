@@ -212,8 +212,20 @@
         {% if settings.crawl_honour_delay.value not in ("0", "false") %}yes{% else %}no{% endif %}</dd>
       <dt>Request timeout in seconds</dt>
       <dd class="tech">{{ settings.crawl_timeout_s.value }}</dd>
-      <dt>User agent</dt>
-      <dd class="tech">{{ settings.crawl_user_agent.value or about.default_user_agent }}</dd>
+      {# TWO FACTS, because they are two questions and the page used to answer
+         only a blend of them: `crawl_user_agent.value or default_user_agent`
+         was a third reading of the precedence chain, and it knew nothing of the
+         agent the panel reports — so once the panel began reporting one, that
+         line would have displayed a string no crawl sends.
+
+         What goes out is resolved by the engine (`resolve_user_agent`). What
+         the owner set stays displayed beside it, so "I typed nothing" and
+         "this is what is being sent" are both readable rather than inferred. #}
+      <dt>User agent in use</dt>
+      <dd class="tech">{{ about.effective_user_agent }}</dd>
+      <dt>User agent set here</dt>
+      <dd class="tech">{{ settings.crawl_user_agent.value
+        or "not set — the panel's own browser is used" }}</dd>
     </dl>
   </div>
 </details>

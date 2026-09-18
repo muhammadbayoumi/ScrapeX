@@ -563,18 +563,57 @@ def test_the_disclosure_is_one_line_per_host_not_one_per_page():
     assert len(disallow_notes) == 1, f"{len(disallow_notes)} lines for one host"
 
 
-def test_every_crawl_setting_is_a_parameter_this_fetcher_accepts():
-    """`HttpFetcher(**crawl_settings(conn))` is a real call site in webui/app.py.
+def test_no_call_site_splats_the_crawl_settings_into_this_fetcher():
+    """This guard used to require the two key sets to MATCH. Now it forbids the
+    coupling that made matching necessary, which is strictly stronger.
 
-    It means the settings dict IS the constructor's keyword list, and a new
-    setting whose key does not match a parameter name is a TypeError the first
-    time exchange rates refresh — nowhere near the change that caused it. This
-    caught exactly that while `crawl_obey_disallow` was being added.
+    It was written for `HttpFetcher(**crawl_settings(conn))` in webui/app.py:
+    that splat made the settings dict the constructor's keyword list, so a
+    settings key with no matching parameter was a TypeError the first time
+    exchange rates refreshed — nowhere near the change that caused it. It caught
+    exactly that while `crawl_obey_disallow` was being added.
 
-    The keys are read out of the FUNCTION'S SOURCE rather than by calling it,
-    because calling it needs a migrated database and the first version of this
-    test quietly skipped itself when it could not build one. A guard that skips
-    is not a guard.
+    The splat was also hiding a live defect the matching rule could never see:
+    it passed `user_agent=""` — the shipped default, since the owner had typed
+    none — straight into the client, so every rate refresh went out with an
+    EMPTY User-Agent header while every crawl sent a real one. Naming the
+    arguments fixed that and ended the coupling.
+
+    So the question this file asks changed. `crawl_settings` now carries
+    `browser_user_agent`, which is not a fetcher parameter and was never meant
+    to be — it is an INPUT to `resolve_user_agent`, which decides the one
+    parameter that is. Requiring it to match would force a fetcher parameter
+    for every crawl input that exists. Forbidding the splat keeps the failure
+    this guard was built to prevent impossible, and lets the dict describe a
+    crawl rather than a constructor.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    offenders = []
+    for path in sorted((root / "scrapex").rglob("*.py")):
+        for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            if line.lstrip().startswith("#"):
+                continue
+            if "**crawl_settings" in line:
+                offenders.append(f"{path.relative_to(root)}:{number}")
+
+    assert not offenders, (
+        f"{offenders} splats the crawl settings into a constructor again. That "
+        "makes the settings dict a keyword list: the next key added to it is a "
+        "TypeError far from the change that caused it, and a key whose shipped "
+        "default is empty reaches the wire as an empty header. Name the "
+        "arguments.")
+
+
+def test_the_settings_the_fetcher_does_take_still_reach_it():
+    """The other half: forbidding the splat must not let the real ones drift.
+
+    Every crawl setting that IS a fetcher parameter is still passed by name at
+    the call sites, so this pins the names the engine actually reads — a
+    parameter renamed without its reader is the failure the old guard caught,
+    and it must still be caught somewhere.
     """
     import ast
     import inspect as _inspect
@@ -583,18 +622,28 @@ def test_every_crawl_setting_is_a_parameter_this_fetcher_accepts():
     from scrapex import capture
 
     tree = ast.parse(pathlib.Path(capture.__file__).read_text(encoding="utf-8"))
-    returns = [node for node in ast.walk(tree)
-               if isinstance(node, ast.FunctionDef) and node.name == "crawl_settings"]
-    assert returns, "crawl_settings was renamed; this guard must follow it"
-    keys = {key.value for node in ast.walk(returns[0])
+    found = [node for node in ast.walk(tree)
+             if isinstance(node, ast.FunctionDef) and node.name == "crawl_settings"]
+    assert found, "crawl_settings was renamed; this guard must follow it"
+    keys = {key.value for node in ast.walk(found[0])
             if isinstance(node, ast.Dict)
             for key in node.keys
             if isinstance(key, ast.Constant) and isinstance(key.value, str)}
     assert keys, "no keys found — the guard is reading nothing and would pass on anything"
 
     accepted = set(_inspect.signature(HttpFetcher.__init__).parameters)
-    unknown = keys - accepted
+
+    # NAMED, not computed as "whatever does not match". A list that derived
+    # itself from the mismatch would grow silently every time a key stopped
+    # matching, which is the thing being guarded against.
+    not_constructor_arguments = {"browser_user_agent"}
+
+    assert not_constructor_arguments <= keys, (
+        f"{sorted(not_constructor_arguments - keys)} is exempted here and no "
+        "longer returned by crawl_settings. Remove the exemption rather than "
+        "leaving a name that excuses nothing")
+    unknown = keys - accepted - not_constructor_arguments
     assert not unknown, (
         f"crawl_settings returns {sorted(unknown)}, which HttpFetcher does not "
-        "accept. Every call of HttpFetcher(**crawl_settings(conn)) now raises "
-        "TypeError — rename the parameter to match the settings key.")
+        "accept and which nothing here explains. Either name the parameter to "
+        "match, or add the key above with a reason it is not one.")

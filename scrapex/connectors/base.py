@@ -7,6 +7,7 @@ is uniform: ScrapedTable -> funnel payload -> ingest.
 from __future__ import annotations
 
 import random
+import re
 import ssl
 import threading
 import time
@@ -27,10 +28,119 @@ from ..config import SourceEntry
 from ..payload import FunnelPayload, new_payload, utc_now_iso
 from ..vocab import ExtractKind, Fetcher, PayloadClient
 
-# A single honest, stable UA for all HTTP fetching (F5). Zid/WAF sites that
-# 403 generic clients get a browser UA via SourceEntry notes + per-family
-# override — explicitly, per connector, never silently global.
-DEFAULT_USER_AGENT = "ScrapeX/0.1 (+contact: owner)"
+# THE FALLBACK UA — and why it no longer names this tool.
+#
+# It read `ScrapeX/0.1 (+contact: owner)` until the owner asked what a published
+# installation tells a site about the person running it. The answer was: the
+# tool's name, in every request, from every user. That name buys nothing — it is
+# not a contact anyone can reach ("owner" is not an address) and no site has a
+# rule keyed to it — and it costs the one thing a request CAN hide. Everything
+# else a site learns (the IP, the TLS handshake, the pace) comes from the
+# network or from politeness and is not ours to withhold; this string is.
+#
+# `resolve_user_agent` prefers the panel's OWN Chrome, so this literal is the
+# floor, reached only with no panel: the CLI and the tests. It is deliberately
+# the same string sources.yaml already declares for ADVANCEDCASTLE — one
+# known-good UA in the repo, not two that can drift apart.
+#
+# NOT rotation, and not per-request disguise: one stable identity that stops
+# when a site says stop. `HttpFetcher`'s doctrine below refuses the former and
+# is untouched by this.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36")
+
+
+def _accept_encoding() -> str:
+    """Only what this build can actually decode, in Chrome's order.
+
+    This was written as the literal `gzip, deflate, br, zstd` — Chrome's own
+    string — and that was a promise this build cannot keep: `brotli` is not
+    installed, so `httpx` has no `br` decoder and a server that took the offer
+    would have answered with a body nothing here could read. Measured before it
+    shipped; the header now says what is true.
+
+    Asking httpx rather than keeping a list means installing `brotli` starts
+    advertising `br` with no edit here, and never advertises it otherwise.
+    """
+    from httpx._decoders import SUPPORTED_DECODERS
+
+    # Chrome's ORDER, filtered — not the registry's, which is alphabetical and
+    # carries `identity`.
+    return ", ".join(name for name in ("gzip", "deflate", "br", "zstd")
+                     if name in SUPPORTED_DECODERS)
+
+
+def browser_headers(user_agent: str, hints: str = "") -> dict[str, str]:
+    """The headers that go WITH an agent, so the request stops contradicting it.
+
+    A UA string alone is half a disguise, and measured it was the smaller half:
+    the crawl sent 5 headers where Chrome sends 13. A request announcing Chrome
+    while sending `Accept: */*` and no `Sec-CH-UA` at all describes a client
+    that does not exist — arguably louder than one that never claimed to be a
+    browser, which is why this ships with the agent rather than after it.
+
+    DERIVED FROM THE AGENT IN USE, never from a constant. The agent is normally
+    the panel's own Chrome and moves with it, so a fixed `Sec-CH-UA` here would
+    announce one version while the UA announced another — a mismatch no real
+    browser produces and a cheaper tell than the one it replaced.
+
+    `hints` is the panel's own `navigator.userAgentData.brands`, already
+    formatted. Chrome's GREASE brand ("Not?A_Brand" and friends) is deliberately
+    unstable and cannot be computed from a version number, so when the panel has
+    reported it we send exactly what the browser sends; the derivation below is
+    only for when it has not.
+
+    A NON-CHROME AGENT GETS NO CHROME HINTS. A source that declares its own
+    agent (F5) means it, and `Sec-CH-UA` bolted onto a non-Chrome UA would be a
+    contradiction of the kind this function exists to remove.
+
+    WHAT THIS DOES NOT BUY. Header parity is not request parity: the TLS
+    handshake still says Python, and header ORDER is only approximated here.
+    This closes the gap a plain log or a header rule sees, not a real anti-bot
+    system — see the module docstring on what this project does not attempt.
+    """
+    headers = {
+        # Chrome's own, not `*/*`. This was the most visible tell after the UA.
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                  "image/avif,image/webp,image/apng,*/*;q=0.8,"
+                  "application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": _accept_encoding(),
+        "User-Agent": user_agent,
+    }
+
+    chrome = re.search(r"Chrome/(\d+)", user_agent)
+    if not chrome:
+        return headers
+
+    if hints:
+        headers["Sec-CH-UA"] = hints
+    else:
+        # The shape Chrome uses, with a GREASE entry that is plausible rather
+        # than correct — see above. Reported hints are always preferred.
+        version = chrome.group(1)
+        headers["Sec-CH-UA"] = (f'"Chromium";v="{version}", '
+                                f'"Google Chrome";v="{version}", '
+                                f'"Not?A_Brand";v="24"')
+    headers["Sec-CH-UA-Mobile"] = "?1" if "Mobile" in user_agent else "?0"
+    for needle, platform in (("Windows NT", "Windows"), ("Macintosh", "macOS"),
+                             ("Android", "Android"), ("X11", "Linux")):
+        if needle in user_agent:
+            headers["Sec-CH-UA-Platform"] = f'"{platform}"'
+            break
+
+    # THE NAVIGATION SET. A crawl fetches pages, which is what a browser calls a
+    # navigation; a sitemap or a JSON endpoint would carry `empty`/`cors` in a
+    # real browser, so these are right for the great majority and approximate
+    # for the rest. Approximate beats absent: absent is the state that said
+    # "not a browser" outright.
+    headers["Sec-Fetch-Dest"] = "document"
+    headers["Sec-Fetch-Mode"] = "navigate"
+    headers["Sec-Fetch-Site"] = "none"
+    headers["Sec-Fetch-User"] = "?1"
+    headers["Upgrade-Insecure-Requests"] = "1"
+    return headers
 
 # WHY ONE SHARED SSL CONTEXT (2026-07-31)
 #
@@ -271,9 +381,10 @@ class HttpFetcher:
                  robots_choice: str = "default",
                  robots_custom: dict | None = None,
                  obey_disallow: bool = False,
+        client_hints: str = "",
     ) -> None:
         self._client = httpx.Client(
-            headers={"User-Agent": user_agent},
+            headers=browser_headers(user_agent, client_hints),
             timeout=timeout_s,
             follow_redirects=True,
             verify=shared_ssl_context(),   # see the note above: 1633ms -> 0.6ms
@@ -307,10 +418,17 @@ class HttpFetcher:
         # give them all the same one.
         self._robots_choice = robots_choice
         self._robots_custom = robots_custom
-        # NAMED EXACTLY AS THE SETTING IS, because `HttpFetcher(**crawl_settings(
-        # conn))` is a real call site: a parameter whose name drifts from its
-        # settings key is a TypeError the moment somebody adds the setting.
-        # tests/test_http_fetcher.py pins the two together.
+        # NAMED AS THE SETTING IS. This read "because `HttpFetcher(**crawl_
+        # settings(conn))` is a real call site" — it is not one any more. That
+        # splat tied the constructor's keyword list to a settings dict nothing
+        # kept in step, and it passed `user_agent=""` straight through, so the
+        # rate refresh sent an empty User-Agent for as long as the owner typed
+        # none. Every call names its arguments now.
+        #
+        # The names still match, because matching names are easier to follow
+        # than a mapping — but that is now a convenience, not a constraint, and
+        # tests/test_http_fetcher.py holds the line that actually matters: no
+        # splat comes back.
         self._obey_disallow = obey_disallow
         #: host -> RobotsReport, so the file is read once and the report can be
         #: shown to the owner afterwards without fetching it again. Typed as the
@@ -816,13 +934,42 @@ class BrowserFetcher:
         raise RuntimeError(f"browser fetch failed after {retries + 1} attempts: {url}") from last_error
 
 
+def resolve_user_agent(source_user_agent: str | None,
+                       crawl_settings: dict | None = None) -> str:
+    """WHICH UA a crawl presents, decided in ONE place.
+
+    There were two copies of this chain — here and in the robots-inspection
+    endpoint (`webui/app.py`) — plus a two-level version in the Settings
+    template. Three readings of one question, and adding the panel's browser
+    agent would have had to land in all three or the page would report an agent
+    the crawl does not use. They hold the same knowledge and change for the same
+    reason, so they are one function now.
+
+    Four levels, each answering a DIFFERENT question:
+
+    1. The source DECLARES one. It declares it for a reason — Zid 403s anything
+       else (F5) — so nothing global may override it.
+    2. The owner TYPED one in the panel. His word beats any automatic choice.
+    3. The panel REPORTED its own Chrome. The default, and the point of the
+       change: it tracks the browser's real version as Chrome updates itself,
+       and Chrome's reduced UA is low-entropy BY DESIGN, so it blends into the
+       crowd in a way a string written here never could. It also keeps the
+       crawl consistent with the owner's own browsing from the same IP.
+    4. `DEFAULT_USER_AGENT`. No panel has ever spoken: the CLI and the tests.
+    """
+    chosen = crawl_settings or {}
+    return (source_user_agent
+            or chosen.get("user_agent")
+            or chosen.get("browser_user_agent")
+            or DEFAULT_USER_AGENT)
+
+
 def resolve_fetcher(source: SourceEntry,
                     crawl_settings: dict | None = None) -> HttpFetcher | BrowserFetcher:
     """Build the transport for a source.
 
-    Precedence for the user agent is deliberate: a source that DECLARES one wins,
-    because it declares it for a reason (Zid 403s anything else, F5). The owner's
-    global setting fills in for every source that does not.
+    The user agent is `resolve_user_agent`'s decision — see it for the four
+    levels and why each exists.
     """
     if source.fetcher == Fetcher.BROWSER:
         return BrowserFetcher()
@@ -857,7 +1004,14 @@ def resolve_fetcher(source: SourceEntry,
         paces.append(float(custom_delay))
 
     return HttpFetcher(
-        user_agent=source.user_agent or chosen.get("user_agent") or DEFAULT_USER_AGENT,
+        user_agent=resolve_user_agent(source.user_agent, chosen),
+        # The panel's own brands, and ONLY when the panel's own agent is the one
+        # being used. A source that declares its agent gets no hints at all
+        # (`browser_headers`), and the owner's typed agent is not the panel's
+        # browser either — sending this machine's brands beside a different
+        # agent would be the mismatch the hints exist to avoid.
+        client_hints=("" if (source.user_agent or chosen.get("user_agent"))
+                      else chosen.get("client_hints", "")),
         min_interval_s=max(paces),
         timeout_s=30.0 if timeout is None else float(timeout),
         honour_crawl_delay=True if honour is None else bool(honour),
