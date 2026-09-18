@@ -388,6 +388,25 @@ class HttpFetcher:
             timeout=timeout_s,
             follow_redirects=True,
             verify=shared_ssl_context(),   # see the note above: 1633ms -> 0.6ms
+            # THE LAST THING THE REQUEST SAID ABOUT ITSELF BEFORE ITS HEADERS.
+            #
+            # `browser_headers` made the crawl's headers match the agent it
+            # claims; this is the layer under them. Chrome has spoken HTTP/2 to
+            # every site that offers it for years, so a client announcing Chrome
+            # over HTTP/1.1 contradicted itself during the TLS handshake —
+            # before a single header was sent, and visible to any server without
+            # reading one.
+            #
+            # NOT A PREFERENCE THE SITE CANNOT REFUSE: this adds "h2" to the
+            # ALPN list offered at handshake and the SERVER chooses. A site that
+            # speaks only HTTP/1.1 still gets HTTP/1.1, so nothing that works
+            # today stops working.
+            #
+            # No fallback when `h2` is missing, deliberately. It is a hard
+            # dependency (`httpx[http2]` in pyproject), so absent means a broken
+            # install, and httpx's ImportError names the fix. Degrading quietly
+            # would leave a crawl contradicting its own agent with nothing said.
+            http2=True,
         )
         self._min_interval_s = min_interval_s
         self._last_request_at = 0.0
