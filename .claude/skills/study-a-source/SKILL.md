@@ -24,7 +24,7 @@ below are its shape, generalised.
   study is tens of requests, not thousands. The heidelberg study spent 23 with a
   self-imposed 2.5 s gap (`docs/recon/heidelberg-materials-eg.md:48`).
 - **`robots.txt` is read first and obeyed for the whole study**, whatever
-  `crawl_obey_disallow` ships at (`scrapex/settings.py:84`). `scrapex/robots.py:160`
+  `crawl_obey_disallow` ships at (`scrapex/settings.py:99`). `scrapex/robots.py:160`
   parses it; a study never needs the path a site asked you to leave alone.
 - **Never authenticate, never pay, never bypass a block.** A field behind a login is
   recorded as existing and gated — that is a finding, and getting at it is his decision.
@@ -140,7 +140,7 @@ Every field found gets a destination, or is named as having none.
 | a non-product dataset's columns | `scrapex/fields.py:21`, `db/engine/schema.sql:201` |
 | a company, and a fact about it | `db/engine/schema.sql:734`, `db/engine/schema.sql:751` |
 
-A connector emits one shape whatever the site is — `scrapex/connectors/base.py:73`. A field
+A connector emits one shape whatever the site is — `scrapex/connectors/base.py:183`. A field
 that fits nowhere above is listed under **what has nowhere to go**, with what a home for it
 would cost. A schema change is his (`CLAUDE.md`).
 

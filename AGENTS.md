@@ -118,7 +118,7 @@ work; `vacancies` and `tenders` are named, unbuilt.
   chromium`.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
 - **Respect the politeness budget.** A crawl that hammers a site is a defect, and
-  `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:84`): never set a source
+  `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source
   `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
   **`study-a-source` skill**. The study names every field the site publishes and every
