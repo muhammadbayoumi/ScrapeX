@@ -18,9 +18,10 @@ of changes, in the document a recipient reads to learn what was taken.
 THREE THINGS THIS GUARD LEARNED THE HARD WAY, all in one review pass on its own first
 version, and each is why an assertion below exists:
 
-  1. IT TYPED THE UPSTREAM VALUES BY HAND -- 43 of them. Their sources declare 631 token
-     names and 107 colour literals, so 64 literals were missing, including every one of
-     the 52 in global.css. That did not make the check smaller, it made it WRONG in one
+  1. IT TYPED THE UPSTREAM VALUES BY HAND -- 43 of them, against the 607 colour
+     literals their sources actually declare, so all but a handful were missing --
+     including every one of those in global.css. That did not make the check smaller,
+     it made it WRONG in one
      direction: a `derived` marker on a value Supabase publishes outright passed, because
      the guard had no literal to contradict it. Under-crediting them is the direction
      every provenance error in this repository has run in. The table is now a generated
@@ -30,8 +31,8 @@ version, and each is why an assertion below exists:
      early whenever the named token was unknown, so `--scale-900` was caught only because
      it also claimed PUBLISHED. `--destructive-fg` -- their token is
      `--destructive-foreground` -- and a claim naming `--brand`, which they do not
-     declare at all, both passed. Every marker's name is now checked against the 631 they
-     declare, whichever word it carries.
+     declare at all, both passed. Every marker's name is now checked against the 648
+     they declare, whichever word it carries.
 
   3. ITS REGEX CROSSED NEWLINES. `\\s*` between the semicolon and the comment let a
      declaration bind to the NEXT comment in the file once its own was stripped, inventing
@@ -161,7 +162,8 @@ def _markers() -> list[tuple[str, str, str, str, str]]:
 
 def _literal(theme: str, token: str) -> str | None:
     """The hex Supabase publishes for a token in this theme, or at their root."""
-    return THEIR_LITERALS[theme].get(token) or THEIR_LITERALS["root"].get(token)
+    entry = THEIR_LITERALS[theme].get(token) or THEIR_LITERALS["root"].get(token)
+    return entry["hex"] if entry else None
 
 
 # EVERY VALUE THAT CARRIES A LICENCE STATEMENT TODAY, pinned as a SET and not a count.
@@ -231,15 +233,17 @@ def test_the_fixture_is_the_whole_reading_and_not_a_sample():
     would have gone unnoticed.
 
     Floors rather than exact counts, because a legitimate regeneration at a newer
-    Supabase commit will move them. They are set where the known-blind version fails:
-    it had 52 root literals and 27 dark, against 299 and 226 now.
+    Supabase commit will move them -- but CLOSE to the real numbers, not merely above the
+    known-blind version. Set at the old distance they did not fire on a real shrink:
+    78 literals and 48 names could be deleted and every floor was still met exactly.
+    A regeneration that moves them is expected to move these lines with it, deliberately.
     """
-    assert len(THEIR_NAMES) >= 600, (
-        f"the fixture holds {len(THEIR_NAMES)} token names. Supabase declares over 600 "
+    assert len(THEIR_NAMES) >= 640, (
+        f"the fixture holds {len(THEIR_NAMES)} token names. Supabase declares 648 "
         f"across the files tools/read_supabase_tokens.py reads; a number this low means "
         f"the generator read fewer files than it should, or failed part way."
     )
-    for scope, floor in (("root", 250), ("dark", 200), ("light", 25)):
+    for scope, floor in (("root", 290), ("dark", 220), ("light", 27)):
         assert len(THEIR_LITERALS[scope]) >= floor, (
             f"the fixture holds {len(THEIR_LITERALS[scope])} {scope} literals, under the "
             f"floor of {floor}. Regenerate it with tools/read_supabase_tokens.py and "
@@ -311,16 +315,25 @@ def test_a_derived_marker_does_not_claim_their_literal_as_ours(theme, token, val
 def test_every_stored_literal_is_what_the_converter_produces():
     """The fixture is generated, and nothing asserted the generator still reproduces it.
 
-    THIS IS THE STALENESS CHECK, and it runs offline. The fixture records each raw
-    declaration beside the hex it converted to, so every entry can be re-derived here
-    from tools/read_supabase_tokens.py's own `as_hex` without the network or `gh`.
-    `--check` re-reads their files and is the human's tool; this is CI's.
+    THIS IS THE STALENESS CHECK, and it runs offline. Every entry in the table stores
+    the raw declaration beside the hex it converted to, so each is re-derived here through
+    tools/read_supabase_tokens.py's own `as_hex` without the network or `gh`. `--check`
+    re-reads their files and is the human's tool; this is CI's.
+
+    IT IS DRIVEN PER TOKEN AND NOT PER DISTINCT VALUE, and that distinction is the whole
+    check. An earlier version walked the value-keyed `conversions` map alone, which knows
+    no token and no theme -- so it proved that `as_hex` still works and nothing more.
+    Measured against that version: overwriting all 299 root literals with other
+    converter-produced hexes failed NOTHING, and so did re-introducing the per-theme
+    defect the second commit on this branch fixed, where 185 root values were overwritten
+    with their dark counterparts. Both fail here now.
 
     It exists because two arithmetic defects shipped in a fixture that no test could
     contradict, and correcting them changed NO test outcome -- exactly the condition the
     reading-is-whole test above warns about, where a revert goes unnoticed:
 
-      * `_hsl` rounded ties to EVEN. Three conversions land on an exact tie and a CSS
+      * `_hsl` rounded ties to EVEN. TWO conversions land on an exact tie -- backing
+        three stored entries, since one of them is declared in two scopes -- and a CSS
         engine rounds ties AWAY FROM ZERO, so `hsl(206, 100%, 50%)` was stored as
         #0090ff where Chromium renders #0091ff.
       * 48 alpha-bearing declarations were stored as fully opaque. `hsla(0, 0%, 0%, 0)`
@@ -331,19 +344,37 @@ def test_every_stored_literal_is_what_the_converter_produces():
     """
     from tools.read_supabase_tokens import as_hex
 
+    checked, wrong = 0, []
+    for scope, table in THEIR_LITERALS.items():
+        for token, entry in table.items():
+            assert isinstance(entry, dict) and "raw" in entry and "hex" in entry, (
+                f"{scope} {token} stores {entry!r}, not a raw/hex pair, so it cannot be "
+                f"re-derived. Regenerate with tools/read_supabase_tokens.py."
+            )
+            checked += 1
+            produced = as_hex(entry["raw"])
+            if produced != entry["hex"]:
+                wrong.append((scope, token, entry["raw"], entry["hex"], produced))
+
+    assert checked, "the table is empty, so this check passed over nothing"
+    assert not wrong, (
+        f"{len(wrong)} of {checked} stored literals are not what "
+        f"tools/read_supabase_tokens.py now produces from the raw declaration recorded "
+        f"beside them, so the fixture is stale against its own generator. First few "
+        f"(scope, token, raw, stored, produced): {wrong[:3]}. Run "
+        f"`python tools/read_supabase_tokens.py` and re-check every marker against it."
+    )
+
     conversions = UPSTREAM.get("conversions")
     assert conversions, (
-        "the fixture records no `conversions` map, so nothing can re-derive it. Regenerate "
-        "it with tools/read_supabase_tokens.py, which writes one."
+        "the fixture records no `conversions` map, so the declarations in names-only "
+        "files -- which reach no table -- are re-derived by nothing. Regenerate it."
     )
-    wrong = {raw: (stored, as_hex(raw)) for raw, stored in conversions.items()
-             if as_hex(raw) != stored}
-    assert not wrong, (
-        f"{len(wrong)} of {len(conversions)} stored literals are not what "
-        f"tools/read_supabase_tokens.py now produces, so the fixture is stale against its "
-        f"own generator. First few (raw: stored -> produced): "
-        f"{dict(list(wrong.items())[:5])}. Run `python tools/read_supabase_tokens.py` and "
-        f"re-check every marker against the result."
+    drifted = {raw: (stored, as_hex(raw)) for raw, stored in conversions.items()
+               if as_hex(raw) != stored}
+    assert not drifted, (
+        f"{len(drifted)} of {len(conversions)} recorded conversions no longer reproduce. "
+        f"First few (raw: stored -> produced): {dict(list(drifted.items())[:5])}."
     )
 
 
@@ -355,7 +386,8 @@ def test_every_published_literal_came_through_that_converter():
     guard went unchecked.
     """
     produced = set(UPSTREAM["conversions"].values())
-    stored = {value for scope in THEIR_LITERALS.values() for value in scope.values()}
+    stored = {entry["hex"] for scope in THEIR_LITERALS.values()
+              for entry in scope.values()}
     missing = stored - produced
     assert not missing, (
         f"{len(missing)} literal(s) in the table were produced by no recorded conversion, "
@@ -401,6 +433,29 @@ def test_a_marked_value_cannot_quietly_stop_being_checked(theme, token):
         f"value is no longer checked against Supabase's. If the value genuinely stopped "
         f"coming from them, remove it from MARKED_VALUES in this file and say so in the "
         f"PR; if the marker was deleted by accident, put it back."
+    )
+
+
+def test_no_value_quietly_starts_being_checked_either():
+    """The other direction, which the parametrized test above cannot express.
+
+    Parametrizing over MARKED_VALUES asserts only that each pinned pair is still marked --
+    a SUBSET check. Adding a marker to a declaration that had none simply adds a case and
+    passes, which is what the test above claimed to prevent and did not: writing
+    `/* --accent light derived */` onto `--chip` took the suite from 77 green to 78 green.
+
+    That direction is the live one. #1016 proposes markers for the 18 declarations that
+    name a Supabase token and carry no word, and this equality is the control that forces
+    that through a review rather than letting it arrive.
+    """
+    marked = {(m[0], m[1]) for m in ALL}
+    assert marked == MARKED_VALUES, (
+        f"design/tokens.css and MARKED_VALUES disagree about which values carry a licence "
+        f"statement.\n"
+        f"  newly marked, not pinned here: {sorted(marked - MARKED_VALUES)}\n"
+        f"  pinned here, no longer marked: {sorted(MARKED_VALUES - marked)}\n"
+        f"A new marker is a new statement in the Apache 4(b) record; add it to "
+        f"MARKED_VALUES in the same change that writes it, and say so in the PR."
     )
 
 
@@ -505,6 +560,176 @@ def test_as_hex_keeps_an_alpha_written_as_eight_hex_digits():
     assert as_hex("#123") == "#112233" and as_hex("#112233") == "#112233", (
         "the plain hex paths changed"
     )
+
+
+def test_the_fixture_was_read_under_the_scope_map_the_tool_declares():
+    """WHICH theme a file's literals are admitted into is a licence decision.
+
+    `SOURCES` maps nine of its thirteen files to `None` -- names only -- and the reason is
+    stated in the tool: admitting the classic-dark themes' values into the dark table would
+    let a marker cite a value from a dark this product does not ship and pass. That was
+    prose and nothing enforced it, so narrowing `SOURCES`, or flipping a file's scope, left
+    every assertion here green. `files_declaring_nothing` already had this treatment; the
+    map itself did not.
+    """
+    from tools.read_supabase_tokens import SOURCES
+
+    recorded = UPSTREAM.get("scopes")
+    assert recorded, (
+        "the fixture records no `scopes` map, so nothing says which theme each file's "
+        "literals were admitted into. Regenerate with tools/read_supabase_tokens.py."
+    )
+    declared = dict(sorted(SOURCES.items()))
+    disagreed = sorted(set(recorded) | set(declared))
+    differing = [(path, recorded.get(path, "<absent>"), declared.get(path, "<absent>"))
+                 for path in disagreed if recorded.get(path) != declared.get(path)]
+    assert not differing, (
+        f"the fixture was read under a different source map than the tool now declares. "
+        f"(file, in fixture, in SOURCES): {differing}. Which theme a file's literals are "
+        f"admitted into decides whether a marker may cite a value from a theme this "
+        f"product does not ship; regenerate and re-check every marker against the result."
+    )
+    assert UPSTREAM["files_read"] == sorted(SOURCES), (
+        f"the fixture lists {len(UPSTREAM['files_read'])} files read and the tool declares "
+        f"{len(SOURCES)}. A narrowed source map is how the first version of this fixture "
+        f"came to hold a fraction of their literals."
+    )
+
+
+def test_a_names_only_source_never_reaches_a_theme_table():
+    """The `None` scope has to survive the selector, and once it did not.
+
+    `block_scope` promoted a names-only file to "dark" whenever its SELECTOR contained the
+    substring, which both classic themes' do -- `[data-theme='classic-dark'], .classic-dark`.
+    Their values were written into the dark table on top of the dark this product ships.
+    It passed only because the later of the two happens to be byte-identical to it.
+
+    Driven with synthetic input, because the real sources cannot show it: today the two
+    files agree with `themes/dark.css`, so the promotion is invisible in the fixture.
+    """
+    from tools.read_supabase_tokens import read_declarations
+
+    body = (
+        "[data-theme='classic-dark'], .classic-dark {\n"
+        "  --brand-default: #111111;\n"
+        "}\n"
+    )
+    names, literals, conversions, _declared = read_declarations(body, scope=None)
+
+    assert "--brand-default" in names, (
+        "a names-only source must still contribute its NAMES -- that is what it is for"
+    )
+    assert conversions.get("#111111") == "#111111", (
+        "a names-only source's conversions are still recorded, so the converter is "
+        "checked over them"
+    )
+    assert literals == {"light": {}, "dark": {}, "root": {}}, (
+        f"a names-only source put values into a theme table: {literals}. A selector that "
+        f"merely CONTAINS 'dark' promoted `None`, which is how the classic themes came to "
+        f"overwrite the dark this product ships."
+    )
+
+
+
+def test_one_file_with_two_themes_lands_in_two_tables():
+    """A FILE CAN CARRY MORE THAN ONE THEME, and reading it linearly loses one.
+
+    colors.css declares all 204 of its names twice -- once under `:root` and once under
+    `[data-theme*='dark']` -- with 185 of the pairs differing. A last-wins scan stored the
+    DARK value for every one of them and dropped all 185 light values, which is how a
+    correct light marker came to be failed with Supabase's dark number quoted back at it.
+
+    DRIVEN WITH SYNTHETIC INPUT, because the fixture cannot show it: `block_scope = scope`
+    -- dropping the per-block rule entirely -- left the whole suite green, and so did
+    returning a single block from `_selector_blocks`. Neither is visible in a reading where
+    the two blocks happen to be consistent.
+    """
+    from tools.read_supabase_tokens import read_declarations
+
+    body = (
+        ":root {\n"
+        "  --brand-default: #222222;\n"
+        "}\n"
+        "[data-theme*='dark'] {\n"
+        "  --brand-default: #333333;\n"
+        "}\n"
+    )
+    _names, literals, _conversions, declared = read_declarations(body, scope="root")
+
+    assert declared == 2, f"both declarations should be seen, saw {declared}"
+    assert literals["root"].get("--brand-default", {}).get("hex") == "#222222", (
+        f"the light/root value was lost or overwritten by the dark block: "
+        f"{literals['root']}"
+    )
+    assert literals["dark"].get("--brand-default", {}).get("hex") == "#333333", (
+        f"the dark block's value did not reach the dark table: {literals['dark']}"
+    )
+
+
+def test_as_hex_reads_a_triple_with_and_without_deg():
+    """`HSL_TRIPLE` converts 106 of the 514 entries -- it is not a latent path.
+
+    An earlier comment called the whole branch latent, and nothing drove either spelling:
+    undoing the optional `deg` on the triple, or on the function form, left the suite green.
+    Only the deg-less spelling is latent, and it is driven here so it cannot rot.
+    """
+    from tools.read_supabase_tokens import as_hex
+
+    assert as_hex("14deg 80.4% 58%") == as_hex("14 80.4% 58%"), (
+        "the two spellings of one triple convert differently, so requiring `deg` silently "
+        "dropped the bare CSS Color 4 form"
+    )
+    assert as_hex("14deg 80.4% 58%") == "#ea663e", as_hex("14deg 80.4% 58%")
+    assert as_hex("hsl(206, 100%, 50%)") == as_hex("hsl(206deg 100% 50%)"), (
+        "the function form's optional `deg` changed the value"
+    )
+
+
+def test_alpha_is_read_in_both_spellings_and_clamped():
+    """`_alpha_byte` parses a percent and clamps, and no real value exercises either.
+
+    All 60 alphas at the pinned commit are decimals in range, so dropping the `/ 100` or
+    the clamp left the suite green. `hsl(0 0% 0% / 50%)` is legal CSS their sources could
+    adopt at the next pin.
+    """
+    from tools.read_supabase_tokens import _alpha_byte, as_hex
+
+    assert _alpha_byte("0.5") == _alpha_byte("50%") == 128, (
+        f"the percent spelling is read as a fraction: "
+        f"{_alpha_byte('0.5')} vs {_alpha_byte('50%')}"
+    )
+    assert _alpha_byte("0") == 0 and _alpha_byte("0%") == 0
+    assert _alpha_byte("1") == _alpha_byte("100%") == 255
+    assert _alpha_byte("1.5") == 255 and _alpha_byte("-0.5") == 0, (
+        "an alpha outside 0-1 was not clamped, and a byte outside 0-255 renders as a "
+        "plausible-looking hex rather than failing"
+    )
+    assert as_hex("hsla(0, 0%, 0%, 0)") == "#00000000", (
+        "full transparency was recorded as opaque black"
+    )
+    assert as_hex("hsl(0 0% 0% / 50%)") == "#00000080", (
+        f"the slash-and-percent alpha form was misread: {as_hex('hsl(0 0% 0% / 50%)')}"
+    )
+
+
+def test_a_channel_outside_a_byte_fails_the_parse():
+    """`%02x` pads and never truncates, so an out-of-range channel renders as a colour.
+
+    `hsl(0, 100%, 110%)` would reach `_channel` at 306 and `"%02x" % 306` is `"132"`,
+    producing `#ff132132` -- a well-formed eight-digit hex the marker regex accepts and
+    the table would store as a colour they publish. A browser renders that input #ffffff.
+    No declaration at the pinned commit exceeds 100%, so nothing but this drives it.
+    """
+    from tools.read_supabase_tokens import _channel
+
+    with pytest.raises(AssertionError):
+        _channel(306.0)
+    with pytest.raises(AssertionError):
+        _channel(-1.0)
+    assert _channel(0.0) == 0 and _channel(255.0) == 255, (
+        "the guard rejected a channel that is in range"
+    )
+
 
 def test_the_notice_still_delegates_the_record_to_these_markers():
     """The markers are a licence statement only while the notice says they are."""

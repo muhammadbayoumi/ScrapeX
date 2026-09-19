@@ -105,9 +105,15 @@ HSL_FUNCTION = re.compile(
     r"hsla?\(\s*([\d.]+)(?:deg)?\s*[, ]\s*([\d.]+)%\s*[, ]\s*([\d.]+)%"
     r"(?:\s*[,/]\s*([\d.]+%?))?\s*\)"
 )
-# `deg` is OPTIONAL: `12 76% 61%` is the bare CSS Color 4 form and requiring the unit made
-# it unreadable. No value at the pinned commit takes this form, so this path is latent --
-# it costs nothing and closes a shape that would otherwise be dropped in silence.
+# THE SPACE-SEPARATED FORM, AND IT IS NOT A RARE ONE: 106 of the 514 distinct conversions
+# at the pinned commit come through here, second only to the function form's 406. An
+# earlier comment called this whole path latent. That was wrong, and a wrong claim of
+# latency is how a live branch goes untested.
+#
+# WHAT IS LATENT IS THE SPELLING WITHOUT `deg`. All 106 carry the unit today; `12 76% 61%`
+# is the bare CSS Color 4 form and requiring the unit made it unreadable, so the unit is
+# optional here -- it costs nothing and closes a shape that would otherwise be dropped in
+# silence. Both spellings are driven by test_as_hex_reads_a_triple_with_and_without_deg.
 HSL_TRIPLE = re.compile(r"([\d.]+)(?:deg)?\s+([\d.]+)%\s+([\d.]+)%")
 HEX = re.compile(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
@@ -150,9 +156,27 @@ def _channel(value: float) -> int:
     the marker to `derived` -- writing a false statement into the Apache 4(b) record, in
     the direction every provenance error in this repository has already run in.
 
-    Every channel is non-negative, so floor(v + 0.5) is exactly half-away-from-zero.
+    Every channel `colorsys.hls_to_rgb` can produce is in 0-1, so floor(v + 0.5) is
+    exactly half-away-from-zero over that range -- swept at 0.5-degree steps across the
+    whole h/s/l space, 0 of 1.4M points disagree with true half-away-from-zero and 0 fall
+    outside 0-255.
+
+    AND IT ASSERTS THAT RATHER THAN ASSUMING IT. `HSL_FUNCTION` and `HSL_TRIPLE` match
+    `[\\d.]+` with no bound while a CSS engine clamps s and l to 0-100%, so a declaration
+    like `hsl(0, 100%, 110%)` would reach here at 306 and `"%02x" % 306` is `"132"` --
+    which pads and never truncates, producing `#ff132132`: a WELL-FORMED eight-digit hex
+    that the guard's marker regex accepts and would store as a colour they publish. A
+    browser renders that input `#ffffff`. No declaration at the pinned commit exceeds
+    100%, so this is latent -- and this branch closed two other latent paths on exactly
+    that reasoning, because a parse that fails loudly beats one that is quietly wrong.
     """
-    return math.floor(value + 0.5)
+    byte = math.floor(value + 0.5)
+    assert 0 <= byte <= 255, (
+        f"a colour channel converted to {byte}, which is not a byte. Their source "
+        f"declared a value outside the range CSS clamps to, and '%02x' would have "
+        f"rendered it as a plausible-looking hex rather than failing here."
+    )
+    return byte
 
 
 def _alpha_byte(alpha: str) -> int:
@@ -223,6 +247,66 @@ def as_hex(value: str) -> str | None:
     return "#" + digits
 
 
+def read_declarations(body: str, scope: str | None):
+    """One file's names, per-theme literals and conversions, read block by block.
+
+    SEPARATE FROM `read()` SO THE SCOPING RULE CAN BE DRIVEN WITHOUT THE NETWORK. The two
+    defects this function has had were both invisible in the real sources -- a last-wins
+    scan that lost 185 light values, and a `None` scope promoted to dark by a substring --
+    and neither could be reproduced from the fixture, because today's files happen to
+    agree. `test_a_names_only_source_never_reaches_a_theme_table` drives it with input
+    that has the defect.
+
+    Returns (names, literals, conversions); `declared` is len of every declaration seen,
+    which `read()` uses to record the files that declare nothing.
+    """
+    names: set[str] = set()
+    literals: dict[str, dict[str, str]] = {"light": {}, "dark": {}, "root": {}}
+    conversions: dict[str, str] = {}
+    declared = 0
+
+    for selector, block in _selector_blocks(body):
+        # A FILE CAN CARRY MORE THAN ONE THEME, and reading it linearly loses one.
+        # colors.css declares all 204 of its names TWICE -- once under `:root` and
+        # once under `[data-theme*='dark']` -- with 185 of the pairs differing. A
+        # last-wins scan of the whole file therefore stored the DARK value for every
+        # one of them and dropped all 185 light values, which is how a correct light
+        # marker would have been failed with Supabase's dark number quoted back at it.
+        # A `None` SCOPE IS NAMES-ONLY AND NOTHING MAY PROMOTE IT. `"dark" in
+        # selector` is a substring test, and both classic themes select on
+        # `[data-theme='classic-dark'], .classic-dark` -- which contains the word.
+        # So their 27 literals each were admitted into the dark table and overwrote
+        # `themes/dark.css`, the exact thing the SOURCES comment says must not
+        # happen. It passed only because the later of the two files happens to be
+        # byte-identical to the dark this product ships; swapping those two keys
+        # fails two TRUTHFUL `PUBLISHED` markers with a classic-dark value quoted
+        # back at them.
+        #
+        # This is the substring-versus-whole-word class the guard already fixed once
+        # in `_named_token`, where removing "dark" as a substring turned
+        # `--colors-gray-light-900` into `--colors-gray--900`.
+        block_scope = None if scope is None else (
+            "dark" if "dark" in selector else scope)
+        for match in DECLARATION.finditer(block):
+            token, value = match.group(1), " ".join(match.group(2).split())
+            names.add(token)
+            declared += 1
+            hexed = as_hex(value)
+            if hexed:
+                conversions[value] = hexed
+            if hexed and block_scope:
+                # THE RAW DECLARATION IS STORED WITH THE TOKEN, not only in the
+                # value-keyed `conversions` map, because the map cannot say WHICH
+                # token a value belongs to or WHICH theme it landed in -- and that
+                # association is exactly what a PUBLISHED marker is a statement
+                # about. Without it, re-deriving the table proved only that `as_hex`
+                # still works: overwriting all 299 root literals with other
+                # converter-produced hexes failed nothing, and so did re-introducing
+                # the per-theme defect the commit below this one fixed.
+                literals[block_scope][token] = {"raw": value, "hex": hexed}
+    return names, literals, conversions, declared
+
+
 def read(ref: str) -> dict:
     """The whole reading at one commit: names, per-theme literals, and every conversion."""
     names: set[str] = set()
@@ -233,24 +317,11 @@ def read(ref: str) -> dict:
     for path, scope in SOURCES.items():
         body = re.sub(r"/\*.*?\*/", "", fetch(path, ref), flags=re.S)
         blocks = _selector_blocks(body)
-        declared = 0
-        for selector, block in blocks:
-            # A FILE CAN CARRY MORE THAN ONE THEME, and reading it linearly loses one.
-            # colors.css declares all 204 of its names TWICE -- once under `:root` and
-            # once under `[data-theme*='dark']` -- with 185 of the pairs differing. A
-            # last-wins scan of the whole file therefore stored the DARK value for every
-            # one of them and dropped all 185 light values, which is how a correct light
-            # marker would have been failed with Supabase's dark number quoted back at it.
-            block_scope = "dark" if "dark" in selector else scope
-            for match in DECLARATION.finditer(block):
-                token, value = match.group(1), " ".join(match.group(2).split())
-                names.add(token)
-                declared += 1
-                hexed = as_hex(value)
-                if hexed:
-                    conversions[value] = hexed
-                if hexed and block_scope:
-                    literals[block_scope][token] = hexed
+        found, theirs, converted, declared = read_declarations(body, scope)
+        names |= found
+        conversions.update(converted)
+        for theme, table in theirs.items():
+            literals[theme].update(table)
         if declared == 0:
             empty.append(path)
         print(f"  read {path} ({len(blocks)} block{'' if len(blocks) == 1 else 's'}, "
@@ -268,6 +339,13 @@ def read(ref: str) -> dict:
         "_regenerate": "tools/read_supabase_tokens.py",
         "commit": ref,
         "files_read": sorted(SOURCES),
+        # THE SCOPE HALF OF `SOURCES`, AND NOT ONLY ITS KEYS. Which theme each file's
+        # literals are admitted into is a licence-correctness decision -- admitting the
+        # classic-dark themes would let a marker cite a value from a dark this product
+        # does not ship and pass -- and it was stated in prose and enforced by nothing.
+        # Recording it lets the guard assert the fixture was read under the same map the
+        # tool declares, the way `files_declaring_nothing` already does.
+        "scopes": {path: scope for path, scope in sorted(SOURCES.items())},
         "files_declaring_nothing": sorted(empty),
         "names": sorted(names),
         "literals": {k: dict(sorted(v.items())) for k, v in literals.items()},
