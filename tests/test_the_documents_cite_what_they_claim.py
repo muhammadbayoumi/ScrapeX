@@ -103,6 +103,13 @@ DOCUMENTS = (
     # index, so nothing else in this test would ever have looked at them.
     ".claude/skills/review/SKILL.md",
     ".claude/skills/record-it/SKILL.md",
+    # `study-a-source` JOINED THE MAP IN `CLAUDE.md` AND SO JOINS THIS TUPLE, in the same
+    # commit -- `docs/ORCHESTRATION.md` is the precedent above for what happens when the
+    # two are separated. It is a governed rule a session acts on: it tells a session which
+    # warehouse table each field it finds is heading for, and a citation that has drifted
+    # sends the field to the wrong one. Measured before adding it, so it goes green rather
+    # than arriving red: 30 citations, all resolving, none on a blank line.
+    ".claude/skills/study-a-source/SKILL.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by
