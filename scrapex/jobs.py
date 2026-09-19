@@ -186,6 +186,23 @@ def set_control(conn: sqlite3.Connection, job_ref: str, control: JobControl | st
     current = job["status"]
     held = current in WORKER_HELD_STATUSES
 
+    # RESUME IS ONLY MEANINGFUL ON A PAUSED JOB, and nothing checked that. The panel held
+    # the whole status->control rule by itself (`extension/jobsview.js`'s `controlsFor`),
+    # and the compare-and-swap below swaps on the status read two lines up -- inside this
+    # same call -- so it cannot see a caller working from a stale draw.
+    #
+    # THE JOBS PAGE MADE THAT STALENESS A DESIGN PROPERTY: it has no poll, while the
+    # mini-player above it repolls every 1.5s and draws its own Resume for the same job.
+    # Press the stale row after resuming from the player and a RUNNING job was recorded
+    # as QUEUED -- which re-creates the defect this page exists to fix, because
+    # `ADOPTION_ORDER` ranks `queued` below `running` and the player then adopts a
+    # different job than the one doing the work.
+    #
+    # Refusing here returns False, which the route already turns into the 409 the panel
+    # already reports. The rule lives once, where the write happens.
+    if control is JobControl.RESUME and current != JobStatus.PAUSED.value:
+        return False
+
     if control is JobControl.RESUME:
         target, next_control, finishing = JobStatus.QUEUED, JobControl.NONE, False
     elif control is JobControl.CANCEL:

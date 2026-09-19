@@ -4885,7 +4885,12 @@ def _queued_behind(job: dict, queue: dict | None) -> dict | None:
 
 
 #: WHAT EACH KIND'S `progress` PAIR COUNTS. A kind absent from here counts sources,
-#: which is what the pair originally meant and still means for a price crawl.
+#: which is what the pair originally meant and still means for a price crawl -- and a
+#: price crawl is now the only kind absent. The listing crawl was missing from this table
+#: and does NOT count sources: it writes cells (`directoryjob.py:18`, `:283`), so a
+#: finished listing crawl read "56 of 56 source(s)" against one source -- the same defect
+#: this table exists to remove, left in place for the third runner. It also regressed the
+#: mini-player, which said "starting…" for that job before this page routed it here.
 #:
 #: KEYED ON THE JOB KIND AND NOT ON THE RUNNER, because this is the wire contract: the
 #: panel draws whatever word arrives, and `jobsview.progressLine` deliberately has no
@@ -4904,7 +4909,26 @@ PROGRESS_UNITS: dict[str, str] = {
     # `datasetjob` counts page PAIRS: `approve` collapses the en/ar halves of one page,
     # so 469 pairs is 938 stored readings and neither number is the other.
     datasetjob.JOB_KIND: "page pair(s)",
+    # `directoryjob.py:18` -- "progress is counted in cells", and `:283` writes
+    # `progress_total=cells`. Its own sentences already use this word (`:288`, `:479`).
+    directoryjob.JOB_KIND: "cell(s)",
 }
+
+#: THE KINDS WHOSE PAIR IS STILL `create_job`'S SEED UNTIL A RUNNER REPLACES IT, which is
+#: what `claimed` below is asking about. All three crawl kinds write their own total at
+#: PREPARING or later, so before that the pair genuinely counts SOURCES and naming a
+#: runner's unit over it would be a lie about the seed.
+#:
+#: `organization_enrichment` IS DELIBERATELY ABSENT. Its total is written at CREATION
+#: (`enrichment/service.py:1173-1176`), not by a runner, so the seed is never what a
+#: reader sees. Treating it like the others made its unit conditional on a heuristic that
+#: cannot hold for it: an update run finding ONE changed organization has
+#: `total == len(source_keys) == 1` -- an enrichment job carries exactly one source key,
+#: always -- so a true "0 of 1 organizations" became "0 of 1 source(s)" until the job
+#: finished. That was unconditional before this page existed, and this keeps it so.
+SEEDED_UNTIL_A_RUNNER_CLAIMS_IT = frozenset({
+    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND,
+})
 
 
 def _job_view(job: dict, queue: dict | None = None) -> dict:
@@ -4929,7 +4953,13 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     # A MULTI-SOURCE JOB WHOSE RUNNER HAPPENS TO COUNT EXACTLY AS MANY PAGES AS IT HAS
     # SOURCES, at zero done, is read as unclaimed for that one poll. Both numbers are
     # the same there, so the row states the right figure under the wider word.
-    claimed = bool(done) or total != len(job.get("source_keys") or [])
+    #
+    # AND ONLY FOR THE KINDS WHOSE PAIR IS A SEED AT ALL. Asking this of a kind that
+    # never had one silently withdrew a unit that used to be unconditional; see
+    # SEEDED_UNTIL_A_RUNNER_CLAIMS_IT.
+    claimed = (job.get("job_kind") not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT
+               or bool(done)
+               or total != len(job.get("source_keys") or []))
     return {
         "job_ref": job["job_ref"],
         "job_kind": job.get("job_kind", "crawl"),

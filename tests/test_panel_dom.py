@@ -729,24 +729,57 @@ def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
     focus to <body> in a list of 173. That undoes the interaction this page is built
     around -- `renderLogs` already records that a blind rebuild "destroys the selection
     inside it"."""
-    page = open_panel(jobs=HIS_JOBS)
+    # A REAL LOG, AND THE REQUEST COUNTED. This guard asserted that the text after the
+    # press equalled the text before it -- and proved neither half of what it names.
+    # It passed no `logs=`, so the harness answered with an empty list and `openJobLog`
+    # wrote its "This job wrote no log." placeholder: there was no fetched log to throw
+    # away. And the equality could not have seen a re-purchase anyway, because the stub
+    # answers every /logs request with the same payload, so a refetch is byte-identical
+    # to a restore. Deleting the line that restores it left this green -- replicated in
+    # Chromium, where the row's own toggle listener refetched and converged on the same
+    # text.
+    #
+    # `window.__calls` records EVERY path, GET included, so what the restore actually
+    # claims -- that the log is not bought twice -- is counted here instead.
+    logs = _log_entries(3)
+    page = open_panel(jobs=HIS_JOBS, logs=logs)
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    working = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
     working.locator("summary").click()
     page.wait_for_timeout(300)
     before = working.locator(".job-log").inner_text()
     assert before, "the log did not load, so this guard would prove nothing"
+    assert "fetching — 0 requests so far" in before, (
+        f"the harness served no log, so this guard is asserting on a placeholder rather "
+        f"than on a fetched log: {before!r}")
+
+    # COUNTED FOR THIS ROW'S job_ref ONLY. The mini-player adopts the RUNNING job and
+    # repolls its log every 1.5s, so a count over all /logs paths is that poll's, not
+    # this press's. The paused row is never adopted, so its own count is quiet.
+    def log_requests():
+        return page.evaluate(
+            "() => window.__calls.filter("
+            "(path) => path.includes('job_0212decca681') && path.includes('/logs')).length")
+
+    fetches_before = log_requests()
+    assert fetches_before == 1, (
+        f"expected exactly one log request for the row just opened, saw {fetches_before}")
 
     working.locator("button").first.click()
     page.wait_for_timeout(400)
 
-    reopened = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    reopened = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
     assert reopened.evaluate("row => row.open"), (
         "the row he pressed a button in closed under him")
     assert reopened.locator(".job-log").inner_text() == before, (
         "the fetched log was thrown away and has to be bought again")
+    fetches_after = log_requests()
+    assert fetches_after == fetches_before, (
+        f"the log was bought again after the press -- {fetches_before} request(s) before, "
+        f"{fetches_after} after. The rebuild discarded the fetched text and the row's "
+        f"toggle listener had to re-fetch it, which is what restoring it exists to avoid")
     focused = page.evaluate(
         "() => document.activeElement && document.activeElement.tagName")
     assert focused == "BUTTON", (
@@ -8998,3 +9031,126 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
     assert "could not be counted" in said, (
         "a comparison that could not be made was reported as a pass: " + said)
     assert "nothing here to compare it against" in said, said
+
+
+def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
+    """CANCEL IS THE ONE IRREVERSIBLE CONTROL AND ITS ONLY QUESTION WAS UNTESTED.
+
+    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's --
+    and replacing its whole body with `return true;` left the entire suite green. The
+    string it asks with appears exactly once in the repository: the production line.
+    Both existing control guards press `button.first`, which is Pause or Resume, so
+    nothing ever drove Cancel.
+
+    That matters most exactly where this page puts it: Cancel sits next to Resume in a
+    paused row, in a list of 163, and a mis-click terminally cancels a running crawl.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
+    # The controls live inside the row's <details>, so it has to be open to press one --
+    # which is the state a mis-click happens in anyway.
+    paused.locator("summary").click()
+    page.wait_for_timeout(300)
+    labels = paused.locator("button").all_text_contents()
+    assert labels == ["Resume", "Cancel"], (
+        f"this guard needs the paused row's Cancel button; it draws {labels}")
+    cancel = paused.locator("button").nth(1)
+
+    # DISMISSED: the question was asked, and nothing was sent.
+    asked = []
+    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+    cancel.click()
+    page.wait_for_timeout(300)
+
+    assert asked, "Cancel was pressed and no question was asked before it was sent"
+    assert "Cancel this job?" in asked[0], (
+        f"the question does not name what it is about to do: {asked[0]!r}")
+    sent = [w for w in page.evaluate("() => window.__writes")
+            if "/control" in w["path"]]
+    assert sent == [], (
+        f"the question was refused and the cancel was sent anyway: {sent}")
+
+    # ACCEPTED: the same press goes through, so the guard has not broken the button.
+    page.once("dialog", lambda dialog: dialog.accept())
+    cancel.click()
+    page.wait_for_timeout(400)
+
+    sent = [w for w in page.evaluate("() => window.__writes")
+            if "/control" in w["path"]]
+    assert len(sent) == 1 and sent[0]["body"] == {"control": "cancel"}, (
+        f"an accepted Cancel did not reach the engine: {sent}")
+
+
+def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
+    """The OTHER caller of `confirmedControl`, and it was only ever asserted VISIBLE.
+
+    `#mini-cancel` is wired straight to `controlJob("cancel")`, so `return true;` in
+    `confirmedControl` removed the question from this surface too. The mini-player sits
+    above the Jobs list on every tab, which is where a stray click lands.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    # The player rests minimised, so its controls are hidden until he opens it -- which
+    # is the state he presses Cancel from.
+    page.locator("#miniplayer summary").click()
+    page.wait_for_timeout(300)
+    assert page.is_visible("#mini-cancel"), "the player's Cancel is not reachable"
+
+    asked = []
+    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+    page.click("#mini-cancel")
+    page.wait_for_timeout(300)
+
+    assert asked and "Cancel this job?" in asked[0], (
+        f"the mini-player cancelled without asking: {asked}")
+    sent = [w for w in page.evaluate("() => window.__writes")
+            if "/control" in w["path"]]
+    assert sent == [], (
+        f"the question was refused and the cancel was sent anyway: {sent}")
+
+
+def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):
+    """`miniProgress` was rewritten and NONE of its three outputs was asserted.
+
+    `#mini-pct` was checked only for visibility and `#mini-bar`'s indeterminate class
+    nowhere at all, so replacing the whole determinate return with
+    `{pct: 100, text, indeterminate: true}` left the suite green -- the one assertion
+    that reads this line only looks for "620" in the text, which survives either way.
+
+    Both directions are driven here: a job with a real denominator must state a
+    percentage and draw a determinate bar, and a job without one must claim no
+    percentage and say so on the bar rather than drawing a confident 0%.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_timeout(400)
+
+    drawn = page.text_content("#mini-pct")
+    assert "620 of 938 page(s)" in drawn, (
+        f"the mini-player lost the runner's own number and unit: {drawn!r}")
+    assert "66%" in drawn, (
+        f"620 of 938 is 66% and the player states no percentage: {drawn!r}")
+    assert not page.evaluate(
+        "() => document.getElementById('mini-bar').classList.contains('indeterminate')"), (
+        "the bar is drawn indeterminate for a job whose denominator is known")
+
+    # AND THE OTHER DIRECTION. A job whose pair is still the seed has no honest
+    # percentage, and drawing a hard 0% is the reading he watched for 18 minutes.
+    unknown = [dict(job) for job in HIS_JOBS]
+    for job in unknown:
+        if job["job_ref"] == "job_034c51a29deb":
+            job["progress"] = {"done": 0, "total": 0}
+            job["fetch"] = {"requests": 0, "expected": None, "sources": {}}
+    page = open_panel(jobs=unknown)
+    page.wait_for_timeout(400)
+
+    assert page.evaluate(
+        "() => document.getElementById('mini-bar').classList.contains('indeterminate')"), (
+        "a job with no denominator drew a determinate bar, which states a share of a "
+        "total nobody knows")
+    assert "%" not in page.text_content("#mini-pct"), (
+        f"a job with no denominator claimed a percentage: "
+        f"{page.text_content('#mini-pct')!r}")
