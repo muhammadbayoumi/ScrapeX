@@ -211,6 +211,13 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     else:
         run_ref, pages = latest_crawl_run_ref(conn, source_key)
 
+    # ISSUE 796. Above the reset because that is the order the sentence describes -- not
+    # because the order is load-bearing: `note_a_re_entry` reads the `job` dict fetched
+    # above, and the UPDATE below writes the row, not the dict.
+    jobs.note_a_re_entry(
+        conn, job, unit="page pair(s)", source_key=source_key,
+        consequence="Every pair is read from disk again and the site is asked for "
+                    "nothing, so this costs time and no requests")
     jobs._update(conn, job["job_id"], status=JobStatus.PREPARING.value,
                  stage=JobStage.PREPARING.value, progress_done=0,
                  current_source_key=source_key, last_heartbeat_at=utc_now_iso(),

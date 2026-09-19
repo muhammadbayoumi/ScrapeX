@@ -186,6 +186,23 @@ def set_control(conn: sqlite3.Connection, job_ref: str, control: JobControl | st
     current = job["status"]
     held = current in WORKER_HELD_STATUSES
 
+    # RESUME IS ONLY MEANINGFUL ON A PAUSED JOB, and nothing checked that. The panel held
+    # the whole status->control rule by itself (`extension/jobsview.js`'s `controlsFor`),
+    # and the compare-and-swap below swaps on the status read two lines up -- inside this
+    # same call -- so it cannot see a caller working from a stale draw.
+    #
+    # THE JOBS PAGE MADE THAT STALENESS A DESIGN PROPERTY: it has no poll, while the
+    # mini-player above it repolls every 1.5s and draws its own Resume for the same job.
+    # Press the stale row after resuming from the player and a RUNNING job was recorded
+    # as QUEUED -- which re-creates the defect this page exists to fix, because
+    # `ADOPTION_ORDER` ranks `queued` below `running` and the player then adopts a
+    # different job than the one doing the work.
+    #
+    # Refusing here returns False, which the route already turns into the 409 the panel
+    # already reports. The rule lives once, where the write happens.
+    if control is JobControl.RESUME and current != JobStatus.PAUSED.value:
+        return False
+
     if control is JobControl.RESUME:
         target, next_control, finishing = JobStatus.QUEUED, JobControl.NONE, False
     elif control is JobControl.CANCEL:
@@ -1146,6 +1163,68 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     except (ValueError, TypeError):
         return False
     return (datetime.now(UTC) - beat).total_seconds() <= max_age_s
+
+
+def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
+                    consequence: str, source_key: str | None = None) -> int:
+    """Say that this pass is not the job's first, and what the previous one had done.
+
+    ISSUE 796, MEASURED ON HIS WAREHOUSE 2026-09-07. Two `dataset_interpret` jobs logged
+    their opening preamble FIVE times each, one second after an orphan sweep named them:
+
+        job_5155b86ba455  entered 14:31:42, then 14:31:54, 14:32:47, 14:33:35, 14:36:31
+
+    He was updating the engine through that window, so the sweep was right and requeueing
+    was right -- `reclaim_orphaned_jobs` at loop startup passes no `keep` because at
+    startup nothing of that runtime is running. What was wrong is that every runner then
+    writes `progress_done = 0` and says nothing, so **his progress bar went back to zero
+    eight times across the two jobs** with no line anywhere explaining it. The panel is
+    his only surface and it looked like a job that kept failing to start.
+
+    `started_at` IS THE SIGNAL AND IT WAS ALREADY THERE. All three runners guard their
+    entry write with `{} if job["started_at"] else {"started_at": ...}` -- so the fact
+    that this is a re-entry is a value they already read and discard. This turns it into
+    a sentence.
+
+    THE COUNT COMES FROM THE SNAPSHOT HANDED IN, NOT FROM THE ROW, and that is what makes
+    it safe. `_as_job` returns a plain `dict(row)` and `_update` only issues an UPDATE
+    against `crawl_job`, so the caller's own `progress_done = 0` never reaches this dict
+    and the number survives it whichever order the two run in. The call still sits above
+    the reset at both sites because that is the order the sentence describes; what would
+    actually break it is re-reading the row here, which is exactly what
+    `test_the_count_survives_the_callers_reset` pins by doing the reset FIRST and still
+    expecting the number back.
+
+    `consequence` IS THE CALLER'S AND NOT THIS FUNCTION'S. What a re-entry COSTS differs
+    by kind -- an interpretation re-reads pages off disk and asks the site for nothing, a
+    sweep skips what is already stored under its own run ref -- and one sentence for all
+    three would be wrong for two of them. What is shared is that a re-entry must be said
+    at all, and with the number he watched disappear.
+
+    AND IT NAMES NO CAUSE, WHICH IS THE CORRECTION A REVIEW EARNED. The line said
+    "re-entered after a restart", and `started_at` cannot tell a restart from a resume:
+    `set_control(RESUME)` sets the status to QUEUED and touches neither `started_at` nor
+    `progress_done`, so a pause he ended himself fired a sentence blaming a restart that
+    never happened. This PR makes that the COMMON path -- `controlsFor` draws Resume on
+    every paused row of a 173-row list -- and `jobWaitingLine` two files away refuses to
+    name a job it cannot identify for exactly the same reason. So the line states what it
+    knows: this pass is not the first, and here is where the last one got to.
+
+    Returns what the previous pass had reached, or 0 when this is a first entry and
+    nothing was said.
+    """
+    if not job.get("started_at"):
+        return 0
+    done = int(job.get("progress_done") or 0)
+    append_log(
+        conn, int(job["job_id"]),
+        "starting again from the beginning: this is not this job's first pass"
+        + (f", and the last one had reached {done:,} {unit}" if done else "")
+        + f". {consequence}",
+        # A WARNING, LIKE THE SWEEP LINE IT FOLLOWS. It is news rather than a fault, and
+        # `orphan sweep: ... is now queued` is the line immediately above it in his log.
+        level=LogLevel.WARNING, source_key=source_key)
+    return done
 
 
 def still_wanted(conn: sqlite3.Connection, job_ref: str) -> bool:

@@ -895,3 +895,307 @@ def test_the_sources_route_says_what_is_waiting(served):
         assert waiting["profiles"] == {"rowless": 2, "fetch": 2}, waiting
         assert waiting["interpret"] is None, (
             "no crawl has finished in this warehouse and the route says one has")
+
+
+def test_a_re_entered_sweep_says_so_and_says_what_it_costs(warehouse, monkeypatch):
+    """ISSUE 796 IN THIS RUNNER, AND THE CALL SITE IS THE SUBJECT. A mutation deleting
+    the call from `run_profile_crawl_job_once` survived every guard that drove
+    `jobs.note_a_re_entry` directly -- the vacuity shape of a test that reads a helper
+    while the wiring goes unmeasured.
+
+    The state is what `reclaim_orphaned_jobs` leaves behind when a restart requeues a
+    running job: `started_at` set, `progress_done` at what the previous pass reached.
+    Measured on his warehouse 2026-09-07, eight times across two jobs in half an hour
+    while he was updating the engine -- and every runner writes `progress_done = 0` at
+    entry, so his bar went back to zero with no line anywhere saying why.
+
+    AND THE CONSEQUENCE IS THIS KIND'S OWN. A sweep skips what is already stored under
+    its run ref; an interpretation asks the site for nothing at all. One sentence for
+    both would be false for one of them.
+    """
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["8201", "8202"])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.execute(
+        "UPDATE crawl_job SET started_at = ?, progress_done = ? WHERE job_ref = ?",
+        ("2026-09-07T10:33:25Z", 620, job_ref))
+    conn.commit()
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: "<html></html>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "not this job's first pass" in said, (
+        f"the sweep reset his bar to zero and said nothing: {said}")
+    assert "620 page(s)" in said, (
+        f"the number he watched disappear is not in the line: {said}")
+    assert "skipped rather than bought again" in said, (
+        f"the line does not say what a re-entry costs for a SWEEP: {said}")
+
+
+def test_a_first_sweep_says_nothing_about_a_restart(warehouse, monkeypatch):
+    """A line on every start is noise, and noise on every start is how the line that
+    matters stops being read."""
+    conn, _path = warehouse
+    directory = directories.get(SITE)
+    _sight(conn, directory.dataset_key, ["8301"])
+    job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(contractors, "make_fetch",
+                        lambda pace: (None, lambda url: "<html></html>"))
+
+    profilejob.run_profile_crawl_job_once(conn, job_ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, job_ref))
+    assert "not this job's first pass" not in said, said
+
+
+def test_the_route_says_what_each_kind_counted(served):
+    """A NUMBER WITHOUT ITS UNIT IS A NUMBER THE PANEL HAS TO GUESS, and it guessed
+    wrong: the Jobs page printed "469 of 469 source(s)" for 469 page pairs, against
+    twelve registered sources.
+
+    MEASURED ON HIS LIVE ENGINE, 2026-09-10: `GET /api/jobs` returns
+    `fetch.requests = 0` and `fetch.expected = null` for every `profile_crawl` and
+    `dataset_interpret` job -- neither runner is among `record_source_fetch`'s callers --
+    so `progress` is the only pair a reader has, and it named nothing.
+
+    THE RUNNER THAT WROTE THE NUMBER IS THE ONLY THING THAT KNOWS WHAT IT COUNTED, which
+    is why the word is declared on the wire and not guessed in the panel.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        sweep = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
+        interpret = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+        crawl = jobs.create_job(conn, [SITE])
+        conn.commit()
+
+        # THE SEED FIRST, BECAUSE THE UNIT MUST NOT NAME IT. `create_job` writes
+        # `progress_total = len(source_keys)`, so every job above is sitting at 0 of 1
+        # SOURCE -- true, and nothing to do with pages. Declaring the kind's unit here
+        # made a queued 938-page sweep read "0 of 1 page(s)".
+        queued = {job["job_ref"]: job
+                  for job in client.get("/api/jobs").json()["jobs"]}
+        for ref, kind in ((sweep, "a sweep"), (interpret, "an interpretation")):
+            assert queued[ref]["progress"] == {"done": 0, "total": 1}, (
+                f"{kind} nobody has picked up yet names a unit over the source count "
+                f"the row was seeded with: {queued[ref]['progress']}")
+
+        # NOW THE RUNNER'S OWN NUMBERS, which is the only state the unit describes.
+        # `profilejob` writes `progress_total = wanted * 2` at the moment it goes
+        # PREPARING; `datasetjob` writes the pair count at its first closed pair.
+        jobs._update(conn, jobs.get_job(conn, sweep)["job_id"],
+                     progress_done=620, progress_total=938)
+        jobs._update(conn, jobs.get_job(conn, interpret)["job_id"],
+                     progress_done=300, progress_total=909)
+        conn.commit()
+    finally:
+        conn.close()
+
+    listed = {job["job_ref"]: job for job in client.get("/api/jobs").json()["jobs"]}
+
+    assert listed[sweep]["progress"]["unit"] == "page(s)", (
+        f"a profile sweep counts pages and says so: {listed[sweep]['progress']}")
+    assert listed[interpret]["progress"]["unit"] == "page pair(s)", (
+        f"an interpretation counts page PAIRS -- 469 pairs is 938 stored readings and "
+        f"neither is the other: {listed[interpret]['progress']}")
+    # AND A KIND THAT COUNTS SOURCES DECLARES NOTHING, which is what the pair meant
+    # before any kind declared anything. Adding a word here would be a second guess.
+    assert "unit" not in listed[crawl]["progress"], (
+        f"a price crawl counts sources and was given a unit: {listed[crawl]['progress']}")
+
+    # THE FETCH SIDE IS EMPTY FOR BOTH, which is the fact that makes the unit
+    # load-bearing rather than decorative.
+    for ref in (sweep, interpret):
+        assert not listed[ref]["fetch"]["requests"], listed[ref]["fetch"]
+        assert not listed[ref]["fetch"]["expected"], listed[ref]["fetch"]
+
+    # AND THE NUMBERS SURVIVED THE WORD. A unit that arrived by rewriting the pair
+    # would pass every assertion above and tell him the wrong thing.
+    assert listed[sweep]["progress"]["done"] == 620, listed[sweep]["progress"]
+    assert listed[sweep]["progress"]["total"] == 938, listed[sweep]["progress"]
+
+
+def test_a_listing_crawl_counts_cells_and_says_so(served):
+    """THE THIRD RUNNER WAS MISSING FROM THE TABLE, and it does not count sources.
+
+    `directoryjob.py:18` -- "progress is counted in cells" -- and `:283` writes
+    `progress_total=cells`. With no entry for the kind, `_job_view` declared no unit and
+    the panel fell through to its own default word, so a finished listing crawl of 56
+    cells against ONE source read "56 of 56 source(s)". That is the same defect this
+    table exists to remove, two orders out, in the unit he can check himself.
+
+    IT IS NOT ONLY THE PREPARING WINDOW. `directoryjob` writes per-source fetch slots but
+    never the aggregate `counters["requests"]` -- `_merge_counters_column` has one caller,
+    in the price-crawl runner -- so once the slot flips to "done" a completed listing
+    crawl reports `fetch.requests: 0` however many requests it made, and the reader falls
+    through to `progress` for the whole of the job's visible life.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        listing = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+        conn.commit()
+
+        # The seed first, exactly as the sweep and the interpretation are checked: a
+        # listing crawl nobody has picked up is at 0 of 1 SOURCE and must not be given
+        # the runner's word over it.
+        queued = {job["job_ref"]: job
+                  for job in client.get("/api/jobs").json()["jobs"]}
+        assert queued[listing]["progress"] == {"done": 0, "total": 1}, (
+            f"a listing crawl nobody has picked up yet names a unit over the source "
+            f"count the row was seeded with: {queued[listing]['progress']}")
+
+        # Now the runner's own number: 56 cells, finished, and no aggregate request
+        # count -- the state a completed listing crawl is actually in.
+        jobs._update(conn, jobs.get_job(conn, listing)["job_id"],
+                     progress_done=56, progress_total=56)
+        conn.commit()
+    finally:
+        conn.close()
+
+    listed = {job["job_ref"]: job for job in client.get("/api/jobs").json()["jobs"]}
+
+    assert listed[listing]["progress"]["unit"] == "cell(s)", (
+        f"a listing crawl counts cells and said nothing, so the panel called 56 cells "
+        f"56 sources: {listed[listing]['progress']}")
+    assert not listed[listing]["fetch"]["requests"], (
+        f"this guard assumes the fetch side is empty -- which is what makes the unit "
+        f"load-bearing rather than decorative: {listed[listing]['fetch']}")
+
+
+def test_an_enrichment_names_its_unit_even_for_one_organization(served):
+    """THE SEED HEURISTIC CANNOT HOLD FOR A KIND THAT HAS NO SEED, and asking it of one
+    silently withdrew a unit that had been unconditional.
+
+    `organization_enrichment` writes `progress_total` at CREATION
+    (`enrichment/service.py:1173-1176`), not at PREPARING, so the pair is never
+    `create_job`'s seed. But an enrichment job carries exactly ONE source key, always
+    (`service.py:1126-1128`), so an update run finding ONE changed organization has
+    `total == len(source_keys) == 1` -- and `bool(done) or total != len(source_keys)` is
+    False for its entire pre-completion life.
+
+    The row therefore read "0 of 1 source(s)" for a one-organization enrichment and
+    flipped to "1 of 1 organizations" only when it finished. On `main` that word was
+    unconditional. n=1 is not a corner here: it is what every quiet update run looks like.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        one = jobs.create_job(conn, [SITE], job_kind="organization_enrichment")
+        many = jobs.create_job(conn, [SITE], job_kind="organization_enrichment")
+        conn.commit()
+        # Exactly what the enrichment service writes at creation: the item count, over
+        # the single source key every enrichment job carries.
+        jobs._update(conn, jobs.get_job(conn, one)["job_id"],
+                     progress_done=0, progress_total=1)
+        jobs._update(conn, jobs.get_job(conn, many)["job_id"],
+                     progress_done=0, progress_total=4)
+        conn.commit()
+    finally:
+        conn.close()
+
+    listed = {job["job_ref"]: job for job in client.get("/api/jobs").json()["jobs"]}
+
+    assert listed[one]["progress"]["unit"] == "organizations", (
+        f"a one-organization enrichment lost its unit to a seed test it can never pass, "
+        f"so the row called one organization one source: {listed[one]['progress']}")
+    assert listed[many]["progress"]["unit"] == "organizations", (
+        f"a four-organization enrichment lost its unit: {listed[many]['progress']}")
+
+
+def test_every_kind_that_writes_its_own_count_declares_what_it_counts():
+    """The table and the seed-exemption set are read together, so neither may drift.
+
+    A kind that writes its own number into the pair and declares no unit is the defect
+    this whole table exists for; a kind listed as seeded that is not in the table would
+    be exempted from a check it never reaches. Naming the runners' modules rather than
+    their literals keeps this pinned to the definitions.
+    """
+    from scrapex.webui.app import PROGRESS_UNITS, SEEDED_UNTIL_A_RUNNER_CLAIMS_IT
+
+    assert SEEDED_UNTIL_A_RUNNER_CLAIMS_IT <= set(PROGRESS_UNITS), (
+        f"{SEEDED_UNTIL_A_RUNNER_CLAIMS_IT - set(PROGRESS_UNITS)} is treated as a seeded "
+        f"kind but declares no unit, so the exemption guards nothing")
+    assert SEEDED_UNTIL_A_RUNNER_CLAIMS_IT == {
+        profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND}, (
+        f"the three crawl runners each write their own total at PREPARING or later and "
+        f"are the kinds the seed test is for; this set is now "
+        f"{SEEDED_UNTIL_A_RUNNER_CLAIMS_IT}")
+    assert "organization_enrichment" in PROGRESS_UNITS, (
+        "the enrichment kind declares a unit")
+    assert "organization_enrichment" not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT, (
+        "the enrichment kind writes its total at creation, so it has no seed window and "
+        "must not be asked the seed question -- that is what made a one-organization run "
+        "read '0 of 1 source(s)'")
+
+
+def test_resume_is_refused_on_a_job_that_is_not_paused(served):
+    """A STALE ROW COULD RECORD A RUNNING JOB AS QUEUED, and nothing said no.
+
+    `set_control` checked only that the job was not terminal, and its compare-and-swap
+    swaps on the status it reads inside the same call -- so it cannot see a caller
+    working from a draw made minutes ago. The Jobs page has no poll by design while the
+    mini-player above it repolls every 1.5s and offers its own Resume for the same job,
+    so the two are on one screen with one of them frozen.
+
+    The consequence is not cosmetic: `ADOPTION_ORDER` ranks `queued` below `running`, so
+    flipping a running job to queued makes the mini-player adopt a different job than the
+    one doing the work -- the defect this page exists to fix.
+    """
+    _client, path = served
+    conn = dbmod.connect(path)
+    try:
+        ref = jobs.create_job(conn, [SITE])
+        job_id = jobs.get_job(conn, ref)["job_id"]
+
+        for status in (JobStatus.RUNNING, JobStatus.QUEUED, JobStatus.PREPARING):
+            jobs._update(conn, job_id, status=status.value, control=JobControl.NONE.value)
+            conn.commit()
+            assert jobs.set_control(conn, ref, JobControl.RESUME) is False, (
+                f"RESUME was accepted on a {status.value} job, which records it as "
+                f"queued and clears any intent it was carrying")
+            assert jobs.get_job(conn, ref)["status"] == status.value, (
+                f"a refused RESUME still changed the status of a {status.value} job")
+
+        # And the one state it IS for still works, or the guard has broken the button.
+        jobs._update(conn, job_id, status=JobStatus.PAUSED.value,
+                     control=JobControl.NONE.value)
+        conn.commit()
+        assert jobs.set_control(conn, ref, JobControl.RESUME) is True, (
+            "RESUME was refused on a PAUSED job, which is the only job it is for")
+        assert jobs.get_job(conn, ref)["status"] == JobStatus.QUEUED.value
+    finally:
+        conn.close()
+
+
+def test_a_runner_that_counted_as_many_as_it_had_sources_still_names_its_unit(served):
+    """The `bool(done)` half of the seed test was guarded by nothing.
+
+    `claimed` is a disjunction, and only one side was ever exercised: every fixture in
+    the suite sat at `total != len(source_keys)`, so deleting `bool(done) or` left the
+    whole suite green. The state it alone decides is a runner that has done work AND
+    whose total happens to equal its source count -- an interpretation that found one
+    page pair for one source is exactly that, and it is the smallest real run there is.
+
+    Without that half the row reads "1 of 1 source(s)" for one page PAIR, which is two
+    stored readings and not a source at all.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        interpret = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+        conn.commit()
+        jobs._update(conn, jobs.get_job(conn, interpret)["job_id"],
+                     progress_done=1, progress_total=1)
+        conn.commit()
+    finally:
+        conn.close()
+
+    listed = {job["job_ref"]: job for job in client.get("/api/jobs").json()["jobs"]}
+    assert listed[interpret]["progress"]["unit"] == "page pair(s)", (
+        f"an interpretation that closed one pair for one source lost its unit, so one "
+        f"page pair is reported as one source: {listed[interpret]['progress']}")

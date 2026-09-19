@@ -12,6 +12,9 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
+import {
+  liveJob, progressFraction, progressLine, rowsFrom, statusWords, summariseJobs,
+} from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
@@ -140,7 +143,9 @@ const VIEWS = [
   // installed" before anything can be run. console is the owner build's page and
   // is removed from the published one — see docs/PLATFORM-PLAN.md Decision 20.
   "profile", "engines", "database",
-  "source", "run", "data", "sources", "source-edit", "appearance", "finance",
+  // `jobs` SITS BEFORE `run` HERE FOR THE SAME REASON IT DOES IN THE RAIL: his ruling
+  // of 2026-09-09, and this list is the order a reader of the file sees.
+  "source", "jobs", "run", "data", "sources", "source-edit", "appearance", "finance",
   "console", "settings",
   // A sub-view of Profile, like source-edit is of Sources: no rail button, and
   // showView maps it back to the Profile rail entry below. A name here with no
@@ -331,6 +336,7 @@ function showView(name, animate = true) {
     main.scrollTo({top: 0, behavior: reduceMotion.matches ? "auto" : "smooth"});
   }
   if (name === "database") loadDatabase();
+  if (name === "jobs") loadJobs();
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
   if (name === "finance") loadGoogleFinance();
@@ -5175,15 +5181,32 @@ function renderLogs(entries, meta) {
 
 // The mini-player's own progress figure, drawn from the SAME fetch progress the
 // Activity bar uses — never the old sites-percentage that read 0% all run.
+/**
+ * How far along the mini-player's job is — through `jobsview`, not a second opinion.
+ *
+ * IT READ `fetch` ALONE AND THAT IS ONLY HALF THE JOBS. Measured on his live engine
+ * 2026-09-10: every `profile_crawl` and `dataset_interpret` returns
+ * `fetch.requests = 0` and `fetch.expected = null`, because neither runner is among
+ * `record_source_fetch`'s callers — they write their count into `progress` instead. So
+ * this helper drew "starting…" for a sweep at 620/938 and an indeterminate bar for as
+ * long as it ran. That is the "0% for 18 minutes" complaint one kind over, and it was
+ * invisible because both suites fed these kinds a `fetch` no producer emits.
+ *
+ * The two surfaces now answer from `progressLine` and `progressFraction`, so a job
+ * cannot read 620/938 on one screen and "starting…" on the other. The mini-player keeps
+ * its own SHAPE — a percentage and a bar that can be indeterminate — because that is
+ * what a one-line player has room for; what it stops keeping is its own arithmetic.
+ */
 function miniProgress(job) {
-  const f = job.fetch || {};
-  if (f.expected) {
-    const pct = Math.min(100, Math.round((f.requests / f.expected) * 100));
-    return { pct, text: `${pct}% · ${fmtCount(f.requests)}/${fmtCount(f.expected)}`,
-             indeterminate: false };
+  const text = progressLine(job);
+  const fraction = progressFraction(job);
+  if (fraction === null) {
+    // NO DENOMINATOR IS NOT ZERO. An indeterminate bar says "running, total unknown",
+    // which is true; a bar at 0% says nothing has happened, which may be false.
+    return { pct: 100, text: text || "starting…", indeterminate: true };
   }
-  return { pct: 100, text: f.requests ? `${fmtCount(f.requests)} requests` : "starting…",
-           indeterminate: true };
+  const pct = Math.round(fraction * 100);
+  return { pct, text: `${pct}% · ${text}`, indeterminate: false };
 }
 
 function renderMiniplayer(job, queued) {
@@ -5215,7 +5238,11 @@ async function pollJobOnce() {
   try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
   catch (_) { renderMiniplayer(null); renderActivity(null); return; }
 
-  const job = jobs[0] || null;
+  // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
+  // entered eighteen seconds after the one doing the work was drawn instead of it.
+  // Measured 2026-09-07: the panel showed `0/938 preparing` while another job was at
+  // 620/938, and he read the panel as nothing working. `liveJob` ranks by status.
+  const job = liveJob(jobs);
   state.job = job;
   if (job) {
     state.jobRef = job.job_ref;
@@ -5305,9 +5332,25 @@ async function reattachToRunningJob() {
   return pollJob();
 }
 
+/**
+ * Whether a control may go ahead, and in what words it is asked.
+ *
+ * ONE HOME BECAUSE IT IS ONE PIECE OF KNOWLEDGE. Cancel is terminal -- `set_control`
+ * writes `CANCELLED` with `finished_at` on a job the worker is not holding, and the
+ * route answers 409 afterwards, so there is no un-cancel. The Run screen asked before
+ * doing it and the Jobs page did not, which mattered most exactly where the page puts
+ * Cancel next to Resume on a paused job. The two flows differ in everything else -- which
+ * ref, which line reports the refusal, what happens after -- so only the question is
+ * shared, not the handler.
+ */
+function confirmedControl(control) {
+  if (control !== "cancel") return true;
+  return confirm("Cancel this job? Work already saved is kept.");
+}
+
 async function controlJob(control) {
   if (!state.jobRef) return;
-  if (control === "cancel" && !confirm("Cancel this job? Work already saved is kept.")) return;
+  if (!confirmedControl(control)) return;
   try { await post(`/api/jobs/${state.jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
   await pollJob();
@@ -6792,6 +6835,283 @@ async function restoreSnapshot() {
     confirm.textContent = "Restore this copy";
   }
 }
+//: HOW MANY JOBS THE PAGE ASKS FOR. His warehouse held 163 the day he asked for this
+//: page, so 200 shows every one of them today -- and the page SAYS when it stopped at
+//: the bound rather than presenting a prefix as the whole, which is the failure the
+//: bound exists to prevent.
+const JOBS_LIMIT = 200;
+
+//: WHAT AN UNFINISHED LOG READ LOOKS LIKE. Named because two places must agree on it:
+//: `openJobLog` writes it, and a redraw must not mistake it for a log worth keeping.
+const LOG_PLACEHOLDER = "Reading…";
+
+/** A line that is there when it has something to say and gone when it does not.
+ *  `data.js` has the same three lines as `show` (`data.js:47`); kept local rather than
+ *  shared because that file is a TAB page and this one is the panel -- two documents,
+ *  and nothing about one changes when the other does. */
+function sayOn(id, text) {
+  const node = $(id);
+  node.textContent = text || "";
+  node.classList.toggle("hidden", !text);
+}
+
+/**
+ * The Jobs page: every job this warehouse has run.
+ *
+ * HIS REQUEST OF 2026-09-07, and the four things it makes visible are the four that
+ * were not: a sweep at 620/938 hidden behind a blocked one showing 0/938, a duplicate
+ * sweep he could not see was a second job, a cancelled job that ran to completion, and
+ * a paused interpretation at 300/909.
+ *
+ * THE ENGINE NEEDED NO CHANGE. `GET /api/jobs?limit=N` already answers every status
+ * with the full per-job view; the panel asked it once, with `active_only=true`, and
+ * then read `jobs[0]`.
+ *
+ * `keepNotice` IS FOR THE CALLER THAT JUST WROTE ONE. A refusal is written by
+ * `pressJobControl` and this function cleared it on the very next line it ran, so the
+ * 409 the panel exists to report lived for one round trip -- a caught error erased by
+ * the reload the same handler triggers is a silent failure with extra steps.
+ */
+async function loadJobs({keepNotice = false} = {}) {
+  const list = $("jobs-list");
+  let payload;
+  try {
+    payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
+  } catch (error) {
+    // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
+    // and that confusion is the shape of every complaint this page answers. This
+    // overwrites a kept notice on purpose: an engine that cannot answer outranks a
+    // refusal from the one that could.
+    list.replaceChildren();
+    $("jobs-summary").textContent = "";
+    sayOn("jobs-bounded", "");
+    sayOn("jobs-blocked", `The engine did not answer: ${error.message}. Start it from `
+      + "the Run screen.");
+    return;
+  }
+  if (!keepNotice) sayOn("jobs-blocked", "");
+  const rows = rowsFrom(payload);
+  $("jobs-summary").textContent = summariseJobs(payload);
+  sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
+    ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
+      + "whole of it."
+    : "");
+
+  // WHAT HE WAS LOOKING AT SURVIVES THE REDRAW. The controls sit INSIDE the row, so a
+  // blind `replaceChildren` shut the row he had just pressed a button in and threw away
+  // the log it had fetched -- undoing the interaction this page was designed around. The
+  // FOCUS half of that is restored by `pressJobControl` and deliberately not here: that
+  // handler disables the button on its first line, and disabling a focused element moves
+  // focus to <body>, so by the time this runs there is nothing left to read.
+  const wasOpen = new Map();
+  for (const previous of list.querySelectorAll("details.job-row[open]")) {
+    const had = previous.querySelector(".job-log")?.textContent || "";
+    // A ROW REFRESHED MID-FETCH CARRIES THE PLACEHOLDER, NOT A LOG. Restoring that would
+    // satisfy the `toggle` listener's `!log.textContent` test for ever and the row would
+    // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
+    wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
+  }
+  list.replaceChildren(...rows.map((row) => {
+    const box = drawJobRow(row);
+    if (!wasOpen.has(row.job_ref)) return box;
+    box.open = true;
+    // Restored rather than re-fetched: the row's own `toggle` listener only reads when
+    // the log is empty, so putting the text back is also what stops a second request.
+    box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
+    return box;
+  }));
+}
+
+/**
+ * One job as a row that opens.
+ *
+ * `<details>` RATHER THAN A CLICK HANDLER AND A CLASS TOGGLE: it is keyboard-operable
+ * and announced by a screen reader without a line of script, and the log is fetched the
+ * first time a row opens rather than two hundred times on load.
+ */
+function drawJobRow(row) {
+  const box = document.createElement("details");
+  box.className = "card job-row";
+  box.dataset.job = row.job_ref;
+  const head = document.createElement("summary");
+  head.className = "job-summary";
+  // WHY A JOB IS NOT MOVING GOES IN THE PART THAT IS ALWAYS VISIBLE. It is the one
+  // sentence this page exists to say: a closed row showed `preparing` and nothing else,
+  // which is exactly the screen he read as "nothing is working". The log, the controls
+  // and the timestamps open on demand; this does not.
+  const top = document.createElement("span");
+  top.className = "job-head";
+  // THE STATUS IS A BADGE, AND `statusTone` OWNS WHICH ONE -- the kit has `ok`, `off` and
+  // `danger`, and any other class renders as plain grey, which `renderEngineDetail`
+  // already records as a mistake made once and `failed` repeated with `err`.
+  // UN-UNDERSCORED, like every other status this panel shows: `renderActivity`,
+  // `renderMiniplayer` and the summary line directly above this list all do it, and a
+  // badge reading `completed_with_errors` under a summary reading `completed with errors`
+  // spells one status two ways on one screen.
+  const badge = document.createElement("span");
+  badge.className = `badge ${row.tone}`;
+  badge.textContent = statusWords(row.status);
+  const label = document.createElement("span");
+  label.className = "job-label";
+  label.textContent = row.label;
+  top.append(badge, label);
+  if (row.progress) {
+    const progress = document.createElement("span");
+    progress.className = "muted text-xs";
+    progress.textContent = row.progress;
+    top.append(progress);
+  }
+  if (row.live) {
+    // `moving` AND NOT `running`, because `row.live` is now `isMoving` and that set holds
+    // `resuming` too. It said "running" over a `preparing` job for as long as the dot was
+    // drawn from "holds a worker".
+    const dot = document.createElement("span");
+    dot.className = "job-live";
+    dot.setAttribute("aria-label", "moving");
+    top.append(dot);
+  }
+  head.append(top);
+  if (row.waiting) {
+    const why = document.createElement("span");
+    why.className = "job-waiting muted text-xs";
+    why.textContent = row.waiting;
+    head.append(why);
+  }
+  box.append(head);
+
+  const when = document.createElement("p");
+  when.className = "muted text-xs";
+  const started = window.ScrapeXTime.markup(row.created_at, "datetime", {zone: true});
+  when.innerHTML = row.finished_at
+    ? `${started} &rarr; ${window.ScrapeXTime.markup(row.finished_at, "datetime", {zone: true})}`
+    : started;
+  box.append(when);
+
+  if (row.fraction !== null) {
+    const bar = document.createElement("div");
+    bar.className = "job-bar";
+    bar.setAttribute("role", "progressbar");
+    // THE VALUE IS ON THE ELEMENT, not only in the width. Issue 725 is this exact
+    // omission on the crawl bar: a screen reader was told there was a bar and never
+    // what it read.
+    bar.setAttribute("aria-valuenow", String(Math.round(row.fraction * 100)));
+    bar.setAttribute("aria-valuemin", "0");
+    bar.setAttribute("aria-valuemax", "100");
+    const fill = document.createElement("span");
+    fill.style.width = `${Math.round(row.fraction * 100)}%`;
+    bar.append(fill);
+    box.append(bar);
+  }
+  if (row.error_summary) {
+    const failed = document.createElement("p");
+    failed.className = "hint err text-xs";
+    failed.textContent = row.error_summary;
+    box.append(failed);
+  }
+  if (row.controls.length) {
+    const actions = document.createElement("div");
+    actions.className = "row job-actions";
+    for (const control of row.controls) {
+      const button = document.createElement("button");
+      button.className = "ghost";
+      button.type = "button";
+      button.textContent = control[0].toUpperCase() + control.slice(1);
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        pressJobControl(row.job_ref, control, button);
+      });
+      actions.append(button);
+    }
+    box.append(actions);
+  }
+
+  const log = document.createElement("pre");
+  // `text-xs` IS A CLASS THIS PANEL HAS. It was a `var(--text-xs, 11px)` read, and a
+  // token nothing declares is a declaration the browser drops in silence.
+  log.className = "job-log text-xs";
+  box.append(log);
+  box.addEventListener("toggle", () => {
+    if (box.open && !log.textContent) openJobLog(row.job_ref, log);
+  });
+  return box;
+}
+
+/**
+ * One job's log, into its own row.
+ *
+ * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
+ * somebody else's website. The Run screen keeps `renderLogs` for the LIVE job, which is
+ * a different question -- a streaming log that repolls and scrolls itself -- so this is
+ * not a second copy of one renderer.
+ *
+ * THE STAMP GOES THROUGH `ScrapeXTime`, WHICH IS THE RULE AND WAS BEING BROKEN HERE.
+ * `logged_at` is stored UTC, and printing it raw put a `...Z` under a row header rendered
+ * in his own zone -- two zones on one screen, which is the defect that module exists to
+ * remove. `format()` and not `node()` because this stays ONE text node: the log is a
+ * snapshot that never repolls, and keeping it text is also what lets a redraw carry an
+ * open row's log across without re-fetching it. The cost is that an open log's stamps do
+ * not follow a zone change until the row is opened again; the header's `<time>` nodes do.
+ */
+async function openJobLog(jobRef, into) {
+  into.textContent = LOG_PLACEHOLDER;
+  try {
+    const log = await api(`/api/jobs/${encodeURIComponent(jobRef)}/logs`);
+    const entries = log.entries || [];
+    into.textContent = entries.length
+      ? entries.map((entry) =>
+          `${window.ScrapeXTime.format(entry.logged_at, "short")}  `
+          + `${entry.level || ""}  ${entry.message || ""}`).join("\n")
+      : "This job wrote no log.";
+  } catch (error) {
+    into.textContent = `The log could not be read: ${error.message}`;
+  }
+}
+
+/**
+ * Pause, resume or cancel -- from the row of the job it belongs to.
+ *
+ * THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER ADOPTED,
+ * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
+ * not the job the panel was drawing.
+ */
+async function pressJobControl(jobRef, control, button) {
+  if (!confirmedControl(control)) return;
+  const was = button.textContent;
+  button.disabled = true;
+  button.textContent = "\u2026";
+  let refused = false;
+  try {
+    await post(`/api/jobs/${encodeURIComponent(jobRef)}/control`, {control});
+  } catch (error) {
+    // 409 IS AN ANSWER AND NOT A CRASH: the job settled between the draw and the press,
+    // which a long list of jobs makes likely rather than rare.
+    refused = true;
+    sayOn("jobs-blocked", `${control} was refused: ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = was;
+  }
+  // THE LIST IS RELOADED EVEN ON A REFUSAL, because a 409 means the job settled and the
+  // row on screen is the stale one that offered the button. `keepNotice` is what stops
+  // that reload erasing the sentence explaining why.
+  await loadJobs({keepNotice: refused});
+
+  // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
+  // itself: `button.disabled = true` above moves focus to <body> immediately, so by the
+  // time the redraw runs there is nothing to read back. The element is gone either way
+  // -- what is restored is its replacement, found by job and by label. If the press
+  // changed the job's status the label may no longer be offered, and then the row's own
+  // summary takes focus so it stays where he left it rather than on <body>.
+  // Matched on `dataset.job` rather than a built selector, so a job ref never has to be
+  // escaped into one.
+  const row = [...$("jobs-list").querySelectorAll("details.job-row")]
+    .find((one) => one.dataset.job === jobRef);
+  if (!row) return;
+  const again = [...row.querySelectorAll("button")]
+    .find((one) => one.textContent === was);
+  (again || row.querySelector("summary"))?.focus();
+}
+
 async function loadDatabase() {
   const upgrade = $("runtime-upgrade");
   try {
@@ -8520,6 +8840,13 @@ function wireDeferredControls() {
   document.querySelector('label[for="source-current"]')
     .addEventListener("click", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
+
+  // THE JOBS PAGE HAS NO POLL, SO THIS BUTTON IS ITS ONLY REFRESH -- and it shipped
+  // drawn and unwired, which is worse than not drawing it. The list is a snapshot from
+  // the moment the view was entered while the mini-player above it repolls every 1.5s,
+  // so without this he watched a live player sit on a frozen list and had to leave the
+  // rail and come back. `test_panel_dom.py` presses it and counts the second request.
+  $("jobs-reload").addEventListener("click", () => loadJobs());
 
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);

@@ -4884,12 +4884,86 @@ def _queued_behind(job: dict, queue: dict | None) -> dict | None:
     }
 
 
+#: WHAT EACH KIND'S `progress` PAIR COUNTS. A kind absent from here counts sources,
+#: which is what the pair originally meant and still means for a price crawl -- and a
+#: price crawl is now the only kind absent. The listing crawl was missing from this table
+#: and does NOT count sources: it writes cells (`directoryjob.py:18`, `:283`), so a
+#: finished listing crawl read "56 of 56 source(s)" against one source -- the same defect
+#: this table exists to remove, left in place for the third runner. It also regressed the
+#: mini-player, which said "starting…" for that job before this page routed it here.
+#:
+#: KEYED ON THE JOB KIND AND NOT ON THE RUNNER, because this is the wire contract: the
+#: panel draws whatever word arrives, and `jobsview.progressLine` deliberately has no
+#: opinion of its own about what a job counts.
+#: AND THE KINDS ARE READ FROM THE MODULES THAT DEFINE THEM, not re-typed here.
+#: `test_the_two_collecting_kinds_are_named_once` caught the literals within the hour:
+#: issue 792 happened because two readers held the same fact and only one was widened,
+#: and a third place spelling a kind out as a string literal is how that repeats. That
+#: guard reads this file as TEXT, so quoting the literal even in a comment trips it --
+#: which it did, and the comment is why this sentence names none.
+PROGRESS_UNITS: dict[str, str] = {
+    "organization_enrichment": "organizations",
+    # `profilejob.py:29` -- "progress is counted in PAGES", and `:295` writes
+    # `progress_total = wanted * 2`, which is one page per locale per contractor.
+    profilejob.JOB_KIND: "page(s)",
+    # `datasetjob` counts page PAIRS: `approve` collapses the en/ar halves of one page,
+    # so 469 pairs is 938 stored readings and neither number is the other.
+    datasetjob.JOB_KIND: "page pair(s)",
+    # `directoryjob.py:18` -- "progress is counted in cells", and `:283` writes
+    # `progress_total=cells`. Its own sentences already use this word (`:288`, `:479`).
+    directoryjob.JOB_KIND: "cell(s)",
+}
+
+#: THE KINDS THAT DECLARE A UNIT AND WHOSE PAIR IS STILL `create_job`'S SEED UNTIL A RUNNER
+#: REPLACES IT, which is what `claimed` below is asking about. Those three crawl runners
+#: write their own total at PREPARING or later, so before that the pair genuinely counts
+#: SOURCES and naming a runner's unit over it would be a lie about the seed.
+#:
+#: A PRICE CRAWL IS SEEDED TOO AND IS STILL NOT LISTED, because it never stops counting
+#: sources -- it declares no unit above, so the question below never reaches it and
+#: listing it would only suggest it might one day answer differently.
+#:
+#: `organization_enrichment` IS DELIBERATELY ABSENT. Its total is written at CREATION
+#: (`enrichment/service.py:1173-1176`), not by a runner, so the seed is never what a
+#: reader sees. Treating it like the others made its unit conditional on a heuristic that
+#: cannot hold for it: an update run finding ONE changed organization has
+#: `total == len(source_keys) == 1` -- an enrichment job carries exactly one source key,
+#: always -- so a true "0 of 1 organizations" became "0 of 1 source(s)" until the job
+#: finished. That was unconditional before this page existed, and this keeps it so.
+SEEDED_UNTIL_A_RUNNER_CLAIMS_IT = frozenset({
+    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND,
+})
+
+
 def _job_view(job: dict, queue: dict | None = None) -> dict:
     """The shape the side panel polls: aggregated progress only (spec 25) — never
     raw records, and everything needed to redraw the mini-player from scratch
     after the panel was closed."""
     total = job.get("progress_total") or 0
     done = job.get("progress_done") or 0
+    # WHOSE NUMBER THIS IS, WHICH DECIDES WHETHER ITS UNIT MAY BE NAMED AT ALL.
+    #
+    # `create_job` seeds `progress_total` with the number of SOURCES, and that is a
+    # true statement about a job nobody has picked up yet: 0 of 1 source. The runner
+    # replaces it with its own count later -- `profilejob` in the same UPDATE that
+    # sets PREPARING, `datasetjob` not until its first page pair closes, and never at
+    # all for an interpretation that finds no pairs to read.
+    #
+    # So a kind's unit describes the RUNNER's number and is a lie about the seed:
+    # declared unconditionally, a queued sweep read "0 of 1 page(s)" for a job that
+    # was about to fetch 938. Naming the unit only once the seed is gone leaves the
+    # queued row saying "0 of 1 source(s)", which is what that pair still means.
+    #
+    # A MULTI-SOURCE JOB WHOSE RUNNER HAPPENS TO COUNT EXACTLY AS MANY PAGES AS IT HAS
+    # SOURCES, at zero done, is read as unclaimed for that one poll. Both numbers are
+    # the same there, so the row states the right figure under the wider word.
+    #
+    # AND ONLY FOR THE KINDS WHOSE PAIR IS A SEED AT ALL. Asking this of a kind that
+    # never had one silently withdrew a unit that used to be unconditional; see
+    # SEEDED_UNTIL_A_RUNNER_CLAIMS_IT.
+    claimed = (job.get("job_kind") not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT
+               or bool(done)
+               or total != len(job.get("source_keys") or []))
     return {
         "job_ref": job["job_ref"],
         "job_kind": job.get("job_kind", "crawl"),
@@ -4898,14 +4972,31 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
         "source_keys": job["source_keys"],
         "current_source_key": job["current_source_key"],
         "stage": job["stage"],
-        # SITES done, which is all this ever measured. It keeps its name and
-        # loses the percentage: 0/1 is a true statement about a one-source job
-        # and "0%" was not.
+        # WHAT THIS PAIR COUNTS, PER KIND, AND IT IS NOT ALWAYS SITES.
+        #
+        # It began as sites done -- 0/1 is a true statement about a one-source crawl
+        # where "0%" was not -- and `organization_enrichment` already declared its own
+        # unit here. The two kinds this warehouse actually runs write something else
+        # into the same pair and said so nowhere: `profilejob` counts PAGES
+        # (`progress_total = wanted * 2`) and `datasetjob` counts page PAIRS.
+        #
+        # MEASURED ON HIS LIVE ENGINE, 2026-09-10. `GET /api/jobs` for every
+        # `profile_crawl` and `dataset_interpret` job returns `fetch.requests = 0` and
+        # `fetch.expected = null` -- neither runner is among `record_source_fetch`'s
+        # callers -- so a reader falls through to this pair and had nothing to name it
+        # by. The Jobs page then printed "150 of 150 source(s)" for a 150-page sweep and
+        # "469 of 469 source(s)" for 469 page pairs, against 12 registered sources: two
+        # orders of magnitude out, in the one unit he can check himself.
+        #
+        # DECLARED HERE RATHER THAN GUESSED IN THE PANEL, because the runner that writes
+        # the number is the only thing that knows what it counted -- and a second guess
+        # in the reader is how `organization_enrichment` came to be the only kind that
+        # said so.
         "progress": {
             "done": done,
             "total": total,
-            **({"unit": "organizations"}
-               if job.get("job_kind") == "organization_enrichment" else {}),
+            **({"unit": PROGRESS_UNITS[job.get("job_kind")]}
+               if claimed and job.get("job_kind") in PROGRESS_UNITS else {}),
         },
         # PAGES fetched against a stated denominator — what the bar draws.
         "fetch": _fetch_progress(job),

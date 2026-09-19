@@ -560,3 +560,46 @@ def test_interpreting_a_source_that_is_not_a_directory_is_refused_at_the_door(tm
 
     assert refused.status_code == 400, refused.text
     assert "names no directory" in refused.text, refused.text
+
+
+def test_a_re_entered_interpretation_says_so_through_the_runner(conn, monkeypatch):
+    """ISSUE 796, AND THE CALL SITE IS THE SUBJECT. Five guards drive
+    `jobs.note_a_re_entry` directly and a mutation deleting the call from THIS runner
+    survived all five -- which is the vacuity shape this repository has been bitten by
+    twice: a test that reads a helper while the wiring goes unmeasured.
+
+    The state is the live one: `started_at` set, `progress_done` at what the previous
+    pass reached, and `status` back to `queued`, which is exactly what
+    `reclaim_orphaned_jobs` leaves behind when a restart requeues a running job. It
+    happened eight times across two jobs on 2026-09-07 while he was updating the engine.
+    """
+    monkeypatch.setattr(contractors, "approve", _Interpreter(pairs=2))
+    _a_crawl_that_stored(conn, "job_crawl", pages=2)
+    ref = _queue(conn)
+    conn.execute(
+        "UPDATE crawl_job SET started_at = ?, progress_done = ? WHERE job_ref = ?",
+        ("2026-09-07T14:31:42Z", 300, ref))
+    conn.commit()
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "not this job's first pass" in said, (
+        f"the runner reset his bar to zero and said nothing: {said}")
+    assert "300 page pair(s)" in said, (
+        f"the number he watched disappear is not in the line: {said}")
+    assert "asked for nothing" in said, (
+        f"the line does not say an interpretation costs no requests: {said}")
+
+
+def test_a_first_interpretation_says_nothing_about_a_restart(conn, monkeypatch):
+    """MOST PASSES ARE FIRST ONES, and a line on every start is noise that teaches him
+    to stop reading the one that matters."""
+    monkeypatch.setattr(contractors, "approve", _Interpreter(pairs=2))
+    _a_crawl_that_stored(conn, "job_crawl", pages=2)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "not this job's first pass" not in said, said

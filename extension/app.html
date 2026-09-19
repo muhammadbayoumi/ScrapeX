@@ -32,6 +32,42 @@
          until the engine says the installed extension is behind it. -->
     <div id="version-notice" class="card warn hidden" role="status" aria-live="polite"></div>
 
+    <!-- ============================ JOBS ============================ -->
+    <!-- THE JOBS PAGE, asked for on 2026-09-07: he wanted to follow that one job
+         finished and another stopped, because he could not see either through the
+         extension. His own words are quoted in issue 793 and in the PR; this file stays
+         English, which `test_the_interface_stays_english` enforces and caught.
+         Measured that day: 163 jobs in his warehouse and the panel could draw ONE of
+         them, because its only query carried `active_only=true` and then took
+         `jobs[0]`.
+
+         NOT A SECOND ACTIVITY LOG. Console exists and Run draws one job's log; this
+         is a list that OPENS one. It draws that log itself, with `openJobLog`, and
+         deliberately NOT with the Run screen's `renderLogs`: that one streams, repolls
+         and follows the tail of the live job, and this one is a snapshot of any job. Two
+         renderers because they answer two questions. -->
+    <section id="view-jobs" class="hidden" role="tabpanel"
+             aria-labelledby="tab-jobs" tabindex="0">
+      <header class="view-heading">
+        <h1>Jobs</h1>
+        <p>Every job this warehouse has run — what finished, what stopped, and what
+           is waiting.</p>
+      </header>
+
+      <div class="view-scroll">
+        <div class="row jobs-head">
+          <p class="muted text-xs" id="jobs-summary" role="status"
+             aria-live="polite">&nbsp;</p>
+          <button id="jobs-reload" class="ghost" type="button">Reload</button>
+        </div>
+        <!-- SAID, NOT INFERRED: the list is bounded, and a bound presented as the
+             whole is the failure the bound exists to prevent. -->
+        <p class="muted text-xs hidden" id="jobs-bounded" role="status"></p>
+        <p class="card warn hidden" id="jobs-blocked" role="status"
+           aria-live="polite"></p>
+        <div id="jobs-list" class="jobs-list"></div>
+      </div>
+    </section>
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden" role="tabpanel" aria-labelledby="tab-run" tabindex="0">
       <header class="view-heading">
@@ -2341,6 +2377,20 @@
           <use href="icons/material-icons.svg#link"></use>
         </svg>
         <span class="visually-hidden">Source</span>
+      </button>
+      <!-- ABOVE RUN, BY HIS RULING (2026-09-09). He asked for the page and answered
+           both questions it left open: here, and the Run mini-player stays. It sits
+           in the engine group without argument -- it reads `GET /api/jobs` and shows
+           nothing at all without an engine, which is what that group means.
+           `#history` because Run already wears `#play-circle` and two pages under one
+           mark is a rail he has to read twice. -->
+      <button class="rail-item" id="tab-jobs" role="tab" data-view="jobs"
+              aria-controls="view-jobs" aria-selected="false"
+              aria-label="Jobs" title="Jobs">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#history"></use>
+        </svg>
+        <span class="visually-hidden">Jobs</span>
       </button>
       <button class="rail-item" id="tab-run" role="tab" data-view="run"
               aria-controls="view-run" aria-selected="false" tabindex="-1"
