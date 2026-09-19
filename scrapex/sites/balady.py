@@ -38,8 +38,9 @@ the strings they arrived as.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
+from urllib.parse import quote
 
 #: Matches `source_site.source_key`, as `directories.Directory.key` requires.
 SITE_KEY = "balady_eng_offices"
@@ -77,6 +78,13 @@ BOUND_COLUMNS = ("LogoUrl", "OfficeId", "OfficeName", "MobileNo",
 #: whole register; trusting a larger number would silently collect 2,000 of 5,470.
 PAGE_CAP = 2000
 
+
+#: THE CEILING ON ONE CENSUS, because the loop's real bound is the site's own
+#: `recordsFiltered` and that is a remote integer. 5,468 offices cost 3 requests at
+#: the measured cap; 40 leaves room for the register to grow by an order of
+#: magnitude, or for the server to quietly serve a tenth of what it was asked, and
+#: still refuses a corrupt total that would otherwise run for hours at one per second.
+MAX_REQUESTS = 40
 #: CENSUS FIELDS THAT CHANGE ON EVERY RESPONSE WITHOUT THE OFFICE CHANGING, so a
 #: change detector that includes them reports every office as edited on every run.
 #: Measured on twenty offices across two census responses seconds apart:
@@ -99,6 +107,12 @@ PAGE_CAP = 2000
 #: three independent causes, which is why change detection here is over extracted
 #: fields and never over the response.
 VOLATILE_FIELDS = frozenset({"HashedOfficeId", "LogoUrl"})
+
+#: THE SAME TWO, AS `Office` NAMES THEM. `read_office` maps wire keys to attributes
+#: by keyword and exposes no mapping to reuse, so this is re-typed rather than derived
+#: -- the shape `datasetjob.COLLECTING_KINDS` already uses here. The guard asserts the
+#: two sets correspond, so neither can move without the other.
+VOLATILE_ATTRS = frozenset({"hashed_office_id", "logo_url"})
 
 #: `LogoUrl` when the office has uploaded none. 39.5% of the register, and it travels
 #: with the coordinates: of 2,161 placeholder rows, 2,158 have no `X`. Both are the
@@ -165,16 +179,13 @@ class Office:
         the URL itself would report all 3,307 offices that have a logo as edited on
         every single run.
         """
-        return {
-            "office_id": self.office_id,
-            "office_name": self.office_name,
-            "mobile_no": self.mobile_no,
-            "classification_grade": self.classification_grade,
-            "classification_status": self.classification_status,
-            "has_logo": "1" if self.has_logo else "0",
-            "x": self.x,
-            "y": self.y,
-        }
+        # DERIVED FROM THE DATACLASS, not hand-listed. A field added to `Office`
+        # used to escape change detection in silence, and the test that looked like it
+        # guarded this asserted a literal set -- which stays true when a field is added.
+        content = {field.name: getattr(self, field.name) for field in fields(self)
+                   if field.name not in VOLATILE_ATTRS}
+        content["has_logo"] = "1" if self.has_logo else "0"
+        return content
 
 
 @dataclass(frozen=True)
@@ -312,7 +323,7 @@ def read_census_page(payload: Any) -> tuple[int, tuple[Office, ...]]:
 
 
 def census(fetcher: Any, *, base_url: str = BASE_URL,
-           page_cap: int = PAGE_CAP) -> Census:
+           page_cap: int = PAGE_CAP, max_requests: int = MAX_REQUESTS) -> Census:
     """The whole register, by offset, at the measured page cap.
 
     NO SEPARATE "HOW MANY ARE THERE" REQUEST. The first page's own `recordsFiltered` is
@@ -323,9 +334,25 @@ def census(fetcher: Any, *, base_url: str = BASE_URL,
     comes back empty or the declared total is reached; if it stops with fewer offices
     than the register declared, that is a crawl which read part of a directory, and
     CLAUDE.md's "no silent failures" makes it an error rather than a smaller number.
+
+    DISTINCT OFFICES AGAINST THE LAST DECLARED TOTAL, and duplicates are news rather
+    than credit. The check used to read `len(collected) + duplicates`, which cancels the
+    two halves of the one failure `duplicates_dropped` exists for: a register shifting
+    under the offsets returns rows already seen AND misses an equal number never seen.
+    Measured against a server that ignores `start` and re-serves the first page --
+    exactly the silent capping this endpoint is documented to do -- 2,000 offices and
+    4,000 duplicates cleared a declared 5,468 and returned 36.6% of the register as a
+    complete sweep.
+
+    AGAINST `declared_last` AND NOT `declared_first`, his ruling: the newest total the
+    site stated is the one to be complete against. A register that shed an office
+    between the first page and the last is not a partly-read register, and failing a
+    correct sweep over one deregistration is a false alarm that would repeat.
     """
     if page_cap < 1:
         raise ValueError(f"page_cap must be at least 1, got {page_cap}")
+    if max_requests < 1:
+        raise ValueError(f"max_requests must be at least 1, got {max_requests}")
     url = f"{base_url}{CENSUS_PATH}"
     collected: list[Office] = []
     seen: set[str] = set()
@@ -356,13 +383,27 @@ def census(fetcher: Any, *, base_url: str = BASE_URL,
         start += len(page)
         if start >= declared_last:
             break
+        if requests >= max_requests:
+            # THE SITE CHOOSES HOW MANY REQUESTS THIS MAKES, AND IT MUST NOT CHOOSE
+            # FREELY. The loop runs until `recordsFiltered` is reached, and that is a
+            # remote integer: a corrupt or hostile total turns a three-request census
+            # into a sustained hammer at one request per second. `pagewalk.py` states
+            # the same rule for the generic walker -- a ceiling the caller sets, and a
+            # walk that stopped at a built-in number would report a partial crawl as a
+            # complete one -- so this raises rather than returning a short register.
+            raise CensusShapeError(
+                f"the census made {requests} request(s), its ceiling, and the register "
+                f"still declares {declared_last} office(s) against {len(collected)} "
+                f"read. Either the site's total is wrong or the page is smaller than "
+                f"it says; raise max_requests only once you know which.")
     if declared_first is None:                    # unreachable: the loop posts once
         raise CensusShapeError("the census made no request")
-    if len(collected) + duplicates < declared_first:
+    if len(collected) < declared_last:
         raise CensusShapeError(
-            f"the census read {len(collected)} office(s) and dropped {duplicates} "
-            f"duplicate(s) against a declared {declared_first}. A partly-read "
-            "directory is not a smaller directory.")
+            f"the census read {len(collected)} distinct office(s) and dropped "
+            f"{duplicates} duplicate(s) against a declared {declared_last} "
+            f"(the register declared {declared_first} on the first page). A partly-read "
+            "directory is not a smaller directory, and a duplicate is not an office.")
     return Census(offices=tuple(collected), declared_first=declared_first,
                   declared_last=declared_last, requests=requests,
                   duplicates_dropped=duplicates)
@@ -379,4 +420,11 @@ def detail_url(office: Office, *, base_url: str = BASE_URL) -> str:
         raise ValueError(
             f"office {office.office_id!r} carries no HashedOfficeId, and the plain code "
             "reaches only the login page")
-    return f"{base_url}{DETAIL_PATH}?OfficeId={office.hashed_office_id}"
+    # PERCENT-ENCODED, because the value came from the site. It is the one field in
+    # this module that reaches the network, and it arrives from the same response the
+    # rest of the row does -- CLAUDE.md: "scraped content is untrusted input". Raw, an
+    # `&` in it appends a second query parameter to a request ScrapeX will make, and a
+    # `#` truncates the query so a DIFFERENT office's page is fetched and attributed to
+    # this one. `scrapex/ui_manifest.py:35` is the same call for the same reason.
+    return (f"{base_url}{DETAIL_PATH}"
+            f"?OfficeId={quote(office.hashed_office_id, safe='')}")

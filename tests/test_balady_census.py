@@ -10,16 +10,21 @@ exactly as it arrived.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import pathlib
 
 import pytest
 
 from scrapex.sites.balady import (
+    BASE_URL,
     BOUND_COLUMNS,
+    CENSUS_PATH,
     LOGO_PLACEHOLDER,
     PAGE_CAP,
+    VOLATILE_ATTRS,
     VOLATILE_FIELDS,
+    Office,
     Census,
     CensusShapeError,
     census,
@@ -213,12 +218,24 @@ def test_a_register_that_grows_during_the_sweep_records_both_totals():
 
 
 def test_a_row_repeated_across_pages_is_counted_not_hidden():
+    """THE REPEATED ROW CARRIES A DIFFERENT HASH, which is what the site does.
+
+    This test used to give the repeat an identical `HashedOfficeId`, contradicting the
+    measurement in the module it guards -- "identical in 0 of 20. It is a fresh
+    ciphertext of the same office each time". With the hashes equal, keying the dedup on
+    the hash instead of `office_id` passed, so the module's headline claim that
+    `office_id` is the identity was guarded by nothing.
+
+    `declared=3` and not 4: the sweep reads three distinct offices, so it is complete
+    against what the register declared. The old total was chosen so that only crediting
+    the duplicate could clear it.
+    """
     first = [_row(OfficeId="1", HashedOfficeId="h1"),
              _row(OfficeId="2", HashedOfficeId="h2")]
-    second = [_row(OfficeId="2", HashedOfficeId="h2"),
+    second = [_row(OfficeId="2", HashedOfficeId="A-FRESH-CIPHERTEXT-OF-OFFICE-2"),
               _row(OfficeId="3", HashedOfficeId="h3")]
-    fetcher = _StubFetcher([_Resp(_payload(first, declared=4)),
-                            _Resp(_payload(second, declared=4))])
+    fetcher = _StubFetcher([_Resp(_payload(first, declared=3)),
+                            _Resp(_payload(second, declared=3))])
     result = census(fetcher, page_cap=2)
     assert result.duplicates_dropped == 1
     assert [o.office_id for o in result.offices] == ["1", "2", "3"]
@@ -246,7 +263,13 @@ def test_a_response_that_is_not_json_names_the_offset():
 
 
 def test_the_sweep_refuses_a_page_cap_below_one():
-    with pytest.raises(ValueError, match="at least 1"):
+    """MATCHED ON `page_cap`, because `census_form` raises the same words.
+
+    `census_form(length=0)` is evaluated before `post` is reached, so with the guard in
+    `census` deleted a ValueError still arrived -- from the form -- and "at least 1"
+    matched it. The test passed for the wrong reason.
+    """
+    with pytest.raises(ValueError, match="page_cap must be at least 1"):
         census(_StubFetcher([]), page_cap=0)
 
 
@@ -414,3 +437,177 @@ def test_no_volatile_field_leaks_into_the_content():
     assert set(content) == {"office_id", "office_name", "mobile_no",
                             "classification_grade", "classification_status",
                             "has_logo", "x", "y"}
+
+
+def test_a_duplicate_does_not_pay_for_an_office_the_sweep_never_read():
+    """The completeness guard used to credit duplicates, and that cancels the one
+    failure `duplicates_dropped` exists for.
+
+    A register shifting under the offsets returns rows already seen AND misses an equal
+    number never seen, so `collected + duplicates` clears a total the sweep never
+    reached. Measured against a server that ignores `start` and re-serves the first
+    page -- the silent capping this endpoint is documented to do at `balady.py:74-78`
+    -- 2,000 offices and 4,000 duplicates passed a declared 5,468: 36.6% of the
+    register, returned as a complete sweep.
+    """
+    page = [_row(OfficeId="1", HashedOfficeId="h1"),
+            _row(OfficeId="2", HashedOfficeId="h2")]
+    fetcher = _StubFetcher([
+        _Resp(_payload(page, declared=4)),
+        _Resp(_payload([_row(OfficeId="1", HashedOfficeId="A-FRESH-CIPHERTEXT"),
+                        _row(OfficeId="2", HashedOfficeId="ANOTHER-FRESH-ONE")],
+                       declared=4)),
+    ])
+    with pytest.raises(CensusShapeError, match="partly-read"):
+        census(fetcher, page_cap=2)
+
+
+def test_a_register_that_sheds_one_office_mid_sweep_is_still_complete():
+    """His ruling: complete against the LAST total the site declared, not the first.
+
+    A register that sheds an office between the first page and the last is not a
+    partly-read register, and failing a correct sweep over one deregistration is a
+    false alarm that would repeat -- the register moves, which is why `Census` carries
+    both totals in the first place.
+    """
+    fetcher = _StubFetcher([
+        _Resp(_payload([_row(OfficeId="1", HashedOfficeId="h1"),
+                        _row(OfficeId="2", HashedOfficeId="h2")], declared=3)),
+        _Resp(_payload([_row(OfficeId="3", HashedOfficeId="h3")], declared=2)),
+    ])
+    result = census(fetcher, page_cap=2)
+
+    assert len(result.offices) == 3, result.offices
+    assert result.declared_first == 3 and result.declared_last == 2
+
+
+def test_the_next_offset_follows_the_rows_that_came_back():
+    """`start += len(page)`, never `+= page_cap`, and nothing drove the difference.
+
+    The site is documented to cap a page and say nothing about having done so, so a
+    server answering 3 rows to a request for 5 must be followed at offset 3. Advancing
+    by the ASK instead would skip every row between -- and the completeness guard would
+    not see it, because the rows were never read to be counted.
+    """
+    fetcher = _StubFetcher([
+        _Resp(_payload([_row(OfficeId=str(i), HashedOfficeId=f"h{i}") for i in range(3)],
+                       declared=10)),
+        _Resp(_payload([_row(OfficeId=str(i), HashedOfficeId=f"h{i}") for i in range(3, 10)],
+                       declared=10)),
+    ])
+    result = census(fetcher, page_cap=5)
+
+    assert [post["data"]["start"] for post in fetcher.posts] == ["0", "3"], (
+        "the sweep advanced by what it ASKED for rather than by what came back, so the "
+        "rows the short page did not carry are never fetched"
+    )
+    assert len(result.offices) == 10
+
+
+def test_the_sweep_asks_the_measured_endpoint_at_the_measured_page_size():
+    """Nothing asserted what actually went on the wire.
+
+    `BASE_URL`, `CENSUS_PATH`, the default `page_cap` and the `length` the form carries
+    could each be changed to something else and the whole suite stayed green -- and a
+    smaller default page size is a 274-request sweep where 3 were measured, against
+    the politeness budget.
+    """
+    fetcher = _StubFetcher([_Resp(_payload([_row()], declared=1))])
+    census(fetcher)
+
+    # THE LITERAL, NOT THE CONSTANTS. `posts[0]["url"] == BASE_URL + CENSUS_PATH`
+    # compares the constants with themselves -- changing either moved both sides and the
+    # assertion stayed true, which is how a wrong endpoint survived a suite of 77.
+    assert fetcher.posts[0]["url"] == (
+        "https://apps.balady.gov.sa/Eservices/Inquiries/InquiryEngOffices/LoadData"
+    ), fetcher.posts[0]["url"]
+    assert fetcher.posts[0]["data"]["length"] == str(PAGE_CAP), (
+        f"the sweep asked for a page of {fetcher.posts[0]['data']['length']} against the "
+        f"measured cap of {PAGE_CAP}"
+    )
+
+
+def test_the_census_refuses_to_run_past_its_ceiling():
+    """The loop's real bound is the site's own `recordsFiltered`, a remote integer.
+
+    A corrupt or hostile total turns a three-request census into a sustained hammer at
+    one request per second, and nothing upstream bounds it -- `connectors/base.py`
+    records that the declared request count "is not a budget and nothing here enforces
+    it". The ceiling raises rather than returning a short register, because a partial
+    read reported as complete is the failure this module exists to refuse.
+    """
+    fetcher = _StubFetcher([
+        _Resp(_payload([_row(OfficeId=str(i), HashedOfficeId=f"h{i}")], declared=10**9))
+        for i in range(10)
+    ])
+    with pytest.raises(CensusShapeError, match="ceiling"):
+        census(fetcher, page_cap=1, max_requests=3)
+
+    assert len(fetcher.posts) == 3, (
+        f"the ceiling let {len(fetcher.posts)} request(s) through against a limit of 3"
+    )
+
+
+def test_a_hash_the_site_re_mints_cannot_carry_a_query_parameter():
+    """The one field in this module that reaches the network comes from the site.
+
+    Raw, an `&` in it appends a second query parameter to a request ScrapeX will make,
+    and a `#` truncates the query -- so a DIFFERENT office's page is fetched and
+    attributed to this one. The host cannot be escaped, since the base is a literal
+    prefix and the value lands after `?`, so this is parameter injection and not an
+    open redirect; it is still a request the site chose rather than this product.
+    """
+    def office(hashed: str) -> Office:
+        return read_office(_row(HashedOfficeId=hashed))
+
+    assert "&" not in detail_url(office("x&admin=1")).split("?", 1)[1]
+    assert "#" not in detail_url(office("x#frag")).split("?", 1)[1]
+    assert " " not in detail_url(office("a b")).split("?", 1)[1]
+    assert detail_url(office("bldyPrm0A1B")) == (
+        "https://apps.balady.gov.sa/Eservices/Inquiries/InquiryEngOffices/Details"
+        "?OfficeId=bldyPrm0A1B"
+    ), detail_url(office("bldyPrm0A1B"))
+
+
+def test_the_two_volatile_sets_name_the_same_two_fields():
+    """`VOLATILE_FIELDS` is the wire's names and `VOLATILE_ATTRS` is the model's, and
+    `read_office` maps between them by keyword with no mapping to reuse.
+
+    So they are re-typed, the way `datasetjob.COLLECTING_KINDS` is, and pinned here:
+    a field that becomes volatile on the wire and not in the model would be hashed into
+    change detection and report every office as edited on every run.
+    """
+    assert len(VOLATILE_ATTRS) == len(VOLATILE_FIELDS), (
+        f"the wire names {sorted(VOLATILE_FIELDS)} and the model names "
+        f"{sorted(VOLATILE_ATTRS)} are different sizes"
+    )
+    model_fields = {field.name for field in dataclasses.fields(Office)}
+    assert VOLATILE_ATTRS <= model_fields, (
+        f"{sorted(VOLATILE_ATTRS - model_fields)} is excluded from change detection and "
+        f"is not a field of Office"
+    )
+    assert not (VOLATILE_ATTRS & set(read_office(_row()).content_fields())), (
+        "a volatile field reached change detection"
+    )
+
+
+def test_a_field_added_to_the_model_joins_change_detection():
+    """`content_fields()` hand-listed its eight keys, so a new field escaped change
+    detection in silence -- and the test that looked like a guard asserted a literal
+    set, which stays true when a field is added.
+
+    Derived from the dataclass now, so this asserts the RULE rather than the list.
+    """
+    office = read_office(_row())
+    content = office.content_fields()
+    expected = {field.name for field in dataclasses.fields(Office)
+                if field.name not in VOLATILE_ATTRS} | {"has_logo"}
+
+    assert set(content) == expected, (
+        f"change detection and the model disagree about which fields count: "
+        f"only in content {sorted(set(content) - expected)}, "
+        f"only in the model {sorted(expected - set(content))}"
+    )
+    assert content["office_id"] == office.office_id, (
+        "content_fields reported a constant rather than the office's own value"
+    )
