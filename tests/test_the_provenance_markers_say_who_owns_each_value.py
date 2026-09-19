@@ -324,9 +324,20 @@ def test_every_stored_literal_is_what_the_converter_produces():
     check. An earlier version walked the value-keyed `conversions` map alone, which knows
     no token and no theme -- so it proved that `as_hex` still works and nothing more.
     Measured against that version: overwriting all 299 root literals with other
-    converter-produced hexes failed NOTHING, and so did re-introducing the per-theme
-    defect the second commit on this branch fixed, where 185 root values were overwritten
-    with their dark counterparts. Both fail here now.
+    converter-produced hexes failed NOTHING. Re-deriving each entry from its own raw
+    catches that, and it catches nothing more -- an entry whose raw and hex move
+    TOGETHER is consistent with itself, which is what a last-wins generator writes.
+    What this check proves is that `as_hex` still produces what was stored; that the
+    entry belongs to its token and theme is a different statement, held in part by
+    test_the_two_themes_still_disagree_where_they_are_supposed_to.
+
+    AND ONLY IN PART. Permuting the WHOLE table -- every entry moved onto another
+    token, raw and hex together -- satisfies every offline assertion here, because
+    the fixture is the only record of what Supabase declared and a permutation of it
+    is self-consistent. Nothing offline can refuse that; `--check` re-reads their
+    files and can. The limit is stated rather than papered over: this file proves
+    the table is internally coherent and structurally intact, not that it was read
+    from Supabase.
 
     It exists because two arithmetic defects shipped in a fixture that no test could
     contradict, and correcting them changed NO test outcome -- exactly the condition the
@@ -722,12 +733,262 @@ def test_a_channel_outside_a_byte_fails_the_parse():
     """
     from tools.read_supabase_tokens import _channel
 
-    with pytest.raises(AssertionError):
+    # A ValueError and NOT an AssertionError: PYTHONOPTIMIZE strips asserts, and
+    # issue 833 is open against a guard that goes green under -O for exactly that.
+    with pytest.raises(ValueError):
         _channel(306.0)
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         _channel(-1.0)
     assert _channel(0.0) == 0 and _channel(255.0) == 255, (
         "the guard rejected a channel that is in range"
+    )
+
+
+
+def test_the_two_themes_still_disagree_where_they_are_supposed_to():
+    """Re-deriving each entry proves `as_hex`, NOT that the entry is Supabase's.
+
+    `as_hex(entry["raw"]) == entry["hex"]` is a function of `raw` alone, so an entry whose
+    raw and hex move TOGETHER is invisible to it -- which is exactly what a last-wins
+    generator writes. Measured against the version that had only that check: replacing all
+    299 root entries with their dark counterparts, pair and all, left the suite green, and
+    so did shifting every root entry onto the next token. The claim that both failed was
+    written from a mutation that moved the hex alone, leaving a pair no generator can
+    produce.
+
+    THIS IS THE STRUCTURAL FACT THAT CANNOT SURVIVE EITHER. colors.css declares 199 of its
+    tokens in both a `:root` and a dark block and the two disagree on 185 of them. A
+    last-wins scan collapses that to zero; a shuffled table collapses it too, because the
+    dark value would have to land on the same token by chance.
+    """
+    shared = set(THEIR_LITERALS["root"]) & set(THEIR_LITERALS["dark"])
+    differing = [token for token in shared
+                 if THEIR_LITERALS["root"][token]["hex"]
+                 != THEIR_LITERALS["dark"][token]["hex"]]
+
+    assert len(shared) >= 190, (
+        f"only {len(shared)} tokens are declared in both the root and dark tables; "
+        f"colors.css declares 199 of them twice, so a number this low means one of its "
+        f"two blocks was not read."
+    )
+    assert len(differing) >= 180, (
+        f"{len(differing)} of {len(shared)} tokens shared between the root and dark "
+        f"tables still differ, against 185 at the pinned commit. A collapse here means "
+        f"one theme's values were written over the other's -- the defect the second "
+        f"commit on this branch fixed -- and re-deriving each entry from its own raw "
+        f"cannot see it, because the raw moves with the hex."
+    )
+
+
+def test_a_marker_on_a_value_the_parser_cannot_read_is_not_silently_skipped():
+    """`MARKED` matches a hex value only, and a marker word is what opts a value in.
+
+    So a licence statement written on a value in any OTHER notation is not checked and not
+    counted. Measured: adding `--smoke: hsl(153.1 60.2% 52.7%);` with a `PUBLISHED` note
+    left the whole suite green, and the equality control could not see it either, because
+    the parser never produced a pair for it to compare.
+
+    That is the natural shape for such a claim -- Supabase publishes hsl triples, and
+    `as_hex` exists precisely to say a triple is the same value in another notation. 96 of
+    the 179 declarations inside the three guarded blocks carry a value `MARKED` cannot
+    match, 39 of them colours.
+    """
+    declaration = re.compile(r"^[ \t]*--[a-z0-9-]+[ \t]*:")
+    unreadable = []
+    for theme, block in _blocks():
+        for line in block.splitlines():
+            if "/*" not in line or not declaration.match(line):
+                continue
+            note = line.split("/*", 1)[1]
+            if "PUBLISHED" not in note and "derived" not in note:
+                continue
+            if not MARKED.match(line):
+                unreadable.append(f"{theme}: {line.strip()}")
+
+    assert not unreadable, (
+        "{} declaration(s) carry a licence statement on a value this guard cannot parse, "
+        "so the statement is recorded and checked by nothing: {}. Either write the value "
+        "as hex, or widen MARKED and compare through as_hex.".format(
+            len(unreadable), unreadable[:5])
+    )
+
+
+def test_a_note_cannot_claim_the_comment_on_the_next_line():
+    """Horizontal whitespace only between a declaration and its note, and nothing drove it.
+
+    A `\\s` there matches newlines, which let a declaration bind to the NEXT comment in the
+    file once its own was stripped -- inventing a marker for a token that carries none. The
+    file docstring calls this one of three things learned the hard way, and swapping all
+    five character classes back left the whole suite green, because today's file happens
+    not to have the shape.
+    """
+    across_a_newline = "\n".join([
+        "  --red-hover: #8e332f;",
+        "  /* brand-default light   PUBLISHED */",
+        "",
+    ])
+    assert not MARKED.search(across_a_newline), (
+        "a declaration claimed the comment on the FOLLOWING line as its marker, which "
+        "invents a licence statement for a token that carries none"
+    )
+
+    on_its_own_line = "  --red-hover: #8e332f; /* brand-default light   PUBLISHED */\n"
+    found = MARKED.search(on_its_own_line)
+    assert found and found.group(1) == "--red-hover", (
+        "the parser stopped reading a marker written on its own declaration's line: "
+        "{}".format(found)
+    )
+
+
+def test_the_marker_and_theme_words_are_removed_whole():
+    """107 of their 648 names carry "light" or "dark" INSIDE them.
+
+    An earlier version removed those words as substrings, which turned
+    `--colors-gray-light-900` into `--colors-gray--900` -- a name they do not declare, so
+    a truthful marker failed. The docstring records the regression; nothing drove it, and
+    substring removal left the suite green.
+    """
+    assert _named_token("--colors-gray-dark-100 dark PUBLISHED") == "--colors-gray-dark-100", (
+        "the theme word was removed from inside the token's own name"
+    )
+    assert _named_token("--color-foreground-light light derived") == "--color-foreground-light", (
+        "the theme word was removed from inside the token's own name"
+    )
+    assert _named_token("--brand-default/80 flat derived") == "--brand-default", (
+        "an operation described after the token changed which token was named"
+    )
+    for name in ("--colors-gray-dark-100", "--color-foreground-light"):
+        assert name in THEIR_NAMES, (
+            f"this guard assumes {name} is one of theirs; if they stopped declaring it, "
+            f"pick another name carrying a theme word from the fixture"
+        )
+
+
+def test_a_block_is_scoped_by_its_own_selector_whichever_order_they_come_in():
+    """`_selector_blocks` takes each block's selector from the text before its brace.
+
+    Nothing drove that: the two-theme test puts the dark block SECOND, where a correct
+    implementation and one that loses the selector agree. With the dark block FIRST they
+    diverge -- a literal moves out of the light table and into dark, and a marker reading
+    it then fails with the wrong theme's value quoted back.
+    """
+    from tools.read_supabase_tokens import _selector_blocks, read_declarations
+
+    dark_first = (
+        "[data-theme*='dark'] {\
+  --b: #111111;\
+}\
+"
+        ":root {\
+  --b: #222222;\
+}\
+"
+    )
+    selectors = [selector for selector, _ in _selector_blocks(dark_first)]
+    assert selectors == ["[data-theme*='dark']", ":root"], (
+        f"a block's selector is not the text before its own brace: {selectors}"
+    )
+
+    _names, literals, _conversions, _declared = read_declarations(dark_first, scope="light")
+    assert literals["light"].get("--b", {}).get("hex") == "#222222", (
+        f"the :root block's value did not reach the file's own scope: {literals['light']}"
+    )
+    assert literals["dark"].get("--b", {}).get("hex") == "#111111", (
+        f"the dark block's value did not reach the dark table: {literals['dark']}"
+    )
+
+
+def test_a_block_that_names_a_theme_we_do_not_ship_gives_names_only():
+    """Their classic themes are a second and third dark, and this product renders neither.
+
+    Guarding only the names-only scope left the door open at every SCOPED file: measured,
+    a `classic-dark` block inside a file mapped to `root` or `light` still landed its
+    values in the dark table. Falling back to the file's own scope is not safe either --
+    that would overwrite the true root values with a theme nobody renders.
+    """
+    from tools.read_supabase_tokens import read_declarations
+
+    classic = "[data-theme='classic-dark'], .classic-dark {\
+  --brand-default: #111111;\
+}\
+"
+    for scope in ("root", "light", "dark", None):
+        names, literals, conversions, _declared = read_declarations(classic, scope=scope)
+        assert names == {"--brand-default"}, (
+            f"a names-only block stopped contributing its names at scope={scope}"
+        )
+        assert conversions.get("#111111") == "#111111", (
+            f"a names-only block stopped contributing its conversions at scope={scope}"
+        )
+        assert all(not table for table in literals.values()), (
+            f"at scope={scope} a theme this product does not ship put values into "
+            f"{ {k: v for k, v in literals.items() if v} }. A marker could then cite a "
+            f"value from a dark that is never rendered and pass."
+        )
+
+def test_a_body_with_no_block_is_read_as_one():
+    """`_selector_blocks` falls back to a single unnamed block, and nothing drove it.
+
+    Removing `or [("", body)]` left the whole suite green: every file at the pinned commit
+    opens a brace, so the fallback is never taken. A source that stops wrapping its
+    declarations -- or a fetch that returns a fragment -- would silently contribute
+    nothing at all, which reads exactly like a file that declares nothing.
+    """
+    from tools.read_supabase_tokens import _selector_blocks, read_declarations
+
+    bare = "  --brand-default: #111111;\n  --brand-200: #222222;\n"
+    blocks = _selector_blocks(bare)
+    assert len(blocks) == 1 and blocks[0][0] == "", (
+        "a body with no top-level block was not read as one unnamed block: {}".format(
+            [selector for selector, _ in blocks])
+    )
+
+    names, literals, _conversions, declared = read_declarations(bare, scope="root")
+    assert declared == 2 and names == {"--brand-default", "--brand-200"}, (
+        "a brace-less body contributed {} declaration(s) and {}".format(declared, names)
+    )
+    assert literals["root"].get("--brand-default", {}).get("hex") == "#111111", (
+        "a brace-less body reached no table, which is indistinguishable from a file that "
+        "declares nothing: {}".format(literals)
+    )
+
+
+def test_the_underscore_names_are_in_the_table():
+    """`_` is a legal custom-property character and they use it in 11 names.
+
+    Excluding it from `DECLARATION` hid all eleven, and the name check can only reject
+    what it cannot find -- so a `derived` marker could have invented any of them without
+    being caught. Undoing the character class left the suite green: the fixture is not
+    regenerated by a test run, so nothing offline noticed. Naming them here does.
+    """
+    underscored = sorted(name for name in THEIR_NAMES if "_" in name)
+    assert len(underscored) >= 11, (
+        "the fixture holds {} names carrying an underscore, against 11 at the pinned "
+        "commit: {}. Either they stopped declaring them, or DECLARATION stopped reading "
+        "the character -- and the second hides 11 names a marker could invent.".format(
+            len(underscored), underscored)
+    )
+    for name in ("--_base", "--color-code_block-1"):
+        assert name in THEIR_NAMES, (
+            "{} is one of theirs and is no longer in the table; DECLARATION's character "
+            "class is the first thing to check".format(name)
+        )
+
+    # AND THE PARSER ITSELF, because the fixture is not regenerated by a test run: undoing
+    # the character class leaves the stored names in place and nothing else notices.
+    from tools.read_supabase_tokens import read_declarations
+
+    body = "\n".join([
+        ":root {",
+        "  --_base: #111111;",
+        "  --color-code_block-1: #222222;",
+        "}",
+        "",
+    ])
+    found, _literals, _conversions, declared = read_declarations(body, scope="root")
+    assert declared == 2 and found == {"--_base", "--color-code_block-1"}, (
+        "the declaration parser stopped reading underscored names: it saw {} "
+        "declaration(s) and {}".format(declared, found)
     )
 
 

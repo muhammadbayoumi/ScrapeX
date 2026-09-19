@@ -171,11 +171,18 @@ def _channel(value: float) -> int:
     that reasoning, because a parse that fails loudly beats one that is quietly wrong.
     """
     byte = math.floor(value + 0.5)
-    assert 0 <= byte <= 255, (
-        f"a colour channel converted to {byte}, which is not a byte. Their source "
-        f"declared a value outside the range CSS clamps to, and '%02x' would have "
-        f"rendered it as a plausible-looking hex rather than failing here."
-    )
+    if not 0 <= byte <= 255:
+        # NOT AN `assert`. PYTHONOPTIMIZE strips those, and issue 833 is open against
+        # exactly that: a guard enforced with `assert` that goes green under -O. A
+        # ValueError is also what scrapex/normalize.py raises when a parse will not
+        # yield, and `sys.exit` is what this tool's other failure paths use -- both
+        # survive the flag.
+        raise ValueError(
+            f"a colour channel converted to {byte}, which is not a byte. Their source "
+            f"declared a value outside the range CSS clamps to, and '%02x' pads rather "
+            f"than truncates -- so this would have been rendered as a plausible-looking "
+            f"hex and stored as a colour they publish."
+        )
     return byte
 
 
@@ -195,6 +202,26 @@ def _hsl(hue: str, sat: str, light: str, alpha: str | None = None) -> str:
         return out
     opacity = _alpha_byte(alpha)
     return out if opacity == 255 else f"{out}{opacity:02x}"
+
+
+#: Their classic themes -- a second and third dark this product does not ship. A block
+#: selecting one of them contributes names and nothing else.
+NOT_OUR_THEME = re.compile(r"classic", re.I)
+
+
+def _names_a_theme_we_do_not_ship(selector: str) -> bool:
+    """Does this block belong to a theme this product never renders?
+
+    Such a block contributes NAMES ONLY, whatever scope its file carries. `colors.css`
+    holds its dark under `[data-theme*='dark']` -- the dark that ships, and the one whose
+    values belong in the dark table. `[data-theme='classic-dark'], .classic-dark` contains
+    the same word and is a SECOND dark this product never renders.
+
+    Returning the file's own scope for such a block is not a safe fallback either: a
+    classic block inside a root-scoped file would then overwrite the true ROOT values.
+    Names only is the reading the SOURCES map always meant.
+    """
+    return bool(NOT_OUR_THEME.search(selector))
 
 
 def _selector_blocks(body: str) -> list[tuple[str, str]]:
@@ -257,11 +284,11 @@ def read_declarations(body: str, scope: str | None):
     agree. `test_a_names_only_source_never_reaches_a_theme_table` drives it with input
     that has the defect.
 
-    Returns (names, literals, conversions); `declared` is len of every declaration seen,
-    which `read()` uses to record the files that declare nothing.
+    Returns (names, literals, conversions, declared). `declared` counts every
+    declaration seen, which `read()` uses to record the files that declare nothing.
     """
     names: set[str] = set()
-    literals: dict[str, dict[str, str]] = {"light": {}, "dark": {}, "root": {}}
+    literals: dict[str, dict[str, dict[str, str]]] = {"light": {}, "dark": {}, "root": {}}
     conversions: dict[str, str] = {}
     declared = 0
 
@@ -285,8 +312,12 @@ def read_declarations(body: str, scope: str | None):
         # This is the substring-versus-whole-word class the guard already fixed once
         # in `_named_token`, where removing "dark" as a substring turned
         # `--colors-gray-light-900` into `--colors-gray--900`.
-        block_scope = None if scope is None else (
-            "dark" if "dark" in selector else scope)
+        if scope is None or _names_a_theme_we_do_not_ship(selector):
+            block_scope = None
+        elif "dark" in selector:
+            block_scope = "dark"
+        else:
+            block_scope = scope
         for match in DECLARATION.finditer(block):
             token, value = match.group(1), " ".join(match.group(2).split())
             names.add(token)
@@ -310,7 +341,7 @@ def read_declarations(body: str, scope: str | None):
 def read(ref: str) -> dict:
     """The whole reading at one commit: names, per-theme literals, and every conversion."""
     names: set[str] = set()
-    literals: dict[str, dict[str, str]] = {"light": {}, "dark": {}, "root": {}}
+    literals: dict[str, dict[str, dict[str, str]]] = {"light": {}, "dark": {}, "root": {}}
     conversions: dict[str, str] = {}
     empty: list[str] = []
 
