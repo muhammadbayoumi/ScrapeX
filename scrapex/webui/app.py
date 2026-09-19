@@ -4914,10 +4914,14 @@ PROGRESS_UNITS: dict[str, str] = {
     directoryjob.JOB_KIND: "cell(s)",
 }
 
-#: THE KINDS WHOSE PAIR IS STILL `create_job`'S SEED UNTIL A RUNNER REPLACES IT, which is
-#: what `claimed` below is asking about. All three crawl kinds write their own total at
-#: PREPARING or later, so before that the pair genuinely counts SOURCES and naming a
-#: runner's unit over it would be a lie about the seed.
+#: THE KINDS THAT DECLARE A UNIT AND WHOSE PAIR IS STILL `create_job`'S SEED UNTIL A RUNNER
+#: REPLACES IT, which is what `claimed` below is asking about. Those three crawl runners
+#: write their own total at PREPARING or later, so before that the pair genuinely counts
+#: SOURCES and naming a runner's unit over it would be a lie about the seed.
+#:
+#: A PRICE CRAWL IS SEEDED TOO AND IS STILL NOT LISTED, because it never stops counting
+#: sources -- it declares no unit above, so the question below never reaches it and
+#: listing it would only suggest it might one day answer differently.
 #:
 #: `organization_enrichment` IS DELIBERATELY ABSENT. Its total is written at CREATION
 #: (`enrichment/service.py:1173-1176`), not by a runner, so the seed is never what a
