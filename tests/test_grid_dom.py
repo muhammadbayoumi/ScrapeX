@@ -120,13 +120,22 @@ def page_factory(tmp_path_factory, browser):
         page = context.new_page()
         page.goto(target.as_uri())
         if expect_table:
-            page.wait_for_function("() => !!window.Tabulator "
-                                   "&& Tabulator.findTable('#grid').length > 0")
+            # WAIT FOR ROWS, NOT FOR THE INSTANCE. `findTable(...).length > 0`
+            # resolves as soon as the Tabulator object exists, which is BEFORE the
+            # first render -- so the bare `wait_for_timeout(400)` that used to sit
+            # below was the barrier actually doing this job, and a machine slower
+            # than 400ms ran every assertion against an empty table.
+            page.wait_for_function(
+                "() => !!window.Tabulator"
+                "  && Tabulator.findTable('#grid').length > 0"
+                "  && document.querySelectorAll('#grid .tabulator-row').length > 0")
         else:
+            # Left as it was: for a source with no rows grid.js deliberately never
+            # builds a table, so a row count is the wrong question here. This branch
+            # was already a condition rather than a sleep.
             page.wait_for_function(
                 "() => document.getElementById('grid-note')"
                 "  && !document.getElementById('grid-note').hidden")
-        page.wait_for_timeout(400)
         return page, context
 
     return open_grid
