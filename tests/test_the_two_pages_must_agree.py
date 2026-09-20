@@ -263,7 +263,9 @@ def test_the_cross_check_refuses_inside_approve(monkeypatch, capsys):
     # nothing about the argument. `forwarded` is what the assertion at the end reads.
     forwarded: list[tuple[str, ...]] = []
 
-    def _stub_pairs(conn, run_ref, *, ids: tuple[str, ...] = ()):
+    # `directory` JOINED THE SIGNATURE when locale pairing became a per-directory
+    # fact; the stub stands in for the real one and must take what it takes.
+    def _stub_pairs(conn, directory, run_ref, *, ids: tuple[str, ...] = ()):
         forwarded.append(tuple(ids))
         return {
             "https://example.test/contractors/1001/143": {"en": (1, "<html></html>")},

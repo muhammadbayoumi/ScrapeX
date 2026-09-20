@@ -299,7 +299,12 @@ def test_a_firm_with_no_cr_number_pairs_on_the_record_key_instead():
 
 def test_the_cr_number_still_wins_when_both_keys_could_pair():
     """The record's own instruction is to join on the number; the key is the fallback."""
-    en = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE")]))
+    # BOTH VIEWS CARRY THE SAME TWO FIRMS, because a page whose two views differ in
+    # length is now its own refusal -- and this test is about which KEY wins, not about
+    # that. `AAA` appears in both, so pairing on the record key would be the easy wrong
+    # answer; the CR number sends it to `BBB` instead.
+    en = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
+                          _row(short="CCC", echo="ccc", cr="C2", name="EN TWO")]))
     ar = read_rows(_page([_row(short="BBB", echo="bbb", cr="C1", name="AR ONE"),
                           _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")]))
     pairs = join_languages(en, ar)
@@ -449,9 +454,29 @@ def test_one_missing_form_is_tolerated_when_the_others_agree():
     assert read_last_page(page) == 3
 
 
-def test_the_hidden_hidmax_field_alone_is_enough():
+def test_one_reading_of_the_total_is_not_enough():
+    """Three independent readings are what make this number trustworthy.
+
+    This test used to assert the opposite -- that `hidMax` alone sufficed -- which is
+    the defect: with the other two gone there is nothing to check it against. A
+    paginator redesign printing `Showing 1 of 50` would then have set the last page to
+    50 against a register of 471 and lost some 21,050 firms without a word.
+    """
     page = _page([_row()])
     page = page.replace("ShowPage(3)", "doNothing()").replace("&nbsp;of 3&nbsp;", "")
+    with pytest.raises(RegisterShapeError, match="only once"):
+        read_last_page(page)
+
+
+def test_two_readings_that_agree_are_enough():
+    """Two is the floor, not three, so one form disappearing is survivable news."""
+    page = _page([_row()]).replace("&nbsp;of 3&nbsp;", "")
+    assert read_last_page(page) == 3
+
+
+def test_the_printed_total_is_the_last_of_them_not_the_first():
+    """`Showing 1 of 50 of 471` -- taking the first reads the WINDOW as the register."""
+    page = _page([_row()]).replace("&nbsp;of 3&nbsp;", "&nbsp;of 2 of 3&nbsp;")
     assert read_last_page(page) == 3
 
 
@@ -595,3 +620,249 @@ def test_an_unknown_key_is_still_refused_and_now_names_both():
     from scrapex import directories
     with pytest.raises(KeyError, match="oman_tenderboard"):
         directories.get("tenderboard")
+
+
+def test_every_directory_pairs_its_two_locales_onto_one_key():
+    """`_pairs` used to hold muqawil's URL shape, so a directory whose locale travels
+    in a query parameter matched nothing.
+
+    Every stored Oman page was skipped, `approve` received zero pairs, and a 942-request
+    sweep of a government host interpreted to zero rows while reporting success. The
+    rule is the directory's own fact now, and this drives every registered one rather
+    than the two that exist today.
+    """
+    from scrapex import directories
+
+    for key in directories.keys():
+        directory = directories.get(key)
+        partition = directory.partition()
+        seen: dict[str, set[str]] = {}
+        for locale in partition.locales:
+            url = partition.listing_url(directory.base_url, locale=locale, page=7,
+                                        cell=WHOLE)
+            paired = directory.locale_pairing(url)
+            assert paired is not None, (
+                f"{key} stores {url!r} for locale {locale!r} and its own pairing rule "
+                f"does not recognise it, so that page can never meet its twin"
+            )
+            shared, reported = paired
+            seen.setdefault(shared, set()).add(reported)
+
+        assert len(seen) == 1, (
+            f"{key}'s locales produced {len(seen)} shared keys, not one: {sorted(seen)}. "
+            f"Two halves of one page must collapse onto the same key or they never pair"
+        )
+        assert len(next(iter(seen.values()))) == len(partition.locales), (
+            f"{key} reported {next(iter(seen.values()))} for {len(partition.locales)} "
+            f"locales, so two of them are indistinguishable once paired"
+        )
+
+
+def test_a_url_that_names_no_locale_is_not_a_pairable_page():
+    """A page with no locale in its URL is not half of a pair, and saying so is how
+    `_pairs` skips it rather than inventing a key for it."""
+    from scrapex import directories
+
+    for key in directories.keys():
+        directory = directories.get(key)
+        assert directory.locale_pairing("https://example.invalid/nothing-here") is None, (
+            f"{key} claimed a locale for a URL that carries none"
+        )
+
+
+def test_muqawils_pairing_is_the_shape_it_always_was():
+    """The rule moved out of `contractors._pairs` and must not have changed on the way.
+
+    This is muqawil's live path -- ~17,900 contractor profiles -- so the guard is the
+    literal behaviour, not a re-derivation from the same constants that moved.
+    """
+    from scrapex import directories
+
+    muqawil = directories.get("muqawil_org")
+    assert muqawil.locale_pairing("https://muqawil.org/en/contractors?page=7") == (
+        "https://muqawil.org/contractors?page=7", "en")
+    assert muqawil.locale_pairing("https://muqawil.org/ar/contractors?page=7") == (
+        "https://muqawil.org/contractors?page=7", "ar")
+    assert muqawil.locale_pairing("https://muqawil.org/en/contractors/12345/143") == (
+        "https://muqawil.org/contractors/12345/143", "en")
+
+
+def test_the_partition_delegates_without_substituting_anything():
+    """`OmanPartition`'s four methods are the crawl's whole sizing and audit surface.
+
+    Every one of them could be replaced by a constant and the suite stayed green:
+    `read_last_page` returning 1 turns the 471-page register into one page and reports
+    success; `read_ids` returning `()` empties the exhaustiveness witness; `page=1` and
+    `locale=LTR` collapse the sweep onto one page in one language. The two tests that
+    touched `listing_url` through the partition both passed `page=1, locale=LTR` --
+    exactly the values those mutations hardcode -- and `read_ids`/`read_last_page` were
+    never called through the partition at all.
+    """
+    partition = OmanPartition()
+
+    for locale in (LTR, RTL):
+        for page in (1, 7, 471):
+            through = partition.listing_url(BASE_URL, locale=locale, page=page,
+                                            cell=WHOLE)
+            direct = listing_url(BASE_URL, locale=locale, page=page, cell=WHOLE)
+            assert through == direct, (
+                f"the partition substituted its own arguments: asked for "
+                f"locale={locale!r} page={page} and built {through!r}"
+            )
+            assert f"pageNo={page}" in through and f"CTRL_STRDIRECTION={locale}" in through
+
+    assert partition.read_last_page(_en()) == read_last_page(_en()) == 471, (
+        "the partition does not return the register's own total"
+    )
+    assert partition.read_ids(_en()) == read_ids(_en()) != (), (
+        "the partition does not return the page's own ids"
+    )
+
+
+def test_each_field_carries_the_value_the_view_that_owns_it_published():
+    """Five of the fifteen fields could be blanked for every row, suite green.
+
+    `"cr_number": None`, `"telephone": None`, `"fax": None`, `"company_type": None` and
+    `"company_type_ar": None` each left the whole suite passing, as did the cross-view
+    swaps -- the Arabic company type in the English column and `SME` in the `_ar` one.
+    `cr_number` is the documented bilingual join key and the four `_ar` pairs are this
+    PR's headline claim, so the mapping is asserted per field and per view.
+
+    SYNTHETIC ON PURPOSE. The committed fixture publishes no fax at all, so a blanked
+    `fax` is indistinguishable from the site's own null there -- the shape this suite
+    has been bitten by before. Both views are built here with values that differ, so a
+    swap and a blanking are each visible.
+    """
+    from scrapex.extract.oman_tenderboard import _row as candidate_row
+
+    english = read_rows(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="EN NAME",
+                                    tel="9111", fax="9222", vtype="Local")]))[0]
+    arabic = read_rows(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="AR NAME",
+                                   tel="9333", fax="9444", vtype="محلية")]))[0]
+    row = candidate_row(english, arabic, {})
+
+    assert row["cr_number"] == "CR-EN", row["cr_number"]
+    assert row["firm_name"] == "EN NAME" and row["firm_name_ar"] == "AR NAME", row
+    assert row["telephone"] == "9111", (
+        f"telephone is {row['telephone']!r}; the English view published '9111' and the "
+        f"Arabic one '9333'"
+    )
+    assert row["fax"] == "9222", (
+        f"fax is {row['fax']!r}; the English view published '9222'"
+    )
+    assert row["company_type"] == "Local", row["company_type"]
+    assert row["company_type_ar"] == "محلية", (
+        f"company_type_ar is {row['company_type_ar']!r} -- Latin text in an _ar column "
+        f"is R-12 inverted"
+    )
+
+
+def test_a_data_rows_first_cell_must_be_the_plain_integer_s_no():
+    """The skip here dropped real firms in silence.
+
+    Its comment said it removed "a paginator row wearing a data row's cell count", and
+    that row cannot reach the branch: it carries no `getProcActivities(` and has nine
+    cells against the eleven required above. What it actually removed was data -- the
+    site printing `1.` instead of `1` emptied a page, 4 firms to 0, with no error. The
+    completeness proof could not see it either, because `declared` and `ids` are both
+    computed by this reader.
+    """
+    # `1&nbsp;` is deliberately NOT here: the entity now unescapes to a space and
+    # strips to `1`, so it is a plain integer by the time this guard sees it.
+    for printed in ("1.", "1,234", "", " ", "one"):
+        page = _page([_row()]).replace('<td align="center">1</td>',
+                                       f'<td align="center">{printed}</td>', 1)
+        with pytest.raises(RegisterShapeError, match="not the plain"):
+            read_rows(page)
+
+    assert len(read_rows(_page([_row()]))) == 1, "a plain integer S No. is still read"
+
+
+def test_the_text_reader_unescapes_what_the_site_escaped():
+    """`_text` was a fourth copy of tag-stripping and the only wrong one.
+
+    It left `&amp;` intact, so `AL HASSAN ENGINEERING &amp; CO LLC` reached the
+    warehouse with the entity in it; `&nbsp;` read as a four-character string rather
+    than as empty, which defeated the empty-short-name guard and stored `&nbsp;` as a
+    firm's record key. CLAUDE.md: parsing lives in one `normalize` module.
+    """
+    from scrapex import normalize
+    from scrapex.sites.oman_tenderboard import _text
+
+    for fragment, expected in (
+        ("<td>AL HASSAN ENGINEERING &amp; CO LLC</td>", "AL HASSAN ENGINEERING & CO LLC"),
+        ("<td>SHARQIYA &quot;GULF&quot; LLC</td>", 'SHARQIYA "GULF" LLC'),
+        ("<td>&nbsp;</td>", ""),
+    ):
+        assert _text(fragment) == expected, (
+            f"{fragment!r} read as {_text(fragment)!r}, not {expected!r}"
+        )
+        assert _text(fragment) == normalize.strip_markup(fragment), (
+            "the site module and normalize disagree about the same fragment"
+        )
+
+
+def test_a_repeated_key_in_the_arabic_view_is_refused_not_last_written():
+    """Built as plain dicts, two Arabic firms sharing a key kept the later one -- and
+    the English firm it displaced was paired with the WRONG twin, carrying another
+    firm's name into its row. A wrong row, not a missing one.
+
+    `read_ids` keeps duplicates deliberately for this reason; discarding them here was
+    where that news was lost.
+    """
+    english = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
+                               _row(short="BBB", echo="bbb", cr="C2", name="EN TWO")]))
+    repeated_cr = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
+                                   _row(short="BBB", echo="bbb", cr="C1", name="AR TWO")]))
+    with pytest.raises(RegisterShapeError, match="repeats a CR number"):
+        join_languages(english, repeated_cr)
+
+    # BOTH ECHOES MATCH THEIR OWN KEY, or the row-level cross-check fires first and
+    # this would pass for the wrong reason.
+    repeated_key = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
+                                    _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")]))
+    with pytest.raises(RegisterShapeError, match="repeats a record key"):
+        join_languages(english, repeated_key)
+
+
+def test_the_stored_pages_of_both_locales_meet_in_pairs(tmp_path):
+    """The whole point of the pairing rule, driven through `_pairs` itself.
+
+    `_pairs` held muqawil's `/en/contractors` shape, so every Oman page was skipped:
+    `approve` received zero pairs and a 942-request sweep of a government host
+    interpreted to zero rows while reporting success. Nothing tested `_pairs` against a
+    second directory, which is why the rule could be muqawil-shaped and look fine.
+    """
+    from scrapex import contractors, db as dbmod, directories
+
+    path = tmp_path / "engine.db"
+    conn = dbmod.connect(path)
+    try:
+        dbmod.migrate(conn)
+        directory = directories.get("oman_tenderboard")
+        partition = directory.partition()
+        run_ref = "oman-test-1"
+        for page in (1, 2):
+            for locale in partition.locales:
+                url = partition.listing_url(directory.base_url, locale=locale,
+                                            page=page, cell=WHOLE)
+                conn.execute(
+                    "INSERT INTO generic_page_snapshot "
+                    "  (source_url, html_content, content_hash, crawl_run_ref) "
+                    "VALUES (?, ?, ?, ?)",
+                    (url, f"<html>{locale} {page}</html>", f"h{locale}{page}",
+                     f"{run_ref}-whole-1"))
+        conn.commit()
+
+        pairs = contractors._pairs(conn, directory, run_ref)
+    finally:
+        conn.close()
+
+    assert len(pairs) == 2, (
+        f"two pages stored in two languages made {len(pairs)} pair(s): {sorted(pairs)}"
+    )
+    for key, halves in pairs.items():
+        assert set(halves) == {"en", "ar"}, (
+            f"{key} carries {sorted(halves)} rather than both locales, so one half of "
+            f"the page never meets the other"
+        )

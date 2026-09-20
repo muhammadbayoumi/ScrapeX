@@ -67,6 +67,14 @@ class Directory:
     candidate: Callable[..., Any]
     #: `() -> PartitionedListing`.
     partition_factory: Callable[[], Any] = field(repr=False)
+    #: HOW A STORED PAGE'S URL NAMES ITS LOCALE: `(url) -> (shared_key, locale)`, or
+    #: `None` when the URL carries no locale. `contractors._pairs` groups the two
+    #: language copies of one page by `shared_key`, and the rule used to be muqawil's
+    #: URL shape hard-coded into that function -- `/en/contractors` and
+    #: `/ar/contractors`. A second directory whose locale travels in a query parameter
+    #: matched neither, so none of its stored pages ever entered a pair and a whole
+    #: sweep interpreted to zero rows while reporting success.
+    locale_pairing: Callable[[str], tuple[str, str] | None]
     #: How this directory's DETAIL pages are read, or `None` for a directory whose
     #: detail pages nothing interprets yet. Separate from `candidate` because a listing
     #: card and a profile page are two different documents with two different declared
@@ -112,6 +120,20 @@ class ProfileReader:
     dataset_name: str = "Contractor profiles"
 
 
+def _locale_in_path(url: str) -> tuple[str, str] | None:
+    """`/en/contractors?page=7` -> (`/contractors?page=7`, `en`).
+
+    Muqawil's shape, moved here verbatim from `contractors._pairs` so its behaviour is
+    unchanged: the first marker found wins, and a URL carrying neither is not a locale
+    page at all.
+    """
+    for locale in ("en", "ar"):
+        marker = f"/{locale}/contractors"
+        if marker in url:
+            return url.replace(marker, "/contractors"), locale
+    return None
+
+
 def _muqawil() -> Directory:
     # Imported inside the function so a `directories` import does not drag the whole
     # muqawil parser in. It matters for the CLI: `cli.py` builds its parser on every
@@ -131,6 +153,7 @@ def _muqawil() -> Directory:
         dataset_key="contractors",
         identity_field="contractor_id",
         candidate=bilingual_listing_candidate,
+        locale_pairing=_locale_in_path,
         partition_factory=MuqawilPartition,
         profiles=ProfileReader(
             candidate=bilingual_profile_candidate,
@@ -154,13 +177,29 @@ def _oman_tenderboard() -> Directory:
         IDENTITY_FIELD,
         bilingual_listing_candidate,
     )
-    from .sites.oman_tenderboard import BASE_URL, SITE_KEY, OmanPartition
+    from .sites.oman_tenderboard import BASE_URL, LTR, RTL, SITE_KEY, OmanPartition
 
     # NO `profiles`, AND THAT IS THE SOURCE'S SHAPE. The listing row carries the whole
     # record -- name, CR number, address, telephone, fax, category, expiry and company
-    # type -- so 23,502 firms cost 471 requests and there is no detail page to read. The
+    # type -- so 23,502 firms cost 942 requests -- 471 pages in each of two languages and there is no detail page to read. The
     # three per-firm surfaces the page links (profile, certificate, procurement
     # activities) all answered a sign-in page, and `#1004` records them as gated.
+    def locale_in_query(url: str) -> tuple[str, str] | None:
+        """`...&CTRL_STRDIRECTION=LTR&...` -> (the url with the direction removed, `en`).
+
+        This register does not put its language in the path. It sends the SAME path
+        with `CTRL_STRDIRECTION` flipped, so the shared key is the URL with that
+        parameter taken out -- the counterpart of muqawil's `/en|ar/` removal.
+
+        The locale is reported as `en`/`ar` because that is the vocabulary
+        `bilingual_listing_candidate` and the approval path already speak.
+        """
+        for direction, locale in ((LTR, "en"), (RTL, "ar")):
+            marker = f"CTRL_STRDIRECTION={direction}"
+            if marker in url:
+                return url.replace(marker, "CTRL_STRDIRECTION="), locale
+        return None
+
     return Directory(
         key=SITE_KEY,
         display_name="Oman Tender Board / ESNAD registered vendors",
@@ -168,6 +207,7 @@ def _oman_tenderboard() -> Directory:
         dataset_key=DATASET_KEY,
         identity_field=IDENTITY_FIELD,
         candidate=bilingual_listing_candidate,
+        locale_pairing=locale_in_query,
         partition_factory=OmanPartition,
     )
 

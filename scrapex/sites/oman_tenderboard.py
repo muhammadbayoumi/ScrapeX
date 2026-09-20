@@ -6,7 +6,7 @@ Studied in `#1004` before a line of this was written; the vocabulary measurement
 
 WHY THIS SOURCE IS READ FROM ITS LISTING AND NOTHING ELSE. The register's row carries the
 whole record — name, CR number, address, telephone, fax, category, expiry, company type —
-so **23,502 firms cost 471 requests**, one page of fifty at a time. There is no per-firm
+so **23,502 firms cost 942 requests -- 471 pages in each of two languages**, one page of fifty at a time. There is no per-firm
 fetch in this reader: the three per-firm surfaces (profile, certificate, procurement
 activities) all answered a *Security Page* asking for a sign-in, and `#1004` records them
 as existing and gated rather than reached.
@@ -50,6 +50,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from .. import normalize
 from ..pagesource import WHOLE, Cell, SliceNotSupported
 
 #: Matches `source_site.source_key`, as `directories.Directory.key` requires.
@@ -178,7 +179,19 @@ def subcategory_url(category_code: str, *, direction: str = LTR,
 
 
 def _text(fragment: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment)).strip()
+    """A fragment's visible text, through the one module that owns markup.
+
+    `normalize.strip_markup` UNESCAPES ENTITIES, and the hand-rolled version here did
+    not: `AL HASSAN ENGINEERING &amp; CO LLC` reached the warehouse with the `&amp;`
+    intact, `&quot;` and `&#1593;` likewise, and a `&nbsp;`-only cell read as the
+    four-character string `&nbsp;` rather than as empty -- which defeated the
+    empty-short-name guard below and stored `&nbsp;` as a firm's record key.
+
+    CLAUDE.md: parsing lives in one `normalize` module. This was the fourth copy of
+    tag-stripping in `scrapex/` and the only wrong one; `aramco`, `heidelberg`,
+    `magento` and `woocommerce` all import the shared one.
+    """
+    return normalize.strip_markup(fragment)
 
 
 def read_categories(html: str) -> dict[str, str]:
@@ -256,7 +269,12 @@ def read_last_page(html: str) -> int:
         are stripped before it is read rather than matched through them.
 
     If the three ever disagree the paginator has changed shape and a crawl must stop
-    rather than pick one to believe.
+    rather than pick one to believe -- AND AT LEAST TWO MUST BE PRESENT TO AGREE. This
+    used to accept whichever readings it happened to find, so one sufficed: with
+    `hidMax` and the `ShowPage` link gone, the printed text alone was believed without
+    comment. A paginator redesign that printed `Showing 1 of 50` would then have set the
+    last page to 50 against a register of 471 and lost some 21,050 firms, silently --
+    which is the exact failure the three readings exist to prevent.
     """
     block = re.search(r"<table[^>]*class='Pagination_table'.*?</table>", html, re.DOTALL)
     if block is None:
@@ -275,15 +293,23 @@ def read_last_page(html: str) -> int:
     if targets:
         readings["ShowPage"] = max(targets)
 
-    printed = re.search(r"of\s+(\d+)", _text(nav))
-    if printed is not None:
-        readings["printed"] = int(printed.group(1))
+    # THE LAST `of N`, NOT THE FIRST. The nav prints more than one `of` when the site
+    # shows both a window and a total -- `Showing 1 of 50 of 471` -- and taking the
+    # first reads the window as the register.
+    printed_totals = re.findall(r"of\s+(\d+)", _text(nav))
+    if printed_totals:
+        readings["printed"] = int(printed_totals[-1])
 
     if not readings:
         raise RegisterShapeError(
             "the paginator publishes no total in any of its three forms -- no hidMax, no "
             "ShowPage target and no 'of N'. S No. is computed from the requested page "
             "and cannot stand in for it")
+    if len(readings) < 2:
+        raise RegisterShapeError(
+            f"the paginator publishes its total only once, as {readings}. Three "
+            "independent readings are what make this number trustworthy and one cannot "
+            "be checked against anything; the paginator has changed shape")
     distinct = set(readings.values())
     if len(distinct) != 1:
         raise RegisterShapeError(
@@ -330,7 +356,24 @@ def read_rows(html: str) -> tuple[Firm, ...]:
                 f"a data row has {len(cells)} cells, not the {_CELL_COUNT} this register "
                 f"renders: {cells!r}")
         if not cells[0].isdigit():
-            continue                      # a paginator row wearing a data row's cell count
+            # A ROW THAT GOT THIS FAR IS A DATA ROW, so this raises rather than skipping.
+            # The comment here used to say "a paginator row wearing a data row's cell
+            # count", and that row cannot reach this line: it carries no
+            # `getProcActivities(`, which `:315` already requires, and it has nine cells
+            # against the eleven `:328` requires. Measured on both shipped fixtures.
+            #
+            # What the skip actually did was drop real firms in silence. The site
+            # printing `1.` instead of `1` emptied the register -- 4 firms to 0, no
+            # error -- and the completeness proof cannot see it, because `declared` and
+            # `ids` are both computed by THIS reader: zero against zero is "provably
+            # complete", and `contractors.mark_departures` then marks every stored Oman
+            # row absent on the strength of it.
+            raise RegisterShapeError(
+                f"a data row's first cell is {cells[0]!r}, which is not the plain "
+                f"integer S No. this reader was written against. S No. is discarded, "
+                f"but its shape is how a data row is recognised; a row this reader "
+                f"cannot read is a firm missing from a register whose total is known. "
+                f"Row: {row[:200]!r}")
         short_name = cells[1]
         if not short_name:
             raise RegisterShapeError(
@@ -418,6 +461,20 @@ def join_languages(english: tuple[Firm, ...],
     reported rather than dropped -- that is the case worth raising on, and it did not
     occur in 1,850 firms.
     """
+    # A REPEATED KEY IN THE ARABIC VIEW IS NEWS, NOT A LAST-WRITE. Built as plain
+    # dicts, two Arabic firms sharing a CR number silently kept the later one and the
+    # English firm it displaced was paired with the WRONG twin -- carrying another
+    # firm's name into its row. `read_ids` keeps duplicates deliberately for this
+    # reason; discarding them here was where that news was lost.
+    for label, values in (("CR number", [f.cr_number for f in arabic if f.cr_number]),
+                          ("record key", [f.short_name for f in arabic])):
+        repeated = sorted({v for v in values if values.count(v) > 1})
+        if repeated:
+            raise RegisterShapeError(
+                f"the Arabic view repeats a {label}: {repeated[:6]}. Pairing on it would "
+                f"attach one firm's Arabic row to another firm's English row, which is a "
+                f"wrong row rather than a missing one")
+
     by_cr = {firm.cr_number: firm for firm in arabic if firm.cr_number}
     by_key = {firm.short_name: firm for firm in arabic}
     paired: list[tuple[Firm, Firm]] = []
@@ -430,9 +487,17 @@ def join_languages(english: tuple[Firm, ...],
             unpaired.append(firm.short_name)
             continue
         paired.append((firm, other))
+    # BOTH DIRECTIONS, because "present in one and not the other" has two of them.
+    # Only the English side was checked, so an Arabic firm with no English twin was
+    # dropped in silence -- and the two views are two separate requests, so drift
+    # between them is the expected case rather than an exotic one.
+    matched = {id(other) for _, other in paired}
+    orphaned = [firm.short_name for firm in arabic if id(firm) not in matched]
+    if orphaned:
+        unpaired.extend(orphaned)
     if unpaired:
         raise RegisterShapeError(
-            f"{len(unpaired)} firm(s) on this page have no counterpart in the Arabic "
+            f"{len(unpaired)} firm(s) on this page have no counterpart in the other "
             f"view by CR number or by record key: {unpaired[:6]}. The two views are the "
             "same fifty firms; a firm present in one and not the other is news, not a "
             "row to skip.")
@@ -486,7 +551,7 @@ class OmanPageSource:
         """None, and that is this source's shape rather than an omission.
 
         The listing row carries the whole record -- name, CR number, address, telephone,
-        fax, category, expiry and company type -- so 23,502 firms cost 471 requests and
+        fax, category, expiry and company type -- so 23,502 firms cost 942 requests -- 471 pages in each of two languages and
         no per-firm fetch. The three per-firm surfaces the page does link (the profile,
         the certificate and the procurement activities) all answered a *Security Page*
         asking for a sign-in, so there is no detail URL this crawl may fetch. `#1004` §4.

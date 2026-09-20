@@ -63,12 +63,18 @@ def test_the_identity_is_the_short_name_and_only_it():
 
 
 def test_the_same_schema_comes_back_for_a_page_with_different_firms():
-    """The order and the set must not depend on the rows; that is the whole lesson."""
+    """The order and the set must not depend on the rows; that is the whole lesson.
+
+    THE FIRM IS DROPPED FROM BOTH VIEWS, not just the English one. A page whose two
+    views carry different firms is now a refusal in its own right -- in both directions
+    -- so removing a row from one side tests the refusal rather than the schema.
+    """
     one = [f.field_key for f in _candidate().fields]
-    single = re.sub(
-        r"<tr[^>]*>(?:(?!</tr>).)*00169963(?:(?!</tr>).)*</tr>", "",
-        _pairable_en(), flags=re.S)
-    two = [f.field_key for f in bilingual_listing_candidate(single, AR).fields]
+    drop = r"<tr[^>]*>(?:(?!</tr>).)*00169963(?:(?!</tr>).)*</tr>"
+    single_en = re.sub(drop, "", _pairable_en(), flags=re.S)
+    single_ar = re.sub(drop, "", AR, flags=re.S)
+    two = [f.field_key for f in
+           bilingual_listing_candidate(single_en, single_ar).fields]
     assert one == two
 
 
@@ -173,10 +179,28 @@ def test_the_short_name_keeps_its_leading_zeros():
 
 
 def test_the_candidate_is_approvable_only_when_it_has_rows():
+    """EMPTIED ON BOTH SIDES, and that correction is the point.
+
+    This used to strip every English row and hand the reader three Arabic firms with no
+    counterpart, then require a clean, warning-free candidate back. It was pinning the
+    very absorption `join_languages` says it refuses -- "a firm present in one and not
+    the other is news, not a row to skip" -- so the guard against dropping them could
+    not have been added without this test going red.
+    """
     assert _candidate().approvable is True
-    empty = re.sub(r"<tr[^>]*>(?:(?!</tr>).)*getProcActivities(?:(?!</tr>).)*</tr>",
-                   "", _pairable_en(), flags=re.S)
-    assert bilingual_listing_candidate(empty, AR).approvable is False
+    strip = r"<tr[^>]*>(?:(?!</tr>).)*getProcActivities(?:(?!</tr>).)*</tr>"
+    empty_en = re.sub(strip, "", _pairable_en(), flags=re.S)
+    empty_ar = re.sub(strip, "", AR, flags=re.S)
+    assert bilingual_listing_candidate(empty_en, empty_ar).approvable is False
+
+
+def test_an_arabic_firm_with_no_english_twin_is_news_too():
+    """The direction that was never checked: `join_languages` walked the English rows
+    only, so a firm present in the Arabic view alone was dropped without a word."""
+    drop_one = re.sub(r"<tr[^>]*>(?:(?!</tr>).)*00169963(?:(?!</tr>).)*</tr>", "",
+                      _pairable_en(), flags=re.S)
+    with pytest.raises(RegisterShapeError, match="no counterpart"):
+        bilingual_listing_candidate(drop_one, AR)
 
 
 def test_an_unpairable_firm_reaches_the_candidate_as_a_refusal_not_a_gap():
