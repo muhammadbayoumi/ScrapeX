@@ -728,6 +728,12 @@ def test_an_invalid_manifest_does_not_take_the_host_down(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "load_manifest", _refuse)
     monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    # AND THE SPAWN ITSELF. `_engine_listening` is consulted only as a first check;
+    # `_engine_answering` then makes a real request, so on any box where nothing
+    # answers 8000 this reached `_spawn_engine` and started a DETACHED engine on the
+    # panel's own port -- carrying conftest's `SCRAPEX_DATA_ROOT`, so it opened a
+    # warehouse inside %TEMP% and outlived the run. That is what the owner saw (#1023).
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
 
     reply = io.BytesIO()
     code = native.serve(db, stdin=_framed(
@@ -767,6 +773,9 @@ def test_the_warehouse_is_opened_once_and_only_when_a_command_needs_it(tmp_path,
     monkeypatch.setattr(native.dbmod, "connect",
                         lambda p: (opened.append(str(p)), real_connect(p))[1])
     monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    # See the note at the manifest test: `_engine_listening` alone does not stop the
+    # spawn, and a real one lands on port 8000 with a %TEMP% warehouse (#1023).
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
 
     reply = io.BytesIO()
     native.serve(db, stdin=_framed(
@@ -895,6 +904,9 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(tmp_path, co
     from scrapex import native
 
     monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    # See the note at the manifest test: `_engine_listening` alone does not stop the
+    # spawn, and a real one lands on port 8000 with a %TEMP% warehouse (#1023).
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
     for command in ("PING", "START_ENGINE"):
         assert handle(conn, {"command": command})["ok"] is True, command
     assert set(native.STANDALONE_COMMANDS) == {
