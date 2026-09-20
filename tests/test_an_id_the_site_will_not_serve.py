@@ -99,7 +99,9 @@ def _directory(builder) -> SimpleNamespace:
 
 def _run(conn, monkeypatch, builder, ids, run_ref="run-now") -> str:
     """Drive the real `approve` over one profile page per id. Returns what it said."""
-    def _stub_pairs(conn, run_ref, *, ids: tuple[str, ...] = ()):
+    # `directory` JOINED THE SIGNATURE when locale pairing became a per-directory
+    # fact; the stub stands in for the real one and must take what it takes.
+    def _stub_pairs(conn, directory, run_ref, *, ids: tuple[str, ...] = ()):
         return {f"https://muqawil.org/en/contractors/{one}/143": {"en": (1, "<html/>")}
                 for one in ids_for_pages}
 

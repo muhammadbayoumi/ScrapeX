@@ -106,6 +106,18 @@ def _cp1252_console(monkeypatch):
     return raw, console
 
 
+
+def _muqawil_directory():
+    """The directory whose pairing rule these tests exercise.
+
+    `_pairs` used to hold muqawil's URL shape itself; it now asks the directory,
+    so the tests that drive it name which directory they mean.
+    """
+    from scrapex import directories
+
+    return directories.get("muqawil_org")
+
+
 def test_say_does_not_raise_on_a_console_that_cannot_encode_the_line(driver,
                                                                     monkeypatch):
     """U+2192 is not in cp1252, and `print` raises rather than dropping it."""
@@ -256,7 +268,7 @@ def test_pairs_does_not_gather_another_run_because_underscore_is_a_wildcard(driv
     snapshot(conn, "https://muqawil.org/en/contractors?page=2", "<html>theirs</html>",
              "myXrun-region_id_1-a1")
 
-    found = driver._pairs(conn, "my_run")
+    found = driver._pairs(conn, _muqawil_directory(), "my_run")
 
     assert list(found) == ["https://muqawil.org/contractors?page=1"]
 
@@ -272,7 +284,7 @@ def test_pairs_puts_the_two_locales_of_the_same_page_together(driver, conn):
     snapshot(conn, "https://muqawil.org/ar/contractors?page=7", "<html>ar7</html>",
              "r-a1")
 
-    found = driver._pairs(conn, "r")
+    found = driver._pairs(conn, _muqawil_directory(), "r")
 
     seven = found["https://muqawil.org/contractors?page=7"]
     assert seven["en"][1] == "<html>en7</html>"
@@ -287,7 +299,7 @@ def test_pairs_keeps_the_later_read_of_a_page_a_retry_stored_twice(driver, conn)
     snapshot(conn, url, "<html>first generation</html>", "r-a1")
     newer = snapshot(conn, url, "<html>second generation</html>", "r-a2")
 
-    found = driver._pairs(conn, "r")
+    found = driver._pairs(conn, _muqawil_directory(), "r")
 
     assert found["https://muqawil.org/contractors?page=4"]["en"] == (
         newer, "<html>second generation</html>")
@@ -308,7 +320,7 @@ def test_targeted_pairs_decode_only_the_named_profiles(driver, conn):
     snapshot(conn, "https://muqawil.org/en/contractors?page=1", "<html>listing</html>",
              "r")
 
-    found = driver._pairs(conn, "r", ids=("1089",))
+    found = driver._pairs(conn, _muqawil_directory(), "r", ids=("1089",))
 
     assert list(found) == ["https://muqawil.org/contractors/1089/143"]
     assert {locale: html for locale, (_, html) in found[next(iter(found))].items()} == {
@@ -326,7 +338,10 @@ def test_targeted_approve_refuses_a_named_snapshot_the_run_does_not_carry(
              "r")
 
     with pytest.raises(SystemExit) as refused:
-        driver.approve(conn, None, "r", ids=("1089", "2079"))
+        # A REAL DIRECTORY NOW, because `_pairs` asks it how the URL names its
+        # locale. `None` sufficed while that rule was muqawil's shape written
+        # inside `_pairs`; the refusal this test is about is unchanged.
+        driver.approve(conn, _muqawil_directory(), "r", ids=("1089", "2079"))
 
     assert refused.value.code == 2
     assert "2079" in capsys.readouterr().err

@@ -945,7 +945,7 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
 
 # ---- --approve: interpret what is on disk, re-fetching nothing ---------------
 
-def _pairs(conn, run_ref: str, *,
+def _pairs(conn, directory: Directory, run_ref: str, *,
            ids: tuple[str, ...] = ()) -> dict[str, dict[str, tuple[int, str]]]:
     """The stored pages of this run, grouped so each page's two locales meet.
 
@@ -982,16 +982,18 @@ def _pairs(conn, run_ref: str, *,
         # because it shares the run-ref with the requested ids.
         if wanted and _contractor_of(url) not in wanted:
             continue
-        for locale in ("en", "ar"):
-            marker = f"/{locale}/contractors"
-            if marker in url:
-                key = url.replace(marker, "/contractors")
-                # LAST ONE WINS. A retried cell stored the same page twice, in two
-                # generations, and the later read is the one whose ids the crawl's
-                # own witness was computed against.
-                found.setdefault(key, {})[locale] = (
-                    int(row["page_snapshot_id"]), decode(conn, row))
-                break
+        # THE DIRECTORY SAYS HOW ITS URL NAMES A LOCALE. This used to be muqawil's
+        # `/en/contractors` shape written here, so a directory whose locale travels in
+        # a query parameter matched nothing: every one of its stored pages was skipped
+        # and a full sweep interpreted to zero rows while reporting success.
+        paired = directory.locale_pairing(url)
+        if paired is not None:
+            key, locale = paired
+            # LAST ONE WINS. A retried cell stored the same page twice, in two
+            # generations, and the later read is the one whose ids the crawl's
+            # own witness was computed against.
+            found.setdefault(key, {})[locale] = (
+                int(row["page_snapshot_id"]), decode(conn, row))
     return found
 
 
@@ -1446,7 +1448,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
     page interpreted and no half-written record. A resume re-reads the same evidence and
     the ones already ingested are recognised rather than duplicated.
     """
-    pairs = _pairs(conn, run_ref, ids=ids)
+    pairs = _pairs(conn, directory, run_ref, ids=ids)
     if ids:
         present = {_contractor_of(key) for key in pairs}
         missing = [one for one in ids if one not in present]
