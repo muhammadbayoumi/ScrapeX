@@ -1196,7 +1196,7 @@ def test_no_colour_the_library_chose_survives_into_the_table():
     assert ".tabulator-row.tabulator-group span" in css, "the library's red count"
     assert "scrollbar-color" in css and "::-webkit-scrollbar-thumb" in css
     import re
-    literals = re.findall(r":\s*(#[0-9a-fA-F]{3,8})", css)
+    literals = re.findall(r":\s*(#[0-9a-fA-F]{3,8})\b", css)
     assert literals == [], f"hardcoded colours in the grid theme: {literals}"
 
 
