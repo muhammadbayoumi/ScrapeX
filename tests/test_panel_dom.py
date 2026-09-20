@@ -3437,7 +3437,7 @@ def test_no_surface_tells_the_owner_to_open_a_terminal():
     import re
 
     command = re.compile(
-        r"(python\s+-m\s+\S|py\s+-m\s+\S|pip\s+install"
+        r"(python\s+-m\s+\S|py\s+-m\s+\S|\bpip\s+install\b"
         r"|(?<![A-Za-z])scrapex\s+(?:ui|init-db|contractors|crawl|export|ingest|migrate)"
         r"|in a terminal|on the command line|command prompt"
         r"|open (?:a|the) terminal|PowerShell)")

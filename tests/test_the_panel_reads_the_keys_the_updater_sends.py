@@ -222,7 +222,7 @@ def test_every_field_the_panel_reads_survives_the_normaliser():
 #: `latest` block was missing six of the nine keys the router always emits,
 #: `detail` among them -- a field `engineUpdateSentence` reads on the path where a
 #: release feed is unreachable.
-READS_LATEST = re.compile(r"latest\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
+READS_LATEST = re.compile(r"\blatest\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
 
 def test_every_field_the_panel_reads_off_latest_is_one_the_engine_sends():

@@ -83,7 +83,29 @@ def _fields() -> dict:
 
 
 @pytest.fixture(scope="module")
-def page_factory(tmp_path_factory):
+def browser():
+    """ONE driver and ONE Chromium for the file, which is what the other eight do.
+
+    This fixture was module-scoped already, but the launch sat inside the closure it
+    returned -- so `sync_playwright().start()` and `chromium.launch()` ran on every one
+    of this file's 24 tests and the function-scoped `page` tore both down again. Only
+    the temp directory was ever hoisted.
+
+    It is the one browser file of nine that did that, and the cost is not its own: a
+    driver and a browser process per test starves the machine while the rest of the
+    suite runs beside it, which is the shape behind the 30-second Playwright timeouts
+    recorded in #958, #976 and #1019 -- each in a DIFFERENT file, each passing alone.
+    """
+    with sync_playwright() as pw:
+        instance = pw.chromium.launch()
+        try:
+            yield instance
+        finally:
+            instance.close()
+
+
+@pytest.fixture(scope="module")
+def page_factory(tmp_path_factory, browser):
     tmp = tmp_path_factory.mktemp("grid")
 
     def open_grid(payload=None, *, expect_table=True, **kw):
@@ -92,9 +114,10 @@ def page_factory(tmp_path_factory):
         # never constructs a table for one, so waiting for the instance would
         # time out on the very case the test is about.
         target = harness.build_page(tmp, payload or _payload(), **kw)
-        ctx = sync_playwright().start()
-        browser = ctx.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        # A CONTEXT PER TEST, NOT A BROWSER. The isolation each test needs is a fresh
+        # page with no shared storage; the process it runs in can be shared.
+        context = browser.new_context(viewport={"width": 1280, "height": 800})
+        page = context.new_page()
         page.goto(target.as_uri())
         if expect_table:
             page.wait_for_function("() => !!window.Tabulator "
@@ -104,17 +127,16 @@ def page_factory(tmp_path_factory):
                 "() => document.getElementById('grid-note')"
                 "  && !document.getElementById('grid-note').hidden")
         page.wait_for_timeout(400)
-        return page, browser, ctx
+        return page, context
 
     return open_grid
 
 
 @pytest.fixture
 def page(page_factory):
-    page, browser, ctx = page_factory()
+    page, context = page_factory()
     yield page
-    browser.close()
-    ctx.stop()
+    context.close()
 
 
 def _sorted_names(page, field, direction):
@@ -233,7 +255,7 @@ def test_a_group_header_renders_markup_as_text(page_factory):
     """Tabulator writes a STRING group header through innerHTML."""
     payload = _payload()
     payload["rows"][0]["product_name"] = MARKUP_NAME
-    page, browser, ctx = page_factory(payload)
+    page, context = page_factory(payload)
     try:
         page.evaluate("""() => {
             const col = [...document.querySelectorAll('.tabulator-col')]
@@ -256,8 +278,7 @@ def test_a_group_header_renders_markup_as_text(page_factory):
             "() => [...document.querySelectorAll('.tabulator-group')].map(g => g.textContent)")
         assert any(MARKUP_NAME in b for b in bands), "the value should show as text"
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 # ---- a control that can remove itself needs a door outside it ----------------
@@ -274,14 +295,13 @@ def test_the_columns_button_still_works_with_no_rows(page_factory):
     payload = _payload()
     payload["rows"] = []
     payload["total"] = payload["returned"] = 0
-    page, browser, ctx = page_factory(payload, expect_table=False)
+    page, context = page_factory(payload, expect_table=False)
     try:
         page.click("#grid-columns-button")
         page.wait_for_selector(".column-chooser", timeout=3000)
         assert page.is_visible(".column-chooser")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 def test_header_filter_and_menu_are_keyboard_controls(page):
@@ -409,7 +429,7 @@ def test_outbound_links_carry_target_and_rel_together(page_factory):
     for i, row in enumerate(payload["rows"]):
         row["product_link"] = f"https://example.test/p/{i}"
     payload["columns"].append({"key": "product_link", "label": ""})
-    page, browser, ctx = page_factory(payload)
+    page, context = page_factory(payload)
     try:
         links = page.evaluate("""() => [...document.querySelectorAll(
             '.tabulator-cell[tabulator-field=product_link] a')].map(a => ({
@@ -423,8 +443,7 @@ def test_outbound_links_carry_target_and_rel_together(page_factory):
             assert link["rel"] == "noopener noreferrer", link
             assert link["href"].startswith("https://example.test/")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 # ---- the harness stands in for source.html, so the two must agree ------------
@@ -460,7 +479,7 @@ OFFER_WITH_HISTORY = {
 
 def test_the_record_panels_timestamps_follow_the_display_zone(page_factory):
     """The Data page converts an instant and leaves a business date alone."""
-    page, browser, ctx = page_factory(offer=OFFER_WITH_HISTORY)
+    page, context = page_factory(offer=OFFER_WITH_HISTORY)
     try:
         page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
         opened = page.evaluate("""() => {
@@ -500,8 +519,7 @@ def test_the_record_panels_timestamps_follow_the_display_zone(page_factory):
         # observations card lives in a section this view does not open.
         assert "2026-07-30T22:30:00Z" in page.inner_html("#offer-panel")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 # ---- the two capabilities the extension port is measured by, 2026-08-26 ------
@@ -532,7 +550,7 @@ def test_a_column_moved_out_of_the_table_is_drawn_in_the_record_card(page_factor
     """
     payload = _payload()
     payload["moved_to_details"] = MOVED_OUT_OF_THE_TABLE
-    page, browser, ctx = page_factory(payload, offer=OFFER_WITH_HISTORY)
+    page, context = page_factory(payload, offer=OFFER_WITH_HISTORY)
     try:
         # The card is built only when a row is open: grid.js gates it on
         # `moved.length && openOfferRow`, so a non-empty list on its own draws
@@ -567,8 +585,7 @@ def test_a_column_moved_out_of_the_table_is_drawn_in_the_record_card(page_factor
             "the moved column's heading drew but its value did not, so the card "
             f"is empty of the thing it exists to show; panel: {panel[:400]!r}")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 def test_an_empty_moved_list_draws_no_card_at_all(page_factory):
@@ -577,7 +594,7 @@ def test_an_empty_moved_list_draws_no_card_at_all(page_factory):
     Without this the assertion above would pass just as well against a card that
     is always drawn, which is a different page from the one `R-45` asked for.
     """
-    page, browser, ctx = page_factory(offer=OFFER_WITH_HISTORY)
+    page, context = page_factory(offer=OFFER_WITH_HISTORY)
     try:
         page.evaluate("""() => {
             const table = Tabulator.findTable('#grid')[0];
@@ -593,8 +610,7 @@ def test_an_empty_moved_list_draws_no_card_at_all(page_factory):
         assert "moved out of the table" not in page.inner_text("#offer-panel").lower(), (
             "nothing was moved out of the table and the card drew anyway")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
 
 
 def test_the_language_toggle_swaps_which_name_column_is_visible(page):
@@ -657,11 +673,10 @@ def test_the_toggle_is_absent_rather_than_present_and_lying(page_factory):
     """
     payload = _payload()
     payload["bilingual"] = {}
-    page, browser, ctx = page_factory(payload)
+    page, context = page_factory(payload)
     try:
         assert page.locator("#grid-lang-toggle").count() == 0, (
             "there are no bilingual pairs and the toggle rendered anyway, which "
             "offers the reader a control that cannot do anything")
     finally:
-        browser.close()
-        ctx.stop()
+        context.close()
