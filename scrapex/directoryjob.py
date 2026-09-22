@@ -338,6 +338,80 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # fetched real pages. Structural beats incidental.
     fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
 
+    def _measured() -> dict:
+        """What the fetcher has counted, in the shape `_fetch_progress` reads.
+
+        THE SAME SHAPE `capture.py` WRITES for the price path, deliberately: the panel
+        has one definition of the numerator (`webui/app.py::_fetch_progress`) and a
+        second spelling here would be a second way to be wrong.
+
+        `expected` IS A COUNT HERE, NOT AN ESTIMATE, which is why `basis` says `declared`.
+        `crawl_partition` calls `declare_frontier(fetcher, ...)` once after sizing --
+        `partitioncrawl.py`, *"DECLARED ONCE, AFTER SIZING, AND THAT IS WHY IT CAN BE A
+        COUNT"* -- as `sum(last_page * locales + 1)`. Every cell has published its own page
+        count by then, so this is arithmetic. For the Oman register that is 471 pages x 2
+        locales + 1 = 943.
+
+        IT IS ABSENT UNTIL SIZING FINISHES, and `if expected` is the whole handling. A beat
+        during sizing carries the count with no denominator, which `_fetch_progress` already
+        renders as unknown -- its docstring is explicit that a bar drawn at 0% against an
+        unknown total is the original defect.
+        """
+        live: dict = {"requests": int(fetcher.requests_count), "state": "fetching"}
+        expected = getattr(fetcher, "expected_requests", None)
+        if expected:
+            live["expected"] = int(expected)
+            live["basis"] = "declared"
+            live["as_of"] = None
+        return live
+
+    def _stop_if_dropped() -> None:
+        """Raise if the owner has stopped this job -- BEFORE the next request is spent.
+
+        THE ONLY CHECKPOINT INSIDE A CELL. `cell_closed` asks the same question between
+        cells, and `sites/oman_tenderboard.py`'s `cells()` returns `(WHOLE,)`, so on
+        that source the between-cells question is first asked when the crawl is already
+        over. Measured on `job_36bf9e2adc21`, 2026-09-22: Cancel at 12:41 and the pages
+        kept landing at an unchanged twenty a minute until the engine was killed at
+        12:48 -- 152 of them, with the word "cancel" nowhere in the job log. Issue 1028.
+
+        BOTH READS, BECAUSE NEITHER ANSWERS ALONE. `still_wanted` is True for a job in
+        `cancelling` -- `cancelling` is not in `TERMINAL_JOB_STATUSES`, issue 1029 --
+        and `cancelling` is exactly the status Cancel produces, so that read by itself
+        would have stopped nothing here. `control` is cleared to `none` by `_finish`,
+        which is the hole `still_wanted`'s own docstring records. Each covers the other.
+
+        THE PAUSE IS LEFT TO `cell_closed`, deliberately. A cell's completeness proof
+        spans its pages, so stopping mid-cell loses it; pausing at a boundary keeps it.
+        Honouring a pause here would make the 56-cell crawl worse to improve the
+        one-cell one. A pause on a one-cell partition therefore still waits for the end
+        of the crawl -- recorded in 1028, not fixed here.
+
+        A FAILED READ IS NOT A STOP, the same rule the beat below states: lose the
+        check, never the run. A locked database must not cancel a crawl nobody
+        cancelled.
+        """
+        try:
+            # `dbmod.connect` RATHER THAN A RAW ONE, unlike the beat below, and
+            # the first draft of this got it wrong: `get_job` builds its dict
+            # through `_as_job`, which needs `row_factory = sqlite3.Row`. A raw
+            # connection reads the row as a tuple and `dict(row)` raises
+            # `TypeError: object is not iterable` -- caught here by nothing,
+            # because it is not a `sqlite3.Error`. The beat is safe with a raw
+            # connection only because it writes and never reads a job row.
+            own = dbmod.connect(db_file)
+            try:
+                wanted = jobs.still_wanted(own, job_ref)
+                control = jobs._control_of(own, job["job_id"])
+            finally:
+                own.close()
+        except sqlite3.Error:
+            return
+        if not wanted:
+            raise contractors.CrawlAbandoned("settled")
+        if control == JobControl.CANCEL.value:
+            raise contractors.CrawlAbandoned(JobControl.CANCEL.value)
+
     def beating(url: str) -> str:
         """One page, and a heartbeat if one is due.
 
@@ -357,19 +431,42 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         a heartbeat written inside the crawl's transaction is a heartbeat that can be
         rolled away with whatever the crawl was doing -- and it would commit the crawl's
         pending work on a schedule the crawl did not choose.
+
+        AND IT CARRIES THE REQUEST COUNT, which is the only place that can. `_fetch_progress`
+        (`webui/app.py`) builds the panel's numerator from `counters`, NOT from
+        `progress_done` -- its own docstring says why: *"a one-source job is 0/1 for its
+        whole duration, which is the 0% the owner watched for 18 minutes while 1,030
+        requests succeeded behind it"*. This path never wrote that counter, so every
+        directory crawl reported `Requests 0` while it worked. Measured on his machine
+        2026-09-21: 401 requests landed and the panel read 0 (#1014).
+
+        `cell_closed` cannot do it. It runs BETWEEN cells, and a partition with one cell --
+        which is the Oman register's whole shape -- does not reach it until the sweep ends.
+
+        AN OBSERVATION, NEVER A CLAIM. This writes `requests` and `state`, and deliberately
+        not `status` or `stage`: `cell_closed` owns those and withholds them while a stop is
+        pending, and a beat that re-asserted `running` is exactly the defect issue 791
+        records -- a cancelled sweep that fetched all 938 pages anyway.
         """
-        text = fetch(url)
         now = time.monotonic()
-        if now - beat_at[0] < globals()["BEAT_EVERY_S"]:
+        due = now - beat_at[0] >= globals()["BEAT_EVERY_S"]
+        if due:
+            beat_at[0] = now
+            # ONE CLOCK, AND EACH HALF ON THE SIDE OF THE REQUEST WHERE IT IS TRUE. The
+            # beat claims a request COMPLETED, so it cannot move above the fetch -- the
+            # paragraph above says why. The stop decides whether to SPEND one, so below
+            # the fetch it is worth nothing: it would report the page it just paid for.
+            _stop_if_dropped()
+        text = fetch(url)
+        if not due:
             return text
-        beat_at[0] = now
         try:
             own = sqlite3.connect(db_file, timeout=5.0)
             try:
                 own.execute("PRAGMA busy_timeout = 5000")
-                own.execute(
-                    "UPDATE crawl_job SET last_heartbeat_at = ? WHERE job_id = ?",
-                    (utc_now_iso(), job["job_id"]))
+                # `record_source_fetch` beats the heartbeat itself, in the same statement
+                # that merges the slot, so this is one write rather than two.
+                jobs.record_source_fetch(own, job["job_id"], source_key, **_measured())
                 own.commit()
             finally:
                 own.close()
@@ -592,6 +689,34 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # NOT AN ERROR, AND NOT SILENT EITHER. The crawl was asked to stop by
         # `cell_closed`, which has already written the status and said why.
         return jobs.get_job(conn, job_ref)
+    except contractors.CrawlAbandoned as abandoned:
+        # THE STOP `cell_closed` COULD NOT REACH, because it runs between cells and the
+        # Oman register publishes one. Issue 1028, measured above `_stop_if_dropped`.
+        #
+        # SETTLED HERE, NOT BY THE SWEEP. Unwinding alone leaves `cancelling` behind,
+        # and a transitional status nothing resolves is what the orphan sweep cleans up
+        # ten minutes later -- which is the line he actually got in his log.
+        spent = int(getattr(fetcher, "requests_count", 0) or 0)
+        if str(abandoned) == JobControl.CANCEL.value:
+            jobs.append_log(
+                conn, job["job_id"],
+                f"cancelled inside a cell after {spent:,} request(s), so no further "
+                "page is fetched. The pages already stored are kept, and this cell's "
+                "completeness is re-proved from scratch by any later run",
+                source_key=source_key)
+            jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+        else:
+            # ALREADY SETTLED, SO NOTHING IS WRITTEN OVER IT -- the same reading
+            # `cell_closed` takes of `still_wanted` forty lines up: a job whose row has
+            # gone, or which something else finished, is not this run's to re-finish.
+            jobs.append_log(
+                conn, job["job_id"],
+                f"stopped inside a cell after {spent:,} request(s): this job is "
+                "already settled, so no further page is fetched",
+                source_key=source_key)
+        stopped.append(JobStatus.CANCELLED.value)
+        conn.commit()
+        return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",
                         level=LogLevel.ERROR, source_key=source_key)

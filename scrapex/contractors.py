@@ -308,6 +308,30 @@ class CrawlStopped(Exception):
     """
 
 
+class CrawlAbandoned(BaseException):
+    """The owner stopped this run MID-PAGE, and no further page may be fetched.
+
+    A `BaseException`, WHICH IS THE WHOLE REASON THIS IS NOT A SECOND USE OF
+    `CrawlStopped`. Every layer between a fetch callback and the job deliberately turns
+    an `Exception` into a record instead of an end -- `pagewalk._get` says it in terms,
+    *"NOT RAISED. One dead page out of a hundred thousand must not discard the rest"*,
+    and `snapshotcrawl.store`, `witness`, `size_cell` and the resize in
+    `_crawl_one_cell` all repeat it. That is right for a page the site would not serve
+    and exactly wrong for the owner pressing Cancel: a `CrawlStopped` raised from the
+    fetch callback is filed as one failed page, the walker then asks for the rest of the
+    cell, and every one of them fails the same way. A stop has to be the one thing those
+    handlers do not catch. Issue 1028.
+
+    THE ARGUMENT IS THE REASON, NOT A MESSAGE -- `settled`, or the `JobControl` value
+    that asked. The caller settles the job and records why, which is the same division
+    `CrawlStopped` states one class up.
+
+    NOT FOR A PAUSE, AND THAT IS A DECISION. A cell's completeness proof spans its
+    pages, so a mid-cell stop loses it -- which is why `cell_closed` pauses at a
+    boundary. A cancel is discarding the run and has no proof to lose.
+    """
+
+
 def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
           max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS,
           workers: int = 1, connect=None, between_cells=None) -> None:
