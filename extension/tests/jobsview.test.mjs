@@ -6,8 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  controlsFor, isMoving, isSettled, jobLabel, jobWaitingLine, liveJob, ownsAWorker,
-  progressFraction, progressLine, rowsFrom, statusTone, statusWords, summariseJobs,
+  controlsFor, forgetRate, isMoving, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker, progressFraction, progressLine, recentRate, rowsFrom, statusTone, statusWords, summariseJobs,
 } from "../jobsview.js";
 
 /** `fetch` AS THE RUNNERS ACTUALLY LEAVE IT, which is empty.
@@ -314,3 +313,65 @@ test("held and settled are read off the vocabulary, not guessed", () => {
 // properly, for every pair of inlined modules; `jobsview.js` and `app.js` were simply
 // missing from its list and are now in it. One rule, one home.
 
+
+// ---- the rate the finish estimate divides by ---------------------------------
+
+test("the rate is measured over the window, not since the job started", () => {
+  forgetRate();
+  const job = { job_ref: "job_a", fetch: { requests: 100 } };
+  // A crawl that began four hours ago and has been working for the last minute.
+  observeRate(job, 0);
+  observeRate({ ...job, fetch: { requests: 115 } }, 60_000);
+
+  const rate = recentRate();
+  assert.ok(rate !== null, "two readings a minute apart produced no rate");
+  assert.equal(Math.round(rate * 1000) / 1000, 0.25,
+    "15 requests in 60 seconds is 0.25/s, whatever the job's start time was");
+});
+
+test("a sleep in the middle cannot drag the rate down", () => {
+  forgetRate();
+  // Three readings: two before a 3h 35m sleep, one after.
+  observeRate({ job_ref: "job_b", fetch: { requests: 0 } }, 0);
+  observeRate({ job_ref: "job_b", fetch: { requests: 378 } }, 24 * 60_000);
+  const asleep = 24 * 60_000 + 215 * 60_000;
+  observeRate({ job_ref: "job_b", fetch: { requests: 379 } }, asleep);
+
+  // Every point older than the window is gone, so one reading remains and no rate is
+  // claimed -- rather than 379 requests over four hours.
+  assert.equal(recentRate(), null,
+    "a rate was offered from a single reading taken after a sleep");
+
+  // One more reading, and it measures only what has happened since.
+  observeRate({ job_ref: "job_b", fetch: { requests: 394 } }, asleep + 60_000);
+  assert.equal(Math.round(recentRate() * 1000) / 1000, 0.25,
+    "the rate still carries the hours the machine was asleep");
+});
+
+test("a different job starts its own measurement", () => {
+  forgetRate();
+  // THE SECOND JOB'S COUNT IS HIGHER, DELIBERATELY. The obvious ordering -- a long job
+  // followed by a fresh one at 2 -- passes even when the reset is deleted, because the
+  // count going BACKWARDS trips the `gained <= 0` guard instead. A mutation found that:
+  // the test asserted the right thing for the wrong reason.
+  observeRate({ job_ref: "job_c", fetch: { requests: 10 } }, 0);
+  observeRate({ job_ref: "job_d", fetch: { requests: 500 } }, 1_000);
+  assert.equal(recentRate(), null,
+    "one job's request count was divided by another job's seconds -- carried over, this "
+    + "reads 490 requests per second");
+});
+
+test("a stalled crawl offers no rate rather than a tiny one", () => {
+  forgetRate();
+  observeRate({ job_ref: "job_e", fetch: { requests: 300 } }, 0);
+  observeRate({ job_ref: "job_e", fetch: { requests: 300 } }, 90_000);
+  assert.equal(recentRate(), null,
+    "a crawl that gained nothing produced a rate, so the panel would print a duration");
+});
+
+test("a job with no request count is not sampled at all", () => {
+  forgetRate();
+  observeRate({ job_ref: "job_f", fetch: {} }, 0);
+  observeRate({ job_ref: "job_f", fetch: {} }, 60_000);
+  assert.equal(recentRate(), null);
+});

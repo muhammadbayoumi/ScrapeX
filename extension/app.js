@@ -13,7 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  liveJob, progressFraction, progressLine, rowsFrom, statusWords, summariseJobs,
+  liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
+  statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5043,10 +5044,13 @@ function renderProgress(job) {
 // precision the bar does not have.
 function finishEstimate(job) {
   const f = job.fetch || {};
-  if (!f.expected || !job.started_at || f.requests < 2) return "";
-  const elapsed = (Date.now() - Date.parse(job.started_at)) / 1000;
-  const rate = f.requests / elapsed;               // requests per second so far
-  if (rate <= 0) return "";
+  if (!f.expected || f.requests < 2) return "";
+  // NO FALLBACK TO THE WALL CLOCK. Two readings are three seconds apart at the poll
+  // interval, so the estimate appears almost at once on a live crawl -- and a panel
+  // opened cold mid-crawl says nothing for one poll rather than saying something ten
+  // times wrong.
+  const rate = recentRate();
+  if (!rate || rate <= 0) return "";
   const remaining = Math.max(0, f.expected - f.requests) / rate;
   const about = f.basis === "estimate" ? "about " : "";
   return `~${about}${fmtDuration(remaining)} left`;
@@ -5056,6 +5060,9 @@ function renderActivity(job) {
   const box = $("activity");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
+  // BEFORE THE ESTIMATE READS IT. `finishEstimate` divides by the window this fills,
+  // so a draw that skipped it would offer no estimate at all.
+  observeRate(job);
   const elapsed = fmtElapsed(job.started_at);
   const left = finishEstimate(job);
   $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]
