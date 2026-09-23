@@ -130,6 +130,11 @@ format, and the rules that decide the outcome.
 **Never record findings, plans or progress in a repository markdown file.** Every kind of
 record, and every kind of question, has its command: the **`record-it` skill**.
 
+**A reference is not a record.** What a decision RESTS ON is in
+`docs/ENGINEERING-SOURCES.md` for the engine and `docs/DESIGN-SYSTEM-SOURCES.md` for the
+interface — cite the entry's key at the line it governs, and changing the rule means
+arguing with its source rather than with whoever wrote it.
+
 ## Four traps that cost an afternoon each
 
 **A running engine is not your edit.** Python imports once, so an engine started before
