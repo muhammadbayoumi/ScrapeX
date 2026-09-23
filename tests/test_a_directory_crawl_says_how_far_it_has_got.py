@@ -106,6 +106,32 @@ class _Fetcher:
         self.closed = True
 
 
+def _counting(fetcher):
+    """A fetch that only counts. Shared so a test spelling its own does not drift."""
+    def fetch(url: str) -> str:
+        fetcher.requests_count += 1
+        return "<html></html>"
+    return fetch
+
+
+def _job_now(conn: sqlite3.Connection, ref: str) -> dict:
+    """The job row as the API would read it, from a SECOND connection.
+
+    The beats were written on their own connection and this one has to see them
+    committed -- the same reason the beat opens its own.
+    """
+    import json as _json
+    own = sqlite3.connect(str(conn.execute("PRAGMA database_list").fetchone()[2]))
+    own.row_factory = sqlite3.Row
+    try:
+        job = dict(own.execute(
+            "SELECT * FROM crawl_job WHERE job_ref = ?", (ref,)).fetchone())
+    finally:
+        own.close()
+    job["counters"] = _json.loads(job.get("counters_json") or "{}")
+    return job
+
+
 def _drive(conn: sqlite3.Connection, monkeypatch, *, pages: int,
            frontier: int | None, beat_every_s: float = 0.0,
            sizing_requests: int = 4):
@@ -335,11 +361,55 @@ def test_the_card_carries_the_politeness_rows_the_panel_draws(conn, monkeypatch)
     version of `_measured` wrote five of the nine fields `capture.py` writes, so the one
     collector that runs for twenty-four hours showed none of the politeness evidence --
     on a fetcher that carries all four. One builder now, in `connectors/base.py`.
+
+    THE VALUES, NOT THE KEYS. An earlier version of this test asserted `field in slot`,
+    and a mutation hard-coding `pace_s = 0.0` survived it -- along with 370 other tests.
+    That mutation is not cosmetic: `extension/app.js` draws the Pace row only when
+    `source.pace_s != null && source.pace_s > 0`, so a falsy value suppresses exactly
+    the row this test is named after, which is the defect and not a near miss.
     """
-    progress = _drive(conn, monkeypatch, pages=4, frontier=943)["progress"]
-    slot = progress["sources"][SITE]
-    for field in ("not_modified", "retries", "pace_s", "honouring_delay"):
-        assert field in slot, (
-            f"the slot has no {field!r}, so the panel cannot draw that row for a "
-            f"directory crawl: {sorted(slot)}"
-        )
+    fetcher = _Fetcher()
+    fetcher.not_modified_count = 37
+    fetcher.retry_count = 4
+    fetcher._min_interval_s = 1.0
+    fetcher._honour_crawl_delay = False        # he overrode a delay: it must SHOW
+
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, _counting(fetcher)))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+
+    def crawl_some_pages(*args, **kwargs):
+        beating = kwargs.get("beating") or args[2]
+        connectors_base.declare_frontier(fetcher, 943)
+        for page in range(4):
+            beating(f"https://muqawil.org/en/contractors?page={page}")
+        seen["progress"] = _fetch_progress(_job_now(conn, ref))
+        raise RuntimeError("stopped on purpose, after the beats were written")
+
+    seen: dict = {}
+    monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_some_pages)
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    with pytest.raises(RuntimeError, match="on purpose"):
+        directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    slot = seen["progress"]["sources"][SITE]
+    assert slot["not_modified"] == 37, (
+        f"not_modified reads {slot.get('not_modified')!r}; the 304 count is the single "
+        f"best sign a recurring crawl is being cheap and polite"
+    )
+    assert slot["retries"] == 4, (
+        f"retries reads {slot.get('retries')!r}; retries are the earliest sign a site "
+        f"is pushing back"
+    )
+    # `> 0`, because that is the condition `extension/app.js` draws the row on.
+    assert slot["pace_s"] == 1.0 and slot["pace_s"] > 0, (
+        f"pace_s reads {slot.get('pace_s')!r}. The panel draws the Pace and Rate rows "
+        f"only when it is truthy, so a falsy value hides them exactly as a missing key "
+        f"would"
+    )
+    assert slot["honouring_delay"] is False, (
+        "honouring_delay reads True on a run that overrode the site's requested delay. "
+        "A run that was fast because the site asked for nothing and one that was fast "
+        "because we overrode a 10s delay must not look identical while it happens."
+    )

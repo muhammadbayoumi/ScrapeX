@@ -457,9 +457,27 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         #
         # RE-RAISED, and the caller still decides. This records what happened to the
         # run; it does not swallow what happened to the crawl.
-        runs.close_run(conn, run_id, status=RunStatus.PARTIAL,
-                       requests=int(getattr(fetcher, "requests_count", 0) or 0))
-        conn.commit()
+        #
+        # AND THE RECORD MAY NOT DESTROY THE OUTCOME. This clause adds a WRITE to the
+        # path a cancel takes, and a write can fail: three jobs share one warehouse at
+        # `busy_timeout=5000`. Unguarded, a `database is locked` here REPLACES the
+        # `CrawlAbandoned` travelling up, so `directoryjob`'s `except CrawlAbandoned`
+        # never fires, `except Exception` does, and the job he cancelled settles as
+        # `failed`. Measured by the gate's second pass. `directoryjob` states the rule
+        # this obeys, about its own guard: *"A FAILED READ IS NOT A STOP ... a locked
+        # database must not cancel a crawl nobody cancelled."* The same in reverse: a
+        # locked database must not FAIL a crawl he merely stopped.
+        try:
+            runs.close_run(conn, run_id, status=RunStatus.PARTIAL,
+                           requests=int(getattr(fetcher, "requests_count", 0) or 0))
+            conn.commit()
+        except Exception as recording:
+            # NOT SILENT. The row stays `running` -- issue 535's original state -- and
+            # that is worth a line, because the alternative to saying so is a stale row
+            # nobody can explain. `say` rather than a raise: this is the record of the
+            # run, and losing it costs a report; losing the outcome costs the job.
+            say(f"could not close this run's row: {type(recording).__name__}: "
+                f"{recording}. It stays 'running' and no sweep will settle it (535)")
         raise
     # KEPT AFTER THE CRAWL AND NOT DURING IT, deliberately: a validator is only
     # worth storing if the page it describes was actually read, and writing them per

@@ -45,10 +45,12 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from scrapex import contractors, db as dbmod, directoryjob, jobs  # noqa: E402
+from scrapex import contractors, directoryjob, jobs  # noqa: E402
+from scrapex import db as dbmod
 from scrapex.crawlscope import CrawlScope  # noqa: E402
 from scrapex.pagewalk import PageWalker  # noqa: E402
 from scrapex.vocab import JobControl, JobStatus  # noqa: E402
+from scrapex.webui.app import _fetch_progress  # noqa: E402
 
 SITE = "muqawil_org"
 
@@ -384,8 +386,16 @@ def test_the_shipped_interval_is_what_bounds_a_cancel(conn, monkeypatch):
     every page a checkpoint and lets `requests == 3` read like a per-request guarantee.
     It is not one: the cancel is honoured at the next BEAT.
 
-    The gate on this change proved nothing pinned that -- a mutation moving the constant
-    from 20.0 to 600.0 survived the whole file. This is the pin.
+    THE CONSTANT ITSELF IS ALREADY PINNED, and this test does not do that --
+    `test_the_shipped_heartbeat_interval_keeps_the_card_fresh`
+    (`tests/test_the_button_drives_the_collector_the_source_needs.py`) has asserted
+    `0 < BEAT_EVERY_S <= 60.0` since before this change. An earlier draft of this
+    docstring claimed otherwise, on a mutation that survived THIS FILE and was killed by
+    that one; the gate's second pass caught the claim.
+
+    What this test adds is the COUPLING: that the cancel is bounded by that constant at
+    all, which no other test states and which a reader of `requests == 3` above would
+    never guess.
 
     In production the overshoot is one interval of FETCHING, not `pages`: at
     `DEFAULT_PACE_S = 1.0` that is up to about twenty requests on a one-cell source,
@@ -413,3 +423,81 @@ def test_the_shipped_interval_is_what_bounds_a_cancel(conn, monkeypatch):
         "the crawl stopped at the shipped interval, so the cancel is no longer bounded "
         "by BEAT_EVERY_S and this file's docstrings are stale"
     )
+
+
+def test_the_cancelled_card_says_what_the_crawl_spent_too(conn, monkeypatch):
+    """THE MUST FIX'S OTHER HALF, and a surviving mutation is what named it.
+
+    The gate's first pass found the FINISHED card reading `0 of 943 requests (0%)` with
+    the job's own log saying 943 above it. The fix went into the runner's `finally`, so
+    it covers every exit — but only the completed path was guarded, and a mutation making
+    the merge conditional on `if not stopped:` survived the whole suite. Its paused card
+    read `0 of 943 requests (0%)`: the identical defect, on the path this change is
+    named after.
+
+    `_fetch_progress` sums a slot into the numerator only while its `state` is
+    `fetching`, and the `finally` writes `stopped` for a cancel and a pause alike. So
+    the merged total is the ONLY thing standing between a cancelled crawl and a zero.
+    """
+    seen = _drive(conn, monkeypatch, pages=40, at_page=2, press=_cancel)
+    job = jobs.get_job(conn, seen["job"]["job_ref"])
+    progress = _fetch_progress(job)
+
+    assert progress["requests"] == 3, (
+        f"the cancelled card reads {progress['requests']} requests after 3 landed. The "
+        f"log line beside it says 3, and two numbers on one card contradicting each "
+        f"other is the shape this whole change exists to end."
+    )
+    assert any("after 3 request(s)" in line for line in seen["log"]), (
+        f"the log does not carry the count the card is being checked against: "
+        f"{seen['log']!r}"
+    )
+    # The denominator is not asserted here: this file's driver declares no frontier, so
+    # `expected` is legitimately None. `test_the_declared_frontier_becomes_the_panels_
+    # denominator` in the sibling file owns that half, and asserting it here would be a
+    # test of this driver's setup rather than of the runner.
+
+
+def test_a_resumed_crawl_adds_to_what_the_first_leg_spent(conn, monkeypatch):
+    """IT ADDS, IT DOES NOT REPLACE -- measured by the gate's second pass.
+
+    Every other writer of `counters["requests"]` accumulates: `jobs._merge_counters` is
+    `counters.get("requests", 0) + result.requests_count`, and a resuming job rehydrates
+    `counters` from the stored row. The first version of the merged write put `spent`
+    there flat, so a crawl paused at a cell boundary and resumed reported only its
+    SECOND leg -- 14 pages fetched, 5 on the finished card.
+    """
+    first = _drive(conn, monkeypatch, pages=9, at_page=None,
+                   press=lambda own, ref: None)
+    ref = first["job"]["job_ref"]
+    after_one = _fetch_progress(jobs.get_job(conn, ref))["requests"]
+    assert after_one == 9, f"the first leg reported {after_one} of 9"
+
+    # The same job, run again -- which is what a resume is from this runner's side.
+    jobs._update(conn, first["job"]["job_id"], status=JobStatus.QUEUED.value,
+                 finished_at=None)
+    conn.commit()
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, _count_pages(fetcher)))
+
+    def second_leg(*args, **kwargs):
+        beating = kwargs.get("beating") or args[2]
+        for page in range(5):
+            beating(f"https://muqawil.org/en/contractors?page=9{page}")
+
+    monkeypatch.setattr(directoryjob.contractors, "crawl", second_leg)
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    total = _fetch_progress(jobs.get_job(conn, ref))["requests"]
+    assert total == 14, (
+        f"the finished card reads {total} after two legs of 9 and 5. A flat write "
+        f"reports {5} -- only the leg that happened to run last."
+    )
+
+
+def _count_pages(fetcher):
+    def fetch(url: str) -> str:
+        fetcher.requests_count += 1
+        return "<html></html>"
+    return fetch

@@ -741,7 +741,18 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # `_merge_counters_column` RATHER THAN A PLAIN WRITE: it is `json_patch`, so it
         # replaces the keys it names and leaves `sources` alone. A `counters_json = ?`
         # here would take the whole column and every per-source denominator with it.
-        jobs._merge_counters_column(conn, job["job_id"], {"requests": spent})
+        #
+        # IT ADDS, IT DOES NOT REPLACE, because every other writer of this key adds:
+        # `jobs._merge_counters(counters, result)` is
+        # `counters["requests"] = counters.get("requests", 0) + result.requests_count`,
+        # and `run_crawl_job_once` rehydrates `counters` from the stored row when a job
+        # resumes. The first version of this line wrote `spent` flat, so a crawl paused
+        # at a cell boundary and resumed reported only its SECOND leg: 14 pages fetched,
+        # 5 on the finished card. That is the same collapse this block exists to stop,
+        # moved onto the resume path -- caught by the gate's second pass.
+        already = int((job.get("counters") or {}).get("requests") or 0)
+        jobs._merge_counters_column(conn, job["job_id"],
+                                    {"requests": already + spent})
         jobs.record_source_fetch(
             conn, job["job_id"], source_key,
             requests=spent, state="done" if not stopped else "stopped")
