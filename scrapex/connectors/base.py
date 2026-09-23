@@ -314,6 +314,48 @@ def declare_frontier(fetcher, pages: int) -> None:
         pass
 
 
+def fetch_slot(fetcher, requests: int) -> dict:
+    """What a fetcher has counted, in the one shape the panel's numerator reads.
+
+    THE ONE SPELLING, and it is here for `declare_frontier`'s reason one function up:
+    this is the other half of the same conversation — that one tells the fetcher what is
+    coming, this one tells the panel what has happened. It lived in three places before
+    (`capture.py`'s `measurements`, `directoryjob`'s `_measured`, and a fourth built by
+    hand at a cell boundary) and had already drifted: the directory crawl's copy omitted
+    `not_modified`, `retries`, `pace_s` and `honouring_delay`, so the one collector that
+    runs for twenty-four hours showed none of the politeness rows
+    `extension/app.js::activityCounters` draws, on a fetcher that carries all four.
+
+    `webui/app.py::_fetch_progress` is the consumer and it reads `requests`, `state`,
+    `expected`, `basis` and `as_of`; the other four are per-source rows beside them.
+
+    GUARDED ON THE FETCHER exactly as `declare_frontier` is, and for the same measured
+    reason: a caller may hold a minimal fake, and a display fact must never be able to
+    raise. `fetcher=None` returns the numerator alone.
+    """
+    live: dict = {"requests": int(requests), "state": "fetching"}
+    if fetcher is None:
+        return live
+    # A connector that enumerated its frontier outranks the estimate seeded from the
+    # last successful run: it counted, the estimate guessed.
+    expected = getattr(fetcher, "expected_requests", None)
+    if expected:
+        live["expected"] = int(expected)
+        live["basis"] = "declared"
+        live["as_of"] = None
+    # 304s are the single best sign a recurring crawl is being cheap and polite, and
+    # retries the best early sign a site is pushing back.
+    live["not_modified"] = int(getattr(fetcher, "not_modified_count", 0) or 0)
+    live["retries"] = int(getattr(fetcher, "retry_count", 0) or 0)
+    # The pace IN FORCE, which is not the setting: robots.txt can raise it, and whether
+    # that was honoured is the owner's own per-run choice. A run that was fast because
+    # the site asked for nothing and one that was fast because we overrode a 10s delay
+    # must not look identical while it happens.
+    live["pace_s"] = float(getattr(fetcher, "_min_interval_s", 0.0) or 0.0)
+    live["honouring_delay"] = bool(getattr(fetcher, "_honour_crawl_delay", True))
+    return live
+
+
 class RobotsDisallowed(RuntimeError):
     """This source is set to obey robots.txt, and robots.txt said no.
 

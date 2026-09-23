@@ -33,6 +33,7 @@ from contextlib import closing, nullcontext
 
 from . import contractors, directories, snapshotcrawl
 from . import db as dbmod
+from .connectors import base as connectors_base
 from .payload import utc_now_iso
 from .vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
 
@@ -341,29 +342,29 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     def _measured() -> dict:
         """What the fetcher has counted, in the shape `_fetch_progress` reads.
 
-        THE SAME SHAPE `capture.py` WRITES for the price path, deliberately: the panel
-        has one definition of the numerator (`webui/app.py::_fetch_progress`) and a
-        second spelling here would be a second way to be wrong.
+        ONE SPELLING, AND IT IS NOT THIS ONE. `connectors/base.py::fetch_slot` builds it,
+        beside `declare_frontier`; the first draft of this function said "a second
+        spelling here would be a second way to be wrong" while being that second
+        spelling, and it had already drifted -- it omitted `not_modified`, `retries`,
+        `pace_s` and `honouring_delay`, so a directory crawl showed none of the
+        politeness rows `extension/app.js::activityCounters` draws.
 
-        `expected` IS A COUNT HERE, NOT AN ESTIMATE, which is why `basis` says `declared`.
-        `crawl_partition` calls `declare_frontier(fetcher, ...)` once after sizing --
-        `partitioncrawl.py`, *"DECLARED ONCE, AFTER SIZING, AND THAT IS WHY IT CAN BE A
-        COUNT"* -- as `sum(last_page * locales + 1)`. Every cell has published its own page
-        count by then, so this is arithmetic. For the Oman register that is 471 pages x 2
-        locales + 1 = 943.
+        `expected` IS A COUNT, NOT AN ESTIMATE, which is why `fetch_slot` says
+        `declared`. `crawl_partition` calls `declare_frontier(fetcher, ...)` once after
+        sizing as `sum(last_page * locales + 1)` -- 471 x 2 + 1 = 943 for the Oman
+        register -- and every cell has published its own page count by then.
 
-        IT IS ABSENT UNTIL SIZING FINISHES, and `if expected` is the whole handling. A beat
-        during sizing carries the count with no denominator, which `_fetch_progress` already
-        renders as unknown -- its docstring is explicit that a bar drawn at 0% against an
-        unknown total is the original defect.
+        THAT IS NOT THE DENOMINATOR, AND THE DIFFERENCE IS MEASURED. `expect_requests`
+        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:500`): sizing spends
+        two per cell -- page 1 and page L -- before the frontier is known, so Oman's
+        panel reads about 947, not 943. An expectation that ignored them would be short
+        by exactly those pages and the bar would arrive at 100% early.
+
+        IT IS ABSENT UNTIL SIZING FINISHES, and `fetch_slot`'s `if expected` is the whole
+        handling. A beat during sizing carries the count with no denominator, which
+        `_fetch_progress` already renders as unknown.
         """
-        live: dict = {"requests": int(fetcher.requests_count), "state": "fetching"}
-        expected = getattr(fetcher, "expected_requests", None)
-        if expected:
-            live["expected"] = int(expected)
-            live["basis"] = "declared"
-            live["as_of"] = None
-        return live
+        return connectors_base.fetch_slot(fetcher, fetcher.requests_count)
 
     def _stop_if_dropped() -> None:
         """Raise if the owner has stopped this job -- BEFORE the next request is spent.
@@ -397,8 +398,11 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             # through `_as_job`, which needs `row_factory = sqlite3.Row`. A raw
             # connection reads the row as a tuple and `dict(row)` raises
             # `TypeError: object is not iterable` -- caught here by nothing,
-            # because it is not a `sqlite3.Error`. The beat is safe with a raw
-            # connection only because it writes and never reads a job row.
+            # because it is not a `sqlite3.Error`. The beat below reads a job row
+            # too -- `record_source_fetch` opens with `SELECT counters_json` -- and
+            # is safe on a raw connection only because it indexes `row[0]`
+            # positionally rather than going through `_as_job`. Row factory, not
+            # read-versus-write, is the thing that matters here.
             own = dbmod.connect(db_file)
             try:
                 wanted = jobs.still_wanted(own, job_ref)
@@ -607,10 +611,10 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             # others. With a pool it is also the only point at which it is READ from one
             # thread rather than incremented by several, which is why it is taken here
             # and not inside the fetch.
-            jobs.record_source_fetch(
-                own, job["job_id"], source_key,
-                requests=int(getattr(fetcher, "requests_count", 0) or 0),
-                state="fetching")
+            # THE SAME BUILDER THE BEAT USES. Built by hand here until the gate on
+            # this change named both locations: one shape, one place, or the two drift
+            # and the card shows a different set of rows depending on which wrote last.
+            jobs.record_source_fetch(own, job["job_id"], source_key, **_measured())
             own.commit()
             current = jobs.get_job(own, job_ref)
             control = jobs._control_of(own, job["job_id"])
@@ -724,10 +728,23 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         raise
     finally:
         fetcher.close()
+        spent = int(getattr(fetcher, "requests_count", 0) or 0)
+        # THE MERGED TOTAL, AND WITHOUT IT THE CARD READS 0 THE MOMENT THE CRAWL ENDS.
+        # `_fetch_progress` sums a slot into the numerator only while its `state` is
+        # `fetching`, and falls back to `counters["requests"]` for everything already
+        # finished -- which this path never wrote, so flipping the slot to `done` below
+        # took the number to zero. Measured on the change that added the count: 943
+        # requests landed, the job log said so, and the card beside it read
+        # `0 of 943 requests (0%)`. Worse than before the count existed, because without
+        # `expected` the panel drew `starting...` and claimed nothing.
+        #
+        # `_merge_counters_column` RATHER THAN A PLAIN WRITE: it is `json_patch`, so it
+        # replaces the keys it names and leaves `sources` alone. A `counters_json = ?`
+        # here would take the whole column and every per-source denominator with it.
+        jobs._merge_counters_column(conn, job["job_id"], {"requests": spent})
         jobs.record_source_fetch(
             conn, job["job_id"], source_key,
-            requests=int(getattr(fetcher, "requests_count", 0) or 0),
-            state="done" if not stopped else "stopped")
+            requests=spent, state="done" if not stopped else "stopped")
         conn.commit()
 
     if stopped:

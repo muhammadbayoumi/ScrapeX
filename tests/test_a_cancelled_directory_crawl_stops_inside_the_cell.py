@@ -55,7 +55,7 @@ SITE = "muqawil_org"
 
 @pytest.fixture()
 def conn(tmp_path):
-    connection = dbmod.connect(tmp_path / "harvest.db")
+    connection = dbmod.connect(tmp_path / "engine.db")
     dbmod.migrate(connection)
     connection.execute(
         "INSERT INTO source_site (source_key, source_name, base_url, platform) "
@@ -79,7 +79,8 @@ class _Fetcher:
         self.closed = True
 
 
-def _drive(conn, monkeypatch, *, pages: int, at_page, press):
+def _drive(conn, monkeypatch, *, pages: int, at_page, press,
+           beat_every_s: float = 0.0):
     """Run a crawl of `pages` pages, calling `press(own_conn, ref)` after page `at_page`.
 
     THE PRESS IS ON ITS OWN CONNECTION, because that is where it comes from in life: the
@@ -100,9 +101,11 @@ def _drive(conn, monkeypatch, *, pages: int, at_page, press):
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
                         lambda pace_s: (fetcher, fetch))
-    # The shipped interval is 20s, so a short test would check once or never. Zero makes
-    # every page a checkpoint -- the same code path at a different cadence.
-    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    # Zero makes every page a checkpoint -- the same code path at a different cadence.
+    # `test_the_shipped_interval_is_what_bounds_a_cancel` runs the same scenario at the
+    # real 20s, because the checkpoint being free here is exactly what hides how coarse
+    # it is in production.
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", beat_every_s)
 
     seen: dict = {}
 
@@ -370,4 +373,43 @@ def test_a_cancel_is_the_one_thing_the_walker_does_not_turn_into_a_failed_page()
         f"the walker asked for {len(asked)} of ten pages after the crawl was cancelled. "
         f"`CrawlAbandoned` now derives from `Exception`, so every `except Exception` "
         f"between the fetch callback and the job swallows it."
+    )
+
+
+def test_the_shipped_interval_is_what_bounds_a_cancel(conn, monkeypatch):
+    """THE COARSENESS THE OTHER TESTS PAY TO HIDE, stated here so it cannot grow.
+
+    `_stop_if_dropped()` sits inside `if due:`, so `BEAT_EVERY_S` governs CANCEL LATENCY
+    and not merely heartbeat cadence. Every test above patches it to 0.0, which makes
+    every page a checkpoint and lets `requests == 3` read like a per-request guarantee.
+    It is not one: the cancel is honoured at the next BEAT.
+
+    The gate on this change proved nothing pinned that -- a mutation moving the constant
+    from 20.0 to 600.0 survived the whole file. This is the pin.
+
+    In production the overshoot is one interval of FETCHING, not `pages`: at
+    `DEFAULT_PACE_S = 1.0` that is up to about twenty requests on a one-cell source,
+    against the 152 he measured. The improvement is real; the guarantee is per-beat, and
+    a reader of the assertions above would otherwise conclude it is per-request.
+    """
+    assert directoryjob.BEAT_EVERY_S >= 1.0, (
+        f"BEAT_EVERY_S is {directoryjob.BEAT_EVERY_S}, so this test is not measuring "
+        f"the shipped cadence at all"
+    )
+    seen = _drive(conn, monkeypatch, pages=40, at_page=2, press=_cancel,
+                  beat_every_s=directoryjob.BEAT_EVERY_S)
+
+    # The FIRST call is always due -- `beat_at` starts at 0.0 and `time.monotonic()` is
+    # seconds since boot -- so the guard does run before page 1, which is what
+    # `test_the_check_is_in_front_of_the_request_not_behind_it` asserts. After that the
+    # next check is one interval away, and this stub crawl outruns it.
+    assert seen["requests"] == 40, (
+        f"{seen['requests']} of 40 pages were fetched at the shipped "
+        f"{directoryjob.BEAT_EVERY_S}s interval. If this now stops early the guard has "
+        f"moved off the beat clock -- an improvement, but a behaviour change, and this "
+        f"test is the record that it happened."
+    )
+    assert "ran_to_the_end" in seen, (
+        "the crawl stopped at the shipped interval, so the cancel is no longer bounded "
+        "by BEAT_EVERY_S and this file's docstrings are stale"
     )

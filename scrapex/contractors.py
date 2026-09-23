@@ -428,13 +428,39 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
             "separate collector over this same registration, and it has no control "
             "in the panel yet")
     conn.commit()          # the workers open their own connections and must see it
-    outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
-                              run_ref=run_ref, run_id=run_id,
-                              dataset_key=directory.dataset_key,
-                              max_attempts=max_attempts,
-                              heavy_attempts=heavy_attempts, cells=chosen,
-                              workers=workers, connect=connect,
-                              fetcher=fetcher, on_cell=report)
+    try:
+        outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
+                                  run_ref=run_ref, run_id=run_id,
+                                  dataset_key=directory.dataset_key,
+                                  max_attempts=max_attempts,
+                                  heavy_attempts=heavy_attempts, cells=chosen,
+                                  workers=workers, connect=connect,
+                                  fetcher=fetcher, on_cell=report)
+    except BaseException:
+        # THE RUN IS CLOSED ON EVERY WAY OUT, NOT ONLY THE SUCCESSFUL ONE. `close_run`
+        # sits after this call with nothing guarding it, so for as long as this function
+        # has existed a stop or a crash has left `crawl_run` at `status='running',
+        # finished_at=NULL` -- permanently, because no sweep exists for that table
+        # (`reclaim_orphaned_jobs` settles `crawl_job` only). `reports.last_status`,
+        # `reports.crawl_history` and `dryrun` all then read a sweep that never ended.
+        # Issue 535, recorded 2026-09-04 and measured again by the gate on the change
+        # that added a FOURTH such exit.
+        #
+        # `BaseException`, NOT `Exception`, because the newest of those exits is
+        # `CrawlAbandoned` -- a `BaseException` by design, so that the layers below turn
+        # no owner's cancel into a page failure. A narrower clause here would leak the
+        # row on exactly the path the owner uses most.
+        #
+        # `PARTIAL`, NOT `FAILED`: every closed cell's evidence is committed and a
+        # resume under the same `run_ref` skips its pages, so this run did part of the
+        # work. `FAILED` would say it produced nothing.
+        #
+        # RE-RAISED, and the caller still decides. This records what happened to the
+        # run; it does not swallow what happened to the crawl.
+        runs.close_run(conn, run_id, status=RunStatus.PARTIAL,
+                       requests=int(getattr(fetcher, "requests_count", 0) or 0))
+        conn.commit()
+        raise
     # KEPT AFTER THE CRAWL AND NOT DURING IT, deliberately: a validator is only
     # worth storing if the page it describes was actually read, and writing them per
     # page would put a commit between every fetch on a path that already has one.

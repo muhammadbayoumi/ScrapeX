@@ -43,15 +43,23 @@ import pytest
 pytest.importorskip("fastapi")
 
 from scrapex import db as dbmod, directoryjob, jobs  # noqa: E402
+from scrapex.connectors import base as connectors_base  # noqa: E402
 from scrapex.vocab import JobStage, JobStatus  # noqa: E402
 from scrapex.webui.app import _fetch_progress  # noqa: E402
+
+# THIS FILE NAMES `extension/` -- `test_the_card_carries_the_politeness_rows_the_panel_draws`
+# asserts the slot carries the four fields `extension/app.js::activityCounters`
+# renders, so an extension-only change must still run it. The gate that caught the
+# omission is deliberately broad: a false positive costs one marker, a false
+# negative costs a guard nobody notices is gone.
+pytestmark = pytest.mark.extension
 
 SITE = "muqawil_org"
 
 
 @pytest.fixture()
 def conn(tmp_path):
-    connection = dbmod.connect(tmp_path / "harvest.db")
+    connection = dbmod.connect(tmp_path / "engine.db")
     dbmod.migrate(connection)
     connection.execute(
         "INSERT INTO source_site (source_key, source_name, base_url, platform) "
@@ -81,12 +89,26 @@ class _Fetcher:
         self.expected_requests = None
         self.closed = False
 
+    def expect_requests(self, pages: int) -> None:
+        """`HttpFetcher.expect_requests`'s arithmetic, not a convenient shortcut.
+
+        COUNTED FROM THE REQUESTS ALREADY MADE, which is the whole point and the thing
+        the first version of these tests assumed away by setting `expected_requests`
+        directly. Sizing spends two requests per cell -- page 1 and page L -- before the
+        frontier is known, so the denominator the panel reads is always ABOVE the
+        connector's declaration. A stub that ignored that let a docstring claim the Oman
+        register's denominator was 943 when the panel shows about 947.
+        """
+        self.expected_requests = max(int(self.expected_requests or 0),
+                                     self.requests_count + int(pages))
+
     def close(self) -> None:
         self.closed = True
 
 
 def _drive(conn: sqlite3.Connection, monkeypatch, *, pages: int,
-           frontier: int | None, beat_every_s: float = 0.0):
+           frontier: int | None, beat_every_s: float = 0.0,
+           sizing_requests: int = 4):
     """Run one directory job through `beating` exactly `pages` times.
 
     NOTHING REACHES THE NETWORK. `make_fetch` is the seam the runner builds its fetcher
@@ -120,8 +142,12 @@ def _drive(conn: sqlite3.Connection, monkeypatch, *, pages: int,
         # `contractors.crawl(conn, directory, beating, fetcher, run_ref, ...)`.
         beating = kwargs.get("beating") or args[2]
         if frontier is not None:
-            # What `crawl_partition` does after sizing, without the sizing requests.
-            fetcher.expected_requests = frontier
+            # THROUGH THE REAL GUARD, so the sizing offset is real too: this is the line
+            # `crawl_partition` runs after it has sized every cell, and `declare_frontier`
+            # is what a connector is allowed to call.
+            for spent in range(sizing_requests):
+                fetcher.requests_count += 1
+            connectors_base.declare_frontier(fetcher, frontier)
         for page in range(pages):
             beating(f"https://muqawil.org/en/contractors?page={page}")
         # ON ITS OWN CONNECTION, because the beats were written on theirs and this one
@@ -162,9 +188,15 @@ def test_the_declared_frontier_becomes_the_panels_denominator(conn, monkeypatch)
     """943 is arithmetic, not a guess, so the bar may be drawn against it."""
     progress = _drive(conn, monkeypatch, pages=7, frontier=943)["progress"]
 
-    assert progress["expected"] == 943, (
+    # 947, NOT 943, AND THE FOUR ARE THE POINT. `expect_requests` counts from the
+    # requests ALREADY MADE (`connectors/base.py:500`) -- sizing spends page 1 and page L
+    # per cell before the frontier is known, and those are real requests through this
+    # same fetcher. A denominator that ignored them would be short by exactly those pages
+    # and the bar would arrive at 100% early. The first version of this test wrote
+    # `expected_requests` directly and so could never have seen the difference.
+    assert progress["expected"] == 943 + 4, (
         f"expected reads {progress['expected']!r}; the frontier the crawl declared after "
-        f"sizing never reached the job, so the bar has no denominator"
+        f"sizing never reached the job, or the sizing requests it counts from were lost"
     )
     assert progress["basis"] == "declared", (
         f"basis reads {progress['basis']!r}. `declared` is the claim that this is a "
@@ -216,7 +248,9 @@ def test_the_beat_states_the_count_without_claiming_the_job_is_running(conn, mon
     )
     assert job["status"] != JobStatus.RUNNING.value
     # And the observation still landed, which is the half that must survive.
-    assert seen["progress"]["requests"] == 7
+    # 7 pages plus the 4 requests sizing spent before the frontier was declared --
+    # both went through this fetcher, so both are in the count the panel reads.
+    assert seen["progress"]["requests"] == 7 + 4
 
 
 def test_the_count_survives_the_real_beat_interval(conn, monkeypatch):
@@ -232,3 +266,80 @@ def test_the_count_survives_the_real_beat_interval(conn, monkeypatch):
         "no beat was written inside the real interval, so a crawl shorter than 20 seconds "
         "reports nothing at all"
     )
+
+
+def test_the_finished_card_still_says_what_the_crawl_spent(conn, monkeypatch):
+    """THE ONE THIS FILE COULD NOT SEE, and its own `_drive` says why.
+
+    `_drive` snapshots `_fetch_progress` from INSIDE the crawl, because
+    `_fetch_progress` sums a slot into the numerator only while its `state` is
+    `fetching`. That was the right fix for reading a live crawl and it made the finished
+    card unobservable: every assertion above is taken before the `finally` runs.
+
+    So this drives the runner TO COMPLETION and reads the card afterwards, which is what
+    he does -- he comes back to a four-hour crawl and looks at it. Before the merged
+    total was written, the card read `0 of 943 requests (0%)` with the job's own log line
+    saying 943 directly above it. Worse than saying nothing: without `expected` the panel
+    drew `starting...` and claimed no precision at all.
+    """
+    fetcher = _Fetcher()
+
+    def fetch(url: str) -> str:
+        fetcher.requests_count += 1
+        return "<html></html>"
+
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, fetch))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+
+    def crawl_and_finish(*args, **kwargs):
+        beating = kwargs.get("beating") or args[2]
+        fetcher.expected_requests = 943
+        for page in range(9):
+            beating(f"https://muqawil.org/en/contractors?page={page}")
+        # RETURNS, so the runner writes its `finally` and settles the job -- the whole
+        # difference from `_drive`, which raises to freeze the mid-crawl state.
+
+    monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_and_finish)
+
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    job = jobs.get_job(conn, ref)
+    progress = _fetch_progress(job)
+    assert progress["requests"] == 9, (
+        f"the finished card reads {progress['requests']} requests after 9 landed. "
+        f"`_fetch_progress` counts a slot only while it is `fetching` and falls back to "
+        f"the merged `counters['requests']`, which this path has to write."
+    )
+    assert progress["expected"] == 943, (
+        "the denominator vanished when the merged total was written -- `json_patch` "
+        "keeps `sources`, a plain column write does not"
+    )
+    # And the number he sees must not contradict the line the job logged beside it.
+    spent = [line for line in (row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (job["job_id"],))) if "request(s)" in line]
+    assert spent and "9 request(s)" in spent[-1], (
+        f"the log says {spent[-1]!r} while the card says {progress['requests']} -- two "
+        f"numbers on one card contradicting each other is the OP-130 shape"
+    )
+
+
+def test_the_card_carries_the_politeness_rows_the_panel_draws(conn, monkeypatch):
+    """`activityCounters` renders four more fields, and the directory crawl had none.
+
+    `extension/app.js` draws `Unchanged pages (304)`, `Retries`, `Pace` and whether the
+    site's requested delay is being honoured, per source, from this same slot. The first
+    version of `_measured` wrote five of the nine fields `capture.py` writes, so the one
+    collector that runs for twenty-four hours showed none of the politeness evidence --
+    on a fetcher that carries all four. One builder now, in `connectors/base.py`.
+    """
+    progress = _drive(conn, monkeypatch, pages=4, frontier=943)["progress"]
+    slot = progress["sources"][SITE]
+    for field in ("not_modified", "retries", "pace_s", "honouring_delay"):
+        assert field in slot, (
+            f"the slot has no {field!r}, so the panel cannot draw that row for a "
+            f"directory crawl: {sorted(slot)}"
+        )

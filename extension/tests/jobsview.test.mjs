@@ -329,6 +329,29 @@ test("the rate is measured over the window, not since the job started", () => {
     "15 requests in 60 seconds is 0.25/s, whatever the job's start time was");
 });
 
+test("the whole window averages, not just the newest pair", () => {
+  forgetRate();
+  // THE HALF THE TEST ABOVE COULD NOT PROVE. Every rate test in this file used exactly
+  // two live points, and with two points `points[0]` IS the newest pair -- so reading
+  // the rate from the last two readings instead of across the window was
+  // indistinguishable, and a mutation that did exactly that survived the whole suite.
+  //
+  // Three points at an UNEVEN pace, which is what makes them tell different stories:
+  // 90 requests over the first 60s, then 10 over the next 60s.
+  const ref = "job_window";
+  observeRate({ job_ref: ref, fetch: { requests: 0 } }, 0);
+  observeRate({ job_ref: ref, fetch: { requests: 90 } }, 60_000);
+  observeRate({ job_ref: ref, fetch: { requests: 100 } }, 120_000);
+
+  const rate = recentRate();
+  // Window: 100 requests over 120s = 0.8333/s. Newest pair: 10 over 60s = 0.1667/s.
+  assert.equal(Math.round(rate * 10_000) / 10_000, 0.8333,
+    "the rate came from the newest pair, so RATE_WINDOW_MS decides nothing");
+  assert.ok(rate > 0.5,
+    "a five-fold understatement: on a real crawl that is the difference between "
+    + "14 minutes left and 41");
+});
+
 test("a sleep in the middle cannot drag the rate down", () => {
   forgetRate();
   // Three readings: two before a 3h 35m sleep, one after.
