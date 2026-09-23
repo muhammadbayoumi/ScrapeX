@@ -811,6 +811,34 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     # close the circle. `datasetjob` is safe at the top -- it names no runner.
     from . import jobs
 
+    # ONE AT A TIME, AND ISSUE 779 IS WHY. That issue records what a second identical job
+    # for one source costs: *"a worker slot out of `job_capacity` (3), held by a job doing
+    # nothing for 29 minutes"* and *"the Run screen, because the panel adopts the newest
+    # active job"* -- he watched a frozen `0/938` and reported the crawl as stuck.
+    #
+    # THIS PATH IS WORSE THAN THE BUTTONS THAT ISSUE IS ABOUT, which is why the guard is
+    # here rather than left to it: those needed him to press twice. This queues by itself,
+    # so two crawls of one source -- a re-run, a schedule, a resume that completes -- stack
+    # interpretations with nobody pressing anything. Measured before the guard existed:
+    # two finished crawls, two `queued` interpretations.
+    #
+    # ON THE SOURCE AND THE KIND, not on the run: a second interpretation of the same
+    # source would read the same stored evidence, and `datasetjob.latest_crawl_run_ref`
+    # takes the newest collecting run either way (issue 823). So the one already waiting
+    # does this crawl's work when it runs.
+    waiting = [one for one in jobs.list_jobs(conn, limit=200, active_only=True)
+               if one.get("job_kind") == datasetjob.JOB_KIND
+               and source_key in (one.get("source_keys") or [])]
+    if waiting:
+        jobs.append_log(
+            conn, job["job_id"],
+            f"an interpretation of this source is already waiting as "
+            f"{waiting[0]['job_ref']}, so this crawl queued none: it reads the newest "
+            "stored run, which is this one",
+            source_key=source_key)
+        conn.commit()
+        return None
+
     try:
         ref = jobs.create_job(conn, [source_key],
                               run_mode=RunMode.UPDATE,

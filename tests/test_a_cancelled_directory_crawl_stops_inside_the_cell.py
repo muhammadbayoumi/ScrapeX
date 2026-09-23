@@ -605,3 +605,116 @@ def test_a_crawl_that_cannot_queue_its_interpretation_still_finished(conn, monke
     assert any("could not be queued" in line for line in log), (
         f"the failure was swallowed rather than recorded: {log!r}"
     )
+
+
+def test_two_crawls_of_one_source_queue_one_interpretation(conn, monkeypatch):
+    """ISSUE 779'S SHAPE, AND THIS CHANGE REPRODUCED IT BEFORE THE GUARD EXISTED.
+
+    Measured on the branch: two finished crawls of one source left TWO `queued`
+    interpretations. #779 records what that costs -- *"a worker slot out of
+    `job_capacity` (3), held by a job doing nothing for 29 minutes"* and *"the Run
+    screen, because the panel adopts the newest active job"*, which is how he came to
+    report a working crawl as frozen at `0/938`.
+
+    AND THIS PATH IS WORSE THAN THE BUTTONS THAT ISSUE IS ABOUT. Those needed him to
+    press twice. This queues by itself, so a re-run, a schedule or a resume that
+    completes stacks them with nobody pressing anything.
+    """
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    refs = []
+    for _ in range(2):
+        fetcher = _Fetcher()
+        monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                            lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+        monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
+        ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+        conn.commit()
+        directoryjob.run_directory_crawl_job_once(conn, ref)
+        refs.append(ref)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref, job_kind FROM crawl_job")
+        if row["job_kind"] == datasetjob.JOB_KIND]
+    assert len(queued) == 1, (
+        f"two crawls of one source queued {len(queued)} interpretations. The second is "
+        f"a worker slot doing nothing and, because the panel adopts the newest active "
+        f"job, the screen he watches."
+    )
+    # AND THE SECOND CRAWL SAYS SO, because a step that silently did nothing is
+    # indistinguishable from a step that was never reached.
+    second = jobs.get_job(conn, refs[1])
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (second["job_id"],))]
+    assert any("already waiting" in line for line in log), (
+        f"the second crawl queued nothing and never said why: {log!r}"
+    )
+
+
+def _finish_one_crawl(conn, monkeypatch, site=SITE):
+    """Drive a directory crawl of `site` to completion. Returns its ref."""
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+    monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
+    ref = jobs.create_job(conn, [site], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+    return ref
+
+
+def test_an_unrelated_active_job_does_not_block_the_interpretation(conn, monkeypatch):
+    """THE GUARD IS ON THE KIND, and a mutation that dropped that check survived every
+    test until this one: with no other job running, "any active job" and "an active
+    interpretation" are the same set.
+
+    They are not the same set in life. A profile crawl, an enrichment run or another
+    source's listing crawl is active most of the time on his machine, and a guard that
+    counted those would silently stop queueing anything at all — the worst shape a guard
+    can take, because nothing would ever fail.
+    """
+    other = jobs.create_job(conn, [SITE], job_kind="profile_crawl")
+    jobs._update(conn, jobs.get_job(conn, other)["job_id"],
+                 status=JobStatus.RUNNING.value)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row for row in conn.execute("SELECT job_kind FROM crawl_job")
+              if row["job_kind"] == datasetjob.JOB_KIND]
+    assert len(queued) == 1, (
+        f"{len(queued)} interpretations queued while an unrelated profile_crawl was "
+        f"running. The guard is meant to refuse a SECOND INTERPRETATION OF THIS SOURCE, "
+        f"not to stand down whenever the engine is busy."
+    )
+
+
+def test_another_sources_interpretation_does_not_block_this_one(conn, monkeypatch):
+    """THE GUARD IS ON THE SOURCE, and the mutation that dropped that also survived.
+
+    Two directories are the normal state — muqawil and the Oman register both exist — and
+    an interpretation waiting for one must not swallow the other's. The cost would be
+    invisible: the second source's rows simply never appear, with no failure anywhere.
+    """
+    conn.execute(
+        "INSERT INTO source_site (source_key, source_name, base_url, platform) "
+        "VALUES ('oman_tenderboard', 'Oman', 'https://etendering.tenderboard.gov.om/', "
+        "'directory')")
+    waiting = jobs.create_job(conn, ["oman_tenderboard"],
+                              job_kind=datasetjob.JOB_KIND)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    interprets = [dict(row) for row in conn.execute(
+        "SELECT job_ref, source_keys FROM crawl_job WHERE job_kind = ?",
+        (datasetjob.JOB_KIND,))]
+    assert len(interprets) == 2, (
+        f"{len(interprets)} interpretations exist. The one already waiting is for "
+        f"oman_tenderboard ({waiting}); it cannot do muqawil's work, and a guard that "
+        f"let it would lose a whole source in silence."
+    )
+    assert any(SITE in row["source_keys"] for row in interprets), (
+        f"no interpretation was queued for {SITE}: {interprets!r}"
+    )
