@@ -308,6 +308,30 @@ class CrawlStopped(Exception):
     """
 
 
+class CrawlAbandoned(BaseException):
+    """The owner stopped this run MID-PAGE, and no further page may be fetched.
+
+    A `BaseException`, WHICH IS THE WHOLE REASON THIS IS NOT A SECOND USE OF
+    `CrawlStopped`. Every layer between a fetch callback and the job deliberately turns
+    an `Exception` into a record instead of an end -- `pagewalk._get` says it in terms,
+    *"NOT RAISED. One dead page out of a hundred thousand must not discard the rest"*,
+    and `snapshotcrawl.store`, `witness`, `size_cell` and the resize in
+    `_crawl_one_cell` all repeat it. That is right for a page the site would not serve
+    and exactly wrong for the owner pressing Cancel: a `CrawlStopped` raised from the
+    fetch callback is filed as one failed page, the walker then asks for the rest of the
+    cell, and every one of them fails the same way. A stop has to be the one thing those
+    handlers do not catch. Issue 1028.
+
+    THE ARGUMENT IS THE REASON, NOT A MESSAGE -- `settled`, or the `JobControl` value
+    that asked. The caller settles the job and records why, which is the same division
+    `CrawlStopped` states one class up.
+
+    NOT FOR A PAUSE, AND THAT IS A DECISION. A cell's completeness proof spans its
+    pages, so a mid-cell stop loses it -- which is why `cell_closed` pauses at a
+    boundary. A cancel is discarding the run and has no proof to lose.
+    """
+
+
 def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
           max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS,
           workers: int = 1, connect=None, between_cells=None) -> None:
@@ -404,13 +428,57 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
             "separate collector over this same registration, and it has no control "
             "in the panel yet")
     conn.commit()          # the workers open their own connections and must see it
-    outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
-                              run_ref=run_ref, run_id=run_id,
-                              dataset_key=directory.dataset_key,
-                              max_attempts=max_attempts,
-                              heavy_attempts=heavy_attempts, cells=chosen,
-                              workers=workers, connect=connect,
-                              fetcher=fetcher, on_cell=report)
+    try:
+        outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
+                                  run_ref=run_ref, run_id=run_id,
+                                  dataset_key=directory.dataset_key,
+                                  max_attempts=max_attempts,
+                                  heavy_attempts=heavy_attempts, cells=chosen,
+                                  workers=workers, connect=connect,
+                                  fetcher=fetcher, on_cell=report)
+    except BaseException:
+        # THE RUN IS CLOSED ON EVERY WAY OUT, NOT ONLY THE SUCCESSFUL ONE. `close_run`
+        # sits after this call with nothing guarding it, so for as long as this function
+        # has existed a stop or a crash has left `crawl_run` at `status='running',
+        # finished_at=NULL` -- permanently, because no sweep exists for that table
+        # (`reclaim_orphaned_jobs` settles `crawl_job` only). `reports.last_status`,
+        # `reports.crawl_history` and `dryrun` all then read a sweep that never ended.
+        # Issue 535, recorded 2026-09-04 and measured again by the gate on the change
+        # that added a FOURTH such exit.
+        #
+        # `BaseException`, NOT `Exception`, because the newest of those exits is
+        # `CrawlAbandoned` -- a `BaseException` by design, so that the layers below turn
+        # no owner's cancel into a page failure. A narrower clause here would leak the
+        # row on exactly the path the owner uses most.
+        #
+        # `PARTIAL`, NOT `FAILED`: every closed cell's evidence is committed and a
+        # resume under the same `run_ref` skips its pages, so this run did part of the
+        # work. `FAILED` would say it produced nothing.
+        #
+        # RE-RAISED, and the caller still decides. This records what happened to the
+        # run; it does not swallow what happened to the crawl.
+        #
+        # AND THE RECORD MAY NOT DESTROY THE OUTCOME. This clause adds a WRITE to the
+        # path a cancel takes, and a write can fail: three jobs share one warehouse at
+        # `busy_timeout=5000`. Unguarded, a `database is locked` here REPLACES the
+        # `CrawlAbandoned` travelling up, so `directoryjob`'s `except CrawlAbandoned`
+        # never fires, `except Exception` does, and the job he cancelled settles as
+        # `failed`. Measured by the gate's second pass. `directoryjob` states the rule
+        # this obeys, about its own guard: *"A FAILED READ IS NOT A STOP ... a locked
+        # database must not cancel a crawl nobody cancelled."* The same in reverse: a
+        # locked database must not FAIL a crawl he merely stopped.
+        try:
+            runs.close_run(conn, run_id, status=RunStatus.PARTIAL,
+                           requests=int(getattr(fetcher, "requests_count", 0) or 0))
+            conn.commit()
+        except Exception as recording:
+            # NOT SILENT. The row stays `running` -- issue 535's original state -- and
+            # that is worth a line, because the alternative to saying so is a stale row
+            # nobody can explain. `say` rather than a raise: this is the record of the
+            # run, and losing it costs a report; losing the outcome costs the job.
+            say(f"could not close this run's row: {type(recording).__name__}: "
+                f"{recording}. It stays 'running' and no sweep will settle it (535)")
+        raise
     # KEPT AFTER THE CRAWL AND NOT DURING IT, deliberately: a validator is only
     # worth storing if the page it describes was actually read, and writing them per
     # page would put a commit between every fetch on a path that already has one.

@@ -13,7 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  liveJob, progressFraction, progressLine, rowsFrom, statusWords, summariseJobs,
+  liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
+  statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5043,11 +5044,21 @@ function renderProgress(job) {
 // precision the bar does not have.
 function finishEstimate(job) {
   const f = job.fetch || {};
-  if (!f.expected || !job.started_at || f.requests < 2) return "";
-  const elapsed = (Date.now() - Date.parse(job.started_at)) / 1000;
-  const rate = f.requests / elapsed;               // requests per second so far
-  if (rate <= 0) return "";
-  const remaining = Math.max(0, f.expected - f.requests) / rate;
+  if (!f.expected || f.requests < 2) return "";
+  // PAST THE DECLARATION THERE IS NOTHING HONEST TO SAY. `Math.max(0, ...)` made the
+  // remainder 0 and printed `~0s left` for as long as the crawl kept running, which on
+  // a heavy cell is most of it: `declare_frontier` declares ONE read of the partition
+  // and `_crawl_one_cell` is allowed ten (HEAVY_ATTEMPTS, for any cell over 31 pages —
+  // the Oman register is 471). Measured on the repo's own harness: declared 47, spent
+  // 137. Saying nothing is the only claim the denominator supports here.
+  if (f.requests >= f.expected) return "";
+  // NO FALLBACK TO THE WALL CLOCK. The engine writes the count once per heartbeat —
+  // BEAT_EVERY_S is 20s — so the first reading that gains anything is up to 20s in,
+  // not one 1.5s poll. That is still far better than dividing by a wall clock that
+  // counted 3h 35m of sleep as work, and a missing number beats a 10x wrong one.
+  const rate = recentRate();
+  if (!rate || rate <= 0) return "";
+  const remaining = (f.expected - f.requests) / rate;
   const about = f.basis === "estimate" ? "about " : "";
   return `~${about}${fmtDuration(remaining)} left`;
 }
@@ -5056,6 +5067,9 @@ function renderActivity(job) {
   const box = $("activity");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
+  // BEFORE THE ESTIMATE READS IT. `finishEstimate` divides by the window this fills,
+  // so a draw that skipped it would offer no estimate at all.
+  observeRate(job);
   const elapsed = fmtElapsed(job.started_at);
   const left = finishEstimate(job);
   $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]

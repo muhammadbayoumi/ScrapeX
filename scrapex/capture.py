@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from . import settings
 from .config import SourceEntry
+from .connectors.base import fetch_slot
 from .connectors.factory import build_connector
 from .ingest import IngestResult, ingest_payloads
 
@@ -126,28 +127,10 @@ def _job_progress(conn: sqlite3.Connection, job_id: int, source_key: str,
     count — every existing caller and test keeps working.
     """
     def measurements(count: int) -> dict:
-        live: dict = {"requests": count, "state": "fetching"}
-        if fetcher is None:
-            return live
-        # A connector that enumerated its frontier outranks the estimate seeded
-        # from the last successful run: it counted, the estimate guessed.
-        expected = getattr(fetcher, "expected_requests", None)
-        if expected:
-            live["expected"] = int(expected)
-            live["basis"] = "declared"
-            live["as_of"] = None
-        # 304s are the single best sign a recurring crawl is being cheap and
-        # polite, and retries the best early sign a site is pushing back.
-        live["not_modified"] = int(getattr(fetcher, "not_modified_count", 0) or 0)
-        live["retries"] = int(getattr(fetcher, "retry_count", 0) or 0)
-        # The pace IN FORCE, which is not the setting: robots.txt can raise it
-        # (see HttpFetcher._robots_for), and whether that was honoured is the
-        # owner's own per-run choice. A run that was fast because the site asked
-        # for nothing and one that was fast because we overrode a 10s delay must
-        # not look identical while it happens.
-        live["pace_s"] = float(getattr(fetcher, "_min_interval_s", 0.0) or 0.0)
-        live["honouring_delay"] = bool(getattr(fetcher, "_honour_crawl_delay", True))
-        return live
+        # ONE SPELLING, in `connectors/base.py` beside `declare_frontier`: that one tells
+        # the fetcher what is coming, this one tells the panel what has happened. It was
+        # copied into `directoryjob` and had already drifted by four fields there.
+        return fetch_slot(fetcher, count)
 
     def publish(count: int, *, force: bool = False) -> None:
         from .jobs import record_source_fetch

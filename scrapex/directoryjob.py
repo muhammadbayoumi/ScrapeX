@@ -33,6 +33,7 @@ from contextlib import closing, nullcontext
 
 from . import contractors, directories, snapshotcrawl
 from . import db as dbmod
+from .connectors import base as connectors_base
 from .payload import utc_now_iso
 from .vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
 
@@ -338,6 +339,83 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # fetched real pages. Structural beats incidental.
     fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
 
+    def _measured() -> dict:
+        """What the fetcher has counted, in the shape `_fetch_progress` reads.
+
+        ONE SPELLING, AND IT IS NOT THIS ONE. `connectors/base.py::fetch_slot` builds it,
+        beside `declare_frontier`; the first draft of this function said "a second
+        spelling here would be a second way to be wrong" while being that second
+        spelling, and it had already drifted -- it omitted `not_modified`, `retries`,
+        `pace_s` and `honouring_delay`, so a directory crawl showed none of the
+        politeness rows `extension/app.js::activityCounters` draws.
+
+        `expected` IS A COUNT, NOT AN ESTIMATE, which is why `fetch_slot` says
+        `declared`. `crawl_partition` calls `declare_frontier(fetcher, ...)` once after
+        sizing as `sum(last_page * locales + 1)` -- 471 x 2 + 1 = 943 for the Oman
+        register -- and every cell has published its own page count by then.
+
+        THAT IS NOT THE DENOMINATOR, AND THE DIFFERENCE IS MEASURED. `expect_requests`
+        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:500`): sizing spends
+        two per cell -- page 1 and page L -- before the frontier is known, so Oman's
+        panel reads about 947, not 943. An expectation that ignored them would be short
+        by exactly those pages and the bar would arrive at 100% early.
+
+        IT IS ABSENT UNTIL SIZING FINISHES, and `fetch_slot`'s `if expected` is the whole
+        handling. A beat during sizing carries the count with no denominator, which
+        `_fetch_progress` already renders as unknown.
+        """
+        return connectors_base.fetch_slot(fetcher, fetcher.requests_count)
+
+    def _stop_if_dropped() -> None:
+        """Raise if the owner has stopped this job -- BEFORE the next request is spent.
+
+        THE ONLY CHECKPOINT INSIDE A CELL. `cell_closed` asks the same question between
+        cells, and `sites/oman_tenderboard.py`'s `cells()` returns `(WHOLE,)`, so on
+        that source the between-cells question is first asked when the crawl is already
+        over. Measured on `job_36bf9e2adc21`, 2026-09-22: Cancel at 12:41 and the pages
+        kept landing at an unchanged twenty a minute until the engine was killed at
+        12:48 -- 152 of them, with the word "cancel" nowhere in the job log. Issue 1028.
+
+        BOTH READS, BECAUSE NEITHER ANSWERS ALONE. `still_wanted` is True for a job in
+        `cancelling` -- `cancelling` is not in `TERMINAL_JOB_STATUSES`, issue 1029 --
+        and `cancelling` is exactly the status Cancel produces, so that read by itself
+        would have stopped nothing here. `control` is cleared to `none` by `_finish`,
+        which is the hole `still_wanted`'s own docstring records. Each covers the other.
+
+        THE PAUSE IS LEFT TO `cell_closed`, deliberately. A cell's completeness proof
+        spans its pages, so stopping mid-cell loses it; pausing at a boundary keeps it.
+        Honouring a pause here would make the 56-cell crawl worse to improve the
+        one-cell one. A pause on a one-cell partition therefore still waits for the end
+        of the crawl -- recorded in 1028, not fixed here.
+
+        A FAILED READ IS NOT A STOP, the same rule the beat below states: lose the
+        check, never the run. A locked database must not cancel a crawl nobody
+        cancelled.
+        """
+        try:
+            # `dbmod.connect` RATHER THAN A RAW ONE, unlike the beat below, and
+            # the first draft of this got it wrong: `get_job` builds its dict
+            # through `_as_job`, which needs `row_factory = sqlite3.Row`. A raw
+            # connection reads the row as a tuple and `dict(row)` raises
+            # `TypeError: object is not iterable` -- caught here by nothing,
+            # because it is not a `sqlite3.Error`. The beat below reads a job row
+            # too -- `record_source_fetch` opens with `SELECT counters_json` -- and
+            # is safe on a raw connection only because it indexes `row[0]`
+            # positionally rather than going through `_as_job`. Row factory, not
+            # read-versus-write, is the thing that matters here.
+            own = dbmod.connect(db_file)
+            try:
+                wanted = jobs.still_wanted(own, job_ref)
+                control = jobs._control_of(own, job["job_id"])
+            finally:
+                own.close()
+        except sqlite3.Error:
+            return
+        if not wanted:
+            raise contractors.CrawlAbandoned("settled")
+        if control == JobControl.CANCEL.value:
+            raise contractors.CrawlAbandoned(JobControl.CANCEL.value)
+
     def beating(url: str) -> str:
         """One page, and a heartbeat if one is due.
 
@@ -357,19 +435,42 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         a heartbeat written inside the crawl's transaction is a heartbeat that can be
         rolled away with whatever the crawl was doing -- and it would commit the crawl's
         pending work on a schedule the crawl did not choose.
+
+        AND IT CARRIES THE REQUEST COUNT, which is the only place that can. `_fetch_progress`
+        (`webui/app.py`) builds the panel's numerator from `counters`, NOT from
+        `progress_done` -- its own docstring says why: *"a one-source job is 0/1 for its
+        whole duration, which is the 0% the owner watched for 18 minutes while 1,030
+        requests succeeded behind it"*. This path never wrote that counter, so every
+        directory crawl reported `Requests 0` while it worked. Measured on his machine
+        2026-09-21: 401 requests landed and the panel read 0 (#1014).
+
+        `cell_closed` cannot do it. It runs BETWEEN cells, and a partition with one cell --
+        which is the Oman register's whole shape -- does not reach it until the sweep ends.
+
+        AN OBSERVATION, NEVER A CLAIM. This writes `requests` and `state`, and deliberately
+        not `status` or `stage`: `cell_closed` owns those and withholds them while a stop is
+        pending, and a beat that re-asserted `running` is exactly the defect issue 791
+        records -- a cancelled sweep that fetched all 938 pages anyway.
         """
-        text = fetch(url)
         now = time.monotonic()
-        if now - beat_at[0] < globals()["BEAT_EVERY_S"]:
+        due = now - beat_at[0] >= globals()["BEAT_EVERY_S"]
+        if due:
+            beat_at[0] = now
+            # ONE CLOCK, AND EACH HALF ON THE SIDE OF THE REQUEST WHERE IT IS TRUE. The
+            # beat claims a request COMPLETED, so it cannot move above the fetch -- the
+            # paragraph above says why. The stop decides whether to SPEND one, so below
+            # the fetch it is worth nothing: it would report the page it just paid for.
+            _stop_if_dropped()
+        text = fetch(url)
+        if not due:
             return text
-        beat_at[0] = now
         try:
             own = sqlite3.connect(db_file, timeout=5.0)
             try:
                 own.execute("PRAGMA busy_timeout = 5000")
-                own.execute(
-                    "UPDATE crawl_job SET last_heartbeat_at = ? WHERE job_id = ?",
-                    (utc_now_iso(), job["job_id"]))
+                # `record_source_fetch` beats the heartbeat itself, in the same statement
+                # that merges the slot, so this is one write rather than two.
+                jobs.record_source_fetch(own, job["job_id"], source_key, **_measured())
                 own.commit()
             finally:
                 own.close()
@@ -510,10 +611,10 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             # others. With a pool it is also the only point at which it is READ from one
             # thread rather than incremented by several, which is why it is taken here
             # and not inside the fetch.
-            jobs.record_source_fetch(
-                own, job["job_id"], source_key,
-                requests=int(getattr(fetcher, "requests_count", 0) or 0),
-                state="fetching")
+            # THE SAME BUILDER THE BEAT USES. Built by hand here until the gate on
+            # this change named both locations: one shape, one place, or the two drift
+            # and the card shows a different set of rows depending on which wrote last.
+            jobs.record_source_fetch(own, job["job_id"], source_key, **_measured())
             own.commit()
             current = jobs.get_job(own, job_ref)
             control = jobs._control_of(own, job["job_id"])
@@ -592,6 +693,34 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # NOT AN ERROR, AND NOT SILENT EITHER. The crawl was asked to stop by
         # `cell_closed`, which has already written the status and said why.
         return jobs.get_job(conn, job_ref)
+    except contractors.CrawlAbandoned as abandoned:
+        # THE STOP `cell_closed` COULD NOT REACH, because it runs between cells and the
+        # Oman register publishes one. Issue 1028, measured above `_stop_if_dropped`.
+        #
+        # SETTLED HERE, NOT BY THE SWEEP. Unwinding alone leaves `cancelling` behind,
+        # and a transitional status nothing resolves is what the orphan sweep cleans up
+        # ten minutes later -- which is the line he actually got in his log.
+        spent = int(getattr(fetcher, "requests_count", 0) or 0)
+        if str(abandoned) == JobControl.CANCEL.value:
+            jobs.append_log(
+                conn, job["job_id"],
+                f"cancelled inside a cell after {spent:,} request(s), so no further "
+                "page is fetched. The pages already stored are kept, and this cell's "
+                "completeness is re-proved from scratch by any later run",
+                source_key=source_key)
+            jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+        else:
+            # ALREADY SETTLED, SO NOTHING IS WRITTEN OVER IT -- the same reading
+            # `cell_closed` takes of `still_wanted` forty lines up: a job whose row has
+            # gone, or which something else finished, is not this run's to re-finish.
+            jobs.append_log(
+                conn, job["job_id"],
+                f"stopped inside a cell after {spent:,} request(s): this job is "
+                "already settled, so no further page is fetched",
+                source_key=source_key)
+        stopped.append(JobStatus.CANCELLED.value)
+        conn.commit()
+        return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",
                         level=LogLevel.ERROR, source_key=source_key)
@@ -599,10 +728,34 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         raise
     finally:
         fetcher.close()
+        spent = int(getattr(fetcher, "requests_count", 0) or 0)
+        # THE MERGED TOTAL, AND WITHOUT IT THE CARD READS 0 THE MOMENT THE CRAWL ENDS.
+        # `_fetch_progress` sums a slot into the numerator only while its `state` is
+        # `fetching`, and falls back to `counters["requests"]` for everything already
+        # finished -- which this path never wrote, so flipping the slot to `done` below
+        # took the number to zero. Measured on the change that added the count: 943
+        # requests landed, the job log said so, and the card beside it read
+        # `0 of 943 requests (0%)`. Worse than before the count existed, because without
+        # `expected` the panel drew `starting...` and claimed nothing.
+        #
+        # `_merge_counters_column` RATHER THAN A PLAIN WRITE: it is `json_patch`, so it
+        # replaces the keys it names and leaves `sources` alone. A `counters_json = ?`
+        # here would take the whole column and every per-source denominator with it.
+        #
+        # IT ADDS, IT DOES NOT REPLACE, because every other writer of this key adds:
+        # `jobs._merge_counters(counters, result)` is
+        # `counters["requests"] = counters.get("requests", 0) + result.requests_count`,
+        # and `run_crawl_job_once` rehydrates `counters` from the stored row when a job
+        # resumes. The first version of this line wrote `spent` flat, so a crawl paused
+        # at a cell boundary and resumed reported only its SECOND leg: 14 pages fetched,
+        # 5 on the finished card. That is the same collapse this block exists to stop,
+        # moved onto the resume path -- caught by the gate's second pass.
+        already = int((job.get("counters") or {}).get("requests") or 0)
+        jobs._merge_counters_column(conn, job["job_id"],
+                                    {"requests": already + spent})
         jobs.record_source_fetch(
             conn, job["job_id"], source_key,
-            requests=int(getattr(fetcher, "requests_count", 0) or 0),
-            state="done" if not stopped else "stopped")
+            requests=spent, state="done" if not stopped else "stopped")
         conn.commit()
 
     if stopped:

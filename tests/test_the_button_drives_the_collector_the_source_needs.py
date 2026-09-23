@@ -34,7 +34,7 @@ import pytest
 
 from scrapex import contractors, directories, directoryjob, jobs
 from scrapex.databases import DatabaseRegistry, EngineDatabase
-from scrapex.vocab import JobControl, JobStatus, RunMode
+from scrapex.vocab import JobControl, JobStatus, RunMode, RunStatus
 
 
 @pytest.fixture(autouse=True)
@@ -293,6 +293,62 @@ def test_a_stop_asked_for_at_a_cell_boundary_ends_the_crawl_there(conn, monkeypa
 
     assert seen == [1, 2], "the crawl kept going after it was told to stop"
     assert partition.reported == 2
+
+
+def test_a_stopped_crawl_closes_its_run_row_instead_of_leaving_it_running(
+        conn, monkeypatch):
+    """ISSUE 535, AND IT HAD FOUR DOORS. `runs.close_run` sat after `crawl_partition`
+    with nothing guarding it, so every way out except the successful one left
+    `crawl_run` at `status='running', finished_at=NULL` -- permanently, because no sweep
+    exists for that table (`reclaim_orphaned_jobs` settles `crawl_job` only).
+    `reports.last_status`, `reports.crawl_history` and `dryrun` then all read a sweep
+    that never ended.
+
+    `PARTIAL` rather than `FAILED`: every closed cell's evidence is committed and a
+    resume under the same run ref skips its pages, so the run did part of the work.
+    """
+    monkeypatch.setattr(contractors, "crawl_partition", _CellByCell(cells=4))
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+
+    with pytest.raises(contractors.CrawlStopped):
+        contractors.crawl(conn, directories.get(), None, None, "run-1",
+                          contractors.DEFAULT_MAX_ATTEMPTS,
+                          between_cells=lambda: True)
+
+    rows = conn.execute("SELECT status, finished_at FROM crawl_run").fetchall()
+    assert rows, "the crawl opened no run row at all, so this proves nothing"
+    status, finished_at = rows[-1][0], rows[-1][1]
+    assert status == RunStatus.PARTIAL.value, (
+        f"the run row reads {status!r} after the crawl was stopped. A row left "
+        f"'running' is read as a live sweep by reports.py and dryrun.py, forever."
+    )
+    assert finished_at, "the run has no finished_at, so nothing can say when it ended"
+
+
+def test_a_cancel_mid_cell_closes_the_run_too_although_it_is_not_an_Exception(
+        conn, monkeypatch):
+    """THE FOURTH DOOR, and the one a narrower clause would have missed.
+
+    `CrawlAbandoned` is a `BaseException` by design -- that is what stops the layers
+    below turning the owner's cancel into a page failure. An `except Exception` around
+    `crawl_partition` would close the run for a crash and leak it for exactly the stop
+    he presses most.
+    """
+    def cancelled_mid_cell(*args, **kwargs):
+        raise contractors.CrawlAbandoned("cancel")
+
+    monkeypatch.setattr(contractors, "crawl_partition", cancelled_mid_cell)
+    monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
+
+    with pytest.raises(contractors.CrawlAbandoned):
+        contractors.crawl(conn, directories.get(), None, None, "run-1",
+                          contractors.DEFAULT_MAX_ATTEMPTS)
+
+    rows = conn.execute("SELECT status, finished_at FROM crawl_run").fetchall()
+    assert rows and rows[-1][0] == RunStatus.PARTIAL.value, (
+        f"the run row reads {rows[-1][0] if rows else None!r} after a mid-cell cancel"
+    )
+    assert rows[-1][1], "the run has no finished_at"
 
 
 def test_the_cells_outcome_is_said_before_the_stop_is_asked_for(conn, monkeypatch):

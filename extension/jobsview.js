@@ -301,3 +301,71 @@ export function rowsFrom(payload) {
     error_summary: job.error_summary || "",
   }));
 }
+
+
+// ---- how fast a crawl is actually going -------------------------------------
+
+/** How far back the rate is measured.
+ *
+ * Two minutes is long enough to smooth a slow page and short enough that a crawl which
+ * changes pace is followed rather than averaged away.
+ */
+export const RATE_WINDOW_MS = 120000;
+
+//: (time, requests) readings for the job currently being drawn.
+let rateSamples = { jobRef: null, points: [] };
+
+/** Record one reading of a job's request count, for `recentRate` to divide.
+ *
+ * WHY NOT THE WALL CLOCK, WHICH IS WHAT THIS REPLACED. The estimate used to divide by
+ * `Date.now() - started_at`, which counts every second since the job began, including
+ * the ones in which nothing ran.
+ *
+ * MEASURED ON HIS MACHINE, 2026-09-21. The laptop slept for 3h 35m in the middle of the
+ * Oman register's first crawl -- Windows logged `entering sleep` and `returned from a low
+ * power state`, and the stored pages have a hole in exactly that window. The wall clock
+ * read **4h 1m for 24 minutes of work**: the rate came out 10x too low, and the estimate
+ * it feeds would have printed **325 minutes** where the truth was 32.
+ *
+ * IT SELF-HEALS AFTER A SLEEP, and that is why this is a window rather than a correction.
+ * The first reading after waking prunes every stale point, leaving one, so no estimate is
+ * offered until a second arrives a poll later. A missing number is better than a wrong
+ * one, and nothing here can carry a stall forward into the answer.
+ *
+ * `now` IS AN ARGUMENT so a test can state the clock instead of sleeping for it. The
+ * caller passes nothing and gets `Date.now()`.
+ */
+export function observeRate(job, now = Date.now()) {
+  const fetched = (job && job.fetch) || {};
+  if (!job || !job.job_ref || typeof fetched.requests !== "number") return;
+  if (rateSamples.jobRef !== job.job_ref) {
+    // A DIFFERENT JOB IS A DIFFERENT CRAWL. Carrying points across would divide one
+    // job's requests by another job's seconds.
+    rateSamples = { jobRef: job.job_ref, points: [] };
+  }
+  rateSamples.points.push({ at: now, requests: fetched.requests });
+  while (rateSamples.points.length > 1
+         && now - rateSamples.points[0].at > RATE_WINDOW_MS) {
+    rateSamples.points.shift();
+  }
+}
+
+/** Requests per second across the window, or `null` when it cannot be said. */
+export function recentRate() {
+  const points = rateSamples.points;
+  if (points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const seconds = (last.at - first.at) / 1000;
+  const gained = last.requests - first.requests;
+  // `gained <= 0` is a crawl that has stalled, or a counter that went backwards on a
+  // resume. Either way there is no honest rate, and dividing by one would print a
+  // duration rather than admit that.
+  if (seconds <= 0 || gained <= 0) return null;
+  return gained / seconds;
+}
+
+/** Drop every reading. Exported for tests; the panel never needs it. */
+export function forgetRate() {
+  rateSamples = { jobRef: null, points: [] };
+}
