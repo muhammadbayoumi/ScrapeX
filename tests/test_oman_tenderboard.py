@@ -410,9 +410,22 @@ def test_a_row_with_no_short_name_raises():
         read_rows(_page([_row(short="")]))
 
 
-def test_a_row_with_no_company_name_raises():
-    with pytest.raises(RegisterShapeError, match="no company name"):
-        read_rows(_page([_row(name="")]))
+def test_a_row_with_no_company_name_is_kept_and_not_refused():
+    """THIS TEST ASSERTED THE OPPOSITE UNTIL 2026-09-23, and the reversal is measured.
+
+    It used to require `RegisterShapeError` on a blank full name. That rule discarded
+    four whole pages of the owner's first crawl -- 200 firms -- because the site leaves
+    the cell empty for `عالمية` registrants in its Arabic view while naming them in its
+    English one. The rule is gone; the row is kept and the field is absent. Issue 1037.
+
+    Kept as a test rather than deleted because the behaviour it pins is still a decision:
+    the NEXT session to see a blank cell here should find out that it was considered.
+    """
+    firms = read_rows(_page([_row(name="")]))
+    assert len(firms) == 1, "the blank full name discarded its own row"
+    assert firms[0].name is None, (
+        f"the blank cell read as {firms[0].name!r}; it is absent, not empty text"
+    )
 
 
 def test_a_page_with_no_category_select_raises():
@@ -866,3 +879,61 @@ def test_the_stored_pages_of_both_locales_meet_in_pairs(tmp_path):
             f"{key} carries {sorted(halves)} rather than both locales, so one half of "
             f"the page never meets the other"
         )
+
+
+# --- a blank full name is a field, not a broken page (issue 1037) ---------------------
+
+def test_a_blank_full_name_is_a_field_and_the_page_still_reads():
+    """WHAT REFUSING IT COST: 200 firms, measured over the owner's own crawl.
+
+    Four Arabic pages of the first Oman crawl -- 254, 274, 388, 443 -- each carry ONE row
+    whose full-name cell is empty. Every one is an `عالمية` (international) registrant
+    whose English page names it perfectly. `read_rows` raised on that cell, so the whole
+    page was refused, and a page is fifty firms.
+
+    AND A PAGE REFUSED IN ONE LOCALE COSTS BOTH. Of the 23,240 records interpreted from
+    that crawl, zero lack an Arabic name -- a record is written only when both halves
+    parse. So `CARITOR`, `ECONOMICS`, `PETROLINVEST` and `TARJAMA` were absent from the
+    warehouse entirely, in a register whose total is known.
+
+    Re-measured after the change over all 942 stored pages: 936 accepted before, 940
+    after, and the two still refused are page 368 in both locales -- the genuine
+    identifier disagreement, which must keep raising.
+    """
+    blank = _row(short="CARITOR", name="", cat="المكاتب الإستــشــارية", vtype="عالمية")
+    ordinary = _row(short="00009999", name="A REAL NAME LLC")
+    firms = read_rows(_page([blank, ordinary]))
+
+    assert len(firms) == 2, (
+        f"the page yielded {len(firms)} firms, not 2. One blank full name discarded the "
+        f"row beside it -- on his register that is fifty firms per page."
+    )
+    caritor = next(f for f in firms if f.short_name == "CARITOR")
+    assert caritor.name is None, (
+        f"the blank cell read as {caritor.name!r}. It is absent, not empty text -- the "
+        f"same reading `cr_number` and `address` already take."
+    )
+    # And the row is still a RECORD: its key survived, which is why this is safe.
+    assert caritor.short_name == "CARITOR"
+
+
+def test_the_refusals_that_mean_the_reader_is_broken_still_raise():
+    """SEPARATING THE TWO CAUSES IS THE POINT, so this is the other half of the pair.
+
+    A field the site leaves blank for one class of registrant is data. A first cell that
+    is not an integer, a missing short name, and an activities argument that disagrees
+    with the commented key are all evidence that this reader's understanding of the page
+    has stopped being true -- and `ALWASIT` against `nabil` is a real one, found on page
+    368 of the owner's crawl, not a hypothetical.
+    """
+    with pytest.raises(RegisterShapeError, match="no Company Short Name"):
+        read_rows(_page([_row(short="")]))
+
+    with pytest.raises(RegisterShapeError, match="disagree beyond case"):
+        read_rows(_page([_row(short="ALWASIT", echo="nabil")]))
+
+    # The blank name must not have made the OTHER cells lenient either. An uncommented
+    # key raises about the COMMENT -- the record key is recovered from it, and a row
+    # without one is a row this reader cannot identify.
+    with pytest.raises(RegisterShapeError, match="comment"):
+        read_rows(_page([_row(short="ALWASIT", comment=False)]))

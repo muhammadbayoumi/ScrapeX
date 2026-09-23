@@ -108,7 +108,11 @@ class Firm:
     """
 
     short_name: str
-    name: str
+    #: BLANK FOR AN `عالمية` REGISTRANT, and measured rather than assumed: four
+    #: Arabic pages of the owner's first crawl carry a row whose full-name cell is
+    #: empty while the English page names it. It is not the record key --
+    #: `short_name` is -- so a blank one is a field, like `address`. Issue 1037.
+    name: str | None
     cr_number: str | None
     address: str | None
     telephone: str | None
@@ -391,11 +395,33 @@ def read_rows(html: str) -> tuple[Firm, ...]:
                 f"the row's commented key {short_name!r} and its activities argument "
                 f"{echoed.group(1)!r} disagree beyond case; one of the two has stopped "
                 "being the record key")
-        if not cells[2]:
-            raise RegisterShapeError(f"a data row carries no company name: {cells!r}")
+        # A BLANK FULL NAME IS DATA, NOT A BROKEN PAGE, and refusing it cost 200 firms.
+        #
+        # This line used to raise. Measured 2026-09-23 over all 942 stored pages of the
+        # owner's first crawl: four Arabic pages -- 254, 274, 388, 443 -- carry one row
+        # each whose full-name cell is empty, and every one of them is an `عالمية`
+        # (international) registrant whose ENGLISH page names it perfectly. The refusal
+        # discarded the whole page, and a page is fifty firms.
+        #
+        # AND A PAGE REFUSED IN ONE LOCALE COSTS BOTH: of the 23,240 records interpreted
+        # from that crawl, ZERO lack an Arabic name, because a record is written only
+        # when both halves parse. So `CARITOR`, `ECONOMICS`, `PETROLINVEST` and the
+        # firms beside them were absent from the warehouse entirely, in a register whose
+        # total is known -- 23,520 ids sighted against 23,240 records. Issue 1037.
+        #
+        # IT IS NOT THE RECORD KEY, which is what makes this safe: `IDENTITY_FIELD` is
+        # `short_name` (`extract/oman_tenderboard.py`), `cells[1]`, and the guard above
+        # already refuses a row without one. `firm_name` is a payload field beside
+        # `address`, which this source's extract already stores NULL by measurement.
+        #
+        # THE OTHER REFUSALS ABOVE STAY, and that is the whole point of separating them:
+        # a first cell that is not an integer, a missing short name, a cell count that
+        # is not eleven, and an activities argument that disagrees with the commented
+        # key are all evidence that this reader's understanding of the page has broken.
+        # A field the site leaves blank for one class of registrant is not.
         firms.append(Firm(
             short_name=short_name,
-            name=cells[2],
+            name=cells[2] or None,
             cr_number=cells[3] or None,
             address=cells[4] or None,
             telephone=cells[5] or None,
