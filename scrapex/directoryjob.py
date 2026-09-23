@@ -35,7 +35,14 @@ from . import contractors, datasetjob, directories, snapshotcrawl
 from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
-from .vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
+from .vocab import (
+    BLOCKING_JOB_STATUSES,
+    JobControl,
+    JobStage,
+    JobStatus,
+    LogLevel,
+    RunMode,
+)
 
 #: The kind this module runs. Named once; `jobs.SPECIALISED_RUNNERS` reads it so the
 #: string cannot be spelled two ways in two files.
@@ -826,8 +833,16 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     # source would read the same stored evidence, and `datasetjob.latest_crawl_run_ref`
     # takes the newest collecting run either way (issue 823). So the one already waiting
     # does this crawl's work when it runs.
+    # `BLOCKING_JOB_STATUSES`, NOT "ANY NON-TERMINAL", and the repository had already
+    # decided this the other way round. `scheduler._source_is_busy` says why in terms:
+    # *"Deliberately NOT 'any non-terminal job': `paused` and `requires_review` wait on
+    # the OWNER and never advance on their own, so counting them as busy would silently
+    # stop that source's schedule from ever firing again."* The first version of this
+    # guard used `active_only` alone, and a paused interpretation then blocked every
+    # future crawl of that source -- permanently, with nothing failing.
     waiting = [one for one in jobs.list_jobs(conn, limit=200, active_only=True)
                if one.get("job_kind") == datasetjob.JOB_KIND
+               and one.get("status") in BLOCKING_JOB_STATUSES
                and source_key in (one.get("source_keys") or [])]
     if waiting:
         jobs.append_log(

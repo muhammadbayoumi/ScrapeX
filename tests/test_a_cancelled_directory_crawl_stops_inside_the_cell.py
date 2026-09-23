@@ -49,7 +49,7 @@ from scrapex import contractors, datasetjob, directoryjob, jobs  # noqa: E402
 from scrapex import db as dbmod
 from scrapex.crawlscope import CrawlScope  # noqa: E402
 from scrapex.pagewalk import PageWalker  # noqa: E402
-from scrapex.vocab import JobControl, JobStatus  # noqa: E402
+from scrapex.vocab import JobControl, JobStatus, RunMode  # noqa: E402
 from scrapex.webui.app import _fetch_progress  # noqa: E402
 
 SITE = "muqawil_org"
@@ -563,9 +563,15 @@ def test_a_stopped_crawl_queues_nothing(conn, monkeypatch):
     """INTERPRETING A SWEEP HE STOPPED IS WORK HE DID NOT ASK FOR.
 
     The chain sits after the success path's own `return`, so every stop — cancel, pause,
-    a job something else settled — reaches the end of the runner without it. This is the
-    test that keeps that ordering, because moving the call four lines up would still pass
-    every other test in this file.
+    a job something else settled — reaches the end of the runner without it.
+
+    AN EARLIER VERSION OF THIS DOCSTRING CLAIMED MORE THAN THE TEST HOLDS, and the gate
+    measured it: moving the call above `if stopped:` passes every test here, because that
+    line is only ever reached with `stopped` empty -- every `stopped.append` is followed
+    by a return that leaves the `try`. So that mutation is equivalent, not a gap. What is
+    NOT equivalent is moving it into the `except CrawlStopped` handler, which is the
+    ordinary cancel-at-a-cell-boundary path, and the test at the foot of this file is
+    what holds that.
     """
     seen = _drive(conn, monkeypatch, pages=40, at_page=2, press=_cancel)
 
@@ -717,4 +723,244 @@ def test_another_sources_interpretation_does_not_block_this_one(conn, monkeypatc
     )
     assert any(SITE in row["source_keys"] for row in interprets), (
         f"no interpretation was queued for {SITE}: {interprets!r}"
+    )
+
+
+# --- the gate's own findings, each pinned ----------------------------------------------
+
+def test_a_completed_interpretation_does_not_block_the_next_crawl(conn, monkeypatch):
+    """THE THIRD CONDITION, AND IT WAS THE UNGUARDED ONE.
+
+    Kind and source each got a boundary test; `active_only` did not, and dropping it
+    passed every test in this file. Its failure mode is the worst kind: once ONE
+    interpretation has COMPLETED for a source, every later crawl of that source would
+    find it "waiting" and queue nothing -- for ever, silently, with nothing failing
+    anywhere and the rows simply never arriving.
+    """
+    done = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+    jobs._finish(conn, jobs.get_job(conn, done)["job_id"], JobStatus.COMPLETED, None)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref, status FROM crawl_job WHERE job_kind = ?",
+        (datasetjob.JOB_KIND,)) if row["status"] == JobStatus.QUEUED.value]
+    assert len(queued) == 1, (
+        f"{len(queued)} interpretations queued after one had already COMPLETED. A "
+        f"finished job is not a job on its way, and treating it as one stops this "
+        f"source interpreting again permanently."
+    )
+
+
+def test_a_paused_interpretation_does_not_block_the_next_crawl(conn, monkeypatch):
+    """`paused` WAITS ON HIM AND NEVER ADVANCES ON ITS OWN.
+
+    `scheduler._source_is_busy` decided this for the schedule and wrote down why:
+    *"counting them as busy would silently stop that source's schedule from ever firing
+    again."* The first version of this guard used `active_only` alone, which includes
+    `paused`, so a paused interpretation blocked every future crawl of that source --
+    measured on the gate: three crawls, three `None`s.
+    """
+    stuck = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+    jobs._update(conn, jobs.get_job(conn, stuck)["job_id"],
+                 status=JobStatus.PAUSED.value)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref, status FROM crawl_job WHERE job_kind = ?",
+        (datasetjob.JOB_KIND,)) if row["status"] == JobStatus.QUEUED.value]
+    assert len(queued) == 1, (
+        "a PAUSED interpretation blocked the chain. Nothing restarts a paused job but "
+        "him, so this source would never interpret again on its own."
+    )
+
+
+def test_any_other_kind_on_this_source_does_not_block_it(conn, monkeypatch):
+    """THE BOUNDARY TEST PINNED THE MUTATION, NOT THE BEHAVIOUR, and the gate proved it:
+    replacing the kind check with a blocklist naming `profile_crawl` -- the exact kind
+    the other test uses -- passed everything. So this drives kinds that blocklist would
+    have let through."""
+    for kind in ("organization_enrichment", "crawl"):
+        other = jobs.create_job(conn, [SITE], job_kind=kind)
+        jobs._update(conn, jobs.get_job(conn, other)["job_id"],
+                     status=JobStatus.RUNNING.value)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert len(queued) == 1, (
+        f"{len(queued)} interpretations queued while an enrichment and a price crawl "
+        f"were running on this source. The guard refuses a second INTERPRETATION, not "
+        f"work of any kind."
+    )
+
+
+def test_a_waiting_interpretation_is_found_behind_newer_jobs(conn, monkeypatch):
+    """THE WINDOW IS PART OF THE GUARD. `list_jobs` is `ORDER BY job_id DESC LIMIT ?`,
+    so an interpretation queued before other work falls out of a short window and the
+    duplicate returns. `limit=1` passed every test until this one."""
+    first = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+    for _ in range(4):
+        noise = jobs.create_job(conn, [SITE], job_kind="profile_crawl")
+        jobs._update(conn, jobs.get_job(conn, noise)["job_id"],
+                     status=JobStatus.RUNNING.value)
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert len(queued) == 1 and queued[0]["job_ref"] == first, (
+        f"the waiting interpretation {first} sat behind four newer jobs and the guard "
+        f"missed it: {[dict(r) for r in queued]!r}"
+    )
+
+
+def test_a_stop_at_a_cell_boundary_queues_nothing(conn, monkeypatch):
+    """THE OTHER STOP PATH, AND IT WAS UNCOVERED. Every other test here stops MID-CELL,
+    which raises `CrawlAbandoned`. A cancel or pause honoured at a CELL BOUNDARY leaves
+    through `except contractors.CrawlStopped` instead, and moving the chain into that
+    handler survived the whole file."""
+    def stop_at_the_boundary(*args, **kwargs):
+        raise directoryjob.contractors.CrawlStopped
+
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+    monkeypatch.setattr(directoryjob.contractors, "crawl", stop_at_the_boundary)
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert not queued, (
+        f"a crawl stopped at a cell boundary queued {len(queued)} interpretation(s). "
+        f"He pressed stop; `CrawlStopped` is the path that carries it."
+    )
+
+
+def test_the_notification_names_the_job_it_queued(conn, monkeypatch):
+    """A REF HE CANNOT FOLLOW IS WORSE THAN NO REF. Asserting only that the phrase
+    appears let the crawl's OWN ref survive in its place -- he would open the job he was
+    already looking at."""
+    ref = _finish_one_crawl(conn, monkeypatch)
+    queued = [row[0] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (jobs.get_job(conn, ref)["job_id"],))]
+    line = next(one for one in log if "queued the interpretation" in one)
+    assert queued[0] in line, (
+        f"the line reads {line!r}; the job it queued is {queued[0]}"
+    )
+    assert ref not in line, "it names the crawl's own ref, which he is already reading"
+
+
+def test_the_lines_survive_the_connection(conn, monkeypatch):
+    """`append_log` DOES NOT COMMIT, and the worker closes without one. Both new lines
+    are written and committed by hand; removing either commit survived every assertion
+    above, because they all read the same open connection that wrote them."""
+    _finish_one_crawl(conn, monkeypatch)
+    _finish_one_crawl(conn, monkeypatch)          # the second takes the skip branch
+
+    db_path = str(conn.execute("PRAGMA database_list").fetchone()[2])
+    own = dbmod.connect(db_path)
+    try:
+        seen = [row[0] for row in own.execute("SELECT message FROM job_log_entry")]
+    finally:
+        own.close()
+    assert any("queued the interpretation" in one for one in seen), (
+        "the line announcing the queued job never left the writing connection"
+    )
+    assert any("already waiting" in one for one in seen), (
+        "the line explaining the skip never left the writing connection"
+    )
+
+
+def test_the_window_is_not_filled_by_finished_jobs(conn, monkeypatch):
+    """`active_only=True` IS THE THIRD CONDITION AND IT IS ABOUT THE WINDOW.
+
+    The status filter beside it already refuses a COMPLETED job, so dropping
+    `active_only` changes no verdict on any job the guard actually sees -- which is why
+    every test above survived the mutation. What it changes is WHICH JOBS IT SEES:
+    `list_jobs` is `ORDER BY job_id DESC LIMIT 200`, and without the filter those 200
+    slots are filled by history.
+
+    HISTORY IS MOST OF A WAREHOUSE. Every crawl, sweep, enrichment and interpretation
+    this source has ever run is terminal and sits above the one live job in that
+    ordering. So the failure is not "sometimes": it arrives the day the job table passes
+    200 rows and never leaves, and its shape is a duplicate interpretation queued on
+    every crawl, for ever, with nothing failing.
+    """
+    first = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+    # 200 FINISHED JOBS, NEWER THAN IT -- exactly the window, so with `active_only`
+    # dropped the waiting interpretation is the 201st row and invisible.
+    conn.executemany(
+        "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+        "                       finished_at) "
+        "VALUES (?,'update',?,?,'completed','2026-09-01T00:00:00Z')",
+        [(f"job_old_{n}", f'["{SITE}"]', "profile_crawl") for n in range(200)])
+    conn.commit()
+
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row["job_ref"] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert queued == [first], (
+        f"the waiting interpretation {first} sat behind 200 finished jobs and the guard "
+        f"missed it, so it queued another: {queued!r}"
+    )
+
+
+def test_one_crawl_alone_commits_the_line_it_wrote(conn, monkeypatch):
+    """ONE CRAWL, NOT TWO, AND THE DIFFERENCE IS THE WHOLE TEST.
+
+    `test_the_lines_survive_the_connection` drives two, so the SKIP branch's commit
+    lands the success branch's uncommitted line as well -- one connection, one
+    transaction. Removing the success branch's own `conn.commit()` survived it, and
+    survived every other test here too, because they all read the connection that wrote
+    them.
+
+    `create_job` COMMITS ITSELF, so the job appears either way. It is the SENTENCE that
+    would be lost: the one line telling him a second job exists and naming its ref.
+    """
+    _finish_one_crawl(conn, monkeypatch)
+
+    db_path = str(conn.execute("PRAGMA database_list").fetchone()[2])
+    own = dbmod.connect(db_path)
+    try:
+        seen = [row[0] for row in own.execute("SELECT message FROM job_log_entry")]
+    finally:
+        own.close()
+    assert any("queued the interpretation" in one for one in seen), (
+        "the job was committed and the line announcing it was not. `append_log` does "
+        "not commit and the worker closes without one, so he would find a job he never "
+        "asked for and no record anywhere of what started it."
+    )
+
+
+def test_the_queued_interpretation_is_an_update_and_not_a_rebuild(conn, monkeypatch):
+    """`full_rebuild` ARCHIVES THE DATASET FIRST, and no test pinned the mode.
+
+    This is the one decision the chain makes on its own, so it may only make the
+    conservative one. `update` adds what the new pages hold; `full_rebuild` replaces a
+    dataset -- and the crawl that triggers this is an ordinary finished crawl, not an
+    instruction to rebuild anything. It is also the label the panel draws on the card,
+    so the wrong mode reads as his own choice.
+    """
+    _finish_one_crawl(conn, monkeypatch)
+
+    queued = [(row["job_ref"], row["run_mode"]) for row in conn.execute(
+        "SELECT job_ref, run_mode FROM crawl_job WHERE job_kind = ?",
+        (datasetjob.JOB_KIND,))]
+    assert [mode for _, mode in queued] == [RunMode.UPDATE.value], (
+        f"the chain queued {queued!r}. Anything but `update` is a decision about his "
+        f"dataset that he did not make."
     )

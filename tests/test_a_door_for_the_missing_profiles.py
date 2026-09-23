@@ -1199,3 +1199,281 @@ def test_a_runner_that_counted_as_many_as_it_had_sources_still_names_its_unit(se
     assert listed[interpret]["progress"]["unit"] == "page pair(s)", (
         f"an interpretation that closed one pair for one source lost its unit, so one "
         f"page pair is reported as one source: {listed[interpret]['progress']}")
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "paused", "requires_review"])
+def test_an_interpretation_already_on_its_way_clears_the_badge(served, status):
+    """THE BADGE IS AN OFFER TO PRESS, AND THE PRESS DOES NOT JOIN AN EXISTING JOB.
+
+    Both halves of the badge query require `finished_at IS NOT NULL`, so an
+    interpretation that had not finished yet counted as none at all: the card kept its
+    amber "Interpret stored pages" badge while one was already running, and `POST
+    /api/jobs` has no duplicate guard -- one press made a second job. That is the cost
+    issue 779 records: a worker slot out of three doing nothing.
+
+    `directoryjob` now queues one itself the moment a crawl completes, so this is not a
+    rare window any more. It is every crawl, for as long as the interpretation takes.
+
+    ALL FOUR NON-TERMINAL STATES, INCLUDING `paused`, which is the one state where this
+    and the engine's chain deliberately disagree -- see the comment at the query. The
+    chain may not count a paused job (nothing would restart it); the badge must, because
+    pressing Interpret would not resume it, it would make a second one.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        # ...and the interpretation that answers it, still on its way.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
+            "VALUES ('job_reading','update',?,?,?)",
+            (f'["{SITE}"]', datasetjob.JOB_KIND, status))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None, (
+        f"an interpretation is {status} for this source and the card still offers the "
+        f"press: {waiting['interpret']}. He presses it, nothing refuses him, and he "
+        f"owns two jobs reading the same pages."
+    )
+
+
+def test_the_badge_returns_once_that_interpretation_is_over(served):
+    """THE OTHER SIDE OF THE SAME GUARD, and without it the fix above is a switch that
+    only turns off. A COMPLETED interpretation is terminal, so it must not suppress the
+    badge -- otherwise one finished interpretation would silence this card for ever and
+    the pages of every later sweep would go unread with nothing saying so."""
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T14:07:16Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a finished interpretation suppressed the badge for a sweep that landed after "
+        "it. The question is 'is one on its way', not 'has one ever run'."
+    )
+
+
+def test_another_sources_interpretation_does_not_clear_this_badge(served):
+    """THE FILTER THAT THE FIXTURE CANNOT TEST BY ITSELF, which is why the mutation
+    dropping it survived every test in this file: one source is served, so "this
+    source's interpretation" and "any interpretation" are the same row.
+
+    They are not the same row on his machine. He runs five sources, `MAX_WORKERS` is
+    three, and an interpretation is the longest-running kind there is -- so one of them
+    interpreting is close to the normal state. Without this filter every card in the
+    panel goes quiet whenever any single source is being read, and the one source that
+    really does owe a press is indistinguishable from the four that do not.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        # A DIFFERENT SOURCE, reading its own pages right now.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
+            "VALUES ('job_elsewhere','update',?,?,'running')",
+            ('["oman_tenderboard"]', datasetjob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "another source's running interpretation put out this source's badge. Its "
+        "pages are still unread and nothing on the screen says so."
+    )
+
+
+@pytest.mark.parametrize("status", ["cancelled", "failed"])
+def test_an_interpretation_that_never_read_the_pages_does_not_count_as_one(served,
+                                                                          status):
+    """`jobs._finish` STAMPS `finished_at` FOR EVERY TERMINAL STATUS, and the badge's
+    "when was this last interpreted" query asked for a finish time and nothing else.
+
+    So the worst case is not a missing badge, it is a WRONG one: he cancels an
+    interpretation, its finish time lands after the crawl's, and the card concludes the
+    pages have been read. The badge goes out and stays out until the next crawl of that
+    source -- and `datasetjob` closes as exactly one of three, `completed`, `cancelled`
+    (`scrapex/datasetjob.py:286`) or `failed` (`:305`), so two of its three endings
+    silently said "read".
+
+    THE CHAIN IN THIS PR IS WHAT MAKES IT ROUTINE. An interpretation now exists after
+    every crawl whether or not he asked for one, so cancelling the one he did not ask for
+    is an ordinary press -- and it was the press that put his own badge out for good.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        # The interpretation that answered it, stopped BEFORE it read anything -- so its
+        # finish time is newer than the sweep's and it read nothing at all.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_stopped','update',?,?,?,'2026-09-07T15:00:00Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND, status))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        f"a {status} interpretation counted as a reading of the pages, so the card says "
+        f"nothing is owed. Nothing read them, and nothing on the screen will say so "
+        f"until the next crawl of this source."
+    )
+
+
+def test_the_newest_reading_answers_and_not_the_first_one(served):
+    """ONE READING NEVER EXERCISES AN ORDER BY. Every test of this badge had a single
+    interpretation on file, so `DESC` and `ASC` chose the same row and flipping it
+    changed nothing.
+
+    His warehouse does not have one. A source that has been interpreted more than once
+    has several, and with the oldest answering, the comparison is against a date that
+    only recedes -- so the badge lights the first time a crawl lands after the FIRST
+    interpretation and never goes out again, whatever he presses. A badge that is always
+    on is the same as no badge, and worse, because he learns to ignore it.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        for ref, kind, when in (
+                ("job_read_old", datasetjob.JOB_KIND, "2026-09-01T00:00:00Z"),
+                ("job_sweep", profilejob.JOB_KIND, "2026-09-05T00:00:00Z"),
+                ("job_read_new", datasetjob.JOB_KIND, "2026-09-09T00:00:00Z")):
+            conn.execute(
+                "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, "
+                "                       status, finished_at) "
+                "VALUES (?,'update',?,?,'completed',?)",
+                (ref, f'["{SITE}"]', kind, when))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None, (
+        f"the sweep of 2026-09-05 was read on 2026-09-09 and the card still offers the "
+        f"press: {waiting['interpret']}. The FIRST reading answered instead of the "
+        f"newest, which makes this badge permanent."
+    )
+
+
+def test_another_sources_reading_is_not_this_sources_reading(served):
+    """THE SAME MISSING FILTER, ON THE OTHER HALF OF THE SAME COMPARISON.
+
+    `test_another_sources_interpretation_does_not_clear_this_badge` guards the "is one on
+    its way" query; this guards the "when was this last read" one. Dropping
+    `source_keys` there is worse than dropping it in the first: the first only hides the
+    badge while another source is busy, and this hides it on the evidence of a reading
+    that HAPPENED -- permanently, and for every source but the one that was read.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-05T00:00:00Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        # A DIFFERENT SOURCE, read after that sweep. This source has never been read at
+        # all, so the only thing this row can do here is answer for it wrongly.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read_elsewhere','update',?,?,'completed','2026-09-09T00:00:00Z')",
+            ('["oman_tenderboard"]', datasetjob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "another source's interpretation answered for this one, which has never been "
+        "interpreted at all. Its pages are unread and the card says they are not."
+    )
+    assert waiting["interpret"]["interpreted_at"] is None, (
+        f"it even dated the reading from the other source's run: {waiting['interpret']}"
+    )
+
+
+def test_a_cancelled_crawl_still_owes_an_interpretation(served):
+    """THE ASYMMETRY BETWEEN THE TWO HALVES OF THIS COMPARISON, PINNED -- because it
+    looks like an inconsistency and a future session would tidy it away.
+
+    Neither half filters status for the same reason the other does. A CANCELLED CRAWL
+    still bought pages: measured twice in three days, one held 3,138 stored readings over
+    802 distinct URLs. They are on disk, nothing has read them, and this badge is the
+    only thing on the screen that says so. A CANCELLED INTERPRETATION read nothing, so it
+    must not count as a reading -- which is what
+    `test_an_interpretation_that_never_read_the_pages_does_not_count_as_one` holds.
+
+    Same column, opposite answers, because "did it leave pages behind" and "did it read
+    them" are two facts.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_stopped_sweep','update',?,?,'cancelled','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a cancelled sweep's pages are on disk and unread, and the card says nothing is "
+        "owed. Cancelling a run does not un-fetch what it already stored."
+    )

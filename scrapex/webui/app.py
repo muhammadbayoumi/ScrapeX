@@ -809,6 +809,12 @@ def create_app(
         # `datasetjob.COLLECTING_KINDS` IS THE ONE PLACE THE NAMES LIVE, because this is
         # the second reader of the same fact and the first one having been widened alone
         # is precisely the defect.
+        # NO STATUS FILTER HERE, AND THE READING HALF BELOW HAS ONE. The asymmetry is
+        # the point: a crawl that was CANCELLED still bought pages -- 3,138 stored
+        # readings over 802 URLs, measured on one -- so they are on disk and unread, and
+        # this badge is the only thing that says so. An interpretation that was cancelled
+        # read nothing, so it may not count as a reading. Same column, opposite answers,
+        # because "did it leave pages behind" and "did it read them" are not one fact.
         marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
@@ -817,12 +823,65 @@ def create_app(
             " ORDER BY finished_at DESC LIMIT 1",
             (*datasetjob.COLLECTING_KINDS, like)).fetchone()
         if crawled:
+            # `completed`, NOT "it has a finish time" -- and the difference is a silent
+            # one. `jobs._finish` stamps `finished_at` for EVERY terminal status, so a
+            # CANCELLED or FAILED interpretation used to count here as a reading that
+            # happened: he cancels one, its finish time lands AFTER the crawl's, and
+            # this comparison concludes the pages have been read. The badge goes out
+            # and stays out until the next crawl of that source.
+            #
+            # THE CHAIN ABOVE IS WHY THIS STOPPED BEING RARE. An interpretation now
+            # exists after every crawl without him asking, so cancelling one is an
+            # ordinary thing to do -- and it was the one action that put the badge out
+            # for good. Before the chain he had to have started one by hand first.
+            #
+            # `datasetjob` closes as exactly one of three: COMPLETED, CANCELLED
+            # (`scrapex/datasetjob.py:286`) or FAILED (`:305`). Only the first read the
+            # pages, so only the first answers this question.
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
-                " WHERE job_kind = ? AND source_keys LIKE ? AND finished_at IS NOT NULL "
+                " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "
+                "   AND finished_at IS NOT NULL "
                 " ORDER BY finished_at DESC LIMIT 1",
-                (datasetjob.JOB_KIND, like)).fetchone()
-            if read is None or str(crawled[0]) > str(read[0]):
+                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value)).fetchone()
+            # A JOB ALREADY ON ITS WAY IS AN ANSWER, and reading only `finished_at`
+            # made it invisible. Both queries above require `finished_at IS NOT NULL`,
+            # so a QUEUED or RUNNING interpretation counted as none at all: the card
+            # kept its amber "Interpret stored pages" badge, and `POST /api/jobs` has
+            # no duplicate guard, so one press made a second one. Measured on the gate
+            # for #1042 -- two active interpretations for one source, which is the cost
+            # issue 779 records: a worker slot out of three doing nothing, and the
+            # panel adopting a job he did not ask for.
+            #
+            # `directoryjob` now queues one itself when a crawl finishes, so this is
+            # not a rare window: it is every crawl, for the twenty to forty seconds the
+            # interpretation takes. The engine already refuses to queue a second; this
+            # is the same refusal on the surface he actually presses.
+            #
+            # NON-TERMINAL, NOT `BLOCKING`, AND THE TWO SETS DISAGREE ON EXACTLY ONE
+            # STATE: `paused` (and `requires_review`) are non-terminal and not blocking,
+            # so this clears the badge for them and `directoryjob`'s chain does not
+            # count them. That split is deliberate and it is not symmetry for its own
+            # sake -- the two are answering different questions.
+            #
+            # THE CHAIN ASKS "may I START one?" Nothing but him restarts a paused job,
+            # so counting it would stop this source ever interpreting again, silently --
+            # `scheduler._source_is_busy` wrote that reasoning down first.
+            #
+            # THE BADGE ASKS "should I OFFER a press?" and the answer is no while any
+            # interpretation of this source exists at all, because the press does not
+            # resume that job -- `POST /api/jobs` has no duplicate guard, so it would
+            # make a SECOND one beside the paused one, and he would then own two. The
+            # paused job keeps its own Resume control on the jobs list, which is the
+            # button that actually continues it.
+            marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
+            on_its_way = general.execute(
+                "SELECT job_ref FROM crawl_job "
+                f" WHERE job_kind = ? AND source_keys LIKE ? "
+                f"   AND status NOT IN ({marks_j}) LIMIT 1",
+                (datasetjob.JOB_KIND, like,
+                 *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()
+            if on_its_way is None and (read is None or str(crawled[0]) > str(read[0])):
                 waiting["interpret"] = {"crawl_finished_at": crawled[0],
                                         "interpreted_at": read[0] if read else None}
         if directory.profiles is not None:
