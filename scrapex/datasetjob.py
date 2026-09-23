@@ -9,6 +9,11 @@ from `scrapex contractors --approve` and from nowhere else: no API route, no job
 control in the panel. `R-81` says the panel is his only interface, so a crawl of 6,713
 pages produced a harvest only a terminal could convert.
 
+ES-1: a pipeline stage is not a user step. See `docs/ENGINEERING-SOURCES.md`. The
+paragraph below is the argument this job exists at all; ES-1 is why the OWNER no longer
+starts it. `directoryjob` queues one when a listing crawl finishes, and every word below
+stays true of a queued job.
+
 WHY A JOB KIND RATHER THAN A STAGE OF THE CRAWL. Folding interpretation into the crawl was
 the cheaper answer and it is the wrong one: interpretation fails on its own terms -- a
 parser that cannot read a page, a schema that moved -- and a failure reported as the

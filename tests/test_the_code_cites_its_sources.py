@@ -33,6 +33,12 @@ from dataclasses import dataclass
 
 import pytest
 
+# THIS FILE NAMES `extension/` -- the engineering register's citations may live in
+# the panel too, so `REGISTERS` searches it. The gate is one-directional
+# (reads-extension implies marked), so carrying the mark costs nothing and its
+# absence would stop this guard running on an extension-only change.
+pytestmark = pytest.mark.extension
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HERE = pathlib.Path(__file__).resolve()
 RULES = ROOT / "CLAUDE.md"
@@ -140,6 +146,43 @@ def test_every_entry_is_cited_by_the_code_it_governs(register: Register):
         + "\n  ".join(f"{key} · {title}" for key, title in sorted(orphans.items()))
         + "\n\nAn entry earns its place by being cited at a line that would be built "
           "differently without it. Cite it, or remove it."
+    )
+
+
+@pytest.mark.parametrize("register", REGISTERS, ids=IDS)
+def test_each_entry_is_cited_where_it_says_it_is(register: Register):
+    """`Cited at:` IS LOAD-BEARING, and a mutation is what made it so.
+
+    The guard above asks only that SOMETHING cites an entry, and a test citing it counts
+    — so removing the citation from the production code it governs survived, because the
+    test that exercises that code names the key in its own docstring. That is exactly the
+    drift this file exists to catch, one level in.
+
+    So each entry NAMES the files it is cited at, and this asserts those files really do.
+    The entry stops being able to describe a state the code is not in.
+    """
+    cited_at = re.compile(r"^\*\*Cited at:\*\* (.+)$", re.MULTILINE)
+    text = _text(register)
+    heading = re.compile(rf"^## ({register.prefix}-\d+) · ", re.MULTILINE)
+    sections = heading.split(text)
+    missing: list[str] = []
+    for key, body in zip(sections[1::2], sections[2::2], strict=True):
+        named = cited_at.search(body)
+        assert named, (
+            f"{key} does not say where it is cited. Every entry carries a "
+            f"`**Cited at:**` line naming the files that use it."
+        )
+        for path in re.findall(r"`([^`]+\.(?:py|js|css|mjs))`", named.group(1)):
+            whole = (ROOT / path)
+            if not whole.exists():
+                missing.append(f"{key} names {path}, which does not exist")
+            elif key not in whole.read_text(encoding="utf-8"):
+                missing.append(f"{key} says it is cited at {path}, and it is not")
+    assert not missing, (
+        f"{register.path} describes citations that are not there:\n  "
+        + "\n  ".join(missing)
+        + "\n\nEither cite it there, or correct the entry. A register that can describe "
+          "a state the code is not in is a register nobody can trust."
     )
 
 

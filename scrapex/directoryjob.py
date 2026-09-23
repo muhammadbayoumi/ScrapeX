@@ -31,7 +31,7 @@ import threading
 import time
 from contextlib import closing, nullcontext
 
-from . import contractors, directories, snapshotcrawl
+from . import contractors, datasetjob, directories, snapshotcrawl
 from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
@@ -768,4 +768,67 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         source_key=source_key)
     jobs._update(conn, job["job_id"], progress_done=cells)
     jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
+    _queue_the_interpretation(conn, job, source_key)
     return jobs.get_job(conn, job_ref)
+
+
+def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
+                              source_key: str) -> str | None:
+    """Queue the interpretation this crawl has just made due. Returns its ref, or None.
+
+    ES-1: a pipeline stage is not a user step. See `docs/ENGINEERING-SOURCES.md`.
+
+    WHAT HE SAID, 2026-09-23: *«المفروض التفسير دا يشتغل تلقائى يعنى المستخدم العادى عمل
+    crawl مش هيفهم يعنى اى تفسير اصلا ولية يطر يعمل خطوة زيادة»*. A price source is one
+    pass -- `capture.py` fetches and ingests straight into the warehouse -- and a
+    directory source was two, with a button between them for a stage that is ours.
+
+    THE ENGINE ALREADY KNEW IT WAS DUE. `webui/app.py::_work_waiting` computes exactly
+    this: *"`interpret` is due when a listing crawl has finished MORE RECENTLY than the
+    last interpretation of this source"*. It drew a line on the card and waited for him.
+
+    QUEUED, NOT RUN, and that is what keeps `datasetjob`'s own argument true. That module
+    states why interpretation is a job and not a stage of the crawl -- *"interpretation
+    fails on its own terms ... a failure reported as the crawl's would send the next
+    session looking at the network ... Two jobs, two verdicts"* -- and every word of it is
+    about JOBS. A queued job still reports its own verdict, still runs without a crawl
+    when he asks, and still takes no politeness reservation. What changed is who presses.
+
+    AND IT IS VISIBLE AND STOPPABLE, which is the half `CLAUDE.md`'s *"never start a run
+    you cannot watch to the end"* protects. A queued job is a row the panel draws with the
+    controls every other job has; the alternative he rejected was running it silently.
+
+    ONLY ON THE SUCCESS PATH. The caller returns before this on every stop, so a cancelled
+    crawl queues nothing -- interpreting a sweep he stopped is work he did not ask for.
+
+    A FAILURE TO QUEUE MAY NOT FAIL THE CRAWL, the same rule the heartbeat and the stop
+    guard above both state: the crawl is the work, this is what follows it. It is recorded
+    rather than swallowed, so a session that expected a second job and got none can see
+    why.
+    """
+    # IMPORTED HERE, like the caller does at `:239` and for its reason: `jobs`
+    # names this module in `SPECIALISED_RUNNERS`, so importing it at the top would
+    # close the circle. `datasetjob` is safe at the top -- it names no runner.
+    from . import jobs
+
+    try:
+        ref = jobs.create_job(conn, [source_key],
+                              run_mode=RunMode.UPDATE,
+                              job_kind=datasetjob.JOB_KIND)
+        jobs.append_log(
+            conn, job["job_id"],
+            f"queued the interpretation of these pages as {ref}: it turns the stored "
+            "evidence into rows and fetches nothing. Stop it from its own card if you "
+            "do not want it",
+            source_key=source_key)
+        conn.commit()
+        return ref
+    except Exception as exc:
+        jobs.append_log(
+            conn, job["job_id"],
+            f"the crawl finished, but its interpretation could not be queued: "
+            f"{type(exc).__name__}: {exc}. The pages are on disk and interpreting them "
+            f"costs no request, so it can be started from the source's card",
+            level=LogLevel.WARNING, source_key=source_key)
+        conn.commit()
+        return None

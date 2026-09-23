@@ -45,7 +45,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from scrapex import contractors, directoryjob, jobs  # noqa: E402
+from scrapex import contractors, datasetjob, directoryjob, jobs  # noqa: E402
 from scrapex import db as dbmod
 from scrapex.crawlscope import CrawlScope  # noqa: E402
 from scrapex.pagewalk import PageWalker  # noqa: E402
@@ -501,3 +501,107 @@ def _count_pages(fetcher):
         fetcher.requests_count += 1
         return "<html></html>"
     return fetch
+
+
+# --- ES-1: the crawl queues its own interpretation -------------------------------------
+
+def test_a_finished_crawl_queues_its_own_interpretation(conn, monkeypatch):
+    """HIS WORDS, 2026-09-23: *«المفروض التفسير دا يشتغل تلقائى يعنى المستخدم العادى عمل
+    crawl مش هيفهم يعنى اى تفسير اصلا ولية يطر يعمل خطوة زيادة»*.
+
+    A price source is one pass — `capture.py` fetches and ingests straight into the
+    warehouse. A directory source was two, with a button between them for a stage that is
+    ours, not his. And the engine already knew the second was due: `_work_waiting`
+    computes exactly that and drew a line on the card.
+
+    ES-1 in `docs/ENGINEERING-SOURCES.md` is what this rests on.
+    """
+    fetcher = _Fetcher()
+
+    def fetch(url: str) -> str:
+        fetcher.requests_count += 1
+        return "<html></html>"
+
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, fetch))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+
+    def crawl_and_finish(*args, **kwargs):
+        beating = kwargs.get("beating") or args[2]
+        for page in range(3):
+            beating(f"https://muqawil.org/en/contractors?page={page}")
+
+    monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_and_finish)
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    queued = [row for row in conn.execute(
+        "SELECT job_ref, job_kind, status, source_keys FROM crawl_job "
+        "ORDER BY job_id") if row["job_kind"] == datasetjob.JOB_KIND]
+
+    assert len(queued) == 1, (
+        f"the crawl finished and queued {len(queued)} interpretations. He should not "
+        f"have to know the stage exists, and the engine already computed that it is due."
+    )
+    assert queued[0]["status"] == JobStatus.QUEUED.value, (
+        f"the interpretation is {queued[0]['status']!r}. QUEUED, not run inline: two "
+        f"jobs and two verdicts is what `datasetjob`'s own argument asks for, and it is "
+        f"what gives the job a card he can stop it from."
+    )
+    assert SITE in queued[0]["source_keys"]
+    # AND HE IS TOLD, because a second job appearing with no explanation is its own defect.
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (jobs.get_job(conn, ref)["job_id"],))]
+    assert any("queued the interpretation" in line for line in log), (
+        f"nothing in the crawl's log says a second job was queued: {log!r}"
+    )
+
+
+def test_a_stopped_crawl_queues_nothing(conn, monkeypatch):
+    """INTERPRETING A SWEEP HE STOPPED IS WORK HE DID NOT ASK FOR.
+
+    The chain sits after the success path's own `return`, so every stop — cancel, pause,
+    a job something else settled — reaches the end of the runner without it. This is the
+    test that keeps that ordering, because moving the call four lines up would still pass
+    every other test in this file.
+    """
+    seen = _drive(conn, monkeypatch, pages=40, at_page=2, press=_cancel)
+
+    interprets = [row for row in conn.execute(
+        "SELECT job_kind FROM crawl_job") if row["job_kind"] == datasetjob.JOB_KIND]
+    assert not interprets, (
+        f"a cancelled crawl queued {len(interprets)} interpretation(s). He pressed stop."
+    )
+    assert seen["job"]["status"] == JobStatus.CANCELLED.value
+
+
+def test_a_crawl_that_cannot_queue_its_interpretation_still_finished(conn, monkeypatch):
+    """LOSE THE CHAIN, NEVER THE CRAWL — the rule the heartbeat and the stop guard in this
+    same runner both state. The crawl is the work; what follows it is not."""
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("the queue is closed")
+
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(directoryjob.jobs if hasattr(directoryjob, "jobs") else jobs,
+                        "create_job", refuse)
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    job = jobs.get_job(conn, ref)
+    assert job["status"] == JobStatus.COMPLETED.value, (
+        f"the crawl reads {job['status']!r} because the job AFTER it could not be queued"
+    )
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (job["job_id"],))]
+    assert any("could not be queued" in line for line in log), (
+        f"the failure was swallowed rather than recorded: {log!r}"
+    )
