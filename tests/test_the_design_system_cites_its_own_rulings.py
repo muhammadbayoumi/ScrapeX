@@ -164,7 +164,9 @@ def test_every_design_file_that_cites_a_ruling_is_on_the_surface():
     from tools.sync_design_assets import ASSETS
 
     expected: set[Path] = set()
-    for source in sorted(p for p in (ROOT / "design").iterdir() if p.is_file()):
+    # rglob, not iterdir: a subfolder of design/ is still design/, and a file there that
+    # cited a wrong number would otherwise be checked by nothing.
+    for source in sorted(p for p in (ROOT / "design").rglob("*") if p.is_file()):
         data = source.read_bytes()
         # A binary cites nothing and does not decode: Google's G today, and the font
         # files #1040 ships through design/. Text never holds a NUL byte.
