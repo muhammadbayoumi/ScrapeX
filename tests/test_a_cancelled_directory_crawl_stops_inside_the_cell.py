@@ -52,6 +52,13 @@ from scrapex.pagewalk import PageWalker  # noqa: E402
 from scrapex.vocab import JobControl, JobStatus, LogLevel, RunMode  # noqa: E402
 from scrapex.webui.app import _fetch_progress  # noqa: E402
 
+# THIS FILE NAMES `extension/app.html` AND `extension/app.js`, in the guard that the
+# copy must name a control the panel really draws and can reveal. The gate is
+# one-directional -- reads-extension implies marked -- so carrying the mark costs
+# nothing, and its absence would stop this file running on an extension-only change,
+# which is exactly the change that would break what it guards.
+pytestmark = pytest.mark.extension
+
 SITE = "muqawil_org"
 
 
