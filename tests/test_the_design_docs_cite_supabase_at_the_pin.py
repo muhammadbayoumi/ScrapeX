@@ -28,10 +28,14 @@ NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
 
 LIVE_LINK = re.compile(r"(?:https?://)?(?:www\.)?supabase\.com/design-system(/[^\s)\]>\"'`#?]*)?", re.I)
 
-# `path@<commit>:line` cites a line inside Supabase's repository, and commit `<hex>` names
-# the basis in prose. Neither is a link, so the link tests never see either.
+# Commits the documents name without linking them, so the link tests never see them:
+# `path@<ref>:line` cites a line in Supabase's repository (any ref, so `@master:28` is
+# caught); `path@<hex>` cites a whole file; and a backticked hex names the basis in prose.
+# The backticked form needs one letter, so a backticked number is never read as a commit.
+# An unbackticked hash in prose is not seen; the documents never write one.
 AT_COMMIT = re.compile(r"[\w./-]+@([\w.-]+):\d+")
-NAMED_COMMIT = re.compile(r"commit `([0-9a-f]{7,40})`", re.I)
+AT_HEX = re.compile(r"[\w./-]+@([0-9a-f]{7,40})(?![\w.-])", re.I)
+TICKED_HEX = re.compile(r"`(?=[0-9a-f]*[a-f])([0-9a-f]{7,40})`", re.I)
 
 
 def _pin() -> str:
@@ -62,6 +66,37 @@ def test_every_link_into_supabases_repository_is_pinned():
         f"{len(unpinned)} link(s) into Supabase's repository do not link tree/ or blob/ at the "
         f"pinned commit {pin[:8]}, so they show whatever Supabase merged since:\n" + "\n".join(unpinned)
     )
+
+
+# Forms the documents do not hold today, so the document tests above never exercise them.
+# "<pin>" is replaced by the notice's commit. None means the link is not pinned.
+LINK_CASES = [
+    ("https://raw.githubusercontent.com/supabase/supabase/master/x.css", None),
+    ("https://raw.githubusercontent.com/supabase/supabase/<pin>/packages/ui/x.css", ("blob", "packages/ui/x.css")),
+    ("https://raw.githubusercontent.com/supabase/supabase/<pin>5/x.css", None),
+    ("https://raw.githubusercontent.com/supabase/supabase/<pin>-old/x.css", None),
+    ("https://raw.githubusercontent.com/supabase/supabase/<pin>", None),
+    ("https://raw.githubusercontent.com/supabase/supabase/<pin>/", None),
+    ("https://GitHub.com/Supabase/supabase/blob/master/x.css", None),
+    ("https://github.com/supabase/supabase/tree/master/x", None),
+    ("https://github.com/supabase/supabase/blob/<pin>x/AGENTS.md", None),
+    ("https://www.github.com/supabase/supabase/tree/<pin>/x#readme", ("tree", "x")),
+    ("https://github.com/supabase/supabase/blob/<pin>/x.css?plain=1", ("blob", "x.css")),
+    ("https://github.com/supabase/supabase/tree/<pin>/packages/ui/", ("tree", "packages/ui")),
+    ("https://github.com/supabase/supabase/tree/<pin>", ("tree", "")),
+]
+
+
+@pytest.mark.parametrize("link, expected", LINK_CASES)
+def test_a_link_is_pinned_only_when_it_names_the_commit(link, expected):
+    pin = _pin()
+    matches = list(REPO_LINK.finditer(link.replace("<pin>", pin)))
+    assert len(matches) == 1, f"{link} should be read as one link into Supabase's repository"
+    assert pinned_path(matches[0], pin) == expected
+
+
+def test_a_neighbouring_repository_is_not_supabases():
+    assert not REPO_LINK.search("https://github.com/supabase/supabase-ui-web")
 
 
 def test_every_live_design_system_page_sits_beside_its_pinned_source():
@@ -102,15 +137,21 @@ def test_every_commit_the_documents_name_is_the_pin():
     before the SHA beside them changes.
     """
     pin = _pin()
-    seen, stale = 0, []
+    patterns = {"path@ref:line": AT_COMMIT, "path@hex": AT_HEX, "a backticked hex": TICKED_HEX}
+    seen = dict.fromkeys(patterns, 0)
+    refs: dict[tuple[str, int], tuple[str, str]] = {}
     for where, line in _lines():
-        for match in (*AT_COMMIT.finditer(line), *NAMED_COMMIT.finditer(line)):
-            seen += 1
-            ref = match.group(1).lower()
-            if len(ref) < 7 or not pin.startswith(ref):
-                stale.append(f"{where}: {match.group(0)}")
+        for name, pattern in patterns.items():
+            for match in pattern.finditer(line):
+                seen[name] += 1
+                # One citation can match two patterns; it is one reference, reported once.
+                refs[(where, match.start(1))] = (match.group(1).lower(), match.group(0))
+    stale = [f"{where}: {text}" for (where, _), (ref, text) in sorted(refs.items())
+             if len(ref) < 7 or not pin.startswith(ref)]
 
-    assert seen, "found no path@commit:line citation and no named commit in the design documents"
+    # One floor per pattern, so none can stop matching behind the others.
+    silent = [name for name, count in seen.items() if not count]
+    assert not silent, f"found no {' / '.join(silent)} in the design documents at all"
     assert not stale, (
         f"{len(stale)} reference(s) name a commit other than the pin {pin[:8]}; a re-pin re-reads "
         "each cited line at the new commit before it changes the SHA:\n" + "\n".join(stale)
@@ -126,19 +167,24 @@ def test_every_pinned_link_names_a_path_the_pin_holds():
         "Run tools/read_supabase_linked_paths.py."
     )
     held, absent = fixture["present"], set(fixture["absent"])
+    linked = linked_paths(pin)
+    # Without this, a parser that stopped returning paths would check nothing, and the tool
+    # the failure message names would write an empty fixture to match.
+    assert linked, "no pinned link in the design documents names a path"
 
     wrong = []
-    for path, kind in sorted(linked_paths(pin).items()):
+    for path, kinds in sorted(linked.items()):
         if path in absent:
             wrong.append(f"{path} is linked and is absent at {pin[:8]}")
         elif path not in held:
             wrong.append(f"{path} is linked and was never read: run tools/read_supabase_linked_paths.py")
-        elif held[path][0] != kind:
-            wrong.append(f"{path} is linked as {kind}/ and the pin holds a {held[path][0]}")
+        else:
+            wrong.extend(f"{path} is linked as {kind}/ and the pin holds a {held[path][0]}"
+                         for kind in sorted(kinds) if kind != held[path][0])
     assert not wrong, "\n".join(wrong)
 
     # The fixture is the reading of what the documents link now, not an accumulation.
-    unlinked = sorted((set(held) | absent) - set(linked_paths(pin)))
+    unlinked = sorted((set(held) | absent) - set(linked))
     assert not unlinked, (
         f"{FIXTURE.name} records {unlinked}, which no design document links any more. "
         "Run tools/read_supabase_linked_paths.py."

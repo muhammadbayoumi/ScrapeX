@@ -53,26 +53,35 @@ def pinned_path(match: re.Match, pin: str) -> tuple[str, str] | None:
     query (`#L12`, `?plain=1`) and a trailing slash do not change which path is named.
     """
     rest = match.group("rest")
-    if match.group("host").lower() == "raw.githubusercontent.com":
-        found = re.match(rf"{pin}(?:/(?P<path>[^#?]*))?", rest)
+    raw = match.group("host").lower() == "raw.githubusercontent.com"
+    if raw:
+        found = re.match(rf"{pin}(?:/(?P<path>[^#?]*))?(?:[#?]|$)", rest)
         kind = "blob"
     else:
         found = re.match(rf"(?P<kind>tree|blob)/{pin}(?:/(?P<path>[^#?]*))?(?:[#?]|$)", rest)
         kind = found.group("kind") if found else ""
     if not found:
         return None
-    return kind, (found.group("path") or "").rstrip("/")
+    path = (found.group("path") or "").rstrip("/")
+    # A raw link that names no file names nothing: that host serves files only.
+    if raw and not path:
+        return None
+    return kind, path
 
 
-def linked_paths(pin: str) -> dict[str, str]:
-    """Every pinned path the documents link, with the kind of link: "tree" or "blob"."""
-    paths: dict[str, str] = {}
+def linked_paths(pin: str) -> dict[str, set[str]]:
+    """Every pinned path the documents link, with every kind it is linked as: "tree", "blob".
+
+    A set, not the last kind seen, because a path linked twice is checked twice: a wrong
+    `blob/` link must not hide behind a right `tree/` link to the same directory.
+    """
+    paths: dict[str, set[str]] = {}
     for relative in DESIGN_DOCS:
         for line in (ROOT / relative).read_text(encoding="utf-8").splitlines():
             for match in REPO_LINK.finditer(line):
                 pinned = pinned_path(match, pin)
                 if pinned and pinned[1]:
-                    paths[pinned[1]] = pinned[0]
+                    paths.setdefault(pinned[1], set()).add(pinned[0])
     return paths
 
 
@@ -89,8 +98,14 @@ def read(pin: str) -> dict:
         sys.exit(f"GitHub truncated the tree at {pin[:8]}; an absent path would be a guess")
     held = {entry["path"]: [entry["type"], entry["sha"]] for entry in tree["tree"]}
 
+    linked = linked_paths(pin)
+    # Zero would write a fixture that checks nothing, and the test that asked for this run
+    # would then pass. The documents link 28 paths today.
+    if not linked:
+        sys.exit("the design documents link no pinned path into Supabase's repository; "
+                 "the pattern is reading the wrong thing, so no fixture is written")
     present, absent = {}, []
-    for path in sorted(linked_paths(pin)):
+    for path in sorted(linked):
         if path in held:
             present[path] = held[path]
         else:

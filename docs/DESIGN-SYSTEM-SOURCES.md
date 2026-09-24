@@ -114,7 +114,7 @@ Also review:
 
 These official repository sources rank fifth in the [precedence order](#source-conflict-resolution-order), below the documentation they defer to. What one says about a pattern, a component or copy is Supabase speaking. What one says about the implementation layer (React, testing, review tooling) is context, because #1040 excludes that layer. At the pin the repository instructions are `.claude/CLAUDE.md` and `apps/studio/CLAUDE.md`; master renamed them `AGENTS.md` and `apps/studio/AGENTS.md` after the pin.
 
-- [Supabase repository instructions](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/CLAUDE.md): repository structure, conventions, the U.S. English rule, and which skill governs which task.
+- [Supabase repository instructions](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/CLAUDE.md): repository structure, conventions, the U.S. English rule, and which skill governs which task. **Its U.S. English rule does not change ScrapeX copy:** Supabase is inconsistent (its design-system docs write British `organisation` and `colour`), so under rule 2 nothing is changed (#1040).
 - [Supabase Studio instructions](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/apps/studio/CLAUDE.md): naming, responsibility boundaries, reuse-first guidance, co-location, and the skills each Studio task requires.
 
 - [Studio UI Patterns skill](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/skills/studio-ui-patterns/SKILL.md): Supabase-specific guidance for pages, forms, tables, charts, sheets, empty states, and navigation.
@@ -196,7 +196,7 @@ When sources disagree, use this precedence order:
 3. The implementations in `packages/ui` and `packages/ui-patterns` at the pinned commit.
 4. The production composition in `apps/studio` at the pinned commit.
 5. Supabase's repository instructions and official skills at the pinned commit.
-6. Only where Supabase is silent: the source the [gap table](#gap-sources-studied-not-adopted) names for that gap, once its study is reviewed. A [mandate](#mandates)'s source outranks items 1–5, for its one request only.
+6. Only where Supabase is silent: the source the [gap table](#gap-sources-studied-not-adopted) names for that gap, adopted as that section says. A [mandate](#mandates)'s source outranks items 1–5, for its one request only.
 7. Official Supabase articles for philosophy and historical context.
 8. Archived sources only for historical investigation.
 

@@ -342,9 +342,9 @@ rewritten after it.
    and stroke, and its motion from it, not from what this repository already has.
 2. **Then look in §5 and the gallery.** Composition beats invention: `ghost` +
    `compact` + `icon-button` is three existing rules, not a fourth new one. Only when the
-   gallery does not have it is something added: transcribed from the Supabase atom when
-   step 1 found one, and treated as a gap (studied, not invented) when it did not. Decide
-   its scope from the table in §4.
+   gallery does not have it is something added: transcribed from what step 1 found, and
+   treated as a gap (studied, not invented) when it found nothing. Decide its scope from
+   the table in §4.
 3. Write it in `design/components.css` if shared, then
    `python tools/sync_design_assets.py`.
 4. Use tokens, never literals — `var(--sp-3)`, not `12px`; `var(--surface)`,

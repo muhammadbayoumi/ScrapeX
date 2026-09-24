@@ -222,5 +222,6 @@ checks a `path:line` citation into this repository. It does not check a bare bac
 path or an `R-` number (#1076).
 `tests/test_the_design_docs_cite_supabase_at_the_pin.py` checks that every link into
 Supabase's repository names the pin and a path the pin holds, that every link to the live
-design-system site has its pinned `.mdx` on the same line, and that every commit a
-citation or a sentence names is the pin. It does not check what a cited line says.
+design-system site has its pinned source on the same line, and that every `path@commit`
+citation and every backticked commit in prose names the pin. It does not check what a
+cited line says, or a commit hash written without backticks.
