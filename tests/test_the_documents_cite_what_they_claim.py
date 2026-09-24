@@ -110,6 +110,13 @@ DOCUMENTS = (
     # sends the field to the wrong one. Measured before adding it, so it goes green rather
     # than arriving red: 30 citations, all resolving, none on a blank line.
     ".claude/skills/study-a-source/SKILL.md",
+    # THE DESIGN DOCUMENTS JOIN (#409), and at first they change no verdict: measured before
+    # adding them, all three hold 0 `path:line` citations into this repository. They join so
+    # the first one written is checked the day it lands. What this guard cannot see in them
+    # is said where they say it: an `R-` number (#1076), and a line cited at Supabase's pin.
+    "docs/DESIGN-SYSTEM.md",
+    "docs/UI-KIT.md",
+    "docs/DESIGN-SYSTEM-SOURCES.md",
 )
 
 # `sql` JOINED THIS LIST ON 2026-08-22, and the hole it closed was found by

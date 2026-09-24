@@ -337,9 +337,13 @@ rewritten after it.
 
 ## 7. Adding a component
 
-1. **Look in §5 and the gallery first.** Composition beats invention: `ghost` +
-   `compact` + `icon-button` is three existing rules, not a fourth new one.
-2. If it is genuinely new, decide its scope from the table in §4.
+1. **Find the Supabase atom, fragment or pattern at the pin first**
+   ([the source rule](DESIGN-SYSTEM-SOURCES.md), #1040). Take its values, its icon size
+   and stroke, and its motion from it, not from what this repository already has.
+2. **Then look in §5 and the gallery.** Composition beats invention: `ghost` +
+   `compact` + `icon-button` is three existing rules, not a fourth new one. Only when
+   neither Supabase nor the gallery has it is something added: decide its scope from the
+   table in §4.
 3. Write it in `design/components.css` if shared, then
    `python tools/sync_design_assets.py`.
 4. Use tokens, never literals — `var(--sp-3)`, not `12px`; `var(--surface)`,
