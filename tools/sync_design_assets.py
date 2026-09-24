@@ -81,6 +81,13 @@ ASSETS = {
         ROOT / "extension" / "icons" / "x-mark.svg",
         ROOT / "scrapex" / "webui" / "static" / "x-mark.svg",
     ),
+    # THE MARK IS TABLER'S x-mark (its class attribute says so), and MIT wants the notice in
+    # every copy. So the notice travels to exactly the directories the mark does, taken
+    # byte-for-byte from tabler/tabler-icons' LICENSE (#1045).
+    ROOT / "design" / "x-mark.LICENSE.txt": (
+        ROOT / "extension" / "icons" / "x-mark.LICENSE.txt",
+        ROOT / "scrapex" / "webui" / "static" / "x-mark.LICENSE.txt",
+    ),
 }
 
 
