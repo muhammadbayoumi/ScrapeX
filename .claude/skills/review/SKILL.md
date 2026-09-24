@@ -18,6 +18,10 @@ Four dimensions, and every review covers all four:
   the real warehouse, not a fixture: ~17,900 contractor profiles, 408,547 memberships,
   a 2.1 GB database.
 
+**A change that adds or rewords user-facing text** is also read against Supabase's
+`copywriting.mdx` at the pin, as `docs/DESIGN-SYSTEM.md#copy` sets out. The wording test
+checks only the rules a machine can; the rest are the review's.
+
 Rank every finding **must fix** · **should fix** · **optional** · **not an issue**, and
 **report nothing rather than pad it**. A padded review spends a pass and teaches the next
 session to discount the output.

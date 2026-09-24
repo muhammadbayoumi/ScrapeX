@@ -107,6 +107,28 @@ python tools/sync_design_assets.py --check
    Lucide. Until #1057 moves the product to Lucide, reuse a symbol from the Material
    sprite rather than embedding an SVG path or drawing a replacement.
 
+## Copy
+
+Supabase's copywriting page governs the words (#1040):
+`apps/design-system/content/docs/copywriting.mdx@86c813ec`. Read it before writing or
+reviewing any user-facing text.
+
+- **Page names are title case**: the rail and Console items, their accessible names and
+  tooltips, and each page's `h1` (`copywriting.mdx@86c813ec:128-130`, `:232`).
+- **Section labels and in-page headings are sentence case** (`:140-146`, `:231`).
+- **A loading state names what is happening**: "Saving changes…", never "Please wait…",
+  "Processing…" or a bare "Loading…" (`:180-191`).
+- **No marketing words**: "easily", "simply", "powerful" (`:215-219`).
+- **Spelling stays as it is.** Supabase's U.S. English rule does not change ScrapeX copy
+  (#1040, recorded in the source rule).
+
+`tests/test_the_interface_words_follow_supabases_copywriting.py` checks those four
+mechanically, over the panel's HTML and JavaScript and the web UI's templates. Today's
+offenders are listed there by name, and the list only shrinks; #1071 and #743 fix them. The
+rules that need judgement are the review's, not the test's: declarative page descriptions,
+headings that describe the page, empty states that name the next action, confirmations that
+state their consequence, active voice, and specific verbs.
+
 ## Token groups
 
 | Group | Examples |
