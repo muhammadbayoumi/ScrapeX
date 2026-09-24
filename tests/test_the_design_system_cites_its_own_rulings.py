@@ -50,16 +50,22 @@ pytestmark = [pytest.mark.extension, pytest.mark.docs]
 ROOT = Path(__file__).resolve().parent.parent
 RULINGS = ROOT / "docs" / "archive" / "RULINGS.md"
 
-# Every file whose R- citations are about the design system, and only about it.
-# The three copies of each design asset are listed because the sync tool copies
-# comments too -- a wrong number is wrong in three places at once.
+# Every file in design/ that cites a ruling, and every copy the sync tool makes of
+# one. The copies are listed because the sync tool copies comments too -- a wrong
+# number is wrong in three places at once. The list is kept by hand, so
+# test_every_design_file_that_cites_a_ruling_is_on_the_surface below derives the
+# same set and fails when this falls behind it.
 DESIGN_SURFACE = (
     "design/tokens.css",
     "design/appearance.js",
+    "design/gallery.html",
+    "design/supabase.NOTICE.txt",
     "extension/tokens.css",
     "extension/appearance.js",
+    "extension/supabase.NOTICE.txt",
     "scrapex/webui/static/tokens.css",
     "scrapex/webui/static/appearance.js",
+    "scrapex/webui/static/supabase.NOTICE.txt",
 )
 
 # The ruling each number must still name. Taken from the archive's own headings,
@@ -145,4 +151,40 @@ def test_no_pinned_ruling_has_stopped_being_cited():
     assert not unused, (
         f"{unused} are pinned as design rulings and cited by no design file. "
         f"Delete the rows, or find out what dropped the citation."
+    )
+
+
+def test_every_design_file_that_cites_a_ruling_is_on_the_surface():
+    """The parametrised test reads only what DESIGN_SURFACE hands it.
+
+    So a file left off the tuple is checked by nothing, and taking a row out
+    fails nothing either. `design/gallery.html` cited R-73 and R-74 from outside
+    it (#707), and so did the licence notice and its two copies.
+    """
+    from tools.sync_design_assets import ASSETS
+
+    expected: set[Path] = set()
+    # rglob, not iterdir: a subfolder of design/ is still design/, and a file there that
+    # cited a wrong number would otherwise be checked by nothing.
+    for source in sorted(p for p in (ROOT / "design").rglob("*") if p.is_file()):
+        data = source.read_bytes()
+        # A binary cites nothing and does not decode: Google's G today, and the font
+        # files #1040 ships through design/. Text never holds a NUL byte.
+        if b"\0" in data:
+            continue
+        if CITATION.search(data.decode("utf-8")):
+            expected.add(source)
+            expected.update(ASSETS.get(source, ()))
+
+    # Without this, a scan pointed at the wrong directory finds nothing and passes.
+    assert ROOT / "design" / "tokens.css" in expected, (
+        "the scan of design/ found no citation in design/tokens.css, which cites "
+        "R-74 in its header; it is reading the wrong files"
+    )
+
+    listed = {ROOT / relative for relative in DESIGN_SURFACE}
+    missing = sorted(p.relative_to(ROOT).as_posix() for p in expected - listed)
+    assert not missing, (
+        f"{missing} cite a ruling and are not in DESIGN_SURFACE, so no test checks "
+        f"what their numbers name. Add them to the tuple."
     )
