@@ -33,8 +33,10 @@
   const PALETTES = new Map([
     ["supabase", {
       id: "supabase",
-      label: "Supabase",
-      description: "Supabase console green, flat and bordered",
+      // THE ID STAYS `supabase` and the words say ScrapeX (#740): the id is what a stored
+      // preference carries, and the label is what he reads, which names this product.
+      label: "ScrapeX",
+      description: "Green accent on flat, bordered surfaces",
       colors: ["#131413", "#3ECF8E", "#85E0BA", "#FDFDFD"],
       themes: {light: {}, dark: {}},
     }],

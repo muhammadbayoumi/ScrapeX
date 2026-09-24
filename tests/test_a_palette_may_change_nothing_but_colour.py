@@ -202,6 +202,33 @@ def test_the_baseline_carries_the_design_system_rather_than_a_palette():
         "making the baseline Supabase.")
 
 
+def test_the_tile_shows_the_colours_the_theme_ships():
+    """The tile's four swatches are what the theme ships, read out of tokens.css (#740).
+
+    They are the dark `--bg`, `--accent` and `--accent-hover`, and the light `--bg`. The tile
+    types them a second time, so this is what stops the two from drifting: move a token and
+    the tile would show a colour the product no longer uses.
+    """
+    from tests.test_the_provenance_markers_say_who_owns_each_value import (
+        BLOCKS, _blocks, _without_comment_bodies)
+
+    declared: dict[tuple[str, str], str] = {}
+    for (theme, pattern), (_, block) in zip(BLOCKS, _blocks()):
+        if pattern.startswith(":root:not"):
+            continue  # the device-dark copy, pinned to the explicit block above
+        for m in re.finditer(r"^\s*(--[a-z0-9-]+)\s*:\s*([^;]+);", _without_comment_bodies(block), re.M):
+            declared[(theme, m.group(1))] = m.group(2).strip().lower()
+
+    colours = re.search(r"colors:\s*\[([^\]]*)\]", _palette_entries()["supabase"])
+    assert colours, "the supabase palette entry declares no colors array"
+    shown = [c.lower() for c in re.findall(r'"(#[0-9a-fA-F]{3,8})"', colours.group(1))]
+    expected = [declared[("dark", "--bg")], declared[("dark", "--accent")],
+                declared[("dark", "--accent-hover")], declared[("light", "--bg")]]
+    assert shown == expected, (
+        f"the tile shows {shown}, and tokens.css ships {expected} "
+        f"(dark --bg, --accent, --accent-hover, light --bg)")
+
+
 def test_both_dark_blocks_agree():
     """A dark scheme that differs depending on HOW it was reached is a defect
     nobody looking at one block can see.
