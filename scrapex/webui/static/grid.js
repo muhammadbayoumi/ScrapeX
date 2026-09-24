@@ -1492,10 +1492,12 @@
       return (cell) => {
         // product_link is already the most specific address the server has for
         // this row — the variation's own page where the source publishes one.
-        // The grid does not choose; it opens what the row was given.
-        const url = cell.getRow().getData().product_link;
-        if (!url) return "";
-        const link = externalLink(url, "grid-action");
+        // The grid does not choose; it opens what the row was given — when that
+        // is an http(s) address. The value is scraped, and an href obeys any
+        // scheme it is handed, so anything else draws no arrow at all.
+        const href = safeUrl(cell.getRow().getData().product_link || "");
+        if (!href) return "";
+        const link = externalLink(href, "grid-action");
         link.title = "Open this record on the site";
         link.insertAdjacentHTML("beforeend", materialIcon("open-in-new", "inline-icon"));
         return link;

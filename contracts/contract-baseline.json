@@ -1,5 +1,5 @@
 {
-  "version": "0.4.16",
+  "version": "0.4.17",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql",

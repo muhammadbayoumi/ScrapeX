@@ -455,6 +455,50 @@ def test_outbound_links_carry_target_and_rel_together(page_factory):
         context.close()
 
 
+def test_only_an_http_address_is_drawn_as_a_product_link(page_factory):
+    """product_link is scraped, and an href obeys whatever scheme it is handed.
+
+    The renderer passed it to externalLink() unchecked while its two siblings in
+    the same file parsed it first (#1044). The padded, mixed-case and tab-split
+    variants are the ones a startsWith("javascript:") check lets through, and
+    the relative path would resolve against the engine's own origin. Only the
+    https row may draw an arrow, and no anchor on the page may carry another
+    scheme.
+    """
+    payload = _payload()
+    for offer_id in (5, 6):
+        payload["rows"].append(dict(payload["rows"][1], product_name=f"Gamma {offer_id}",
+                                    offer_id=offer_id, sku=f"SKU{offer_id}"))
+    payload["total"] = payload["returned"] = len(payload["rows"])
+    links = {
+        1: "javascript:alert(1)",
+        2: "  JaVaScRiPt:alert(1)  ",
+        3: "java\tscript:alert(1)",
+        # base64 because the harness inlines the payload into a <script>
+        # element, which a literal closing script tag would end early.
+        4: "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+        5: "/p/relative",
+        6: "https://example.test/p/6",
+    }
+    for row in payload["rows"]:
+        row["product_link"] = links[row["offer_id"]]
+    payload["columns"].append({"key": "product_link", "label": ""})
+    page, context = page_factory(payload)
+    try:
+        drawn = page.evaluate("""() => Object.fromEntries(
+            Tabulator.findTable('#grid')[0].getRows().map(row => {
+                const a = row.getCell('product_link').getElement().querySelector('a');
+                return [row.getData().offer_id, a ? a.getAttribute('href') : null];
+            }))""")
+        assert drawn == {"1": None, "2": None, "3": None, "4": None, "5": None,
+                         "6": "https://example.test/p/6"}
+        schemes = page.evaluate(
+            "() => [...document.querySelectorAll('a[href]')].map(a => a.protocol)")
+        assert schemes and set(schemes) <= {"http:", "https:"}, schemes
+    finally:
+        context.close()
+
+
 # ---- the harness stands in for source.html, so the two must agree ------------
 
 def test_the_real_template_carries_every_id_the_grid_binds():

@@ -10,7 +10,7 @@ work predates this file, the commit that built it — evidence read out of
 `gh pr list`, `gh issue list` — and this file answers a narrower question:
 which version has it.
 
-## 0.4.16
+## 0.4.17
 
 Minimum supported extension: `0.3.3`.
 
