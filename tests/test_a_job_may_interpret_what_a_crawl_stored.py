@@ -18,6 +18,7 @@ one.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -89,15 +90,22 @@ class _Interpreter:
         self.pairs = pairs
         self.seen = 0
         self.run_ref: str | None = None
+        # EVERY REF, IN ORDER. `run_ref` stays the last one so the tests written before
+        # the walk keep asserting what they always asserted; issue 823 needs the whole
+        # sequence, because reading the right run LAST is not the same as reading it.
+        self.refs: list[str] = []
+        self.beats: list[tuple[int, int]] = []
 
     def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
         self.run_ref = run_ref
+        self.refs.append(run_ref)
         # THE PRODUCT'S OWN WORDING, because a stub that says something the real
         # `approve` does not is a stub a vocabulary guard cannot measure.
         contractors.say(f"approve {run_ref}: {self.pairs} page pair(s) to interpret")
         for index in range(self.pairs):
             if between_pages is not None and between_pages(index, self.pairs):
                 raise contractors.CrawlStopped
+            self.beats.append((index, self.pairs))
             self.seen += 1
         contractors.say(f"approved {self.seen} page(s)")
 
@@ -603,3 +611,189 @@ def test_a_first_interpretation_says_nothing_about_a_restart(conn, monkeypatch):
 
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
     assert "not this job's first pass" not in said, said
+
+
+# ---- issue 823: the run that holds the evidence is not always the newest -----
+
+def _an_interpretation_that_read(conn, *refs: str) -> str:
+    """A finished interpretation whose checkpoint records the runs it read.
+
+    THE REAL SHAPE, WRITTEN THE REAL WAY. `interpreted_runs` reads `checkpoint_json` off
+    `crawl_job`, so a fixture that stubbed the ledger would leave the only thing this
+    change depends on unmeasured.
+    """
+    ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                          job_kind=datasetjob.JOB_KIND)
+    row = jobs.get_job(conn, ref)
+    conn.execute("UPDATE crawl_job SET status = ?, checkpoint_json = ? WHERE job_id = ?",
+                 (JobStatus.COMPLETED.value, json.dumps({"runs_read": list(refs)}),
+                  row["job_id"]))
+    conn.commit()
+    return ref
+
+
+def test_an_older_run_nobody_read_is_interpreted_even_though_a_newer_one_is_done(
+        conn, monkeypatch):
+    """ISSUE 823, AND IT IS THE GUARD THE ISSUE ASKED FOR IN ITS OWN WORDS: *"a source
+    whose newest collecting run is already fully interpreted, and an older one that is
+    not, must interpret the older one."*
+
+    MEASURED ON HIS WAREHOUSE, 2026-09-24. 37 sighted contractors have no profile row,
+    all 37 sit in run `job-job_7b891d5b67ac` (469 page pairs, 2026-09-07) and all 37
+    carry BOTH locales, so every one of them reaches the parser and is refused with
+    `ProfileIdDidNotResolve` -- which is the one refusal that writes the mark #799 ships.
+    That run was interpreted five times, every one of them BEFORE the mark existed. Since
+    the mark shipped, the six interpretations that ran read 2, 2, 2, 3, 75 and 75 pairs,
+    because the selection took the NEWEST run and the newest run is a two-page sweep.
+
+    So `dataset_sighting.profile_unresolved_at` was set on 0 of 17,928 rows, his card
+    said 37 contractors had work waiting on them, and no press of any button could ever
+    change that.
+    """
+    fake = _Interpreter(pairs=3)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_holds_the_37", pages=938, job_kind="profile_crawl")
+    _a_crawl_that_stored(conn, "job_two_pages", pages=4, job_kind="profile_crawl")
+    _an_interpretation_that_read(conn, "job-job_two_pages")
+
+    found = datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert found["status"] == JobStatus.COMPLETED.value, found
+    assert "job-job_holds_the_37" in fake.refs, (
+        f"the run holding the evidence was never read: {fake.refs}. This is the defect "
+        f"exactly -- the newest run is read, the older one is not, and the 37 stay in "
+        f"the number for ever")
+    assert "job-job_two_pages" not in fake.refs, (
+        f"a run an earlier interpretation already read to the end was read again, so "
+        f"every press pays for all of the evidence instead of what is new: {fake.refs}")
+
+
+def test_the_walk_goes_oldest_first_so_the_freshest_page_is_written_last(
+        conn, monkeypatch):
+    """ORDER IS NOT COSMETIC HERE. `approve` writes what each page says, so a walk that
+    read the newest run first and an older one after it would leave the OLDER value in
+    the row -- a stale name, a stale membership -- with nothing failing.
+    """
+    fake = _Interpreter(pairs=2)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_first", pages=4)
+    _a_crawl_that_stored(conn, "job_second", pages=4)
+    _a_crawl_that_stored(conn, "job_third", pages=4)
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert fake.refs == ["job-job_first", "job-job_second", "job-job_third"], (
+        f"the walk did not read the runs oldest first: {fake.refs}")
+
+
+def test_a_second_press_reads_what_is_new_and_not_the_whole_warehouse_again(
+        conn, monkeypatch):
+    """THE COST HE ACCEPTED, AND THE COST HE DID NOT. Measured on his warehouse: walking
+    every run reads 3,309 page pairs, about 20 minutes and no requests. Paying that on
+    EVERY press -- and `directoryjob` now queues an interpretation after every crawl by
+    itself -- is the version of this he was not offered.
+    """
+    fake = _Interpreter(pairs=2)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _a_crawl_that_stored(conn, "job_two", pages=4)
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    first_pass = list(fake.refs)
+    _a_crawl_that_stored(conn, "job_three", pages=4)
+    fake.refs.clear()
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert first_pass == ["job-job_one", "job-job_two"], first_pass
+    assert fake.refs == ["job-job_three"], (
+        f"the second press re-read runs the first one had already finished: {fake.refs}")
+
+
+def test_a_run_the_walk_stopped_inside_is_not_recorded_as_read(conn, monkeypatch):
+    """HALF A RUN'S PAGES ARE NOT THE RUN. Recording it on the way in would lose the rest
+    of its evidence for ever -- and the pause here is the owner's own, so the next press
+    is exactly the moment he expects it to continue.
+    """
+    class _StopsInTheSecondRun(_Interpreter):
+        def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
+            self.refs.append(run_ref)
+            self.run_ref = run_ref
+            if len(self.refs) == 2:
+                raise contractors.CrawlStopped
+            contractors.say(f"approve {run_ref}: 1 page pair(s) to interpret")
+            if between_pages is not None:
+                between_pages(0, 1)
+            contractors.say("approved 1 page(s)")
+
+    fake = _StopsInTheSecondRun()
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _a_crawl_that_stored(conn, "job_two", pages=4)
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    read = datasetjob.interpreted_runs(conn, "muqawil_org")
+    assert "job-job_one" in read, (
+        f"a run read to the end before the stop was forgotten, so the next walk pays "
+        f"for it again: {read}")
+    assert "job-job_two" not in read, (
+        f"the run the walk stopped INSIDE was recorded as read, so the rest of its "
+        f"pages will never be interpreted: {read}")
+
+
+def test_a_ref_asked_for_by_name_is_read_even_when_the_ledger_holds_it(
+        conn, monkeypatch):
+    """THE EXPLICIT REF STILL WINS, which is what asking for a run BY NAME means. The
+    runner's own contract says so -- *"a caller that knows exactly which run it means can
+    say so"* -- and the ledger must not quietly turn that into a no-op.
+    """
+    fake = _Interpreter(pairs=2)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _an_interpretation_that_read(conn, "job-job_one")
+    ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                          job_kind=datasetjob.JOB_KIND,
+                          checkpoint={"run_ref": "job-job_one"})
+    conn.commit()
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    assert fake.refs == ["job-job_one"], (
+        f"a run asked for by name was skipped because the ledger held it: {fake.refs}")
+
+
+def test_the_bar_does_not_fall_back_when_the_walk_opens_the_next_run(
+        conn, monkeypatch):
+    """ISSUE 796 WEARING A DIFFERENT HAT. `approve` counts from zero for each run it is
+    given, so a job reporting that figure straight through would show 0 of 469, then 0 of
+    75 -- his bar falling back to nothing with the work already done. The denominator may
+    GROW as each run opens, because more work really was found; the numerator may not
+    fall.
+    """
+    fake = _Interpreter(pairs=3)
+    monkeypatch.setattr(contractors, "approve", fake)
+    # EVERY PAGE BEATS, AND WITHOUT THIS THE TEST MEASURES NOTHING. `page_closed` writes
+    # a progress pair only on `index % BEAT_EVERY_PAIRS`, which is 50 -- so a three-pair
+    # run beats once, at index 0, and a numerator that falls back to zero between runs
+    # produces [0, 0]: sorted, monotonic, and indistinguishable from the fix. The first
+    # version of this guard asserted exactly that and survived the mutation.
+    monkeypatch.setattr(datasetjob, "BEAT_EVERY_PAIRS", 1)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _a_crawl_that_stored(conn, "job_two", pages=4)
+    seen: list[tuple[int, int]] = []
+    real = jobs._update
+
+    def watch(conn_, job_id, **fields):
+        if "progress_done" in fields and "progress_total" in fields:
+            seen.append((fields["progress_done"], fields["progress_total"]))
+        return real(conn_, job_id, **fields)
+
+    monkeypatch.setattr(jobs, "_update", watch)
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    # THE WHOLE SEQUENCE, NOT A PROPERTY OF IT. Three pairs in each of two runs: the
+    # second run continues from three and states six, rather than restarting at zero.
+    assert seen == [(0, 3), (1, 3), (2, 3), (3, 6), (4, 6), (5, 6), (6, 6)], (
+        f"the number he watches restarted when the walk opened the next run: {seen}")
+

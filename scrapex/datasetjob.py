@@ -33,6 +33,7 @@ of that site for the length of an interpretation that could not have collided wi
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 
@@ -80,8 +81,14 @@ class NothingToInterpret(LookupError):
 COLLECTING_KINDS = ("directory_crawl", "profile_crawl")
 
 
-def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str, int]:
-    """The run ref of this source's most recent run that stored pages, and how many.
+def runs_holding_pages(conn: sqlite3.Connection,
+                       source_key: str) -> list[tuple[str, int]]:
+    """Every run of this source that stored pages, oldest first, with its row count.
+
+    ONE QUERY, TWO READERS, and it used to be one reader taking `LIMIT 1`. Issue 823
+    needed the whole list; the rule about which kinds store pages and how a partitioned
+    ref is matched is the same knowledge for both, so it is stated once here and
+    `latest_crawl_run_ref` below takes the end of it.
 
     CHOSEN HERE AND SAID OUT LOUD, rather than asked of the caller. The panel would
     otherwise have to know how a run ref is built, which is `directoryjob`'s private
@@ -141,13 +148,81 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
         # crawl that stored nothing produces no row to count in the first place. Said
         # here rather than left as a clause somebody trusts.
         " GROUP BY j.job_id "
-        " ORDER BY j.job_id DESC LIMIT 1",
-        (*COLLECTING_KINDS, f'%"{source_key}"%')).fetchone()
-    if rows is None:
+        # OLDEST FIRST, AND THE CALLERS TAKE THE END THEY WANT. `latest_crawl_run_ref`
+        # takes the last; the walk below takes them in this order so the freshest
+        # evidence is written LAST and cannot be overwritten by an older page.
+        " ORDER BY j.job_id ASC",
+        (*COLLECTING_KINDS, f'%"{source_key}"%')).fetchall()
+    return [(f"job-{row[0]}", int(row[1])) for row in rows]
+
+
+def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str, int]:
+    """The newest run of this source that stored pages, and its snapshot-row count.
+
+    STILL HERE, AND STILL THE ANSWER TO ITS OWN QUESTION. The walk below reads every
+    unread run; this names the newest one, which is what a caller asking "where did the
+    last crawl put its pages" means. Both read `runs_holding_pages` so the rule about
+    which kinds store pages, and how a partitioned ref is matched, is stated once.
+    """
+    runs = runs_holding_pages(conn, source_key)
+    if not runs:
         raise NothingToInterpret(
             f"{source_key!r} has no crawl that stored pages, so there is nothing to "
             "interpret. Run a crawl first")
-    return f"job-{rows[0]}", int(rows[1])
+    return runs[-1]
+
+
+def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
+    """Every run ref an interpretation of this source has already read to the end.
+
+    THE LEDGER LIVES ON THE JOB THAT DID THE WORK, and the pattern is `jobs.py`'s own:
+    the price crawl records `completed_source_keys` in its checkpoint and resumes from
+    it. `_finish` does not clear a checkpoint, so the record outlives the run.
+
+    NO NEW TABLE, DELIBERATELY. A second place to keep this would have to be kept
+    consistent with the job rows that produced it, and the failure mode of losing a job
+    row here is the mild one: the run is read again, recognises what is already in, and
+    writes nothing new. A ledger whose worst case is repeated work does not need a
+    migration on a 2 GB warehouse.
+
+    ONLY RUNS READ TO THE END are in it. A pass that paused or was cancelled part-way
+    records nothing, because half a run's pages are not the run.
+    """
+    read: set[str] = set()
+    for row in conn.execute(
+            "SELECT checkpoint_json FROM crawl_job "
+            " WHERE job_kind = ? AND source_keys LIKE ?",
+            (JOB_KIND, f'%"{source_key}"%')):
+        try:
+            done = (json.loads(row[0] or "{}") or {}).get("runs_read") or []
+        except (TypeError, ValueError):
+            # A CHECKPOINT THAT WILL NOT PARSE IS NOT A REASON TO RE-READ NOTHING.
+            # Unreadable means unknown, and unknown runs are read again.
+            continue
+        read.update(str(one) for one in done)
+    return read
+
+
+def runs_to_interpret(conn: sqlite3.Connection,
+                      source_key: str) -> list[tuple[str, int]]:
+    """The runs no interpretation has read, oldest first.
+
+    ISSUE 823, AND THE NUMBER IS THE ARGUMENT. Measured on the owner's warehouse,
+    2026-09-24: 37 sighted contractors have no profile row, all 37 are in run
+    `job-job_7b891d5b67ac` (469 page pairs, 2026-09-07), and all 37 carry BOTH locales --
+    so every one of them reaches the parser, is refused with `ProfileIdDidNotResolve`,
+    and would be marked. That run was interpreted five times, every one of them BEFORE
+    the mark shipped; since it shipped, the six interpretations that ran read 2, 2, 2, 3,
+    75 and 75 pairs, because the selection took the newest run and the newest run is a
+    two-page sweep. The capability was installed and unreachable.
+
+    SO THE SELECTION IS THE DEFECT, NOT THE MARK. The runner already accepts an explicit
+    ref in its checkpoint; the panel is the part that cannot say which run it means, and
+    under `R-81` a capability with no control is not a capability.
+    """
+    already = interpreted_runs(conn, source_key)
+    return [one for one in runs_holding_pages(conn, source_key)
+            if one[0] not in already]
 
 
 def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
@@ -207,9 +282,18 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     # exactly which run it means can say so.
     asked = (job.get("checkpoint") or {}).get("run_ref")
     if asked:
-        run_ref, pages = asked, 0
+        # A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS, and it reads that
+        # run whether or not it has been read before -- which is what asking for it by
+        # name means.
+        plan = [(asked, 0)]
     else:
-        run_ref, pages = latest_crawl_run_ref(conn, source_key)
+        # ISSUE 823. `runs_to_interpret` raises through `runs_holding_pages` when this
+        # source has never stored a page, so "no crawl yet" and "nothing new" stay two
+        # different sentences.
+        latest_crawl_run_ref(conn, source_key)
+        plan = runs_to_interpret(conn, source_key)
+    run_ref = plan[0][0] if plan else ""
+    pages = sum(one[1] for one in plan)
 
     # ISSUE 796. Above the reset because that is the order the sentence describes -- not
     # because the order is load-bearing: `note_a_re_entry` reads the `job` dict fetched
@@ -224,7 +308,9 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
                  **({} if job["started_at"] else {"started_at": utc_now_iso()}))
     jobs.append_log(
         conn, job["job_id"],
-        f"{directory.display_name}: interpreting the stored pages of {run_ref}"
+        f"{directory.display_name}: interpreting the stored pages of "
+        + (f"{len(plan)} run(s), oldest first, starting at {run_ref}"
+           if len(plan) > 1 else f"{run_ref}")
         # NAMED FOR WHAT IT COUNTS. `pages` is snapshot ROWS, which a repeated pass
         # inflates well above the number of distinct pages; `approve` reports the page
         # pairs it will actually read, and the two shared this line's wording.
@@ -233,6 +319,9 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     conn.commit()
 
     done = {"pairs": 0, "total": 0}
+    # WHAT EARLIER RUNS OF THIS WALK ALREADY READ. `approve` counts from zero for each
+    # run it is given, so the job's own figure is this plus the current run's.
+    walked = {"pairs": 0, "runs": 0}
     stopped: list[str] = []
 
     def note(line: str) -> None:
@@ -259,9 +348,14 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # until it finished would read as a job that never started.
         if index and index % globals()["BEAT_EVERY_PAIRS"]:
             return False
+        # THE WALK'S NUMBER, NOT THIS RUN'S. A denominator that GROWS as each run
+        # opens is honest -- more work was found -- where a numerator that falls back to
+        # zero at every run boundary is issue 796's reset wearing a different hat.
         jobs._update(conn, job["job_id"], status=JobStatus.RUNNING.value,
-                     stage=JobStage.FETCHING.value, progress_done=index,
-                     progress_total=total, last_heartbeat_at=utc_now_iso())
+                     stage=JobStage.FETCHING.value,
+                     progress_done=walked["pairs"] + index,
+                     progress_total=walked["pairs"] + total,
+                     last_heartbeat_at=utc_now_iso())
         conn.commit()
         current = jobs.get_job(conn, job_ref)
         control = jobs._control_of(conn, job["job_id"])
@@ -286,28 +380,74 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         return bool(current is None)
 
     started = time.monotonic()
-    try:
-        with contractors.lines_go_to(note):
-            contractors.approve(conn, directory, run_ref,
-                                between_pages=page_closed)
-    except contractors.CrawlStopped:
-        # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
-        # status and said where it stopped.
-        return jobs.get_job(conn, job_ref)
-    except Exception as exc:
-        jobs.append_log(conn, job["job_id"], f"failed: {exc}",
-                        level=LogLevel.ERROR, source_key=source_key)
-        jobs._finish(conn, job["job_id"], JobStatus.FAILED, str(exc))
-        raise
+    read_to_the_end: list[str] = []
+    for position, (ref, _rows) in enumerate(plan, start=1):
+        run_ref = ref
+        if len(plan) > 1:
+            jobs.append_log(conn, job["job_id"],
+                            f"run {position} of {len(plan)}: {ref}",
+                            source_key=source_key)
+            conn.commit()
+        try:
+            with contractors.lines_go_to(note):
+                contractors.approve(conn, directory, ref,
+                                    between_pages=page_closed)
+        except contractors.CrawlStopped:
+            # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
+            # status and said where it stopped. THE RUN IT STOPPED INSIDE IS NOT
+            # RECORDED: half a run's pages are not the run, and a resume must read it
+            # again from the beginning.
+            return jobs.get_job(conn, job_ref)
+        except Exception as exc:
+            jobs.append_log(conn, job["job_id"], f"failed: {exc}",
+                            level=LogLevel.ERROR, source_key=source_key)
+            jobs._finish(conn, job["job_id"], JobStatus.FAILED, str(exc))
+            raise
+        if stopped:
+            return jobs.get_job(conn, job_ref)
+        # RECORDED AFTER THE RUN, NOT BEFORE, and committed on its own: a walk that
+        # fails on run 7 keeps runs 1 to 6 out of the next walk, and run 7 in it.
+        read_to_the_end.append(ref)
+        _remember_runs_read(conn, job["job_id"], read_to_the_end)
+        # THE EARLIER RUNS' PAGES STAY COUNTED. `page_closed` writes this job's total
+        # from `approve`'s per-run figure, which restarts at zero for each run -- so
+        # without this the bar would fall back to 0 of 75 after finishing 0 of 469.
+        walked["pairs"] += done["total"]
+        walked["runs"] += 1
+        done["pairs"] = 0
+        done["total"] = 0
 
-    if stopped:
-        return jobs.get_job(conn, job_ref)
     jobs.append_log(
         conn, job["job_id"],
         f"interpretation finished in {(time.monotonic() - started) / 60:.1f} min, "
-        f"{done['total']:,} page pair(s) read from disk. No request was made",
+        f"{walked['pairs']:,} page pair(s) read from disk"
+        + (f" across {walked['runs']} run(s)" if walked["runs"] > 1 else "")
+        + ". No request was made",
         source_key=source_key)
-    jobs._update(conn, job["job_id"], progress_done=done["total"],
-                 progress_total=done["total"])
+    jobs._update(conn, job["job_id"], progress_done=walked["pairs"],
+                 progress_total=walked["pairs"])
     jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
     return jobs.get_job(conn, job_ref)
+
+
+def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
+                        refs: list[str]) -> None:
+    """Record, on this job, every run it has read to the end.
+
+    MERGED INTO THE CHECKPOINT RATHER THAN REPLACING IT, because the checkpoint is also
+    where an explicit `run_ref` arrives from the caller, and overwriting the dict would
+    erase the instruction the job is executing.
+    """
+    # IMPORTED HERE FOR THE REASON THE CALLER STATES: `jobs` names this module in
+    # `SPECIALISED_RUNNERS`, so importing it at the top would close the circle.
+    from . import jobs
+
+    row = conn.execute("SELECT checkpoint_json FROM crawl_job WHERE job_id = ?",
+                       (job_id,)).fetchone()
+    try:
+        held = json.loads((row[0] if row else None) or "{}") or {}
+    except (TypeError, ValueError):
+        held = {}
+    held["runs_read"] = list(refs)
+    jobs._update(conn, job_id, checkpoint_json=json.dumps(held))
+    conn.commit()
