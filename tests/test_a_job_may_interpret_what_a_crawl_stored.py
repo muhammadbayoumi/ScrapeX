@@ -625,8 +625,15 @@ def _an_interpretation_that_read(conn, *refs: str) -> str:
     ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                           job_kind=datasetjob.JOB_KIND)
     row = jobs.get_job(conn, ref)
+    # THE SIZE IS TAKEN FROM THE WAREHOUSE, not invented: the ledger records what a run
+    # HELD when it was read, and a fixture that recorded a number no page count supports
+    # would let a run look read at a size it never had.
+    held = {one: conn.execute(
+        "SELECT COUNT(*) FROM generic_page_snapshot "
+        " WHERE crawl_run_ref = ? OR crawl_run_ref LIKE ?",
+        (one, one + "-%")).fetchone()[0] for one in refs}
     conn.execute("UPDATE crawl_job SET status = ?, checkpoint_json = ? WHERE job_id = ?",
-                 (JobStatus.COMPLETED.value, json.dumps({"runs_read": list(refs)}),
+                 (JobStatus.COMPLETED.value, json.dumps({"runs_read": held}),
                   row["job_id"]))
     conn.commit()
     return ref
@@ -732,7 +739,7 @@ def test_a_run_the_walk_stopped_inside_is_not_recorded_as_read(conn, monkeypatch
 
     datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
 
-    read = datasetjob.interpreted_runs(conn, "muqawil_org")
+    read = set(datasetjob.interpreted_runs(conn, "muqawil_org"))
     assert "job-job_one" in read, (
         f"a run read to the end before the stop was forgotten, so the next walk pays "
         f"for it again: {read}")
@@ -829,7 +836,7 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
     ref = _queue(conn)
 
     datasetjob.run_dataset_interpret_job_once(conn, ref)
-    after_the_stop = datasetjob.interpreted_runs(conn, "muqawil_org")
+    after_the_stop = set(datasetjob.interpreted_runs(conn, "muqawil_org"))
     assert after_the_stop == {"job-job_one", "job-job_two"}, after_the_stop
 
     # THE SAME ROW IS RE-ENTERED, which is what a resume does.
@@ -839,7 +846,7 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
     fake.refs.clear()
     datasetjob.run_dataset_interpret_job_once(conn, ref)
 
-    after_the_resume = datasetjob.interpreted_runs(conn, "muqawil_org")
+    after_the_resume = set(datasetjob.interpreted_runs(conn, "muqawil_org"))
     assert after_the_resume == {"job-job_one", "job-job_two",
                                 "job-job_three", "job-job_four"}, (
         f"the resume dropped runs the first pass read to the end: {after_the_resume}. "
@@ -931,9 +938,12 @@ def test_the_ledger_holds_exactly_the_runs_the_walk_opened(conn, monkeypatch):
 
     datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
 
-    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {
-        "job-job_one", "job-job_two"}, datasetjob.interpreted_runs(conn, "muqawil_org")
-    assert set(fake.refs) == datasetjob.interpreted_runs(conn, "muqawil_org"), (
+    ledger = datasetjob.interpreted_runs(conn, "muqawil_org")
+    assert set(ledger) == {"job-job_one", "job-job_two"}, ledger
+    # AND THE SIZE IT RECORDS IS THE SIZE THE RUN HELD, which is what makes a ref that
+    # GROWS after it was read become unread again.
+    assert ledger == {"job-job_one": 4, "job-job_two": 4}, ledger
+    assert set(fake.refs) == set(ledger), (
         f"the ledger and the runs actually opened disagree: {fake.refs} against "
         f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
 
@@ -962,7 +972,7 @@ def test_a_walk_that_FAILS_keeps_the_runs_it_finished_before_the_failure(
         datasetjob.run_dataset_interpret_job_once(conn, ref)
 
     assert jobs.get_job(conn, ref)["status"] == JobStatus.FAILED.value
-    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {
+    assert set(datasetjob.interpreted_runs(conn, "muqawil_org")) == {
         "job-job_one", "job-job_two"}, (
         f"a failure lost the runs already read, or recorded the one it died inside: "
         f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
@@ -1015,7 +1025,119 @@ def test_a_checkpoint_that_is_not_a_dictionary_is_treated_as_unknown(conn):
                      (payload, ref))
         conn.commit()
 
-    assert datasetjob.interpreted_runs(conn, "muqawil_org") == set()
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {}
     assert [one[0] for one in datasetjob.runs_to_interpret(conn, "muqawil_org")] == [
         "job-job_one"], "an unreadable checkpoint retired a run nobody has interpreted"
+
+
+def test_a_run_that_GREW_after_it_was_read_is_read_again(conn, monkeypatch):
+    """A REF IS NOT A UNIT OF "READ", AND THIS IS THE REGRESSION IT WOULD HAVE BEEN.
+
+    `directoryjob` stores a resume under the job's OWN ref -- *"THE REF IS THE JOB'S BY
+    DEFAULT, so a resume under the same job skips the pages it already stored"* -- and the
+    panel's continue-a-stopped-crawl control passes `resume_run_ref`, so a NEW job's pages
+    land under an OLD ref.
+
+    MEASURED ON HIS WAREHOUSE, 2026-09-24. `job-job_925080aad843` holds 7,934 pages stored
+    in three bursts nine days apart (3,138 on 09-03, 4,720 on 09-08, 76 on 09-12) and the
+    first interpretation finished 2026-09-06. Keyed on the ref alone, that interpretation
+    retires the run and 4,796 of its 7,934 pages -- 60% -- are unreachable from the only
+    surface he has. `main` never had that failure: it re-reads the newest run on every
+    press. A ledger of NAMES would have been a regression against it.
+    """
+    fake = _Interpreter(pairs=2)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    assert fake.refs == ["job-job_one"]
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}
+
+    # THE SAME REF GROWS, which is what a resumed crawl does to it.
+    for n in range(6):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot (source_url, html_content, content_hash, "
+            "crawl_run_ref) VALUES (?,?,?,?)",
+            (f"https://muqawil.org/contractors?page=later{n}", b"<html/>",
+             f"later-{n}", "job-job_one-cell-a1"))
+    conn.commit()
+
+    fake.refs.clear()
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert fake.refs == ["job-job_one"], (
+        f"six pages arrived under a run the ledger had already retired, and no press can "
+        f"ever reach them again: {fake.refs}")
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 10}, (
+        f"the ledger did not move to the size it has now read: "
+        f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
+
+    # AND IT SETTLES. A third press with nothing new added reads nothing.
+    fake.refs.clear()
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    assert fake.refs == [], f"a run that has not grown was read again: {fake.refs}"
+
+
+def test_the_ledger_moves_UP_to_the_largest_size_read_never_down(conn, monkeypatch):
+    """A RECORD THAT CAN SHRINK IS A RECORD THAT NEVER SETTLES.
+
+    The same job records the same ref twice when the ref grew between its two entries: it
+    reads it at 4, is paused, the crawl resumes and stores six more, and the resumed pass
+    reads it at 10. Keeping the smaller of the two leaves the run permanently unread --
+    every later press pays for it again and the ledger never converges.
+    """
+    fake = _Interpreter(pairs=1)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    ref = _queue(conn)
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}
+
+    for n in range(6):
+        conn.execute(
+            "INSERT INTO generic_page_snapshot (source_url, html_content, content_hash, "
+            "crawl_run_ref) VALUES (?,?,?,?)",
+            (f"https://muqawil.org/contractors?page=more{n}", b"<html/>",
+             f"more-{n}", "job-job_one-cell-a1"))
+    conn.commit()
+
+    # THE SAME ROW IS RE-ENTERED, which is what a resume does.
+    jobs._update(conn, jobs.get_job(conn, ref)["job_id"],
+                 status=JobStatus.QUEUED.value, finished_at=None)
+    conn.commit()
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 10}, (
+        f"the ledger did not move up to what the second pass read: "
+        f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
+    assert datasetjob.runs_to_interpret(conn, "muqawil_org") == [], (
+        "the run is still offered after being read at its full size, so it never settles")
+
+
+def test_a_ledger_written_in_the_older_LIST_shape_retires_nothing(conn, monkeypatch):
+    """SELF-HEALING BEATS A MIGRATION, but only if the older shape reads as ZERO.
+
+    The first version of this ledger stored a list of names with no size. Reading such an
+    entry as "read at any size" would retire a run nobody has measured -- the exact
+    failure the size exists to prevent, arriving through the back-compatibility path.
+    """
+    fake = _Interpreter(pairs=1)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    old = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                          job_kind=datasetjob.JOB_KIND)
+    conn.execute("UPDATE crawl_job SET status = ?, checkpoint_json = ? WHERE job_ref = ?",
+                 (JobStatus.COMPLETED.value,
+                  json.dumps({"runs_read": ["job-job_one"]}), old))
+    conn.commit()
+
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 0}, (
+        "a sizeless record was read as though its size were known")
+    assert [one[0] for one in datasetjob.runs_to_interpret(conn, "muqawil_org")] == [
+        "job-job_one"], "the older shape retired a run whose size nobody recorded"
+
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    assert fake.refs == ["job-job_one"]
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}, (
+        "the re-read did not upgrade the sizeless record, so it never heals")
 

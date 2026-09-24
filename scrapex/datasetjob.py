@@ -173,7 +173,25 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
 
 
 def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
-    """Every run ref an interpretation of this source has already read to the end.
+    """What each run held the last time an interpretation read it to the end.
+
+    A REF IS NOT A UNIT OF "READ", AND THE SECOND GATE PASS FOUND THAT OUT. A run ref
+    keeps growing after it has been read: `directoryjob` stores a resume under the job's
+    OWN ref -- *"THE REF IS THE JOB'S BY DEFAULT, so a resume under the same job skips
+    the pages it already stored"* -- and the panel's continue-a-stopped-crawl control
+    passes `resume_run_ref`, so a NEW job's pages land under an OLD ref.
+
+    MEASURED ON HIS WAREHOUSE, 2026-09-24. Run `job-job_925080aad843` holds 7,934 pages
+    stored in three bursts nine days apart -- 3,138 on 2026-09-03, 4,720 on 2026-09-08,
+    76 on 2026-09-12 -- and the first interpretation finished on 2026-09-06. Keyed on the
+    ref alone, that interpretation retires the run and **4,796 of its 7,934 pages, 60%,
+    become unreachable from the only surface he uses**. `main` never had that failure,
+    because it re-reads the newest run on every press; a ledger of names would have been
+    a regression against it.
+
+    SO THE LEDGER RECORDS THE SIZE, and a run is unread while it holds more than was
+    read. The count is `runs_holding_pages`' second value, already in hand at the only
+    call site, so nothing new is queried to keep it.
 
     THE LEDGER LIVES ON THE JOB THAT DID THE WORK, and the pattern is `jobs.py`'s own:
     the price crawl records `completed_source_keys` in its checkpoint and resumes from
@@ -187,8 +205,13 @@ def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
 
     ONLY RUNS READ TO THE END are in it. A pass that paused or was cancelled part-way
     records nothing, because half a run's pages are not the run.
+
+    A LIST IS THE OLDER SHAPE AND READS AS ZERO, so a ledger written before the size
+    existed retires nothing: every run in it is read once more, records its size, and is
+    correct from then on. Self-healing beats a migration for a record whose worst case is
+    repeated work.
     """
-    read: set[str] = set()
+    read: dict[str, int] = {}
     for row in conn.execute(
             "SELECT checkpoint_json FROM crawl_job "
             " WHERE job_kind = ? AND source_keys LIKE ?",
@@ -204,7 +227,15 @@ def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
             # then raises on `.get` -- and the two words above promised a robustness the
             # two exception types did not deliver.
             continue
-        read.update(str(one) for one in done)
+        if isinstance(done, dict):
+            pairs = ((str(ref), int(rows or 0)) for ref, rows in done.items())
+        else:
+            pairs = ((str(ref), 0) for ref in done)
+        for ref, rows in pairs:
+            # THE LARGEST READ WINS across jobs, because two jobs may each have read the
+            # same ref at different sizes and the question is what has been covered.
+            if rows > read.get(ref, -1):
+                read[ref] = rows
     return read
 
 
@@ -241,7 +272,10 @@ def runs_to_interpret(conn: sqlite3.Connection,
             f"{source_key!r} has no crawl that stored pages, so there is nothing to "
             "interpret. Run a crawl first")
     already = interpreted_runs(conn, source_key)
-    return [one for one in runs if one[0] not in already]
+    # UNREAD MEANS "HOLDS MORE THAN WAS READ", not "has never been named". A ref absent
+    # from the ledger compares against -1 and is unread at any size; a ref that has grown
+    # since it was read is unread again, which is the whole of the finding above.
+    return [one for one in runs if one[1] > already.get(one[0], -1)]
 
 
 def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
@@ -418,7 +452,7 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         return bool(current is None)
 
     started = time.monotonic()
-    read_to_the_end: list[str] = []
+    read_to_the_end: dict[str, int] = {}
     for position, (ref, _rows) in enumerate(plan, start=1):
         run_ref = ref
         if len(plan) > 1:
@@ -445,7 +479,13 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
             return jobs.get_job(conn, job_ref)
         # RECORDED AFTER THE RUN, NOT BEFORE, and committed on its own: a walk that
         # fails on run 7 keeps runs 1 to 6 out of the next walk, and run 7 in it.
-        read_to_the_end.append(ref)
+        #
+        # THE SIZE IS RE-READ RATHER THAN TAKEN FROM THE PLAN, because a crawl resuming
+        # under this same ref may have stored more pages while the walk was working. What
+        # this pass can honestly claim to have covered is what `approve` saw, and the
+        # count at the START of the run is the safe under-statement of it: over-stating
+        # would retire pages nobody read.
+        read_to_the_end[ref] = _rows
         _remember_runs_read(conn, job["job_id"], read_to_the_end)
         # THE EARLIER RUNS' PAGES STAY COUNTED. `page_closed` writes this job's total
         # from `approve`'s per-run figure, which restarts at zero for each run -- so
@@ -469,8 +509,8 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
 
 
 def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
-                        refs: list[str]) -> None:
-    """Record, on this job, every run it has read to the end.
+                        refs: dict[str, int]) -> None:
+    """Record, on this job, every run it has read to the end and how much it held.
 
     MERGED INTO THE CHECKPOINT RATHER THAN REPLACING IT, because the checkpoint is also
     where an explicit `run_ref` arrives from the caller, and overwriting the dict would
@@ -504,8 +544,13 @@ def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
     #
     # ORDER-PRESERVING UNION rather than a set, so the record still reads in the order
     # the runs were walked. `interpreted_runs` takes a set of it either way.
-    merged = dict.fromkeys(str(one) for one in (held.get("runs_read") or []))
-    merged.update(dict.fromkeys(str(one) for one in refs))
-    held["runs_read"] = list(merged)
+    stored = held.get("runs_read") or {}
+    if not isinstance(stored, dict):
+        stored = {str(one): 0 for one in stored}
+    merged = {str(ref): int(rows or 0) for ref, rows in stored.items()}
+    for ref, rows in refs.items():
+        if int(rows or 0) > merged.get(str(ref), -1):
+            merged[str(ref)] = int(rows or 0)
+    held["runs_read"] = merged
     jobs._update(conn, job_id, checkpoint_json=json.dumps(held))
     conn.commit()
