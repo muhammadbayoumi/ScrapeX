@@ -116,6 +116,9 @@ svg {
   text-decoration: none;
 }
 
+/* An EMPTY span, not an <svg>: the mark is --brand-mark cut through a mask. This
+   sheet reads the token and never defines it; each surface points it at its own
+   copy. Unset, the box paints solid --text; an unreachable url paints nothing. */
 .brand-logo {
   display: inline-block;
   flex: none;
@@ -212,9 +215,11 @@ svg {
    property the caller sets, so a page keeps what makes it different and stops
    restating what does not.
 
-   MEASURED before this rule existed: `background: var(--accent-weak);
-   color: var(--accent-ink)` appeared in 15 places across 10 stylesheets, and
-   its amber twin in 8 places across 7. */
+   The tone pairs (`background: var(--accent-weak); color: var(--accent-ink)` and
+   its amber twin) are NOT one component written many times: they are one tone on
+   different things (a chip, a dot, a :hover), and no class can be put on a :hover
+   rule. Extract a component written twice, never two declarations that happen to
+   describe different things. */
 .icon-tile {
   display: grid;
   place-items: center;
@@ -1415,6 +1420,9 @@ code {
   color: var(--accent-ink);
   transform: none;
 }
+/* A <details>, never a div beside a button: the rules here select `summary` and
+   `[open]`, split-button.js drives `menu.open` and `toggle`, and nothing else
+   hides .split-button-options. Built as a div, the menu never closes. */
 .split-button-menu {
   position: static;
   display: flex;
@@ -1453,6 +1461,10 @@ code {
 }
 .split-button-options {
   position: absolute;
+  /* A .split-button given its own z-index traps this 120 in its stacking context,
+     and no value here escapes it (measured at 1200 and 2147483647). Place the
+     wrapper with position and offsets alone, or lift it to var(--z-overlay) only on
+     :has(.split-button-menu[open]), as .dataset-card does in extension/app.css. */
   z-index: 120;
   /* SIZED TO ITS CONTENT, not to whatever happens to be above it.
      

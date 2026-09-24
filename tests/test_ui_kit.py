@@ -192,7 +192,7 @@ def test_every_shared_component_is_in_the_catalogue(defined):
     shared = _classes_defined_in(css)
 
     gallery = (ROOT / "design" / "gallery.html")
-    assert gallery.exists(), "the catalogue is gone; UI-KIT.md §6 says why it exists"
+    assert gallery.exists(), "the catalogue is gone; its header comment says why it exists"
     shown: set[str] = set()
     for attribute in re.findall(r'class="([^"]*)"', gallery.read_text(encoding="utf-8")):
         shown |= set(attribute.split())
@@ -233,3 +233,18 @@ def test_the_allow_list_cannot_grow_without_a_reason():
     for name, reason in ALLOWED_WITHOUT_A_RULE.items():
         assert len(reason.split()) >= 5, (
             f"{name!r} is allowed without a rule but the reason is {reason!r}")
+
+
+def test_the_ui_kit_holds_rules_and_no_plan():
+    """A plan and its progress are milestones, and a gap is an issue, never a paragraph (#708).
+
+    docs/UI-KIT.md held a section 6: items UI-0 to UI-4 with their status written in, one of
+    them an open gap. The rules it carried now sit beside the code they govern, and what it
+    recorded is in git and in #1058. This fails if a plan is written back in."""
+    text = (ROOT / "docs" / "UI-KIT.md").read_text(encoding="utf-8")
+    markers = [m.group(0).strip() for m in re.finditer(
+        r"— \*(?:done|gap|first slice done)[^*\n]*\*|^#{2,3} UI-\d+\b.*$|^## \d+\. The plan\b.*$",
+        text, re.M)]
+    assert not markers, (
+        f"docs/UI-KIT.md holds plan markers again: {markers}. A plan is a milestone, a gap "
+        f"is an issue (CLAUDE.md, the record-it skill), and a rule goes beside its code.")
