@@ -195,9 +195,14 @@ def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
             (JOB_KIND, f'%"{source_key}"%')):
         try:
             done = (json.loads(row[0] or "{}") or {}).get("runs_read") or []
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             # A CHECKPOINT THAT WILL NOT PARSE IS NOT A REASON TO RE-READ NOTHING.
             # Unreadable means unknown, and unknown runs are read again.
+            #
+            # `AttributeError` BECAUSE VALID JSON IS NOT ENOUGH. `create_job` dumps
+            # whatever it is handed, so a checkpoint holding a JSON list parses fine and
+            # then raises on `.get` -- and the two words above promised a robustness the
+            # two exception types did not deliver.
             continue
         read.update(str(one) for one in done)
     return read
@@ -220,9 +225,23 @@ def runs_to_interpret(conn: sqlite3.Connection,
     ref in its checkpoint; the panel is the part that cannot say which run it means, and
     under `R-81` a capability with no control is not a capability.
     """
+    runs = runs_holding_pages(conn, source_key)
+    # THE REFUSAL BELONGS HERE, NOT AT THE CALL SITE. It used to be a bare
+    # `latest_crawl_run_ref(...)` above the caller's assignment, kept only for the
+    # exception it raises -- a line with no return value, which is exactly the line a
+    # later reader deletes as dead. Deleting it made a press on a source no crawl has
+    # ever touched finish COMPLETED, which is the outcome `NothingToInterpret` exists
+    # to refuse, and no test noticed.
+    #
+    # NO CRAWL AT ALL AND NOTHING NEW ARE TWO DIFFERENT ANSWERS: one is a refusal that
+    # tells him to run a crawl, the other is a green no-op. Raising here keeps the first
+    # one attached to the only question that can produce it.
+    if not runs:
+        raise NothingToInterpret(
+            f"{source_key!r} has no crawl that stored pages, so there is nothing to "
+            "interpret. Run a crawl first")
     already = interpreted_runs(conn, source_key)
-    return [one for one in runs_holding_pages(conn, source_key)
-            if one[0] not in already]
+    return [one for one in runs if one[0] not in already]
 
 
 def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
@@ -281,18 +300,37 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     # from a convention. An explicit ref in the checkpoint wins, so a caller that knows
     # exactly which run it means can say so.
     asked = (job.get("checkpoint") or {}).get("run_ref")
-    if asked:
-        # A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS, and it reads that
-        # run whether or not it has been read before -- which is what asking for it by
-        # name means.
-        plan = [(asked, 0)]
-    else:
-        # ISSUE 823. `runs_to_interpret` raises through `runs_holding_pages` when this
-        # source has never stored a page, so "no crawl yet" and "nothing new" stay two
-        # different sentences.
-        latest_crawl_run_ref(conn, source_key)
-        plan = runs_to_interpret(conn, source_key)
-    run_ref = plan[0][0] if plan else ""
+    # A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS, and it reads that run
+    # whether or not the ledger holds it -- which is what asking for it by name means.
+    #
+    # OTHERWISE, ISSUE 823. `runs_to_interpret` REFUSES a source that has never stored a
+    # page, and returns an empty list for one whose every run is already read -- so "no
+    # crawl yet" and "nothing new" stay two different answers with two different
+    # outcomes, a refusal and a green no-op.
+    plan = [(asked, 0)] if asked else runs_to_interpret(conn, source_key)
+    if not plan:
+        # NOTHING NEW IS NOT NOTHING AT ALL, and after this change it is the COMMON path:
+        # every press after the first finds the ledger already holding every stored run.
+        #
+        # THE GATE FOUND THIS SAYING `interpreting the stored pages of . Nothing is
+        # fetched` -- an empty ref in the middle of a sentence -- and then finishing
+        # COMPLETED at 0 of 0, which `NothingToInterpret`'s own docstring names as the
+        # outcome to refuse: *"A job that interpreted nothing and finished green is
+        # indistinguishable from one that interpreted everything."* It is a true no-op, so
+        # it completes rather than fails; what it owes him is a sentence that says so.
+        already = len(interpreted_runs(conn, source_key))
+        jobs.append_log(
+            conn, job["job_id"],
+            f"{directory.display_name}: every stored run has already been interpreted "
+            f"— {already:,} of them — so there is nothing new to read. Nothing was "
+            "fetched and nothing was written", source_key=source_key)
+        jobs._update(conn, job["job_id"], progress_done=0, progress_total=0,
+                     current_source_key=source_key, last_heartbeat_at=utc_now_iso(),
+                     **({} if job["started_at"] else {"started_at": utc_now_iso()}))
+        jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
+        return jobs.get_job(conn, job_ref)
+
+    run_ref = plan[0][0]
     pages = sum(one[1] for one in plan)
 
     # ISSUE 796. Above the reset because that is the order the sentence describes -- not
@@ -448,6 +486,26 @@ def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
         held = json.loads((row[0] if row else None) or "{}") or {}
     except (TypeError, ValueError):
         held = {}
-    held["runs_read"] = list(refs)
+    # MERGED, NOT REPLACED, AND THE GATE FOUND THIS. `read_to_the_end` starts empty on
+    # every ENTRY to the runner, and a re-entry into the same job row is a first-class
+    # event: `set_control(RESUME)` re-queues the same row, and `reclaim_orphaned_jobs`
+    # does the same to a job whose engine was killed -- which its own docstring records
+    # happening to a `dataset_interpret` job on the owner's warehouse on 2026-09-06.
+    #
+    # Replacing the key meant the resumed pass's first finished run erased every run the
+    # first pass had read. THE COST IS NOT REPEATED WORK. Those runs fall back to unread,
+    # so a LATER press reads them AFTER the newer runs have already been applied and
+    # writes an older page over a newer row -- the exact inversion this module refuses at
+    # `runs_holding_pages`, and which `test_the_walk_goes_oldest_first_...` exists to stop.
+    #
+    # Measured on his warehouse: pausing inside run 3 of the 9 discards
+    # `job-job_925080aad843` (7,934 rows) and `job-job_6eb28381bf56` (6,713) -- 14,647 of
+    # 17,627 -- and the next press applies both over everything newer.
+    #
+    # ORDER-PRESERVING UNION rather than a set, so the record still reads in the order
+    # the runs were walked. `interpreted_runs` takes a set of it either way.
+    merged = dict.fromkeys(str(one) for one in (held.get("runs_read") or []))
+    merged.update(dict.fromkeys(str(one) for one in refs))
+    held["runs_read"] = list(merged)
     jobs._update(conn, job_id, checkpoint_json=json.dumps(held))
     conn.commit()
