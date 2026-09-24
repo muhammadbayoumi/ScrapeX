@@ -165,9 +165,12 @@ def test_every_design_file_that_cites_a_ruling_is_on_the_surface():
 
     expected: set[Path] = set()
     for source in sorted(p for p in (ROOT / "design").iterdir() if p.is_file()):
-        if source.suffix == ".png":  # Google's G, byte-for-byte; it cites nothing
+        data = source.read_bytes()
+        # A binary cites nothing and does not decode: Google's G today, and the font
+        # files #1040 ships through design/. Text never holds a NUL byte.
+        if b"\0" in data:
             continue
-        if CITATION.search(source.read_text(encoding="utf-8")):
+        if CITATION.search(data.decode("utf-8")):
             expected.add(source)
             expected.update(ASSETS.get(source, ()))
 
