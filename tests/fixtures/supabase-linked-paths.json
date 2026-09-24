@@ -1,0 +1,118 @@
+{
+ "commit": "86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94",
+ "present": {
+  ".claude/CLAUDE.md": [
+   "blob",
+   "8f48264e86e09d79aab98a31fbb6b2cfd2855195"
+  ],
+  ".claude/skills/copywriting/SKILL.md": [
+   "blob",
+   "f69a7e0ed9055aa5fd1ba13279ad5dc0958f609e"
+  ],
+  ".claude/skills/studio-testing/SKILL.md": [
+   "blob",
+   "39a1720cb0d61c33b9ea5df90ab1653ab6cfccda"
+  ],
+  ".claude/skills/studio-ui-patterns/SKILL.md": [
+   "blob",
+   "3f8740ec5040bdabd5a33bc72e8fe52c17b25f90"
+  ],
+  ".coderabbit.yaml": [
+   "blob",
+   "9830ed0274abf1bb5f076bfe548b20f601fef937"
+  ],
+  "LICENSE": [
+   "blob",
+   "49ea124025275674563eeff03af0f653ca49fdc0"
+  ],
+  "apps/design-system": [
+   "tree",
+   "3a4b11d3029c3d6e9593119365dd485f5e845af1"
+  ],
+  "apps/design-system/content/docs": [
+   "tree",
+   "b2e8b476ad42c956c6bd0bd9343058a234bde4b0"
+  ],
+  "apps/design-system/content/docs/accessibility.mdx": [
+   "blob",
+   "efdede1da8f573ff1099570a3a09edade7388217"
+  ],
+  "apps/design-system/content/docs/color-usage.mdx": [
+   "blob",
+   "b62441323eb73c07a477584ad9eb409e824748a5"
+  ],
+  "apps/design-system/content/docs/components/introduction.mdx": [
+   "blob",
+   "8022af4294daf22136faf6804827e400ef66c3fa"
+  ],
+  "apps/design-system/content/docs/copywriting.mdx": [
+   "blob",
+   "4709faa48feb7433f4394a48f012926e8363bd16"
+  ],
+  "apps/design-system/content/docs/fragments": [
+   "tree",
+   "dd54974da2c0e99da545672859d872887ab3d2b7"
+  ],
+  "apps/design-system/content/docs/fragments/introduction.mdx": [
+   "blob",
+   "39bac50ecfd37ea0801ce869a7aaa0c1ebb60d26"
+  ],
+  "apps/design-system/content/docs/icons.mdx": [
+   "blob",
+   "773c0ca9fcdc63a52b1aa36b59c97bebdf117d48"
+  ],
+  "apps/design-system/content/docs/tailwind-classes.mdx": [
+   "blob",
+   "a8efa6a3ef12d3636e90b0c5b25c01afbc5aa8d5"
+  ],
+  "apps/design-system/content/docs/theming.mdx": [
+   "blob",
+   "91b144803c9f0fbbb4047b473faef9e6e51492ce"
+  ],
+  "apps/design-system/content/docs/typography.mdx": [
+   "blob",
+   "d6c36ca61c38c8d2c3dcef764212ffb713fe7fe2"
+  ],
+  "apps/design-system/content/docs/ui-patterns/introduction.mdx": [
+   "blob",
+   "59dc6599381c2e447762577f019ec58e2b2d9e2a"
+  ],
+  "apps/design-system/registry": [
+   "tree",
+   "c5b9db0692d5a4b90907a66a40e3655a42b5a473"
+  ],
+  "apps/studio": [
+   "tree",
+   "710af251aadc9cd6d04a68ebb7ac0582e76bb027"
+  ],
+  "apps/studio/CLAUDE.md": [
+   "blob",
+   "5d4790ba75152f2a4313f96b710af1a6bea3e509"
+  ],
+  "packages/icons": [
+   "tree",
+   "90894f149bd214092a6873cbca4ea9652a2ed0d8"
+  ],
+  "packages/ui": [
+   "tree",
+   "b4f1f0664fd63992fefcdd1477ec7b785d521171"
+  ],
+  "packages/ui-patterns": [
+   "tree",
+   "fe50620816a768706d651e99abe62626154461b3"
+  ],
+  "packages/ui/build/css/source": [
+   "tree",
+   "85686da674dcb8bb5dfe9f5ace49640a2eaffe71"
+  ],
+  "packages/ui/build/css/source/semantic.css": [
+   "blob",
+   "4e9f65d9f09747af0d4b1131062feaf4bfc8c1ba"
+  ],
+  "packages/ui/src/components": [
+   "tree",
+   "39c45f61b881ad2eb8d43ac654e89e3d483b365c"
+  ]
+ },
+ "absent": []
+}

@@ -78,8 +78,8 @@ copy map. Read the tool rather than any restatement here — **a count is a rest
 and the one that stood in this sentence went stale exactly as the sentence warned.
 
 **The two copies this sentence used to omit are the ones that matter most.**
-`design/tokens.css` is the file [R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
-rules on, and it is published to `extension/tokens.css` and
+`design/tokens.css` is the file #1040 rules on ([R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
+before it), and it is published to `extension/tokens.css` and
 `scrapex/webui/static/tokens.css`; neither was named. `appearance.js`, `split-button.js`
 and `timezone.js` are copied too. All are asserted byte-equal by `tests/test_vendor.py`
 and `tests/test_design_system.py`. Corrected 2026-08-29 by
@@ -341,9 +341,10 @@ rewritten after it.
    ([the source rule](DESIGN-SYSTEM-SOURCES.md), #1040). Take its values, its icon size
    and stroke, and its motion from it, not from what this repository already has.
 2. **Then look in §5 and the gallery.** Composition beats invention: `ghost` +
-   `compact` + `icon-button` is three existing rules, not a fourth new one. Only when
-   neither Supabase nor the gallery has it is something added: decide its scope from the
-   table in §4.
+   `compact` + `icon-button` is three existing rules, not a fourth new one. Only when the
+   gallery does not have it is something added: transcribed from the Supabase atom when
+   step 1 found one, and treated as a gap (studied, not invented) when it did not. Decide
+   its scope from the table in §4.
 3. Write it in `design/components.css` if shared, then
    `python tools/sync_design_assets.py`.
 4. Use tokens, never literals — `var(--sp-3)`, not `12px`; `var(--surface)`,

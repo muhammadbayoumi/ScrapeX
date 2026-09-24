@@ -17,7 +17,7 @@
 
 _Sources verified on September 6, 2026; pinned on September 24, 2026._
 
-This is the product's source rule, not a reading list. The owner ruled it in #1040: **Supabase's design system governs everything it specifies, at commit `86c813ec`**, the one `design/supabase.NOTICE.txt` pins. That covers values and components: colours, component shapes and sizes, patterns, motion, focus geometry, icons and copy. It does not cover the implementation layer (React, Radix, Tailwind, a build step). What a Supabase value or class string says is transcribed into CSS. The basis moves only by a deliberate re-pin, never by following master. Where Supabase is silent, the gap sources at the end are **studied, not adopted**, and nothing is deleted. The sources below are ordered by authority.
+This is the product's source rule, not a reading list. The owner ruled it in #1040: **Supabase's design system governs everything it specifies, at commit `86c813ec`**, the one `design/supabase.NOTICE.txt` pins. That covers values and components: colours, component shapes and sizes, patterns, motion, focus geometry, icons and copy. It does not cover the implementation layer (React, Radix, Tailwind, a build step). What a Supabase value or class string says is transcribed into CSS. The basis moves only by a deliberate re-pin, never by following master. Where Supabase is silent, the [gap sources](#gap-sources-studied-not-adopted) are **studied, not adopted**, and nothing is deleted. The sources below are ordered by authority.
 
 ## Primary Sources of Truth
 
@@ -68,7 +68,7 @@ Review page-level composition, hierarchy, spacing, content width, navigation pla
 
 [Fragment Components](https://supabase.com/design-system/docs/fragments/introduction) ([`fragments/introduction.mdx`](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/apps/design-system/content/docs/fragments/introduction.mdx) at the pin) are reusable composite components assembled from atom components. They provide standardized solutions for forms, navigation, dialogs, empty states, data display, status communication, and page structure.
 
-Use the complete fragment catalog on the Design System website when checking whether a project has recreated a pattern that already exists in Supabase.
+Use the complete fragment catalog at the pin, [`content/docs/fragments/`](https://github.com/supabase/supabase/tree/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/apps/design-system/content/docs/fragments), when checking whether a project has recreated a pattern that already exists in Supabase.
 
 ### Atom Components
 
@@ -112,7 +112,10 @@ Also review:
 
 ## Code Organization, Naming, Reuse, and DRY
 
-These official repository sources reveal the engineering conventions used alongside the visual system. **They are context, not rules for this product.** Their subject is the implementation layer, which #1040 excludes, except the copywriting rule, because copy is in scope. Supabase's `AGENTS.md` and `apps/studio/AGENTS.md` are not listed: neither exists at the pin, so the basis does not contain them.
+These official repository sources rank fifth in the [precedence order](#source-conflict-resolution-order), below the documentation they defer to. What one says about a pattern, a component or copy is Supabase speaking. What one says about the implementation layer (React, testing, review tooling) is context, because #1040 excludes that layer. At the pin the repository instructions are `.claude/CLAUDE.md` and `apps/studio/CLAUDE.md`; master renamed them `AGENTS.md` and `apps/studio/AGENTS.md` after the pin.
+
+- [Supabase repository instructions](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/CLAUDE.md): repository structure, conventions, the U.S. English rule, and which skill governs which task.
+- [Supabase Studio instructions](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/apps/studio/CLAUDE.md): naming, responsibility boundaries, reuse-first guidance, co-location, and the skills each Studio task requires.
 
 - [Studio UI Patterns skill](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/skills/studio-ui-patterns/SKILL.md): Supabase-specific guidance for pages, forms, tables, charts, sheets, empty states, and navigation.
 - [Studio testing strategy](https://github.com/supabase/supabase/blob/86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94/.claude/skills/studio-testing/SKILL.md): extracting logic from React components, testing pure utilities, interaction testing, edge-case coverage, and end-to-end test selection.
@@ -140,7 +143,7 @@ Use it as a supplementary source for integrated blocks, not as a replacement for
 
 ## Supporting Upstream Standards
 
-Use these primary upstream sources when Supabase documentation does not fully specify behavior:
+Background for a reviewer, not rules. Radix, shadcn/ui and Tailwind are the implementation layer #1040 excludes, and where Supabase is silent the [gap table](#gap-sources-studied-not-adopted) names the source to study, not this list:
 
 - [shadcn/ui components](https://ui.shadcn.com/docs/components)
 - [Radix Primitives accessibility](https://www.radix-ui.com/primitives/docs/overview/accessibility)
@@ -149,7 +152,7 @@ Use these primary upstream sources when Supabase documentation does not fully sp
 - [Tailwind CSS documentation](https://tailwindcss.com/docs)
 - [Lucide documentation](https://lucide.dev/guide/packages/lucide-react)
 
-These sources should validate semantics, ARIA usage, keyboard models, focus trapping, responsive utilities, and primitive behavior. They should not override Supabase-specific visual decisions documented or implemented in the Design System at the pin.
+They can help a reviewer read semantics, ARIA usage, keyboard models and focus trapping. They never override what the Design System documents or implements at the pin.
 
 ## Design Philosophy and Process
 
@@ -182,7 +185,7 @@ Do not use the following as current sources of truth:
 - [supabase-ui-web](https://github.com/supabase/supabase-ui-web): deprecated and superseded by work in the main Supabase monorepo.
 - Unofficial Figma kits, cloned dashboards, reverse-engineered themes, and third-party articles.
 
-Historical sources may explain old decisions, but they must not override current documentation, code, or production behavior.
+Historical sources may explain old decisions, but they must not override the documentation, code, or production composition at the pin.
 
 ## Source-Conflict Resolution Order
 
@@ -193,7 +196,7 @@ When sources disagree, use this precedence order:
 3. The implementations in `packages/ui` and `packages/ui-patterns` at the pinned commit.
 4. The production composition in `apps/studio` at the pinned commit.
 5. Supabase's repository instructions and official skills at the pinned commit.
-6. Only where Supabase is silent, or under a recorded mandate: the gap sources below, and Radix UI, shadcn/ui, WAI-ARIA and WCAG for behaviour and accessibility.
+6. Only where Supabase is silent: the source the [gap table](#gap-sources-studied-not-adopted) names for that gap, once its study is reviewed. A [mandate](#mandates)'s source outranks items 1–5, for its one request only.
 7. Official Supabase articles for philosophy and historical context.
 8. Archived sources only for historical investigation.
 
@@ -203,14 +206,14 @@ If documentation and implementation conflict, record the conflict explicitly wit
 
 ## Gap sources: studied, not adopted
 
-A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
+A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. The exceptions are two he has already settled: #1040 adopted Noto Sans Arabic (#1048 ships it), and Google's branding guidelines already govern the sign-in button through its test. A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
 
 | Where Supabase is silent | Official sources to study | Studied in |
 | --- | --- | --- |
-| Arabic data in English chrome: the bidi contract, and the Arabic face | HTML `dir` and `<bdi>`; Unicode UAX #9; CSS Writing Modes 3; CSS Logical Properties 1; ECMA-402 with CLDR collation; Noto Sans Arabic (OFL-1.1) for glyph coverage | #1073 |
-| `forced-colors` | CSS Color Adjustment Module 1 | #724, #406 |
-| `prefers-contrast` | Media Queries 5; WCAG 2.2 SC 1.4.6 and 1.4.11 | #724 |
-| Reduced motion | WCAG 2.2 SC 2.3.3; Media Queries 5 | #701 |
+| Arabic data in English chrome: the bidi contract, and the Arabic face | HTML `dir` and `<bdi>`; Unicode UAX #9; CSS Writing Modes 3; CSS Logical Properties 1; ECMA-402 with CLDR collation. The face, Noto Sans Arabic (OFL-1.1), is already adopted | #1073; the face, #1048 |
+| `forced-colors` | CSS Color Adjustment Module 1 | #724 |
+| `prefers-contrast` | Media Queries 5; WCAG 2.2 SC 1.4.6 and 1.4.11 | #724, #406 |
+| Reduced motion outside the animations Supabase guards itself (`packages/config/css/utilities.css@86c813ec:176-182` guards `.shimmer`) | WCAG 2.2 SC 2.3.3; Media Queries 5 | #701 |
 | Status messages, and progress past a declared total | WCAG 2.2 SC 4.1.3; WAI-ARIA 1.2 `status`, `alert` and `progressbar` | #1066, #1036 |
 | Keyboard models Supabase leaves to Radix: menu button, listbox, tabs | WAI-ARIA APG Menu Button, Listbox and Tabs. Radix itself is the implementation layer | #1058 |
 | Touch-target size outside action cells | WCAG 2.2 SC 2.5.8 | #1051 |

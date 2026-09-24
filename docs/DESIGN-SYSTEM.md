@@ -17,12 +17,10 @@ which stay in the archive as the rulings it replaced, not as the rule.
    [the source rule](DESIGN-SYSTEM-SOURCES.md#tokens-and-visual-implementation) says which
    value that is.
 2. **A conflict exists only where Supabase specifies something different.** Where it is
-   silent, nothing is deleted. The named gaps are the bidi contract and the Arabic face,
-   `forced-colors`, `prefers-contrast`, reduced motion, live regions, touch-target size
-   outside action cells, landmarks on surfaces without header and sidebar chrome, and the
-   Google sign-in button. Each is studied against the sources
-   [the source rule](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted) names for
-   it. R-85's Arabic exception (§4b) is now one of these gaps.
+   silent, nothing is deleted. Every named gap is listed once, with the sources it is
+   studied against and its issue, in
+   [the source rule](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted). R-85's
+   Arabic exception (§4b) is now one of those gaps.
 3. **No second source is chosen for anything Supabase covers.** A Supabase value that
    fails WCAG ships for now. A different source enters only when he asks for a specific
    change, by a mandate as narrow as that request, recorded on its issue and under
@@ -53,7 +51,8 @@ restatement in miniature**, and the one that stood in this sentence went stale e
 the sentence warned. The three that carry the rules:
 
 - `design/tokens.css` — semantic colour, type, spacing, shape, elevation,
-  control, motion, and layering tokens. **This is the file `R-74` rules on**, and it is
+  control, motion, and layering tokens. **This is the file #1040 rules on** (`R-74` before
+  it), and it is
   copied byte-for-byte to `extension/tokens.css` and
   `scrapex/webui/static/tokens.css`.
 - `design/components.css` — reusable controls, cards, banners, lists, badges,
@@ -86,14 +85,14 @@ python tools/sync_design_assets.py --check
    keyboard states are all part of the core system. Light and dark are Supabase's.
    **Supabase is silent on `forced-colors` and `prefers-contrast`**: searching its
    repository for either returns nothing. So both blocks stay, recorded in the
-   statement of changes in `design/supabase.NOTICE.txt`, and they are studied against
-   CSS Color Adjustment 1, Media Queries 5 and WCAG 1.4.6 and 1.4.11 (#724, #406).
+   statement of changes in `design/supabase.NOTICE.txt`, and they are studied as
+   [the gap table](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted) says.
    **Reduced motion is Supabase's**: it honours `prefers-reduced-motion` in fourteen
-   places. What it leaves unsaid is studied against WCAG 2.3.3 (#701).
+   places. What it leaves unguarded is a gap, in the same table.
 4. **English chrome, any-language data.** Scraped values use `.content`,
    `.name`, or `dir="auto"` so bidirectional text is isolated correctly. Supabase is
-   silent on bidirectional text, so this is a gap, studied in #1073 against UAX #9,
-   HTML `dir` and `<bdi>`, and CSS Logical Properties 1.
+   silent on bidirectional text, so this is a gap, studied in #1073 against the sources
+   [the gap table](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted) names.
 5. **Use native semantics first.** Real buttons, links, labels, fieldsets,
    tables, tabs, and dialogs are preferred; ARIA augments them only where the
    native element cannot express the interaction.
@@ -213,11 +212,15 @@ The guard in `tests/test_design_system.py` rejects stale generated assets,
 inline style attributes, embedded SVG paths, and a missing Material icon
 license.
 
-**Two things that guard does NOT do, measured 2026-08-29.** It never opens a `.svg`, so a
+**What that guard does NOT do, measured 2026-08-29.** It never opens a `.svg`, so a
 colour baked into the sprite at source and synced to both copies passes every check
-(`OP-107`). And a guard reads **only part of** this document, `docs/UI-KIT.md` and
-`docs/DESIGN-SYSTEM-SOURCES.md`. All three are in the citation guard's `DOCUMENTS` (#409),
-which checks a `path:line` citation into this repository. It does not check a bare
-backticked path, an `R-` number (#1076), or a line cited at the pin in Supabase's
-repository. `tests/test_the_design_docs_cite_supabase_at_the_pin.py` checks only that every
-link into Supabase names the pin.
+(`OP-107`).
+
+**The design documents are guarded only in part.** This document, `docs/UI-KIT.md` and
+`docs/DESIGN-SYSTEM-SOURCES.md` are in the citation guard's `DOCUMENTS` (#409), which
+checks a `path:line` citation into this repository. It does not check a bare backticked
+path or an `R-` number (#1076).
+`tests/test_the_design_docs_cite_supabase_at_the_pin.py` checks that every link into
+Supabase's repository names the pin and a path the pin holds, that every link to the live
+design-system site has its pinned `.mdx` on the same line, and that every commit a
+citation or a sentence names is the pin. It does not check what a cited line says.
