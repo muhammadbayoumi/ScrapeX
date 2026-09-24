@@ -13,9 +13,10 @@
   `icon-btn`, names no stylesheet defines, while `ghost`, `icon-button` and
   `compact` sat unused in components.css. There was no place to look.
 
-  WHY IT CANNOT GO STALE: tests/test_ui_kit.py fails when a class is defined in
-  design/components.css and appears nowhere on this page. A hand-written list
-  goes stale in a week; this one cannot go stale without a red test.
+  WHY IT RARELY GOES STALE: tests/test_ui_kit.py fails when a class defined in
+  design/components.css appears nowhere on this page. It compares NAMES, so a
+  compound like `.button.danger` can go unshown (#704), and renaming the SPRITE:
+  marker makes `sync_design_assets.py --check` skip this page (#408).
 
   ADDING A COMPONENT: write the rule in design/components.css, add an example
   here, run `python tools/sync_design_assets.py`.
