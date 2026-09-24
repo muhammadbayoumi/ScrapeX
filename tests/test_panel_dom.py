@@ -958,6 +958,11 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     # hold — and it used to hold three.
     assert view.locator("[data-appearance-palette]").count() == len(
         _registered_palette_ids())
+    # #740: the one colour choice is this product's, so the tile names ScrapeX and never
+    # the upstream product, in its visible text or in its accessible name.
+    tile = view.locator("[data-appearance-palette]").first
+    for said in (tile.inner_text(), tile.get_attribute("aria-label") or ""):
+        assert "ScrapeX" in said and "Supabase" not in said, said
     scheme_icons = view.locator(".appearance-scheme-picker svg use")
     assert scheme_icons.count() == 2
     assert scheme_icons.nth(0).get_attribute("href").endswith("#light-mode")
