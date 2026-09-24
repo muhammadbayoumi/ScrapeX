@@ -455,9 +455,10 @@ def test_no_value_quietly_starts_being_checked_either():
     passes, which is what the test above claimed to prevent and did not: writing
     `/* --accent light derived */` onto `--chip` took the suite from 77 green to 78 green.
 
-    That direction is the live one. #1016 proposes markers for the 18 declarations that
-    name a Supabase token and carry no word, and this equality is the control that forces
-    that through a review rather than letting it arrive.
+    That direction is the live one. #1040 answered #1016: no marker is added now, so the 18
+    declarations that name a Supabase token and carry no word stay unmarked, and are
+    listed in UNMARKED_COLOURS below. This equality is what forces a marker added later
+    through a review rather than letting it arrive.
     """
     marked = {(m[0], m[1]) for m in ALL}
     assert marked == MARKED_VALUES, (
@@ -467,6 +468,73 @@ def test_no_value_quietly_starts_being_checked_either():
         f"  pinned here, no longer marked: {sorted(MARKED_VALUES - marked)}\n"
         f"A new marker is a new statement in the Apache 4(b) record; add it to "
         f"MARKED_VALUES in the same change that writes it, and say so in the PR."
+    )
+
+
+# EVERY COLOUR LITERAL IN THE LIGHT AND DARK BLOCKS EITHER SAYS WHOSE IT IS OR IS NAMED
+# HERE (#698). #1040 kept the Apache 4(b) record as it stands, so none of these gains a
+# marker now, and ruled that the next colour cannot arrive without one. So the list only
+# shrinks: #702 retires --red-hover and the dark --accent-active, and #1053 the dark
+# --control-hover.
+#
+# A colour literal is a hex or a colour function (`rgb()`, `oklch()` and the rest), not a
+# `color-mix()` or `var()` of other tokens, which carry their own statement. A CSS colour
+# name (`white`) is not read; the file declares none today. "Says whose it
+# is" means a marker the tests above verify, and they read markers on hex values only, so
+# an `rgb()` with a marker word in its note is still listed here rather than trusted.
+UNMARKED_COLOURS = frozenset({
+    ("light", "--bg"), ("light", "--surface"), ("light", "--surface-subtle"),
+    ("light", "--surface-raised"), ("light", "--line"), ("light", "--line-strong"),
+    ("light", "--text"), ("light", "--muted"), ("light", "--text-subtle"), ("light", "--chip"),
+    ("light", "--accent-contrast"), ("light", "--amber"), ("light", "--amber-ink"),
+    ("light", "--red-hover"), ("light", "--shadow-color"), ("light", "--overlay"),
+    ("dark", "--bg"), ("dark", "--surface"), ("dark", "--surface-subtle"),
+    ("dark", "--surface-raised"), ("dark", "--line"), ("dark", "--line-strong"),
+    ("dark", "--text"), ("dark", "--muted"), ("dark", "--text-subtle"), ("dark", "--chip"),
+    ("dark", "--accent-active"), ("dark", "--red-hover"), ("dark", "--control-hover"),
+    ("dark", "--shadow-color"),
+})
+
+# Google publishes these, test_the_google_button_follows_googles_rules.py pins all six
+# values, and Google's guidelines govern the button (docs/DESIGN-SYSTEM-SOURCES.md, the gap
+# table). They are Google's statement, not a gap in Supabase's.
+GOOGLES_COLOURS = frozenset({"--google-btn-bg", "--google-btn-stroke", "--google-btn-text"})
+
+COLOUR_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(", re.I)
+DECLARATION = re.compile(r"^[ \t]*(--[a-z0-9-]+)[ \t]*:[ \t]*([^;]+);", re.M)
+
+
+def _colours_saying_nothing() -> set[tuple[str, str]]:
+    """(theme, token) for each colour literal in the light and dark blocks that no verified
+    marker covers.
+
+    The device-dark block is left out: test_both_dark_blocks_agree pins it to the explicit
+    dark block, so a colour arriving there arrives in both. Declarations are read with the
+    comment bodies blanked, so a declaration quoted inside a comment is never counted.
+    """
+    marked = {(m[0], m[1]) for m in ALL}
+    found = set()
+    for (theme, pattern), (_, block) in zip(BLOCKS, _blocks()):
+        if pattern.startswith(":root:not"):
+            continue
+        for match in DECLARATION.finditer(_without_comment_bodies(block)):
+            token, value = match.group(1), match.group(2)
+            if token in GOOGLES_COLOURS or not COLOUR_LITERAL.search(value):
+                continue
+            if (theme, token) not in marked:
+                found.add((theme, token))
+    return found
+
+
+def test_no_colour_arrives_without_saying_whose_it_is():
+    found = _colours_saying_nothing()
+    assert found == UNMARKED_COLOURS, (
+        f"design/tokens.css and UNMARKED_COLOURS disagree about which colours carry no "
+        f"licence statement.\n"
+        f"  unmarked and not listed: {sorted(found - UNMARKED_COLOURS)}\n"
+        f"  listed and no longer an unmarked colour: {sorted(UNMARKED_COLOURS - found)}\n"
+        f"A new colour says whose it is: `PUBLISHED` or `derived` naming the Supabase token "
+        f"(#1040). One that is retired or gains a marker leaves this list in the same change."
     )
 
 
