@@ -1,37 +1,46 @@
 # ScrapeX Design System
 
-## 0 · The design system is Supabase's, and a palette carries colour only
+## 0 · The design system is Supabase's at the pinned commit; where Supabase is silent, a named official source governs
 
-**This is the first thing to read here, and this document did not say it for 37 days.**
-It was last edited on 2026-07-23; `R-73` and `R-74` were ruled on 2026-08-28 and shipped in
-`208d829`, and the word "Supabase" appeared nowhere below. Corrected 2026-08-29 by
-[REQ-49](archive/REQUESTS.md#req-49--review-the-design-system-against-supabases).
-
+**This is the first thing to read here.** The ruling is #1040. It corrects
 [R-74](archive/RULINGS.md#r-74--the-design-system-is-supabases-always-and-a-palette-may-change-nothing-but-colour)
-— *«design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان»*, and *«واى تعارض
-معاها يلغى»*:
+and [R-85](archive/RULINGS.md#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice),
+which stay in the archive as the rulings it replaced, not as the rule.
 
-1. **`design/tokens.css` IS the Supabase design system.** Shape, typography, spacing,
-   elevation, motion and focus geometry are Supabase's, always, and they live in the
-   baseline so that every colour choice sits on them.
-2. **A user chooses COLOUR and nothing else, and there is exactly one choice.**
-   `supabase`. [R-85](archive/RULINGS.md#r-85--the-system-is-supabases-exactly-and-supabase-is-the-only-colour-choice)
-   deleted the other three on 2026-08-31 — *«احذف الثلاثة وابق supabase وحده»* — and device
-   colour mode with them. `whatsapp`, `brand`, `github` and `blue` survive in
-   `design/appearance.js` only as aliases resolving to `supabase`, so a preference stored
-   before that date still opens.
-3. **A palette entry may contain nothing but colour**, enforced by
-   `tests/test_a_palette_may_change_nothing_but_colour.py`. The rule outlived the three
-   exceptions it was written for: it governs the palette that remains, and the next one
-   added.
-4. [R-59](archive/RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
-   decision 4 still governs: components consume semantic roles, **never** a palette
-   identifier.
+1. **Supabase governs everything it specifies**, at the value layer and the component
+   layer: colours, component shapes and sizes, patterns, motion, focus geometry, icons and
+   copy. The basis is commit `86c813ec`, the one `design/supabase.NOTICE.txt` pins. It
+   does not govern the implementation layer (React, Radix, Tailwind, a build step): what a
+   Supabase value or class string says is transcribed into CSS. **Anything that differs is
+   corrected, even where an earlier ruling or decision allowed it.** Where an atom's value
+   comes through Tailwind,
+   [the source rule](DESIGN-SYSTEM-SOURCES.md#tokens-and-visual-implementation) says which
+   value that is.
+2. **A conflict exists only where Supabase specifies something different.** Where it is
+   silent, nothing is deleted. Every named gap is listed once, with the sources it is
+   studied against and its issue, in
+   [the source rule](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted). R-85's
+   Arabic exception (§4b) is now one of those gaps.
+3. **No second source is chosen for anything Supabase covers.** A Supabase value that
+   fails WCAG ships for now. A different source enters only when he asks for a specific
+   change, by a mandate as narrow as that request, recorded on its issue and under
+   [Mandates](DESIGN-SYSTEM-SOURCES.md#mandates).
+4. **The basis is re-pinned only deliberately**, at the start of a phase, through #1018's
+   gate, and it never tracks master. The live site follows master and is illustrative only.
 
-**Measured 2026-08-29, and the number moved under it.** Rule 3 was verified in the built
-product across all eight shipped states — four palettes by two schemes. `R-85` left one
-palette by two schemes, so the same guard now covers everything the product ships rather
-than a quarter of it. Read `OP-102` before adding a palette.
+**`design/tokens.css` carries Supabase's values, and `design/components.css` its component
+anatomy.** Where either differs today, an open issue says so. Neither is yet Supabase's on
+every axis, so read the design-system milestones before treating a value as theirs.
+
+**What stays from the earlier rulings:**
+- There is one colour choice. Its id stays `supabase`, and #740 changes its label to ScrapeX.
+  `whatsapp`, `brand`, `github` and `blue` survive in `design/appearance.js` only as
+  aliases resolving to `supabase`, so a preference stored before R-85 still opens.
+- A palette entry may contain nothing but colour, enforced by
+  `tests/test_a_palette_may_change_nothing_but_colour.py`. Read `OP-102` before adding one.
+- Components consume semantic roles, never a palette identifier
+  ([R-59](archive/RULINGS.md#r-59--the-palette-registry-brand-is-default-alternatives-is-extensible-teal-is-debt)
+  decision 4).
 
 ---
 
@@ -42,7 +51,8 @@ restatement in miniature**, and the one that stood in this sentence went stale e
 the sentence warned. The three that carry the rules:
 
 - `design/tokens.css` — semantic colour, type, spacing, shape, elevation,
-  control, motion, and layering tokens. **This is the file `R-74` rules on**, and it is
+  control, motion, and layering tokens. **This is the file #1040 rules on** (`R-74` before
+  it), and it is
   copied byte-for-byte to `extension/tokens.css` and
   `scrapex/webui/static/tokens.css`.
 - `design/components.css` — reusable controls, cards, banners, lists, badges,
@@ -70,28 +80,32 @@ python tools/sync_design_assets.py --check
 2. **Shared behavior is a component concern.** Hover, active, focus-visible,
    invalid, and disabled states live in `components.css`. A page stylesheet
    should normally contain layout only.
-3. **Theme-aware by default, and two of these are ours rather than theirs.**
+3. **Theme-aware by default, and two of these are gaps rather than departures.**
    Light, dark, increased-contrast, reduced-motion, forced-colour, touch and
    keyboard states are all part of the core system. Light and dark are Supabase's.
-   **The `forced-colors` block and the `prefers-contrast` accommodation are
-   additions above the baseline** — searching their repository for either returns
-   nothing — and both are recorded as such in the statement of changes in
-   `design/supabase.NOTICE.txt`. **Reduced motion is not an addition**: Supabase
-   honours `prefers-reduced-motion` in fourteen places, so respecting it here
-   matches them rather than departing from them.
+   **Supabase is silent on `forced-colors` and `prefers-contrast`**: searching its
+   repository for either returns nothing. So both blocks stay, recorded in the
+   statement of changes in `design/supabase.NOTICE.txt`, and they are studied as
+   [the gap table](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted) says.
+   **Reduced motion is Supabase's**: it honours `prefers-reduced-motion` in fourteen
+   places. What it leaves unguarded is a gap, in the same table.
 4. **English chrome, any-language data.** Scraped values use `.content`,
-   `.name`, or `dir="auto"` so bidirectional text is isolated correctly.
+   `.name`, or `dir="auto"` so bidirectional text is isolated correctly. Supabase is
+   silent on bidirectional text, so this is a gap, studied in #1073 against the sources
+   [the gap table](DESIGN-SYSTEM-SOURCES.md#gap-sources-studied-not-adopted) names.
 5. **Use native semantics first.** Real buttons, links, labels, fieldsets,
    tables, tabs, and dialogs are preferred; ARIA augments them only where the
    native element cannot express the interaction.
-6. **One icon source, and it is a declared departure.** Reuse a symbol from the
-   Material sprite instead of embedding an SVG path or drawing a replacement.
-   **Supabase's icon set is Lucide**, at size 24 with `strokeWidth` 1.5 and
-   `stroke: currentColor`; this product ships a filled Material sprite. Asked on
-   2026-09-02 whether to migrate or to record the difference, he chose to record
-   it — `R-85`'s exactness instruction was scoped to the values, and an icon set
-   is not a colour value. The cost of migrating, and the reason it was not paid,
-   are in `design/supabase.NOTICE.txt`.
+6. **Icons are Lucide 0.436.0, and the Material sprite is a known conflict, not a
+   departure.** Supabase's icon set is Lucide (`packages/ui/package.json@86c813ec:28`,
+   `^0.436.0`, resolved by `pnpm-lock.yaml@86c813ec:2576-2578`), at Lucide's root
+   defaults: stroke 2, `currentColor`, fill none. The exception is an atom that sets
+   an icon's size or stroke itself: `packages/ui/src/components/Button/Button.tsx@86c813ec:127-133`
+   sizes by button size, and `packages/ui/src/components/shadcn/ui/select.tsx@86c813ec:62`
+   draws its chevron at `strokeWidth` 1.5. Size 24 with `strokeWidth` 1.5 is the default
+   of Supabase's own custom icons (`icons.mdx@86c813ec:48`, under *Custom icons*), not of
+   Lucide. Until #1057 moves the product to Lucide, reuse a symbol from the Material
+   sprite rather than embedding an SVG path or drawing a replacement.
 
 ## Token groups
 
@@ -99,7 +113,7 @@ python tools/sync_design_assets.py --check
 |---|---|
 | Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
-| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` (40px) and `--control-height-sm` (32px), both from the Supabase baseline since `R-85` deleted the panel's 48/40 override; `--touch-target` survives for the places that size for touch deliberately |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` (40px) and `--control-height-sm` (32px). **Neither is on Supabase's scale**, which is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`); #1050 moves them. `--touch-target` survives for the places that size for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
 | Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
 | Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
@@ -198,8 +212,16 @@ The guard in `tests/test_design_system.py` rejects stale generated assets,
 inline style attributes, embedded SVG paths, and a missing Material icon
 license.
 
-**Two things that guard does NOT do, measured 2026-08-29.** It never opens a `.svg`, so a
+**What that guard does NOT do, measured 2026-08-29.** It never opens a `.svg`, so a
 colour baked into the sprite at source and synced to both copies passes every check
-(`OP-107`). And **this document and `docs/UI-KIT.md` are guarded by nothing at all** —
-neither is in the citation guard's `DOCUMENTS`, and no tier resolves a bare backticked
-path, which is why the four stale facts corrected above survived (`OP-109`).
+(`OP-107`).
+
+**The design documents are guarded only in part.** This document, `docs/UI-KIT.md` and
+`docs/DESIGN-SYSTEM-SOURCES.md` are in the citation guard's `DOCUMENTS` (#409), which
+checks a `path:line` citation into this repository. It does not check a bare backticked
+path or an `R-` number (#1076).
+`tests/test_the_design_docs_cite_supabase_at_the_pin.py` checks that every link into
+Supabase's repository names the pin and a path the pin holds, that every link to the live
+design-system site has its pinned source on the same line, and that every `path@commit`
+citation and every backticked commit in prose names the pin. It does not check what a
+cited line says, or a commit hash written without backticks.
