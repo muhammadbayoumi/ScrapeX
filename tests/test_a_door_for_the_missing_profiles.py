@@ -1477,3 +1477,192 @@ def test_a_cancelled_crawl_still_owes_an_interpretation(served):
         "a cancelled sweep's pages are on disk and unread, and the card says nothing is "
         "owed. Cancelling a run does not un-fetch what it already stored."
     )
+
+
+def test_the_newest_collecting_run_answers_and_not_the_first_one(served):
+    """THE MIRROR OF `test_the_newest_reading_answers_and_not_the_first_one`, MISSING.
+
+    That test's own docstring states the rule -- "one reading never exercises an ORDER
+    BY" -- and then leaves the OTHER operand of the same comparison in exactly the state
+    it warns about: three rows on file and only ONE of them collecting, so `DESC` and
+    `ASC` pick the same run and flipping the collecting half changed nothing.
+
+    With the oldest collecting run answering, `crawled > read` is false from the first
+    interpretation onwards and the badge never lights again. The same permanence failure
+    as the reading half, pointing the other way: there the card always asks, here it
+    never does -- and never asking is the quieter of the two, so it is the one he would
+    not notice.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        for ref, kind, when in (
+                ("job_sweep_old", profilejob.JOB_KIND, "2026-09-01T00:00:00Z"),
+                ("job_read", datasetjob.JOB_KIND, "2026-09-05T00:00:00Z"),
+                ("job_sweep_new", profilejob.JOB_KIND, "2026-09-09T00:00:00Z")):
+            conn.execute(
+                "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, "
+                "                       status, finished_at) "
+                "VALUES (?,'update',?,?,'completed',?)",
+                (ref, f'["{SITE}"]', kind, when))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a sweep finished on 2026-09-09, after the reading of 2026-09-05, and the card "
+        "says nothing is owed. The FIRST collecting run answered instead of the newest, "
+        "which puts this badge out for good."
+    )
+    assert waiting["interpret"]["crawl_finished_at"] == "2026-09-09T00:00:00Z", (
+        f"the badge is dated from the wrong run: {waiting['interpret']}"
+    )
+
+
+def test_another_kind_on_its_way_does_not_clear_the_badge(served):
+    """THE CHAIN'S KIND CHECK HAS TWO BOUNDARY TESTS AND THE BADGE'S COPY OF IT HAD NONE.
+
+    `test_any_other_kind_on_this_source_does_not_block_it` exists because the first
+    version pinned the mutation rather than the behaviour. The same check was then
+    written a second time, in `_work_waiting`, and nothing drove it: every badge test
+    puts an INTERPRETATION on the source, so "an interpretation is on its way" and "any
+    job is on its way" are one row.
+
+    They are not one row in life. A profile sweep, an enrichment or another crawl is
+    running on his machine most of the time, and a badge that counted those would go out
+    whenever the source was busy with anything at all.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        # RUNNING, and NOT an interpretation. It has no `finished_at`, so the collecting
+        # half cannot see it either: the only query it can reach is the new one.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
+            "VALUES ('job_other','update',?,?,'running')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is not None, (
+        "a running profile sweep put out the interpret badge. The question is whether an "
+        "INTERPRETATION is on its way, not whether the source is busy."
+    )
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "paused", "requires_review"])
+def test_the_card_is_told_WHICH_job_is_interpreting_and_not_just_that_one_is(served,
+                                                                            status):
+    """SUPPRESSION IS NOT AN ANSWER, AND THE PANEL NEEDS THE REF TO GIVE ONE.
+
+    `interpret` going `None` tells the card only that it must not offer the press. The
+    card then has to say something in its place -- "Interpretation under way · job_x" --
+    and it has to disable the menu row that sends the press, because `POST /api/jobs`
+    still accepts a duplicate (issue 779). Both need the REF, so the engine carries it
+    rather than leaving the panel to re-derive a fact it cannot see.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
+            "VALUES ('job_reading','update',?,?,?)",
+            (f'["{SITE}"]', datasetjob.JOB_KIND, status))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None, "the press is still offered"
+    assert waiting["interpreting"] == {"job_ref": "job_reading"}, (
+        f"the card is told the press is not owed and not what is doing it instead: "
+        f"{waiting['interpreting']!r}. A badge that vanishes reads as 'nothing is owed'."
+    )
+
+
+def test_the_interpreting_field_is_honest_before_any_crawl_has_finished(served):
+    """IT IS COMPUTED OUTSIDE `if crawled:`, AND THAT IS THE WHOLE REASON.
+
+    The first version asked this question inside the block that needs a FINISHED crawl,
+    so a source with an interpretation under way and no completed collecting run
+    reported `interpreting: None` -- and the panel's other badge producer,
+    `profiles.rowless`, is computed outside that block and would have gone on offering
+    the press.
+
+    The state is ordinary rather than exotic: it is every source whose first crawl was
+    cancelled, and every source being interpreted from pages a stopped run left behind.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        # NOT ONE FINISHED COLLECTING RUN -- only the interpretation.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status) "
+            "VALUES ('job_reading','update',?,?,'running')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None
+    assert waiting["interpreting"] == {"job_ref": "job_reading"}, (
+        f"no crawl has finished, an interpretation is running, and the card was told "
+        f"nothing: {waiting!r}. `profiles.rowless` draws the same badge from outside "
+        f"that block, so it would have gone on offering the press."
+    )
+
+
+def test_nothing_interpreting_leaves_the_field_empty(served):
+    """THE SWITCH HAS TO TURN BACK ON. A field that is only ever set is a field that
+    silences this card permanently after its first interpretation."""
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T00:00:00Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpreting"] is None, (
+        f"a finished interpretation still reads as one under way: "
+        f"{waiting['interpreting']!r}")
+    assert waiting["interpret"] is not None, "and the press it owes is not offered"

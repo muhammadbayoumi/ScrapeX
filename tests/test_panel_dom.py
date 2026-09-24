@@ -1720,6 +1720,93 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
     assert card.locator('[data-split-action="interpret"]').count() == 1
 
 
+def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
+        open_panel):
+    """SUPPRESSING A BADGE IS NOT THE SAME AS ANSWERING IT.
+
+    The engine stops offering `interpret` while an interpretation of the source is on its
+    way -- otherwise the card invites a press that `POST /api/jobs` accepts, and he ends
+    up owning two jobs reading the same pages (issue 779). But a badge that simply
+    VANISHES reads as "nothing is owed", which is the one sentence this line exists to
+    keep from being false.
+
+    AND THE PANEL DRAWS THAT BADGE FROM TWO PLACES. `waitingLine` offers "Interpret
+    stored pages" from `interpret` and again from `profiles.rowless` when `profiles.fetch`
+    is 0 -- the measured 469-rowless / 938-fetched state this file already has a test
+    for. Gating only the first left the second drawing the identical row for the whole
+    run of the interpretation, which is why the fact is read once, ahead of both.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {
+                **(row.get("work_waiting") or {}),
+                # BOTH PRODUCERS ARMED AT ONCE, which no other test does: the crawl half
+                # says a press is owed, and the profiles half says it in its own words.
+                "interpret": {"crawl_finished_at": "2026-09-24T09:00:00Z",
+                              "interpreted_at": None},
+                "profiles": {"rowless": 469, "fetch": 0},
+                "interpreting": {"job_ref": "job_already_reading"},
+            }
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+    # THE WAITING LINE, NOT THE WHOLE CARD. The menu still CARRIES an "Interpret stored
+    # pages" row -- disabled, with its reason, which is the second half of this test --
+    # so reading the card's whole text would find that row and report the badge as still
+    # offered.
+    said = card.locator('[role="status"]').text_content()
+
+    assert "Interpret stored pages" not in said, (
+        f"an interpretation is already running and the card still offers the press. "
+        f"Pressing it makes a second job reading the same pages: {said!r}")
+    assert "Interpretation under way" in said, (
+        f"the badge went quiet and put nothing in its place, which reads as nothing "
+        f"being owed: {said!r}")
+    assert "job_already_reading" in said, (
+        f"it does not name the job doing the work, so he cannot go and look at it: "
+        f"{said!r}")
+
+    # AND THE CONTROL SAYS SO TOO. The badge going quiet is not a refusal -- the route
+    # still accepts a duplicate (issue 779) -- so the row that sends it carries the
+    # reason itself rather than disappearing.
+    row = card.locator('[data-split-action="interpret"]')
+    assert row.count() == 1, "the control vanished instead of explaining itself"
+    assert row.is_disabled(), (
+        "the control is still live while an interpretation of this source is running")
+    assert "already running" in row.text_content(), (
+        f"the disabled row gives no reason: {row.text_content()!r}")
+
+
+def test_the_interpret_control_comes_back_when_that_job_is_over(open_panel):
+    """THE OTHER SIDE OF THE SAME GATE, and without it the change is a switch that only
+    turns off. `interpreting` absent must leave the badge and the control exactly as they
+    were -- otherwise one interpretation would silence this card permanently."""
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {**(row.get("work_waiting") or {}),
+                                   "profiles": {"rowless": 469, "fetch": 0},
+                                   "interpreting": None}
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+
+    said = card.locator('[role="status"]').text_content()
+    assert "Interpret stored pages" in said, (
+        f"nothing is interpreting this source and the card offers no press: {said!r}")
+    assert "Interpretation under way" not in said
+    row = card.locator('[data-split-action="interpret"]')
+    assert row.count() == 1 and not row.is_disabled(), (
+        "the control stayed disabled after the interpretation was over")
+
+
 def test_a_card_with_nothing_waiting_says_nothing(open_panel):
     """A line that is always there is a line nobody reads. `work_waiting` absent or empty
     must draw no row at all -- the price-source cards in the stub carry neither."""

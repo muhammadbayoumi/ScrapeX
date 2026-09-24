@@ -13,7 +13,7 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
+  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
   statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
@@ -5227,8 +5227,17 @@ function renderMiniplayer(job, queued) {
   const box = $("miniplayer");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
+  // THE KIND, NOT THE KEY ALONE -- and `jobLabel` has written it since jobsview.js
+  // shipped: "Listing crawl · muqawil_org", "Interpretation · muqawil_org". This line
+  // said `${scope} — ${status}`, which names no kind at all, and that was survivable
+  // only while one job followed another by his own hand. A crawl now queues its own
+  // interpretation, so `muqawil_org — running` at 56/56 becomes `muqawil_org — queued`
+  // at 0 about two milliseconds later, against a 1500 ms poll -- and with no kind in
+  // the line there is nothing to read but "the crawl went back to the beginning".
+  // Issue 778 is the same sentence about a different pair of jobs.
   const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
-  $("mini-title").textContent = `${scope} — ${job.status.replace(/_/g, " ")}`;
+  const named = job.source_keys.length > 1 ? scope : jobLabel(job);
+  $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
   $("mini-bar").style.width = prog.pct + "%";
@@ -5259,6 +5268,18 @@ async function pollJobOnce() {
   const job = liveJob(jobs);
   state.job = job;
   if (job) {
+    // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
+    // this branch never had to know the difference: the adopted job was always the one
+    // he had started, so repointing at it lost nothing.
+    //
+    // It loses everything now. The branch below -- the one that draws the finished
+    // crawl's verdict with `renderActivity(done)` and refreshes the cards with
+    // `loadSources()` -- runs ONLY when the active list is empty, and the chain
+    // guarantees it is not: `_finish` commits COMPLETED and the interpretation is
+    // committed `queued` about 2.5 ms later, inside one 1500 ms poll. So without this,
+    // every directory crawl ends by silently repointing the log pane at an empty log,
+    // and the row counts he crawled for never refresh at all.
+    if (state.jobRef && state.jobRef !== job.job_ref) await settleOutgoing();
     state.jobRef = job.job_ref;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
@@ -5278,16 +5299,28 @@ async function pollJobOnce() {
   // Nothing active. Report how the last one ended, then refresh the counts.
   renderMiniplayer(null);
   if (state.jobRef) {
-    try {
-      const done = await api(`/api/jobs/${state.jobRef}`);
-      renderActivity(done);
-      const log = await api(`/api/jobs/${state.jobRef}/logs`);
-      renderLogs(log.entries, log);
-    } catch (_) {}
+    await settleOutgoing();
     state.jobRef = null;
-    await loadSources();
   }
   refreshRunButton();
+}
+
+/** Draw the last state of the job we are about to stop watching, and refresh the cards.
+ *
+ * ONE READER OF THIS, TWO CALLERS, and they are the same fact: whether the run ended
+ * because nothing is active or because something else was adopted, what he was watching
+ * is over and its verdict is the only thing that says how it went. Splitting it would
+ * have been two copies of "how a finished job is reported".
+ */
+async function settleOutgoing() {
+  if (!state.jobRef) return;
+  try {
+    const done = await api(`/api/jobs/${state.jobRef}`);
+    renderActivity(done);
+    const log = await api(`/api/jobs/${state.jobRef}/logs`);
+    renderLogs(log.entries, log);
+  } catch (_) {}
+  await loadSources();
 }
 
 async function pollJob() {
@@ -5619,7 +5652,22 @@ function coverageShare(c) {
 function waitingLine(s) {
   const waiting = s.work_waiting || {};
   const rows = [];
-  if (waiting.interpret && waiting.interpret.crawl_finished_at) {
+  // AN ANSWER IN THE BADGE'S PLACE, NOT A GAP WHERE IT WAS. The engine stops filling
+  // `interpret` while an interpretation of this source is on its way, and the first
+  // version of that stopped there -- so the amber row simply vanished, which reads as
+  // "nothing is owed": the one sentence this line exists to keep from being false.
+  //
+  // AND IT GATES BOTH PRODUCERS. "Interpret stored pages" is drawn from `interpret`
+  // AND again from `profiles.rowless` below, and only the first went quiet -- so in the
+  // measured 469-rowless / 938-fetched state the card kept the identical badge for the
+  // whole run of the interpretation. One fact, read once, ahead of both.
+  const busy = waiting.interpreting;
+  if (busy && busy.job_ref) {
+    rows.push(`<span class="badge">Interpretation under way</span>` +
+      `<span class="muted"> · ${esc(busy.job_ref)} is turning the stored pages into ` +
+      `rows; nothing to press</span>`);
+  }
+  if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(
       waiting.interpret.crawl_finished_at, "datetime", {zone: true});
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
@@ -5650,10 +5698,14 @@ function waitingLine(s) {
       `<span class="muted"> · ${esc(fmtCount(profiles.fetch))} ` +
       `${profiles.fetch === 1 ? "contractor needs" : "contractors need"} a profile ` +
       `page fetched</span>`);
-  } else if (profiles.rowless) {
+  } else if (profiles.rowless && !busy) {
     // PAGES ON DISK AND NO ROWS: the next press is an INTERPRETATION, not a request.
     // Saying so is the difference between him finding the right button and pressing the
     // one that says "profiles" because the word matches.
+    //
+    // `&& !busy` FOR THE SAME REASON THE FIRST ROW HAS IT: this is the SECOND producer
+    // of that badge, and suppressing only the first left this one offering the press
+    // while an interpretation was already running.
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
       `<span class="muted"> · ${esc(fmtCount(profiles.rowless))} ` +
       `${profiles.rowless === 1 ? "contractor has" : "contractors have"} a profile ` +
@@ -5874,11 +5926,24 @@ function sourceActions(source) {
   // `NothingToInterpret` -- correctly, and pointlessly, because nothing could have made it
   // work. A `dataset` card exists because rows exist, which means a crawl ran, so the
   // action always has either pages to interpret or an honest count of none.
+  //
+  // AND DISABLED WHILE ONE IS ALREADY ON ITS WAY. The badge above going quiet is not a
+  // refusal -- `POST /api/jobs` accepts a second interpretation of a source that is
+  // already being interpreted, which is issue 779 and not fixed here -- so the row that
+  // sends it has to say so itself. Without this the change makes things WORSE than it
+  // found them: the sentence warning him disappears at exactly the moment pressing is
+  // harmful, and the press still lands.
+  const busyRef = (source.work_waiting || {}).interpreting;
   const interpretable = source.site_key && source.kind === "dataset" ? [{
     action: "interpret",
     label: "Interpret stored pages",
-    why: "Turn the pages the last crawl saved into rows. Fetches nothing.",
+    why: busyRef && busyRef.job_ref
+      ? `${busyRef.job_ref} is already interpreting this source. Stop it from the jobs `
+        + `list if you want to start again.`
+      : "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+    ...(busyRef && busyRef.job_ref
+      ? {ready: false, note: "one is already running"} : {}),
   }] : [];
   // AND FETCHING THE PROFILE PAGES THE LISTING NAMED, the third verb over one key and the
   // last of the three to get a door. Measured 2026-09-06 on his warehouse: 17,848
@@ -5945,7 +6010,8 @@ function sourceMenu(source) {
     <button class="split-button-option" role="menuitem" type="button"
             data-split-action="${esc(item.action)}"${item.ready === false ? " disabled" : ""}
             title="${esc(item.why)}">${esc(item.label)}${
-      item.ready === false ? ' <span class="muted">· not built yet</span>' : ""
+      item.ready === false
+        ? ` <span class="muted">· ${esc(item.note || "not built yet")}</span>` : ""
     }</button>`).join("");
   return `<div class="split-button" role="group"
                aria-label="Actions for ${esc(source.source_key)}">

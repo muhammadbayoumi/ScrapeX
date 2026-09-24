@@ -771,7 +771,8 @@ def create_app(
         the cautionary tale one file over: it ran a full-file integrity scan on every
         page open and failed the deadline every time.
         """
-        waiting: dict = {"interpret": None, "profiles": None, "resumable": None}
+        waiting: dict = {"interpret": None, "interpreting": None,
+                         "profiles": None, "resumable": None}
         if site_key not in directories.BUILDERS:
             return waiting
         directory = directories.get(site_key)
@@ -798,6 +799,44 @@ def create_app(
             # a dataset that does not exist yet, so they stay `None`.
             return waiting
         like = f'%"{site_key}"%'
+        # ONE FACT, ONE FIELD, AND IT IS COMPUTED HERE RATHER THAN INSIDE `if crawled:`
+        # BELOW. Suppressing the badge is not the same as telling him why it is gone, and
+        # the first version did only the first: the amber row vanished and the card said
+        # nothing in its place, which reads as "nothing is owed" -- the very sentence the
+        # badge exists to stop being false.
+        #
+        # AND THE PANEL DRAWS THAT BADGE FROM TWO PLACES, not one. `waitingLine` offers
+        # "Interpret stored pages" from `interpret` AND again from `profiles.rowless`
+        # when `profiles.fetch` is 0 (extension/app.js) -- the measured 469-rowless /
+        # 938-fetched state. Suppressing one producer inside this `if` left the other
+        # drawing the identical row, so the fact has to leave this function rather than
+        # be acted on inside it.
+        #
+        # NON-TERMINAL, NOT `BLOCKING`, AND THE TWO SETS DISAGREE ON EXACTLY ONE STATE:
+        # `paused` (and `requires_review`) are non-terminal and not blocking, so this
+        # counts them and `directoryjob`'s chain does not. That split is deliberate and
+        # it is not asymmetry for its own sake -- the two answer different questions.
+        #
+        # THE CHAIN ASKS "may I START one?" Nothing but him restarts a paused job, so
+        # counting it would stop this source ever interpreting again, silently --
+        # `scheduler._source_is_busy` wrote that reasoning down first.
+        #
+        # THE BADGE ASKS "should I OFFER a press?" and the answer is no while any
+        # interpretation of this source exists at all, because the press does not resume
+        # that job: `POST /api/jobs` has no duplicate guard (issue 779), so it would make
+        # a SECOND one beside the paused one and he would then own two. The paused job
+        # keeps its own Resume control on the jobs list, which is the button that
+        # continues it -- and it re-resolves `latest_crawl_run_ref` when it does
+        # (`scrapex/datasetjob.py:217`), so it reads the newest run rather than its own.
+        marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
+        on_its_way = general.execute(
+            "SELECT job_ref FROM crawl_job "
+            f" WHERE job_kind = ? AND source_keys LIKE ? "
+            f"   AND status NOT IN ({marks_j}) LIMIT 1",
+            (datasetjob.JOB_KIND, like,
+             *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()
+        if on_its_way is not None:
+            waiting["interpreting"] = {"job_ref": on_its_way[0]}
         # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
         # is issue 782's filter in the other place. This check asked "has a LISTING crawl
         # finished since the last interpretation?", so a profile sweep finishing with 938
@@ -845,43 +884,21 @@ def create_app(
                 " ORDER BY finished_at DESC LIMIT 1",
                 (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value)).fetchone()
             # A JOB ALREADY ON ITS WAY IS AN ANSWER, and reading only `finished_at`
-            # made it invisible. Both queries above require `finished_at IS NOT NULL`,
-            # so a QUEUED or RUNNING interpretation counted as none at all: the card
-            # kept its amber "Interpret stored pages" badge, and `POST /api/jobs` has
-            # no duplicate guard, so one press made a second one. Measured on the gate
-            # for #1042 -- two active interpretations for one source, which is the cost
-            # issue 779 records: a worker slot out of three doing nothing, and the
-            # panel adopting a job he did not ask for.
+            # made it invisible. Both queries here require `finished_at IS NOT NULL`, so
+            # a QUEUED or RUNNING interpretation counted as none at all: the card kept
+            # its amber "Interpret stored pages" badge, and `POST /api/jobs` has no
+            # duplicate guard, so one press made a second one. Measured on the gate for
+            # #1042 -- two active interpretations for one source, which is the cost issue
+            # 779 records: a worker slot out of three doing nothing, and the panel
+            # adopting a job he did not ask for.
             #
-            # `directoryjob` now queues one itself when a crawl finishes, so this is
-            # not a rare window: it is every crawl, for the twenty to forty seconds the
-            # interpretation takes. The engine already refuses to queue a second; this
-            # is the same refusal on the surface he actually presses.
-            #
-            # NON-TERMINAL, NOT `BLOCKING`, AND THE TWO SETS DISAGREE ON EXACTLY ONE
-            # STATE: `paused` (and `requires_review`) are non-terminal and not blocking,
-            # so this clears the badge for them and `directoryjob`'s chain does not
-            # count them. That split is deliberate and it is not symmetry for its own
-            # sake -- the two are answering different questions.
-            #
-            # THE CHAIN ASKS "may I START one?" Nothing but him restarts a paused job,
-            # so counting it would stop this source ever interpreting again, silently --
-            # `scheduler._source_is_busy` wrote that reasoning down first.
-            #
-            # THE BADGE ASKS "should I OFFER a press?" and the answer is no while any
-            # interpretation of this source exists at all, because the press does not
-            # resume that job -- `POST /api/jobs` has no duplicate guard, so it would
-            # make a SECOND one beside the paused one, and he would then own two. The
-            # paused job keeps its own Resume control on the jobs list, which is the
-            # button that actually continues it.
-            marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
-            on_its_way = general.execute(
-                "SELECT job_ref FROM crawl_job "
-                f" WHERE job_kind = ? AND source_keys LIKE ? "
-                f"   AND status NOT IN ({marks_j}) LIMIT 1",
-                (datasetjob.JOB_KIND, like,
-                 *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()
-            if on_its_way is None and (read is None or str(crawled[0]) > str(read[0])):
+            # `directoryjob` now queues one itself when a crawl finishes, so this is not
+            # a rare window: it is every crawl, for as long as the interpretation takes.
+            # `waiting["interpreting"]` above carries WHICH job, so the card can say so
+            # rather than falling silent. What it does NOT do is refuse the press: the
+            # route still has none, which is issue 779 and not this change.
+            if waiting["interpreting"] is None and (
+                    read is None or str(crawled[0]) > str(read[0])):
                 waiting["interpret"] = {"crawl_finished_at": crawled[0],
                                         "interpreted_at": read[0] if read else None}
         if directory.profiles is not None:

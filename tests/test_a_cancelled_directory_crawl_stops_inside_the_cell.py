@@ -49,7 +49,7 @@ from scrapex import contractors, datasetjob, directoryjob, jobs  # noqa: E402
 from scrapex import db as dbmod
 from scrapex.crawlscope import CrawlScope  # noqa: E402
 from scrapex.pagewalk import PageWalker  # noqa: E402
-from scrapex.vocab import JobControl, JobStatus, RunMode  # noqa: E402
+from scrapex.vocab import JobControl, JobStatus, LogLevel, RunMode  # noqa: E402
 from scrapex.webui.app import _fetch_progress  # noqa: E402
 
 SITE = "muqawil_org"
@@ -963,4 +963,55 @@ def test_the_queued_interpretation_is_an_update_and_not_a_rebuild(conn, monkeypa
     assert [mode for _, mode in queued] == [RunMode.UPDATE.value], (
         f"the chain queued {queued!r}. Anything but `update` is a decision about his "
         f"dataset that he did not make."
+    )
+
+
+def test_the_failure_line_survives_the_connection(conn, monkeypatch):
+    """THE THIRD EXIT, AND THE ONLY ONE WITHOUT THIS GUARD.
+
+    All three exits of `_queue_the_interpretation` write a line `append_log` does not
+    commit, and the worker closes without one. Two have a test that re-reads on a SECOND
+    connection for exactly that reason. The failure branch had none:
+    `test_a_crawl_that_cannot_queue_its_interpretation_still_finished` reads `conn` --
+    the same open connection the runner wrote on -- so deleting that branch's
+    `conn.commit()` passed everything.
+
+    And it is the branch where losing the line costs most. The crawl finished, no
+    interpretation exists, and the only record of why is this sentence. Without it he has
+    stored pages, no rows, and nothing anywhere saying so.
+    """
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
+
+    def refuse(*args, **kwargs):
+        raise sqlite3.IntegrityError("no room at the inn")
+
+    # The crawl's own job is made BEFORE the refusal is armed -- the chain's call is the
+    # one being refused, not the runner's own.
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    monkeypatch.setattr(jobs, "create_job", refuse)
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    db_path = str(conn.execute("PRAGMA database_list").fetchone()[2])
+    own = dbmod.connect(db_path)
+    try:
+        seen = [row[0] for row in own.execute("SELECT message FROM job_log_entry")]
+        levels = [row[0] for row in own.execute(
+            "SELECT level FROM job_log_entry WHERE message LIKE ?",
+            ("%could not be queued%",))]
+    finally:
+        own.close()
+
+    assert any("could not be queued" in one for one in seen), (
+        f"the crawl {ref} could not queue its interpretation and the line saying so "
+        f"never left the writing connection. He is left with pages, no rows and no "
+        f"record of why. Committed lines: {seen!r}"
+    )
+    assert levels == [LogLevel.WARNING.value], (
+        f"the line is recorded at {levels!r}. A crawl that could not queue its own "
+        f"follow-up is a warning, not an ordinary note -- at INFO it reads as progress."
     )
