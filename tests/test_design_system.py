@@ -179,6 +179,28 @@ def test_material_icons_keep_their_license() -> None:
     )
 
 
+def test_every_copy_of_the_mark_ships_tablers_notice() -> None:
+    """The mark is Tabler's MIT x-mark, and MIT wants its notice in every copy (#1045).
+
+    The directories are read from the sync map rather than listed here, so a new home for
+    the mark that forgets the notice fails too.
+    """
+    from tools.sync_design_assets import ASSETS
+
+    mark = ROOT / "design" / "x-mark.svg"
+    assert "icon-tabler-x-mark" in mark.read_text(encoding="utf-8"), (
+        "design/x-mark.svg no longer says it is Tabler's; if the mark changed hands, so does "
+        "the notice this test demands")
+    homes = [mark, *ASSETS[mark]]
+    assert len(homes) >= 3, f"the mark ships to {len(homes)} places; the map is not being read"
+    for home in homes:
+        notice = home.with_name("x-mark.LICENSE.txt")
+        assert notice.is_file(), f"{home.relative_to(ROOT)} ships with no Tabler notice beside it"
+        text = notice.read_text(encoding="utf-8")
+        assert "MIT License" in text and "Paweł Kuna" in text, (
+            f"{notice.relative_to(ROOT)} is not Tabler's MIT notice")
+
+
 def test_obsolete_custom_source_icons_are_not_shipped() -> None:
     obsolete = {"browser.png", "file.png", "link.png", "shopping-cart.png"}
     assert not {
