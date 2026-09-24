@@ -5272,14 +5272,25 @@ async function pollJobOnce() {
     // this branch never had to know the difference: the adopted job was always the one
     // he had started, so repointing at it lost nothing.
     //
-    // It loses everything now. The branch below -- the one that draws the finished
-    // crawl's verdict with `renderActivity(done)` and refreshes the cards with
-    // `loadSources()` -- runs ONLY when the active list is empty, and the chain
-    // guarantees it is not: `_finish` commits COMPLETED and the interpretation is
-    // committed `queued` about 2.5 ms later, inside one 1500 ms poll. So without this,
-    // every directory crawl ends by silently repointing the log pane at an empty log,
-    // and the row counts he crawled for never refresh at all.
-    if (state.jobRef && state.jobRef !== job.job_ref) await settleOutgoing();
+    // The branch below -- the one that refreshes the cards with `loadSources()` -- runs
+    // ONLY when the active list is empty, and the chain guarantees it is not: `_finish`
+    // commits COMPLETED and the interpretation is committed `queued` about 2.5 ms later,
+    // inside one 1500 ms poll. So the row counts he crawled for never refreshed at all,
+    // and the card went on showing what it showed before the crawl started.
+    //
+    // `loadSources()` AND NOT THE FINISHED JOB'S VERDICT, and the difference is the
+    // whole of what this line can honestly claim. A first version drew the outgoing
+    // job here as well; the design session opened the next three lines and killed it.
+    // `renderActivity` writes the single `#activity` box, so `renderActivity(job)` four
+    // lines down overwrites the verdict inside the same poll -- it would be a flash and
+    // two wasted requests, not a report.
+    //
+    // THE VERDICT AND THE LOG BELONG TO THE LIVE JOB, so the sentence he needs about
+    // the OUTGOING one goes where the pane is about to point instead: the queued
+    // interpretation's own log opens by naming the crawl that started it
+    // (`scrapex/directoryjob.py`). That is durable, it survives every poll, and it is
+    // there when he scrolls back.
+    if (state.jobRef && state.jobRef !== job.job_ref) await loadSources();
     state.jobRef = job.job_ref;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
@@ -5299,28 +5310,19 @@ async function pollJobOnce() {
   // Nothing active. Report how the last one ended, then refresh the counts.
   renderMiniplayer(null);
   if (state.jobRef) {
-    await settleOutgoing();
+    // NOTHING ACTIVE, so `#activity` has no live job to belong to and the verdict can
+    // stay in it. This is the one path where drawing the outgoing job is durable, which
+    // is why the handoff above refreshes the cards and draws nothing.
+    try {
+      const done = await api(`/api/jobs/${state.jobRef}`);
+      renderActivity(done);
+      const log = await api(`/api/jobs/${state.jobRef}/logs`);
+      renderLogs(log.entries, log);
+    } catch (_) {}
     state.jobRef = null;
+    await loadSources();
   }
   refreshRunButton();
-}
-
-/** Draw the last state of the job we are about to stop watching, and refresh the cards.
- *
- * ONE READER OF THIS, TWO CALLERS, and they are the same fact: whether the run ended
- * because nothing is active or because something else was adopted, what he was watching
- * is over and its verdict is the only thing that says how it went. Splitting it would
- * have been two copies of "how a finished job is reported".
- */
-async function settleOutgoing() {
-  if (!state.jobRef) return;
-  try {
-    const done = await api(`/api/jobs/${state.jobRef}`);
-    renderActivity(done);
-    const log = await api(`/api/jobs/${state.jobRef}/logs`);
-    renderLogs(log.entries, log);
-  } catch (_) {}
-  await loadSources();
 }
 
 async function pollJob() {
@@ -5937,9 +5939,19 @@ function sourceActions(source) {
   const interpretable = source.site_key && source.kind === "dataset" ? [{
     action: "interpret",
     label: "Interpret stored pages",
+    // THE CONTROL IS NAMED BY ITS LABEL, ITS PLACE, AND THE STEP THAT REVEALS IT --
+    // and this line got all three wrong in turn, which is why it now says all three.
+    //
+    // First it said "Stop it from the jobs list". There is no jobs list with a Stop in
+    // this panel: the only control that ends a running job is the player's Cancel
+    // (`app.html`, `#mini-cancel`). Then it said "Press Cancel in the player at the
+    // bottom" -- a real button, hidden. `<details id="miniplayer">` carries no `open`,
+    // Cancel is inside `<div class="mini-body">`, and `$("miniplayer")` has ONE use in
+    // this file, in `renderMiniplayer`, which only adds and removes `hidden`. Nothing
+    // opens the player, ever. So with it collapsed he sees the status bar and no Cancel.
     why: busyRef && busyRef.job_ref
-      ? `${busyRef.job_ref} is already interpreting this source. Stop it from the jobs `
-        + `list if you want to start again.`
+      ? `${busyRef.job_ref} is already interpreting this source. Open the player at the `
+        + `bottom and press Cancel to start again.`
       : "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
     ...(busyRef && busyRef.job_ref

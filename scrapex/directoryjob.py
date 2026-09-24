@@ -861,8 +861,24 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
         jobs.append_log(
             conn, job["job_id"],
             f"queued the interpretation of these pages as {ref}: it turns the stored "
-            "evidence into rows and fetches nothing. Stop it from its own card if you "
-            "do not want it",
+            "evidence into rows and fetches nothing. Open the player at the bottom and "
+            "press Cancel if you do not want it",
+            source_key=source_key)
+        # AND THE SAME SENTENCE IN THE NEW JOB'S OWN LOG, because that is the pane the
+        # panel is about to open. `pollJobOnce` adopts the newest live job and draws ITS
+        # log, so the line above -- written on the crawl -- is off screen within about
+        # 1.5 s of being written. A job he did not start, whose log opens empty, is the
+        # shape issue 778 records: he reads the panel and cannot tell what is happening.
+        #
+        # NOT A DUPLICATE OF THE LINE ABOVE. That one tells the crawl's reader what the
+        # crawl did last; this one tells the interpretation's reader why it exists. Two
+        # readers, two questions, and neither log is the other's.
+        jobs.append_log(
+            conn, jobs.get_job(conn, ref)["job_id"],
+            f"started automatically when the listing crawl {job['job_ref']} finished, "
+            f"because it stored pages nothing had read yet. It reads them from disk and "
+            f"makes no request. Open the player at the bottom and press Cancel to "
+            f"stop it",
             source_key=source_key)
         conn.commit()
         return ref

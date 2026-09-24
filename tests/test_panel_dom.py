@@ -1780,6 +1780,22 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
     assert "already running" in row.text_content(), (
         f"the disabled row gives no reason: {row.text_content()!r}")
 
+    # THE TITLE IS THE SENTENCE, AND IT HAD NO GUARD AT ALL. A mutation putting "Stop it
+    # from the jobs list" back into this string survived every test in the repository --
+    # the engine's twin line is guarded from the warehouse, and nothing read the panel's.
+    # It must name the control (`Cancel`), the step that reveals it (the player is a
+    # collapsed `<details>` that nothing ever opens), and no place that does not exist.
+    said = row.get_attribute("title")
+    assert "Cancel" in said, (
+        f"the row does not name the control that stops it: {said!r}")
+    assert "Open the player" in said, (
+        f"it names Cancel without the step that shows it: {said!r}. `#mini-cancel` sits "
+        f"in the collapsed half of `<details id=\"miniplayer\">`, which nothing opens.")
+    assert "jobs list" not in said and "its own card" not in said, (
+        f"it sends him to a control this panel does not have: {said!r}")
+    assert "job_already_reading" in said, (
+        f"it does not name the job he would be cancelling: {said!r}")
+
 
 def test_the_interpret_control_comes_back_when_that_job_is_over(open_panel):
     """THE OTHER SIDE OF THE SAME GATE, and without it the change is a switch that only

@@ -2,23 +2,30 @@
  * A CRAWL NOW QUEUES ITS OWN INTERPRETATION, AND THE RUN SCREEN HAD NO IDEA.
  *
  * `pollJobOnce` adopts whatever `liveJob` returns and, when there IS one, repoints
- * `state.jobRef` at it and returns. The branch that draws the finished job's verdict and
- * refreshes the cards runs ONLY when the active list is empty — which was true for as
- * long as one job followed another by his own hand, and stopped being true the moment a
- * crawl started queueing its own follow-up. Measured on the merge gate: `_finish` commits
- * COMPLETED and the interpretation is committed `queued` 2.51 ms later, against
- * `POLL_MS = 1500`. So the handoff is not a race that sometimes happens — it is what
- * happens, after every directory crawl.
+ * `state.jobRef` at it and returns. The branch that refreshes the cards runs ONLY when
+ * the active list is empty — true for as long as one job followed another by his own
+ * hand, and false the moment a crawl started queueing its own follow-up. Measured on the
+ * merge gate: `_finish` commits COMPLETED and the interpretation is committed `queued`
+ * 2.51 ms later, against `POLL_MS = 1500`. So the handoff is not a race that sometimes
+ * happens — it is what happens, after every directory crawl.
  *
- * WHAT HE WOULD HAVE SEEN. The mini-player title was `${source_key} — ${status}` and
- * names no kind at all, so `muqawil_org — running` at 56/56 became `muqawil_org — queued`
- * at 0, the log pane repointed to a job whose log is empty, and the row counts the crawl
- * was run for never refreshed. Issue 778 is the same sentence about a different pair.
+ * WHAT HE WOULD HAVE SEEN. The row counts he crawled for never refreshed, and the
+ * mini-player title was `${source_key} — ${status}`, which names no kind at all, so
+ * `muqawil_org — running` at 56/56 became `muqawil_org — queued` at 0. Issue 778 is the
+ * same sentence about a different pair.
+ *
+ * WHAT THIS FILE DOES **NOT** CLAIM, AND WHY THAT IS THE POINT. A first version drew the
+ * finished crawl's verdict on the handoff too, and this file asserted that it had been
+ * drawn. It was — and then overwritten four lines later, because `renderActivity` writes
+ * the single `#activity` box and the incoming job gets it next. The assertion recorded a
+ * CALL and called it a report. So the stubs below record what is still on screen when the
+ * poll returns, and the durable claims are exactly two: the cards refresh, and the title
+ * names the kind. The sentence about the outgoing job lives in the incoming job's own log
+ * instead (`scrapex/directoryjob.py`), which is the pane the panel is about to open.
  *
  * HOW IT IS TESTED. `app.js` is the panel's runtime and exports nothing, so this uses the
  * harness `healthy.test.mjs` and `finish-estimate.test.mjs` already use: read the file as
- * text, pull the functions out by name, and run them in a scope built here. The
- * alternative is not testing them, which is the state the gate found this handoff in.
+ * text, pull the functions out by name, and run them in a scope built here.
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -40,8 +47,6 @@ function extract(name, pattern) {
 // stops at the end of the function rather than at a block within it.
 const POLL_JOB_ONCE = extract(
   "pollJobOnce", /^async function pollJobOnce\(\) \{[\s\S]*?^\}/m);
-const SETTLE_OUTGOING = extract(
-  "settleOutgoing", /^async function settleOutgoing\(\) \{[\s\S]*?^\}/m);
 const RENDER_MINIPLAYER = extract(
   "renderMiniplayer", /^function renderMiniplayer\(job, queued\) \{[\s\S]*?^\}/m);
 
@@ -56,10 +61,14 @@ const CHAINED = {
 };
 const CRAWL_DONE = { ...CRAWL, status: "completed", finished_at: "2026-09-24T09:00:00Z" };
 
-/** `pollJobOnce` and `settleOutgoing` over stubbed IO, returning what each stub saw. */
+/** `pollJobOnce` over stubbed IO, recording what is on screen when it returns. */
 function runner({ active, byRef, visible = true }) {
+  // `activity` IS THE LAST VALUE THE BOX WAS GIVEN — what he can actually see.
+  // `everDrawn` keeps the whole sequence, so a test can assert something was NOT drawn
+  // at all rather than merely not drawn last.
   const seen = {
-    activity: [], logsFor: [], miniplayer: [], loadSources: 0, fetched: [],
+    activity: undefined, everDrawn: [], logShown: undefined, logsFor: [],
+    miniplayer: undefined, loadSources: 0, fetched: [],
   };
   const state = { job: null, jobRef: null };
   const api = async (path) => {
@@ -80,71 +89,101 @@ function runner({ active, byRef, visible = true }) {
     "refreshRunButton", "loadSources", "document", "clearTimeout", "setTimeout",
     "POLL_MS",
     // `pollTimer` is a module-level `let` in app.js that `pollJobOnce` assigns.
-    `let pollTimer;\n${SETTLE_OUTGOING}\n${POLL_JOB_ONCE}\nreturn {pollJobOnce, settleOutgoing};`);
+    "let pollTimer;\n" + POLL_JOB_ONCE + "\nreturn {pollJobOnce};");
   const built = build(
     api, state, liveJob,
-    (job) => seen.miniplayer.push(job && job.job_ref),
-    (job) => seen.activity.push(job && job.job_ref),
-    () => {}, () => {}, async () => { seen.loadSources += 1; },
+    (job) => { seen.miniplayer = job && job.job_ref; },
+    (job) => {
+      seen.activity = job && job.job_ref;
+      seen.everDrawn.push(job && job.job_ref);
+    },
+    (entries) => { seen.logShown = entries; },
+    () => {}, async () => { seen.loadSources += 1; },
     { visibilityState: visible ? "visible" : "hidden" },
     () => {}, () => {}, 1500);
   return { ...built, state, seen };
 }
 
-test("the crawl's verdict is drawn before the chained job is adopted", async () => {
+test("the handoff refreshes the cards the crawl was run for", async () => {
   // THE MEASURED SEQUENCE. Poll 1: the crawl is running and is adopted. Poll 2: it has
   // finished and its own interpretation is already `queued`, so the active list is NOT
-  // empty and the old code returned without ever reporting the crawl.
+  // empty and the old code returned without ever refreshing a card.
   const first = runner({ active: [CRAWL], byRef: { job_crawl: CRAWL } });
   await first.pollJobOnce();
   assert.equal(first.state.jobRef, "job_crawl");
+  assert.equal(first.seen.loadSources, 0, "a card refresh on an ordinary first poll");
 
   const second = runner({
     active: [CHAINED],
-    byRef: { job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] },
-             job_read: { ...CHAINED, log: [] } },
+    byRef: {
+      job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] },
+      job_read: { ...CHAINED, log: [{ message: "started automatically when…" }] },
+    },
   });
   second.state.jobRef = "job_crawl";
   await second.pollJobOnce();
 
-  assert.ok(second.seen.activity.includes("job_crawl"),
-    `the crawl's final state was never drawn: activity = ${JSON.stringify(second.seen.activity)}. ` +
-    "He watched it to 56/56 and the screen moved on without telling him how it ended.");
-  assert.ok(second.seen.logsFor.includes("job_crawl"),
-    "the log pane repointed without ever fetching the crawl's own log -- which holds " +
-    "both 'job completed' and the one line naming the job that replaced it");
   assert.equal(second.seen.loadSources, 1,
-    "loadSources() never ran, so the row counts he crawled for did not refresh");
-  assert.equal(second.state.jobRef, "job_read",
-    "having settled the crawl, the poll must still adopt the live job");
+    "the crawl ended and no card refreshed, so the row counts he crawled for still " +
+    "show what they showed before it started");
+  assert.equal(second.state.jobRef, "job_read", "the live job was not adopted");
 });
 
-test("a poll that stays on one job does not redraw it as finished", async () => {
-  // The other side of the same guard: `settleOutgoing` must fire on a HANDOFF, not on
-  // every poll. Firing each time would call `loadSources()` at 1500 ms for the whole
-  // run of a fourteen-hour crawl.
+test("it does not draw the outgoing job, because the incoming one owns that box",
+     async () => {
+  // THE CORRECTION THE DESIGN SESSION'S PANEL READ FORCED. Drawing the crawl here is not
+  // a report: `renderActivity` writes one `#activity` box and the incoming job gets it
+  // four lines later, so it would be a flash plus two wasted requests. The sentence he
+  // needs about the outgoing job is written into the INCOMING job's log by the engine.
+  const over = runner({
+    active: [CHAINED],
+    byRef: {
+      job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] },
+      job_read: { ...CHAINED, log: [{ message: "started automatically when…" }] },
+    },
+  });
+  over.state.jobRef = "job_crawl";
+  await over.pollJobOnce();
+
+  assert.equal(over.seen.activity, "job_read",
+    `the box ended up showing ${over.seen.activity}; the live job owns it`);
+  assert.ok(!over.seen.everDrawn.includes("job_crawl"),
+    "the outgoing job was drawn and then overwritten in the same poll: " +
+    `${JSON.stringify(over.seen.everDrawn)}. A call is not a thing seen.`);
+  assert.ok(!over.seen.fetched.includes("/api/jobs/job_crawl"),
+    "it fetched the outgoing job to draw something nothing can see");
+  assert.deepEqual(over.seen.logsFor, ["job_read"],
+    `the log pane fetched ${JSON.stringify(over.seen.logsFor)}`);
+});
+
+test("a poll that stays on one job does not refresh every card", async () => {
+  // The other side of the guard: the refresh fires on a HANDOFF, not on every poll.
+  // Firing each time would call `loadSources()` at 1500 ms for the whole run of a
+  // fourteen-hour crawl.
   const still = runner({ active: [CRAWL], byRef: { job_crawl: CRAWL } });
   still.state.jobRef = "job_crawl";
   await still.pollJobOnce();
   assert.equal(still.seen.loadSources, 0,
     "the poll refreshed every card while the same job was still running");
-  assert.ok(!still.seen.activity.includes(undefined));
 });
 
-test("nothing active still reports the last job, through the same one reader", async () => {
-  // The pre-existing branch, which `settleOutgoing` was factored out of. It has to keep
-  // working, and it has to keep clearing the ref.
+test("nothing active still reports the last job, because nothing overwrites it",
+     async () => {
+  // THE ONE PATH WHERE DRAWING THE OUTGOING JOB IS DURABLE. No live job means no
+  // `renderActivity(job)` after it, so the verdict stays in the box.
   const over = runner({
-    active: [], byRef: { job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] } },
+    active: [],
+    byRef: { job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] } },
   });
   over.state.jobRef = "job_crawl";
   await over.pollJobOnce();
-  assert.deepEqual(over.seen.activity, ["job_crawl"]);
+  assert.equal(over.seen.activity, "job_crawl", "the verdict is not on screen");
+  assert.deepEqual(over.seen.logShown, [{ message: "job completed" }]);
   assert.equal(over.seen.loadSources, 1);
   assert.equal(over.state.jobRef, null, "the finished ref was not cleared");
 });
 
-/** `renderMiniplayer` over stub nodes, returning every textContent it wrote. */
+/** `renderMiniplayer` over stub nodes, returning the title it wrote. */
 function titleFor(job) {
   const drawn = [];
   const nodes = {};
@@ -156,8 +195,7 @@ function titleFor(job) {
   });
   // eslint-disable-next-line no-new-func
   const build = new Function("$", "jobLabel", "miniProgress", "fmtCount",
-    `${RENDER_MINIPLAYER}
-return renderMiniplayer;`);
+    RENDER_MINIPLAYER + "\nreturn renderMiniplayer;");
   build($, jobLabel, () => ({ text: "", pct: 0, indeterminate: false }), String)(job, 0);
   return drawn.filter(([id]) => id === "mini-title").map(([, value]) => value)[0];
 }
@@ -172,5 +210,6 @@ test("the mini-player names the KIND, so a handoff cannot read as a restart", ()
 test("two sources keep the count, because no one kind covers them", () => {
   // `jobLabel` names ONE source, so a multi-source job keeps the "3 sites" wording
   // rather than silently naming the first key as if it were the whole job.
-  assert.equal(titleFor({ ...CRAWL, source_keys: ["a", "b", "c"] }), "3 sites — running");
+  assert.equal(titleFor({ ...CRAWL, source_keys: ["a", "b", "c"] }),
+    "3 sites — running");
 });

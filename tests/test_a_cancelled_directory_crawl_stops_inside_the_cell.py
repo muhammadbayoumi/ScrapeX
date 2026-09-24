@@ -1015,3 +1015,79 @@ def test_the_failure_line_survives_the_connection(conn, monkeypatch):
         f"the line is recorded at {levels!r}. A crawl that could not queue its own "
         f"follow-up is a warning, not an ordinary note -- at INFO it reads as progress."
     )
+
+
+def test_the_queued_interpretation_says_why_it_exists_in_its_OWN_log(conn, monkeypatch):
+    """THE PANE THE PANEL OPENS IS THE NEW JOB'S, NOT THE CRAWL'S.
+
+    `pollJobOnce` adopts the newest live job and draws ITS log, so the line written on the
+    crawl -- "queued the interpretation of these pages as job_x" -- is off screen within
+    about 1.5 s of being written. Measured on the gate: 2.51 ms between the crawl's
+    COMPLETED commit and the interpretation's, against POLL_MS = 1500.
+
+    So a job he did not start would open with an empty log. That is issue 778's shape:
+    he reads the panel and cannot tell what is happening, or why.
+
+    NOT A DUPLICATE OF THE LINE ON THE CRAWL. That one tells the crawl's reader what the
+    crawl did last. This one tells the interpretation's reader why it exists, and it is
+    the only one of the two he will be looking at.
+    """
+    crawl = _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row["job_ref"] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert len(queued) == 1, queued
+    own = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (jobs.get_job(conn, queued[0])["job_id"],))]
+
+    assert own, (
+        f"the interpretation {queued[0]} opens with an empty log, and it is the pane the "
+        f"panel repoints to about 1.5 s after the crawl ends. He gets a job he did not "
+        f"start and no sentence anywhere he is looking."
+    )
+    line = own[0]
+    assert crawl in line, (
+        f"it does not name the crawl that started it, so he cannot get back to what "
+        f"bought these pages: {line!r}")
+    assert "automatically" in line, (
+        f"it does not say the ENGINE started it, so it reads as his own press: {line!r}")
+    assert "makes no request" in line or "no request" in line, (
+        f"it does not say the run costs no request, which is the whole reason it is safe "
+        f"to leave running: {line!r}")
+
+
+def test_neither_line_names_a_control_that_does_not_exist(conn, monkeypatch):
+    """A SENTENCE THAT SENDS HIM SOMEWHERE THAT IS NOT THERE IS WORSE THAN NO SENTENCE.
+
+    Both of these lines told him to stop the job from a place with no such control: one
+    said "its own card" and one said "the jobs list". The source card's actions are
+    update, table, enrich, changes, settings, pause, sheet, interpret, resume and
+    profiles -- `pause` stops the SCHEDULE, not a running job -- and there is no jobs
+    list with a Stop anywhere in the panel.
+
+    The only control that ends a running job is the player's Cancel (`app.html`,
+    `#mini-cancel`, confirmed by "Cancel this job? Work already saved is kept."), so that
+    is the control both lines name, by its label.
+    """
+    _finish_one_crawl(conn, monkeypatch)
+    said = [row[0] for row in conn.execute("SELECT message FROM job_log_entry")]
+    about_stopping = [one for one in said if "want it" in one or "stop it" in one.lower()]
+    assert about_stopping, f"neither line tells him how to stop it at all: {said!r}"
+
+    for line in about_stopping:
+        assert "Cancel" in line, (
+            f"it names no control he can find: {line!r}. The player's Cancel is the only "
+            f"thing that ends a running job.")
+        assert "jobs list" not in line and "its own card" not in line, (
+            f"it still sends him to a control that does not exist: {line!r}")
+        # AND THE STEP THAT REVEALS IT, because the button is real and hidden.
+        # `<details id="miniplayer">` in `extension/app.html` carries no `open`, Cancel
+        # sits inside `<div class="mini-body">`, and nothing in `app.js` ever opens it --
+        # `$("miniplayer")` has one use there and it only toggles `hidden`. So "press
+        # Cancel in the player" named a button he cannot see, which is the same defect
+        # as naming one that does not exist, one step in.
+        assert "Open the player" in line, (
+            f"it names Cancel without the step that shows it: {line!r}. If a reword ever "
+            f"fails this line, the reword has to keep BOTH steps -- that is what this "
+            f"assertion is for, not the exact words.")
