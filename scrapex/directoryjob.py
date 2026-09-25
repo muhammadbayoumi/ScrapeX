@@ -36,7 +36,6 @@ from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
 from .vocab import (
-    BLOCKING_JOB_STATUSES,
     JobControl,
     JobStage,
     JobStatus,
@@ -840,16 +839,29 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     # stop that source's schedule from ever firing again."* The first version of this
     # guard used `active_only` alone, and a paused interpretation then blocked every
     # future crawl of that source -- permanently, with nothing failing.
+    #
+    # NOT YET STARTED, NOT MERELY BLOCKING -- and the difference decides whether the
+    # skip is safe. `run_dataset_interpret_job_once` resolves its run ONCE, at
+    # `scrapex/datasetjob.py:217`, before it writes PREPARING at :226. So a sibling that
+    # is still `scheduled` or `queued` has bound nothing and will take the newest run,
+    # which is this crawl's. One that is already `preparing`, `running`, `resuming`,
+    # `pausing` or `cancelling` bound its ref BEFORE this crawl's pages existed, and
+    # skipping for it leaves them unread while the log says they are covered.
+    #
+    # The second interpretation does not run beside the first: the worker takes `queued`
+    # jobs up to `job_capacity`, and this one waits its turn and then resolves the newest
+    # run -- which by then includes this crawl.
+    not_started_yet = {JobStatus.SCHEDULED.value, JobStatus.QUEUED.value}
     waiting = [one for one in jobs.list_jobs(conn, limit=200, active_only=True)
                if one.get("job_kind") == datasetjob.JOB_KIND
-               and one.get("status") in BLOCKING_JOB_STATUSES
+               and one.get("status") in not_started_yet
                and source_key in (one.get("source_keys") or [])]
     if waiting:
         jobs.append_log(
             conn, job["job_id"],
             f"an interpretation of this source is already waiting as "
-            f"{waiting[0]['job_ref']}, so this crawl queued none: it reads the newest "
-            "stored run, which is this one",
+            f"{waiting[0]['job_ref']}, so this crawl queued none: it has not started "
+            "yet, so it reads the newest stored run, which is this one",
             source_key=source_key)
         conn.commit()
         return None
@@ -861,8 +873,8 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
         jobs.append_log(
             conn, job["job_id"],
             f"queued the interpretation of these pages as {ref}: it turns the stored "
-            "evidence into rows and fetches nothing. Open the player at the bottom and "
-            "press Cancel if you do not want it",
+            "evidence into rows and fetches nothing. Open the Jobs page and press "
+            "Cancel on its row if you do not want it",
             source_key=source_key)
         # AND THE SAME SENTENCE IN THE NEW JOB'S OWN LOG, because that is the pane the
         # panel is about to open. `pollJobOnce` adopts the newest live job and draws ITS
@@ -877,7 +889,7 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
             conn, jobs.get_job(conn, ref)["job_id"],
             f"started automatically when the listing crawl {job['job_ref']} finished, "
             f"because it stored pages nothing had read yet. It reads them from disk and "
-            f"makes no request. Open the player at the bottom and press Cancel to "
+            f"makes no request. Open the Jobs page and press Cancel on its row to "
             f"stop it",
             source_key=source_key)
         conn.commit()

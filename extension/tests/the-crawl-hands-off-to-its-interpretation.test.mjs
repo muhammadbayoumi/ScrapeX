@@ -47,6 +47,9 @@ function extract(name, pattern) {
 // stops at the end of the function rather than at a block within it.
 const POLL_JOB_ONCE = extract(
   "pollJobOnce", /^async function pollJobOnce\(\) \{[\s\S]*?^\}/m);
+const REDRAW = extract(
+  "redrawWhatTheJobChanged",
+  /^async function redrawWhatTheJobChanged\(\) \{[\s\S]*?^\}/m);
 const RENDER_MINIPLAYER = extract(
   "renderMiniplayer", /^function renderMiniplayer\(job, queued\) \{[\s\S]*?^\}/m);
 
@@ -62,13 +65,13 @@ const CHAINED = {
 const CRAWL_DONE = { ...CRAWL, status: "completed", finished_at: "2026-09-24T09:00:00Z" };
 
 /** `pollJobOnce` over stubbed IO, recording what is on screen when it returns. */
-function runner({ active, byRef, visible = true }) {
+function runner({ active, byRef, visible = true, view = "run" }) {
   // `activity` IS THE LAST VALUE THE BOX WAS GIVEN — what he can actually see.
   // `everDrawn` keeps the whole sequence, so a test can assert something was NOT drawn
   // at all rather than merely not drawn last.
   const seen = {
     activity: undefined, everDrawn: [], logShown: undefined, logsFor: [],
-    miniplayer: undefined, loadSources: 0, fetched: [],
+    miniplayer: undefined, loadSources: 0, loadDatasets: 0, fetched: [],
   };
   const state = { job: null, jobRef: null };
   const api = async (path) => {
@@ -86,10 +89,12 @@ function runner({ active, byRef, visible = true }) {
   // eslint-disable-next-line no-new-func
   const build = new Function(
     "api", "state", "liveJob", "renderMiniplayer", "renderActivity", "renderLogs",
-    "refreshRunButton", "loadSources", "document", "clearTimeout", "setTimeout",
-    "POLL_MS",
-    // `pollTimer` is a module-level `let` in app.js that `pollJobOnce` assigns.
-    "let pollTimer;\n" + POLL_JOB_ONCE + "\nreturn {pollJobOnce};");
+    "refreshRunButton", "loadSources", "loadDatasets", "currentViewName",
+    "document", "clearTimeout", "setTimeout", "POLL_MS",
+    // `pollTimer` is a module-level `let` in app.js that `pollJobOnce` assigns, and
+    // `redrawWhatTheJobChanged` is defined beside it in the same file.
+    "let pollTimer;\n" + REDRAW + "\n" + POLL_JOB_ONCE
+      + "\nreturn {pollJobOnce};");
   const built = build(
     api, state, liveJob,
     (job) => { seen.miniplayer = job && job.job_ref; },
@@ -99,6 +104,7 @@ function runner({ active, byRef, visible = true }) {
     },
     (entries) => { seen.logShown = entries; },
     () => {}, async () => { seen.loadSources += 1; },
+    async () => { seen.loadDatasets += 1; }, () => view,
     { visibilityState: visible ? "visible" : "hidden" },
     () => {}, () => {}, 1500);
   return { ...built, state, seen };
@@ -212,4 +218,48 @@ test("two sources keep the count, because no one kind covers them", () => {
   // rather than silently naming the first key as if it were the whole job.
   assert.equal(titleFor({ ...CRAWL, source_keys: ["a", "b", "c"] }),
     "3 sites — running");
+});
+
+
+test("on the Data tab the handoff redraws the card, not only the Run list", async () => {
+  // `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
+  // DATASET CARD is drawn by `loadDatasets`, whose only callers are `showView("data")`
+  // and the pause action -- so with the Data tab open and nothing navigating, the card
+  // kept the row count it had BEFORE the crawl, went on saying "Interpretation under
+  // way" after that job ended, and kept its Interpret row disabled.
+  //
+  // That stale row count is the exact complaint this whole feature exists for,
+  // reappearing on the surface the feature added.
+  const onData = runner({
+    active: [CHAINED], view: "data",
+    byRef: {
+      job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] },
+      job_read: { ...CHAINED, log: [{ message: "started automatically when…" }] },
+    },
+  });
+  onData.state.jobRef = "job_crawl";
+  await onData.pollJobOnce();
+
+  assert.equal(onData.seen.loadDatasets, 1,
+    "the Data tab was on screen and its card never redrew, so it still shows the row " +
+    "count and the badge it had before the crawl finished");
+  assert.equal(onData.seen.loadSources, 1, "and the Run list must still refresh");
+});
+
+test("on the Run tab it does not redraw a card nobody is looking at", async () => {
+  // The other side: `loadDatasets` rebuilds every dataset card and refetches their
+  // counts. Doing that on a tab that is not on screen is work for nobody, at 1500 ms.
+  const onRun = runner({
+    active: [CHAINED], view: "run",
+    byRef: {
+      job_crawl: { ...CRAWL_DONE, log: [] },
+      job_read: { ...CHAINED, log: [] },
+    },
+  });
+  onRun.state.jobRef = "job_crawl";
+  await onRun.pollJobOnce();
+
+  assert.equal(onRun.seen.loadDatasets, 0,
+    "it rebuilt the dataset cards while the Run tab was the one on screen");
+  assert.equal(onRun.seen.loadSources, 1);
 });

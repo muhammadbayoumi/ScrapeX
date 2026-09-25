@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
-  statusWords, summariseJobs,
+  controlsFor, jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate,
+  rowsFrom, statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5290,7 +5290,7 @@ async function pollJobOnce() {
     // interpretation's own log opens by naming the crawl that started it
     // (`scrapex/directoryjob.py`). That is durable, it survives every poll, and it is
     // there when he scrolls back.
-    if (state.jobRef && state.jobRef !== job.job_ref) await loadSources();
+    if (state.jobRef && state.jobRef !== job.job_ref) await redrawWhatTheJobChanged();
     state.jobRef = job.job_ref;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
@@ -5310,6 +5310,7 @@ async function pollJobOnce() {
   // Nothing active. Report how the last one ended, then refresh the counts.
   renderMiniplayer(null);
   if (state.jobRef) {
+    // The same redraw as the handoff, for the same reason -- see the function.
     // NOTHING ACTIVE, so `#activity` has no live job to belong to and the verdict can
     // stay in it. This is the one path where drawing the outgoing job is durable, which
     // is why the handoff above refreshes the cards and draws nothing.
@@ -5320,9 +5321,24 @@ async function pollJobOnce() {
       renderLogs(log.entries, log);
     } catch (_) {}
     state.jobRef = null;
-    await loadSources();
+    await redrawWhatTheJobChanged();
   }
   refreshRunButton();
+}
+
+/** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
+ *
+ * `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
+ * DATASET CARD is drawn by `loadDatasets`, whose only callers are `showView("data")` and
+ * the pause action — so with the Data tab open and nothing navigating, the card kept the
+ * row count it had before the crawl, went on saying "Interpretation under way" after
+ * that job had ended, and kept its Interpret row disabled. That stale row count is the
+ * exact complaint this whole feature exists for, reappearing on the surface the feature
+ * added.
+ */
+async function redrawWhatTheJobChanged() {
+  await loadSources();
+  if (currentViewName() === "data") await loadDatasets();
 }
 
 async function pollJob() {
@@ -5663,11 +5679,24 @@ function waitingLine(s) {
   // AND again from `profiles.rowless` below, and only the first went quiet -- so in the
   // measured 469-rowless / 938-fetched state the card kept the identical badge for the
   // whole run of the interpretation. One fact, read once, ahead of both.
+  //
+  // TWO SENTENCES, BECAUSE THERE ARE TWO STATES AND THEY NEED OPPOSITE THINGS FROM HIM.
+  // `interpreting` is set for any non-terminal interpretation, which includes `paused`
+  // and `requires_review` -- and over those, "is turning the stored pages into rows;
+  // nothing to press" was false three ways: nothing is turning, nothing is running, and
+  // Resume is exactly what to press. `controlsFor` is the panel's existing opinion on
+  // which statuses wait on HIM (it returns `resume` for them), so this reads it rather
+  // than keeping a second list beside it.
   const busy = waiting.interpreting;
+  const hisMove = busy && controlsFor(busy).includes("resume");
   if (busy && busy.job_ref) {
-    rows.push(`<span class="badge">Interpretation under way</span>` +
-      `<span class="muted"> · ${esc(busy.job_ref)} is turning the stored pages into ` +
-      `rows; nothing to press</span>`);
+    rows.push(hisMove
+      ? `<span class="badge off">Interpretation paused</span>` +
+        `<span class="muted"> · ${esc(busy.job_ref)} has stopped part-way and waits for ` +
+        `you. Open the Jobs page and press Resume on its row</span>`
+      : `<span class="badge">Interpretation under way</span>` +
+        `<span class="muted"> · ${esc(busy.job_ref)} is turning the stored pages into ` +
+        `rows; nothing to press</span>`);
   }
   if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(
@@ -5939,23 +5968,33 @@ function sourceActions(source) {
   const interpretable = source.site_key && source.kind === "dataset" ? [{
     action: "interpret",
     label: "Interpret stored pages",
-    // THE CONTROL IS NAMED BY ITS LABEL, ITS PLACE, AND THE STEP THAT REVEALS IT --
-    // and this line got all three wrong in turn, which is why it now says all three.
+  // THE CONTROL THAT IS KEYED TO THE JOB, and this line reached it on the third try.
     //
-    // First it said "Stop it from the jobs list". There is no jobs list with a Stop in
-    // this panel: the only control that ends a running job is the player's Cancel
-    // (`app.html`, `#mini-cancel`). Then it said "Press Cancel in the player at the
-    // bottom" -- a real button, hidden. `<details id="miniplayer">` carries no `open`,
-    // Cancel is inside `<div class="mini-body">`, and `$("miniplayer")` has ONE use in
-    // this file, in `renderMiniplayer`, which only adds and removes `hidden`. Nothing
-    // opens the player, ever. So with it collapsed he sees the status bar and no Cancel.
+    // It said "Stop it from the jobs list", which I then "corrected" by writing in a
+    // comment that no such list exists. It does: `<section id="view-jobs">` in
+    // `app.html`, drawn by this file, which builds a button per `controlsFor` row and
+    // wires it to `pressJobControl(row.job_ref, control, button)` -- whose own docstring
+    // says "THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER
+    // ADOPTED".
+    //
+    // The second try named the player's Cancel, which is worse than vague: `controlJob`
+    // posts to `state.jobRef`, the job `liveJob` ADOPTED, and `ADOPTION_ORDER` ranks
+    // `running` above `queued`. This PR makes a queued interpretation follow every crawl,
+    // so the player is routinely holding a different job -- and the card would have sent
+    // him to cancel this one with a button that cancels that one.
+    //
+    // So the sentence names the Jobs page row for the ref it just named, which is the
+    // only control bound to it.
     why: busyRef && busyRef.job_ref
-      ? `${busyRef.job_ref} is already interpreting this source. Open the player at the `
-        + `bottom and press Cancel to start again.`
+      ? `${busyRef.job_ref} is already interpreting this source. Open the Jobs page and `
+        + `press ${controlsFor(busyRef).includes("resume") ? "Resume" : "Cancel"} on its `
+        + `row to change that.`
       : "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
     ...(busyRef && busyRef.job_ref
-      ? {ready: false, note: "one is already running"} : {}),
+      ? {ready: false,
+         note: controlsFor(busyRef).includes("resume")
+           ? "one is paused part-way" : "one is already running"} : {}),
   }] : [];
   // AND FETCHING THE PROFILE PAGES THE LISTING NAMED, the third verb over one key and the
   // last of the three to get a door. Measured 2026-09-06 on his warehouse: 17,848

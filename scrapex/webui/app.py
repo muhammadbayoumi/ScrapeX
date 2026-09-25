@@ -830,13 +830,23 @@ def create_app(
         # (`scrapex/datasetjob.py:217`), so it reads the newest run rather than its own.
         marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
         on_its_way = general.execute(
-            "SELECT job_ref FROM crawl_job "
+            "SELECT job_ref, status FROM crawl_job "
             f" WHERE job_kind = ? AND source_keys LIKE ? "
-            f"   AND status NOT IN ({marks_j}) LIMIT 1",
+            f"   AND status NOT IN ({marks_j}) "
+            " ORDER BY job_id DESC LIMIT 1",
             (datasetjob.JOB_KIND, like,
              *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()
         if on_its_way is not None:
-            waiting["interpreting"] = {"job_ref": on_its_way[0]}
+            # THE STATUS TRAVELS WITH THE REF, because the card has to say different
+            # things about a job that is working and a job that is waiting on HIM.
+            # Sending only the ref let the panel write "is turning the stored pages into
+            # rows; nothing to press" over a PAUSED interpretation, which is turning
+            # nothing into rows and has exactly one thing to press: Resume.
+            # `extension/jobsview.js` already owns that distinction -- `controlsFor`
+            # returns `["resume", "cancel"]` for `paused` -- so the panel reads it there
+            # rather than growing a second opinion beside it.
+            waiting["interpreting"] = {"job_ref": on_its_way[0],
+                                       "status": on_its_way[1]}
         # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
         # is issue 782's filter in the other place. This check asked "has a LISTING crawl
         # finished since the last interpretation?", so a profile sweep finishing with 938

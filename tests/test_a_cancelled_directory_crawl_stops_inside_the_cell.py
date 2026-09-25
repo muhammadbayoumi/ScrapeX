@@ -659,9 +659,22 @@ def test_two_crawls_of_one_source_queue_one_interpretation(conn, monkeypatch):
     log = [row[0] for row in conn.execute(
         "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
         (second["job_id"],))]
-    assert any("already waiting" in line for line in log), (
-        f"the second crawl queued nothing and never said why: {log!r}"
-    )
+    said = [line for line in log if "already waiting" in line]
+    assert said, f"the second crawl queued nothing and never said why: {log!r}"
+    # AND IT NAMES THE JOB THAT WILL DO THE WORK, which its sibling on the success branch
+    # already learned the hard way: `test_the_notification_names_the_job_it_queued` exists
+    # because asserting only that the phrase appears let the crawl's OWN ref survive in
+    # its place. This branch carried that same weak assertion, and the mutation proved it
+    # -- the crawl's own ref passed 86 tests. It is the branch where the ref matters most:
+    # the line's whole job is to send him to the interpretation that covers this crawl,
+    # and the job he is already reading is the one it must not name.
+    interpret_ref = [row[0] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))][0]
+    assert interpret_ref in said[0], (
+        f"the line does not name the interpretation that covers this crawl "
+        f"({interpret_ref}): {said[0]!r}")
+    assert refs[1] not in said[0], (
+        f"it names the crawl he is already reading: {said[0]!r}")
 
 
 def _finish_one_crawl(conn, monkeypatch, site=SITE):
@@ -1088,13 +1101,59 @@ def test_neither_line_names_a_control_that_does_not_exist(conn, monkeypatch):
             f"thing that ends a running job.")
         assert "jobs list" not in line and "its own card" not in line, (
             f"it still sends him to a control that does not exist: {line!r}")
-        # AND THE STEP THAT REVEALS IT, because the button is real and hidden.
-        # `<details id="miniplayer">` in `extension/app.html` carries no `open`, Cancel
-        # sits inside `<div class="mini-body">`, and nothing in `app.js` ever opens it --
-        # `$("miniplayer")` has one use there and it only toggles `hidden`. So "press
-        # Cancel in the player" named a button he cannot see, which is the same defect
-        # as naming one that does not exist, one step in.
-        assert "Open the player" in line, (
-            f"it names Cancel without the step that shows it: {line!r}. If a reword ever "
-            f"fails this line, the reword has to keep BOTH steps -- that is what this "
-            f"assertion is for, not the exact words.")
+        # AND THE ONE KEYED TO THIS JOB, which took three tries to reach. The card's
+        # actions have no stop at all. The player's Cancel is real but bound to
+        # `state.jobRef` -- whatever `liveJob` ADOPTED -- and `ADOPTION_ORDER` ranks
+        # `running` above `queued`, so with this chain queueing an interpretation after
+        # every crawl the player is routinely holding a different job. Naming it would
+        # send him to cancel one job with a button that cancels another.
+        #
+        # `<section id="view-jobs">` draws a button per `controlsFor` row wired to
+        # `pressJobControl(row.job_ref, ...)`. That is the only control bound to the ref
+        # the sentence just named, so that is the one it names.
+        assert "Jobs page" in line, (
+            f"it names a control without saying where the one for THIS job is: {line!r}. "
+            f"A reword may change the words; it may not drop the place, because the "
+            f"player's button is not this job's.")
+        assert "the player" not in line, (
+            f"it sends him to the player, whose Cancel posts to whichever job was "
+            f"adopted rather than to this one: {line!r}")
+
+
+def test_an_interpretation_already_RUNNING_does_not_cover_this_crawl(conn, monkeypatch):
+    """THE SKIP IS SAFE ONLY FOR A SIBLING THAT HAS NOT STARTED, and the first version of
+    this guard could not tell the difference.
+
+    `run_dataset_interpret_job_once` resolves its run ONCE, at
+    `scrapex/datasetjob.py:217`, before it writes PREPARING at :226. So an interpretation
+    that was already under way when this crawl committed COMPLETED bound its ref BEFORE
+    these pages existed, and it will never read them. Skipping for it leaves them unread
+    while the crawl's own log says they are covered -- a silent loss with a sentence
+    asserting the opposite, which is the worst shape a log line can take.
+
+    A `queued` sibling is the opposite case and still skips: it resolves when it starts,
+    so it takes the newest run, which is this one. That is
+    `test_two_crawls_of_one_source_queue_one_interpretation`.
+
+    And the second interpretation does not run beside the first -- the worker takes
+    `queued` jobs up to `job_capacity`, so it waits its turn and then reads the newest
+    run, which by then includes this crawl.
+    """
+    already = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
+    jobs._update(conn, jobs.get_job(conn, already)["job_id"],
+                 status=JobStatus.RUNNING.value)
+    conn.commit()
+
+    crawl = _finish_one_crawl(conn, monkeypatch)
+
+    queued = [row["job_ref"] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert len(queued) == 2, (
+        f"a RUNNING interpretation stopped this crawl queueing one: {queued!r}. It bound "
+        f"its run before these pages existed, so nothing will ever read them."
+    )
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (jobs.get_job(conn, crawl)["job_id"],))]
+    assert not any("already waiting" in one for one in log), (
+        f"and the crawl claimed it was covered: {log!r}")

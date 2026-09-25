@@ -1788,11 +1788,12 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
     said = row.get_attribute("title")
     assert "Cancel" in said, (
         f"the row does not name the control that stops it: {said!r}")
-    assert "Open the player" in said, (
-        f"it names Cancel without the step that shows it: {said!r}. `#mini-cancel` sits "
-        f"in the collapsed half of `<details id=\"miniplayer\">`, which nothing opens.")
-    assert "jobs list" not in said and "its own card" not in said, (
-        f"it sends him to a control this panel does not have: {said!r}")
+    assert "Jobs page" in said, (
+        f"it names Cancel without saying where the one for THIS job is: {said!r}. The "
+        f"player's Cancel posts to `state.jobRef` -- whichever job `liveJob` adopted -- "
+        f"so it is not this job's control.")
+    assert "the player" not in said and "jobs list" not in said, (
+        f"it sends him to a control that is not bound to this job: {said!r}")
     assert "job_already_reading" in said, (
         f"it does not name the job he would be cancelling: {said!r}")
 
@@ -9327,3 +9328,52 @@ def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open
     assert "%" not in page.text_content("#mini-pct"), (
         f"a job with no denominator claimed a percentage: "
         f"{page.text_content('#mini-pct')!r}")
+
+
+def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(open_panel):
+    """THE SENTENCE WAS FALSE THREE WAYS OVER A PAUSED JOB.
+
+    `interpreting` is set for any non-terminal interpretation, which includes `paused` --
+    deliberately, because pressing Interpret would make a SECOND job rather than resume
+    that one. But the card then said the job "is turning the stored pages into rows;
+    nothing to press", the menu row said "one is already running", and its title sent him
+    to Cancel. A paused interpretation is turning nothing, running nothing, and has
+    exactly one thing to press.
+
+    `extension/jobsview.js` already owns this distinction -- `controlsFor` returns
+    `["resume", "cancel"]` for `paused` -- so the panel reads it there rather than
+    keeping a second list. This drives the real card to prove it does.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {
+                **(row.get("work_waiting") or {}),
+                "interpret": None,
+                "profiles": {"rowless": 469, "fetch": 0},
+                "interpreting": {"job_ref": "job_halfway", "status": "paused"},
+            }
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+    said = card.locator('[role="status"]').text_content()
+
+    assert "Interpretation paused" in said, (
+        f"a paused interpretation is reported as work in progress: {said!r}")
+    assert "is turning the stored pages into rows" not in said, (
+        f"it says a paused job is turning pages into rows: {said!r}")
+    assert "nothing to press" not in said, (
+        f"it says there is nothing to press, and Resume is exactly what to press: "
+        f"{said!r}")
+    assert "Resume" in said and "job_halfway" in said, (
+        f"it does not name the control that moves it, or the job: {said!r}")
+
+    row = card.locator('[data-split-action="interpret"]')
+    assert row.is_disabled(), "the press is still offered beside a paused job"
+    assert "paused" in row.text_content(), (
+        f"the disabled row still claims one is running: {row.text_content()!r}")
+    assert "Resume" in row.get_attribute("title"), (
+        f"its title sends him to the wrong control: {row.get_attribute('title')!r}")

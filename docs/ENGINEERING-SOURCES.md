@@ -83,7 +83,7 @@ there, Supabase is its base, and its own precedence order is the one to use.
 **Governs:** whether a job that another job's output makes due is started by the engine or
 waited for by the owner.
 
-**Cited at:** `scrapex/datasetjob.py`, `scrapex/directoryjob.py`.
+**Cited at:** `scrapex/datasetjob.py:12`, `scrapex/directoryjob.py:785`.
 
 ### What was measured
 

@@ -149,6 +149,31 @@ def test_every_entry_is_cited_by_the_code_it_governs(register: Register):
     )
 
 
+def _cited_paths(line: str) -> tuple[list[str], list[str]]:
+    """Split a `Cited at:` line into the paths this guard can check, and the ones it
+    cannot.
+
+    A SEPARATE FUNCTION BECAUSE THE SECOND HALF IS UNTESTABLE IN PLACE. The check that
+    every backticked token was READ is the one that stops a future spelling turning this
+    guard off silently -- and it can only fire on a token no entry currently has, so
+    inside the parametrised test it is an assertion that never runs. Here it takes an
+    argument, so `test_a_citation_this_guard_cannot_read_is_refused` can hand it one.
+
+    `:12` IS THE HOUSE SPELLING. CLAUDE.md asks for a real `file:line`, and the first
+    pattern needed the closing backtick right after the extension -- so the first entry
+    written the way the rules document asks extracted nothing, asserted nothing, and
+    passed.
+    """
+    # LIKE FOR LIKE. The first version compared whole tokens against extracted PATHS,
+    # so `scrapex/directoryjob.py:785` looked unreadable beside `scrapex/directoryjob.py`
+    # and every correctly-spelled citation was refused. The readable set is matched with
+    # the same pattern the paths come from, suffix included.
+    readable = re.compile(r"^[^`]+\.(?:py|js|css|mjs)(?::\d+)?$")
+    tokens = re.findall(r"`([^`]+)`", line)
+    found = [one.split(":")[0] for one in tokens if readable.match(one)]
+    return found, [one for one in tokens if not readable.match(one)]
+
+
 @pytest.mark.parametrize("register", REGISTERS, ids=IDS)
 def test_each_entry_is_cited_where_it_says_it_is(register: Register):
     """`Cited at:` IS LOAD-BEARING, and a mutation is what made it so.
@@ -172,7 +197,24 @@ def test_each_entry_is_cited_where_it_says_it_is(register: Register):
             f"{key} does not say where it is cited. Every entry carries a "
             f"`**Cited at:**` line naming the files that use it."
         )
-        for path in re.findall(r"`([^`]+\.(?:py|js|css|mjs))`", named.group(1)):
+        # `:12` IS THE HOUSE SPELLING, AND THE FIRST PATTERN DROPPED IT SILENTLY.
+        # CLAUDE.md asks for a real `file:line`, so the first entry written the way the
+        # rules document asks would have matched nothing here -- extracted zero paths,
+        # asserted nothing, and passed. That is this guard turning itself off, which is
+        # the one thing its docstring says it exists to stop.
+        #
+        # SO THE COUNT IS CHECKED TOO. Accepting one more spelling does not help if the
+        # next one vanishes the same way, and a dropped token is invisible by
+        # construction -- there is nothing left to assert on. Comparing against every
+        # backticked token on the line makes the NEXT unknown spelling fail loudly here
+        # instead of quietly widening what the register may claim.
+        found, unreadable = _cited_paths(named.group(1))
+        assert not unreadable, (
+            f"{key} has a `Cited at:` token this guard cannot read: {unreadable}. It "
+            f"would be skipped rather than checked, so the entry could name a file that "
+            f"does not cite it and pass."
+        )
+        for path in found:
             whole = (ROOT / path)
             if not whole.exists():
                 missing.append(f"{key} names {path}, which does not exist")
@@ -248,3 +290,102 @@ def test_no_two_registers_claim_the_same_surface():
                 f"surface. A session that lands on the wrong register follows the wrong "
                 f"precedence order and never finds out."
             )
+
+
+@pytest.mark.parametrize("line, readable, refused", [
+    ("`scrapex/directoryjob.py`", ["scrapex/directoryjob.py"], []),
+    ("`scrapex/directoryjob.py:785`", ["scrapex/directoryjob.py"], []),
+    ("`a.py:1`, `b.js:22`", ["a.py", "b.js"], []),
+    # THE SPELLINGS THAT MUST BE REFUSED RATHER THAN SKIPPED. Each is plausible -- a
+    # range, a symbol, a line with no extension -- and under the first pattern each
+    # extracted nothing and turned the check off for its entry without a word.
+    ("`scrapex/directoryjob.py:785-790`", [], ["scrapex/directoryjob.py:785-790"]),
+    ("`scrapex/directoryjob.py::_queue`", [], ["scrapex/directoryjob.py::_queue"]),
+    ("`scrapex/directoryjob`", [], ["scrapex/directoryjob"]),
+    ("`a.py`, `b.py:1-2`", ["a.py"], ["b.py:1-2"]),
+])
+def test_a_citation_this_guard_cannot_read_is_refused(line, readable, refused):
+    """THE COUNT CHECK, DRIVEN DIRECTLY, because in place it can never fire.
+
+    It exists so the NEXT unknown spelling fails loudly instead of quietly widening what
+    the register may claim -- and a dropped token is invisible by construction, so there
+    is nothing left to assert on once it is gone. No entry has an unreadable token today,
+    which is exactly why a mutation deleting the check survived every test: the assertion
+    was correct and unreachable.
+    """
+    found, unreadable = _cited_paths(line)
+    assert found == readable, f"read {found!r} out of {line!r}"
+    assert unreadable == refused, (
+        f"{line!r} produced {unreadable!r}; a token this guard cannot read must be "
+        f"REFUSED, never skipped -- skipping is what lets an entry describe a state the "
+        f"code is not in."
+    )
+
+
+def _synthetic_register(tmp_path, cited_at: str) -> Register:
+    """A register written here, so the check runs on a state no real entry may hold.
+
+    `_text` builds its path as `ROOT / register.path`, and `pathlib` returns the right
+    operand whole when it is absolute — so a `Register` pointing outside the repository
+    runs every line of the real check unchanged.
+    """
+    written = tmp_path / "SYNTHETIC-SOURCES.md"
+    written.write_text("\n".join([
+        "# precedence",
+        "",
+        "## XS-1 · One entry, to drive the check",
+        "",
+        f"**Cited at:** {cited_at}.",
+        "",
+        "This register governs the engine and names the interface's own.",
+        "",
+    ]), encoding="utf-8")
+    return Register(path=str(written), prefix="XS", governs="engine",
+                    searched=(("scrapex", "*.py"),))
+
+
+def test_an_entry_whose_citation_cannot_be_read_is_refused(tmp_path):
+    """THE ASSERTION CANNOT FIRE ON TODAY'S REGISTER, which is why a mutation deleting it
+    survived every test.
+
+    It speaks only when an entry carries a `Cited at:` token this guard cannot read, and
+    no entry does — by design, because the moment one did the guard would be off for that
+    entry and nobody would know. A guard whose triggering state no fixture reaches is a
+    guard nothing holds, so the state is written here instead of waited for.
+    """
+    refused = None
+    try:
+        test_each_entry_is_cited_where_it_says_it_is(
+            _synthetic_register(tmp_path, "`scrapex/directoryjob.py:785-790`"))
+    except AssertionError as caught:
+        refused = str(caught)
+
+    assert refused is not None, (
+        "a `Cited at:` token this guard cannot read was accepted. It would be skipped "
+        "rather than checked, so the entry could name a file that does not cite it."
+    )
+    assert "cannot read" in refused, f"it failed for some other reason: {refused}"
+    assert "scrapex/directoryjob.py:785-790" in refused, (
+        f"and it does not name the token it could not read: {refused}")
+
+
+def test_the_house_spelling_is_read_and_then_checked(tmp_path):
+    """THE OTHER SIDE, so the test above cannot be passing on any old AssertionError.
+
+    The identical register with the `file:line` spelling CLAUDE.md asks for gets past the
+    reader and fails on the next check instead — that the named file really cites the key.
+    That is the guard working one step further in, and it is what proves the widened
+    pattern reads the house spelling rather than merely tolerating it.
+    """
+    refused = None
+    try:
+        test_each_entry_is_cited_where_it_says_it_is(
+            _synthetic_register(tmp_path, "`scrapex/directoryjob.py:785`"))
+    except AssertionError as caught:
+        refused = str(caught)
+
+    assert refused is not None, "the synthetic entry passed, which it must not"
+    assert "cannot read" not in refused, (
+        f"the spelling the rules document asks for is refused as unreadable: {refused}")
+    assert "and it is not" in refused, (
+        f"it never reached the check that the file really cites the key: {refused}")
