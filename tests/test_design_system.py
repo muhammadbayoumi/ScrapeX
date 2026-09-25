@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlsplit
 import pytest
 
 # Guards the extension: this file reads extension/ sources, so a change to a
@@ -11,6 +13,9 @@ pytestmark = pytest.mark.extension
 
 
 ROOT = Path(__file__).resolve().parent.parent
+TEMPLATES = ROOT / "scrapex" / "webui" / "templates"
+# scrapex/webui/app.py mounts this directory at /static.
+STATIC = ROOT / "scrapex" / "webui" / "static"
 
 
 def test_generated_design_assets_are_current() -> None:
@@ -125,6 +130,83 @@ def test_ui_templates_do_not_use_inline_style_attributes() -> None:
         if re.search(r"\sstyle\s*=", path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+def _documents() -> list[Path]:
+    """Every whole HTML document the product ships, read from the directories so a new
+    page is covered the day it lands: each extension page, and each web template that
+    opens `<html>` itself rather than extending base.html or being included by one."""
+    return [
+        *sorted((ROOT / "extension").glob("*.html")),
+        *sorted(page for page in TEMPLATES.rglob("*.html")
+                if re.search(r"<html[\s>]", page.read_text(encoding="utf-8"), re.IGNORECASE)),
+    ]
+
+
+class _Loads(HTMLParser):
+    """The URLs of the stylesheets and scripts a document loads, read as tags. A comment
+    that names a file loads nothing, and app.html has one that names components.css."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        named = dict(attrs)
+        if tag == "link" and "stylesheet" in (named.get("rel") or "").lower().split():
+            self.urls.append(named.get("href") or "")
+        elif tag == "script" and named.get("src"):
+            self.urls.append(named["src"])
+
+
+def _served(page: Path, url: str) -> Path | None:
+    """The file a page's URL fetches, or None when it is no file this surface serves."""
+    path = urlsplit(url).path
+    if page.is_relative_to(TEMPLATES):
+        if not path.startswith("/static/"):
+            return None
+        served, root = STATIC / path.removeprefix("/static/"), STATIC
+    else:
+        # Every extension page sits at the extension's root, so a relative URL and a
+        # root-relative one both resolve there.
+        served, root = page.parent / path.lstrip("/"), page.parent
+    served = served.resolve()
+    return served if served.is_relative_to(root) else None
+
+
+def test_the_page_list_is_read_from_the_directories() -> None:
+    """An empty parameter list makes the test below skip, not fail."""
+    pages = [page.relative_to(ROOT).as_posix() for page in _documents()]
+    assert "scrapex/webui/templates/base.html" in pages, pages
+    assert sum(page.startswith("extension/") for page in pages) >= 5, pages
+    assert not any(Path(page).name.startswith("_") for page in pages), (
+        f"a partial was taken for a whole document: {pages}")
+
+
+@pytest.mark.parametrize("page", _documents(), ids=lambda page: page.relative_to(ROOT).as_posix())
+def test_every_page_loads_the_design_system(page: Path) -> None:
+    """Each page is its own document with no build step, so each can forget the design
+    system on its own (#711). The browser suites cannot see it happen: tools/panel_harness.py
+    and tools/tabpage_harness.py read the sheets off disk and inject them whatever the page
+    links, so a page that dropped one rendered unstyled while every browser test stayed
+    green.
+
+    The copies are the ones tools/sync_design_assets.py writes for this page's own surface;
+    a URL that reaches the other surface's copy, or design/'s source, fetches nothing once
+    the extension or the engine is installed.
+    """
+    from tools.sync_design_assets import ASSETS
+
+    loads = _Loads()
+    loads.feed(page.read_text(encoding="utf-8"))
+    served = {_served(page, url) for url in loads.urls}
+    for name, without in (
+        ("tokens.css", "every value the components read is undefined"),
+        ("components.css", "every shared component is unstyled"),
+        ("appearance.js", "the owner's scheme and palette never reach it"),
+    ):
+        assert served & set(ASSETS[ROOT / "design" / name]), (
+            f"{page.relative_to(ROOT).as_posix()} does not load {name}, so {without}")
 
 
 def test_the_supabase_notice_travels_with_the_values_it_covers() -> None:
