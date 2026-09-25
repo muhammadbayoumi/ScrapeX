@@ -130,22 +130,30 @@ def test_a_result_stored_as_a_list_of_parts_is_read_too(world, capsys):
     assert _rows(capsys)["heredoc"]["after"] == 2
 
 
-def test_results_arriving_out_of_order_are_each_paired_with_their_own_call(world, capsys):
-    """Claude Code runs tool calls in parallel: 1,666 real results arrived after a later
-    call had started. Each result must go to its own call."""
+@pytest.mark.parametrize("order", [
+    (0, 1, 2),  # in order: the common case, 1,647 real results answered the OLDEST open call
+    (2, 1, 0),  # newest first
+    (1, 0, 2),  # a middle call answered first
+])
+def test_parallel_calls_are_each_paired_with_their_own_result(world, capsys, order):
+    """Claude Code runs tool calls in parallel, so a result often arrives while other
+    calls are open. Pairing by position (oldest or newest) instead of by id passes one
+    of these orders and fails the others."""
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
     t = _session(projects).create(T0, note)
-    first = t.use(T1, "Bash", {"command": "first"})
-    second = t.use(T1, "Bash", {"command": "second"})
-    t.result(T1, second, "fine")
-    t.result(T1, first, PARSE_ERROR)
+    commands = ["first", "second", "third"]
+    outputs = [PARSE_ERROR, "fine", "also fine"]
+    ids = [t.use(T1, "Bash", {"command": c}) for c in commands]
+    for i in order:
+        t.result(T1, ids[i], outputs[i])
     t.save()
-    _note(memory, "second-only", "command: '^second$'\nresult: 'fine'")
+    _note(memory, "second-only", "command: '^second$'\nresult: '^fine$'")
+    _note(memory, "third-only", "command: '^third$'\nresult: '^also fine$'")
 
     assert _run(projects, memory, "--json") == 0
-    rows = _rows(capsys)
-    assert rows["heredoc"]["total"] == 1 and rows["second-only"]["total"] == 1
+    totals = {name: r["total"] for name, r in _rows(capsys).items()}
+    assert totals == {"heredoc": 1, "second-only": 1, "third-only": 1}
 
 
 def test_two_failures_after_recording_flag_a_barrier_candidate_and_one_does_not(world, capsys):
@@ -202,8 +210,33 @@ def test_a_tool_name_no_call_ever_used_is_reported_not_counted_as_zero(world, ca
 
     assert _run(projects, memory) == 0
     out = capsys.readouterr().out
-    assert "UNREADABLE SIGNATURE lowercase: tool bash names none of the 2 calls" in out
+    assert "UNREADABLE SIGNATURE lowercase: tool bash matches none of the 2 calls" in out
     assert "case-sensitive" in out and "0 lessons measured" in out
+
+
+def test_one_misspelt_name_in_a_list_is_reported_not_silently_dropped(world, capsys):
+    """`[Bash, Powershell]` would otherwise count the Bash failures and quietly lose
+    every PowerShell one."""
+    projects, memory = world
+    note = _note(memory, "listed", "tool: [Bash, Powershell]\nresult: 'boom'")
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, "boom") \
+        .call(T1, "PowerShell", {"command": "b"}, "boom").save()
+
+    assert _run(projects, memory) == 0
+    out = capsys.readouterr().out
+    assert "UNREADABLE SIGNATURE listed: tool Powershell matches none of the 3 calls" in out
+
+
+def test_shell_as_a_default_needs_no_powershell_call_to_be_valid(world, capsys):
+    """`shell` is Bash and PowerShell; a machine that never ran PowerShell must not
+    have every default signature reported as unusable."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["heredoc"]
+    assert (row["error"], row["after"]) == (None, 1)
 
 
 @pytest.mark.parametrize("folder", [
@@ -274,8 +307,28 @@ def test_without_the_creating_write_the_start_is_unknown_and_nothing_is_flagged(
     assert _run(projects, memory) == 0
     out = capsys.readouterr().out
     line = next(x for x in out.splitlines() if x.startswith("old-lesson"))
-    assert line.split()[2:6] == ["unknown", "?", "?", "2"] and "barrier" not in line
+    assert line.split()[2:7] == ["unknown", "?", "?", "2", "0"] and "barrier" not in line
     assert f"START UNKNOWN old-lesson: {reason}" in out
+
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["old-lesson"]
+    assert (row["recorded"], row["before"], row["after"], row["total"], row["sessions_after"]) == \
+        (None, None, None, 2, []), "a script must not read an unknown start as 'never broke again'"
+
+
+def test_a_write_result_in_neither_known_wording_is_named_not_taken_for_an_update(world, capsys):
+    """If a Claude Code release rewords the Write tool's result, every lesson would lose
+    its date. The reason must say the scanner could not read the result, not claim an
+    update it never saw."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).call(T0, "Write", {"file_path": str(note)}, "Wrote a new file") \
+        .call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory) == 0
+    out = capsys.readouterr().out
+    assert "START UNKNOWN heredoc: a write of the note printed a result this scanner does not recognise" in out
+    assert "'Wrote a new file'" in out and "update" not in out.split("START UNKNOWN heredoc")[1].split("\n")[0]
 
 
 def test_a_scratch_copy_of_the_notes_is_dated_by_the_real_lesson(world, tmp_path, capsys):
@@ -370,6 +423,7 @@ def test_a_caveat_is_printed_beside_its_count_and_in_the_json(world, capsys):
     ("tool: [Bash, 5]\nresult: 'x'", "tool must be a tool name or a list of them"),
     ("tool: null\nresult: 'x'", "tool must be a tool name or a list of them"),
     ("tool: []\nresult: 'x'", "tool must be a tool name or a list of them"),
+    ("tool: [shell, Read]\nresult: 'x'", "shell and any stand alone"),
 ])
 def test_an_unreadable_signature_is_reported_by_name_and_the_rest_still_scan(world, capsys, signature, said):
     projects, memory = world
@@ -390,6 +444,8 @@ def test_an_unreadable_signature_is_reported_by_name_and_the_rest_still_scan(wor
     ("---\nname: flat\nmetadata: 'just a string'\n---\n\nx\n", "metadata is not a mapping"),
     ("\ufeff---\nname: flat\nmetadata:\n  type: feedback\n---\n\nx\n", "no frontmatter"),
     ("no frontmatter at all\n", "no frontmatter"),
+    # A real note on this machine (another project) has exactly this: an unquoted ': '.
+    ("---\nname: flat\ndescription: a lesson: with a colon\n---\n\nx\n", "mapping values are not allowed here"),
 ])
 def test_a_note_whose_frontmatter_cannot_be_read_is_reported_by_name(world, capsys, text, said):
     """The byte-order mark case is a lesson in its own right on this machine: PowerShell

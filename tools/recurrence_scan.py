@@ -36,7 +36,10 @@ scanned, so a scratch copy of the notes is dated by the real lesson. Nothing els
 can stand in for it: the note's `metadata.modified` moves on every edit, and so does
 the file's creation time, because the Write tool replaces the file. So a lesson
 whose creating Write no longer survives has an UNKNOWN start: the report gives its
-total matches, never a before/after split, and never flags it.
+total matches, never a before/after split, and never flags it. The Write tool's two
+wordings, created and updated, are parsed and nothing else is assumed: a write of a
+note whose result matches neither is named in the reason, because a Claude Code
+release that rewords them would otherwise turn every lesson "unknown" in silence.
 
 A SIGNATURE MUST MATCH THE ERROR'S OWN FORM, NOT ITS TEXT ANYWHERE. Sessions that
 read old transcripts print old errors again, and a regex that matches the text
@@ -73,6 +76,7 @@ class Signature:
     result: re.Pattern | None
     kind: str
     caveat: str | None = None
+    named: tuple[str, ...] = ()  # the names written literally; each must match some call
 
 
 @dataclass
@@ -113,9 +117,12 @@ def parse_signature(raw: object) -> Signature:
         raise ValueError(f"unknown keys {sorted(unknown)}")
     tool = raw.get("tool", "shell")
     if isinstance(tool, list) and tool and all(isinstance(t, str) and t for t in tool):
-        tools = tuple(tool)
+        if {"shell", "any"} & set(tool):
+            raise ValueError("shell and any stand alone; they cannot be listed with tool names")
+        tools = named = tuple(dict.fromkeys(tool))
     elif isinstance(tool, str) and tool:
         tools = {"shell": SHELLS, "any": None}.get(tool, (tool,))
+        named = () if tool in ("shell", "any") else (tool,)
     else:
         raise ValueError(f"tool must be a tool name or a list of them, not {tool!r}")
     patterns = {}
@@ -140,7 +147,7 @@ def parse_signature(raw: object) -> Signature:
     caveat = raw.get("caveat")
     if caveat is not None and not isinstance(caveat, str):
         raise ValueError("caveat is not a string")
-    return Signature(tools, patterns["command"], patterns["result"], kind, caveat)
+    return Signature(tools, patterns["command"], patterns["result"], kind, caveat, named)
 
 
 def load_notes(memory: Path) -> list[Note]:
@@ -240,7 +247,8 @@ def _writes_this_note(call: Call, filename: str, projects: str) -> bool:
             and target.startswith(projects + os.sep))
 
 
-CREATED = "File created successfully"
+CREATED = "File created successfully"  # how the Write tool reports a new file
+UPDATED = "has been updated successfully"  # how Write and Edit report changing one
 
 
 def scan(notes: list[Note], calls: list[Call], projects: Path) -> list[Row]:
@@ -249,14 +257,19 @@ def scan(notes: list[Note], calls: list[Call], projects: Path) -> list[Row]:
     rows = []
     for note in notes:
         sig = note.signature
-        if sig is not None and sig.tools is not None and not set(sig.tools) & seen_tools:
-            note.error = (f"tool {', '.join(sig.tools)} names none of the {len(calls)} calls in the "
+        unused = [t for t in sig.named if t not in seen_tools] if sig is not None else []
+        if unused:
+            note.error = (f"tool {', '.join(unused)} matches none of the {len(calls)} calls in the "
                           "transcripts; tool names are case-sensitive")
             note.signature = sig = None
         writes = [c for c in calls if _writes_this_note(c, note.path.name, root)]
         created = [c.when for c in writes if c.tool == "Write" and c.result.startswith(CREATED)]
+        unread = [c.result for c in writes if not c.result.startswith(CREATED) and UPDATED not in c.result]
         if created:
             row = Row(note, min(created), "created in a transcript")
+        elif unread:
+            row = Row(note, None, "a write of the note printed a result this scanner does not recognise "
+                                  f"({unread[0][:60]!r}); its reading of the Write tool's result is out of date")
         elif writes:
             row = Row(note, None, "the earliest surviving write is an update, so the lesson is older")
         else:
