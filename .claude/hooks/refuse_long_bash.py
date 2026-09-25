@@ -7,6 +7,12 @@ are in #1104: every such failure measured was at least 7,930 characters long.
 
 Exit 2 refuses the call and hands the reason to Claude; exit 0 lets it run; exit 1
 is a visible, non-blocking error for an input this script cannot read.
+
+`.claude/settings.json` starts this file through a one-line launcher, not directly.
+Python exits 2 when it cannot open a script, and 2 is the code that refuses. So a
+session whose hook settings point at a checkout without this file (after `/cd`, or
+into a worktree that predates it) would have every Bash call refused. The launcher
+turns a missing file into exit 1 with a message instead.
 """
 from __future__ import annotations
 

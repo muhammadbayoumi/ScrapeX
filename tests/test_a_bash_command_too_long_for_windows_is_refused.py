@@ -132,16 +132,31 @@ def test_arabic_is_counted_in_characters_not_in_what_a_code_page_would_see(
     data = json.dumps(_bash("م" * arabic_chars), ensure_ascii=False).encode("utf-8")
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(data), encoding="cp1252"))
     monkeypatch.setattr(sys, "platform", "win32")
-    assert hook.main() == expected, capsys.readouterr().err
+    code = hook.main()
+    out, err = capsys.readouterr()
+    assert code == expected, err
+    assert out == "", "Claude Code reads a PreToolUse refusal from stderr; stdout is not the reason"
+    if expected == 2:
+        assert "Write tool" in err, "the way out must reach Claude, on stderr"
 
 
-def test_stdin_that_is_not_json_is_a_visible_error():
-    result = _run(b"not json")
+@pytest.mark.parametrize(("stdin", "said"), [
+    (b"not json", b"not UTF-8 JSON"),
+    (b"[]", b"no tool_input object"),
+])
+def test_an_unreadable_input_is_reported_on_stderr_and_the_call_runs(stdin, said):
+    """The transcript shows the first line of stderr for a non-blocking error, so the
+    message is the only way anyone learns the guard was blind for that call."""
+    result = _run(stdin)
     assert result.returncode == 1
-    assert b"not UTF-8 JSON" in result.stderr
+    assert result.stderr.startswith(b"refuse_long_bash:") and said in result.stderr
+    assert result.stdout == b""
 
 
-def test_the_settings_run_this_script_before_every_bash_call():
+SCRIPT_ARG = "${CLAUDE_PROJECT_DIR}/.claude/hooks/refuse_long_bash.py"
+
+
+def _wired() -> dict:
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     handlers = [
         handler
@@ -149,12 +164,50 @@ def test_the_settings_run_this_script_before_every_bash_call():
         if "Bash" in entry.get("matcher", "").split("|")
         for handler in entry["hooks"]
     ]
-    script = "${CLAUDE_PROJECT_DIR}/.claude/hooks/refuse_long_bash.py"
-    wired = [h for h in handlers if h.get("args") == [script]]
+    wired = [h for h in handlers if (h.get("args") or [None])[-1] == SCRIPT_ARG]
     assert len(wired) == 1, f"expected exactly one handler running the script, found {handlers}"
-    assert wired[0]["command"] == "python", (
+    return wired[0]
+
+
+def _as_wired(project_dir: Path, stdin: bytes) -> subprocess.CompletedProcess:
+    """Run the hook exactly as `.claude/settings.json` launches it, with
+    ${CLAUDE_PROJECT_DIR} set to `project_dir`."""
+    handler = _wired()
+    argv = [sys.executable] + [a.replace("${CLAUDE_PROJECT_DIR}", str(project_dir))
+                               for a in handler["args"]]
+    return subprocess.run(argv, input=stdin, capture_output=True, timeout=60, check=False)
+
+
+def test_the_settings_run_this_script_before_every_bash_call():
+    handler = _wired()
+    assert handler["command"] == "python", (
         "exec form with `python`: on Windows `python3` is the Microsoft Store alias, which "
         "prints 'Python was not found' and exits 49, so the hook would never refuse anything"
     )
-    target = Path(wired[0]["args"][0].replace("${CLAUDE_PROJECT_DIR}", str(ROOT)))
+    target = Path(SCRIPT_ARG.replace("${CLAUDE_PROJECT_DIR}", str(ROOT)))
     assert target == HOOK and target.is_file()
+
+
+def test_the_hook_as_wired_answers_exactly_as_the_script_does():
+    """The launcher must pass the script's exit code and stderr through untouched."""
+    assert _as_wired(ROOT, json.dumps(_bash("git status")).encode()).returncode == 0
+
+    long_ = _as_wired(ROOT, json.dumps(_bash("x" * (hook.LIMIT + 1))).encode())
+    if sys.platform == "win32":
+        assert long_.returncode == 2 and b"Write tool" in long_.stderr, long_.stderr
+    else:
+        assert long_.returncode == 0, long_.stderr
+
+    blind = _as_wired(ROOT, b"[]")
+    assert blind.returncode == 1 and blind.stderr.startswith(b"refuse_long_bash:")
+
+
+def test_a_checkout_without_the_script_is_a_visible_error_and_never_a_refusal(tmp_path):
+    """Python exits 2 when it cannot open a script, and 2 is the code that refuses. The
+    docs say `/cd` applies a directory's hooks while ${CLAUDE_PROJECT_DIR} stays where
+    the session started, and one ScrapeX session did start outside the repository and
+    move in. Launched directly, a missing file would refuse every Bash call in such a
+    session. As wired, it must be exit 1 with a message saying so."""
+    result = _as_wired(tmp_path, json.dumps(_bash("git status")).encode())
+    assert result.returncode == 1, result.stderr
+    assert b"hook script missing" in result.stderr and b"runs unchecked" in result.stderr
