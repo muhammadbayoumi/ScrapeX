@@ -21,6 +21,9 @@ the two agree. So bumping one without the other fails rather than drifting.
 
     python tools/read_supabase_tokens.py              # rewrite the fixture
     python tools/read_supabase_tokens.py --check      # exit 1 if it WOULD change
+    python tools/read_supabase_tokens.py --ref <sha>  # a re-pin: read at a new commit
+
+`--check` reads only at the pinned commit, and `--ref` takes only a full commit SHA.
 
 `--check` is the convention tools/sync_design_assets.py already uses for a generated file
 in this repository. It needs the network and the `gh` CLI, so CI does not run it; what CI
@@ -402,7 +405,17 @@ def main() -> None:
     parser.add_argument("--check", action="store_true",
                         help="exit 1 if regenerating would change the fixture, and write nothing")
     args = parser.parse_args()
-    ref = args.ref or pinned_commit()
+    pin = pinned_commit()
+    # A full commit only (#1018). A branch or tag moves, so a fixture read from one records
+    # values nobody can read again, and `--check` against master says nothing about the pin.
+    if args.ref is not None and not re.fullmatch(r"[0-9a-f]{40}", args.ref):
+        sys.exit(f"--ref {args.ref!r} is not a full 40-character commit SHA; a branch or "
+                 "tag moves, so read at a commit")
+    if args.check and args.ref not in (None, pin):
+        sys.exit(f"--check reads at the commit design/supabase.NOTICE.txt pins ({pin[:8]}) and "
+                 f"never another. To re-pin to {args.ref[:8]}, regenerate with --ref and move "
+                 "the notice's Commit line with it.")
+    ref = args.ref or pin
 
     data = read(ref)
     text = rendered(data)
