@@ -189,3 +189,17 @@ def test_every_pinned_link_names_a_path_the_pin_holds():
         f"{FIXTURE.name} records {unlinked}, which no design document links any more. "
         "Run tools/read_supabase_linked_paths.py."
     )
+
+
+def test_a_missing_gh_is_a_sentence_not_a_traceback(monkeypatch):
+    import subprocess
+
+    import tools.read_supabase_linked_paths as reader
+
+    def absent(*_args, **_kwargs):
+        raise FileNotFoundError("gh")
+
+    monkeypatch.setattr(subprocess, "run", absent)
+    with pytest.raises(SystemExit) as refused:
+        reader.read("0" * 40)
+    assert "the gh CLI is not on PATH" in str(refused.value)

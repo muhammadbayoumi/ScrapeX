@@ -37,6 +37,10 @@ version, and each is why an assertion below exists:
   3. ITS REGEX CROSSED NEWLINES. `\\s*` between the semicolon and the comment let a
      declaration bind to the NEXT comment in the file once its own was stripped, inventing
      a marker for a token that has none. Horizontal whitespace only, now.
+
+WHAT IT CANNOT SEE. Two `derived` notes swapped between tokens pass. `derived` names an
+expression of theirs, and this guard evaluates none, so it cannot tell which of two
+derived values came from which token (#1017).
 """
 from __future__ import annotations
 
@@ -147,7 +151,13 @@ def _blocks() -> list[tuple[str, str]]:
 
 
 def _markers() -> list[tuple[str, str, str, str, str]]:
-    """(theme, our token, our value, marker word, the upstream token it names)."""
+    """(theme, our token, our value, marker word, the upstream token it names).
+
+    Our value goes through the reader's own `as_hex`, the form the fixture stores, so a
+    `#fff` of ours compares with their `#ffffff` rather than failing on its spelling
+    (#1017)."""
+    from tools.read_supabase_tokens import as_hex
+
     found = []
     for theme, block in _blocks():
         for match in MARKED.finditer(block):
@@ -156,7 +166,7 @@ def _markers() -> list[tuple[str, str, str, str, str]]:
                       else "derived" if "derived" in note else None)
             if marker is None:
                 continue
-            found.append((theme, match.group(1), match.group(2).lower(), marker, _named_token(note)))
+            found.append((theme, match.group(1), as_hex(match.group(2)), marker, _named_token(note)))
     return found
 
 
@@ -221,6 +231,33 @@ def test_the_fixture_records_the_commit_the_notice_pins():
         f"{UPSTREAM['commit'][:8]}. Run tools/read_supabase_tokens.py to bring the "
         f"fixture to the pinned commit, and re-check every marker against it."
     )
+
+
+def test_a_shorthand_colour_of_ours_is_compared_in_the_form_the_fixture_stores(
+        tmp_path, monkeypatch):
+    """The fixture stores `#ffffff` for their `#fff`; a `#FFF` of ours must read the same."""
+    sheet = tmp_path / "tokens.css"
+    sheet.write_text(
+        ":root {\n  --x: #FFF;  /* --background PUBLISHED */\n}\n"
+        ':root[data-theme="dark"] {\n}\n'
+        '@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {\n  }\n}\n',
+        encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "TOKENS", sheet)
+    assert _markers() == [("light", "--x", "#ffffff", "PUBLISHED", "--background")]
+
+
+def test_a_missing_gh_is_a_sentence_not_a_traceback(monkeypatch):
+    import subprocess
+
+    import tools.read_supabase_tokens as reader
+
+    def absent(*_args, **_kwargs):
+        raise FileNotFoundError("gh")
+
+    monkeypatch.setattr(subprocess, "run", absent)
+    with pytest.raises(SystemExit) as refused:
+        reader.fetch("packages/ui/build/css/source/global.css", "0" * 40)
+    assert "the gh CLI is not on PATH" in str(refused.value)
 
 
 class _Read(Exception):

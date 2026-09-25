@@ -55,9 +55,9 @@ ASSETS = {
     ),
     # THE NOTICE SUPABASE IS OWED, distributed exactly as Google's is. R-74 makes
     # their design system this product's baseline rather than one option among
-    # several, so the borrowing is structural: `design/tokens.css` carries fifteen
-    # byte-exact values of theirs and nineteen more re-derived from their own
-    # expressions. Apache-2.0 section 4 wants attribution, the licence with the
+    # several, so the borrowing is structural: `design/tokens.css` carries values of
+    # theirs, byte-exact or re-derived from their own expressions, and says which at
+    # each value (#1017). Apache-2.0 section 4 wants attribution, the licence with the
     # derivative, and a prominent statement that files were changed; MIT wants the
     # notice in all copies. The file discharges both, because which of the two
     # governs `packages/ui` is genuinely ambiguous -- their root declares
