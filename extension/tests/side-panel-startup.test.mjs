@@ -465,6 +465,85 @@ test("the trace scripts load first, and app.js is not in the markup at all", () 
     + "never become interactive");
 });
 
+// Every <use> in the panel's markup, with the reference it draws. xlink:href,
+// either quote and no quote at all are the same reference to a browser, so
+// they are to this.
+const USE_REFERENCE =
+  /<use\b[^>]*?\s(?:xlink:)?href\s*=\s*(?:(["'])(.*?)\1|([^\s"'>]+))/gi;
+const useReferences = (html) => [...html.matchAll(USE_REFERENCE)]
+  .map((found) => found[2] ?? found[3]);
+
+test("no <use> in the panel's markup points outside the document", () => {
+  // THE SECOND THING THAT HELD `load`, found after app.js had been moved out of
+  // its way. Since Chrome 150 (Chromium f4800f1b) a <use> that references
+  // another file holds the document's `load` until its shadow tree is built, and
+  // only a layout pass builds it. Chrome reveals the Side Panel only after
+  // `load`, and a panel it has not revealed is hidden and 0x0, so it gets no
+  // layout pass: blank until the owner clicks somewhere else. Measured on
+  // Chrome 153, his version, in a clean profile: 23 of 50 opens stuck with the
+  // icons pointing at icons/material-icons.svg, 0 of 50 with the symbols inline
+  // (issue 1110).
+  const references = useReferences(read("app.html"));
+  // A floor, so that a pattern which matched nothing cannot pass. It sits well
+  // under the 90 static icons the markup draws today, so removing an icon is
+  // not a failure; finding none is.
+  assert.ok(references.length >= 40,
+    `found only ${references.length} <use> references in app.html`);
+  assert.deepEqual(references.filter((href) => !href.startsWith("#")), [],
+    "these <use> point outside the document, and each one can hold `load` — and "
+    + "with it the whole Side Panel — until something forces a layout");
+});
+
+test("every icon in the panel's markup is a symbol the panel carries", () => {
+  // The other half of the rule above: a reference kept inside the document must
+  // still land on something, or the icon draws empty while its button works.
+  const html = read("app.html");
+  const symbols = new Set(
+    [...html.matchAll(/<symbol\b[^>]*?\sid="([^"]+)"/g)].map((found) => found[1]));
+  const drawn = useReferences(html)
+    .filter((href) => href.startsWith("#")).map((href) => href.slice(1));
+  assert.ok(drawn.length >= 40, `found only ${drawn.length} icons in app.html`);
+  assert.deepEqual([...new Set(drawn)].filter((id) => !symbols.has(id)), [],
+    "these icons name a symbol app.html does not carry; run "
+    + "tools/sync_design_assets.py, or fix the name");
+});
+
+test("app.js draws its icons from the same symbols, never from the file", () => {
+  // app.js runs only after `load`, so a <use> it writes could not hold the panel
+  // blank. It is held to the same symbols anyway, so that the panel has ONE icon
+  // source rather than two that merely agree, and so that the DOM harness serves
+  // the page with the references the extension ships.
+  const app = read("app.js");
+  const form = app.match(/^const iconHref = \(name\) => `#([\w-]*)\$\{name\}`;/m);
+  assert.ok(form, "app.js no longer builds its icon references in one place, iconHref");
+  const prefix = form[1];
+  const symbols = new Set(
+    [...read("app.html").matchAll(/<symbol\b[^>]*?\sid="([^"]+)"/g)].map((found) => found[1]));
+  assert.ok(symbols.size > 0, "app.html carries no symbols for app.js to draw");
+  assert.deepEqual([...symbols].filter((id) => !id.startsWith(prefix)), [],
+    `iconHref builds #${prefix}<name>, and these symbols do not carry that prefix`);
+  // The names app.js draws by literal must be symbols the panel carries. The
+  // computed ones (a tone's icon, a destination's) are not visible to a scan.
+  const literal = [...app.matchAll(/\b(?:icon|iconHref)\(\s*"([\w-]+)"/g)].map((found) => found[1]);
+  assert.ok(literal.length > 0, "found no literal icon names in app.js");
+  assert.deepEqual([...new Set(literal)].filter((name) => !symbols.has(prefix + name)), [],
+    "app.js draws icons the panel's sprite does not have");
+  // And no reference is written by hand, where the check above cannot read its
+  // name: a bare `#check` finds the Test site button, and `#icon-chek` finds
+  // nothing. Main's scan of app.js read every hand-written reference into the
+  // sprite file, so this keeps what that scan held.
+  const handWritten = [...app.matchAll(/<use\b[^>]*>/g)].map((found) => found[0])
+    .filter((tag) => !/\shref="\$\{iconHref\(/.test(tag));
+  assert.deepEqual(handWritten, [],
+    "these <use> in app.js take their reference from somewhere other than iconHref");
+  const setByHand = [...app.matchAll(/\.setAttribute\(\s*"href",\s*"#([^"]*)"/g)]
+    .map((found) => found[1]);
+  assert.deepEqual(setByHand.filter((id) => !symbols.has(id)), [],
+    "app.js points these icons at ids the panel's sprite does not carry; use iconHref");
+  assert.ok(!app.includes("material-icons.svg"),
+    "app.js names the external sprite file again");
+});
+
 // ---------------------------------------------------------------------------
 // Stalled Account and Engine work must never hold the shell
 // ---------------------------------------------------------------------------

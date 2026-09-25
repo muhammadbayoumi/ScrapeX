@@ -681,7 +681,7 @@ def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path
 
 
 def test_the_interactive_wait_ends_on_the_mark_it_names(browser, tmp_path):
-    """The literal at `panel_harness.py:968` is the whole subject of that helper's
+    """The literal at `panel_harness.py:1042` is the whole subject of that helper's
     docstring, and until this it was bound by nothing.
 
     Its only other test drives a page carrying `startup-failed` alone, which ends
@@ -853,3 +853,60 @@ def test_a_mark_that_merely_starts_the_same_way_does_not_end_it(browser, tmp_pat
             harness.wait_until_settled(page, timeout=800)
     finally:
         page.close()
+
+
+#: Every <use> in the document at the moment `load` fires, by the reference
+#: Chrome follows: `href.baseVal` reads `href` over `xlink:href`. And every
+#: element that failed to load before then, because a script that never ran
+#: drew nothing this could see.
+_ICONS_AT_LOAD = """
+  window.__failedBeforeLoad = [];
+  window.addEventListener("error", (event) => {
+    if (event.target instanceof Element) window.__failedBeforeLoad.push(
+      event.target.getAttribute("src") || event.target.getAttribute("href")
+        || event.target.localName);
+  }, true);
+  window.addEventListener("load", () => {
+    window.__iconsAtLoad = [...document.querySelectorAll("use")]
+      .map((use) => use.href.baseVal);
+    window.__failedAtLoad = window.__failedBeforeLoad.slice();
+  }, {once: true});
+"""
+
+
+def test_nothing_the_panel_holds_at_load_points_outside_the_document(browser):
+    """Chrome shows the Side Panel only after `load`, and since Chrome 150 a
+    <use> that points into another file holds `load` until a layout pass builds
+    it, which a panel Chrome has not shown yet never gets: the panel stays blank
+    (issue 1110). extension/tests/side-panel-startup.test.mjs holds app.html's
+    own markup to `#`, by reading the file. This reads the document, so an icon
+    any script draws before `load` is held too.
+
+    extension/app.html itself, not the harness page: build_page runs timezone.js
+    and split-button.js without their `defer` and never runs boot-app.js, so a
+    script that draws before `load` in the panel can draw nothing there. Every
+    request that is not for a local file is refused, so nothing reaches the
+    engine or the network.
+
+    A script that does not run here draws nothing here, and would pass. So one
+    that fails to load fails the test, as every module script does over file:,
+    and so does one that throws, as code calling the extension's API does."""
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    try:
+        page.route("**/*", lambda route: route.continue_()
+                   if route.request.url.startswith("file:") else route.abort())
+        page.add_init_script(_ICONS_AT_LOAD)
+        page.goto((ROOT / "extension" / "app.html").as_uri())
+        page.wait_for_function("() => Array.isArray(window.__iconsAtLoad)")
+        icons = page.evaluate("() => window.__iconsAtLoad")
+        failed = page.evaluate("() => window.__failedAtLoad")
+    finally:
+        page.close()
+
+    assert len(icons) >= 40, f"{len(icons)} icons at load: the markup alone draws 90"
+    outside = sorted({href for href in icons if not href.startswith("#")})
+    assert not outside, f"these hold `load`, and the panel with it: {outside}"
+    assert not failed, f"these did not load, so nothing they draw was checked: {failed}"
+    assert not errors, f"the page threw, so it did not run as the panel runs: {errors}"

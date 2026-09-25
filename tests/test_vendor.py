@@ -552,7 +552,7 @@ def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     """An icon is a component, not decoration: missing IDs leave an invisible
     control while the button remains clickable. Keep the two distributed
     copies byte-for-byte equal to the reviewed canonical sprite, then verify
-    every static reference against its symbol IDs."""
+    each static reference to the file (the Side Panel names none, issue 1110)."""
     canonical = CANONICAL_ICON_SPRITE.read_bytes()
     assert (ROOT / "extension" / "icons" / "material-icons.svg").read_bytes() == canonical
     assert (

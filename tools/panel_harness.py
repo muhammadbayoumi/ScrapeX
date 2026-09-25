@@ -843,17 +843,19 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     style = _embed_icons((EXT / "app.css").read_text(encoding="utf-8"))
     tokens_css = (EXT / "tokens.css").read_text(encoding="utf-8")
     components_css = _embed_icons((EXT / "components.css").read_text(encoding="utf-8"))
-    # External SVG fragments work on the extension origin but not reliably from
-    # the harness's file:// document. Inline the exact same generated sprite and
-    # point every <use> at the local symbols for deterministic visual tests.
-    sprite = (EXT / "icons" / "material-icons.svg").read_text(encoding="utf-8")
-    sprite_body = re.sub(r"^<svg[^>]*>|</svg>\s*$", "", sprite, flags=re.S)
-    body = re.sub(r'href=(["\'])icons/material-icons\.svg#', r'href=\1#', body)
+    # NO ICON WORK HERE, ON PURPOSE. app.html carries its sprite inline and every
+    # icon in the panel, markup and app.js alike, points at those symbols
+    # (tools/sync_design_assets.py). This harness used to inline its own copy
+    # and rewrite every <use> onto it, which is why every harness test stayed
+    # green while the real panel stuck blank on the external sprite (issue
+    # 1110): the page under test could not have the defect. The page now
+    # arrives with its icons as the extension ships them.
+    #
     # An <img src> is a real subresource, and this page lives in a temporary
     # directory with no icons/ beside it — so Google's mark rendered as a BROKEN
     # IMAGE in every screenshot while every assertion about it passed, because
-    # they read the markup and the file rather than the page. Inlined, like the
-    # sprite above and for the same reason.
+    # they read the markup and the file rather than the page. Inlined for that
+    # reason.
     for asset in ("google-g.png",
                   "google-signin/light-rectangular@4x.png",
                   "google-signin/dark-rectangular@4x.png"):
@@ -871,11 +873,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         body = body.replace(f'src="icons/{asset}"',
                             f'src="data:image/png;base64,{data}"')
-    body = (
-        "<svg aria-hidden='true' width='0' height='0' "
-        "style='position:absolute;overflow:hidden'>"
-        f"{sprite_body}</svg>{body}"
-    )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
     startup_trace_js = (EXT / "startup-trace.js").read_text(encoding="utf-8")
     startup_bootstrap_js = (EXT / "startup-bootstrap.js").read_text(encoding="utf-8")
@@ -908,13 +905,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # before DOMContentLoaded. Keep the harness on the extension's real module
     # graph instead of re-declaring any of its functions in a test-only stub.
     app_js = re.sub(r"^import[\s\S]*?;\s*$", "", app_js, flags=re.M)
-    # The <use> rewrite above only touches app.html's TEXT, so every icon app.js
-    # renders at runtime kept the real path and 404'd here — 71 of them, all
-    # invisible, in a harness whose whole point is that the picture and the
-    # assertions describe the same page. Pointing the sprite constant at the
-    # inlined symbols fixes them the same way the markup was fixed.
-    app_js = app_js.replace('const ICON_SPRITE = "icons/material-icons.svg";',
-                            'const ICON_SPRITE = "";')
     # ONE FLATTENING RULE, APPLIED TO EVERY MODULE, rather than three lines per
     # module repeated down the file. The comment above says this list is
     # hand-maintained; it still is, but adding a module is now one name instead

@@ -538,3 +538,29 @@ def test_the_export_action_is_no_longer_advertised_as_unbuilt():
         "the export action is still marked unbuilt while the engine route and "
         "the panel handler both exist")
     assert "Not built yet" not in entry
+
+
+def test_no_id_names_two_elements_in_the_panel():
+    """`getElementById` and `<use href="#…">` both answer with the FIRST element
+    carrying an id, so a second one is an error nowhere: it silently takes over
+    whatever the later element was for.
+
+    THE CASE THAT MADE THIS NECESSARY. The panel carries the icon sprite inline
+    (tools/sync_design_assets.py, issue 1110), the sprite has a `check` symbol,
+    and the Test site button's id is `check`. Unprefixed, one of the two loses:
+    ahead of the button the symbol takes its click handler — the DOM harness did
+    exactly that while it injected the unprefixed sprite, and `_open_add_form`
+    in tests/test_panel_dom.py had to dispatch the click by id — and behind it
+    every `#check` icon points at the button and draws nothing.
+    The generator prefixes the panel's symbol ids, and this is what fails if it
+    stops.
+    """
+    # Either quote or none: all three are one id to the browser.
+    ids = [next(value for value in found if value)
+           for found in re.findall(
+               r"""\sid\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'>]+))""", HTML)]
+    # A floor, so that a pattern which matched nothing cannot pass; well under
+    # the ~470 the markup carries today, so trimming markup is not a failure.
+    assert len(ids) > 200, f"found only {len(ids)} ids in app.html"
+    repeated = sorted({name for name in ids if ids.count(name) > 1})
+    assert not repeated, f"these ids name more than one element in app.html: {repeated}"
