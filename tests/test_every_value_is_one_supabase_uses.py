@@ -133,7 +133,16 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
      [("font-size", ".73rem", False), ("font-size", "2vw", False), ("font-size", ".8125rem", True),
       ("font-weight", "600", True)]),
     (".a { font: var(--style) 650 var(--fs) var(--font); }", [("font-weight", "650", False)]),
-    # A calc() line height states its operands, as the longhand does.
+    # With no slash, a token before a literal size is not the size.
+    (".a { font: var(--fw) .73rem var(--font); }", [("font-size", ".73rem", False)]),
+    # The slash may be spaced; `normal` and zero state nothing.
+    (".a { font: 600 .8125rem / 1.4 var(--font); }",
+     [("font-size", ".8125rem", True), ("line-height", "1.4", True), ("font-weight", "600", True)]),
+    (".a { font: 600 .8125rem/ 13px var(--font); }",
+     [("font-size", ".8125rem", True), ("line-height", "13px", False), ("font-weight", "600", True)]),
+    (".a { font: 600 .8125rem/normal var(--font); }", [("font-size", ".8125rem", True), ("font-weight", "600", True)]),
+    (".a { font: 600 12px/0 var(--font); }", [("font-size", "12px", True), ("font-weight", "600", True)]),
+    # A calc() line height states its length operands; unitless ones are #1129.
     (".a { font: .8125rem/calc(1em + 3px) var(--font); }",
      [("font-size", ".8125rem", True), ("line-height", "1em", False), ("line-height", "3px", False)]),
     # Each math function states its own operands, the size's and the line height's apart.
