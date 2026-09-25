@@ -121,8 +121,8 @@ def test_no_palette_declares_a_design_block():
     assert not offenders, (
         f"{offenders} declare a `design` block. R-74: a palette changes colour "
         "only -- «فتعدل على الالوان فقط لا تعدل على design system». The design "
-        "system belongs to design/tokens.css so that all four colour choices sit "
-        "on it, including device, which applies no palette at all.")
+        "system belongs to design/tokens.css, so the one colour choice sits on it "
+        "and a palette can only recolour it.")
 
 
 def test_no_palette_sets_a_non_colour_token():
