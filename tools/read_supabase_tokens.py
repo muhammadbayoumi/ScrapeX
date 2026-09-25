@@ -134,11 +134,11 @@ def pinned_commit() -> str:
     return found.group(1)
 
 
-def fetch(path: str, ref: str) -> str:
+def fetch(path: str, ref: str, repo: str = "supabase/supabase") -> str:
     """One of their files, verbatim. Raw bytes, not a rendering or a summary."""
     try:
         result = subprocess.run(
-            ["gh", "api", f"repos/supabase/supabase/contents/{path}?ref={ref}",
+            ["gh", "api", f"repos/{repo}/contents/{path}?ref={ref}",
              "-H", "Accept: application/vnd.github.raw"],
             capture_output=True, text=True, encoding="utf-8",
         )
