@@ -163,3 +163,11 @@ def test_the_lockfile_names_the_tailwind_packages_ui_resolves():
     assert tailwind_version(lock) == "4.2.4"
     with pytest.raises(SystemExit):
         tailwind_version(lock.replace("  packages/ui:", "  packages/other:"))
+
+
+@pytest.mark.parametrize("css", [".a { padding: 7px; ", ".a { padding: 7px; } }"], ids=["unclosed", "overclosed"])
+def test_a_sheet_whose_braces_do_not_balance_fails_the_read(css):
+    """A brace the parse miscounts moves every later declaration into the wrong rule, and
+    the mono context with it, so the read refuses rather than guesses."""
+    with pytest.raises(ValueError):
+        declarations(css)

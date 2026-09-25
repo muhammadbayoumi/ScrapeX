@@ -82,9 +82,13 @@ def declarations(css: str) -> list[tuple[str, str, str, int]]:
                 line = css.count("\n", 0, start + len(chunk) - len(chunk.lstrip())) + 1
                 found.append((selector, declaration.group(1).lower(),
                               " ".join(declaration.group(2).split()), line))
-            if char == "}" and stack:
+            if char == "}":
+                if not stack:
+                    raise ValueError("a `}` closes nothing: a brace inside a string, or a broken sheet")
                 stack.pop()
         start = index + 1
+    if stack:
+        raise ValueError(f"{len(stack)} rule(s) never close: {stack[-1]!r}")
     return found
 
 
