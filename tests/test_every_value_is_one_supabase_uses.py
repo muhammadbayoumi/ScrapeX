@@ -117,10 +117,29 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
     (".a { font: 600 clamp(.73rem, 2vw, .8125rem)/1.4 var(--font); }",
      [("font-size", ".73rem", False), ("font-size", "2vw", False), ("font-size", ".8125rem", True),
       ("line-height", "1.4", True), ("font-weight", "600", True)]),
-    # A keyword size gives no position, so only the weight before the slash is read; and a
-    # digit in a quoted family is no weight.
-    (".a { font: 650 small/1.4 sans-serif; }", [("font-weight", "650", False)]),
+    # A keyword size states nothing, but the slash still places the line height; a digit in
+    # a quoted family is no weight.
+    (".a { font: 650 small/1.4 sans-serif; }", [("line-height", "1.4", True), ("font-weight", "650", False)]),
     ('.a { font: 650 small "Font 3"; }', [("font-weight", "650", False)]),
+    (".a { font: 650 small 'Font 3'; }", [("font-weight", "650", False)]),
+    # The slash is the fixed point. A keyword size before it is still the size, so a length
+    # after it is the line height.
+    (".a { font: 600 small/13px var(--font); }", [("line-height", "13px", False), ("font-weight", "600", True)]),
+    # The size is the LAST before the slash, so a token weight before it is not the size.
+    (".a { font: italic var(--fw) .73rem/1.2 serif; }", [("font-size", ".73rem", False), ("line-height", "1.2", True)]),
+    # With no slash, the size is the first length or calc(), and every bare number a weight.
+    (".a { font: 600 .73rem var(--font); }", [("font-size", ".73rem", False), ("font-weight", "600", True)]),
+    (".a { font: 600 clamp(.73rem, 2vw, .8125rem) var(--font); }",
+     [("font-size", ".73rem", False), ("font-size", "2vw", False), ("font-size", ".8125rem", True),
+      ("font-weight", "600", True)]),
+    (".a { font: var(--style) 650 var(--fs) var(--font); }", [("font-weight", "650", False)]),
+    # A calc() line height states its operands, as the longhand does.
+    (".a { font: .8125rem/calc(1em + 3px) var(--font); }",
+     [("font-size", ".8125rem", True), ("line-height", "1em", False), ("line-height", "3px", False)]),
+    # Each math function states its own operands, the size's and the line height's apart.
+    (".a { font: clamp(.73rem, 2vw, .8125rem)/calc(1em + 3px) serif; }",
+     [("font-size", ".73rem", False), ("font-size", "2vw", False), ("font-size", ".8125rem", True),
+      ("line-height", "1em", False), ("line-height", "3px", False)]),
     ('.a { font: 900 var(--fa-size) "Font Awesome 6 Free"; }', [("font-weight", "900", True)]),
     # A var() goes whole, whatever its fallback holds.
     (".a { padding: var(--gap, calc(1px + 2px)) 7px; }", [("spacing", "7px", False)]),

@@ -131,32 +131,44 @@ def _without_tokens(value: str, pattern: re.Pattern[str] = TOKEN_FUNCTION, hole:
 
 def _font(value: str) -> dict[str, list[str]]:
     """The weights, sizes and line heights a `font` shorthand states as literals:
-    `[style] [weight] size[/line-height] family`.
+    `[style] [variant] [weight] size[/line-height] family`.
 
-    The size is found by position, since a token or a calc() stands where it is written:
-    first a size followed by `/` and a line height, then a lone length. A token size states
-    no literal; a calc() or clamp() size states its own length operands, as the longhand
-    does. A weight is a bare number before the size, and quoted family names are set aside,
-    so `"Font Awesome 6"` states no weight."""
+    The slash is found first, because it is the one fixed point: the size is the last
+    size before it, and the line height the first value after it. With no slash, the size
+    is the first length or calc() in the value. A size or line height written as a token
+    states no literal; one written as calc(), min(), max() or clamp() states its own length
+    operands, as the longhand does. A weight is a bare number before the size, or anywhere
+    when no slash is written (no line height can be); quoted family names are set aside."""
     math: list[str] = []
     marked = _without_tokens(_without_tokens(value, hole=TOKEN_HOLE), MATH_FUNCTION, MATH_HOLE, math)
     marked = re.sub(r"\"[^\"]*\"|'[^']*'", " ", marked)
     length = rf"-?\d*\.?\d+(?:{UNITS})"
-    size = rf"({TOKEN_HOLE}|{MATH_HOLE}|{length})"
-    found = (re.search(rf"(?<![\w.#-]){size}(?![\w-])\s*/\s*({TOKEN_HOLE}|{MATH_HOLE}|{length}|-?\d*\.?\d+)", marked)
-             or re.search(rf"(?<![\w.#-])({length})(?![\w-])", marked))
-    before = marked[:found.start()] if found else re.split(rf"[/{TOKEN_HOLE}{MATH_HOLE}]", marked)[0]
+    size = rf"(?<![\w.#-])({TOKEN_HOLE}|{MATH_HOLE}|{length})(?![\w-])"
+
+    def stated(literal: str, at: int) -> list[str]:
+        """What one size or line height states: itself, its math operands, or nothing."""
+        if literal == MATH_HOLE:
+            operands = _without_tokens(math[marked[:at].count(MATH_HOLE)])
+            return [f"{n}{u}" for n, u in LENGTH.findall(operands)]
+        if literal in (TOKEN_HOLE, "normal"):
+            return []
+        return [literal]
+
+    slash = marked.find("/")
+    if slash >= 0:
+        sizes = list(re.finditer(size, marked[:slash]))
+        after = re.match(rf"\s*({TOKEN_HOLE}|{MATH_HOLE}|{length}|-?\d*\.?\d+|normal)", marked[slash + 1:])
+        line_height = stated(after.group(1), slash + 1 + after.start(1)) if after else []
+        font_size = stated(sizes[-1].group(1), sizes[-1].start(1)) if sizes else []
+        before = marked[:sizes[-1].start()] if sizes else marked[:slash]
+    else:
+        found = re.search(rf"(?<![\w.#-])({MATH_HOLE}|{length})(?![\w-])", marked)
+        line_height, font_size = [], stated(found.group(1), found.start(1)) if found else []
+        before = marked
     weights = [n for n in NUMBER.findall(before) if 1 <= float(n) <= 1000]
-    stated: dict[str, list[str]] = {"font-weight": weights[-1:]}
-    if found:
-        sizes = [found.group(1)]
-        if found.group(1) == MATH_HOLE:
-            sizes = [f"{n}{u}" for n, u in LENGTH.findall(_without_tokens(math[marked[:found.start()].count(MATH_HOLE)]))]
-        stated["font-size"] = sizes
-        stated["line-height"] = [found.group(2)] if found.lastindex and found.lastindex >= 2 else []
-    return {axis: [v for v in values if v and v not in (TOKEN_HOLE, MATH_HOLE)
-                   and float(re.match(r"-?[\d.]+", v).group(0)) != 0]
-            for axis, values in stated.items()}
+    return {axis: [v for v in values if float(re.match(r"-?[\d.]+", v).group(0)) != 0]
+            for axis, values in {"font-weight": weights[-1:], "font-size": font_size,
+                                 "line-height": line_height}.items()}
 
 
 def _split(text: str, separators: str) -> list[tuple[str, str]]:
