@@ -856,11 +856,20 @@ def test_a_mark_that_merely_starts_the_same_way_does_not_end_it(browser, tmp_pat
 
 
 #: Every <use> in the document at the moment `load` fires, by the reference
-#: Chrome follows: `href.baseVal` reads `href` over `xlink:href`.
+#: Chrome follows: `href.baseVal` reads `href` over `xlink:href`. And every
+#: element that failed to load before then, because a script that never ran
+#: drew nothing this could see.
 _ICONS_AT_LOAD = """
+  window.__failedBeforeLoad = [];
+  window.addEventListener("error", (event) => {
+    if (event.target instanceof Element) window.__failedBeforeLoad.push(
+      event.target.getAttribute("src") || event.target.getAttribute("href")
+        || event.target.localName);
+  }, true);
   window.addEventListener("load", () => {
     window.__iconsAtLoad = [...document.querySelectorAll("use")]
       .map((use) => use.href.baseVal);
+    window.__failedAtLoad = window.__failedBeforeLoad.slice();
   }, {once: true});
 """
 
@@ -877,8 +886,14 @@ def test_nothing_the_panel_holds_at_load_points_outside_the_document(browser):
     and split-button.js without their `defer` and never runs boot-app.js, so a
     script that draws before `load` in the panel can draw nothing there. Every
     request that is not for a local file is refused, so nothing reaches the
-    engine or the network."""
+    engine or the network.
+
+    A script that does not run here draws nothing here, and would pass. So one
+    that fails to load fails the test, as every module script does over file:,
+    and so does one that throws, as code calling the extension's API does."""
     page = browser.new_page(viewport={"width": 360, "height": 800})
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
     try:
         page.route("**/*", lambda route: route.continue_()
                    if route.request.url.startswith("file:") else route.abort())
@@ -886,9 +901,12 @@ def test_nothing_the_panel_holds_at_load_points_outside_the_document(browser):
         page.goto((ROOT / "extension" / "app.html").as_uri())
         page.wait_for_function("() => Array.isArray(window.__iconsAtLoad)")
         icons = page.evaluate("() => window.__iconsAtLoad")
+        failed = page.evaluate("() => window.__failedAtLoad")
     finally:
         page.close()
 
     assert len(icons) >= 40, f"{len(icons)} icons at load: the markup alone draws 90"
     outside = sorted({href for href in icons if not href.startswith("#")})
     assert not outside, f"these hold `load`, and the panel with it: {outside}"
+    assert not failed, f"these did not load, so nothing they draw was checked: {failed}"
+    assert not errors, f"the page threw, so it did not run as the panel runs: {errors}"
