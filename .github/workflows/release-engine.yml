@@ -1,6 +1,8 @@
 name: Release the engine
 
-# PATH B of PLATFORM-PLAN §5c. A tag starts it; nothing else does.
+# PATH B of PLATFORM-PLAN §5c. A tag starts it, and so does a dispatch, which is
+# how tag-the-release.yml releases every version: on the tag it cut, with
+# `dry_run=false`, because a tag its token pushes starts nothing. By hand:
 #
 #     git tag engine-v<VERSION> && git push origin engine-v<VERSION>
 #
