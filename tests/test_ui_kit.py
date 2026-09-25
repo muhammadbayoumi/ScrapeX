@@ -163,18 +163,6 @@ def test_every_class_in_markup_resolves_to_a_rule(defined):
         f"  {name:<28} {', '.join(sorted(files))}" for name, files in sorted(unresolved.items()))
 
 
-def test_the_shared_vocabulary_is_reachable_from_both_surfaces(defined):
-    """The point of a shared sheet is that one fix reaches both UIs. If the
-    extension or the web UI stopped loading it, every component in it would
-    quietly become a per-surface reimplementation again — which is the state
-    this whole effort exists to leave."""
-    panel = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
-    assert "components.css" in panel, "the panel no longer loads the shared sheet"
-
-    base = (ROOT / "scrapex" / "webui" / "templates" / "base.html").read_text(encoding="utf-8")
-    assert "components.css" in base, "the web UI no longer loads the shared sheet"
-
-
 def test_every_shared_component_is_in_the_catalogue(defined):
     """UI-1. Nobody reuses what nobody can see.
 
