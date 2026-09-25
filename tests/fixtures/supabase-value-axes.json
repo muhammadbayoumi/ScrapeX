@@ -1,0 +1,455 @@
+{
+ "commit": "86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94",
+ "tailwind": "4.2.4",
+ "atoms_read": 130,
+ "axes": {
+  "spacing": {
+   "spacing_rem": 0.25,
+   "tailwind_multiplier": 0.25,
+   "declared": {
+    "--spacing-scale": "2px",
+    "--spacing-xs": "4px",
+    "--spacing-sm": "8px",
+    "--spacing-md": "16px",
+    "--spacing-lg": "32px",
+    "--spacing-xl": "64px",
+    "--spacing-content": "21px"
+   }
+  },
+  "radius": {
+   "declared": {
+    "--radius-xs": "0.125rem",
+    "--radius-sm": "0.25rem",
+    "--radius-md": "0.375rem",
+    "--radius-lg": "0.5rem",
+    "--radius-xl": "0.75rem",
+    "--radius-2xl": "1rem",
+    "--radius-3xl": "1.5rem",
+    "--radius-4xl": "2rem",
+    "--radius": "0.25rem",
+    "--radius-panel": "6px",
+    "full": "calc(infinity * 1px)"
+   }
+  },
+  "font-size": {
+   "sans": {
+    "--text-xs": "0.75rem",
+    "--text-sm": "0.8125rem",
+    "--text-base": "0.9375rem",
+    "--text-lg": "1rem",
+    "--text-xl": "1.125rem",
+    "--text-2xl": "1.375rem",
+    "--text-3xl": "1.75rem",
+    "--text-4xl": "2.125rem",
+    "--text-5xl": "2.875rem",
+    "--text-6xl": "3.625rem",
+    "--text-7xl": "4.375rem",
+    "--text-8xl": "5.875rem",
+    "--text-9xl": "7.875rem"
+   },
+   "mono": {
+    "--text-xs": "0.75rem",
+    "--text-sm": "0.875rem",
+    "--text-base": "1rem",
+    "--text-lg": "1.125rem",
+    "--text-xl": "1.25rem",
+    "--text-2xl": "1.5rem",
+    "--text-3xl": "1.875rem",
+    "--text-4xl": "2.25rem",
+    "--text-5xl": "3rem",
+    "--text-6xl": "3.75rem",
+    "--text-7xl": "4.5rem",
+    "--text-8xl": "6rem",
+    "--text-9xl": "8rem"
+   }
+  },
+  "line-height": {
+   "declared": {
+    "--leading-tight": "1.25",
+    "--leading-snug": "1.375",
+    "--leading-normal": "1.5",
+    "--leading-relaxed": "1.625",
+    "--leading-loose": "2",
+    "--text-xs--line-height": "calc(1 / 0.75)",
+    "--text-sm--line-height": "calc(1.25 / 0.875)",
+    "--text-base--line-height": "calc(1.5 / 1)",
+    "--text-lg--line-height": "calc(1.75 / 1.125)",
+    "--text-xl--line-height": "calc(1.75 / 1.25)",
+    "--text-2xl--line-height": "calc(2 / 1.5)",
+    "--text-3xl--line-height": "calc(2.25 / 1.875)",
+    "--text-4xl--line-height": "calc(2.5 / 2.25)",
+    "--text-5xl--line-height": "1",
+    "--text-6xl--line-height": "1",
+    "--text-7xl--line-height": "1",
+    "--text-8xl--line-height": "1",
+    "--text-9xl--line-height": "1",
+    "--leading-none": "1"
+   }
+  },
+  "font-weight": {
+   "declared": {
+    "--font-weight-thin": "100",
+    "--font-weight-extralight": "200",
+    "--font-weight-light": "300",
+    "--font-weight-normal": "400",
+    "--font-weight-medium": "500",
+    "--font-weight-semibold": "600",
+    "--font-weight-bold": "700",
+    "--font-weight-extrabold": "800",
+    "--font-weight-black": "900",
+    "--font-weight-normal (theirs)": "450",
+    "--font-weight-normal (mono)": "400"
+   }
+  },
+  "duration": {
+   "declared": {
+    "--default-transition-duration": "150ms",
+    "--animate-fade-in": "300ms",
+    "--animate-fade-out": "300ms",
+    "--animate-dropdown-content-show": "100ms",
+    "--animate-dropdown-content-hide": "100ms",
+    "--animate-overlay-show": "300ms",
+    "--animate-overlay-hide": "300ms",
+    "--animate-fade-in-overlay-bg": "300ms",
+    "--animate-fade-out-overlay-bg": "300ms",
+    "--animate-slide-down": "300ms",
+    "--animate-slide-up": "300ms",
+    "--animate-slide-down-normal": "300ms",
+    "--animate-slide-up-normal": "300ms",
+    "--animate-panel-slide-left-out": "200ms",
+    "--animate-panel-slide-left-in": "250ms",
+    "--animate-panel-slide-right-out": "200ms",
+    "--animate-panel-slide-right-in": "250ms",
+    "--animate-line-loading": "1.8s",
+    "--animate-line-loading-slower": "2.3s",
+    "--animate-dropdownFadeIn": "0.1s",
+    "--animate-dropdownFadeOut": "0.1s",
+    "--animate-flash-code": "1s",
+    "--animate-flash-code-slow": "2s",
+    "--animate-accordion-down": "0.15s",
+    "--animate-accordion-up": "0.15s",
+    "--animate-collapsible-down": "0.1s",
+    "--animate-collapsible-up": "0.1s"
+   }
+  },
+  "easing": {
+   "declared": {
+    "--ease-in": "cubic-bezier(0.4, 0, 1, 1)",
+    "--ease-out": "cubic-bezier(0, 0, 0.2, 1)",
+    "--ease-in-out": "cubic-bezier(0.4, 0, 0.2, 1)",
+    "--animate-dropdown-content-show (curve)": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "--animate-dropdown-content-hide (curve)": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "--animate-overlay-show (curve)": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "--animate-overlay-hide (curve)": "cubic-bezier(0.16, 1, 0.3, 1)",
+    "--animate-slide-down (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-slide-up (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-slide-down-normal (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-slide-up-normal (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-panel-slide-left-out (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-panel-slide-left-in (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-panel-slide-right-out (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "--animate-panel-slide-right-in (curve)": "cubic-bezier(0.87, 0, 0.13, 1)"
+   }
+  },
+  "focus": {
+   "declared": {
+    "focus-ring ring width": "2px",
+    "focus-ring ring offset": "2px",
+    "focus-inset outline-width": "2px",
+    "focus-inset outline-offset": "-2px"
+   }
+  }
+ },
+ "atoms": {
+  "spacing": {
+   "-0.15rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/radio-group-stacked.tsx:85"
+   },
+   "-0.35rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/input-group.tsx:86"
+   },
+   "-0.45rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/input-group.tsx:86"
+   },
+   "-0.4rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/input-group.tsx:87"
+   },
+   "0.0625rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/radio-group-stacked.tsx:80"
+   },
+   "0.125rem": {
+    "count": 17,
+    "first": "packages/ui/src/components/StatusIcon.tsx:41"
+   },
+   "0.25rem": {
+    "count": 41,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:59"
+   },
+   "0.375rem": {
+    "count": 39,
+    "first": "packages/ui/src/components/NavMenu/index.tsx:36"
+   },
+   "0.5rem": {
+    "count": 92,
+    "first": "packages/ui/src/components/Button/Button.tsx:17"
+   },
+   "0.625rem": {
+    "count": 8,
+    "first": "packages/ui/src/components/shadcn/ui/chart.tsx:166"
+   },
+   "0.75rem": {
+    "count": 36,
+    "first": "packages/ui/src/components/Icon/IconBase.tsx:120"
+   },
+   "0.875rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:247"
+   },
+   "0rem": {
+    "count": 23,
+    "first": "packages/ui/src/components/shadcn/ui/accordion.tsx:74"
+   },
+   "1.25rem": {
+    "count": 12,
+    "first": "packages/ui/src/components/NavMenu/index.tsx:16"
+   },
+   "1.5rem": {
+    "count": 5,
+    "first": "packages/ui/src/components/SidePanel/SidePanel.tsx:164"
+   },
+   "1.75rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/dialog.tsx:15"
+   },
+   "10rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:114"
+   },
+   "1px": {
+    "count": 7,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:61"
+   },
+   "1rem": {
+    "count": 38,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:60"
+   },
+   "2.5rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/alert.tsx:11"
+   },
+   "21px": {
+    "count": 1,
+    "first": "packages/ui/src/components/radio-group-stacked.tsx:61"
+   },
+   "2rem": {
+    "count": 24,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:113"
+   },
+   "3px": {
+    "count": 3,
+    "first": "packages/ui/src/components/KeyboardShortcut/KeyboardShortcut.tsx:59"
+   },
+   "3rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:114"
+   },
+   "5.5px": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/badge.tsx:7"
+   },
+   "5px": {
+    "count": 1,
+    "first": "packages/ui/src/components/KeyboardShortcut/KeyboardShortcut.tsx:59"
+   },
+   "5rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:114"
+   },
+   "6rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/drawer.tsx:52"
+   },
+   "8rem": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:114"
+   }
+  },
+  "radius": {
+   "0": {
+    "count": 5,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:205"
+   },
+   "0.125rem": {
+    "count": 18,
+    "first": "packages/ui/src/components/shadcn/ui/command.tsx:154"
+   },
+   "0.25rem": {
+    "count": 18,
+    "first": "packages/ui/src/components/AnimatedCounter/AnimatedCounter.tsx:81"
+   },
+   "0.375rem": {
+    "count": 52,
+    "first": "packages/ui/src/components/Button/Button.tsx:22"
+   },
+   "0.5rem": {
+    "count": 10,
+    "first": "packages/ui/src/components/radio-group-stacked.tsx:45"
+   },
+   "0.75rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/sidebar.tsx:322"
+   },
+   "2px": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/chart.tsx:195"
+   },
+   "calc(var(--radius)-5px)": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/input-group.tsx:82"
+   },
+   "full": {
+    "count": 19,
+    "first": "packages/ui/src/components/Button/Button.tsx:111"
+   },
+   "inherit": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/scroll-area.tsx:17"
+   }
+  },
+  "font-size": {
+   "0.75rem": {
+    "count": 32,
+    "first": "packages/ui/src/components/radio-group-card.tsx:80"
+   },
+   "0.8125rem": {
+    "count": 60,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:114"
+   },
+   "0.8rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/calendar.tsx:69"
+   },
+   "0.9375rem": {
+    "count": 4,
+    "first": "packages/ui/src/components/shadcn/ui/alert-dialog.tsx:232"
+   },
+   "11px": {
+    "count": 2,
+    "first": "packages/ui/src/components/KeyboardShortcut/KeyboardShortcut.tsx:59"
+   },
+   "1rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/sheet.tsx:226"
+   },
+   "9px": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/badge.tsx:7"
+   }
+  },
+  "line-height": {
+   "1": {
+    "count": 5,
+    "first": "packages/ui/src/components/KeyboardShortcut/KeyboardShortcut.tsx:59"
+   },
+   "1.25rem": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/breadcrumb.tsx:34"
+   },
+   "1.375": {
+    "count": 3,
+    "first": "packages/ui/src/components/shadcn/ui/field.tsx:96"
+   },
+   "1.5": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/field.tsx:135"
+   },
+   "inherit": {
+    "count": 1,
+    "first": "packages/ui/src/components/KeyboardShortcut/KeyboardShortcut.tsx:60"
+   }
+  },
+  "font-weight": {
+   "450": {
+    "count": 12,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:65"
+   },
+   "500": {
+    "count": 20,
+    "first": "packages/ui/src/components/shadcn/ui/accordion.tsx:33"
+   },
+   "600": {
+    "count": 4,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:64"
+   }
+  },
+  "duration": {
+   "0ms": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/accordion.tsx:48"
+   },
+   "1000ms": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/input-otp.tsx:50"
+   },
+   "100ms": {
+    "count": 6,
+    "first": "packages/ui/src/components/shadcn/ui/command.tsx:77"
+   },
+   "150ms": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/checkbox.tsx:21"
+   },
+   "200ms": {
+    "count": 10,
+    "first": "packages/ui/src/components/Button/Button.tsx:21"
+   },
+   "300ms": {
+    "count": 3,
+    "first": "packages/ui/src/components/Loading/Loading.tsx:20"
+   },
+   "400ms": {
+    "count": 4,
+    "first": "packages/ui/src/components/ShadowScrollArea/index.tsx:33"
+   },
+   "75ms": {
+    "count": 1,
+    "first": "packages/ui/src/components/shadcn/ui/navigation-menu.tsx:93"
+   }
+  },
+  "z-index": {
+   "1": {
+    "count": 6,
+    "first": "packages/ui/src/components/radio-group-card.tsx:46"
+   },
+   "10": {
+    "count": 6,
+    "first": "packages/ui/src/components/Menu/Menu.tsx:52"
+   },
+   "20": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/calendar.tsx:74"
+   },
+   "38": {
+    "count": 2,
+    "first": "packages/ui/src/components/ShadowScrollArea/index.tsx:46"
+   },
+   "39": {
+    "count": 2,
+    "first": "packages/ui/src/components/ShadowScrollArea/index.tsx:34"
+   },
+   "5": {
+    "count": 2,
+    "first": "packages/ui/src/components/shadcn/ui/calendar.tsx:54"
+   },
+   "50": {
+    "count": 22,
+    "first": "packages/ui/src/components/SidePanel/SidePanel.tsx:46"
+   }
+  }
+ }
+}
