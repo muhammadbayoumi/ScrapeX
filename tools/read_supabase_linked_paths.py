@@ -87,10 +87,14 @@ def linked_paths(pin: str) -> dict[str, set[str]]:
 
 def read(pin: str) -> dict:
     """One call for the whole pinned tree, then the linked paths looked up in it."""
-    result = subprocess.run(
-        ["gh", "api", f"repos/supabase/supabase/git/trees/{pin}?recursive=1"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/supabase/supabase/git/trees/{pin}?recursive=1"],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    except FileNotFoundError:
+        sys.exit("the gh CLI is not on PATH; install it (https://cli.github.com) and "
+                 "run `gh auth login`, then read again")
     if result.returncode != 0:
         sys.exit(f"could not read the tree at {pin[:8]}: {result.stderr.strip()}")
     tree = json.loads(result.stdout)

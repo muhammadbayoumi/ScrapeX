@@ -136,11 +136,15 @@ def pinned_commit() -> str:
 
 def fetch(path: str, ref: str) -> str:
     """One of their files, verbatim. Raw bytes, not a rendering or a summary."""
-    result = subprocess.run(
-        ["gh", "api", f"repos/supabase/supabase/contents/{path}?ref={ref}",
-         "-H", "Accept: application/vnd.github.raw"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/supabase/supabase/contents/{path}?ref={ref}",
+             "-H", "Accept: application/vnd.github.raw"],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    except FileNotFoundError:
+        sys.exit("the gh CLI is not on PATH; install it (https://cli.github.com) and "
+                 "run `gh auth login`, then read again")
     if result.returncode != 0:
         sys.exit(f"could not read {path} at {ref[:8]}: {result.stderr.strip()}")
     return result.stdout
