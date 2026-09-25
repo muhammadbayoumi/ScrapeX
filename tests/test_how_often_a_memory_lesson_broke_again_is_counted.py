@@ -316,6 +316,24 @@ def test_without_the_creating_write_the_start_is_unknown_and_nothing_is_flagged(
         (None, None, None, 2, []), "a script must not read an unknown start as 'never broke again'"
 
 
+@pytest.mark.parametrize("update_first", [False, True])
+def test_a_recognised_update_never_masks_an_unrecognised_create(world, capsys, update_first):
+    """The common shape: a note is created, then edited (7 of the 23 real notes). If a
+    release rewords only the create message, the edit's familiar wording must not make
+    the report claim "an update" and bury the unreadable create beside it."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    unread = _session(projects, "a" if update_first else "z").call(
+        T0, "Write", {"file_path": str(note)}, "Wrote a new file")
+    unread.call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+    _session(projects, "z" if update_first else "a").call(
+        T2, "Edit", {"file_path": str(note)}, f"The file {note} has been updated successfully.").save()
+
+    assert _run(projects, memory) == 0
+    reason = next(x for x in capsys.readouterr().out.splitlines() if x.startswith("START UNKNOWN heredoc"))
+    assert "does not recognise" in reason and "an update" not in reason
+
+
 def test_a_write_result_in_neither_known_wording_is_named_not_taken_for_an_update(world, capsys):
     """If a Claude Code release rewords the Write tool's result, every lesson would lose
     its date. The reason must say the scanner could not read the result, not claim an
