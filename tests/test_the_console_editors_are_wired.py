@@ -38,6 +38,14 @@ CONSOLE_HTML = EXT / "console.html"
 PER_EDITOR_SUFFIXES = ("editor-where", "editor-verdict", "editor-save",
                        "editor-cancel")
 
+#: (editor, field) pairs whose note is fixed prose rather than a slot for a finding,
+#: because nothing validates the field and so no finding can exist for it. Each is
+#: re-checked below: once console.js names the field outside its editor's field list,
+#: the exemption fails and the field needs its slot.
+NOTED_IN_PROSE = {
+    ("source", "VERSION_TAG"): "nothing validates it; its note at console.html:662-665 says so",
+}
+
 
 def _specs() -> dict[str, dict]:
     """The EDITORS registry, read as text rather than executed.
@@ -50,7 +58,9 @@ def _specs() -> dict[str, dict]:
     for name, body in re.findall(
             r"\n  (\w+): \{\n(.*?)\n  \},", source, flags=re.S):
         card = re.search(r'card:\s*"([\w-]+)"', body)
-        prefix = re.search(r'prefix:\s*"([\w-]+)"', body)
+        # `*`, not `+`: the source editor's prefix is "" (console.js:422), and `+`
+        # skipped it, so every test below ran on five of the six editors (#846).
+        prefix = re.search(r'prefix:\s*"([\w-]*)"', body)
         fields = re.search(r"fields:\s*\[(.*?)\]", body, flags=re.S)
         if not (card and prefix and fields):
             continue
@@ -60,6 +70,10 @@ def _specs() -> dict[str, dict]:
             "fields": re.findall(r'"(\w+)"', fields.group(1)),
         }
     assert found, "no editor spec was parsed out of console.js; the shape moved"
+    declared = len(re.findall(r'\bcard:\s*"', source))
+    assert len(found) == declared, (
+        f"console.js declares {declared} editor cards and {len(found)} specs were "
+        "parsed; the rest are skipped by every test in this file")
     return found
 
 
@@ -86,10 +100,35 @@ def test_every_field_an_editor_lists_has_an_input_and_a_note(name):
     # worse than no field at all: it takes a value and never says what the
     # add-in will make of it.
     noteless = [f"{spec['prefix']}n-{field}" for field in spec["fields"]
-                if f"{spec['prefix']}n-{field}" not in ids]
+                if f"{spec['prefix']}n-{field}" not in ids
+                and (name, field) not in NOTED_IN_PROSE]
     assert not noteless, (
         f"the {name} editor has controls with nowhere to put their finding: "
         f"{noteless}")
+
+
+@pytest.mark.parametrize("name,field", sorted(NOTED_IN_PROSE),
+                         ids=[f"{name}-{field}" for name, field in sorted(NOTED_IN_PROSE)])
+def test_a_field_noted_in_prose_is_still_validated_by_nothing(name, field):
+    """An exemption from the note slot holds only while nothing can produce a finding
+    for the field: once one can, `judge()` skips the missing slot and drops the finding
+    in silence (console.js:633-634)."""
+    spec = _specs()[name]
+    assert field in spec["fields"], f"{field} is no longer a {name} field; drop its exemption"
+    assert f"{spec['prefix']}n-{field}" not in _ids(), (
+        f"{spec['prefix']}n-{field} exists now; drop it from NOTED_IN_PROSE")
+    word = re.compile(rf"\b{field}\b")
+    assert len(word.findall(CONSOLE_JS.read_text(encoding="utf-8"))) == 1, (
+        f"console.js names {field} beyond the {name} editor's field list; if something "
+        f"validates it now, give it an n-{field} slot and drop the exemption")
+    validating = [path.name for path in sorted(EXT.glob("*-rules.js"))
+                  if word.search(path.read_text(encoding="utf-8"))]
+    assert not validating, (
+        f"{validating} name {field}, so a finding for it can exist; give it an "
+        f"n-{field} slot and drop the exemption")
+    html = CONSOLE_HTML.read_text(encoding="utf-8")
+    assert re.search(rf'id="{spec["prefix"]}f-{field}"[^>]*>\s*<p class="field-note">\s*Nothing validates',
+                     html), f"the note beside {field} no longer says nothing validates it"
 
 
 @pytest.mark.parametrize("name", sorted(_specs()))

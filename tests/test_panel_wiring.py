@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -110,6 +111,81 @@ def test_no_page_reaches_for_an_element_it_does_not_have(page, defined, referenc
     assert not missing, (
         f"{page} loads a script that reaches for ids the page does not have: "
         f"{missing} — the first one to be missing kills every binding after it")
+
+
+class _Buttons(HTMLParser):
+    """The attributes of every `<button>` that has an id. A tag spread over several
+    lines is one tag here, which a line regex does not see."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[dict[str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        named = dict(attrs)
+        if tag == "button" and named.get("id"):
+            self.found.append(named)
+
+
+def _drawn(page: Path) -> list[dict[str, str | None]]:
+    buttons = _Buttons()
+    buttons.feed(page.read_text(encoding="utf-8"))
+    return buttons.found
+
+
+def _panel_scripts() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(EXT.glob("*.js")))
+
+
+def _named_in(scripts: str, ident: str) -> bool:
+    """A script names the id in a string: `$("x")`, `"#x .row"`, a key, a list entry."""
+    return re.search(rf"""["'`]#?{re.escape(ident)}(?![\w-])""", scripts) is not None
+
+
+#: Buttons drawn with an id that nothing reaches, and why that is right. Each must stay
+#: drawn, disabled and unnamed, or the entry goes
+#: (test_an_inert_button_is_still_drawn_disabled_and_unnamed).
+DRAWN_AND_INERT = {
+    "terms-of-service": "disabled until the terms are written (extension/app.html:1261-1263)",
+}
+
+
+@pytest.mark.parametrize("page", sorted(EXT.glob("*.html")), ids=lambda p: p.name)
+def test_every_button_a_page_draws_is_reachable(page):
+    """THE REVERSE OF THE CHECK ABOVE (#846). `#jobs-reload` shipped as a button with
+    no listener: its id appeared once in the repository, in the markup that drew it,
+    and fourteen checks passed.
+
+    A button is reachable when a panel script names its id in a string, when it carries
+    `data-view` (the rails, delegated at app.js:8217-8218 and console.js:1444) or
+    `data-split-action` (split-button.js), or, on the Console, when console.js builds
+    its id from an editor's prefix (tests/test_the_console_editors_are_wired.py).
+    """
+    from tests.test_the_console_editors_are_wired import PER_EDITOR_SUFFIXES, _specs
+
+    built = ({spec["prefix"] + suffix for spec in _specs().values()
+              for suffix in PER_EDITOR_SUFFIXES}
+             if page.name == "console.html" else set())
+    scripts = _panel_scripts()
+    unreached = [
+        attrs["id"] for attrs in _drawn(page)
+        if "data-view" not in attrs and "data-split-action" not in attrs
+        and attrs["id"] not in built and attrs["id"] not in DRAWN_AND_INERT
+        and not _named_in(scripts, attrs["id"])]
+    assert not unreached, (
+        f"{page.name} draws buttons nothing reaches, so pressing one does nothing: "
+        f"{unreached}")
+
+
+@pytest.mark.parametrize("ident", sorted(DRAWN_AND_INERT))
+def test_an_inert_button_is_still_drawn_disabled_and_unnamed(ident):
+    drawn = [attrs for page in sorted(EXT.glob("*.html")) for attrs in _drawn(page)
+             if attrs["id"] == ident]
+    assert drawn, f"no page draws #{ident} any more; drop it from DRAWN_AND_INERT"
+    assert all("disabled" in attrs for attrs in drawn), (
+        f"#{ident} is enabled now and still reached by nothing, so pressing it does nothing")
+    assert not _named_in(_panel_scripts(), ident), (
+        f"a panel script names #{ident} now; drop it from DRAWN_AND_INERT")
 
 
 def test_the_add_site_form_is_reachable_from_the_script():
