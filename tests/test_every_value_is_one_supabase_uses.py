@@ -18,7 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from tools.value_literals import FROZEN, SUPABASE, allowances, allowed, authored, declarations, literals, offenders
+from tools.sync_design_assets import ASSETS
+from tools.value_literals import (FROZEN, SUPABASE, _without_tokens, allowances, allowed, authored,
+                                  declarations, is_mono, literals, offenders)
 
 # Guards stylesheets the extension ships; see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -90,8 +92,19 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
     # A token is not a literal, and neither is zero; the literal beside a token is.
     (".a { padding: var(--sp-2) 7px 0; }", [("spacing", "7px", False)]),
     (".a { margin: 0; z-index: 0; }", []),
-    # Their step is half of --spacing, magnitude alone.
+    # A negative margin is judged by its magnitude.
     (".a { margin: -0.375rem 6px; }", [("spacing", "-0.375rem", True), ("spacing", "6px", True)]),
+    # 18px is in no scale and no atom of theirs; only the approved half step of --spacing
+    # (2px) admits it. 7px sits on Tailwind's own quarter step, which the ruling does not.
+    (".a { padding: 18px 7px; line-height: 18px; }",
+     [("spacing", "18px", True), ("spacing", "7px", False), ("line-height", "18px", True)]),
+    # The `font` shorthand states a weight, a size and a line height, and each is judged.
+    (".a { font: 600 .73rem/1.35 sans-serif; }",
+     [("font-size", ".73rem", False), ("line-height", "1.35", False), ("font-weight", "600", True)]),
+    (".a { font: 0.8125rem/1.4 var(--font); }", [("font-size", "0.8125rem", True), ("line-height", "1.4", True)]),
+    (".a { font: inherit; }", []),
+    # A var() goes whole, whatever its fallback holds.
+    (".a { padding: var(--gap, calc(1px + 2px)) 7px; }", [("spacing", "7px", False)]),
     # color-mix() percentages are proportions of a colour, not lengths.
     (".a:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); }",
      [("focus", "2px", True)]),
@@ -171,3 +184,89 @@ def test_a_sheet_whose_braces_do_not_balance_fails_the_read(css):
     the mono context with it, so the read refuses rather than guesses."""
     with pytest.raises(ValueError):
         declarations(css)
+
+
+@pytest.mark.parametrize("selector,mono", [
+    ("pre", True), ("code", True), ("kbd", True), ("samp", True), (".font-mono", True),
+    (".code-content", True), (".log pre", True), ("pre > .line", True), (":is(code) .x", True),
+    ("pre, code", True),
+    (".label", False), (".label:not(code)", False), ("p:not(pre)", False), (".label, pre", False),
+    (".precode", False), ("code-block", False),
+])
+def test_the_mono_context_is_code_and_only_code(selector, mono):
+    """Their mono ramp is defined on code, pre, kbd, samp, .code-content and .font-mono,
+    and inherits inside them. A rule is mono only when every selector in its list is."""
+    assert is_mono(selector) is mono
+
+
+@pytest.mark.parametrize("value", ["var(--gap, calc(1px + 2px))", "var(--gap, max(4px, 1vw))",
+                                   "var(--ring, color-mix(in srgb, red 50%, blue))", "var(--a, var(--b, 3px))",
+                                   "var(--unclosed, calc(1px"])
+def test_a_token_goes_whole_whatever_its_fallback_holds(value):
+    assert _without_tokens(f"{value} 7px").strip() in ("7px", "")
+
+
+def test_the_step_comes_from_the_reading_and_the_ruling():
+    """Doubling --spacing in the reading doubles the step: 18px, allowed only by the step
+    at 0.25rem, is refused at 0.5rem. The ruling's half is applied to what was read."""
+    assert 18.0 not in RULES["spacing"], "18px is an atom now; pick a value only the step allows"
+    assert RULES["spacing_step_px"] == READING["axes"]["spacing"]["spacing_rem"] * 16 / 2
+    doubled = json.loads(json.dumps(READING))
+    doubled["axes"]["spacing"]["spacing_rem"] *= 2
+    assert allowed("spacing", ".a", "padding", "18px", allowances(doubled)) is False
+    assert allowed("spacing", ".a", "padding", "18px", RULES) is True
+
+
+def test_every_stylesheet_is_either_read_or_named_as_not_ours():
+    """The frozen list is written by the scan it checks, so a scan narrowed and re-frozen
+    would empty the guard. Every sheet in the three asset folders is read, or is a synced
+    copy, a vendor file or design/tokens.css, each named for why."""
+    copies = {copy.resolve() for destinations in ASSETS.values() for copy in destinations}
+    read = {sheet.resolve() for sheet in authored()}
+    unread = [sheet.relative_to(ROOT).as_posix()
+              for folder in ("design", "extension", "scrapex/webui/static")
+              for sheet in sorted((ROOT / folder).rglob("*.css"))
+              if sheet.resolve() not in read | copies
+              and "vendor" not in sheet.parts and sheet != ROOT / "design" / "tokens.css"]
+    assert not unread, f"stylesheets the literal scan does not read: {unread}"
+    assert all(declarations(sheet.read_text(encoding="utf-8")) for sheet in authored()), (
+        "an authored sheet parses to no declarations")
+
+
+def test_the_scan_reports_what_a_sheet_hard_codes(tmp_path):
+    sheet = tmp_path / "probe.css"
+    sheet.write_text(".a { padding: 7px 8px; font-size: .73rem; }\npre { font-size: .875rem; }\n",
+                     encoding="utf-8")
+    assert offenders(READING, [sheet]) == {"font-size": {"probe.css": {".73rem": 1}},
+                                           "spacing": {"probe.css": {"7px": 1}}}
+
+
+def test_the_reading_holds_what_the_roadmap_cites():
+    """The values #1040's roadmap cites for this guard, each read from its file at the pin."""
+    axes, atoms = READING["axes"], READING["atoms"]
+    assert axes["spacing"]["spacing_rem"] == 0.25 and axes["spacing"]["tailwind_multiplier"] == 0.25
+    assert axes["spacing"]["declared"]["--spacing-content"] == "21px"
+    assert axes["spacing"]["declared"]["--spacing-scale"] == "2px"
+    assert axes["radius"]["declared"]["--radius-panel"] == "6px"
+    assert axes["radius"]["declared"]["--radius-4xl"] == "2rem"
+    assert axes["font-size"]["sans"]["--text-xs"] == "0.75rem"
+    assert axes["font-size"]["sans"]["--text-sm"] == "0.8125rem"
+    assert axes["font-size"]["mono"]["--text-sm"] == "0.875rem"
+    assert axes["font-weight"]["declared"]["--font-weight-normal (theirs)"] == "450"
+    assert axes["font-weight"]["declared"]["--font-weight-normal (mono)"] == "400"
+    assert axes["duration"]["declared"]["--default-transition-duration"] == "150ms"
+    assert "cubic-bezier(0.16, 1, 0.3, 1)" in axes["easing"]["declared"].values()
+    assert axes["focus"]["declared"] == {
+        "focus-ring ring width": "2px", "focus-ring ring offset": "2px",
+        "focus-inset outline-width": "2px", "focus-inset outline-offset": "-2px"}
+    assert atoms["spacing"]["5.5px"]["first"] == "packages/ui/src/components/shadcn/ui/badge.tsx:7"
+    assert "11px" in atoms["font-size"] and "50" in atoms["z-index"] and "200ms" in atoms["duration"]
+
+
+def test_a_reading_that_finds_nothing_stops():
+    from tools.read_supabase_values import _block, _one
+
+    with pytest.raises(SystemExit):
+        _one({}, "their spacing")
+    with pytest.raises(SystemExit):
+        _block(".a { }", "@theme")

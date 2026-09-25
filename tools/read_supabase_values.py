@@ -130,6 +130,13 @@ def read(pin: str) -> dict:
     lock = fetch(LOCKFILE, pin)
     version = tailwind_version(lock)
     tailwind = fetch("packages/tailwindcss/theme.css", f"v{version}", repo="tailwindlabs/tailwindcss")
+    # How many --spacing steps a bare `p-N` may be: Tailwind accepts N when it is a
+    # multiple of this, and rejects the class otherwise (utilities.ts:548).
+    rule = re.search(r"function isValidSpacingMultiplier\([^)]*\)\s*\{\s*return isMultipleOf\(value, ([\d.]+)\)",
+                     fetch("packages/tailwindcss/src/utils/infer-data-type.ts", f"v{version}",
+                           repo="tailwindlabs/tailwindcss"))
+    if not rule:
+        sys.exit("Tailwind's isValidSpacingMultiplier changed shape")
     ramps = fetch(TYPE_RAMPS, pin)
     theme = fetch(THEME, pin)
     animations = fetch(ANIMATIONS, pin)
@@ -182,7 +189,7 @@ def read(pin: str) -> dict:
         "tailwind": version,
         "atoms_read": len(sources),
         "axes": {
-            "spacing": {"step_rem": step / 2, "declared": {
+            "spacing": {"spacing_rem": step, "tailwind_multiplier": float(rule.group(1)), "declared": {
                 **_one(_declared(fetch(SPACING, pin), r"--spacing-(scale|xs|sm|md|lg|xl)"), "their spacing"),
                 **_one(_declared(theme, r"--spacing-content"), "--spacing-content")}},
             "radius": {"declared": {**radius, **_one(_declared(theme, r"--radius-panel"), "--radius-panel"),

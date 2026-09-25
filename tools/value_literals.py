@@ -1,7 +1,8 @@
 """Every hard-coded value on a design axis in the stylesheets this repository authors, and
 whether Supabase uses it (#699).
 
-A value that `var()`s a token is not a literal and is never read here. A literal is
+A `var()` is a token and is never read as a literal, fallback included; a literal written
+beside one in the same value is (`padding: var(--sp-2) 7px` states 7px). A literal is
 allowed when it is one Supabase declares or renders on that axis at the pinned commit,
 as tools/read_supabase_values.py reads them into tests/fixtures/supabase-value-axes.json.
 Every other literal is an OFFENDER, and today's are frozen, by axis, file and value with
@@ -15,9 +16,10 @@ AUTHORED means written here: design/components.css is read, and its two synced c
 not, or every value in it would count three times. design/tokens.css is where the tokens
 are defined, so it is not read either. Vendor sheets are not ours.
 
-WHAT IS NOT READ. Keywords (`bold`, `ease-out`, `auto`), zero, and any value that holds a
-`var()`. The `font` and `inset` shorthands. Colour has its own guard
-(tests/test_vendor.py).
+WHAT IS NOT READ. Keywords (`bold`, `ease-out`, `auto`), zero, every `var()` and every
+`color-mix()` (whose percentages are proportions of a colour), and the `inset` shorthand.
+The `font` shorthand IS read, for its weight, size and line height. Colour has its own
+guard (tests/test_vendor.py).
 """
 from __future__ import annotations
 
@@ -36,6 +38,12 @@ SUPABASE = ROOT / "tests" / "fixtures" / "supabase-value-axes.json"
 FROZEN = ROOT / "tests" / "fixtures" / "value-literals-frozen.json"
 FOLDERS = (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui" / "static")
 
+# THE STEP IS A RULING, NOT A READING. #1040 approved "multiples of --spacing 0.25rem with
+# Tailwind's half steps". Tailwind 4.2.4 itself accepts any multiple of a QUARTER of
+# --spacing (the reading records its multiplier), which admits 1px steps and so `padding:
+# 7px`. The approved half step is stricter and is kept; loosening it is his call.
+APPROVED_STEP_OF_SPACING = 0.5
+
 PROPERTIES = {
     "spacing": re.compile(r"(padding|margin)(-(top|right|bottom|left|inline|block)(-(start|end))?)?|gap|row-gap|column-gap"),
     "radius": re.compile(r"border(-(top|bottom)-(left|right)|-(start|end)-(start|end))?-radius"),
@@ -51,7 +59,7 @@ LENGTH = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(px|rem|em|%|vh|vw|ch)(?![\w-])")
 NUMBER = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(?![\w.%-])")
 TIME = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(ms|s)(?![\w-])")
 CURVE = re.compile(r"cubic-bezier\(([^)]*)\)")
-MONO = re.compile(r"(?:^|[\s>+~(,])(?:code|pre|kbd|samp)(?![\w-])|\.font-mono(?![\w-])|\.code-content(?![\w-])")
+MONO = re.compile(r"(?:^|[\s>+~(])(?:code|pre|kbd|samp)(?![\w-])|\.font-mono(?![\w-])|\.code-content(?![\w-])")
 
 
 def authored() -> list[Path]:
@@ -92,16 +100,55 @@ def declarations(css: str) -> list[tuple[str, str, str, int]]:
     return found
 
 
+TOKEN_FUNCTION = re.compile(r"(?<![\w-])(?:var|color-mix)\(", re.IGNORECASE)
+
+
 def _without_tokens(value: str) -> str:
-    """The value with every var() gone, and every color-mix(), whose percentages are
-    proportions of a colour and not lengths."""
-    while "var(" in value:
-        value = re.sub(r"var\([^()]*\)", "", value)
-    return re.sub(r"color-mix\([^()]*\)", "", value)
+    """The value with every var() gone, fallback and all, and every color-mix(), whose
+    percentages are proportions of a colour and not lengths. Each is removed by matching
+    its own parentheses, so a fallback holding calc() or max() cannot stall the scan."""
+    kept, index = [], 0
+    while (found := TOKEN_FUNCTION.search(value, index)) is not None:
+        kept.append(value[index:found.start()])
+        depth, index = 1, found.end()
+        while index < len(value) and depth:
+            depth += {"(": 1, ")": -1}.get(value[index], 0)
+            index += 1
+    kept.append(value[index:])
+    return "".join(kept)
+
+
+def _font(value: str) -> dict[str, str]:
+    """The weight, size and line height a `font` shorthand states, each only when stated:
+    `[style] [weight] size[/line-height] family`."""
+    found = re.search(r"(?<![\w.#-])(\d*\.?\d+(?:px|rem|em|%))(?:\s*/\s*(\d*\.?\d+(?:px|rem|em|%)?))?",
+                      value)
+    if not found:
+        return {}
+    weight = [n for n in NUMBER.findall(value[:found.start()]) if 1 <= float(n) <= 1000]
+    parts = {"font-size": found.group(1), "line-height": found.group(2), "font-weight": weight[-1] if weight else None}
+    return {axis: literal for axis, literal in parts.items() if literal and float(re.match(r"[\d.]+", literal).group(0)) != 0}
+
+
+def is_mono(selectors: str) -> bool:
+    """Whether a rule sets text inside code: every selector in its list must, since a
+    value on `.label, pre` reaches a sans label too, and `:not(code)` is the opposite."""
+    parts, depth, start = [], 0, 0
+    for index, char in enumerate(selectors):
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        if char == "," and depth == 0:
+            parts.append(selectors[start:index])
+            start = index + 1
+    parts.append(selectors[start:])
+    without_not = [re.sub(r":not\([^()]*\)", "", part) for part in parts]
+    return all(MONO.search(part.strip()) for part in without_not)
 
 
 def literals(axis: str, prop: str, value: str) -> list[str]:
     """The hard-coded values one declaration states on one axis."""
+    if prop == "font" and axis in ("font-size", "line-height", "font-weight"):
+        stated = _font(_without_tokens(value).replace("!important", "")).get(axis)
+        return [stated] if stated else []
     if not PROPERTIES[axis].fullmatch(prop):
         return []
     value = _without_tokens(value).replace("!important", "")
@@ -145,8 +192,9 @@ def allowances(supabase: dict) -> dict:
     def px_set(*groups):
         return {round(p, 4) for group in groups for v in group if (p := _px(v)) is not None}
 
+    step_px = axes["spacing"]["spacing_rem"] * 16 * APPROVED_STEP_OF_SPACING
     return {
-        "spacing_step_px": axes["spacing"]["step_rem"] * 16,
+        "spacing_step_px": step_px,
         # A negative margin uses the same step as a positive one, so spacing is compared
         # by magnitude.
         "spacing": {abs(p) for p in px_set(axes["spacing"]["declared"].values(), atoms["spacing"])},
@@ -179,12 +227,14 @@ def allowed(axis: str, selector: str, prop: str, literal: str, rules: dict) -> b
         return abs(px / step - round(px / step)) < 1e-6 or round(abs(px), 4) in rules["spacing"]
     if axis in ("radius", "font-size"):
         px = _px(literal)
-        pool = rules["font-size mono"] if axis == "font-size" and MONO.search(selector) else rules[axis]
+        pool = rules["font-size mono"] if axis == "font-size" and is_mono(selector) else rules[axis]
         return px is not None and round(px, 4) in pool
     if axis == "line-height":
         px = _px(literal)
         if px is not None:
-            return abs(px / 4 - round(px / 4)) < 1e-6 or round(px, 4) in rules["line-height px"]
+            # `leading-N` is N of the same --spacing step, so it takes the same approved step.
+            step = rules["spacing_step_px"]
+            return abs(px / step - round(px / step)) < 1e-6 or round(px, 4) in rules["line-height px"]
         number = _number(literal)
         return number is not None and any(abs(number - n) < 1e-3 for n in rules["line-height"])
     if axis == "font-weight":
@@ -205,12 +255,14 @@ def allowed(axis: str, selector: str, prop: str, literal: str, rules: dict) -> b
     raise ValueError(axis)
 
 
-def offenders(supabase: dict | None = None) -> dict[str, dict[str, dict[str, int]]]:
-    """{axis: {file: {literal: count}}} for every literal Supabase does not use."""
+def offenders(supabase: dict | None = None,
+              sheets: list[Path] | None = None) -> dict[str, dict[str, dict[str, int]]]:
+    """{axis: {file: {literal: count}}} for every literal Supabase does not use, in the
+    authored sheets or in `sheets` when given."""
     rules = allowances(supabase or json.loads(SUPABASE.read_text(encoding="utf-8")))
     found: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
-    for sheet in authored():
-        name = sheet.relative_to(ROOT).as_posix()
+    for sheet in authored() if sheets is None else sheets:
+        name = sheet.relative_to(ROOT).as_posix() if sheet.is_relative_to(ROOT) else sheet.name
         for selector, prop, value, _line in declarations(sheet.read_text(encoding="utf-8")):
             for axis in PROPERTIES:
                 for literal in literals(axis, prop, value):

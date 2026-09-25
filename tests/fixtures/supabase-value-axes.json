@@ -4,7 +4,8 @@
  "atoms_read": 130,
  "axes": {
   "spacing": {
-   "step_rem": 0.125,
+   "spacing_rem": 0.25,
+   "tailwind_multiplier": 0.25,
    "declared": {
     "--spacing-scale": "2px",
     "--spacing-xs": "4px",
