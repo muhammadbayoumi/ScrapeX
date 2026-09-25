@@ -199,9 +199,15 @@ jobs:
         # It runs BEFORE the build because the manifest is public and needs no
         # token, so this costs seconds and saves ten minutes of PyInstaller.
         #
-        # A dispatch run REPORTS but does not fail: once 0.3.0 is released the
+        # A DRY RUN REPORTS but does not fail: once 0.3.0 is released the
         # source still says 0.3.0, and a build check that refused from then
         # until the next version bump would simply stop being used.
+        #
+        # ONLY A DRY RUN. This used to excuse every dispatch, on the premise
+        # that a dispatch is a build check — but tag-the-release.yml releases
+        # every version by dispatching this workflow with `dry_run=false`, so
+        # the path real releases take was the one where this refusal was only
+        # a warning (#1131). A dispatch that publishes is refused like a tag.
         shell: bash
         run: |
           set -euo pipefail
@@ -226,10 +232,13 @@ jobs:
             echo "this release is newer"
             exit 0
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          # A literal `true` and nothing else: a push renders the input as an
+          # empty string, and anything that is not a dry run must refuse.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && \
+             [ "${{ inputs.dry_run }}" = "true" ]; then
             echo "::warning::$ENGINE_VERSION is not newer than the published \
-          $published. A tag would be refused here; this dispatch continues so \
-          the build can still be checked."
+          $published. A release would be refused here; this dry run continues so \
+          the build can still be checked, and publishes nothing."
             exit 0
           fi
           echo "::error::$ENGINE_VERSION is not newer than the published $published."
@@ -576,7 +585,16 @@ jobs:
 
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/engine-v')
+    # A TAG, AND NOT A DRY RUN. The tag alone was the whole condition, so
+    # `dry_run` changed nothing: a dispatch on an `engine-v*` tag published
+    # whatever the input said (#1131). A dispatch publishes only when it says
+    # `dry_run=false`, which is what tag-the-release.yml sends; `inputs` keeps a
+    # boolean input a Boolean, where `github.event.inputs` would hand over the
+    # string 'false'. A tag push carries no inputs, so it is admitted by name
+    # rather than by `null == false`, which loose equality happens to make true.
+    if: >-
+      startsWith(github.ref, 'refs/tags/engine-v') &&
+      (github.event_name == 'push' || inputs.dry_run == false)
     runs-on: ubuntu-latest
     steps:
       # The source, for the two documents below. The engine itself comes from
