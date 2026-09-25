@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  controlsFor, isMoving, jobLabel, liveJob, observeRate, progressFraction, progressLine,
-  recentRate, rowsFrom, statusWords, summariseJobs, waitsOnHim,
+  controlsFor, isMoving, isStopping, jobLabel, liveJob, observeRate, progressFraction,
+  progressLine, recentRate, rowsFrom, statusWords, summariseJobs, waitsOnHim,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -1601,7 +1601,10 @@ async function resumeSource(key, button) {
       source_keys: [key], resume: true,
       run_mode: source.observations > 0 ? "update" : "initial_crawl",
     });
+    // BOTH, OR THE FIRST POLL AFTER STARTING A JOB REDRAWS FOR NOTHING: the redraw
+    // fires when the status MOVES, and `undefined` moves to anything.
     state.jobRef = r.job_ref;
+    state.jobStatus = r.status;
     await pollJob();
   } catch (e) {
     button.disabled = false;
@@ -4948,7 +4951,10 @@ async function startRun() {
   $("run").disabled = true;
   try {
     const r = await post("/api/jobs", { source_keys: keys, run_mode: mode });
+    // BOTH, OR THE FIRST POLL AFTER STARTING A JOB REDRAWS FOR NOTHING: the redraw
+    // fires when the status MOVES, and `undefined` moves to anything.
     state.jobRef = r.job_ref;
+    state.jobStatus = r.status;
     await pollJob();
   } catch (e) {
     $("run-blocked").textContent = "Couldn't start: " + e.message;
@@ -5290,8 +5296,21 @@ async function pollJobOnce() {
     // interpretation's own log opens by naming the crawl that started it
     // (`scrapex/directoryjob.py`). That is durable, it survives every poll, and it is
     // there when he scrolls back.
-    if (state.jobRef && state.jobRef !== job.job_ref) await redrawWhatTheJobChanged();
+    // THE REF IS NOT THE ONLY THING THAT CHANGES, and until this PR that did not matter.
+    // The card drew counts and a badge, both of which only move when a job ENDS. It now
+    // draws `interpreting.status` -- a live value -- and `loadDatasets` has three
+    // callers: opening the Data tab, the pause action, and this redraw. A status moving
+    // inside one job trips none of them, so the card painted `queued` once and kept it
+    // while the mini-player above it -- outside `<main>`, on every tab -- showed the
+    // same job reaching `paused`. Two sentences about one job, on one screen,
+    // disagreeing, with the card's half telling him there is nothing to press while the
+    // engine waits for him.
+    if (state.jobRef
+        && (state.jobRef !== job.job_ref || state.jobStatus !== job.status)) {
+      await redrawWhatTheJobChanged();
+    }
     state.jobRef = job.job_ref;
+    state.jobStatus = job.status;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
     // No ?limit: the log shows EVERY entry now (the 200 cap was the client's,
@@ -5321,6 +5340,7 @@ async function pollJobOnce() {
       renderLogs(log.entries, log);
     } catch (_) {}
     state.jobRef = null;
+    state.jobStatus = null;
     await redrawWhatTheJobChanged();
   }
   refreshRunButton();
@@ -5712,13 +5732,24 @@ function waitingLine(s) {
           ? `<span class="badge">Interpretation under way</span>` +
             `<span class="muted"> · ${ref} is turning the stored pages into rows; ` +
             `nothing to press</span>`
-          // NOT YET READING, AND IT DOES NOT CLAIM TO BE. `queued` and `scheduled` are
-          // waiting for a slot; `preparing` has not opened a page; `pausing` and
-          // `cancelling` are winding down. The one thing true of all five is the status
-          // itself, so that is all this says -- the lesson of the two versions above.
-          : `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-            `<span class="muted"> · ${ref} has not started reading yet; the engine runs ` +
-            `one job at a time. Nothing to press</span>`);
+          // WINDING DOWN IS NOT THE SAME AS NOT STARTED, and the version before this
+          // one said it was. `set_control` writes PAUSING and CANCELLING only for a job
+          // the worker is HOLDING (`scrapex/jobs.py`), so those two arrive FROM reading.
+          //
+          // `isStopping`, NOT `ownsAWorker`: the held set is the ENGINE's and includes
+          // `preparing`, which is starting. Reading it here told a `preparing`
+          // interpretation it was stopping — the same mistake, one set over, as reading
+          // `controlsFor` as "waits on him".
+          : isStopping(busy)
+            ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
+              `<span class="muted"> · ${ref} is stopping at its next safe boundary; ` +
+              `nothing to press</span>`
+            // AND THE REST HAVE GENUINELY NOT BEGUN: `queued` and `scheduled` wait for
+            // a slot. Nothing here claims more than the status does -- which is what
+            // the two versions before it got wrong, in opposite directions.
+            : `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
+              `<span class="muted"> · ${ref} has not started reading yet; the engine ` +
+              `runs one job at a time. Nothing to press</span>`);
   }
   if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(

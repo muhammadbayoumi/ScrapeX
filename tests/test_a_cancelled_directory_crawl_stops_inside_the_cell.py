@@ -1031,6 +1031,16 @@ def test_the_failure_line_survives_the_connection(conn, monkeypatch):
         f"never left the writing connection. He is left with pages, no rows and no "
         f"record of why. Committed lines: {seen!r}"
     )
+    # AND IT NAMES NO CONTROL, because in the state it is written for there is none.
+    # This branch fires on the FIRST crawl of a directory that has no rows yet, and
+    # `loadDatasets` filters `observations > 0` before it builds a card -- so the "source's
+    # card" the line used to send him to is not drawn at all, and `sourceMenu`'s Interpret
+    # row is gated on `kind === "dataset"` besides.
+    for line in [one for one in seen if "could not be queued" in one]:
+        assert "card" not in line and "Jobs page" not in line, (
+            f"it sends him to a control that this state does not draw: {line!r}")
+        assert "next crawl" in line, (
+            f"it does not say what actually recovers it: {line!r}")
     assert levels == [LogLevel.WARNING.value], (
         f"the line is recorded at {levels!r}. A crawl that could not queue its own "
         f"follow-up is a warning, not an ordinary note -- at INFO it reads as progress."

@@ -1730,6 +1730,12 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
     # ...and the only two that are actually reading.
     ("running", "is turning the stored pages into rows"),
     ("resuming", "is turning the stored pages into rows"),
+    # ...and the two that arrive FROM reading. `set_control` writes these only for a job
+    # the worker is HOLDING (`scrapex/jobs.py`, against `WORKER_HELD_STATUSES`), so
+    # "has not started reading yet" was false of them -- and the earlier parametrisation
+    # skipped exactly these two, which is how it stayed false.
+    ("pausing", "is stopping at its next safe boundary"),
+    ("cancelling", "is stopping at its next safe boundary"),
 ])
 def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
         open_panel, status, expected):

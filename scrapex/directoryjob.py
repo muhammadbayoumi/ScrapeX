@@ -898,8 +898,9 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
         jobs.append_log(
             conn, job["job_id"],
             f"the crawl finished, but its interpretation could not be queued: "
-            f"{type(exc).__name__}: {exc}. The pages are on disk and interpreting them "
-            f"costs no request, so it can be started from the source's card",
+            f"{type(exc).__name__}: {exc}. The pages are on disk and cost nothing to "
+            f"keep, and the next crawl of this source queues one again. Nothing is "
+            f"lost by leaving it",
             level=LogLevel.WARNING, source_key=source_key)
         conn.commit()
         return None
