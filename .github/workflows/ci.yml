@@ -71,6 +71,7 @@ jobs:
   # It is also seconds long, so the cheap things fail fast.
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -106,6 +107,7 @@ jobs:
   # It is seconds long: a checkout and a `git diff --name-only`. No Python.
   scope:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
     steps:
@@ -211,6 +213,7 @@ jobs:
   test:
     needs: scope
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # #948: 3.8x the slowest of the last 30 PR runs (471s, 2026-09-25)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -551,6 +554,7 @@ jobs:
     # needs no Python, and it is the one gate that would go unwatched if either
     # side of the split forgot it.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
