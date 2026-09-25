@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  controlsFor, jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate,
-  rowsFrom, statusWords, summariseJobs,
+  controlsFor, isMoving, jobLabel, liveJob, observeRate, progressFraction, progressLine,
+  recentRate, rowsFrom, statusWords, summariseJobs, waitsOnHim,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5680,23 +5680,45 @@ function waitingLine(s) {
   // measured 469-rowless / 938-fetched state the card kept the identical badge for the
   // whole run of the interpretation. One fact, read once, ahead of both.
   //
-  // TWO SENTENCES, BECAUSE THERE ARE TWO STATES AND THEY NEED OPPOSITE THINGS FROM HIM.
-  // `interpreting` is set for any non-terminal interpretation, which includes `paused`
-  // and `requires_review` -- and over those, "is turning the stored pages into rows;
-  // nothing to press" was false three ways: nothing is turning, nothing is running, and
-  // Resume is exactly what to press. `controlsFor` is the panel's existing opinion on
-  // which statuses wait on HIM (it returns `resume` for them), so this reads it rather
-  // than keeping a second list beside it.
+  // THREE SENTENCES, BECAUSE `interpreting` CARRIES NINE STATUSES AND THEY ARE NOT ONE
+  // THING. Two earlier versions of this line got it wrong in the same direction, each
+  // time by claiming activity the status does not have:
+  //
+  //   one sentence  -- said a PAUSED job "is turning the stored pages into rows";
+  //   two sentences -- split on `controlsFor(...).includes("resume")`, which is true for
+  //                    `paused` ALONE, so `queued`, `scheduled`, `preparing`, `pausing`,
+  //                    `cancelling` and `requires_review` all kept the working sentence.
+  //
+  // `queued` IS THE COMMON CASE, not an edge: `crawl_parallel_sources` ships at 1
+  // (`scrapex/settings.py`), so the engine runs one job at a time and the interpretation
+  // a crawl queues waits behind it. Behind a fourteen-hour listing crawl that is hours
+  // of a card reporting work that has not begun.
+  //
+  // `controlsFor` WAS THE WRONG READER and `HIS_MOVE` was there all along. It answers
+  // "which buttons will the route honour" -- `["cancel"]` for `requires_review`, because
+  // there is no resume to offer, not because the job is working. `waitsOnHim` reads the
+  // set `statusTone` already reads, so the dataset card and the Jobs list stop saying
+  // opposite things about one status.
   const busy = waiting.interpreting;
-  const hisMove = busy && controlsFor(busy).includes("resume");
   if (busy && busy.job_ref) {
-    rows.push(hisMove
-      ? `<span class="badge off">Interpretation paused</span>` +
-        `<span class="muted"> · ${esc(busy.job_ref)} has stopped part-way and waits for ` +
-        `you. Open the Jobs page and press Resume on its row</span>`
-      : `<span class="badge">Interpretation under way</span>` +
-        `<span class="muted"> · ${esc(busy.job_ref)} is turning the stored pages into ` +
-        `rows; nothing to press</span>`);
+    const ref = esc(busy.job_ref);
+    rows.push(
+      waitsOnHim(busy)
+        ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
+          `<span class="muted"> · ${ref} stopped part-way and waits for you. Open the ` +
+          `Jobs page and press ${controlsFor(busy).includes("resume") ? "Resume" : "Cancel"}` +
+          ` on its row</span>`
+        : isMoving(busy)
+          ? `<span class="badge">Interpretation under way</span>` +
+            `<span class="muted"> · ${ref} is turning the stored pages into rows; ` +
+            `nothing to press</span>`
+          // NOT YET READING, AND IT DOES NOT CLAIM TO BE. `queued` and `scheduled` are
+          // waiting for a slot; `preparing` has not opened a page; `pausing` and
+          // `cancelling` are winding down. The one thing true of all five is the status
+          // itself, so that is all this says -- the lesson of the two versions above.
+          : `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
+            `<span class="muted"> · ${ref} has not started reading yet; the engine runs ` +
+            `one job at a time. Nothing to press</span>`);
   }
   if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(
@@ -5986,15 +6008,19 @@ function sourceActions(source) {
     // So the sentence names the Jobs page row for the ref it just named, which is the
     // only control bound to it.
     why: busyRef && busyRef.job_ref
-      ? `${busyRef.job_ref} is already interpreting this source. Open the Jobs page and `
-        + `press ${controlsFor(busyRef).includes("resume") ? "Resume" : "Cancel"} on its `
-        + `row to change that.`
+      ? `${busyRef.job_ref} is ${statusWords(busyRef.status)} for this source. Open the `
+        + `Jobs page and press `
+        + `${controlsFor(busyRef).includes("resume") ? "Resume" : "Cancel"} on its row to `
+        + `change that.`
       : "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
+    // THE SAME THREE STATES, IN FOUR WORDS. "one is already running" was said over a
+    // `queued` job, which is the state this chain creates and the one that lasts longest.
     ...(busyRef && busyRef.job_ref
       ? {ready: false,
-         note: controlsFor(busyRef).includes("resume")
-           ? "one is paused part-way" : "one is already running"} : {}),
+         note: waitsOnHim(busyRef) ? `one is ${statusWords(busyRef.status)}`
+           : isMoving(busyRef) ? "one is already running"
+             : `one is ${statusWords(busyRef.status)} for this source`} : {}),
   }] : [];
   // AND FETCHING THE PROFILE PAGES THE LISTING NAMED, the third verb over one key and the
   // last of the three to get a door. Measured 2026-09-06 on his warehouse: 17,848

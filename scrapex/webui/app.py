@@ -833,6 +833,11 @@ def create_app(
             "SELECT job_ref, status FROM crawl_job "
             f" WHERE job_kind = ? AND source_keys LIKE ? "
             f"   AND status NOT IN ({marks_j}) "
+            # NEWEST FIRST, AND THIS PR IS WHAT MAKES TWO LIKELY. A source can hold more
+            # than one non-terminal interpretation -- he presses Interpret while the
+            # chain's own job is still queued, and `POST /api/jobs` accepts it (#779) --
+            # and the card names exactly one. Naming the oldest would point him at the
+            # one he is least likely to have meant and, once it settles, at nothing.
             " ORDER BY job_id DESC LIMIT 1",
             (datasetjob.JOB_KIND, like,
              *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()

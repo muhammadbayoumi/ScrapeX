@@ -1720,8 +1720,19 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
     assert card.locator('[data-split-action="interpret"]').count() == 1
 
 
+@pytest.mark.parametrize("status, expected", [
+    # THE STATE THIS PR MANUFACTURES, and the one it lasts longest in:
+    # `crawl_parallel_sources` ships at 1, so the interpretation a crawl queues waits
+    # behind that crawl. Behind a fourteen-hour listing crawl that is hours.
+    ("queued", "has not started reading yet"),
+    ("scheduled", "has not started reading yet"),
+    ("preparing", "has not started reading yet"),
+    # ...and the only two that are actually reading.
+    ("running", "is turning the stored pages into rows"),
+    ("resuming", "is turning the stored pages into rows"),
+])
 def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
-        open_panel):
+        open_panel, status, expected):
     """SUPPRESSING A BADGE IS NOT THE SAME AS ANSWERING IT.
 
     The engine stops offering `interpret` while an interpretation of the source is on its
@@ -1748,7 +1759,12 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
                 "interpret": {"crawl_finished_at": "2026-09-24T09:00:00Z",
                               "interpreted_at": None},
                 "profiles": {"rowless": 469, "fetch": 0},
-                "interpreting": {"job_ref": "job_already_reading"},
+                # A PAYLOAD THE ENGINE CAN ACTUALLY EMIT. This read
+                # `{"job_ref": …}` with no `status` at all -- a shape `_work_waiting`
+                # never writes, since it always sends both keys -- so the branch under
+                # test was reached only through `controlsFor`'s fallback for a missing
+                # status, and every status the engine really sends went unheld.
+                "interpreting": {"job_ref": "job_already_reading", "status": status},
             }
     page = open_panel(sources=after)
     page.click(DATA_TAB)
@@ -1763,7 +1779,10 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
     assert "Interpret stored pages" not in said, (
         f"an interpretation is already running and the card still offers the press. "
         f"Pressing it makes a second job reading the same pages: {said!r}")
-    assert "Interpretation under way" in said, (
+    assert expected in said, (
+        f"a {status} interpretation is described as {said!r}. Only `running` and "
+        f"`resuming` are turning pages into rows; the rest have not begun.")
+    assert "Interpretation" in said, (
         f"the badge went quiet and put nothing in its place, which reads as nothing "
         f"being owed: {said!r}")
     assert "job_already_reading" in said, (
@@ -1777,8 +1796,20 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
     assert row.count() == 1, "the control vanished instead of explaining itself"
     assert row.is_disabled(), (
         "the control is still live while an interpretation of this source is running")
-    assert "already running" in row.text_content(), (
-        f"the disabled row gives no reason: {row.text_content()!r}")
+    # THE REASON IT GIVES MUST BE TRUE OF THE STATUS, not one wording for all nine.
+    # "one is already running" was drawn over a `queued` job -- the state this chain
+    # creates and the one it lasts longest in.
+    said_row = row.text_content()
+    if status in ("running", "resuming"):
+        # BOTH ARE `isMoving`, and they deliberately share one wording: "resuming" is a
+        # transition into work, and the row's job is to say work is happening.
+        assert "already running" in said_row, said_row
+    else:
+        assert status in said_row, (
+            f"the disabled row does not say WHY: {said_row!r} for a {status} "
+            f"interpretation")
+        assert "already running" not in said_row, (
+            f"a {status} interpretation is reported as running: {said_row!r}")
 
     # THE TITLE IS THE SENTENCE, AND IT HAD NO GUARD AT ALL. A mutation putting "Stop it
     # from the jobs list" back into this string survived every test in the repository --
@@ -9330,7 +9361,10 @@ def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open
         f"{page.text_content('#mini-pct')!r}")
 
 
-def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(open_panel):
+@pytest.mark.parametrize("status, control", [("paused", "Resume"),
+                                             ("requires_review", "Cancel")])
+def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(
+        open_panel, status, control):
     """THE SENTENCE WAS FALSE THREE WAYS OVER A PAUSED JOB.
 
     `interpreting` is set for any non-terminal interpretation, which includes `paused` --
@@ -9353,7 +9387,13 @@ def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(open_panel):
                 **(row.get("work_waiting") or {}),
                 "interpret": None,
                 "profiles": {"rowless": 469, "fetch": 0},
-                "interpreting": {"job_ref": "job_halfway", "status": "paused"},
+                # BOTH OF `HIS_MOVE`, because `controlsFor` and that set differ on
+                # `requires_review` ALONE -- it returns `["cancel"]` for it, since there
+                # is no resume to offer, not because the job is working. Reading
+                # `controlsFor` as "waits on him" put `requires_review` in the working
+                # branch here while `statusTone` gave it the waiting tone one screen
+                # over, and no test could see it because none drove that status.
+                "interpreting": {"job_ref": "job_halfway", "status": status},
             }
     page = open_panel(sources=after)
     page.click(DATA_TAB)
@@ -9361,19 +9401,19 @@ def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(open_panel):
     card = page.locator('.dataset-card[data-open="contractors"]')
     said = card.locator('[role="status"]').text_content()
 
-    assert "Interpretation paused" in said, (
-        f"a paused interpretation is reported as work in progress: {said!r}")
+    assert f"Interpretation {status.replace('_', ' ')}" in said, (
+        f"a {status} interpretation is reported as work in progress: {said!r}")
     assert "is turning the stored pages into rows" not in said, (
         f"it says a paused job is turning pages into rows: {said!r}")
     assert "nothing to press" not in said, (
         f"it says there is nothing to press, and Resume is exactly what to press: "
         f"{said!r}")
-    assert "Resume" in said and "job_halfway" in said, (
+    assert control in said and "job_halfway" in said, (
         f"it does not name the control that moves it, or the job: {said!r}")
 
     row = card.locator('[data-split-action="interpret"]')
     assert row.is_disabled(), "the press is still offered beside a paused job"
-    assert "paused" in row.text_content(), (
+    assert status.replace("_", " ") in row.text_content(), (
         f"the disabled row still claims one is running: {row.text_content()!r}")
-    assert "Resume" in row.get_attribute("title"), (
+    assert control in row.get_attribute("title"), (
         f"its title sends him to the wrong control: {row.get_attribute('title')!r}")

@@ -1671,3 +1671,43 @@ def test_nothing_interpreting_leaves_the_field_empty(served):
         f"a finished interpretation still reads as one under way: "
         f"{waiting['interpreting']!r}")
     assert waiting["interpret"] is not None, "and the press it owes is not offered"
+
+
+def test_the_card_names_the_NEWEST_interpretation_when_two_are_on_their_way(served):
+    """TWO AT ONCE IS A STATE THIS PR MANUFACTURES, and no test reached it.
+
+    A crawl queues one by itself; `POST /api/jobs` accepts a second (issue 779 -- still
+    open, and this change does not close it). So the card can be naming one of two, and
+    `LIMIT 1` without an order is whatever SQLite hands back first.
+
+    THE NEWEST IS THE ONE TO NAME. It is the one he most likely just made, and the one
+    that will still exist when the older settles -- naming the older points him at a job
+    that is about to vanish from the Jobs page, and then at nothing.
+    """
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
+            (f'["{SITE}"]', profilejob.JOB_KIND))
+        for ref, status in (("job_older", "running"), ("job_newer", "queued")):
+            conn.execute(
+                "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, "
+                "                       status) VALUES (?,'update',?,?,?)",
+                (ref, f'["{SITE}"]', datasetjob.JOB_KIND, status))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpreting"] == {"job_ref": "job_newer", "status": "queued"}, (
+        f"the card names {waiting['interpreting']!r}. With two on their way it must name "
+        f"the newest -- the older one settles first and leaves the card pointing at a "
+        f"job that is no longer there."
+    )
+    assert waiting["interpret"] is None, "and it must still not offer the press"
