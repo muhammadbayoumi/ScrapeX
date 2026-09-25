@@ -309,11 +309,10 @@ def test_the_design_system_is_the_baseline_and_not_a_palette():
     # removal to show the baseline through, because there is no second palette to
     # leave properties behind.
     #
-    # AND THE STRING BELOW NOW OCCURS ONCE, WHICH IS THE POINT. `LESSONS` 29
-    # records this assertion as weak precisely because the string occurred TWICE,
-    # so deleting apply()'s loop would have stayed green on `clearTheme`'s. That
-    # escape is closed by the deletion rather than by a better assertion.
-    assert "THEME_PROPERTIES.forEach" in appearance
+    # THE ALLOWLIST IS ASSERTED BY BEHAVIOUR NOW, not by a substring (#404). A string
+    # here could not tell `THEME_PROPERTIES.forEach` from `Object.keys(theme).forEach`;
+    # extension/tests/appearance-applies-only-colour.test.mjs runs apply() on a palette
+    # carrying a non-colour key and fails if that key reaches the page.
     assert "DESIGN_PROPERTIES.forEach" not in appearance
 
 
