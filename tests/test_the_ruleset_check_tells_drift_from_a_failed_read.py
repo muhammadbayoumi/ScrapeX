@@ -18,6 +18,7 @@ a hand-written response would test what this file believes the API returns.
 from __future__ import annotations
 
 import copy
+import http.client
 import io
 import json
 import urllib.error
@@ -369,6 +370,29 @@ def test_no_response_twice_is_could_not_check(capsys):
 
     assert code == 2, out
     assert "no response (ConnectionResetError: reset)" in out
+
+
+@pytest.mark.parametrize("broken", [
+    lambda: http.client.IncompleteRead(b"[{", 500),
+    lambda: http.client.BadStatusLine("HTTP/1.1 ???"),
+    lambda: http.client.LineTooLong("header line"),
+], ids=["IncompleteRead", "BadStatusLine", "LineTooLong"])
+def test_a_broken_response_twice_is_could_not_check_and_names_it(capsys, broken):
+    """A response cut off or garbled mid-read raises `http.client.HTTPException`, which
+    is not an OSError. Left uncaught it ends the run with a traceback and exit 1 -- the
+    code that means drift."""
+    github = FakeGitHub(_real_rules(), queued={RULES_URL: [broken(), broken()]})
+
+    code, out, pauses = _run(capsys, github)
+
+    assert code == 2, out
+    [error] = _errors(out)
+    assert error.startswith("::error title=Ruleset not checked::")
+    assert f"could not read {RULES_ENDPOINT}" in error
+    assert type(broken()).__name__ in error and "on both attempts" in error
+    assert "drift" not in error.lower()
+    assert github.calls == [RULES_URL, RULES_URL], "it retried more or less than once"
+    assert pauses == [check_the_ruleset.RETRY_PAUSE_SECONDS]
 
 
 def test_the_repository_endpoint_failing_is_could_not_check_and_names_it(capsys):
