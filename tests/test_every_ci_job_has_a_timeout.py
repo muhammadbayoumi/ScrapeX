@@ -3,8 +3,9 @@
 A job with no `timeout-minutes` runs until GitHub cancels it at 360 minutes. On main
 the ruleset requires `scope`, `lint`, `test` and `contract-parity` to pass, strictly
 up to date, with nobody on the bypass list -- so one hung required job holds its pull
-request for six hours and nothing can merge past it. The engine suite spawns real
-subprocesses and drives a real Chromium, and nothing else bounds either (#948).
+request for six hours and nobody can merge it past the hang. The engine suite spawns
+real subprocesses and drives a real Chromium, and nothing below the job bounds either
+(#948).
 
 WHY 1..60. A value that is not an integer cannot be read here, and `true` is refused
 even though Python calls a bool an int. Zero bounds nothing. The ceiling is twice
