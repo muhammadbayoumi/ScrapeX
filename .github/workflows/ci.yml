@@ -65,7 +65,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # THE FOUR JOB IDS BELOW ARE RULESET 23994761'S REQUIRED CONTEXTS on main, and
-# the ruleset pins nothing but those names. Renaming or removing one leaves a
+# the ruleset pins only those names and the app that must report them (GitHub
+# Actions), not what the jobs run. Renaming or removing one leaves a
 # context that never reports, and a required check that never reports blocks
 # every pull request, starting with the one that renamed it. So a rename is three
 # moves, in this order: the owner un-requires the old name in the ruleset, the
