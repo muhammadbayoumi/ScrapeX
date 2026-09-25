@@ -64,6 +64,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# THE FOUR JOB IDS BELOW ARE RULESET 23994761'S REQUIRED CONTEXTS on main, and
+# the ruleset pins nothing but those names. Renaming or removing one leaves a
+# context that never reports, and a required check that never reports blocks
+# every pull request, starting with the one that renamed it. So a rename is three
+# moves, in this order: the owner un-requires the old name in the ruleset, the
+# rename merges, the owner requires the new name.
+# tests/test_the_four_required_jobs_keep_their_teeth.py pins the ids, and what
+# each job may not do to report green while checking nothing.
 jobs:
   # ITS OWN JOB, and deliberately not a step inside `test`. A style failure that
   # aborts the suite hides every real failure behind it, and the one thing a
@@ -73,6 +81,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The last step runs pytest, and
+          # tests/test_the_workflows_check_out_enough_history.py demands the whole
+          # history of every job that does. The one file it runs asks git nothing,
+          # so this is that guard's rule kept, not a need of this job's own.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -96,6 +110,16 @@ jobs:
       # extension's security story is that it ships no third-party JavaScript.
       - name: Lint the JavaScript (eslint)
         run: npx --yes eslint@9.39.0 extension scrapex/webui/static contract apps_script --no-warn-ignored
+      # THE SAME GUARD RUNS INSIDE `test`, IN EVERY SCOPE, AND HERE AS WELL, because
+      # a job-level `if: false` switches off everything inside that job, its guard
+      # included. On `lint` it is caught by the copy in `test`; on `scope`, `test`
+      # or `contract-parity` by this one, since `lint` needs nothing. Pinned for the
+      # reason ruff is; `--noconftest` because tests/conftest.py imports the engine,
+      # and this job does not install it.
+      - name: The four required jobs keep their teeth (the copy outside `test`)
+        run: |
+          pip install pytest==9.1.1 pyyaml==6.0.3
+          python -m pytest --noconftest -p no:cacheprovider tests/test_the_four_required_jobs_keep_their_teeth.py -q
 
   # ITS OWN JOB, and it was a step inside `test` until 2026-08-19. It was split
   # out when TWO jobs needed the answer and had to run in parallel; #645 removed

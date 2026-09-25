@@ -55,10 +55,20 @@ def test_every_ruff_ignore_says_why():
 
 
 def test_the_gate_actually_runs_on_the_code_that_ships():
-    """CI must lint `scrapex/`. A gate pointed at nothing passes forever."""
+    """CI must lint `scrapex/`. A gate pointed at nothing passes forever.
+
+    This asked for the substring `ruff check scrapex/` anywhere in ci.yml until
+    #1132, and a step running `ruff check scrapex/ --exit-zero`, or the words in a
+    comment, satisfied it. The command is now compared whole, as a parsed step of
+    the `lint` job, and what it is lives in one place: the file that pins every
+    command the four required jobs run.
+    """
+    from tests.test_the_four_required_jobs_keep_their_teeth import RUFF, ci_jobs, runs_of
+
+    assert runs_of(ci_jobs()["lint"]).count(RUFF) == 1, (
+        f"no step in the CI lint job runs exactly `{RUFF}` — the gate is off, or "
+        "it runs with something that lets a finding through")
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    assert "ruff check scrapex/" in workflow, (
-        "the CI lint step no longer runs ruff over scrapex/ — the gate is off")
     assert "pip install ruff==" in workflow, (
         "ruff is no longer pinned in CI: somebody else's release can now turn a "
         "branch red without a line of this repository changing")
