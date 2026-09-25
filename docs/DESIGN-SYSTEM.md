@@ -194,18 +194,31 @@ borrowed from Supabase**; that is the wider gap, and it is open.
 
 Use an icon decoratively with an adjacent visible label:
 
-There are **two** real forms, and the difference is not cosmetic — the extension has no
-`/static/` root, so an absolute path there resolves to nothing.
+There are **three** real forms, and the difference is not cosmetic. The extension has no
+`/static/` root, so an absolute path there resolves to nothing. And the Side Panel may
+not point into another file at all: since Chrome 150 a `<use>` that does holds the
+panel's `load`, and the panel stays blank until a click somewhere else (issue #1110).
 
 ```html
 {# web workspace: the macro carries the cache-buster #}
 {{ icon('settings') }}
 
-<!-- extension: relative, and the class is sx-icon -->
+<!-- the Side Panel, extension/app.html: a symbol the page carries itself -->
+<svg class="sx-icon" aria-hidden="true">
+  <use href="#icon-settings"></use>
+</svg>
+
+<!-- extension pages that open as tabs: relative, and the class is sx-icon -->
 <svg class="sx-icon" aria-hidden="true">
   <use href="icons/material-icons.svg#settings"></use>
 </svg>
 ```
+
+In the panel's JavaScript, `icon("settings")` and `iconHref("settings")` in
+`extension/app.js` build that reference; never write it by hand. The panel's symbols are
+generated from `design/material-icons.svg` by `tools/sync_design_assets.py`, with an
+`icon-` prefix, because the panel's own ids share its document: its Test site button's id
+is `check`.
 
 **The authoring class is `sx-icon`, not `material-icon`.** This block previously showed
 `class="material-icon"` on an absolute path — a form neither surface uses. Corrected

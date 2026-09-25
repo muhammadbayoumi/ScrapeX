@@ -511,9 +511,8 @@ test("every icon in the panel's markup is a symbol the panel carries", () => {
 test("app.js draws its icons from the same symbols, never from the file", () => {
   // app.js runs only after `load`, so a <use> it writes could not hold the panel
   // blank. It is held to the same symbols anyway, so that the panel has ONE icon
-  // source rather than two that merely agree, and so that the DOM harness has
-  // nothing to rewrite -- a harness that rewrote the markup's references is how
-  // this defect stayed green.
+  // source rather than two that merely agree, and so that the DOM harness serves
+  // the page with the references the extension ships.
   const app = read("app.js");
   const form = app.match(/^const iconHref = \(name\) => `#([\w-]*)\$\{name\}`;/m);
   assert.ok(form, "app.js no longer builds its icon references in one place, iconHref");
@@ -529,6 +528,18 @@ test("app.js draws its icons from the same symbols, never from the file", () => 
   assert.ok(literal.length > 0, "found no literal icon names in app.js");
   assert.deepEqual([...new Set(literal)].filter((name) => !symbols.has(prefix + name)), [],
     "app.js draws icons the panel's sprite does not have");
+  // And no reference is written by hand, where the check above cannot read its
+  // name: a bare `#check` finds the Test site button, and `#icon-chek` finds
+  // nothing. Main's scan of app.js read every hand-written reference into the
+  // sprite file, so this keeps what that scan held.
+  const handWritten = [...app.matchAll(/<use\b[^>]*>/g)].map((found) => found[0])
+    .filter((tag) => !/\shref="\$\{iconHref\(/.test(tag));
+  assert.deepEqual(handWritten, [],
+    "these <use> in app.js take their reference from somewhere other than iconHref");
+  const setByHand = [...app.matchAll(/\.setAttribute\(\s*"href",\s*"#([^"]*)"/g)]
+    .map((found) => found[1]);
+  assert.deepEqual(setByHand.filter((id) => !symbols.has(id)), [],
+    "app.js points these icons at ids the panel's sprite does not carry; use iconHref");
   assert.ok(!app.includes("material-icons.svg"),
     "app.js names the external sprite file again");
 });

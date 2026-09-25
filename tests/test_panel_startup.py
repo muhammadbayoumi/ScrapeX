@@ -853,3 +853,30 @@ def test_a_mark_that_merely_starts_the_same_way_does_not_end_it(browser, tmp_pat
             harness.wait_until_settled(page, timeout=800)
     finally:
         page.close()
+
+
+#: Every <use> in the document at the moment `load` fires, by the reference
+#: Chrome follows: `href.baseVal` reads `href` over `xlink:href`.
+_ICONS_AT_LOAD = """
+  window.addEventListener("load", () => {
+    window.__iconsAtLoad = [...document.querySelectorAll("use")]
+      .map((use) => use.href.baseVal);
+  }, {once: true});
+"""
+
+
+def test_nothing_the_panel_holds_at_load_points_outside_the_document(
+        open_starting_panel):
+    """Chrome shows the Side Panel only after `load`, and since Chrome 150 a
+    <use> that points into another file holds `load` until a layout pass builds
+    it, which a panel Chrome has not shown yet never gets: the panel stays blank
+    (issue 1110). extension/tests/side-panel-startup.test.mjs holds app.html's
+    own markup to `#`, by reading the file. This reads the document, so an icon
+    a head script draws on DOMContentLoaded is held too."""
+    page = open_starting_panel(init_script=_ICONS_AT_LOAD)
+    page.wait_for_function("() => Array.isArray(window.__iconsAtLoad)")
+    icons = page.evaluate("() => window.__iconsAtLoad")
+
+    assert len(icons) >= 40, f"{len(icons)} icons at load: the markup alone draws 90"
+    outside = sorted({href for href in icons if not href.startswith("#")})
+    assert not outside, f"these hold `load`, and the panel with it: {outside}"
