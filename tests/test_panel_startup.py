@@ -865,17 +865,29 @@ _ICONS_AT_LOAD = """
 """
 
 
-def test_nothing_the_panel_holds_at_load_points_outside_the_document(
-        open_starting_panel):
+def test_nothing_the_panel_holds_at_load_points_outside_the_document(browser):
     """Chrome shows the Side Panel only after `load`, and since Chrome 150 a
     <use> that points into another file holds `load` until a layout pass builds
     it, which a panel Chrome has not shown yet never gets: the panel stays blank
     (issue 1110). extension/tests/side-panel-startup.test.mjs holds app.html's
     own markup to `#`, by reading the file. This reads the document, so an icon
-    a head script draws on DOMContentLoaded is held too."""
-    page = open_starting_panel(init_script=_ICONS_AT_LOAD)
-    page.wait_for_function("() => Array.isArray(window.__iconsAtLoad)")
-    icons = page.evaluate("() => window.__iconsAtLoad")
+    any script draws before `load` is held too.
+
+    extension/app.html itself, not the harness page: build_page runs timezone.js
+    and split-button.js without their `defer` and never runs boot-app.js, so a
+    script that draws before `load` in the panel can draw nothing there. Every
+    request that is not for a local file is refused, so nothing reaches the
+    engine or the network."""
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.route("**/*", lambda route: route.continue_()
+                   if route.request.url.startswith("file:") else route.abort())
+        page.add_init_script(_ICONS_AT_LOAD)
+        page.goto((ROOT / "extension" / "app.html").as_uri())
+        page.wait_for_function("() => Array.isArray(window.__iconsAtLoad)")
+        icons = page.evaluate("() => window.__iconsAtLoad")
+    finally:
+        page.close()
 
     assert len(icons) >= 40, f"{len(icons)} icons at load: the markup alone draws 90"
     outside = sorted({href for href in icons if not href.startswith("#")})
