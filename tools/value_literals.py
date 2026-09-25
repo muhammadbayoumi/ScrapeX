@@ -105,15 +105,17 @@ def declarations(css: str) -> list[tuple[str, str, str, int]]:
 
 TOKEN_FUNCTION = re.compile(r"(?<![\w-])(?:var|color-mix)\(", re.IGNORECASE)
 MATH_FUNCTION = re.compile(r"(?<![\w-])(?:calc|min|max|clamp)\(", re.IGNORECASE)
-# Stands in for a removed function where its POSITION matters, as in the `font` shorthand.
-HOLE = "\u0000"
+# Stand in for a removed function where its POSITION matters, as in the `font` shorthand:
+# a token, and a calc()/min()/max()/clamp().
+TOKEN_HOLE, MATH_HOLE = "\u0000", "\u0001"
 
 
-def _without_tokens(value: str, pattern: re.Pattern[str] = TOKEN_FUNCTION, hole: str = "") -> str:
+def _without_tokens(value: str, pattern: re.Pattern[str] = TOKEN_FUNCTION, hole: str = "",
+                    removed: list[str] | None = None) -> str:
     """The value with every var() gone, fallback and all, and every color-mix(), whose
-    percentages are proportions of a colour and not lengths; each replaced by `hole`. Each is
-    removed by matching its own parentheses, so a fallback holding calc() or max() cannot
-    stall the scan."""
+    percentages are proportions of a colour and not lengths; each replaced by `hole`, and
+    its text added to `removed` when one is given. Each is removed by matching its own
+    parentheses, so a fallback holding calc() or max() cannot stall the scan."""
     kept, index = [], 0
     while (found := pattern.search(value, index)) is not None:
         kept.append(value[index:found.start()] + hole)
@@ -121,26 +123,40 @@ def _without_tokens(value: str, pattern: re.Pattern[str] = TOKEN_FUNCTION, hole:
         while index < len(value) and depth:
             depth += {"(": 1, ")": -1}.get(value[index], 0)
             index += 1
+        if removed is not None:
+            removed.append(value[found.start():index])
     kept.append(value[index:])
     return "".join(kept)
 
 
-def _font(value: str) -> dict[str, str]:
-    """The weight, size and line height a `font` shorthand states as literals:
-    `[style] [weight] size[/line-height] family`. A size written as a token or as calc()
-    is not a literal, but it still marks where the size is, so the literal weight before
-    it and the literal line height after it are read (`font: 650 var(--fs)/1.37 ...`)."""
-    marked = _without_tokens(_without_tokens(value, hole=HOLE), MATH_FUNCTION, HOLE)
+def _font(value: str) -> dict[str, list[str]]:
+    """The weights, sizes and line heights a `font` shorthand states as literals:
+    `[style] [weight] size[/line-height] family`.
+
+    The size is found by position, since a token or a calc() stands where it is written:
+    first a size followed by `/` and a line height, then a lone length. A token size states
+    no literal; a calc() or clamp() size states its own length operands, as the longhand
+    does. A weight is a bare number before the size, and quoted family names are set aside,
+    so `"Font Awesome 6"` states no weight."""
+    math: list[str] = []
+    marked = _without_tokens(_without_tokens(value, hole=TOKEN_HOLE), MATH_FUNCTION, MATH_HOLE, math)
+    marked = re.sub(r"\"[^\"]*\"|'[^']*'", " ", marked)
     length = rf"-?\d*\.?\d+(?:{UNITS})"
-    found = (re.search(rf"(?<![\w.#-])({length})(?![\w-])(?:\s*/\s*({HOLE}|{length}|-?\d*\.?\d+))?", marked)
-             or re.search(rf"({HOLE})\s*/\s*({HOLE}|{length}|-?\d*\.?\d+)", marked))
-    # A weight is a bare number and nothing else in the shorthand is, so it is read even
-    # where no size is written as a literal and no slash marks one.
-    weight = [n for n in NUMBER.findall(marked[:found.start()] if found else marked) if 1 <= float(n) <= 1000]
-    parts = {"font-size": found.group(1) if found else None, "line-height": found.group(2) if found else None,
-             "font-weight": weight[-1] if weight else None}
-    return {axis: literal for axis, literal in parts.items()
-            if literal and literal != HOLE and float(re.match(r"-?[\d.]+", literal).group(0)) != 0}
+    size = rf"({TOKEN_HOLE}|{MATH_HOLE}|{length})"
+    found = (re.search(rf"(?<![\w.#-]){size}(?![\w-])\s*/\s*({TOKEN_HOLE}|{MATH_HOLE}|{length}|-?\d*\.?\d+)", marked)
+             or re.search(rf"(?<![\w.#-])({length})(?![\w-])", marked))
+    before = marked[:found.start()] if found else re.split(rf"[/{TOKEN_HOLE}{MATH_HOLE}]", marked)[0]
+    weights = [n for n in NUMBER.findall(before) if 1 <= float(n) <= 1000]
+    stated: dict[str, list[str]] = {"font-weight": weights[-1:]}
+    if found:
+        sizes = [found.group(1)]
+        if found.group(1) == MATH_HOLE:
+            sizes = [f"{n}{u}" for n, u in LENGTH.findall(_without_tokens(math[marked[:found.start()].count(MATH_HOLE)]))]
+        stated["font-size"] = sizes
+        stated["line-height"] = [found.group(2)] if found.lastindex and found.lastindex >= 2 else []
+    return {axis: [v for v in values if v and v not in (TOKEN_HOLE, MATH_HOLE)
+                   and float(re.match(r"-?[\d.]+", v).group(0)) != 0]
+            for axis, values in stated.items()}
 
 
 def _split(text: str, separators: str) -> list[tuple[str, str]]:
@@ -187,12 +203,14 @@ def is_mono(selectors: str) -> bool:
     too. In each, the element styled is the last compound: it is mono when it names a mono
     element, or when one it sits inside does -- an ancestor, reached through ` ` or `>`. A
     sibling reached through `+` or `~` is beside the element, not around it."""
-    selectors = re.sub(r"\[[^\]]*\]", "", selectors)
+    selectors = re.sub(r"\[[^\]]*\]", "[]", selectors)
     lists = [piece for _before, piece in _split(selectors, ",")]
     if not lists:
         return False
     for selector in lists:
         compounds = _split(selector, " >+~\t\n")
+        if not compounds:
+            return False
         if _compound_is_mono(compounds[-1][1]):
             continue
         if not any(_compound_is_mono(compounds[index - 1][1])
@@ -205,8 +223,7 @@ def is_mono(selectors: str) -> bool:
 def literals(axis: str, prop: str, value: str) -> list[str]:
     """The hard-coded values one declaration states on one axis."""
     if prop == "font" and axis in ("font-size", "line-height", "font-weight"):
-        stated = _font(value.replace("!important", "")).get(axis)
-        return [stated] if stated else []
+        return _font(value.replace("!important", "")).get(axis, [])
     if not PROPERTIES[axis].fullmatch(prop):
         return []
     value = _without_tokens(value).replace("!important", "")

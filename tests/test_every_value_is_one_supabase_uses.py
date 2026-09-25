@@ -111,6 +111,17 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
     (".a { font: 650 var(--fs)/1.37 var(--font); }", [("line-height", "1.37", False), ("font-weight", "650", False)]),
     (".a { font: 650 var(--fs) var(--font); }", [("font-weight", "650", False)]),
     (".a { font: 2vw/1.37 serif; }", [("font-size", "2vw", False), ("line-height", "1.37", False)]),
+    # A line height with a unit after a token size is a line height, not the size.
+    (".a { font: 600 var(--fs)/13px var(--font); }", [("line-height", "13px", False), ("font-weight", "600", True)]),
+    # A clamp() or calc() size states its own length operands, as the longhand does.
+    (".a { font: 600 clamp(.73rem, 2vw, .8125rem)/1.4 var(--font); }",
+     [("font-size", ".73rem", False), ("font-size", "2vw", False), ("font-size", ".8125rem", True),
+      ("line-height", "1.4", True), ("font-weight", "600", True)]),
+    # A keyword size gives no position, so only the weight before the slash is read; and a
+    # digit in a quoted family is no weight.
+    (".a { font: 650 small/1.4 sans-serif; }", [("font-weight", "650", False)]),
+    ('.a { font: 650 small "Font 3"; }', [("font-weight", "650", False)]),
+    ('.a { font: 900 var(--fa-size) "Font Awesome 6 Free"; }', [("font-weight", "900", True)]),
     # A var() goes whole, whatever its fallback holds.
     (".a { padding: var(--gap, calc(1px + 2px)) 7px; }", [("spacing", "7px", False)]),
     # color-mix() percentages are proportions of a colour, not lengths.
@@ -204,6 +215,12 @@ def test_a_sheet_whose_braces_do_not_balance_fails_the_read(css):
     # The element styled is the last compound; only what it sits inside counts.
     (":is(.label, code)", False), (":where(pre, .label)", False), (".label:not(:is(code))", False),
     (".card:has(code)", False), ("pre + .caption", False), ("code ~ p", False), ('.x[title="code"]', False),
+    # Ancestry over several compounds, and a sibling anywhere on the way.
+    ("pre > .a > .b", True), (".a > pre .b", True), ("pre .a + .b .c", True), ("pre + .a .b", False),
+    (":matches(pre) .x", True), (".x:not(.font-mono)", False), (".row:has(.code-content)", False),
+    # An attribute-only compound is still a compound.
+    ("[data-x], pre", False), ("[data-a] > [data-b]", False), (":is([data-a], pre)", False),
+    ("pre > [data-part]", True),
 ])
 def test_the_mono_context_is_code_and_only_code(selector, mono):
     """Their mono ramp is defined on code, pre, kbd, samp, .code-content and .font-mono,
@@ -246,30 +263,39 @@ def test_every_stylesheet_is_either_read_or_named_as_not_ours():
 
 
 PROBE = """
-.a { padding: 7px 8px; margin-inline-start: 7px; gap: 9px !important; }
-.a { font-size: .73rem; font-size: .73rem; font: 650 var(--fs)/1.37 var(--font); }
-.a { border-radius: 7px; z-index: 777; transition: opacity .12s cubic-bezier(0.2, 0, 0, 1); }
-.a { animation: spin 1.4s linear infinite; line-height: 1.33em; }
-@media (min-width: 1px) { .a:focus-visible { outline: 3px solid; outline-offset: 5px; } }
+.a { padding: 7px 8px; padding-top: 7px; padding-right: 7px; padding-bottom: 7px; padding-left: 7px; }
+.a { padding-inline: 7px; padding-block: 7px; padding-inline-start: 7px; padding-block-end: 7px; }
+.a { margin: 7px; margin-top: 7px; margin-left: 7px; margin-inline-end: 7px; }
+.a { gap: 9px !important; row-gap: 9px; column-gap: 9px; }
+.a { border-radius: 7px; border-top-left-radius: 7px; border-bottom-right-radius: 7px; }
+.a { border-start-end-radius: 7px; border-end-start-radius: 7px; }
+.a { font-size: .73rem; font-size: .73rem; line-height: 1.33em; font-weight: 650; }
+.a { font: 650 var(--fs)/13px var(--font); font: 600 clamp(.73rem, 2vw, .8125rem)/1.4 var(--font); }
+.a { transition: opacity .12s cubic-bezier(0.2, 0, 0, 1); transition-duration: .12s; transition-delay: .12s; }
+.a { animation: spin 1.4s linear infinite; animation-duration: 1.4s; animation-delay: 1.4s; }
+.a { transition-timing-function: cubic-bezier(0.2, 0, 0, 1); animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+.a { z-index: 777; }
+@media (min-width: 1px) { .a:focus-visible { outline: 3px solid; outline-width: 3px; outline-offset: 5px; } }
 pre { font-size: .875rem; }
 """
 PROBED = {
-    "duration": {"probe.css": {".12s": 1, "1.4s": 1}},
-    "easing": {"probe.css": {"cubic-bezier(0.2, 0, 0, 1)": 1}},
-    "focus": {"probe.css": {"3px": 1, "5px": 1}},
-    "font-size": {"probe.css": {".73rem": 2}},
-    "font-weight": {"probe.css": {"650": 1}},
-    "line-height": {"probe.css": {"1.33em": 1, "1.37": 1}},
-    "radius": {"probe.css": {"7px": 1}},
-    "spacing": {"probe.css": {"7px": 2, "9px": 1}},
+    "duration": {"probe.css": {".12s": 3, "1.4s": 3}},
+    "easing": {"probe.css": {"cubic-bezier(0.2, 0, 0, 1)": 3}},
+    "focus": {"probe.css": {"3px": 2, "5px": 1}},
+    "font-size": {"probe.css": {".73rem": 3, "2vw": 1}},
+    "font-weight": {"probe.css": {"650": 2}},
+    "line-height": {"probe.css": {"1.33em": 1, "13px": 1}},
+    "radius": {"probe.css": {"7px": 5}},
+    "spacing": {"probe.css": {"7px": 13, "9px": 3}},
     "z-index": {"probe.css": {"777": 1}},
 }
 
 
 def test_the_scan_reports_every_axis_a_sheet_hard_codes(tmp_path):
-    """One offender on every axis, in a longhand, a shorthand, a logical side, behind
-    !important, twice, inside @media and in a :focus rule: the scan the frozen list is
-    written from misses none, so narrowing it anywhere and re-freezing goes red here."""
+    """An offender in every property the scan reads on every axis -- each physical and
+    logical side, each corner, each longhand and shorthand -- behind !important, twice,
+    inside @media and in a :focus rule. The scan the frozen list is written from misses
+    none, so dropping a property family and re-freezing goes red here."""
     sheet = tmp_path / "probe.css"
     sheet.write_text(PROBE, encoding="utf-8")
     assert offenders(READING, [sheet]) == PROBED
@@ -286,6 +312,27 @@ def test_the_default_scan_reads_every_authored_sheet(monkeypatch):
     offenders(READING)
     assert read == [sheet.read_text(encoding="utf-8") for sheet in authored()], (
         f"the default scan parsed {len(read)} sheets of {len(authored())}")
+
+
+def test_the_default_scan_judges_every_literal_it_parses(monkeypatch):
+    """With nothing allowed, offenders() must report every literal every authored sheet
+    states, counted here independently, so a scan narrowed after the parse -- by sheet,
+    by declaration, by selector -- and re-frozen cannot pass."""
+    import tools.value_literals as scan
+
+    monkeypatch.setattr(scan, "allowed", lambda *_args: False)
+    reported = sum(n for files in offenders(READING).values() for values in files.values()
+                   for n in values.values())
+    stated = sum(len(literals(axis, prop, value))
+                 for sheet in authored()
+                 for _selector, prop, value, _line in declarations(sheet.read_text(encoding="utf-8"))
+                 for axis in scan.PROPERTIES)
+    # Every frozen offender is a literal some sheet states, so fewer stated than frozen means
+    # literals() itself stopped seeing them.
+    frozen = sum(n for files in json.loads(FROZEN.read_text(encoding="utf-8")).values()
+                 for values in files.values() for n in values.values())
+    assert stated >= frozen, f"{stated} literals stated across the authored sheets, {frozen} frozen"
+    assert reported == stated, f"offenders() judged {reported} of the {stated} literals the sheets state"
 
 
 def test_the_reading_holds_what_the_roadmap_cites():
