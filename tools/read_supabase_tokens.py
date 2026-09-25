@@ -77,6 +77,11 @@ SOURCES = {
     "packages/config/css/theme.css": None,
     "packages/config/css/utilities.css": None,
     "packages/config/css/variants.css": None,
+    # THE DESIGN SITE'S OWN SHEET, NAMES ONLY (#1017). The font stacks, the type ramp and the
+    # heading rule this product took are declared here (`--font-heading` at :15, the ramp at
+    # :23-34), so a marker naming one must be recognised. Its colour literals are the site's
+    # chrome, not a theme this product ships, so none of them is admitted as a value.
+    "apps/design-system/styles/globals.css": None,
 }
 
 # The files above that declare no custom property at the pinned commit. Recorded so the

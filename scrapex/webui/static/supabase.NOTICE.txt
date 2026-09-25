@@ -20,12 +20,23 @@ WHAT WAS TAKEN, AND FROM WHERE
   Commit     86c813ec03e340ffbe4aeb97cd0c5bee7a0ead94  (2026-08-28)
 
   Files read:
-    packages/config/css/animations.css
     packages/ui/build/css/themes/light.css
     packages/ui/build/css/themes/dark.css
-    packages/ui/build/css/source/semantic.css
+    packages/ui/build/css/themes/classic-dark.css
+    packages/ui/build/css/themes/faux-classic-dark.css
     packages/ui/build/css/source/global.css
+    packages/ui/build/css/source/semantic.css
+    packages/ui/build/css/source/compat.css
+    packages/config/css/animations.css
+    packages/config/css/base.css
+    packages/config/css/colors.css
+    packages/config/css/theme.css
+    packages/config/css/utilities.css
+    packages/config/css/variants.css
     apps/design-system/styles/globals.css
+
+  These are every file tools/read_supabase_tokens.py reads, and a test holds the
+  two lists equal. Some are read for their token NAMES only.
 
   What came across:
     * Colour values. Some are byte-exact; the rest were re-derived by evaluating
@@ -42,7 +53,9 @@ WHAT WAS TAKEN, AND FROM WHERE
     * The type scale, the weights, the radius scale and the focus geometry.
     * Token NAMES, where this product's semantic role matches theirs.
 
-  No code was copied. No file of theirs is redistributed here.
+  Some values came from their components rather than these token files: the
+  radius and focus geometry from their component classes, and the overlay from
+  their dialog. No code was copied. No file of theirs is redistributed here.
 
 
 THE TWO LICENCES, AND WHY BOTH ARE NAMED
@@ -50,8 +63,10 @@ THE TWO LICENCES, AND WHY BOTH ARE NAMED
 Their repository declares Apache-2.0 at its root — LICENSE, and "license":
 "Apache-2.0" in package.json — under "Copyright 2024 Supabase".
 
-packages/ui, which is the package holding every file listed above, declares
-"license": "MIT" in its own package.json and ships no licence text of its own.
+packages/ui and packages/config, which hold every file listed above except
+apps/design-system/styles/globals.css, each declare "license": "MIT" in their
+own package.json and ship no licence text of their own. apps/design-system
+declares no licence, so the root Apache-2.0 governs that one file.
 There is no NOTICE file anywhere in their repository.
 
 So which licence governs these particular files is genuinely ambiguous, and it is
@@ -154,14 +169,31 @@ where this summary is brief.
      the same reasoning; this product did not depart from them, it agreed with
      them. The contrast measurement is corroboration and was never the cause.
 
-     So every colour value here belongs to item 1: resolved from their arithmetic,
-     not chosen against it. The contrast numbers the removed entries carried are
-     still recorded at the values in design/tokens.css, which is where a reader who
+     So every colour value here belongs to item 1, resolved from their arithmetic
+     and not chosen against it, WITH THESE EXCEPTIONS, which a statement of
+     changes must name. The Sign in with Google button's colours, three per
+     theme, are Google's published colours, not Supabase's. --red-hover, in both
+     themes, is this product's own: Supabase publishes neither #8e332f nor
+     #fda49d. The dark --accent-active is their light --brand-500 used in the
+     dark theme, a value of theirs they do not use there. --shadow-color, in both
+     themes, is this product's own, because Supabase declares no shadow token; it
+     belongs with the shadow tokens item 5 names. And --selection and the five
+     --diagram-* colours are this product's own color-mix() of their resolved
+     values, at proportions Supabase does not publish. This sentence claimed no
+     exception until 2026-09-25. The contrast numbers the removed entries carried
+     are still recorded at the values in design/tokens.css, which is where a reader who
      wonders why a border measures 1.542:1 finds both the number and the ruling.
 
-  3. NAMES DIVERGE ABOVE THE BODY SIZE. This product's type scale carries an
-     `md` step that Tailwind has no name for, so from --fs-md upward every rung
-     sits one place below theirs. The values match; the names do not.
+  3. THE TYPE SCALE'S VALUES ARE THEIRS BUT ONE, AND ITS NAMES ARE NOT. Measured
+     against apps/design-system/styles/globals.css at the commit above, whose @theme
+     block re-declares Tailwind's --text-sm through --text-9xl and leaves --text-xs
+     at Tailwind's stock 0.75rem: --fs-xs (12px) is their --text-xs and --fs-sm
+     (13px) their --text-sm; --fs (15px) is their --text-base; and from --fs-md
+     upward (16, 18, 22, 28px) each rung is theirs one name higher, --text-lg to
+     --text-3xl, because this product calls its 15px rung --fs and gives 16px an
+     `md` name that Tailwind does not have. --fs-2xs (11px) has no counterpart in
+     their ramp or in the stock ramp their mono context resets to.
+     THIS ITEM SAID "THE VALUES MATCH" UNTIL 2026-09-25; --fs-2xs did not.
 
   4. THE MOTION CURVES ARE THEIRS; NAMING THEM IS NOT. Both curves in
      design/tokens.css are Supabase's own, at the commit above, in
@@ -198,16 +230,24 @@ where this summary is brief.
      product collects is Arabic. Matching them on that axis could only mean
      deleting the contract, so it is exempt by ruling and not by oversight.
 
-  6. THE ICON SET IS NOT THEIRS, and it is recorded here rather than repaired.
-     Supabase mandates Lucide, at size 24 with strokeWidth 1.5, stroke
-     currentColor and no fill. This product ships a filled Material Design
-     sprite: 50 <symbol> tags of which 49 carry an id, 37 distinct symbols
-     referenced across 205 call sites, and three copies of Google's own
-     Apache-2.0 notice that this repository already discharges.
+  6. THE ICON SET IS NOT THEIRS, and it is recorded here until it is repaired.
+     Supabase's UI icons are Lucide (apps/design-system/content/docs/icons.mdx at
+     the commit above), which specifies no size or stroke for them. A Lucide icon
+     renders at Lucide's own defaults (size 24, stroke 2, currentColor, no fill)
+     unless the component holding it or the call site overrides them, and where
+     their components override the stroke they mostly set 1.5. Their own custom
+     icons, for glyphs Lucide lacks, default to strokeWidth 1.5 where Lucide
+     defaults to 2; both default to size 24. This product ships a Material Design
+     sprite, design/material-icons.svg -- Google's classic filled Material Icons
+     plus one Material Symbols Outlined glyph, folder-code -- with Google's own
+     Apache-2.0 licence file beside each copy. Its counts are not
+     restated here, for the reason WHAT CAME ACROSS gives: a count is a
+     restatement.
 
      ASKED ON 2026-09-02 WHETHER TO MIGRATE OR TO RECORD IT, HE CHOSE TO RECORD
      IT. R-85's exactness instruction was scoped to the values, and an icon set is
-     not a colour value.
+     not a colour value. His ruling of 2026-09-23 reversed that: the product moves
+     to Lucide, and this item is rewritten when it does.
 
 
 WHAT IS NOT COVERED BY THIS NOTICE

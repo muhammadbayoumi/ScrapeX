@@ -155,8 +155,10 @@ def test_the_notice_declares_no_deliberate_colour_replacement(notice):
         "guard reads. If a deliberate replacement has been introduced, add it to "
         "OURS above and rewrite this assertion deliberately rather than deleting it."
     )
-    end = "  3. NAMES DIVERGE"
-    assert end in notice, "item 3's heading moved; this guard delimits item 2 by it"
+    # Delimited by the next item's NUMBER, not its heading: #781 rewrote item 3's heading,
+    # and a guard that breaks when a neighbour is corrected guards the wrong thing.
+    end = "\n  3. "
+    assert notice.count(end) == 1, "item 3 is no longer where this guard ends item 2"
     item_two = notice.split(marker, 1)[1].split(end, 1)[0]
 
     # An ENTRY is a token at the entry indentation followed by its reason -- the

@@ -238,8 +238,8 @@ def test_the_fixture_is_the_whole_reading_and_not_a_sample():
     78 literals and 48 names could be deleted and every floor was still met exactly.
     A regeneration that moves them is expected to move these lines with it, deliberately.
     """
-    assert len(THEIR_NAMES) >= 640, (
-        f"the fixture holds {len(THEIR_NAMES)} token names. Supabase declares 648 "
+    assert len(THEIR_NAMES) >= 660, (
+        f"the fixture holds {len(THEIR_NAMES)} token names. Supabase declares 669 "
         f"across the files tools/read_supabase_tokens.py reads; a number this low means "
         f"the generator read fewer files than it should, or failed part way."
     )
@@ -251,6 +251,39 @@ def test_the_fixture_is_the_whole_reading_and_not_a_sample():
             f"shape both produce a silently smaller fixture, which is the exact defect "
             f"this file exists to have caught once already."
         )
+
+
+def test_a_name_the_design_site_declares_is_one_of_theirs():
+    """The font stacks and the type ramp were taken from the design site's own sheet (#1017).
+
+    `apps/design-system/styles/globals.css` declares `--font-heading` at :15, and the
+    notice lists that file among the sources. Until the reader read it, a marker naming
+    one of its 23 names failed as "Supabase does not declare it".
+    """
+    assert "--font-heading" in THEIR_NAMES, (
+        "apps/design-system/styles/globals.css is not in the reading; add it to SOURCES in "
+        "tools/read_supabase_tokens.py and regenerate the fixture")
+
+
+def test_the_notice_lists_exactly_the_files_the_reader_reads():
+    """The notice's "Files read" is a claim in a licence statement, so it is held to the tool.
+
+    It listed 6 files while the reader read 13, one of them (globals.css) not read at all,
+    so it was neither the reading nor a subset of it (#781). Compared with SOURCES and
+    with what the fixture records it actually read.
+    """
+    from tools.read_supabase_tokens import SOURCES
+
+    text = NOTICE.read_text(encoding="utf-8")
+    block = text.split("  Files read:\n", 1)[1].split("\n\n", 1)[0]
+    listed = [line.strip() for line in block.splitlines() if line.strip()]
+    assert listed, "found no 'Files read:' list in design/supabase.NOTICE.txt"
+    assert sorted(listed) == sorted(SOURCES), (
+        f"design/supabase.NOTICE.txt lists {len(listed)} files and the reader reads "
+        f"{len(SOURCES)}.\n  listed, not read: {sorted(set(listed) - set(SOURCES))}\n"
+        f"  read, not listed: {sorted(set(SOURCES) - set(listed))}")
+    assert sorted(UPSTREAM["files_read"]) == sorted(SOURCES), (
+        "the fixture was read from a different file list than SOURCES; regenerate it")
 
 
 def test_the_file_still_carries_markers_to_check():
