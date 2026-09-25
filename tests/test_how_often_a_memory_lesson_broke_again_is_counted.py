@@ -6,10 +6,16 @@ honest count comes from the session transcripts. These tests build a memory fold
 a projects folder of transcripts in the shapes Claude Code writes, and check every
 branch that decides a number in the report.
 
-WHY "RECORDED" IS THE FIRST WRITE AND NOT `metadata.modified`. The memory system moves
-`modified` on every edit, so a lesson corrected today would appear to start today and
-every earlier recurrence would count as "before". The first Write of the file in a
-transcript is when the lesson began.
+THE TRANSCRIPT SHAPE IS THE REAL ONE, AND THAT IS THE POINT. Claude Code stores a tool
+result as a plain string in 98.7% of real records (34,432 of 34,897 when this was
+written), and as a list of parts in the rest. A fixture that wrote only lists let a
+scanner that could not read strings pass every test while reporting zero for every
+lesson on the real data. `Transcript.call` writes a string; one test writes a list.
+
+WHY "RECORDED" IS THE CREATING WRITE AND NOTHING ELSE. The memory system moves
+`modified` on every edit, and the Write tool replaces the file, which moves its
+creation time too. Only the Write whose result says the file was created marks when
+the lesson began; without it the start is unknown, and the report says so.
 """
 from __future__ import annotations
 
@@ -26,15 +32,16 @@ import recurrence_scan as rs  # noqa: E402
 
 T0, T1, T2, T3 = ("2026-09-10T10:00:00.000Z", "2026-09-12T10:00:00.000Z",
                   "2026-09-14T10:00:00.000Z", "2026-09-16T10:00:00.000Z")
-PARSE_ERROR = "bash: -c: line 3: unexpected EOF while looking for matching `''"
+PARSE_ERROR = "Exit code 2\nbash: -c: line 3: unexpected EOF while looking for matching `''"
+HEREDOC = "result: 'unexpected EOF while looking for matching'"
 
 
-def _note(memory: Path, name: str, signature: str | None = None, *, body: str = "text") -> Path:
+def _note(memory: Path, name: str, signature: str | None = None) -> Path:
     meta = "metadata:\n  type: feedback\n  modified: 2026-09-20T00:00:00.000Z\n"
     if signature is not None:
         meta += "  failure_signature:\n" + "".join(f"    {line}\n" for line in signature.splitlines())
     path = memory / f"{name}.md"
-    path.write_text(f"---\nname: {name}\ndescription: d\n{meta}---\n\n{body}\n", encoding="utf-8")
+    path.write_text(f"---\nname: {name}\ndescription: d\n{meta}---\n\ntext\n", encoding="utf-8")
     return path
 
 
@@ -46,15 +53,28 @@ class Transcript:
         self.lines: list[str] = []
         self.n = 0
 
-    def call(self, when: str, tool: str, given: dict, result: str) -> Transcript:
+    def use(self, when: str, tool: str, given: dict) -> str:
         self.n += 1
         use_id = f"toolu_{self.path.stem}_{self.n}"
         self.lines.append(json.dumps({"type": "assistant", "timestamp": when, "message": {
             "role": "assistant", "content": [{"type": "tool_use", "id": use_id, "name": tool, "input": given}]}}))
+        return use_id
+
+    def result(self, when: str, use_id: str, text: str, *, as_list: bool = False) -> None:
+        content = [{"type": "text", "text": text}] if as_list else text
         self.lines.append(json.dumps({"type": "user", "timestamp": when, "message": {
             "role": "user", "content": [{"type": "tool_result", "tool_use_id": use_id,
-                                         "content": [{"type": "text", "text": result}]}]}}))
+                                         "content": content, "is_error": text.startswith("Exit code")}]}}))
+
+    def call(self, when: str, tool: str, given: dict, text: str, *, as_list: bool = False) -> Transcript:
+        self.result(when, self.use(when, tool, given), text, as_list=as_list)
         return self
+
+    def create(self, when: str, note: Path) -> Transcript:
+        return self.call(when, "Write", {"file_path": str(note)}, f"File created successfully at: {note}")
+
+    def update(self, when: str, note: Path) -> Transcript:
+        return self.call(when, "Write", {"file_path": str(note)}, f"The file {note} has been updated successfully.")
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,49 +89,84 @@ def world(tmp_path):
     return projects, memory
 
 
+def _session(projects: Path, name: str = "s1", folder: str = "C--x-ScrapeX") -> Transcript:
+    return Transcript(projects / folder / f"{name}.jsonl")
+
+
 def _run(projects: Path, memory: Path, *extra: str):
     return rs.main(["--projects", str(projects), "--memory", str(memory), *extra])
 
 
-HEREDOC = "result: 'unexpected EOF while looking for matching'"
+def _rows(capsys) -> dict:
+    return {r["lesson"]: r for r in json.loads(capsys.readouterr().out)}
 
 
-def test_a_failure_is_counted_before_and_after_the_first_write_of_the_note(world, capsys):
+def test_a_failure_is_counted_before_and_after_the_creating_write(world, capsys):
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
-    main = projects / "C--x-ScrapeX--claude-worktrees-a"
-    Transcript(main / "s1.jsonl").call(T0, "Bash", {"command": "python - <<'PY'"}, PARSE_ERROR) \
-        .call(T1, "Write", {"file_path": str(note)}, "File created").save()
-    Transcript(main / "s2.jsonl").call(T2, "Bash", {"command": "x"}, PARSE_ERROR).save()
-    Transcript(main / "s3.jsonl").call(T3, "Bash", {"command": "y"}, PARSE_ERROR) \
+    folder = "C--x-ScrapeX--claude-worktrees-a"
+    _session(projects, "s1", folder).call(T0, "Bash", {"command": "python - <<'PY'"}, PARSE_ERROR) \
+        .create(T1, note).save()
+    # The latest failure sits in the file that is read FIRST, so "last" cannot be the
+    # last call iterated.
+    _session(projects, "s0", folder).call(T3, "Bash", {"command": "y"}, PARSE_ERROR) \
         .call(T3, "Bash", {"command": "z"}, "fine").save()
+    _session(projects, "s2", folder).call(T2, "Bash", {"command": "x"}, PARSE_ERROR).save()
 
     assert _run(projects, memory, "--json") == 0
-    row = json.loads(capsys.readouterr().out)[0]
-    assert (row["before"], row["after"], row["sessions_after"]) == (1, 2, ["s2", "s3"])
-    assert row["recorded"].startswith("2026-09-12") and row["recorded_from"] == "first write in a transcript"
+    row = _rows(capsys)["heredoc"]
+    assert (row["before"], row["after"], row["total"], row["sessions_after"]) == (1, 2, 3, ["s0", "s2"])
+    assert row["recorded"].startswith("2026-09-12") and row["recorded_from"] == "created in a transcript"
+    assert row["last"].startswith("2026-09-16"), "the latest recurrence, whatever order the files are read in"
+
+
+def test_a_result_stored_as_a_list_of_parts_is_read_too(world, capsys):
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR, as_list=True) \
+        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory, "--json") == 0
+    assert _rows(capsys)["heredoc"]["after"] == 2
+
+
+def test_results_arriving_out_of_order_are_each_paired_with_their_own_call(world, capsys):
+    """Claude Code runs tool calls in parallel: 1,666 real results arrived after a later
+    call had started. Each result must go to its own call."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    t = _session(projects).create(T0, note)
+    first = t.use(T1, "Bash", {"command": "first"})
+    second = t.use(T1, "Bash", {"command": "second"})
+    t.result(T1, second, "fine")
+    t.result(T1, first, PARSE_ERROR)
+    t.save()
+    _note(memory, "second-only", "command: '^second$'\nresult: 'fine'")
+
+    assert _run(projects, memory, "--json") == 0
+    rows = _rows(capsys)
+    assert rows["heredoc"]["total"] == 1 and rows["second-only"]["total"] == 1
 
 
 def test_two_failures_after_recording_flag_a_barrier_candidate_and_one_does_not(world, capsys):
     projects, memory = world
     twice = _note(memory, "twice", HEREDOC)
     once = _note(memory, "once", "result: 'no such thing'")
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl") \
-        .call(T0, "Write", {"file_path": str(twice)}, "ok").call(T0, "Write", {"file_path": str(once)}, "ok") \
+    _session(projects).create(T0, twice).create(T0, once) \
         .call(T1, "Bash", {"command": "a"}, PARSE_ERROR).call(T2, "Bash", {"command": "b"}, PARSE_ERROR) \
         .call(T2, "Bash", {"command": "c"}, "no such thing").save()
 
     assert _run(projects, memory) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert any(line.startswith("twice") and line.endswith("barrier candidate") for line in lines)
-    assert any(line.startswith("once") and "barrier" not in line for line in lines)
+    assert lines[1].startswith("twice") and lines[1].endswith("barrier candidate"), "most recurrences first"
+    assert lines[2].startswith("once") and "barrier" not in lines[2]
 
 
 def test_a_shape_is_counted_and_never_flagged(world, capsys):
     """A shape is the form a lesson forbids, not evidence it broke: never a candidate."""
     projects, memory = world
     note = _note(memory, "piped", "command: '\\bpytest\\b[^|;&]*\\|\\s*tail'")
-    t = Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Write", {"file_path": str(note)}, "ok")
+    t = _session(projects).create(T0, note)
     for when in (T1, T2, T3):
         t.call(when, "Bash", {"command": "pytest -q | tail -3"}, "5 passed")
     t.save()
@@ -123,51 +178,184 @@ def test_a_shape_is_counted_and_never_flagged(world, capsys):
 
 def test_the_tool_filter_decides_which_calls_a_signature_reads(world, capsys):
     projects, memory = world
-    bash = _note(memory, "bash-only", "tool: Bash\nresult: 'boom'")
-    shell = _note(memory, "shell", "result: 'boom'")
-    anything = _note(memory, "any-tool", "tool: any\nresult: 'boom'")
-    t = Transcript(projects / "C--x-ScrapeX" / "s1.jsonl")
-    for note in (bash, shell, anything):
-        t.call(T0, "Write", {"file_path": str(note)}, "ok")
+    notes = [_note(memory, "bash-only", "tool: Bash\nresult: 'boom'"),
+             _note(memory, "shell", "result: 'boom'"),
+             _note(memory, "listed", "tool: [PowerShell, Read]\nresult: 'boom'"),
+             _note(memory, "any-tool", "tool: any\nresult: 'boom'")]
+    t = _session(projects)
+    for note in notes:
+        t.create(T0, note)
     t.call(T1, "Bash", {"command": "a"}, "boom").call(T1, "PowerShell", {"command": "b"}, "boom") \
         .call(T1, "Read", {"file_path": "c"}, "boom").save()
 
     assert _run(projects, memory, "--json") == 0
-    after = {r["lesson"]: r["after"] for r in json.loads(capsys.readouterr().out)}
-    assert after == {"bash-only": 1, "shell": 2, "any-tool": 3}
+    after = {name: r["after"] for name, r in _rows(capsys).items()}
+    assert after == {"bash-only": 1, "shell": 2, "listed": 2, "any-tool": 3}
 
 
-def test_a_subagent_transcript_counts_for_the_session_that_ran_it(world, capsys):
+def test_a_tool_name_no_call_ever_used_is_reported_not_counted_as_zero(world, capsys):
+    """`bash` for `Bash` would otherwise say "never broke again" -- the one answer this
+    tool exists to stop giving without evidence."""
+    projects, memory = world
+    note = _note(memory, "lowercase", "tool: bash\nresult: 'boom'")
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, "boom").save()
+
+    assert _run(projects, memory) == 0
+    out = capsys.readouterr().out
+    assert "UNREADABLE SIGNATURE lowercase: tool bash names none of the 2 calls" in out
+    assert "case-sensitive" in out and "0 lessons measured" in out
+
+
+@pytest.mark.parametrize("folder", [
+    ("parent", "subagents", "workflows", "wf_1"),  # a workflow agent
+    ("parent", "subagents"),                         # an Agent-tool subagent
+])
+def test_a_subagent_transcript_counts_for_the_session_that_ran_it(world, capsys, folder):
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
-    folder = projects / "C--x-ScrapeX"
-    Transcript(folder / "parent.jsonl").call(T0, "Write", {"file_path": str(note)}, "ok").save()
-    Transcript(folder / "parent" / "subagents" / "workflows" / "wf_1" / "agent-a.jsonl") \
-        .call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
+    base = projects / "C--x-ScrapeX"
+    Transcript(base / "parent.jsonl").create(T0, note).save()
+    Transcript(base.joinpath(*folder, "agent-a.jsonl")).call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
 
     assert _run(projects, memory, "--json") == 0
-    assert json.loads(capsys.readouterr().out)[0]["sessions_after"] == ["parent"]
+    assert _rows(capsys)["heredoc"]["sessions_after"] == ["parent"]
 
 
 def test_only_this_projects_transcripts_are_read(world, capsys):
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Write", {"file_path": str(note)}, "ok").save()
-    Transcript(projects / "C--x-other-project" / "s2.jsonl").call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
+    _session(projects).create(T0, note).save()
+    _session(projects, "s2", "C--x-other-project").call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
     Transcript(projects / "C--x-ScrapeX" / "s1" / "journal.jsonl").call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
 
     assert _run(projects, memory, "--json") == 0
-    assert json.loads(capsys.readouterr().out)[0]["after"] == 0
+    assert _rows(capsys)["heredoc"]["total"] == 0
 
 
-def test_a_note_never_written_in_a_transcript_falls_back_to_its_creation_time_and_says_so(world, capsys):
+def test_a_later_edit_of_the_note_does_not_move_when_the_lesson_began(world, capsys):
+    """Notes get corrected: the heredoc lesson was rewritten nine days after it was
+    first written. The failures between the two writes are recurrences, not history."""
     projects, memory = world
-    _note(memory, "old-lesson", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T1, note).call(T2, "Bash", {"command": "a"}, PARSE_ERROR) \
+        .call(T3, "Edit", {"file_path": str(note)}, "ok").update(T3, note).save()
+
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["heredoc"]
+    assert row["recorded"].startswith("2026-09-12") and (row["before"], row["after"]) == (0, 1)
+
+
+def test_a_note_created_again_after_a_deletion_keeps_its_first_creation(world, capsys):
+    """A consolidation pass can delete a note and write it afresh; the lesson still
+    began at its first creation."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T1, note).call(T2, "Bash", {"command": "a"}, PARSE_ERROR).create(T3, note).save()
+
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["heredoc"]
+    assert row["recorded"].startswith("2026-09-12") and (row["before"], row["after"]) == (0, 1)
+
+
+@pytest.mark.parametrize(("writes", "reason"), [
+    ("none", "no write of the note survives in any transcript"),
+    ("update only", "the earliest surviving write is an update, so the lesson is older"),
+])
+def test_without_the_creating_write_the_start_is_unknown_and_nothing_is_flagged(world, capsys, writes, reason):
+    """The file's own creation time is no substitute: the Write tool replaces the file,
+    so it equals the LAST write, which is the defect `metadata.modified` has too."""
+    projects, memory = world
+    note = _note(memory, "old-lesson", HEREDOC)
+    t = _session(projects)
+    if writes == "update only":
+        t.update(T0, note)
+    t.call(T1, "Bash", {"command": "a"}, PARSE_ERROR).call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
 
     assert _run(projects, memory) == 0
     out = capsys.readouterr().out
-    assert "recorded time from file creation, not a transcript: old-lesson" in out
+    line = next(x for x in out.splitlines() if x.startswith("old-lesson"))
+    assert line.split()[2:6] == ["unknown", "?", "?", "2"] and "barrier" not in line
+    assert f"START UNKNOWN old-lesson: {reason}" in out
+
+
+def test_a_scratch_copy_of_the_notes_is_dated_by_the_real_lesson(world, tmp_path, capsys):
+    """Found by the calibration in #1104: a signature is tested on a COPY of the note,
+    and dating by the scanned path put every recurrence in "before"."""
+    projects, memory = world
+    real = _note(memory, "heredoc", HEREDOC)
+    scratch = tmp_path / "scratch" / "memory"
+    scratch.mkdir(parents=True)
+    copy = _note(scratch, "heredoc", HEREDOC)
+    _session(projects).call(T0, "Bash", {"command": "a"}, PARSE_ERROR).create(T1, real) \
+        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).create(T3, copy).save()
+
+    assert _run(projects, scratch, "--json") == 0
+    row = _rows(capsys)["heredoc"]
+    assert row["recorded"].startswith("2026-09-12") and (row["before"], row["after"]) == (1, 1)
+
+
+def test_a_copy_created_outside_the_projects_folder_never_dates_the_lesson(world, tmp_path, capsys):
+    projects, memory = world
+    _note(memory, "heredoc", HEREDOC)
+    scratch = tmp_path / "scratch" / "memory"
+    scratch.mkdir(parents=True)
+    copy = _note(scratch, "heredoc", HEREDOC)
+    _session(projects).create(T1, copy).call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory, "--json") == 0
+    assert _rows(capsys)["heredoc"]["recorded"] is None
+
+
+def test_a_file_with_the_notes_name_outside_a_memory_folder_does_not_date_it(world, capsys):
+    projects, memory = world
+    _note(memory, "heredoc", HEREDOC)
+    elsewhere = projects / "C--x-ScrapeX" / "notes" / "heredoc.md"
+    _session(projects).create(T1, elsewhere).call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory, "--json") == 0
+    assert _rows(capsys)["heredoc"]["recorded"] is None
+
+
+def test_another_spelling_of_the_notes_path_still_counts_as_its_creating_write(world, capsys):
+    """Transcripts spell a path however the tool call did: on Windows with either
+    separator and any case, elsewhere with `.` segments."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    spelling = str(note).replace("\\", "/").upper() if sys.platform == "win32" else f"{note.parent}/./{note.name}"
+    _session(projects).call(T0, "Bash", {"command": "x"}, PARSE_ERROR) \
+        .call(T1, "Write", {"file_path": spelling}, f"File created successfully at: {spelling}") \
+        .call(T2, "Bash", {"command": "y"}, PARSE_ERROR).save()
+
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["heredoc"]
+    assert (row["before"], row["after"]) == (1, 1), row
+
+
+def test_a_call_the_transcript_records_twice_counts_once(world, capsys):
+    """One session's transcript repeated its tool records (found by the calibration),
+    which doubled its count."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    t = _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR)
+    t.lines.extend(t.lines[-2:])
+    t.save()
+
+    assert _run(projects, memory, "--json") == 0
+    assert _rows(capsys)["heredoc"]["after"] == 1
+
+
+def test_a_caveat_is_printed_beside_its_count_and_in_the_json(world, capsys):
+    projects, memory = world
+    note = _note(memory, "stale-main", "result: 'behind'\ncaveat: 'a floor: a merge left unpulled prints nothing'")
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "git status"}, "behind by 2").save()
+
+    assert _run(projects, memory) == 0
+    lines = capsys.readouterr().out.splitlines()
+    at = next(i for i, line in enumerate(lines) if line.startswith("stale-main"))
+    assert lines[at + 1] == "    caveat: a floor: a merge left unpulled prints nothing"
+    assert _run(projects, memory, "--json") == 0
+    row = _rows(capsys)["stale-main"]
+    assert (row["kind"], row["caveat"], row["error"]) == ("failure", "a floor: a merge left unpulled prints nothing", None)
 
 
 @pytest.mark.parametrize(("signature", "said"), [
@@ -177,41 +365,55 @@ def test_a_note_never_written_in_a_transcript_falls_back_to_its_creation_time_an
     ("result: 'x'\nwhen: always", "unknown keys"),
     ("kind: sometimes\nresult: 'x'", "kind must be failure or shape"),
     ("result: ''", "result is not a non-empty string"),
+    ("result: 5", "result is not a non-empty string"),
     ("result: 'x'\ncaveat: 3", "caveat is not a string"),
+    ("tool: [Bash, 5]\nresult: 'x'", "tool must be a tool name or a list of them"),
+    ("tool: null\nresult: 'x'", "tool must be a tool name or a list of them"),
+    ("tool: []\nresult: 'x'", "tool must be a tool name or a list of them"),
 ])
 def test_an_unreadable_signature_is_reported_by_name_and_the_rest_still_scan(world, capsys, signature, said):
     projects, memory = world
     _note(memory, "broken", signature)
     good = _note(memory, "good", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Write", {"file_path": str(good)}, "ok") \
-        .call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
+    _session(projects).create(T0, good).call(T1, "Bash", {"command": "x"}, PARSE_ERROR).save()
 
     assert _run(projects, memory) == 0
     out = capsys.readouterr().out
     assert "UNREADABLE SIGNATURE broken: " in out and said in out
     assert any(line.startswith("good") and line.split()[4] == "1" for line in out.splitlines())
+    assert "0 with no failure_signature" in out, "a broken signature is not an unmeasured lesson"
 
 
-def test_a_signature_that_is_not_a_mapping_is_unreadable(world, capsys):
+@pytest.mark.parametrize(("text", "said"), [
+    ("---\nname: flat\nmetadata:\n  failure_signature: 'just a string'\n---\n\nx\n",
+     "failure_signature is not a mapping"),
+    ("---\nname: flat\nmetadata: 'just a string'\n---\n\nx\n", "metadata is not a mapping"),
+    ("\ufeff---\nname: flat\nmetadata:\n  type: feedback\n---\n\nx\n", "no frontmatter"),
+    ("no frontmatter at all\n", "no frontmatter"),
+])
+def test_a_note_whose_frontmatter_cannot_be_read_is_reported_by_name(world, capsys, text, said):
+    """The byte-order mark case is a lesson in its own right on this machine: PowerShell
+    5.1 writes one, and a SKILL.md with it silently stops loading."""
     projects, memory = world
-    (memory / "flat.md").write_text(
-        "---\nname: flat\nmetadata:\n  failure_signature: 'just a string'\n---\n\nx\n", encoding="utf-8")
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Bash", {"command": "x"}, "y").save()
+    (memory / "flat.md").write_text(text, encoding="utf-8")
+    _session(projects).call(T1, "Bash", {"command": "x"}, "y").save()
     assert _run(projects, memory) == 0
-    assert "UNREADABLE SIGNATURE flat: failure_signature is not a mapping" in capsys.readouterr().out
+    assert f"UNREADABLE SIGNATURE flat: {said}" in capsys.readouterr().out
 
 
 def test_notes_without_a_signature_are_named_as_unmeasured_and_the_index_is_skipped(world, capsys):
     projects, memory = world
     _note(memory, "semantic-lesson")
     (memory / "MEMORY.md").write_text("- index\n", encoding="utf-8")
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Bash", {"command": "x"}, "y").save()
+    _session(projects).call(T1, "Bash", {"command": "x"}, "y").save()
 
     assert _run(projects, memory) == 0
-    assert "0 lessons measured, 1 with no failure_signature: semantic-lesson" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "0 lessons measured, 1 with no failure_signature: semantic-lesson" in out
+    assert "MEMORY" not in out
 
 
-@pytest.mark.parametrize("setup", ["no transcripts", "no tool calls"])
+@pytest.mark.parametrize("setup", ["no transcripts", "no tool calls", "no projects folder"])
 def test_an_empty_scan_is_an_error_about_the_scanner_not_a_clean_report(world, capsys, setup):
     """"Nothing recurred" and "I read nothing" must never print the same thing."""
     projects, memory = world
@@ -219,8 +421,9 @@ def test_an_empty_scan_is_an_error_about_the_scanner_not_a_clean_report(world, c
     if setup == "no tool calls":
         path = projects / "C--x-ScrapeX" / "s1.jsonl"
         path.write_text(json.dumps({"type": "user", "message": {"content": "hello"}}) + "\n", encoding="utf-8")
+    target = projects / "missing" if setup == "no projects folder" else projects
 
-    assert _run(projects, memory) == 1
+    assert rs.main(["--projects", str(target), "--memory", str(memory)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "not evidence that nothing recurred" in captured.err
@@ -228,111 +431,21 @@ def test_an_empty_scan_is_an_error_about_the_scanner_not_a_clean_report(world, c
 
 def test_a_missing_memory_folder_is_an_error(world, capsys):
     projects, memory = world
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Bash", {"command": "x"}, "y").save()
+    _session(projects).call(T1, "Bash", {"command": "x"}, "y").save()
     assert _run(projects, memory.parent / "nowhere") == 1
     assert "no memory notes" in capsys.readouterr().err
 
 
-def test_another_spelling_of_the_notes_path_still_counts_as_its_first_write(world, capsys):
-    """Transcripts spell a path however the tool call did: on Windows with either
-    separator and any case, elsewhere with `.` segments."""
+def test_a_relative_projects_path_dates_lessons_like_an_absolute_one(world, capsys, monkeypatch):
+    """A relative --projects never matched a Write's absolute path, which silently sent
+    every lesson to an unknown start."""
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
-    if sys.platform == "win32":
-        spelling = str(note).replace("\\", "/").upper()
-    else:
-        spelling = f"{note.parent}/./{note.name}"
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Bash", {"command": "x"}, PARSE_ERROR) \
-        .call(T1, "Edit", {"file_path": spelling}, "ok").call(T2, "Bash", {"command": "y"}, PARSE_ERROR).save()
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+    monkeypatch.chdir(projects.parent)
 
-    assert _run(projects, memory, "--json") == 0
-    row = json.loads(capsys.readouterr().out)[0]
-    assert (row["before"], row["after"]) == (1, 1), row
-
-
-def test_a_scratch_copy_of_the_notes_is_dated_by_the_real_lesson(world, tmp_path, capsys):
-    """Found by the calibration in #1104: a signature is tested on a COPY of the note,
-    and dating by the scanned path put every recurrence in "before". The lesson began
-    when the real note was first written, whichever copy is being scanned -- and a
-    Write of the copy itself, outside the projects folder, is not that moment."""
-    projects, memory = world
-    real = _note(memory, "heredoc", HEREDOC)
-    scratch = tmp_path / "scratch" / "memory"
-    scratch.mkdir(parents=True)
-    copy = _note(scratch, "heredoc", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Bash", {"command": "a"}, PARSE_ERROR) \
-        .call(T1, "Write", {"file_path": str(real)}, "ok").call(T2, "Bash", {"command": "b"}, PARSE_ERROR) \
-        .call(T3, "Write", {"file_path": str(copy)}, "ok").save()
-
-    assert _run(projects, scratch, "--json") == 0
-    row = json.loads(capsys.readouterr().out)[0]
-    assert row["recorded"].startswith("2026-09-12") and (row["before"], row["after"]) == (1, 1)
-
-
-def test_a_later_edit_of_the_note_does_not_move_when_the_lesson_began(world, capsys):
-    """Notes get corrected: the heredoc lesson was rewritten nine days after it was
-    first written. The failures between the two writes are recurrences, not history."""
-    projects, memory = world
-    note = _note(memory, "heredoc", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Write", {"file_path": str(note)}, "ok") \
-        .call(T2, "Bash", {"command": "a"}, PARSE_ERROR).call(T3, "Edit", {"file_path": str(note)}, "ok").save()
-
-    assert _run(projects, memory, "--json") == 0
-    row = json.loads(capsys.readouterr().out)[0]
-    assert row["recorded"].startswith("2026-09-12") and (row["before"], row["after"]) == (0, 1)
-
-
-def test_a_write_of_a_copy_outside_the_projects_folder_never_dates_the_lesson(world, tmp_path, capsys):
-    """An old lesson whose real first write is no longer in any transcript must fall
-    back to its file's creation, not be dated by the day someone copied it to test a
-    signature."""
-    projects, memory = world
-    _note(memory, "heredoc", HEREDOC)
-    scratch = tmp_path / "scratch" / "memory"
-    scratch.mkdir(parents=True)
-    copy = _note(scratch, "heredoc", HEREDOC)
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Write", {"file_path": str(copy)}, "ok") \
-        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
-
-    assert _run(projects, memory, "--json") == 0
-    assert json.loads(capsys.readouterr().out)[0]["recorded_from"].startswith("file created")
-
-
-def test_a_file_with_the_notes_name_outside_a_memory_folder_does_not_date_it(world, capsys):
-    projects, memory = world
-    _note(memory, "heredoc", HEREDOC)
-    elsewhere = projects / "C--x-ScrapeX" / "notes" / "heredoc.md"
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T1, "Write", {"file_path": str(elsewhere)}, "ok") \
-        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
-
-    assert _run(projects, memory, "--json") == 0
-    assert json.loads(capsys.readouterr().out)[0]["recorded_from"].startswith("file created")
-
-
-def test_a_call_the_transcript_records_twice_counts_once(world, capsys):
-    """One session's transcript repeated its tool records (found by the calibration),
-    which doubled its count."""
-    projects, memory = world
-    note = _note(memory, "heredoc", HEREDOC)
-    t = Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Write", {"file_path": str(note)}, "ok") \
-        .call(T1, "Bash", {"command": "a"}, PARSE_ERROR)
-    t.lines.extend(t.lines[-2:])
-    t.save()
-
-    assert _run(projects, memory, "--json") == 0
-    assert json.loads(capsys.readouterr().out)[0]["after"] == 1
-
-
-def test_a_caveat_is_printed_beside_its_count(world, capsys):
-    projects, memory = world
-    note = _note(memory, "stale-main", "result: 'behind'\ncaveat: 'a floor: a merge left unpulled prints nothing'")
-    Transcript(projects / "C--x-ScrapeX" / "s1.jsonl").call(T0, "Write", {"file_path": str(note)}, "ok") \
-        .call(T1, "Bash", {"command": "git status"}, "behind by 2").save()
-
-    assert _run(projects, memory) == 0
-    lines = capsys.readouterr().out.splitlines()
-    at = next(i for i, line in enumerate(lines) if line.startswith("stale-main"))
-    assert lines[at + 1] == "    caveat: a floor: a merge left unpulled prints nothing"
+    assert rs.main(["--projects", projects.name, "--memory", str(memory), "--json"]) == 0
+    assert _rows(capsys)["heredoc"]["recorded_from"] == "created in a transcript"
 
 
 @pytest.mark.parametrize(("checkout", "folder"), [

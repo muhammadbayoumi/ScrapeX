@@ -13,7 +13,8 @@ WHAT IT READS, and it writes nothing:
   * every memory note's frontmatter, for `metadata.failure_signature`:
 
         failure_signature:
-          tool: Bash            # Bash | PowerShell | shell (both, the default) | any | <tool name>
+          tool: Bash            # a tool name, a list of names, shell (Bash and PowerShell,
+                                # the default) or any; names are case-sensitive
           command: '<regex>'    # optional: searched in the command (or file path) of the call
           result: '<regex>'     # optional: searched in the tool's output
           kind: failure         # failure (default when `result` is set) | shape
@@ -28,12 +29,14 @@ WHAT IT READS, and it writes nothing:
     contains ScrapeX -- main sessions, subagents and workflow agents alike. A tool
     call recorded twice in one transcript counts once.
 
-WHEN A LESSON WAS RECORDED is the first Write or Edit, in any transcript, of a file
-with the note's name inside a `memory` folder under the projects directory. It is
-matched by name, not by the path being scanned, so a scratch copy of the notes is
-dated by the real lesson. The note's own `metadata.modified` moves on every edit, so
-it cannot say when the lesson began. A lesson with no such write falls back to the
-scanned file's creation time, and the report says so.
+WHEN A LESSON WAS RECORDED is the Write, in any transcript, that CREATED a file with
+the note's name inside a `memory` folder under the projects directory (its result
+reads "File created successfully"). It is matched by name, not by the path being
+scanned, so a scratch copy of the notes is dated by the real lesson. Nothing else
+can stand in for it: the note's `metadata.modified` moves on every edit, and so does
+the file's creation time, because the Write tool replaces the file. So a lesson
+whose creating Write no longer survives has an UNKNOWN start: the report gives its
+total matches, never a before/after split, and never flags it.
 
 A SIGNATURE MUST MATCH THE ERROR'S OWN FORM, NOT ITS TEXT ANYWHERE. Sessions that
 read old transcripts print old errors again, and a regex that matches the text
@@ -92,10 +95,11 @@ class Call:
 @dataclass
 class Row:
     note: Note
-    recorded: dt.datetime
+    recorded: dt.datetime | None  # None: no creating Write survives, so the split is unknown
     recorded_from: str
     before: int = 0
     after: int = 0
+    total: int = 0
     sessions_after: set[str] = field(default_factory=set)
     last: dt.datetime | None = None
 
@@ -108,7 +112,12 @@ def parse_signature(raw: object) -> Signature:
     if unknown:
         raise ValueError(f"unknown keys {sorted(unknown)}")
     tool = raw.get("tool", "shell")
-    tools = {"shell": SHELLS, "any": None}.get(tool, (tool,))
+    if isinstance(tool, list) and tool and all(isinstance(t, str) and t for t in tool):
+        tools = tuple(tool)
+    elif isinstance(tool, str) and tool:
+        tools = {"shell": SHELLS, "any": None}.get(tool, (tool,))
+    else:
+        raise ValueError(f"tool must be a tool name or a list of them, not {tool!r}")
     patterns = {}
     for key in ("command", "result"):
         value = raw.get(key)
@@ -143,12 +152,15 @@ def load_notes(memory: Path) -> list[Note]:
         match = FRONTMATTER.match(path.read_text(encoding="utf-8"))
         try:
             if not match:
-                raise ValueError("no frontmatter")
+                raise ValueError("no frontmatter (a byte-order mark before the first --- hides it)")
             front = yaml.safe_load(match.group(1)) or {}
-            raw = (front.get("metadata") or {}).get("failure_signature")
+            metadata = front.get("metadata") if isinstance(front, dict) else None
+            if metadata is not None and not isinstance(metadata, dict):
+                raise ValueError("metadata is not a mapping")
+            raw = (metadata or {}).get("failure_signature")
             if raw is not None:
                 note.signature = parse_signature(raw)
-        except (ValueError, yaml.YAMLError, AttributeError) as exc:
+        except (ValueError, yaml.YAMLError) as exc:
             note.error = str(exc).splitlines()[0]
         notes.append(note)
     return notes
@@ -228,22 +240,27 @@ def _writes_this_note(call: Call, filename: str, projects: str) -> bool:
             and target.startswith(projects + os.sep))
 
 
-def _created(path: Path) -> dt.datetime:
-    stat = path.stat()
-    seconds = getattr(stat, "st_birthtime", stat.st_ctime)
-    return dt.datetime.fromtimestamp(seconds, tz=dt.UTC)
+CREATED = "File created successfully"
 
 
 def scan(notes: list[Note], calls: list[Call], projects: Path) -> list[Row]:
     root = _norm(str(projects))
+    seen_tools = {c.tool for c in calls}
     rows = []
     for note in notes:
-        writes = [c.when for c in calls if _writes_this_note(c, note.path.name, root)]
-        if writes:
-            row = Row(note, min(writes), "first write in a transcript")
-        else:
-            row = Row(note, _created(note.path), "file created (no write in any transcript)")
         sig = note.signature
+        if sig is not None and sig.tools is not None and not set(sig.tools) & seen_tools:
+            note.error = (f"tool {', '.join(sig.tools)} names none of the {len(calls)} calls in the "
+                          "transcripts; tool names are case-sensitive")
+            note.signature = sig = None
+        writes = [c for c in calls if _writes_this_note(c, note.path.name, root)]
+        created = [c.when for c in writes if c.tool == "Write" and c.result.startswith(CREATED)]
+        if created:
+            row = Row(note, min(created), "created in a transcript")
+        elif writes:
+            row = Row(note, None, "the earliest surviving write is an update, so the lesson is older")
+        else:
+            row = Row(note, None, "no write of the note survives in any transcript")
         if sig is not None:
             for call in calls:
                 if sig.tools is not None and call.tool not in sig.tools:
@@ -251,6 +268,9 @@ def scan(notes: list[Note], calls: list[Call], projects: Path) -> list[Row]:
                 if sig.command is not None and not sig.command.search(call.target):
                     continue
                 if sig.result is not None and not sig.result.search(call.result):
+                    continue
+                row.total += 1
+                if row.recorded is None:
                     continue
                 if call.when < row.recorded:
                     row.before += 1
@@ -263,18 +283,23 @@ def scan(notes: list[Note], calls: list[Call], projects: Path) -> list[Row]:
 
 
 def report(rows: list[Row]) -> str:
-    measured = sorted((r for r in rows if r.note.signature), key=lambda r: -r.after)
-    lines = [f"{'lesson':50s} {'kind':7s} {'recorded':10s} {'before':>6s} {'after':>5s} {'sessions':>8s}  last"]
+    measured = sorted((r for r in rows if r.note.signature), key=lambda r: (-r.after, -r.total))
+    lines = [f"{'lesson':50s} {'kind':7s} {'recorded':10s} {'before':>6s} {'after':>5s} "
+             f"{'total':>5s} {'sessions':>8s}  last"]
     for r in measured:
-        flag = "  <- barrier candidate" if r.note.signature.kind == "failure" and r.after >= BARRIER_AT else ""
+        known = r.recorded is not None
+        flag = ("  <- barrier candidate"
+                if known and r.note.signature.kind == "failure" and r.after >= BARRIER_AT else "")
         last = r.last.date().isoformat() if r.last else "-"
-        lines.append(f"{r.note.name[:50]:50s} {r.note.signature.kind:7s} {r.recorded.date().isoformat():10s} "
-                     f"{r.before:6d} {r.after:5d} {len(r.sessions_after):8d}  {last}{flag}")
+        recorded = r.recorded.date().isoformat() if known else "unknown"
+        before, after = (f"{r.before:6d}", f"{r.after:5d}") if known else (f"{'?':>6s}", f"{'?':>5s}")
+        lines.append(f"{r.note.name[:50]:50s} {r.note.signature.kind:7s} {recorded:10s} {before} {after} "
+                     f"{r.total:5d} {len(r.sessions_after):8d}  {last}{flag}")
         if r.note.signature.caveat:
             lines.append(f"    caveat: {r.note.signature.caveat}")
-    fallback = [r.note.name for r in measured if not r.recorded_from.startswith("first write")]
-    if fallback:
-        lines.append(f"recorded time from file creation, not a transcript: {', '.join(fallback)}")
+    for r in measured:
+        if r.recorded is None:
+            lines.append(f"START UNKNOWN {r.note.name}: {r.recorded_from}; counted in total only, never flagged")
     for r in rows:
         if r.note.error:
             lines.append(f"UNREADABLE SIGNATURE {r.note.name}: {r.note.error}")
@@ -290,9 +315,11 @@ def as_json(rows: list[Row]) -> str:
         "kind": r.note.signature.kind if r.note.signature else None,
         "caveat": r.note.signature.caveat if r.note.signature else None,
         "error": r.note.error,
-        "recorded": r.recorded.isoformat(),
+        "recorded": r.recorded.isoformat() if r.recorded else None,
         "recorded_from": r.recorded_from,
-        "before": r.before, "after": r.after,
+        "before": r.before if r.recorded else None,
+        "after": r.after if r.recorded else None,
+        "total": r.total,
         "sessions_after": sorted(r.sessions_after),
         "last": r.last.isoformat() if r.last else None,
     } for r in rows], indent=1)
@@ -320,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--memory", type=Path, help="default: this checkout's auto-memory folder")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    args.projects = args.projects.resolve()  # a relative path would never match a Write's absolute one
     if args.memory is None:
         args.memory = default_memory(args.projects)
         if args.memory is None:
