@@ -29,7 +29,10 @@ own examples, so a model that drifted would fail before it could vouch for a rul
 
 RECORDING STAYS OPEN. He remembers how a problem was solved by the issue that
 recorded it. A rule that refused `gh issue create`, a comment, or the API call that
-posts one would take that away, so those are in a table of their own below.
+posts one would take that away, so those are in a table of their own below. The one
+known exception, a `gh api` call whose inline text quotes a ruleset path or the bare
+repository path, is listed in `KNOWN_OVERBLOCKS` beside the open `gh issue` command
+that records the same text.
 
 The `docs` mark is not decoration. CI counts every path under `.claude/` as
 documentation, so a change to the settings alone runs only `-m docs`. Without the
@@ -323,6 +326,7 @@ WRITES = [
     "gh api -f enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
     "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 -fenforcement=disabled",
     "gh api -F enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 -F enforcement=disabled",
     "gh api --field enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
     "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --field=enforcement=disabled",
     "gh api --raw-field enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
@@ -440,6 +444,21 @@ def test_every_rule_refuses_at_least_one_write_in_the_table(tool):
     assert not unused, f"add a write that each of these refuses: {unused}"
 
 
+def test_every_bash_rule_is_the_only_one_refusing_some_write():
+    """Removing any one rule lets a write through. A rule whose every write another
+    rule also refuses could be dropped with nothing failing. Bash matches case-
+    sensitively, so `-f` and `-F` are two rules there; the parity test holds the
+    PowerShell twins to the same list."""
+    bash = [rule for rule in _deny() if rule.startswith("Bash(")]
+    needed = set()
+    for command in WRITES_BY_TOOL["Bash"]:
+        refusing = _refusing("Bash", command, bash)
+        if len(refusing) == 1:
+            needed.update(refusing)
+    unneeded = [rule for rule in bash if rule not in needed]
+    assert not unneeded, f"add a write that only each of these refuses: {unneeded}"
+
+
 # ---------------------------------------------------------------------------
 # What stays open. Checked against both shells' rules and without regard to case,
 # which is stricter than Claude Code is for Bash.
@@ -487,9 +506,63 @@ RECORDING = [
     "gh pr comment 1130 --body-file review.md",
     "gh api repos/muhammadbayoumi/ScrapeX/issues -f title='Deny rules miss curl' -f body='found in review'",
     "gh api repos/{owner}/{repo}/issues/1104/comments -f body='Hi from CLI'",
-    "gh api -X PATCH repos/muhammadbayoumi/ScrapeX/issues/5 -f state=closed",
     "gh api repos/:owner/:repo/milestones",
     "gh api repos/:owner/:repo/milestones -f title='Deny the repository-setting writes'",
+    # Closing or correcting a record under the repository, in every spelling the
+    # repository-object rules anchor on: each path spelling, -X and --method, the flag
+    # before or after a bare, single-quoted or double-quoted path. A repository-object
+    # rule whose anchor was loosened (`ScrapeX *` to `ScrapeX*`, or `ScrapeX'*` to
+    # `ScrapeX*'*`) refuses one of these.
+    "gh api -X PATCH repos/muhammadbayoumi/ScrapeX/issues/5 -f state=closed",
+    "gh api -X PATCH 'repos/muhammadbayoumi/ScrapeX/milestones/3' -f state=closed",
+    'gh api -X PATCH "repos/muhammadbayoumi/ScrapeX/issues/comments/7" -f body=corrected',
+    "gh api repos/muhammadbayoumi/ScrapeX/milestones/3 -X PATCH -f state=closed",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/issues/5' -X PATCH -f state=closed",
+    'gh api "repos/muhammadbayoumi/ScrapeX/issues/5" -X PATCH -f state=closed',
+    "gh api --method PATCH repos/muhammadbayoumi/ScrapeX/milestones/3 -f state=closed",
+    "gh api --method PATCH 'repos/muhammadbayoumi/ScrapeX/issues/5' -f state=closed",
+    'gh api --method=PATCH "repos/muhammadbayoumi/ScrapeX/milestones/3" -f state=closed',
+    "gh api repos/muhammadbayoumi/ScrapeX/issues/5 --method PATCH -f state=closed",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/milestones/3' --method=PATCH -f state=closed",
+    'gh api "repos/muhammadbayoumi/ScrapeX/issues/comments/7" --method PATCH -f body=corrected',
+    "gh api -X PATCH repos/{owner}/{repo}/issues/5 -f state=closed",
+    "gh api -X PATCH 'repos/{owner}/{repo}/milestones/3' -f state=closed",
+    'gh api -X PATCH "repos/{owner}/{repo}/issues/comments/7" -f body=corrected',
+    "gh api repos/{owner}/{repo}/milestones/3 -X PATCH -f state=closed",
+    "gh api 'repos/{owner}/{repo}/issues/5' -X PATCH -f state=closed",
+    'gh api "repos/{owner}/{repo}/issues/5" -X PATCH -f state=closed',
+    "gh api --method PATCH repos/{owner}/{repo}/milestones/3 -f state=closed",
+    "gh api --method PATCH 'repos/{owner}/{repo}/issues/5' -f state=closed",
+    'gh api --method=PATCH "repos/{owner}/{repo}/milestones/3" -f state=closed',
+    "gh api repos/{owner}/{repo}/issues/5 --method PATCH -f state=closed",
+    "gh api 'repos/{owner}/{repo}/milestones/3' --method PATCH -f state=closed",
+    'gh api "repos/{owner}/{repo}/issues/comments/7" --method PATCH -f body=corrected',
+    "gh api -X PATCH repos/:owner/:repo/milestones/3 -f state=closed",
+    "gh api -X PATCH 'repos/:owner/:repo/issues/5' -f state=closed",
+    'gh api -X PATCH "repos/:owner/:repo/milestones/3" -f state=closed',
+    "gh api repos/:owner/:repo/issues/5 -X PATCH -f state=closed",
+    "gh api 'repos/:owner/:repo/milestones/3' -X PATCH -f state=closed",
+    'gh api "repos/:owner/:repo/issues/comments/7" -X PATCH -f body=corrected',
+    "gh api --method PATCH repos/:owner/:repo/issues/5 -f state=closed",
+    "gh api --method=PATCH 'repos/:owner/:repo/milestones/3' -f state=closed",
+    'gh api --method PATCH "repos/:owner/:repo/issues/5" -f state=closed',
+    "gh api repos/:owner/:repo/milestones/3 --method PATCH -f state=closed",
+    "gh api 'repos/:owner/:repo/issues/5' --method PATCH -f state=closed",
+    'gh api "repos/:owner/:repo/milestones/3" --method=PATCH -f state=closed',
+]
+
+# Known over-blocks. A rule matches text, and the documented syntax cannot tell a
+# path from a sentence that quotes one, so a `gh api` recording call whose inline
+# body quotes a ruleset path or the bare repository path is refused, with the rule's
+# name in the denial. Each sits beside the `gh issue` command that records the same
+# text and is never refused.
+KNOWN_OVERBLOCKS = [
+    ("gh api repos/{owner}/{repo}/issues/1104/comments -f body='gh api -X DELETE repos/muhammadbayoumi/ScrapeX/rulesets/23994761 is refused now'",
+     "gh issue comment 1104 --body 'gh api -X DELETE repos/muhammadbayoumi/ScrapeX/rulesets/23994761 is refused now'"),
+    ("gh api repos/{owner}/{repo}/issues -f title='Deny list' -f body='The ruleset repos/muhammadbayoumi/ScrapeX/rulesets/23994761 is live'",
+     "gh issue create --title 'Deny list' --body 'The ruleset repos/muhammadbayoumi/ScrapeX/rulesets/23994761 is live'"),
+    ("gh api repos/:owner/:repo/issues/5/comments -f body='A session ran gh api -X PATCH repos/muhammadbayoumi/ScrapeX -f visibility=private'",
+     "gh issue comment 5 --body 'A session ran gh api -X PATCH repos/muhammadbayoumi/ScrapeX -f visibility=private'"),
 ]
 
 
@@ -503,3 +576,11 @@ def test_the_reads_that_verify_protection_are_never_refused(tool, command):
 @pytest.mark.parametrize("command", RECORDING)
 def test_recording_a_problem_is_never_refused(tool, command):
     assert not _refusing(tool, command, _deny(), ignore_case=True)
+
+
+@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize(("refused", "equivalent"), KNOWN_OVERBLOCKS)
+def test_a_known_overblock_is_refused_and_the_gh_issue_command_for_it_is_not(
+        tool, refused, equivalent):
+    assert _refusing(tool, refused, _deny()), f"no longer refused; move it to RECORDING: {refused}"
+    assert not _refusing(tool, equivalent, _deny(), ignore_case=True)
