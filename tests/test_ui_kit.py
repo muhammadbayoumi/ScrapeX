@@ -236,3 +236,25 @@ def test_the_ui_kit_holds_rules_and_no_plan():
     assert not markers, (
         f"docs/UI-KIT.md holds plan markers again: {markers}. A plan is a milestone, a gap "
         f"is an issue (CLAUDE.md, the record-it skill), and a rule goes beside its code.")
+
+
+
+def test_the_design_system_teaches_one_colour_choice():
+    """R-85 left one colour choice and #1040 keeps it, and design/ taught four for weeks
+    after (#696): "identical under all four colour choices (Supabase, WhatsApp, GitHub,
+    device)", a Device colours switch, and a palette example named `brand`, which is only
+    an alias now. Prose is checked by nothing else, so the phrases that carried the old
+    model are refused where the design system is written."""
+    stale = re.compile(r"four colou?r|all four", re.IGNORECASE)
+    found = [f"{path.relative_to(ROOT).as_posix()}:{number}"
+             for path in sorted((ROOT / "design").rglob("*"))
+             if path.suffix in {".css", ".js", ".html", ".svg", ".txt"}
+             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+             if stale.search(line)]
+    assert not found, f"design/ still teaches more than one colour choice: {found}"
+
+    gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
+    assert not re.search(r"device colou?rs", gallery, re.IGNORECASE), (
+        "the catalogue still shows or names Device colours, which R-85 removed")
+    assert '["brand"' not in gallery, (
+        "the catalogue's palette example names `brand`, which is only an alias now")

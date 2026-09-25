@@ -41,14 +41,13 @@
       themes: {light: {}, dark: {}},
     }],
   ]);
-  // R-59 DECISION 3, BUILT. `whatsapp` and `github` are legacy compatibility
-  // aliases for `brand` and `blue`. The ruling said so on 2026-08-09 and only
-  // the aliases were ever enforced -- `scrapex/webui/app.py` refused any palette
-  // outside those two names while the registry they alias did not exist, which
-  // is what OP-82 recorded.
+  // R-59 DECISION 3 made `whatsapp` and `github` compatibility aliases for `brand`
+  // and `blue` (2026-08-09; OP-82 recorded that only the aliases were ever
+  // enforced). R-85 deleted what they named, so every retired id now reads as
+  // `supabase`, the one colour choice #1040 keeps.
   //
-  // THEY ARE NOT DECORATION: every appearance stored before today carries one of
-  // these two ids, in localStorage and in the engine's `ui_appearance` setting.
+  // THEY ARE NOT DECORATION: every appearance stored before R-85 carries one of
+  // these ids, in localStorage and in the engine's `ui_appearance` setting.
   // Resolving them in normalize() is what stops an existing user's choice from
   // silently reverting to the default.
   // The four ids a stored record can carry, all resolving to the one that remains.
@@ -121,11 +120,11 @@
   // palette may change the design system" is the conflict itself.
   //
   // The design system did not go anywhere -- it moved to where it belongs.
-  // design/tokens.css IS the Supabase design system now, so all four colour
-  // choices sit on it, including device, which applies no palette at all. That
-  // is what R-73's axis could not do: measured on the built engine, it gave the
-  // system to `supabase` and left `brand`, `blue` and device on the old 9px
-  // radius, 14px body and Segoe UI. Three of four.
+  // design/tokens.css IS the Supabase design system now, so the one colour choice
+  // sits on it, as every choice R-85 later deleted did. That is what R-73's axis
+  // could not do: measured on the built engine, it gave the system to `supabase`
+  // and left `brand`, `blue` and device colours on the old 9px radius, 14px body
+  // and Segoe UI.
   //
   // tests/test_a_palette_may_change_nothing_but_colour.py enforces this, and it
   // is worth saying why a TEST rather than a comment: the failure it catches is
