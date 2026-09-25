@@ -1,7 +1,8 @@
 """The four jobs main's ruleset requires cannot be switched off or hollowed out.
 
 Ruleset 23994761 requires four check contexts on main -- `scope`, `lint`, `test`
-and `contract-parity` -- and pins nothing but their NAMES. What each one runs is
+and `contract-parity` -- and pins only their NAMES and the app that must report
+them (GitHub Actions, integration 15368). What each one runs is
 decided by the pull request's own `ci.yml`, because a `pull_request` run executes
 the workflow from the PR's merge commit, and a job skipped by a job-level `if:`
 reports Success, which satisfies a required check (GitHub docs, "Using conditions
@@ -90,26 +91,35 @@ PINNED_RUNS = {
     ),
 }
 
-#: `test`'s step-level conditions, each beside the pytest line of the step that
+#: `test`'s step-level conditions, each beside the command of the step that
 #: carries it, so that moving a condition to another step fails as surely as
-#: deleting it. The LINE is compared rather than the whole step: the whole-suite
-#: step also prints the runner's size, and the template step carries its own floor,
-#: which tests/test_the_real_migration_stream_is_replayed_in_ci.py pins.
+#: deleting it. The three tiers are compared WHOLE, as the gates above are, the
+#: runner-size echo included: matched by a line, a bare `exit` above the suite,
+#: an `if false; then` around it or a heredoc swallowing it left the line in place
+#: and the suite unrun. The template step is matched by its FIRST line, so nothing
+#: can run ahead of the suite; what follows is its floor, which
+#: tests/test_the_real_migration_stream_is_replayed_in_ci.py pins.
 SCOPED_TEST_STEPS = (
-    ("needs.scope.outputs.scope == 'docs'", "python -m pytest -m docs"),
-    ("needs.scope.outputs.scope == 'extension'", 'python -m pytest -m "extension or docs"'),
-    ("needs.scope.outputs.scope == 'full'", "python -m pytest -n 2 --dist loadfile"),
-    ("needs.scope.outputs.scope == 'full'",
+    ("needs.scope.outputs.scope == 'docs'", "whole", "python -m pytest -m docs"),
+    ("needs.scope.outputs.scope == 'extension'", "whole",
+     'python -m pytest -m "extension or docs"'),
+    ("needs.scope.outputs.scope == 'full'", "whole",
+     "echo \"runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM\"\n"
+     "python -m pytest -n 2 --dist loadfile"),
+    ("needs.scope.outputs.scope == 'full'", "first line",
      "python -m pytest tests/test_fast_migrations.py --junitxml=/tmp/fast.xml"),
 )
 
 #: The one-token ways to make a failing command exit 0. A step compared whole
-#: cannot carry one; this reaches the steps compared by a line and the steps not
-#: pinned at all. `scope` is left out because its script uses `|| true` on
-#: purpose: a failed `git fetch` there must fall through to the full suite.
+#: cannot carry one; this reaches the template step's floor and the steps not
+#: pinned at all. An `exit` that names no nonzero status is one: bare, it returns
+#: the last command's status, `exit $?` the same, and `exit 256` wraps to 0, so
+#: only a literal 1-99 passes. `scope` is left out because its script uses
+#: `|| true` on purpose: a failed `git fetch` there must fall through to the full
+#: suite.
 NEUTRALISED = re.compile(
     r"--exit-zero|\|\|\s*(?:true\b|:(?![\w-]))|;\s*true\b"
-    r"|\bset\s+\+[a-z]*e|\bset\s+\+o\s+errexit\b|\bexit\s+0\b")
+    r"|\bset\s+\+[a-z]*e|\bset\s+\+o\s+errexit\b|\bexit\b(?!\s+[1-9]\d?\b)")
 NEUTRALISER_FREE_JOBS = ("lint", "test", "contract-parity")
 
 #: One line of environment hollows every pytest run in the workflow at once, BOTH
@@ -243,22 +253,32 @@ def test_each_gate_runs_exactly_its_command_and_unconditionally(jobs, name, comm
 def test_the_conditions_in_test_are_exactly_the_scope_tiers(jobs):
     """`if: false` on any step, or a tier's condition on a floor, fails here."""
     found = Counter(_condition(step) for step in steps_of(jobs["test"]) if "if" in step)
-    expected = Counter(condition for condition, _ in SCOPED_TEST_STEPS)
+    expected = Counter(condition for condition, _, _ in SCOPED_TEST_STEPS)
     assert found == expected, (
         f"the step-level conditions in `test` are {dict(found)}, and they were "
         f"{dict(expected)}. A new condition is a step that can skip while the "
         "required check stays green.")
 
 
-@pytest.mark.parametrize("condition,command", SCOPED_TEST_STEPS)
-def test_each_scope_tier_still_runs_its_suite(jobs, condition, command):
-    found = [step for step in steps_of(jobs["test"])
-             if "if" in step and _condition(step) == condition
-             and command in lines(step.get("run")).splitlines()]
+@pytest.mark.parametrize("condition,compared,command", SCOPED_TEST_STEPS)
+def test_each_scope_tier_still_runs_its_suite(jobs, condition, compared, command):
+    assert compared in ("whole", "first line"), (
+        f"SCOPED_TEST_STEPS names no comparison {compared!r}")
+    found = []
+    for step in steps_of(jobs["test"]):
+        run = lines(step.get("run"))
+        runs_it = run == command if compared == "whole" else run.split("\n", 1)[0] == command
+        if "if" in step and _condition(step) == condition and runs_it:
+            found.append(step)
     assert len(found) == 1, (
-        f"expected exactly one step in `test` under `if: {condition}` running "
-        f"`{command}`, found {len(found)}. Replaced by `true`, or moved off its "
-        "condition, the tier stops running that suite while `test` stays green.")
+        f"expected exactly one step in `test` under `if: {condition}` whose run, "
+        f"compared {compared}, is:\n    " + command.replace("\n", "\n    ")
+        + f"\nfound {len(found)}. Its runs are now:\n    "
+        + "\n    ".join(r.replace("\n", " \\n ") for r in runs_of(jobs["test"]))
+        + "\nReplaced by `true`, moved off its condition, or with an `exit` or an "
+          "`if false; then` ahead of it, the tier stops running that suite while "
+          "`test` stays green. If the command itself is meant to change, change "
+          "it here in the same pull request.")
 
 
 @pytest.mark.parametrize("name", NEUTRALISER_FREE_JOBS)
@@ -266,7 +286,8 @@ def test_no_step_turns_a_failure_into_exit_zero(jobs, name):
     neutralised = [run for run in runs_of(jobs[name]) if NEUTRALISED.search(run)]
     assert not neutralised, (
         f"these runs in `{name}` carry `--exit-zero`, `|| true`, `; true`, "
-        "`set +e` or `exit 0`, so a failure inside them reports green:\n    "
+        "`set +e`, or an `exit` naming no status from 1 to 99, so a failure "
+        "inside them, or everything after the `exit`, reports green:\n    "
         + "\n    ".join(neutralised))
 
 
