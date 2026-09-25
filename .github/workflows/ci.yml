@@ -114,6 +114,19 @@ jobs:
           # The scope step below diffs against the base branch, which needs
           # more than the single commit a shallow checkout fetches.
           fetch-depth: 0
+      - name: Main's ruleset is still the one on record
+        # PROTECTION HAS VANISHED SILENTLY ONCE, and `mergeStateStatus` read CLEAN
+        # while it was gone (#864, #842). This reads main's effective rules and the
+        # repository's visibility back -- on GitHub Free a ruleset binds only while
+        # the repository is public -- and turns this required job red on any
+        # difference from .github/ruleset-main.json, or on a read that fails twice.
+        # It CANNOT see bypass actors: the workflow token is not shown them. A
+        # deliberate ruleset change updates that file in the same PR (#1133).
+        # The runner's own python3 and the stdlib only, so no setup step and no
+        # install: this job stays seconds long.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/check_the_ruleset.py
       - name: What did this change touch?
         id: scope
         # THIS DECIDES WHICH SUITE RUNS, AND IT IS A JOB OUTPUT RATHER THAN A
