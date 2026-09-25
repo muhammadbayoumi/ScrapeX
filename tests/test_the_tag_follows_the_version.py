@@ -42,7 +42,17 @@ def steps(workflow) -> list[dict]:
 def test_it_waits_for_ci_and_never_fires_on_a_bare_push(workflow):
     """IT TAGS WHAT PASSED. A `push` trigger would tag the commit that had just landed,
     before anything ran against it — and a release then repeats that lie to whoever
-    installs it."""
+    installs it.
+
+    The job's `if` is pinned whole, not by substring: `in` still passes with `|| true`
+    appended or with one `&&` turned into `||`, and either reopens what a clause shut.
+    - `workflow_dispatch`: a manual run carries no conclusion, so it is admitted by name.
+    - `conclusion == 'success'`: a red `main` publishes nothing.
+    - `event == 'push'`: `branches: [main]` matches the run's head branch, and CI also
+      runs on `pull_request`, whose head branch can be named `main` too.
+    - `head_repository.full_name == github.repository`: a fork's `main` must never reach
+      a job that holds `contents: write` and dispatches a release that uses a secret —
+      said outright, not left to whichever events CI happens to run on today."""
     triggers = workflow[True]
 
     assert "push" not in triggers, (
@@ -56,6 +66,12 @@ def test_it_waits_for_ci_and_never_fires_on_a_bare_push(workflow):
     assert "workflow_run.conclusion == 'success'" in guard, guard
     assert "workflow_dispatch" in guard, (
         "a manual dispatch carries no conclusion, so it must be admitted explicitly")
+    assert " ".join(guard.split()) == (
+        "github.event_name == 'workflow_dispatch' || "
+        "(github.event.workflow_run.conclusion == 'success' && "
+        "github.event.workflow_run.event == 'push' && "
+        "github.event.workflow_run.head_repository.full_name == github.repository)"
+    ), guard
 
 
 def test_it_checks_out_the_commit_ci_ran_on(steps):
