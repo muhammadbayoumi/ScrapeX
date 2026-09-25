@@ -681,7 +681,7 @@ def test_a_failed_start_is_refused_by_the_interactive_wait_too(browser, tmp_path
 
 
 def test_the_interactive_wait_ends_on_the_mark_it_names(browser, tmp_path):
-    """The literal at `panel_harness.py:968` is the whole subject of that helper's
+    """The literal at `panel_harness.py:1042` is the whole subject of that helper's
     docstring, and until this it was bound by nothing.
 
     Its only other test drives a page carrying `startup-failed` alone, which ends

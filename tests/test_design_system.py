@@ -107,6 +107,20 @@ def test_the_generated_catalogue_is_the_same_on_every_platform() -> None:
 
 
 def test_ui_templates_do_not_embed_svg_paths() -> None:
+    """An icon comes from the one canonical sprite, never from a shape drawn into
+    a template. The block tools/sync_design_assets.py generates into
+    extension/app.html IS that sprite (issue 1110), so it is the one exception —
+    cut out by its own markers, never by a pattern that could also excuse a
+    hand-drawn path elsewhere in the same file."""
+    from tools.sync_design_assets import SPRITE_CLOSE, SPRITE_OPEN
+
+    def outside_the_generated_sprite(text: str) -> str:
+        start = text.find(SPRITE_OPEN)
+        if start == -1:
+            return text
+        end = text.index(SPRITE_CLOSE, start) + len(SPRITE_CLOSE)
+        return text[:start] + text[end:]
+
     files = [
         *ROOT.joinpath("extension").glob("*.html"),
         *ROOT.joinpath("scrapex", "webui", "templates").glob("*.html"),
@@ -114,7 +128,8 @@ def test_ui_templates_do_not_embed_svg_paths() -> None:
     offenders = [
         path.relative_to(ROOT)
         for path in files
-        if re.search(r"<(?:path|circle|rect|ellipse)\b", path.read_text(encoding="utf-8"))
+        if re.search(r"<(?:path|circle|rect|ellipse)\b",
+                     outside_the_generated_sprite(path.read_text(encoding="utf-8")))
     ]
     assert offenders == []
 
@@ -314,5 +329,32 @@ def test_a_missing_catalogue_fails_the_check(tmp_path, monkeypatch) -> None:
     import tools.sync_design_assets as sync_tool
 
     monkeypatch.setattr(sync_tool, "GALLERY", tmp_path / "gallery.html")
+    with pytest.raises(FileNotFoundError):
+        sync_tool.sync(check=True)
+
+
+@pytest.mark.parametrize("marker", ["SPRITE_OPEN", "SPRITE_CLOSE"])
+def test_a_lost_panel_marker_fails_the_check(tmp_path, monkeypatch, marker) -> None:
+    """The Side Panel carries a generated sprite too (issue 1110), and its every icon
+    points into it, so a renamed marker must fail the check -- naming the page as well
+    as the marker, since two pages now share the markers -- rather than leave the
+    panel's icons unchecked."""
+    import tools.sync_design_assets as sync_tool
+
+    text = sync_tool.PANEL.read_text(encoding="utf-8")
+    lost = getattr(sync_tool, marker)
+    assert text.count(lost) == 1, f"extension/app.html does not carry {marker} once"
+    panel = tmp_path / "app.html"
+    panel.write_text(text.replace(lost, lost.replace(":", "-")), encoding="utf-8")
+    monkeypatch.setattr(sync_tool, "PANEL", panel)
+    with pytest.raises(ValueError,
+                       match=re.escape(f"app.html has lost the marker {lost.strip()!r}")):
+        sync_tool.sync(check=True)
+
+
+def test_a_missing_panel_fails_the_check(tmp_path, monkeypatch) -> None:
+    import tools.sync_design_assets as sync_tool
+
+    monkeypatch.setattr(sync_tool, "PANEL", tmp_path / "app.html")
     with pytest.raises(FileNotFoundError):
         sync_tool.sync(check=True)

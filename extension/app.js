@@ -57,10 +57,10 @@ const el = (tag, className = "", text = "") => {
 };
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const ICON_SPRITE = "icons/material-icons.svg";
+const iconHref = (name) => `#icon-${name}`; // app.html's inline symbols (issue 1110)
 const icon = (name, className = "") =>
   `<svg class="sx-icon ${className}" aria-hidden="true">` +
-  `<use href="${ICON_SPRITE}#${name}"></use></svg>`;
+  `<use href="${iconHref(name)}"></use></svg>`;
 
 // These two count the PANEL's own in-flight work — an engine check it is
 // waiting on, an account lookup it is waiting on — so they stayed here when the
@@ -523,7 +523,7 @@ function renderRuntimeCheckAction(engine) {
   button.title = label;
   $("runtime-check-label").textContent = label;
   $("runtime-check-icon").setAttribute(
-    "href", `${ICON_SPRITE}#${diagnostics ? "tune" : "sync"}`);
+    "href", iconHref(diagnostics ? "tune" : "sync"));
 }
 
 function issueCopy(error) {
@@ -2230,7 +2230,7 @@ function setupRunModeSelect() {
       item.disabled = option.disabled;
       item.innerHTML = `<span>${esc(option.textContent)}</span>
         <svg class="sx-icon sm" aria-hidden="true">
-          <use href="icons/material-icons.svg#check"></use>
+          <use href="${iconHref("check")}"></use>
         </svg>`;
       item.addEventListener("click", () => choose(option.value));
       return item;
@@ -3821,7 +3821,7 @@ function updateEngineStatus() {
   if (summary.tone === "neutral") banner.removeAttribute("data-tone");
   else banner.setAttribute("data-tone", summary.tone);
   $("engine-state-icon").setAttribute(
-    "href", `${ICON_SPRITE}#${ENGINE_TONE_ICON[summary.tone] || "dns"}`);
+    "href", iconHref(ENGINE_TONE_ICON[summary.tone] || "dns"));
   $("engine-state-text").textContent = summary.text;
   $("engine-state-detail").textContent = summary.detail;
 }
@@ -4662,7 +4662,7 @@ function renderEngineDetail(id) {
   } else {
     banner.removeAttribute("data-tone");
     banner.setAttribute("aria-busy", "false");
-    $("engine-state-icon").setAttribute("href", `${ICON_SPRITE}#dns`);
+    $("engine-state-icon").setAttribute("href", iconHref("dns"));
     $("engine-state-text").textContent = "Not installed";
     $("engine-state-detail").textContent =
       "A candidate in the plan. Nothing installs it yet.";

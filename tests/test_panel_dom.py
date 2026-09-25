@@ -965,8 +965,8 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
         assert "ScrapeX" in said and "Supabase" not in said, said
     scheme_icons = view.locator(".appearance-scheme-picker svg use")
     assert scheme_icons.count() == 2
-    assert scheme_icons.nth(0).get_attribute("href").endswith("#light-mode")
-    assert scheme_icons.nth(1).get_attribute("href").endswith("#dark-mode")
+    assert scheme_icons.nth(0).get_attribute("href") == "#icon-light-mode"
+    assert scheme_icons.nth(1).get_attribute("href") == "#icon-dark-mode"
     assert view.locator(
         '[data-appearance-scheme-mode="device"] svg'
     ).count() == 0
@@ -2356,7 +2356,7 @@ def test_dataset_hover_does_not_move_the_card_out_of_its_scrollport(open_panel):
 
 def test_finance_tab_sits_immediately_above_workspace(open_panel):
     page = open_panel()
-    assert page.locator("#tab-sources use").get_attribute("href") == "#add"
+    assert page.locator("#tab-sources use").get_attribute("href") == "#icon-add"
     data_y, finance_y, workspace_y, sources_y = page.evaluate("""() => [
         document.querySelector('[data-view="data"]').offsetTop,
         document.querySelector('[data-view="finance"]').offsetTop,
@@ -2410,7 +2410,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert finance_source_link.get_attribute("href") == "https://www.google.com/finance/"
     assert finance_source_link.get_attribute("target") == "_blank"
     assert finance_source_link.locator("use").get_attribute("href") == \
-        "#open-in-new"
+        "#icon-open-in-new"
     assert page.locator("#view-finance .finance-card").count() == 3
     assert page.locator("details.finance-preferences-card[open]").count() == 0
     assert page.locator("#view-finance .finance-card").evaluate_all("""elements =>
@@ -2861,8 +2861,8 @@ def test_settings_cards_use_the_canonical_icon_sprite_instead_of_numbers(open_pa
     icons = page.locator("#view-settings .settings-icon use")
     assert icons.count() == 7
     assert icons.evaluate_all("elements => elements.map(element => element.getAttribute('href'))") == [
-        "#dns", "#storage", "#schedule", "#file-download",
-        "#restart-alt", "#language", "#info",
+        "#icon-dns", "#icon-storage", "#icon-schedule", "#icon-file-download",
+        "#icon-restart-alt", "#icon-language", "#icon-info",
     ]
     assert page.locator("#view-settings .settings-index").count() == 0
 
@@ -3633,7 +3633,7 @@ def test_engine_actions_are_consistent_and_the_next_card_is_separate(open_panel)
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "diagnostics"
     assert smart.text_content().strip() == "Run diagnostics"
-    assert smart.locator("use").get_attribute("href").endswith("#tune")
+    assert smart.locator("use").get_attribute("href") == "#icon-tune"
     smart.click()
     assert "Engine reachable" in page.text_content("#diag-out")
     assert not page.evaluate(
@@ -3648,7 +3648,7 @@ def test_the_engine_check_action_becomes_recheck_while_the_engine_is_down(open_p
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "recheck"
     assert smart.text_content().strip() == "Recheck status"
-    assert smart.locator("use").get_attribute("href").endswith("#sync")
+    assert smart.locator("use").get_attribute("href") == "#icon-sync"
 
 
 # ---- adding a site: which SYSTEM it goes to ----------------------------------
@@ -3662,14 +3662,14 @@ def _open_add_form(page):
     page.click(SOURCE_TAB)
     page.click('label[for="source-addsite"]')
     page.fill("#url", "https://shop.example.com")
-    # Fired through getElementById rather than clicked. The harness inlines the
-    # icon sprite ahead of the body, so `document.getElementById("check")`
-    # returns the sprite's <symbol id="check"> - and the panel binds its Test
-    # site handler to exactly that element. A real click on the button would
-    # therefore reach no listener at all. This is an artifact of the harness,
-    # not of the panel: in the extension the sprite is an external file.
-    page.evaluate("""() => document.getElementById("check")
-        .dispatchEvent(new MouseEvent("click", {bubbles: true}))""")
+    # A REAL CLICK, which this could not be while the harness injected the
+    # unprefixed icon sprite ahead of the body: `getElementById("check")` then
+    # returned the sprite's `check` symbol, the Test site handler was bound to
+    # it, and the button reached no listener. The panel's own inline sprite
+    # prefixes its ids (`icon-check`, issue 1110), and
+    # test_no_id_names_two_elements_in_the_panel in tests/test_panel_wiring.py
+    # fails if that ever stops.
+    page.click("#check")
     page.wait_for_selector("#add-form:not(.hidden)")
 
 
@@ -4825,8 +4825,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     again are labelled actions that wrap on narrow panels."""
     page = open_panel()
 
-    assert page.locator("#tab-engines use").get_attribute("href").endswith(
-        "#folder-code")
+    assert page.locator("#tab-engines use").get_attribute("href") == "#icon-folder-code"
 
     page.click("#tab-engines")
 
@@ -4846,7 +4845,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     # own storage or start a program, so the button hands over the file and the
     # owner decides.
     assert "Download engine" in (download.text_content() or "")
-    assert download.locator("use").get_attribute("href").endswith("#file-download")
+    assert download.locator("use").get_attribute("href") == "#icon-file-download"
     # The control must be wide enough to be a labelled action, not a square icon.
     box = download.bounding_box()
     assert box and box["width"] > box["height"], (
@@ -4854,7 +4853,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
 
     recheck = card.locator("#engine-recheck")
     assert "Check again" in (recheck.text_content() or "")
-    assert recheck.locator("use").get_attribute("href").endswith("#sync")
+    assert recheck.locator("use").get_attribute("href") == "#icon-sync"
 
 
 def test_no_two_rail_buttons_wear_the_same_icon(open_panel):
@@ -4892,8 +4891,7 @@ def test_the_profile_button_wears_the_account_and_not_a_shield(open_panel):
     """
     page = open_panel()
 
-    assert page.locator("#tab-profile use").get_attribute("href").endswith(
-        "#account-circle")
+    assert page.locator("#tab-profile use").get_attribute("href") == "#icon-account-circle"
     assert page.is_visible("#profile-avatar-fallback")
     assert not page.is_visible("#profile-avatar"), (
         "an empty photo slot is drawn where the account mark should be")

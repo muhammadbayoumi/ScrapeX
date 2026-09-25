@@ -49,7 +49,7 @@ function extract(name, pattern) {
 // wrong one is a test of the wrong page.
 const PIECES = [
   ["esc", /^const esc = \(v\) => String[\s\S]*?\}\[c\]\)\);$/m],
-  ["ICON_SPRITE", /^const ICON_SPRITE = ".*";$/m],
+  ["iconHref", /^const iconHref = \(name\) => `[^`]*`;/m],
   ["icon", /^const icon = \(name, className = ""\) =>[\s\S]*?<\/svg>`;$/m],
   ["TEMPORARY_FOLDERS", /^const TEMPORARY_FOLDERS = new Set\(\[[^\]]*\]\);$/m],
   ["TEMPORARY_PREFIXES", /^const TEMPORARY_PREFIXES = \[[^\]]*\];$/m],
@@ -336,7 +336,7 @@ test("a refused warehouse paints the red tile, in the markup the panel writes", 
   const painted = tile(panel.grid.html, "Databases");
   assert.ok(painted.includes('data-tone="warning"'), painted);
   assert.ok(painted.includes("<small>Temporary database</small>"), painted);
-  assert.ok(painted.includes("icons/material-icons.svg#storage"), painted);
+  assert.ok(painted.includes('href="#icon-storage"'), painted);
 
   // And the ordinary case is the green one, so the assertion above is about the
   // path and not about the renderer always saying warning.
