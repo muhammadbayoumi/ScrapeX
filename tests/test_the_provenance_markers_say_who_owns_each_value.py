@@ -223,6 +223,54 @@ def test_the_fixture_records_the_commit_the_notice_pins():
     )
 
 
+class _Read(Exception):
+    """Raised in place of the network read, carrying the ref the reader asked for."""
+
+
+@pytest.mark.parametrize("argv,refusal", [
+    (["--ref", "master"], "is not a full 40-character commit SHA"),
+    (["--check", "--ref", "master"], "is not a full 40-character commit SHA"),
+    (["--ref", "86c813ec"], "is not a full 40-character commit SHA"),
+    (["--ref", "86C813EC03E340FFBE4AEB97CD0C5BEE7A0EAD94"], "is not a full 40-character commit SHA"),
+    (["--check", "--ref", "0" * 40], "--check reads at the commit design/supabase.NOTICE.txt pins"),
+], ids=["branch", "check-at-branch", "short-sha", "upper-case", "check-elsewhere"])
+def test_the_reader_refuses_any_ref_but_a_commit_and_checks_only_at_the_pin(
+        monkeypatch, argv, refusal):
+    """`--check` at master once read as a check of the pin, and a branch moves (#1018).
+    Each refusal comes before any read, so none of these touches the network."""
+    import tools.read_supabase_tokens as reader
+
+    def read(ref):
+        raise _Read(ref)
+
+    monkeypatch.setattr(reader, "read", read)
+    monkeypatch.setattr(sys, "argv", ["read_supabase_tokens.py", *argv])
+    with pytest.raises(SystemExit) as refused:
+        reader.main()
+    assert refusal in str(refused.value)
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["--check"], "PIN"),
+    (["--check", "--ref", "PIN"], "PIN"),
+    ([], "PIN"),
+    (["--ref", "0" * 40], "0" * 40),
+], ids=["check", "check-at-the-pin", "regenerate", "re-pin"])
+def test_the_reader_reads_at_the_pin_unless_a_re_pin_names_a_commit(monkeypatch, argv, expected):
+    import tools.read_supabase_tokens as reader
+
+    def read(ref):
+        raise _Read(ref)
+
+    pin = reader.pinned_commit()
+    monkeypatch.setattr(reader, "read", read)
+    monkeypatch.setattr(sys, "argv", ["read_supabase_tokens.py",
+                                      *(pin if arg == "PIN" else arg for arg in argv)])
+    with pytest.raises(_Read) as asked:
+        reader.main()
+    assert asked.value.args == (pin if expected == "PIN" else expected,)
+
+
 def test_the_fixture_is_the_whole_reading_and_not_a_sample():
     """Nothing else fails if the fixture shrinks, so this does.
 
