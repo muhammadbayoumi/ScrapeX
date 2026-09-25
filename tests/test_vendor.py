@@ -423,10 +423,12 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
     # INLINE sprite writes `#add` after a quote and it reads as a colour. A
     # colour is never written in an href, so the reference goes before the scan.
     fragment = re.compile(r'href="#')
+    # `.svg` too (#408). A fill baked into design/material-icons.svg and synced to
+    # every copy passed every guard, and an icon carrying one ignores the palette.
     offenders = []
     for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui"):
         for path in folder.rglob("*"):
-            if path.suffix not in {".css", ".js", ".html"} or path in allowed:
+            if path.suffix not in {".css", ".js", ".html", ".svg"} or path in allowed:
                 continue
             if "vendor" in path.parts:
                 continue

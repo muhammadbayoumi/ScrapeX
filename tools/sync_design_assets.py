@@ -114,9 +114,14 @@ MARK_CLOSE = "    /* MARK:END */"
 
 
 def _replace_between(text: str, opener: str, closer: str, block: str) -> str:
-    start = text.index(opener)
-    end = text.index(closer, start) + len(closer)
-    return text[:start] + block + text[end:]
+    start = text.find(opener)
+    end = text.find(closer, start) if start >= 0 else -1
+    if end < 0:
+        lost = (opener if start < 0 else closer).strip()
+        raise ValueError(
+            f"{GALLERY.name} has lost the marker {lost!r}, so its generated block "
+            "cannot be checked; restore the marker")
+    return text[:start] + block + text[end + len(closer):]
 
 
 def _gallery_generated() -> str:
@@ -157,12 +162,14 @@ def sync(*, check: bool) -> list[Path]:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
 
-    if GALLERY.exists() and SPRITE_OPEN in GALLERY.read_text(encoding="utf-8"):
-        embedded = _gallery_generated()
-        if embedded != GALLERY.read_text(encoding="utf-8"):
-            stale.append(GALLERY)
-            if not check:
-                GALLERY.write_text(embedded, encoding="utf-8")
+    # Unconditional. This ran only while the sprite marker was present, so renaming
+    # that one comment switched the check off and --check called the catalogue
+    # current forever (#408). A lost marker or a missing catalogue now raises.
+    embedded = _gallery_generated()
+    if embedded != GALLERY.read_text(encoding="utf-8"):
+        stale.append(GALLERY)
+        if not check:
+            GALLERY.write_text(embedded, encoding="utf-8")
     return stale
 
 
