@@ -209,3 +209,28 @@ def test_obsolete_custom_source_icons_are_not_shipped() -> None:
         for path in directory.glob("*.png")
         if path.name in obsolete
     }
+
+
+@pytest.mark.parametrize("marker", ["SPRITE_OPEN", "SPRITE_CLOSE", "MARK_OPEN", "MARK_CLOSE"])
+def test_a_lost_catalogue_marker_fails_the_check(tmp_path, monkeypatch, marker) -> None:
+    """The catalogue check once ran only while the sprite marker was present, so renaming
+    that comment switched it off and `--check` called the catalogue current forever (#408).
+    Every marker is renamed in turn, on a copy, and the check must name the lost one."""
+    import tools.sync_design_assets as sync_tool
+
+    text = sync_tool.GALLERY.read_text(encoding="utf-8")
+    lost = getattr(sync_tool, marker)
+    assert text.count(lost) == 1, f"design/gallery.html does not carry {marker} once"
+    catalogue = tmp_path / "gallery.html"
+    catalogue.write_text(text.replace(lost, lost.replace(":", "-")), encoding="utf-8")
+    monkeypatch.setattr(sync_tool, "GALLERY", catalogue)
+    with pytest.raises(ValueError, match=re.escape(repr(lost.strip()))):
+        sync_tool.sync(check=True)
+
+
+def test_a_missing_catalogue_fails_the_check(tmp_path, monkeypatch) -> None:
+    import tools.sync_design_assets as sync_tool
+
+    monkeypatch.setattr(sync_tool, "GALLERY", tmp_path / "gallery.html")
+    with pytest.raises(FileNotFoundError):
+        sync_tool.sync(check=True)

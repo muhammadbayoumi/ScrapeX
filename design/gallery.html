@@ -15,8 +15,7 @@
 
   WHY IT RARELY GOES STALE: tests/test_ui_kit.py fails when a class defined in
   design/components.css appears nowhere on this page. It compares NAMES, so a
-  compound like `.button.danger` can go unshown (#704), and renaming the SPRITE:
-  marker makes `sync_design_assets.py --check` skip this page (#408).
+  compound like `.button.danger` can go unshown (#704).
 
   ADDING A COMPONENT: write the rule in design/components.css, add an example
   here, run `python tools/sync_design_assets.py`.
