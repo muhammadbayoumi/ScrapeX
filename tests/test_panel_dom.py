@@ -1096,6 +1096,42 @@ def _contrast(first: str, second: str) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
+def _alpha(colour: str) -> float:
+    """The alpha of a colour in a form `_channels` reads; 1 when it states none."""
+    value = colour.strip().lower()
+    if value.startswith("#"):
+        return 1.0
+    inner = value[value.index("(") + 1:value.rindex(")")]
+    if "/" in inner:
+        return float(inner.split("/")[1])
+    parts = inner.replace(",", " ").split()
+    return float(parts[3]) if value.startswith("rgb") and len(parts) == 4 else 1.0
+
+
+def _over(top: str, under: str) -> str:
+    """`top` as it is seen painted over an opaque `under`.
+
+    `_channels` drops alpha, so a translucent token scored on its own reads as its
+    opaque ink: a --line at 8% of --text would score as --text. Supabase declares its
+    borders that way (#634), so every pair is scored on its composite."""
+    alpha = _alpha(top)
+    mixed = [alpha * a + (1 - alpha) * b for a, b in zip(_channels(top), _channels(under))]
+    return "rgb({:.4f}, {:.4f}, {:.4f})".format(*(channel * 255 for channel in mixed))
+
+
+@pytest.mark.parametrize("top,seen", [
+    ("rgb(233, 233, 233)", 233.0),
+    ("rgba(0, 0, 0, 0.08)", 234.6),
+    ("rgb(0 0 0 / 0.5)", 127.5),
+    ("color(srgb 0 0 0)", 0.0),
+    ("color(srgb 0 0 0 / 0.25)", 191.25),
+])
+def test_a_translucent_colour_is_scored_as_it_is_seen(top, seen):
+    """Every token the contrast guard reads is opaque today, so the guard alone cannot
+    tell a composite from a colour scored on its ink."""
+    assert _channels(_over(top, "rgb(255, 255, 255)")) == pytest.approx([seen / 255] * 3)
+
+
 def _registered_palette_ids() -> list[str]:
     """The registry's own ids, read from the source rather than copied.
 
@@ -1169,6 +1205,7 @@ _THEME_COLOURS_JS = """() => {
       buttonHover: read("--button-hover"),
       buttonText: read("--button-text"),
       buttonHoverText: read("--button-hover-text"),
+      line: read("--line"),
       lineStrong: read("--line-strong"), focus: read("--focus"),
       amber: read("--amber"), amberWeak: read("--amber-weak"),
       amberInk: read("--amber-ink"),
@@ -1180,6 +1217,11 @@ _THEME_COLOURS_JS = """() => {
       switchTrackOff: read("--switch-track-off"),
       switchThumb: read("--switch-thumb"),
       switchThumbOff: read("--switch-thumb-off"),
+      diagramGeneral: read("--diagram-general"),
+      diagramPricing: read("--diagram-pricing"),
+      diagramUnified: read("--diagram-unified"),
+      diagramOperations: read("--diagram-operations"),
+      diagramOther: read("--diagram-other"),
     };
     probe.remove();
     return out;
@@ -1230,9 +1272,9 @@ _SHAPE_PAIRS = (
     # «مطابق تماما» with «عدل اى قرار يتعارض مع هذا النظام», 2026-08-31: the floor
     # is one of the decisions that conflicts, and for these two positions it
     # yielded. They are NOT deleted — a deleted assertion is a number nobody can
-    # find again. Each keeps its own measured ratio as its floor, so the value is
-    # pinned exactly where he ruled it and ANY drift from it, in either direction,
-    # still fails.
+    # find again. Each keeps its own measured ratio as its floor, so the value
+    # cannot drift further below the floor it asks for. A move upward passes: the
+    # floors stay floors (#710), and raising a ruled value is his call, not a failure.
     #
     #   lineStrong on surface   1.542 light / 1.648 dark   was 3.234 / 3.532
     #   focus on bg             1.466 light / 3.555 dark   was 5.151 / 9.252
@@ -1245,18 +1287,43 @@ _SHAPE_PAIRS = (
     ("switchThumb", "switchTrack", 2.9),
     ("switchThumb", "switchTrackHover", 3.0),
     ("switchThumbOff", "switchTrackOff", 2.9),
+    # --line is the boundary of most panel borders and a palette may set it (#723).
+    # Its value is Supabase's --border, 1.214 light / 1.123 dark, pinned the same way.
+    ("line", "surface", 1.1),
+    # The data-model diagram's group colours (scrapex/webui/static/pages/data-model.js),
+    # this product's own color-mix() of palette tokens. Each marks a group whose name
+    # is also written beside it, as a dot on --bg and a bar on a 10% tint of itself
+    # over --surface, where each measures lower than it does on --surface. Scored on
+    # --surface; the two at 3:1 hold the floor, and the three under it keep their
+    # measured light ratio until he rules on raising them (#1116). Dark clears 3.5
+    # on every one:
+    #
+    #   pricing 2.520   operations 2.892   other 1.796
+    ("diagramGeneral", "surface", 3.0),
+    ("diagramUnified", "surface", 3.0),
+    ("diagramPricing", "surface", 2.5),
+    ("diagramOperations", "surface", 2.8),
+    ("diagramOther", "surface", 1.7),
 )
 
 
 def _assert_legible(values: dict, label: str) -> None:
+    def ratio(foreground: str, background: str) -> float:
+        # A translucent background has no contrast until something is under it, and
+        # this reader does not know what is.
+        assert _alpha(values[background]) == 1, (
+            f"{label}: {background} is translucent ({values[background]}), so "
+            f"{foreground} on it cannot be scored")
+        return _contrast(_over(values[foreground], values[background]), values[background])
+
     for foreground, background in _TEXT_PAIRS:
-        assert _contrast(values[foreground], values[background]) >= 4.5, (
+        assert ratio(foreground, background) >= 4.5, (
             f"{label}: {foreground} on {background} is not WCAG AA "
-            f"({_contrast(values[foreground], values[background]):.3f})")
+            f"({ratio(foreground, background):.3f})")
     for foreground, background, floor in _SHAPE_PAIRS:
-        assert _contrast(values[foreground], values[background]) >= floor, (
+        assert ratio(foreground, background) >= floor, (
             f"{label}: {foreground} on {background} is under {floor} "
-            f"({_contrast(values[foreground], values[background]):.3f})")
+            f"({ratio(foreground, background):.3f})")
 
 
 @pytest.mark.parametrize("palette", _registered_palette_ids())
