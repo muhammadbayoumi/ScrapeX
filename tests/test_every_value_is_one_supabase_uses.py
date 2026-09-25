@@ -89,6 +89,10 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
     (".font-mono .x { font-size: 0.875rem; }", [("font-size", "0.875rem", True)]),
     (".label { font-size: 0.875rem; }", [("font-size", "0.875rem", False)]),
     (".label { font-size: 0.8125rem; }", [("font-size", "0.8125rem", True)]),
+    (".log pre { font-size: 0.875rem; }", [("font-size", "0.875rem", True)]),
+    (".label, pre { font-size: 0.875rem; }", [("font-size", "0.875rem", False)]),
+    (":is(.label, code) { font-size: 0.875rem; }", [("font-size", "0.875rem", False)]),
+    ("pre + .caption { font-size: 0.875rem; }", [("font-size", "0.875rem", False)]),
     # A token is not a literal, and neither is zero; the literal beside a token is.
     (".a { padding: var(--sp-2) 7px 0; }", [("spacing", "7px", False)]),
     (".a { margin: 0; z-index: 0; }", []),
@@ -103,6 +107,10 @@ def _judge(css: str) -> list[tuple[str, str, bool]]:
      [("font-size", ".73rem", False), ("line-height", "1.35", False), ("font-weight", "600", True)]),
     (".a { font: 0.8125rem/1.4 var(--font); }", [("font-size", "0.8125rem", True), ("line-height", "1.4", True)]),
     (".a { font: inherit; }", []),
+    # A token size still marks where the size is, so the literals around it are read.
+    (".a { font: 650 var(--fs)/1.37 var(--font); }", [("line-height", "1.37", False), ("font-weight", "650", False)]),
+    (".a { font: 650 var(--fs) var(--font); }", [("font-weight", "650", False)]),
+    (".a { font: 2vw/1.37 serif; }", [("font-size", "2vw", False), ("line-height", "1.37", False)]),
     # A var() goes whole, whatever its fallback holds.
     (".a { padding: var(--gap, calc(1px + 2px)) 7px; }", [("spacing", "7px", False)]),
     # color-mix() percentages are proportions of a colour, not lengths.
@@ -189,9 +197,13 @@ def test_a_sheet_whose_braces_do_not_balance_fails_the_read(css):
 @pytest.mark.parametrize("selector,mono", [
     ("pre", True), ("code", True), ("kbd", True), ("samp", True), (".font-mono", True),
     (".code-content", True), (".log pre", True), ("pre > .line", True), (":is(code) .x", True),
-    ("pre, code", True),
+    ("pre, code", True), ("pre.script", True), ("pre::before", True), ("pre .a + .b", True),
+    (":is(pre, code) .x", True), (":where(pre) .x", True), ('pre[data-x="a,b"]', True),
     (".label", False), (".label:not(code)", False), ("p:not(pre)", False), (".label, pre", False),
     (".precode", False), ("code-block", False),
+    # The element styled is the last compound; only what it sits inside counts.
+    (":is(.label, code)", False), (":where(pre, .label)", False), (".label:not(:is(code))", False),
+    (".card:has(code)", False), ("pre + .caption", False), ("code ~ p", False), ('.x[title="code"]', False),
 ])
 def test_the_mono_context_is_code_and_only_code(selector, mono):
     """Their mono ramp is defined on code, pre, kbd, samp, .code-content and .font-mono,
@@ -233,12 +245,47 @@ def test_every_stylesheet_is_either_read_or_named_as_not_ours():
         "an authored sheet parses to no declarations")
 
 
-def test_the_scan_reports_what_a_sheet_hard_codes(tmp_path):
+PROBE = """
+.a { padding: 7px 8px; margin-inline-start: 7px; gap: 9px !important; }
+.a { font-size: .73rem; font-size: .73rem; font: 650 var(--fs)/1.37 var(--font); }
+.a { border-radius: 7px; z-index: 777; transition: opacity .12s cubic-bezier(0.2, 0, 0, 1); }
+.a { animation: spin 1.4s linear infinite; line-height: 1.33em; }
+@media (min-width: 1px) { .a:focus-visible { outline: 3px solid; outline-offset: 5px; } }
+pre { font-size: .875rem; }
+"""
+PROBED = {
+    "duration": {"probe.css": {".12s": 1, "1.4s": 1}},
+    "easing": {"probe.css": {"cubic-bezier(0.2, 0, 0, 1)": 1}},
+    "focus": {"probe.css": {"3px": 1, "5px": 1}},
+    "font-size": {"probe.css": {".73rem": 2}},
+    "font-weight": {"probe.css": {"650": 1}},
+    "line-height": {"probe.css": {"1.33em": 1, "1.37": 1}},
+    "radius": {"probe.css": {"7px": 1}},
+    "spacing": {"probe.css": {"7px": 2, "9px": 1}},
+    "z-index": {"probe.css": {"777": 1}},
+}
+
+
+def test_the_scan_reports_every_axis_a_sheet_hard_codes(tmp_path):
+    """One offender on every axis, in a longhand, a shorthand, a logical side, behind
+    !important, twice, inside @media and in a :focus rule: the scan the frozen list is
+    written from misses none, so narrowing it anywhere and re-freezing goes red here."""
     sheet = tmp_path / "probe.css"
-    sheet.write_text(".a { padding: 7px 8px; font-size: .73rem; }\npre { font-size: .875rem; }\n",
-                     encoding="utf-8")
-    assert offenders(READING, [sheet]) == {"font-size": {"probe.css": {".73rem": 1}},
-                                           "spacing": {"probe.css": {"7px": 1}}}
+    sheet.write_text(PROBE, encoding="utf-8")
+    assert offenders(READING, [sheet]) == PROBED
+
+
+def test_the_default_scan_reads_every_authored_sheet(monkeypatch):
+    """The frozen list comes from offenders() with no sheets given, so that path is the
+    one watched: it must parse every authored sheet, whole."""
+    import tools.value_literals as scan
+
+    read = []
+    parse = scan.declarations
+    monkeypatch.setattr(scan, "declarations", lambda css: read.append(css) or parse(css))
+    offenders(READING)
+    assert read == [sheet.read_text(encoding="utf-8") for sheet in authored()], (
+        f"the default scan parsed {len(read)} sheets of {len(authored())}")
 
 
 def test_the_reading_holds_what_the_roadmap_cites():

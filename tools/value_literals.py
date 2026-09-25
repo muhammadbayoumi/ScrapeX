@@ -55,11 +55,14 @@ PROPERTIES = {
     "z-index": re.compile(r"z-index"),
     "focus": re.compile(r"outline(-(width|offset))?"),
 }
-LENGTH = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(px|rem|em|%|vh|vw|ch)(?![\w-])")
+UNITS = r"px|rem|em|%|vh|vw|ch"
+LENGTH = re.compile(rf"(?<![\w.#-])(-?\d*\.?\d+)({UNITS})(?![\w-])")
 NUMBER = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(?![\w.%-])")
 TIME = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(ms|s)(?![\w-])")
 CURVE = re.compile(r"cubic-bezier\(([^)]*)\)")
-MONO = re.compile(r"(?:^|[\s>+~(])(?:code|pre|kbd|samp)(?![\w-])|\.font-mono(?![\w-])|\.code-content(?![\w-])")
+# The elements and classes their mono ramp is defined on (globals.css@86c813ec:70-75), as a
+# compound selector names them: a type selector leads its compound, a class is anywhere in it.
+MONO = re.compile(r"^(?:code|pre|kbd|samp)(?![\w-])|\.font-mono(?![\w-])|\.code-content(?![\w-])")
 
 
 def authored() -> list[Path]:
@@ -101,15 +104,19 @@ def declarations(css: str) -> list[tuple[str, str, str, int]]:
 
 
 TOKEN_FUNCTION = re.compile(r"(?<![\w-])(?:var|color-mix)\(", re.IGNORECASE)
+MATH_FUNCTION = re.compile(r"(?<![\w-])(?:calc|min|max|clamp)\(", re.IGNORECASE)
+# Stands in for a removed function where its POSITION matters, as in the `font` shorthand.
+HOLE = "\u0000"
 
 
-def _without_tokens(value: str) -> str:
+def _without_tokens(value: str, pattern: re.Pattern[str] = TOKEN_FUNCTION, hole: str = "") -> str:
     """The value with every var() gone, fallback and all, and every color-mix(), whose
-    percentages are proportions of a colour and not lengths. Each is removed by matching
-    its own parentheses, so a fallback holding calc() or max() cannot stall the scan."""
+    percentages are proportions of a colour and not lengths; each replaced by `hole`. Each is
+    removed by matching its own parentheses, so a fallback holding calc() or max() cannot
+    stall the scan."""
     kept, index = [], 0
-    while (found := TOKEN_FUNCTION.search(value, index)) is not None:
-        kept.append(value[index:found.start()])
+    while (found := pattern.search(value, index)) is not None:
+        kept.append(value[index:found.start()] + hole)
         depth, index = 1, found.end()
         while index < len(value) and depth:
             depth += {"(": 1, ")": -1}.get(value[index], 0)
@@ -119,35 +126,86 @@ def _without_tokens(value: str) -> str:
 
 
 def _font(value: str) -> dict[str, str]:
-    """The weight, size and line height a `font` shorthand states, each only when stated:
-    `[style] [weight] size[/line-height] family`."""
-    found = re.search(r"(?<![\w.#-])(\d*\.?\d+(?:px|rem|em|%))(?:\s*/\s*(\d*\.?\d+(?:px|rem|em|%)?))?",
-                      value)
-    if not found:
-        return {}
-    weight = [n for n in NUMBER.findall(value[:found.start()]) if 1 <= float(n) <= 1000]
-    parts = {"font-size": found.group(1), "line-height": found.group(2), "font-weight": weight[-1] if weight else None}
-    return {axis: literal for axis, literal in parts.items() if literal and float(re.match(r"[\d.]+", literal).group(0)) != 0}
+    """The weight, size and line height a `font` shorthand states as literals:
+    `[style] [weight] size[/line-height] family`. A size written as a token or as calc()
+    is not a literal, but it still marks where the size is, so the literal weight before
+    it and the literal line height after it are read (`font: 650 var(--fs)/1.37 ...`)."""
+    marked = _without_tokens(_without_tokens(value, hole=HOLE), MATH_FUNCTION, HOLE)
+    length = rf"-?\d*\.?\d+(?:{UNITS})"
+    found = (re.search(rf"(?<![\w.#-])({length})(?![\w-])(?:\s*/\s*({HOLE}|{length}|-?\d*\.?\d+))?", marked)
+             or re.search(rf"({HOLE})\s*/\s*({HOLE}|{length}|-?\d*\.?\d+)", marked))
+    # A weight is a bare number and nothing else in the shorthand is, so it is read even
+    # where no size is written as a literal and no slash marks one.
+    weight = [n for n in NUMBER.findall(marked[:found.start()] if found else marked) if 1 <= float(n) <= 1000]
+    parts = {"font-size": found.group(1) if found else None, "line-height": found.group(2) if found else None,
+             "font-weight": weight[-1] if weight else None}
+    return {axis: literal for axis, literal in parts.items()
+            if literal and literal != HOLE and float(re.match(r"-?[\d.]+", literal).group(0)) != 0}
+
+
+def _split(text: str, separators: str) -> list[tuple[str, str]]:
+    """`text` cut at each separator outside parentheses: [(separator before, piece)]."""
+    pieces, depth, current, before = [], 0, "", ""
+    for char in text:
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        if depth == 0 and char in separators:
+            if current.strip():
+                pieces.append((before, current.strip()))
+                current, before = "", " "
+            if not char.isspace():
+                before = char
+            continue
+        current += char
+    if current.strip():
+        pieces.append((before, current.strip()))
+    return pieces
+
+
+def _compound_is_mono(compound: str) -> bool:
+    """Whether one compound selector names a mono element. A `:not()` or `:has()` never
+    does; an `:is()` or `:where()` does when every selector it lists does."""
+    plain, index = [], 0
+    for found in re.finditer(r":(is|where|matches|not|has)\(", compound):
+        if found.start() < index:
+            continue
+        depth, end = 1, found.end()
+        while end < len(compound) and depth:
+            depth += {"(": 1, ")": -1}.get(compound[end], 0)
+            end += 1
+        plain.append(compound[index:found.start()])
+        if found.group(1) in ("is", "where", "matches") and is_mono(compound[found.end():end - 1]):
+            return True
+        index = end
+    plain.append(compound[index:])
+    return MONO.search("".join(plain)) is not None
 
 
 def is_mono(selectors: str) -> bool:
-    """Whether a rule sets text inside code: every selector in its list must, since a
-    value on `.label, pre` reaches a sans label too, and `:not(code)` is the opposite."""
-    parts, depth, start = [], 0, 0
-    for index, char in enumerate(selectors):
-        depth += {"(": 1, ")": -1}.get(char, 0)
-        if char == "," and depth == 0:
-            parts.append(selectors[start:index])
-            start = index + 1
-    parts.append(selectors[start:])
-    without_not = [re.sub(r":not\([^()]*\)", "", part) for part in parts]
-    return all(MONO.search(part.strip()) for part in without_not)
+    """Whether a rule sets text inside code, which is where their mono ramp applies.
+
+    Every selector in the list must, since a value on `.label, pre` reaches a sans label
+    too. In each, the element styled is the last compound: it is mono when it names a mono
+    element, or when one it sits inside does -- an ancestor, reached through ` ` or `>`. A
+    sibling reached through `+` or `~` is beside the element, not around it."""
+    selectors = re.sub(r"\[[^\]]*\]", "", selectors)
+    lists = [piece for _before, piece in _split(selectors, ",")]
+    if not lists:
+        return False
+    for selector in lists:
+        compounds = _split(selector, " >+~\t\n")
+        if _compound_is_mono(compounds[-1][1]):
+            continue
+        if not any(_compound_is_mono(compounds[index - 1][1])
+                   for index in range(len(compounds) - 1, 0, -1)
+                   if compounds[index][0] in (" ", ">")):
+            return False
+    return True
 
 
 def literals(axis: str, prop: str, value: str) -> list[str]:
     """The hard-coded values one declaration states on one axis."""
     if prop == "font" and axis in ("font-size", "line-height", "font-weight"):
-        stated = _font(_without_tokens(value).replace("!important", "")).get(axis)
+        stated = _font(value.replace("!important", "")).get(axis)
         return [stated] if stated else []
     if not PROPERTIES[axis].fullmatch(prop):
         return []
