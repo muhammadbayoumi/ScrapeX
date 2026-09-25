@@ -1258,30 +1258,6 @@ code {
   background: var(--palette-swatch);
 }
 
-.appearance-follow-row {
-  min-height: 4rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  padding: var(--sp-3);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-lg);
-  background: var(--surface-container);
-}
-.appearance-follow-row strong,
-.appearance-follow-row small { display: block; }
-.appearance-follow-row strong {
-  color: var(--on-surface);
-  font-size: var(--fs-sm);
-}
-.appearance-follow-row small {
-  margin-top: 2px;
-  color: var(--on-surface-variant);
-  font-size: var(--fs-2xs);
-  line-height: var(--lh-tight);
-}
-
 /* Compact WhatsApp-style switch, wrapped in a 48px Android touch target. */
 .appearance-switch {
   position: relative;
