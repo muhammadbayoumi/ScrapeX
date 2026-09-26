@@ -72,8 +72,10 @@ CHECK = r"""async ({where, leftTo, skip}) => {
     for (let at = el; at; at = at.parentElement) opacity *= parseFloat(getComputedStyle(at).opacity);
     return opacity > 0.05;
   };
-  // Whether any side of the outline survives every ancestor that clips, and the viewport:
-  // a ring an overflow cuts on all four sides is computed and never seen.
+  // Whether at least two sides of the outline survive every ancestor that clips, and the
+  // viewport. A ring cut on all four is computed and never seen, and one left with a
+  // single edge is a line that a font's metrics can take too: the finance summary kept
+  // its bottom edge on Windows and lost it on Linux.
   const shown = (el) => {
     const s = getComputedStyle(el);
     if (!outlined(s)) return true;
@@ -96,10 +98,10 @@ CHECK = r"""async ({where, leftTo, skip}) => {
       }
     }
     const across = clip.l < outer.r && clip.r > outer.l, down = clip.t < outer.b && clip.b > outer.t;
-    return (down && clip.l < inner.l - 0.5 && clip.r > outer.l + 0.5)
-        || (down && clip.r > inner.r + 0.5 && clip.l < outer.r - 0.5)
-        || (across && clip.t < inner.t - 0.5 && clip.b > outer.t + 0.5)
-        || (across && clip.b > inner.b + 0.5 && clip.t < outer.b - 0.5);
+    return [down && clip.l < inner.l - 0.5 && clip.r > outer.l + 0.5,
+            down && clip.r > inner.r + 0.5 && clip.l < outer.r - 0.5,
+            across && clip.t < inner.t - 0.5 && clip.b > outer.t + 0.5,
+            across && clip.b > inner.b + 0.5 && clip.t < outer.b - 0.5].filter(Boolean).length >= 2;
   };
   const settle = (el) => new Promise(done => { const start = performance.now();
     const tick = () => (el.getAnimations().length === 0 || performance.now() - start > 1000)
@@ -151,7 +153,7 @@ def test_every_control_in_every_view_draws_the_ring(open_panel):
     """#721's acceptance: the ring is still visible on every control the panel shows. Each
     focusable control in each rail view, with every disclosure open, is focused from the
     keyboard. It, or the wrapper that draws the ring for it, must paint the ring colour
-    where it can be seen (not an invisible element, not cut off on all four sides by an
+    where it can be seen (not an invisible element, and on at least two sides past every
     ancestor that clips), and a field under a wrapper must not draw a second ring or gap."""
     page = open_panel()
     page.keyboard.press("Tab")  # keyboard modality; the views are switched by script, not a click
@@ -166,5 +168,5 @@ def test_every_control_in_every_view_draws_the_ring(open_panel):
             seen[key] += value
     assert len(views) >= 10 and seen["controls"] >= 250 and seen["opened"] >= 40, seen
     assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
-    assert not seen["clipped"], f"controls whose ring is cut off on every side: {seen['clipped']}"
+    assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"

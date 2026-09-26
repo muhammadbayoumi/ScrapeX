@@ -315,6 +315,8 @@
 }
 
 .model-viewport.is-panning { cursor: grabbing; user-select: none; }
+/* Inset (#721): the canvas fills a container that clips a ring drawn outside it. */
+.model-viewport:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
 
 .model-plane {
   position: relative;

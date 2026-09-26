@@ -1331,8 +1331,8 @@
      tall child grows the view instead of handing the overflow to the scroller
      inside it — which is the page-scrolls-instead-of-rows behaviour the chain
      exists to remove. */
-  /* Inset (#721): the tabpanel fills `main`, which clips a ring drawn outside it. */
-  #view-profile:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
+  /* Inset (#721): a focusable tabpanel fills `main`, which clips a ring drawn outside it. */
+  section[role="tabpanel"]:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   #view-profile {
     display: flex;
     flex-direction: column;
@@ -2589,6 +2589,8 @@
     font-size: var(--fs-xs);
     line-height: 1.45;
   }
+  /* Inset (#721): .finance-card clips, so a ring outside the summary would not show. */
+  .finance-preferences-card > summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   .finance-preferences-card > summary {
     cursor: pointer;
     list-style: none;
