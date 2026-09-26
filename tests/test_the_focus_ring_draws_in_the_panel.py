@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("playwright")
-from tests.test_panel_dom import browser, open_panel  # noqa: E402,F401  (the fixtures)
+from tests.test_panel_dom import ROOT, browser, open_panel  # noqa: E402,F401  (the fixtures)
 
 # Guards the extension's panel; see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -44,6 +44,27 @@ def test_a_focused_ghost_button_draws_the_ring_at_a_background_offset(open_panel
     assert read["id"] == "focus-probe" and read["visible"], read
     assert read["shadow"] == f"{read['bg']} 0px 0px 0px 2px", read
     assert read["outline"] == ["solid", "2px", read["ring"], "2px"], read
+
+
+@pytest.mark.parametrize("control", ["#source-dataset", "#entity-key", "#detail-dataset", "#detail-key",
+                                     "#output-key", "#output-name"])
+def test_the_enrichment_page_keeps_the_ring_on_every_field(browser, control):
+    """#745: extension/enrichment.css cancelled the shared ring on all six fields of the
+    panel's enrichment page, loaded after components.css at the same specificity. Each
+    now draws it. (Chromium matches `:focus-visible` on a select or text field focused by
+    the mouse too, so a click shows it there as well; that is the browser's rule.)"""
+    page = browser.new_page(viewport={"width": 900, "height": 900})
+    try:
+        page.goto((ROOT / "extension" / "enrichment.html").as_uri())
+        page.keyboard.press("Tab")  # keyboard modality, so programmatic focus is :focus-visible
+        page.focus(control)
+        page.wait_for_function("() => document.activeElement.getAnimations().length === 0", timeout=3000)
+        read = page.evaluate(READ)
+        assert read["id"] == control[1:] and read["visible"], read
+        assert read["outline"] == ["solid", "2px", read["ring"], "2px"], read
+        assert read["shadow"] == f"{read['bg']} 0px 0px 0px 2px", read
+    finally:
+        page.close()
 
 
 #: The controls a phase-4 item rebuilds keep their own ring until it lands (the static

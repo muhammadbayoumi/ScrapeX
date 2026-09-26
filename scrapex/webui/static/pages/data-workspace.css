@@ -32,7 +32,7 @@
   fill:var(--muted);transform:translateY(-50%);pointer-events:none}
 .dataset-search{display:block;width:100%;min-width:0!important;padding:.48rem .6rem .48rem 1.85rem;
   border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
-.dataset-search:focus{border-color:var(--accent);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
+.dataset-search:focus-visible{border-color:var(--accent);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .dataset-result-count{display:block;margin-top:.45rem;color:var(--muted);font-size:.64rem}
 .dataset-list{min-height:0;padding:.38rem;overflow-y:auto;scrollbar-width:thin;
   scrollbar-color:var(--line) transparent}

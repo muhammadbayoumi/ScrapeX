@@ -23,8 +23,6 @@ from tests.test_the_focus_ring_draws_in_the_panel import sweep  # noqa: E402
 ORIGIN = "http://webui.test"
 PAGES = ["/", "/data", "/data-model", "/schema", "/changes", "/history", "/review", "/jobs",
          "/schedules", "/logs", "/exports", "/settings", "/sync", "/manage", "/source/ELSEWEDYSHOP"]
-#: The settings page's section headers have no ring until #747 lands (#1175).
-SKIP = "details.sect > summary"
 
 
 @pytest.fixture()
@@ -67,11 +65,11 @@ def test_every_control_on_every_page_draws_the_ring(webui):
         assert response is not None and response.status == 200, (path, response and response.status)
         webui.wait_for_load_state("networkidle")
         webui.keyboard.press("Tab")  # keyboard modality, so programmatic focus is :focus-visible
-        for key, value in sweep(webui, path, skip=SKIP).items():
+        for key, value in sweep(webui, path).items():
             seen[key] += value
     webui.evaluate("() => document.querySelector('#grid-columns-button').click()")
     webui.wait_for_selector(".column-chooser-search input")
-    chooser = sweep(webui, "column chooser", skip=SKIP)
+    chooser = sweep(webui, "column chooser")
     assert chooser["controls"] >= 3, chooser
     for key, value in chooser.items():
         seen[key] += value
