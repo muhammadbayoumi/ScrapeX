@@ -15,10 +15,13 @@ THE LINE, a line of its own anywhere in the pull request body, exactly one of:
 The first says the pull request raises VERSION to 0.4.23, the second that it leaves
 VERSION alone. No line also means unchanged, so such a pull request needs nothing.
 
-NOTHING ELSE MAY LOOK LIKE ONE. Any other line whose first word is VERSION -- a
-heading, bold, a quote, a list item, trailing words, "Version:" -- is refused by name
-rather than read as unchanged, because reading it as unchanged is the false pass
-#1086 is about. That holds inside code blocks too: write examples mid-line. Two
+NOTHING ELSE MAY LOOK LIKE ONE. Any other line whose first word is VERSION, or
+"version" in any case followed by a colon or a number -- a heading, bold, a quote, a
+list or task item, a table cell, an HTML tag, trailing words, "## Version 0.4.23" --
+is refused by name rather than read as unchanged, because reading it as unchanged is
+the false pass #1086 is about. Whatever comes before that first word is skipped when
+it holds no letter (punctuation, digits, invisible characters) or is an HTML tag or a
+task box. That holds inside code blocks too: write examples mid-line. Two
 declarations that disagree are refused rather than resolved. A byte-order mark at the
 very start of the body is dropped first; GitHub has delivered one.
 
@@ -48,9 +51,19 @@ from scrapex.version import parse_version  # noqa: E402
 
 UNCHANGED = "unchanged"
 DECLARATION = re.compile(r"^VERSION:[ \t]*(\S+)[ \t]*$")
-# A line whose first word, past any Markdown decoration or invisible space, is
-# VERSION, or "version:" in any case. Every such line must BE a declaration.
-LOOKS_LIKE_ONE = re.compile(r"^[\s\ufeff>#*`_~|\d.)-]*(?:VERSION\b|(?i:version)\s*:)")
+# A line whose first word is VERSION, or "version" in any case followed by a colon
+# or a number, past a prefix of HTML tags, task boxes and characters that are not
+# letters. Every such line must BE a declaration.
+#
+# THE PREFIX IS ONE POSSESSIVE GROUP (`*+`), AND THAT IS LOAD-BEARING. Its tag and
+# task-box branches overlap the non-letter branch, and a plain `*` over overlapping
+# branches backtracks exponentially on a line the pull request author writes: 22
+# repeats of "<>" took 0.7 s in review, doubling every repeat. Possessive, it never
+# gives a character back, which is safe because the word after it starts with a
+# letter the prefix cannot hold. tests/test_version_intent.py times it.
+LOOKS_LIKE_ONE = re.compile(
+    r"^(?:<[^<>]*>|\[[xX]\]|[^A-Za-z])*+"
+    r"(?:VERSION\b|(?i:version)(?:[\s*_`|]*:|\W*\d))")
 
 _module_names = count()
 

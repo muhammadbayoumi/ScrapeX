@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,9 @@ def _version_file(folder: Path, name: str, version: str) -> Path:
                                   "It raises `VERSION: 0.4.23` somewhere mid-line.\n",
                                   "The version-intent check is advisory.\n",
                                   "| Version | Date |\n",
-                                  "VERSIONS move rarely.\n"])
+                                  "VERSIONS move rarely.\n",
+                                  "version-intent: advisory until required\n",
+                                  "Version history is in the CHANGELOG.\n"])
 def test_a_body_without_a_declaration_means_unchanged(body):
     """Prose, a mid-line mention and a word that only begins with VERSION are not the line."""
     assert tool.declared(body) == tool.UNCHANGED
@@ -86,6 +89,38 @@ def test_a_declaration_inside_a_code_block_still_counts():
     "  VERSION: 0.4.23",
     "\u00a0VERSION: 0.4.23",
     "VERSION 0.4.17, on his word",
+    # Round 2 of the review: forms the first fix still read as unchanged.
+    "+ VERSION: 0.4.23",
+    "- [x] VERSION: 0.4.23",
+    "- [ ] VERSION: 0.4.23",
+    "* [X] VERSION: 0.4.23",
+    "## Version 0.4.23",
+    "Version 0.4.23",
+    "**Version**: 0.4.23",
+    "**Version** 0.4.23",
+    "| Version | 0.4.23 |",
+    "Version -> 0.4.23",
+    "## Version 0.4.13 " + chr(0x2192) + " 0.4.14",        # #877's merged body, verbatim
+    "**1 " + chr(0xB7) + " `VERSION` moves because the contract moved**",   # #799's
+    *(chr(code) + "VERSION: 0.4.23"
+      for code in (0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060, 0xAD)),
+    "<b>VERSION: 0.4.23</b>",
+    "<!-- --> VERSION: 0.4.23",
+    "<details><summary>VERSION: 0.4.23</summary>",
+    "[VERSION: 0.4.23](x)",
+    "\\VERSION: 0.4.23",
+    chr(0x2022) + " VERSION: 0.4.23",
+    # ...and forms the first fix caught but no test held.
+    "~~VERSION: 0.4.23~~",
+    "__VERSION: 0.4.23__",
+    "_VERSION: 0.4.23_",
+    "1) VERSION: 0.4.23",
+    "`VERSION`: 0.4.23",
+    "Version : 0.4.23",
+    "Version: v0.4.23",
+    "Version0.4.23",
+    "**Version**: v0.4.23",
+    "Version : unchanged",
 ])
 def test_a_line_that_looks_like_a_declaration_is_refused_never_read_as_unchanged(line):
     """Read as unchanged, each of these passes the exact #1086 state: the raise gone,
@@ -94,6 +129,24 @@ def test_a_line_that_looks_like_a_declaration_is_refused_never_read_as_unchanged
         with pytest.raises(ValueError, match="names VERSION but is not a declaration") as err:
             tool.declared(body)
         assert repr(line[:80]) in str(err.value)
+
+
+# Short ids: pytest copies a test's id into an environment variable, and Windows caps
+# one at 32,767 characters.
+@pytest.mark.parametrize("line", ["<>" * 20000 + "a", "[ ]" * 20000 + "a", "<" * 60000,
+                                  "[x]" * 20000 + "a", "-" * 60000 + "Version"],
+                         ids=["tags", "empty-boxes", "open-angles", "ticked-boxes", "dashes"])
+def test_a_hostile_line_is_read_in_linear_time(line):
+    """The body is text the author writes. The first candidate pattern for the prefix
+    backtracked exponentially on '<>' repeated (0.7 s at 22 repeats, doubling each
+    one), so a short line could outlast the job's timeout. The possessive prefix reads
+    each of these 40-60 thousand character lines in milliseconds."""
+    started = time.perf_counter()
+    try:
+        tool.declared(line)
+    except ValueError:
+        pass
+    assert time.perf_counter() - started < 1.0
 
 
 def test_a_byte_order_mark_anywhere_but_the_start_is_refused_and_shown():
@@ -303,6 +356,22 @@ def test_how_the_two_versions_and_the_verdict_travel_is_pinned():
         '--main "$RUNNER_TEMP/main-version.py"')
     for where in (data, *data["jobs"].values(), *steps):
         assert "continue-on-error" not in where, "a failing verdict must fail the job"
+
+
+def test_the_job_is_exactly_its_four_steps_and_nothing_can_skip_them():
+    """An `if:` on the verdict step or on the job skips it, and a skipped job reports
+    success to a required check; an extra step can overwrite main's copy. Pinning the
+    keys of the job and of each step, and the step count, leaves no room for either."""
+    job = _workflow()["jobs"]["version-intent"]
+    assert set(job) == {"runs-on", "steps"}
+    assert [set(step) for step in job["steps"]] == [
+        {"uses", "with"},              # checkout
+        {"uses", "with"},              # setup-python
+        {"name", "run"},               # read main's VERSION
+        {"name", "env", "run"},        # the verdict
+    ]
+    assert [str(step.get("uses", "")).split("@")[0] for step in job["steps"][:2]] == [
+        "actions/checkout", "actions/setup-python"]
 
 
 def test_the_job_can_read_and_cannot_write():
