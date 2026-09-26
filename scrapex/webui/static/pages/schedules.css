@@ -51,7 +51,7 @@
   .schedule-source-choice+.schedule-source-choice{margin-top:.15rem}
   .schedule-source-choice:hover{background:var(--chip);filter:none}
   .schedule-source-choice[aria-selected="true"]{background:var(--accent-weak);color:var(--accent-ink)}
-  .schedule-source-choice:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width))}
+  .schedule-source-choice:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width));box-shadow:none}
   .schedule-choice-state{grid-column:2;grid-row:1;align-self:center;display:inline-flex;
     align-items:center;gap:.3rem;padding:.14rem .4rem;border-radius:var(--radius-pill);background:var(--chip);
     color:var(--muted);font-size:.6rem;font-weight:600}
@@ -99,7 +99,7 @@
     line-height:1;transition:transform .15s}
   .schedule-advanced[open]>summary::after{transform:rotate(90deg);color:var(--accent-ink)}
   .schedule-advanced>summary:hover{background:var(--chip)}
-  .schedule-advanced>summary:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width))}
+  .schedule-advanced>summary:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width));box-shadow:none}
   .schedule-advanced-title{display:block;font-size:.78rem;font-weight:600}
   .schedule-behavior-summary{display:block;margin-top:.08rem;color:var(--muted);
     font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

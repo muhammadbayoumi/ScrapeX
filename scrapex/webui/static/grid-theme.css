@@ -443,7 +443,7 @@
 }
 
 /* ---- chrome: scrollers, resize guides, edit inputs ---- */
-.tabulator .tabulator-tableholder:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.tabulator .tabulator-tableholder:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
 .tabulator-col-resize-handle {
   width: 9px;
   opacity: 1;
@@ -859,7 +859,7 @@
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content
   .tabulator-col-title .tabulator-header-popup-button:focus-visible {
   opacity: 1;
-  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width));
+  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none;
 }
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* The same Material arrow points down by rotation. In the no-sort state it
@@ -1176,7 +1176,7 @@
   transform: translateY(-50%);
 }
 #offer-panel button.selected-product-image-nav:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width));
+  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none;
   transform: translateY(-50%);
 }
 .selected-product-image-nav.is-previous { inset-inline-start: var(--sp-3); }

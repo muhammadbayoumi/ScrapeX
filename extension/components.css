@@ -858,9 +858,12 @@ button.chip {
 
 .source-selection-row:has(input:focus-visible) {
   /* An INSET ring: the offset is the negative of the width so the whole stroke
-     stays inside the row, which is why it is derived rather than repeated. */
+     stays inside the row, which is why it is derived rather than repeated. It
+     paints no gap: Supabase's focus-inset has none, and the shared rule's shadow
+     would spread outside a control that sits flush. */
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: calc(-1 * var(--focus-ring-width));
+  box-shadow: none;
 }
 
 .source-selection-row input[type="checkbox"] {
