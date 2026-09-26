@@ -13,7 +13,7 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
+  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
   statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
@@ -5227,8 +5227,17 @@ function renderMiniplayer(job, queued) {
   const box = $("miniplayer");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
+  // THE KIND, NOT THE KEY ALONE -- and `jobLabel` has written it since jobsview.js
+  // shipped: "Listing crawl · muqawil_org", "Interpretation · muqawil_org". This line
+  // said `${scope} — ${status}`, which names no kind at all, and that was survivable
+  // only while one job followed another by his own hand. A crawl now queues its own
+  // interpretation, so `muqawil_org — running` at 56/56 becomes `muqawil_org — queued`
+  // at 0 about two milliseconds later, against a 1500 ms poll -- and with no kind in
+  // the line there is nothing to read but "the crawl went back to the beginning".
+  // Issue 778 is the same sentence about a different pair of jobs.
   const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
-  $("mini-title").textContent = `${scope} — ${job.status.replace(/_/g, " ")}`;
+  const named = job.source_keys.length > 1 ? scope : jobLabel(job);
+  $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
   $("mini-bar").style.width = prog.pct + "%";
@@ -5259,6 +5268,29 @@ async function pollJobOnce() {
   const job = liveJob(jobs);
   state.job = job;
   if (job) {
+    // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
+    // this branch never had to know the difference: the adopted job was always the one
+    // he had started, so repointing at it lost nothing.
+    //
+    // The branch below -- the one that refreshed the cards -- runs ONLY when the active
+    // list is empty, and the chain guarantees it is not: `_finish`
+    // commits COMPLETED and the interpretation is committed `queued` about 2.5 ms later,
+    // inside one 1500 ms poll. So the row counts he crawled for never refreshed at all,
+    // and the card went on showing what it showed before the crawl started.
+    //
+    // THE CARDS AND NOT THE FINISHED JOB'S VERDICT, and the difference is the
+    // whole of what this line can honestly claim. A first version drew the outgoing
+    // job here as well; the design session opened the next three lines and killed it.
+    // `renderActivity` writes the single `#activity` box, so `renderActivity(job)` four
+    // lines down overwrites the verdict inside the same poll -- it would be a flash and
+    // two wasted requests, not a report.
+    //
+    // THE VERDICT AND THE LOG BELONG TO THE LIVE JOB, so the sentence he needs about
+    // the OUTGOING one goes where the pane is about to point instead: the queued
+    // interpretation's own log opens by naming the crawl that started it
+    // (`scrapex/directoryjob.py`). That is durable, it survives every poll, and it is
+    // there when he scrolls back.
+    if (state.jobRef && state.jobRef !== job.job_ref) await redrawWhatTheJobChanged();
     state.jobRef = job.job_ref;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
@@ -5278,6 +5310,10 @@ async function pollJobOnce() {
   // Nothing active. Report how the last one ended, then refresh the counts.
   renderMiniplayer(null);
   if (state.jobRef) {
+    // The same redraw as the handoff, for the same reason -- see the function.
+    // NOTHING ACTIVE, so `#activity` has no live job to belong to and the verdict can
+    // stay in it. This is the one path where drawing the outgoing job is durable, which
+    // is why the handoff above refreshes the cards and draws nothing.
     try {
       const done = await api(`/api/jobs/${state.jobRef}`);
       renderActivity(done);
@@ -5285,9 +5321,24 @@ async function pollJobOnce() {
       renderLogs(log.entries, log);
     } catch (_) {}
     state.jobRef = null;
-    await loadSources();
+    await redrawWhatTheJobChanged();
   }
   refreshRunButton();
+}
+
+/** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
+ *
+ * `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
+ * DATASET CARD is drawn by `loadDatasets`, whose only callers were `showView("data")` and
+ * the pause action — so with the Data tab open and nothing navigating, the card kept the
+ * row count it had before the crawl, and kept withholding its "Interpret stored pages"
+ * badge after the interpretation that withheld it had ended. That stale row count is the
+ * exact complaint this whole feature exists for, reappearing on the surface the feature
+ * added.
+ */
+async function redrawWhatTheJobChanged() {
+  await loadSources();
+  if (currentViewName() === "data") await loadDatasets();
 }
 
 async function pollJob() {
@@ -5619,7 +5670,24 @@ function coverageShare(c) {
 function waitingLine(s) {
   const waiting = s.work_waiting || {};
   const rows = [];
-  if (waiting.interpret && waiting.interpret.crawl_finished_at) {
+  // WITHHELD WHILE AN INTERPRETATION IS LIVE, AND NOTHING IS DRAWN IN ITS PLACE.
+  //
+  // `interpretation_live` is a flag, not a status, on purpose. An earlier version sent
+  // the job's status and had this line narrate it -- "under way", "paused", "has not
+  // started", "stopping" -- and each of those sentences, rewritten pass after pass,
+  // claimed a state the code was not in, one status-set further out every time.
+  // A flag that only withholds adds no sentence, so it adds no claim to be wrong.
+  //
+  // IT GATES BOTH PRODUCERS OF THE SAME BADGE. "Interpret stored pages" is drawn from
+  // `interpret` and again from `profiles.rowless` below; the engine withholds only the
+  // first, so this flag is what stops the second offering a press an interpretation is
+  // already doing.
+  //
+  // What is running is shown where running jobs are already described correctly: the
+  // mini-player, on every tab, and the Jobs page. A press cannot make a duplicate
+  // either way -- `POST /api/jobs` refuses one while an interpretation is waiting.
+  const live = Boolean(waiting.interpretation_live);
+  if (!live && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(
       waiting.interpret.crawl_finished_at, "datetime", {zone: true});
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
@@ -5650,10 +5718,14 @@ function waitingLine(s) {
       `<span class="muted"> · ${esc(fmtCount(profiles.fetch))} ` +
       `${profiles.fetch === 1 ? "contractor needs" : "contractors need"} a profile ` +
       `page fetched</span>`);
-  } else if (profiles.rowless) {
+  } else if (profiles.rowless && !live) {
     // PAGES ON DISK AND NO ROWS: the next press is an INTERPRETATION, not a request.
     // Saying so is the difference between him finding the right button and pressing the
     // one that says "profiles" because the word matches.
+    //
+    // `&& !live` FOR THE SAME REASON THE FIRST ROW HAS IT: this is the SECOND producer
+    // of that badge, and suppressing only the first left this one offering the press
+    // while an interpretation was already running.
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
       `<span class="muted"> · ${esc(fmtCount(profiles.rowless))} ` +
       `${profiles.rowless === 1 ? "contractor has" : "contractors have"} a profile ` +
@@ -5874,6 +5946,12 @@ function sourceActions(source) {
   // `NothingToInterpret` -- correctly, and pointlessly, because nothing could have made it
   // work. A `dataset` card exists because rows exist, which means a crawl ran, so the
   // action always has either pages to interpret or an honest count of none.
+  //
+  // A PRESS WHILE ONE IS WAITING IS REFUSED BY THE ROUTE, not disabled here. `POST
+  // /api/jobs` answers 409 when an interpretation of the source has not started yet
+  // (issue 779), so the row stays live and the refusal says why. An earlier version
+  // disabled it and wrote the reason on the row, and that reason was wrong for most of
+  // the statuses it was written over.
   const interpretable = source.site_key && source.kind === "dataset" ? [{
     action: "interpret",
     label: "Interpret stored pages",

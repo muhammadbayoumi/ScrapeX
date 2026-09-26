@@ -771,7 +771,8 @@ def create_app(
         the cautionary tale one file over: it ran a full-file integrity scan on every
         page open and failed the deadline every time.
         """
-        waiting: dict = {"interpret": None, "profiles": None, "resumable": None}
+        waiting: dict = {"interpret": None, "interpretation_live": False,
+                         "profiles": None, "resumable": None}
         if site_key not in directories.BUILDERS:
             return waiting
         directory = directories.get(site_key)
@@ -798,6 +799,31 @@ def create_app(
             # a dataset that does not exist yet, so they stay `None`.
             return waiting
         like = f'%"{site_key}"%'
+        # NO PRESS IS OWED WHILE AN INTERPRETATION OF THIS SOURCE IS LIVE, so the badge
+        # below is withheld for as long as one is. This is the badge's own question --
+        # "should I offer a press?" -- and it is not the chain's: a RUNNING one withholds
+        # the badge here but does not stop a crawl queueing another, because it planned
+        # its reading before those pages existed (`datasetjob.waiting_interpretation`).
+        #
+        # WITHHELD, NOT EXPLAINED. What is running is said where running jobs are
+        # already described correctly: the mini-player, on every tab, and the Jobs page.
+        # An earlier version sent this job's status to the card and had the card narrate
+        # it, and every sentence it wrote claimed a state the code was not in. And a
+        # press cannot now make a duplicate anyway: `POST /api/jobs` refuses one while an
+        # interpretation of the source is waiting (issue 779).
+        marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
+        on_its_way = general.execute(
+            "SELECT 1 FROM crawl_job "
+            f" WHERE job_kind = ? AND source_keys LIKE ? "
+            f"   AND status NOT IN ({marks_j}) LIMIT 1",
+            (datasetjob.JOB_KIND, like,
+             *(one.value for one in TERMINAL_JOB_STATUSES))).fetchone()
+        # A YES/NO, AND ONLY THAT. The panel withholds BOTH producers of the
+        # "Interpret stored pages" badge on it; this function withholds only
+        # `interpret`, and `profiles.rowless` below would otherwise go on offering
+        # the press. It carries no status and no ref, so the card has nothing to
+        # narrate and no sentence to get wrong.
+        waiting["interpretation_live"] = on_its_way is not None
         # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
         # is issue 782's filter in the other place. This check asked "has a LISTING crawl
         # finished since the last interpretation?", so a profile sweep finishing with 938
@@ -809,6 +835,12 @@ def create_app(
         # `datasetjob.COLLECTING_KINDS` IS THE ONE PLACE THE NAMES LIVE, because this is
         # the second reader of the same fact and the first one having been widened alone
         # is precisely the defect.
+        # NO STATUS FILTER HERE, AND THE READING HALF BELOW HAS ONE. The asymmetry is
+        # the point: a crawl that was CANCELLED still bought pages -- 3,138 stored
+        # readings over 802 URLs, measured on one -- so they are on disk and unread, and
+        # this badge is the only thing that says so. An interpretation that was cancelled
+        # read nothing, so it may not count as a reading. Same column, opposite answers,
+        # because "did it leave pages behind" and "did it read them" are not one fact.
         marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
@@ -817,12 +849,32 @@ def create_app(
             " ORDER BY finished_at DESC LIMIT 1",
             (*datasetjob.COLLECTING_KINDS, like)).fetchone()
         if crawled:
+            # `completed`, NOT "it has a finish time" -- and the difference is a silent
+            # one. `jobs._finish` stamps `finished_at` for EVERY terminal status, so a
+            # CANCELLED or FAILED interpretation used to count here as a reading that
+            # happened: he cancels one, its finish time lands AFTER the crawl's, and
+            # this comparison concludes the pages have been read. The badge goes out
+            # and stays out until the next crawl of that source.
+            #
+            # THE CHAIN ABOVE IS WHY THIS STOPPED BEING RARE. An interpretation now
+            # exists after every crawl without him asking, so cancelling one is an
+            # ordinary thing to do -- and it was the one action that put the badge out
+            # for good. Before the chain he had to have started one by hand first.
+            #
+            # `datasetjob` closes as exactly one of three: COMPLETED, CANCELLED
+            # or FAILED in `run_dataset_interpret_job_once`. Only the first read the
+            # pages, so only the first answers this question.
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
-                " WHERE job_kind = ? AND source_keys LIKE ? AND finished_at IS NOT NULL "
+                " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "
+                "   AND finished_at IS NOT NULL "
                 " ORDER BY finished_at DESC LIMIT 1",
-                (datasetjob.JOB_KIND, like)).fetchone()
-            if read is None or str(crawled[0]) > str(read[0]):
+                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value)).fetchone()
+            # A JOB ALREADY ON ITS WAY IS AN ANSWER. Both queries here require
+            # `finished_at IS NOT NULL`, so a QUEUED or RUNNING interpretation counted as
+            # none at all and the badge offered a press that one was already doing.
+            if on_its_way is None and (
+                    read is None or str(crawled[0]) > str(read[0])):
                 waiting["interpret"] = {"crawl_finished_at": crawled[0],
                                         "interpreted_at": read[0] if read else None}
         if directory.profiles is not None:
@@ -4631,6 +4683,37 @@ def create_app(
         conn = read_conn()
         try:
             ensure_schema(conn)
+            # THE REFUSAL LIVES WHERE THE WRITE HAPPENS -- issue 779. Before it, this
+            # route accepted a second interpretation of a source that already had one
+            # waiting, so a press on the card made a job that read nothing the first
+            # would not. The panel was left to explain the gap in copy, and each sentence
+            # it tried claimed a state the code was not in. Refusing here means the card
+            # needs to explain nothing.
+            #
+            # THE SAME RULE THE CRAWL'S CHAIN READS, not a second one: `datasetjob.
+            # waiting_interpretation` decides both whether a crawl queues another and
+            # whether a press is refused, so the two cannot disagree. A RUNNING one does
+            # not refuse -- it planned its reading before this press, so a second one
+            # reads the runs the first did not plan for.
+            #
+            # ASKED UNDER THE WRITE LOCK, AND HELD UNTIL THE JOB IS WRITTEN. Two presses a
+            # moment apart run on two threads of this engine, and so does the crawl's
+            # chain. Asked without the lock, each can hear "nothing is waiting" before the
+            # other has written its job, and both write one. `BEGIN IMMEDIATE` makes the
+            # second asker wait for the first to commit, so it hears the truth.
+            # `create_job` commits; a refusal leaves it to `conn.close()`, which rolls
+            # back.
+            if job_kind == datasetjob.JOB_KIND:
+                conn.execute("BEGIN IMMEDIATE")
+                for source_key in source_keys:
+                    waiting = datasetjob.waiting_interpretation(conn, source_key)
+                    if waiting:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"{waiting['job_ref']} is already waiting to interpret "
+                                   f"{source_key}, and it will read every stored run "
+                                   f"nobody has read, so a second one would read "
+                                   f"nothing new")
             job_ref = create_job(conn, source_keys, run_mode, checkpoint=checkpoint,
                                  job_kind=job_kind)
         finally:

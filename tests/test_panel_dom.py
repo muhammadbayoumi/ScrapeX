@@ -1720,6 +1720,76 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
     assert card.locator('[data-split-action="interpret"]').count() == 1
 
 
+
+def test_a_live_interpretation_withholds_both_badges_and_narrates_nothing(open_panel):
+    """THE FLAG WITHHOLDS, AND THAT IS ALL IT DOES.
+
+    "Interpret stored pages" is drawn from TWO producers: `interpret`, and
+    `profiles.rowless` when `profiles.fetch` is 0 -- the measured 469-rowless /
+    938-fetched state. The engine withholds only the first, so `interpretation_live` is
+    what stops the second offering a press an interpretation is already doing. Both are
+    armed here at once, with the flag raised.
+
+    AND NOTHING IS DRAWN IN THEIR PLACE. An earlier version replaced the badge with a
+    sentence about the running job's status, and across five review passes every such
+    sentence claimed a state the code was not in. What is running is shown by the
+    mini-player and the Jobs page, which already describe running jobs correctly.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {
+                **(row.get("work_waiting") or {}),
+                "interpret": {"crawl_finished_at": "2026-09-24T09:00:00Z",
+                              "interpreted_at": None},
+                "profiles": {"rowless": 469, "fetch": 0},
+                "interpretation_live": True,
+            }
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+    status = card.locator('[role="status"]')
+    said = status.text_content() if status.count() else ""
+
+    assert "Interpret stored pages" not in said, (
+        f"an interpretation is live and a badge still offers the press -- one of the two "
+        f"producers is not withheld: {said!r}")
+    for claim in ("under way", "paused", "not started", "stopping", "part-way",
+                  "one job at a time"):
+        assert claim not in said, (
+            f"the card narrates the running job ({claim!r}), which is the thing it was "
+            f"taken off it for: {said!r}")
+
+
+def test_the_interpret_control_comes_back_when_that_job_is_over(open_panel):
+    """THE OTHER SIDE OF THE SAME GATE, and without it the change is a switch that only
+    turns off. `interpretation_live` false must leave the badge and the control exactly as
+    they were -- otherwise one interpretation would silence this card permanently."""
+    from tools.panel_harness import STRESS_SOURCES
+
+    after = [dict(row) for row in STRESS_SOURCES]
+    for row in after:
+        if row.get("source_key") == "contractors":
+            row["work_waiting"] = {**(row.get("work_waiting") or {}),
+                                   "profiles": {"rowless": 469, "fetch": 0},
+                                   "interpretation_live": False}
+    page = open_panel(sources=after)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.locator('.dataset-card[data-open="contractors"]')
+
+    said = card.locator('[role="status"]').text_content()
+    assert "Interpret stored pages" in said, (
+        f"nothing is interpreting this source and the card offers no press: {said!r}")
+    assert "Interpretation under way" not in said
+    row = card.locator('[data-split-action="interpret"]')
+    assert row.count() == 1 and not row.is_disabled(), (
+        "the control stayed disabled after the interpretation was over")
+
+
 def test_a_card_with_nothing_waiting_says_nothing(open_panel):
     """A line that is always there is a line nobody reads. `work_waiting` absent or empty
     must draw no row at all -- the price-source cards in the stub carry neither."""
@@ -9224,3 +9294,44 @@ def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open
     assert "%" not in page.text_content("#mini-pct"), (
         f"a job with no denominator claimed a percentage: "
         f"{page.text_content('#mini-pct')!r}")
+
+
+def test_a_refused_interpretation_says_why_where_he_pressed(open_panel):
+    """THE ROW STAYS LIVE AND THE ROUTE REFUSES, SO THE REFUSAL'S OWN WORDS ARE ALL HE
+    GETS. `POST /api/jobs` answers 409 while an interpretation of the source is waiting
+    (issue 779). An earlier version disabled the row and wrote a reason on it, and that
+    reason was wrong for most of the statuses it was written over. So what he reads
+    after a refused press is the engine's detail, or nothing at all, and nothing at all
+    is a silent failure."""
+    page = open_panel(view="data")
+
+    seen = page.evaluate("""async () => {
+      const original = window.fetch;
+      let posted = null;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('/api/jobs') && options && options.method === 'POST') {
+          posted = JSON.parse(options.body);
+          return {ok: false, status: 409, statusText: 'Conflict',
+                  json: async () => ({detail: 'job_waiting is already waiting to '
+                    + 'interpret muqawil_org, and it will read every stored run nobody '
+                    + 'has read, so a second one would read nothing new'})};
+        }
+        return original(url, options);
+      };
+      try { await runSourceAction('interpret', 'contractors', 'muqawil_org'); }
+      finally { window.fetch = original; }
+      const box = document.getElementById('datasets-msg');
+      return {posted, said: box.textContent,
+              refused: Boolean(box.querySelector('span.err')),
+              view: currentViewName()};
+    }""")
+
+    assert seen["posted"] is not None and seen["posted"]["job_kind"] == "dataset_interpret", (
+        f"the press did not ask for an interpretation: {seen['posted']}")
+    assert "job_waiting" in seen["said"] and "read nothing new" in seen["said"], (
+        f"the route named the job that will do the reading and the card dropped it: "
+        f"{seen['said']!r}")
+    assert seen["refused"], "the refusal is not drawn as one"
+    assert seen["view"] == "data", (
+        "a refused press navigated to the Run screen, away from the only line saying why")
+

@@ -17,10 +17,12 @@ work; `vacancies` and `tenders` are named, unbuilt.
    fixing now becomes an issue, never a paragraph in a file — and what stopped being
    true is closed the moment it is found, a `HANDOVER` by the session that reads it.
    Never close a live finding to shorten the list.
-5. **One session merges.** Ask; default to not merging. Take it first —
-   `gh pr edit <n> --add-assignee @me`; an already-assigned PR is another session's. That
-   session rebases what it merges, and a conflict whose resolution picks a behaviour goes
-   back to the author.
+5. **One session merges, and one session works.** Ask; default to not merging. Claim it
+   before your first edit rather than before the merge — `gh pr edit <n> --add-assignee
+   @me`; an already-assigned PR is another session's, and unclaimed work is two sessions
+   spending a day each on one branch before either finds out. That session rebases what
+   it merges, and a conflict whose resolution picks a behaviour goes back to the
+   author.
 
 ## Preferences that decide close calls
 
@@ -121,7 +123,11 @@ work; `vacancies` and `tenders` are named, unbuilt.
 **Before every merge — green is not mergeable.** A change merges only when CI is green on
 the head it has right now — a recorded green expires — and a critical review over all four
 dimensions, with an adversary attacking what it found, returns no *must fix* and no
-*should fix*. Documentation-only changes are exempt, except this file. Run it, and every
+*should fix*. **That green is on a head rebased onto current `main`**, not merely on your
+newest commit: several sessions merge the same day, so a branch cut from an older `main`
+is green on a state that never ships. Rebase, wait for the new green, then merge — and
+read what the rebase did, because two changes that are each green alone can still be
+wrong together, and an edit both branches made identically is dropped in silence. Documentation-only changes are exempt, except this file. Run it, and every
 review he asks for, from the **`review` skill**: it carries the dimensions, the per-issue
 format, and the rules that decide the outcome.
 
@@ -129,6 +135,11 @@ format, and the rules that decide the outcome.
 
 **Never record findings, plans or progress in a repository markdown file.** Every kind of
 record, and every kind of question, has its command: the **`record-it` skill**.
+
+**A reference is not a record.** What a decision RESTS ON is in
+`docs/ENGINEERING-SOURCES.md` for the engine and `docs/DESIGN-SYSTEM-SOURCES.md` for the
+interface — cite the entry's key at the line it governs, and changing the rule means
+arguing with its source rather than with whoever wrote it.
 
 ## Four traps that cost an afternoon each
 

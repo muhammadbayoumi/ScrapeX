@@ -9,6 +9,11 @@ from `scrapex contractors --approve` and from nowhere else: no API route, no job
 control in the panel. `R-81` says the panel is his only interface, so a crawl of 6,713
 pages produced a harvest only a terminal could convert.
 
+ES-1: a pipeline stage is not a user step. See `docs/ENGINEERING-SOURCES.md`. The
+paragraph below is the argument this job exists at all; ES-1 is why the OWNER no longer
+starts it. `directoryjob` queues one when a listing crawl finishes, and every word below
+stays true of a queued job.
+
 WHY A JOB KIND RATHER THAN A STAGE OF THE CRAWL. Folding interpretation into the crawl was
 the cheaper answer and it is the wrong one: interpretation fails on its own terms -- a
 parser that cannot read a page, a schema that moved -- and a failure reported as the
@@ -293,6 +298,55 @@ def runs_to_interpret(conn: sqlite3.Connection,
     # from the ledger compares against -1 and is unread at any size; a ref that has grown
     # since it was read is unread again, which is the whole of the finding above.
     return [one for one in runs if one[1] > already.get(one[0], -1)]
+
+
+#: The statuses of an interpretation that has not yet planned what it will read.
+#:
+#: `run_dataset_interpret_job_once` computes `runs_to_interpret` once, when it starts, and
+#: writes PREPARING after. So a job still here plans later -- after any crawl that lands
+#: meanwhile -- and will read that crawl's pages. One in any other live status planned
+#: already, possibly before those pages existed, and cannot be relied on to read them.
+NOT_STARTED = frozenset({JobStatus.SCHEDULED.value, JobStatus.QUEUED.value})
+
+
+def waiting_interpretation(conn: sqlite3.Connection, source_key: str) -> dict | None:
+    """An interpretation of `source_key` that has not started, and so will read whatever
+    this source has stored by the time it does -- or `None`.
+
+    ONE QUESTION, TWO CALLERS, AND THEY MUST AGREE. The crawl's chain asks it to decide
+    whether to queue another interpretation; `POST /api/jobs` asks it to decide whether
+    to refuse one he pressed. If the two answered differently, a press the chain would
+    have skipped could still create a duplicate, or a crawl could queue one the route
+    would have refused -- so the rule lives here and both read it.
+
+    NOT "ANY LIVE INTERPRETATION". A running one planned its reading before this crawl's
+    pages existed, so a second one is not a duplicate: it reads the runs the first did
+    not plan for. And a paused one waits on him and never advances by itself, so counting
+    it would stop this source interpreting again until he acts.
+
+    NOR ONE THAT NAMES ITS RUN. A `checkpoint.run_ref` makes the runner read that one run
+    and nothing else -- *"A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS"* --
+    so it will not read this crawl's pages, and saying it will would be false. No caller
+    in this repository writes one for this kind today; the runner accepts it, so the rule
+    does not assume it away.
+    """
+    # NO WINDOW. `jobs.list_jobs` reads the newest N live jobs, so a waiting one older
+    # than N others would be missed in silence and a duplicate made. Only the kind and
+    # the status narrow this, and the rows they leave are the few not yet started.
+    #
+    # OLDEST FIRST: the worker takes the lowest `job_id` among queued jobs
+    # (`jobs.JobRunner._next_queued`), so of two waiting this one reads the pages, and
+    # its ref is what the refusal and the skip line print.
+    from . import jobs
+    marks = ",".join("?" for _ in NOT_STARTED)
+    for (ref,) in conn.execute(
+            f"SELECT job_ref FROM crawl_job WHERE job_kind = ? AND status IN ({marks}) "
+            "ORDER BY job_id", (JOB_KIND, *sorted(NOT_STARTED))).fetchall():
+        one = jobs.get_job(conn, ref)
+        if (one is not None and source_key in (one.get("source_keys") or [])
+                and not (one.get("checkpoint") or {}).get("run_ref")):
+            return one
+    return None
 
 
 def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
