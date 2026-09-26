@@ -583,8 +583,8 @@ jobs:
         # (#1153). In `scope` a red check would skip `test`, which needs `scope` --
         # and in the case this exists for, the ruleset deleted or disabled or the
         # repository made private, nothing is required any more, so that merge
-        # would be possible AND untested. Here a red check blocks whatever is still
-        # required, and `test` runs either way.
+        # would be possible AND untested. Here a red check blocks the merge while
+        # `contract-parity` is required, and `test` runs either way.
         #
         # LAST, for the same reason one level down: a red check skips nothing after
         # it, so the parity gate and both `node --test` suites have answered first.
