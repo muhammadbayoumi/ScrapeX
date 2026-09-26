@@ -273,8 +273,11 @@ def test_the_design_system_teaches_one_colour_choice():
     expected = [(re.search(r'label: "([^"]+)"', entry).group(1),
                  re.search(r'description: "([^"]+)"', entry).group(1)) for entry in registry.values()]
     gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
-    tiles = [re.search(r"<strong>([^<]+)</strong>\s*<small>([^<]+)</small>", tile).groups()
-             for tile in _live_markup(gallery).split('class="appearance-palette-tile"')[1:]]
+    # A tile is any element whose class list holds the component, in any order and
+    # beside its state classes (appearance.js adds is-active to the selected one).
+    tile = re.compile(r"""class=["'](?:[^"']*\s)?appearance-palette-tile(?:\s[^"']*)?["']""")
+    tiles = [re.search(r"<strong>([^<]+)</strong>\s*<small>([^<]+)</small>", markup).groups()
+             for markup in tile.split(_live_markup(gallery))[1:]]
     assert tiles == expected, f"the catalogue's colour tiles {tiles} are not the registry's {expected}"
     named = re.findall(r"\[\s*[\"']([a-z-]+)[\"']\s*,\s*\{", gallery)
     assert named, "the catalogue's palette example is gone, or its shape changed"
