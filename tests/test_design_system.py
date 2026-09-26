@@ -358,3 +358,75 @@ def test_a_missing_panel_fails_the_check(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(sync_tool, "PANEL", tmp_path / "app.html")
     with pytest.raises(FileNotFoundError):
         sync_tool.sync(check=True)
+
+
+def _root_tokens() -> dict[str, str]:
+    """design/tokens.css's `:root` declarations, with comments removed."""
+    css = re.sub(r"/\*.*?\*/", "", (ROOT / "design" / "tokens.css").read_text(encoding="utf-8"),
+                 flags=re.S)
+    start = css.index(":root {") + len(":root {")
+    depth, end = 1, start
+    while depth:
+        depth += {"{": 1, "}": -1}.get(css[end], 0)
+        end += 1
+    return dict(re.findall(r"(--[\w-]+)\s*:\s*([^;]+);", css[start:end - 1]))
+
+
+def _as_number(value: str) -> tuple[float, str] | None:
+    """A length or a time in one unit each (rem at 16px, s as ms), or None when the value
+    is anything else: a colour, a keyword, another var(), a calc()."""
+    found = re.fullmatch(r"(-?\d*\.?\d+)(px|rem|ms|s|%)?", value.strip())
+    if not found:
+        return None
+    number, unit = float(found.group(1)), found.group(2) or ""
+    return {"rem": (number * 16, "px"), "s": (number * 1000, "ms")}.get(unit, (number, unit))
+
+
+def test_every_fallback_says_what_its_token_says() -> None:
+    """`var(--x, v)` holds a second copy of --x's value, used only when --x is missing,
+    and nothing read it (#712). Four had drifted: two still said .875rem, the body size
+    before Supabase's ramp, where --fs and --fs-sm are 0.9375rem and 0.8125rem.
+
+    Numeric fallbacks only: a fallback that names another token or a keyword is a
+    deliberate different value, not a copy. The synced copies of design/ are skipped,
+    because their source is read and they are byte-equal to it.
+    """
+    from tools.sync_design_assets import ASSETS
+
+    tokens = _root_tokens()
+
+    def resolved(name: str, seen: frozenset[str] = frozenset()) -> str:
+        value = tokens[name].strip()
+        alias = re.fullmatch(r"var\((--[\w-]+)\)", value)
+        if alias and alias.group(1) in tokens and alias.group(1) not in seen:
+            return resolved(alias.group(1), seen | {name})
+        return value
+
+    copies = {copy for destinations in ASSETS.values() for copy in destinations}
+    compared, drifted = 0, []
+    for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui" / "static"):
+        for sheet in sorted(folder.rglob("*.css")):
+            if "vendor" in sheet.parts or sheet in copies:
+                continue
+            # Comments go, newlines stay, so a line number is the file's own.
+            css = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"),
+                         sheet.read_text(encoding="utf-8"), flags=re.S)
+            for found in re.finditer(r"var\(\s*(--[\w-]+)\s*,", css):
+                depth, end = 1, found.end()
+                while depth:
+                    depth += {"(": 1, ")": -1}.get(css[end], 0)
+                    end += 1
+                name, fallback = found.group(1), css[found.end():end - 1].strip()
+                if name not in tokens:
+                    continue
+                ours, theirs = _as_number(resolved(name)), _as_number(fallback)
+                if ours is None or theirs is None:
+                    continue
+                compared += 1
+                if ours != theirs:
+                    line = css.count("\n", 0, found.start()) + 1
+                    drifted.append(f"{sheet.relative_to(ROOT).as_posix()}:{line} "
+                                   f"var({name}, {fallback}) where {name} is {resolved(name)}")
+    assert compared >= 27, (
+        f"only {compared} numeric fallbacks were compared; the parse has stopped finding them")
+    assert not drifted, "fallbacks that disagree with their token:\n" + "\n".join(drifted)

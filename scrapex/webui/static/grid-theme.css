@@ -1669,7 +1669,7 @@
 .spec-list dd {
   margin: 0;
   text-align: end;
-  font-size: var(--fs, .875rem);
+  font-size: var(--fs, 0.9375rem);
   overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
@@ -1758,7 +1758,7 @@
   padding: var(--sp-2, .5rem) var(--sp-3, .75rem);
   background: var(--surface);
   border: var(--table-rule);
-  border-radius: var(--radius-sm, .375rem);
+  border-radius: var(--radius-sm, 0.25rem);
 }
 .file-name { font-weight: var(--fw-medium, 500); overflow-wrap: anywhere; }
 .file-meta { color: var(--muted); font-size: var(--fs-xs, .75rem); }
@@ -1821,7 +1821,7 @@
 .column-chooser-zone { margin-bottom: var(--sp-3, .75rem); }
 .column-chooser-zone > h3 {
   margin: 0 0 .1rem;
-  font-size: var(--fs-sm, .875rem);
+  font-size: var(--fs-sm, 0.8125rem);
 }
 .column-chooser-zone > p { margin: 0 0 var(--sp-1, .25rem); font-size: var(--fs-xs, .75rem); }
 .column-chooser-zone-body {
