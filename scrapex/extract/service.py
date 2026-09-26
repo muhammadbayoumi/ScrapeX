@@ -647,6 +647,13 @@ def approve_candidate(
         }
 
     kept_newer = 0
+    # ROWS THIS PAGE ACTUALLY CHANGED. `reparsed` below is a claim about VALUES -- "same
+    # page, different values, a parser that was corrected" -- and a page whose every row
+    # was refused as older changed none. The merge gate on #1178 found it reporting
+    # `1 re-parsed with new values` beside `4 row(s) kept their newer evidence`, with not
+    # one value written; on `main` the same pass printed 0, because the revision collision
+    # refused it first.
+    rewritten = 0
     for row_position, (row, record_key) in enumerate(
         zip(rows, record_keys, strict=True), start=1
     ):
@@ -692,6 +699,7 @@ def approve_candidate(
             continue
         record_id = int(written["generic_record_id"])
         if not unchanged:
+            rewritten += 1
             # A REVISION PER REAL CHANGE, which is what makes "when did this
             # classification change" answerable. `R-20`, and it is `SR-6` applied to
             # a directory instead of a price — *"an unchanged price is confirmed, not
@@ -732,7 +740,7 @@ def approve_candidate(
         # caller counting no-ops are asking different questions. `scrapex contractors
         # --approve` prints the recovered count out loud so a run that repaired nothing
         # cannot be mistaken for one that did; this is the other half of that report.
-        "reparsed": recovered is not None,
+        "reparsed": recovered is not None and rewritten > 0,
         # HOW MANY ROWS OF THIS PAGE WERE REFUSED BECAUSE THE RECORD ALREADY HOLDS A NEWER
         # PAGE. Zero on every page of a crawl read in capture order; above zero only when
         # older evidence is read after newer, which is the case the rule exists for.

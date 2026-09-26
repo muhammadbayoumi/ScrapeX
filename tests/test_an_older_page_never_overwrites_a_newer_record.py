@@ -209,16 +209,21 @@ def test_the_predicate_reads_capture_times_through_the_covering_index(conn):
 
 
 def test_a_record_whose_evidence_did_not_travel_is_still_written(conn):
-    """UNKNOWN IS ALLOWED, AND THE CASE IS NOT HYPOTHETICAL.
+    """UNKNOWN IS ALLOWED -- A FAIL-OPEN, NOT A CASE ANY PATH REACHES TODAY.
 
-    `generic_record.source_snapshot_id` is NOT NULL with a foreign key, so in one warehouse
-    the lookup always finds a page. But #665 records that `merge-warehouse` does not carry
-    every table between his two machines, and a record that arrives without its source page
-    has a freshness nobody can read. Refusing it would freeze that record for ever -- no
-    page could ever be proved newer than a page that is not there.
+    `generic_record.source_snapshot_id` is NOT NULL with a foreign key, snapshots are
+    immutable and never pruned, and `merge-warehouse` copies no `generic_record` rows at
+    all (`warehousemerge.py`). So no path in this repository can leave a record citing a
+    page that is not there. An earlier version of this docstring said a merge could; the
+    merge gate on #1178 read the merge and it cannot.
 
-    SIMULATED EXACTLY THAT WAY: the record's source page is made to point at nothing, with
-    the foreign key off for the one statement that does it, as a merge would leave it.
+    IT IS GUARDED ANYWAY, because the day some path does let a record outlive its page,
+    refusing would freeze that record for ever: no page can be proved newer than a page
+    that is not there. The rule refuses only what it can prove, and that has to hold in
+    the state nothing reaches yet.
+
+    SIMULATED BY HAND: the record's source page is made to point at nothing, with the
+    foreign key off for the one statement that does it.
     """
     base = listing_candidate(LISTING)
     newer = _captured(conn, "2026-09-12T05:32:37Z")
@@ -304,4 +309,56 @@ def test_a_pass_that_kept_nothing_says_nothing_about_it(monkeypatch, tmp_path):
     said = _approve_saying(monkeypatch, tmp_path, kept=0)
 
     assert "kept their newer evidence" not in said, said
+
+
+def test_a_re_read_whose_every_row_was_refused_is_not_called_a_re_parse(
+        conn, monkeypatch):
+    """A WRONG NUMBER IN HIS JOB LOG, and the merge gate found it on the walk this PR exists
+    for.
+
+    Job 157's pages were interpreted before, so reading them again after job 150's newer
+    Resume pages takes the RECOVERED path -- and there, `reparsed` was `recovered is not
+    None`, true whenever the page had been seen before. Every row refused as older, nothing
+    written, no revision added, and the pass printed `1 re-parsed with new values` beside
+    `4 row(s) kept their newer evidence`. On `main` the same pass printed 0: the revision
+    collision refused it first.
+
+    THE REAL `contractors.approve` AND THE REAL `approve_candidate`, on the real schema --
+    only the page reads are handed in, so the report under test is the one he sees.
+    """
+    import io
+    from contextlib import redirect_stdout
+    from types import SimpleNamespace
+
+    from scrapex import contractors
+
+    base = listing_candidate(LISTING)
+    older = _captured(conn, "2026-09-05T10:19:21Z")
+    newer = _captured(conn, "2026-09-12T05:32:37Z")
+    variants = {"OLDER": _saying(base, "OLDER"), "NEWER": _saying(base, "NEWER")}
+    plan = {"run-old": (older, "OLDER"), "run-new": (newer, "NEWER")}
+    directory = SimpleNamespace(
+        key="muqawil_org", display_name="Saudi Contractors Authority",
+        base_url="https://muqawil.org/", dataset_key="contractors",
+        identity_field="contractor_id", candidate=lambda en, ar: variants[en],
+        profiles=None)
+    monkeypatch.setattr(contractors, "_pairs", lambda c, d, run_ref, *, ids=(): {
+        URL: {"en": plan[run_ref], "ar": plan[run_ref]}})
+
+    def pass_over(ref: str) -> str:
+        said = io.StringIO()
+        with redirect_stdout(said):
+            contractors.approve(conn, directory, ref)
+        return said.getvalue()
+
+    pass_over("run-old")
+    pass_over("run-new")
+    before = _revisions(conn)
+    said = pass_over("run-old")
+
+    assert all(value.startswith("NEWER") for value in _values(conn)), _values(conn)[:3]
+    assert _revisions(conn) == before, "the refused re-read wrote history"
+    assert "0 re-parsed with new values" in said, (
+        f"a re-read that wrote no value was reported as a re-parse: {said}")
+    assert f"{len(base.rows)} row(s) kept their newer evidence" in said, said
 
