@@ -55,8 +55,7 @@
 .exports-search{display:flex;align-items:center;gap:var(--sp-2);min-width:0;
   padding-inline-start:var(--sp-3);border:1px solid var(--line);border-radius:var(--radius);
   background:var(--control-bg);color:var(--muted)}
-.exports-search:focus-within{border-color:var(--focus);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 18%,transparent)}
+.exports-search:focus-within{border-color:var(--focus);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .exports-search svg{flex:none;fill:currentColor}
 .exports-search input{min-width:0;border:0;background:transparent;box-shadow:none}
 .exports-search input:focus{outline:0}
@@ -75,8 +74,9 @@
 .exports-source-card:has(input:checked){border-color:var(--accent);
   background:color-mix(in srgb,var(--accent-weak) 50%,var(--surface));
   box-shadow:inset 3px 0 var(--accent)}
-.exports-source-card:has(input:focus-visible){outline:3px solid
-  color-mix(in srgb,var(--focus) 70%,transparent);outline-offset:2px}
+.exports-source-card:has(input:focus-visible){outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
+/* The ring is a shadow (#721), so the checked card's bar is composed with it. */
+.exports-source-card:has(input:checked):has(input:focus-visible){box-shadow:var(--focus-ring-gap),inset 3px 0 var(--accent)}
 .exports-source-card input[type=checkbox]{margin:0}
 .exports-source-check{display:grid;width:1.45rem;height:1.45rem;place-items:center;
   border-radius:50%;background:var(--chip);color:transparent}
@@ -98,8 +98,7 @@
 .exports-field-grid .field label{font-size:var(--fs-sm)}
 .exports-input-suffix{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;
   overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:var(--control-bg)}
-.exports-input-suffix:focus-within{border-color:var(--focus);
-  box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 18%,transparent)}
+.exports-input-suffix:focus-within{border-color:var(--focus);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .exports-input-suffix input{border:0;border-radius:0;box-shadow:none}
 .exports-input-suffix input:focus{outline:0}
 .exports-input-suffix span{align-self:stretch;display:grid;place-items:center;
