@@ -5709,10 +5709,24 @@ function waitingLine(s) {
   //                    `paused` ALONE, so `queued`, `scheduled`, `preparing`, `pausing`,
   //                    `cancelling` and `requires_review` all kept the working sentence.
   //
-  // `queued` IS THE COMMON CASE, not an edge: `crawl_parallel_sources` ships at 1
-  // (`scrapex/settings.py`), so the engine runs one job at a time and the interpretation
-  // a crawl queues waits behind it. Behind a fourteen-hour listing crawl that is hours
-  // of a card reporting work that has not begun.
+  // `queued` IS REACHABLE AND THE CARD MUST NOT GUESS WHY. An earlier version of this
+  // comment said the interpretation waits behind the crawl that queued it, and the copy
+  // below said "the engine runs one job at a time". Both were wrong, and the second was
+  // wrong three ways at once -- which is why the branch now states the status and stops.
+  //
+  //   the wait is NOT behind that crawl: `_finish(COMPLETED)` runs at
+  //   `scrapex/directoryjob.py:776` and the chain at :777, so the crawl is terminal
+  //   before the interpretation row exists, and `_reap_finished` runs before `_dispatch`
+  //   on every 0.5 s poll;
+  //   the number is a SETTING, not a constant -- `jobs.job_capacity` reads
+  //   `crawl_parallel_sources`, capped at 8, and his own value is recorded twice in this
+  //   repository as 3;
+  //   and `preparing` lands in this branch while HOLDING a slot, so waiting for one is
+  //   not its reason for anything.
+  //
+  // The panel already says the true thing twice, reading the number from the engine
+  // (`renderQueue`, `jobWaitingLine`). A third hardcoded opinion about one fact is the
+  // disagreement this row exists to end.
   //
   // `controlsFor` WAS THE WRONG READER and `HIS_MOVE` was there all along. It answers
   // "which buttons will the route honour" -- `["cancel"]` for `requires_review`, because
@@ -5724,10 +5738,14 @@ function waitingLine(s) {
     const ref = esc(busy.job_ref);
     rows.push(
       waitsOnHim(busy)
+        // `paused` DOES NOT MEAN IT RAN. `set_control` settles a job the worker is not
+        // holding immediately, so pausing a `queued` interpretation -- which this chain
+        // leaves after every crawl, with Pause offered on it -- writes `paused` with
+        // nothing read. "Stopped part-way" was false of exactly the job this PR creates.
         ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-          `<span class="muted"> · ${ref} stopped part-way and waits for you. Open the ` +
-          `Jobs page and press ${controlsFor(busy).includes("resume") ? "Resume" : "Cancel"}` +
-          ` on its row</span>`
+          `<span class="muted"> · ${ref} ${busy.read_so_far ? "stopped part-way and " : ""}` +
+          `waits for you. Open the Jobs page and press ` +
+          `${controlsFor(busy).includes("resume") ? "Resume" : "Cancel"} on its row</span>`
         : isMoving(busy)
           ? `<span class="badge">Interpretation under way</span>` +
             `<span class="muted"> · ${ref} is turning the stored pages into rows; ` +
@@ -5744,12 +5762,11 @@ function waitingLine(s) {
             ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
               `<span class="muted"> · ${ref} is stopping at its next safe boundary; ` +
               `nothing to press</span>`
-            // AND THE REST HAVE GENUINELY NOT BEGUN: `queued` and `scheduled` wait for
-            // a slot. Nothing here claims more than the status does -- which is what
-            // the two versions before it got wrong, in opposite directions.
+            // AND THE REST HAVE NOT BEGUN. That is the whole of what the payload
+            // knows, so it is the whole of what this says.
             : `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-              `<span class="muted"> · ${ref} has not started reading yet; the engine ` +
-              `runs one job at a time. Nothing to press</span>`);
+              `<span class="muted"> · ${ref} has not started reading yet; nothing to ` +
+              `press</span>`);
   }
   if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(

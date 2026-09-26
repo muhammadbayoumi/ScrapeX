@@ -1600,7 +1600,11 @@ def test_the_card_is_told_WHICH_job_is_interpreting_and_not_just_that_one_is(ser
     # things over a job that is working and one that waits on HIM. Over `paused` the
     # copy "is turning the stored pages into rows; nothing to press" was false three
     # ways, and the panel could not tell because it was sent a ref and nothing else.
-    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": status}, (
+    # `read_so_far` TRAVELS TOO, because `paused` does not mean the job ran. Pausing a
+    # `queued` interpretation -- the one this chain leaves after every crawl -- settles
+    # it on the spot with nothing read, and the card must not call that "part-way".
+    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": status,
+                                       "read_so_far": 0}, (
         f"the card is told the press is not owed and not what is doing it instead: "
         f"{waiting['interpreting']!r}. A badge that vanishes reads as 'nothing is owed', "
         f"and without the status the sentence it draws cannot be true for both states."
@@ -1636,7 +1640,8 @@ def test_the_interpreting_field_is_honest_before_any_crawl_has_finished(served):
                    if row.get("site_key") == SITE and row.get("work_waiting"))
 
     assert waiting["interpret"] is None
-    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": "running"}, (
+    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": "running",
+                                       "read_so_far": 0}, (
         f"no crawl has finished, an interpretation is running, and the card was told "
         f"nothing: {waiting!r}. `profiles.rowless` draws the same badge from outside "
         f"that block, so it would have gone on offering the press."
@@ -1705,7 +1710,8 @@ def test_the_card_names_the_NEWEST_interpretation_when_two_are_on_their_way(serv
     waiting = next(row["work_waiting"] for row in rows
                    if row.get("site_key") == SITE and row.get("work_waiting"))
 
-    assert waiting["interpreting"] == {"job_ref": "job_newer", "status": "queued"}, (
+    assert waiting["interpreting"] == {"job_ref": "job_newer", "status": "queued",
+                                       "read_so_far": 0}, (
         f"the card names {waiting['interpreting']!r}. With two on their way it must name "
         f"the newest -- the older one settles first and leaves the card pointing at a "
         f"job that is no longer there."

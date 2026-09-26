@@ -1067,9 +1067,20 @@ def test_the_queued_interpretation_says_why_it_exists_in_its_OWN_log(conn, monke
     queued = [row["job_ref"] for row in conn.execute(
         "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
     assert len(queued) == 1, queued
-    own = [row[0] for row in conn.execute(
-        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
-        (jobs.get_job(conn, queued[0])["job_id"],))]
+    # A SECOND CONNECTION, like its three siblings. `append_log` does not commit and
+    # the worker closes without one, so a line read back on the connection that wrote it
+    # proves nothing about what survives -- which is why
+    # `test_one_crawl_alone_commits_the_line_it_wrote` exists for the crawl's lines.
+    # This is the interpretation's OWN line, the one the whole chain is about, and it
+    # was the one of the four read on `conn`.
+    db_path = str(conn.execute("PRAGMA database_list").fetchone()[2])
+    reader = dbmod.connect(db_path)
+    try:
+        own = [row[0] for row in reader.execute(
+            "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+            (jobs.get_job(conn, queued[0])["job_id"],))]
+    finally:
+        reader.close()
 
     assert own, (
         f"the interpretation {queued[0]} opens with an empty log, and it is the pane the "

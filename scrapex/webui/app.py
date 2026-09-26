@@ -830,7 +830,7 @@ def create_app(
         # (`scrapex/datasetjob.py:217`), so it reads the newest run rather than its own.
         marks_j = ",".join("?" for _ in TERMINAL_JOB_STATUSES)
         on_its_way = general.execute(
-            "SELECT job_ref, status FROM crawl_job "
+            "SELECT job_ref, status, progress_done FROM crawl_job "
             f" WHERE job_kind = ? AND source_keys LIKE ? "
             f"   AND status NOT IN ({marks_j}) "
             # NEWEST FIRST, AND THIS PR IS WHAT MAKES TWO LIKELY. A source can hold more
@@ -850,8 +850,14 @@ def create_app(
             # `extension/jobsview.js` already owns that distinction -- `controlsFor`
             # returns `["resume", "cancel"]` for `paused` -- so the panel reads it there
             # rather than growing a second opinion beside it.
+            # AND WHETHER IT EVER READ ANYTHING. `set_control` settles a job the
+            # worker is NOT holding on the spot, so PAUSE on a `queued` interpretation
+            # writes `paused` with `progress_done` still 0 -- and this chain leaves a
+            # `queued` interpretation after every crawl, with the player offering Pause
+            # on it. Without this the card said that job "stopped part-way".
             waiting["interpreting"] = {"job_ref": on_its_way[0],
-                                       "status": on_its_way[1]}
+                                       "status": on_its_way[1],
+                                       "read_so_far": on_its_way[2] or 0}
         # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
         # is issue 782's filter in the other place. This check asked "has a LISTING crawl
         # finished since the last interpretation?", so a profile sweep finishing with 938

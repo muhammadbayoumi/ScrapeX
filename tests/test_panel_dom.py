@@ -1721,9 +1721,11 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
 
 
 @pytest.mark.parametrize("status, expected", [
-    # THE STATE THIS PR MANUFACTURES, and the one it lasts longest in:
-    # `crawl_parallel_sources` ships at 1, so the interpretation a crawl queues waits
-    # behind that crawl. Behind a fourteen-hour listing crawl that is hours.
+    # THE STATE THIS PR MANUFACTURES. How LONG it lasts is not something this file
+    # knows and an earlier version of this comment guessed: the crawl is already
+    # terminal when the chain runs (`_finish` at scrapex/directoryjob.py:776, the chain
+    # at :777), so the interpretation never waits behind it. It waits only on whatever
+    # else holds a slot, and `job_capacity` is a setting.
     ("queued", "has not started reading yet"),
     ("scheduled", "has not started reading yet"),
     ("preparing", "has not started reading yet"),
@@ -1785,6 +1787,14 @@ def test_an_interpretation_under_way_replaces_the_badge_rather_than_removing_it(
     assert "Interpret stored pages" not in said, (
         f"an interpretation is already running and the card still offers the press. "
         f"Pressing it makes a second job reading the same pages: {said!r}")
+    # AND WHAT IT MUST NOT SAY. Asserting only that the true sentence is present let
+    # a mutation put "the engine runs one job at a time" straight back beside it, and
+    # every assertion here still passed -- the substring was there, the false claim was
+    # there too. That clause was wrong three ways: the crawl is terminal before the
+    # interpretation exists, `job_capacity` is a setting and his is 3, and `preparing`
+    # holds a slot rather than waiting for one.
+    assert "one job at a time" not in said, (
+        f"the card states a concurrency it cannot know: {said!r}")
     assert expected in said, (
         f"a {status} interpretation is described as {said!r}. Only `running` and "
         f"`resuming` are turning pages into rows; the rest have not begun.")
@@ -9369,8 +9379,9 @@ def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open
 
 @pytest.mark.parametrize("status, control", [("paused", "Resume"),
                                              ("requires_review", "Cancel")])
+@pytest.mark.parametrize("read_so_far", [0, 120])
 def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(
-        open_panel, status, control):
+        open_panel, status, control, read_so_far):
     """THE SENTENCE WAS FALSE THREE WAYS OVER A PAUSED JOB.
 
     `interpreting` is set for any non-terminal interpretation, which includes `paused` --
@@ -9399,7 +9410,13 @@ def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(
                 # `controlsFor` as "waits on him" put `requires_review` in the working
                 # branch here while `statusTone` gave it the waiting tone one screen
                 # over, and no test could see it because none drove that status.
-                "interpreting": {"job_ref": "job_halfway", "status": status},
+                # `read_so_far` IS DRIVEN BOTH WAYS. `set_control` settles a job the
+                # worker is NOT holding on the spot, so pausing the `queued`
+                # interpretation this chain leaves after every crawl writes `paused`
+                # with nothing read. The card said that job "stopped part-way", and no
+                # test could see it because none paused a job before it ran.
+                "interpreting": {"job_ref": "job_halfway", "status": status,
+                                 "read_so_far": read_so_far},
             }
     page = open_panel(sources=after)
     page.click(DATA_TAB)
@@ -9416,6 +9433,14 @@ def test_a_PAUSED_interpretation_says_it_is_paused_and_names_resume(
         f"{said!r}")
     assert control in said and "job_halfway" in said, (
         f"it does not name the control that moves it, or the job: {said!r}")
+    if read_so_far:
+        assert "part-way" in said, (
+            f"{read_so_far} pages were read and the card does not say it stopped "
+            f"part-way: {said!r}")
+    else:
+        assert "part-way" not in said, (
+            f"nothing was read -- this job was paused before it started -- and the card "
+            f"says it stopped part-way: {said!r}")
 
     row = card.locator('[data-split-action="interpret"]')
     assert row.is_disabled(), "the press is still offered beside a paused job"
