@@ -342,34 +342,35 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     asked = (job.get("checkpoint") or {}).get("run_ref")
     # A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS, and it reads that run
     # whether or not the ledger holds it -- which is what asking for it by name means.
-    #
-    # OTHERWISE, ISSUE 823. `runs_to_interpret` REFUSES a source that has never stored a
-    # page, and returns an empty list for one whose every run is already read -- so "no
-    # crawl yet" and "nothing new" stay two different answers with two different
-    # outcomes, a refusal and a green no-op.
-    plan = ([(asked, _rows_under(conn, source_key, asked))] if asked
-            else runs_to_interpret(conn, source_key))
-    if not plan:
-        # NOTHING NEW IS NOT NOTHING AT ALL, and after this change it is the COMMON path:
-        # every press after the first finds the ledger already holding every stored run.
+    rereads_newest: tuple[str, int] | None = None
+    if asked:
+        plan = [(asked, _rows_under(conn, source_key, asked))]
+    else:
+        # EVERY RUN NOBODY HAS READ, oldest first -- issue 823. `runs_to_interpret`
+        # REFUSES a source that has never stored a page, so "no crawl yet" stays a
+        # refusal that tells him to run one.
+        plan = runs_to_interpret(conn, source_key)
+        # AND THE NEWEST RUN ALWAYS, read or not. THE OWNER RULED THIS, 2026-09-26, after
+        # the fourth gate pass found the ledger had closed a door `main` left open.
         #
-        # THE GATE FOUND THIS SAYING `interpreting the stored pages of . Nothing is
-        # fetched` -- an empty ref in the middle of a sentence -- and then finishing
-        # COMPLETED at 0 of 0, which `NothingToInterpret`'s own docstring names as the
-        # outcome to refuse: *"A job that interpreted nothing and finished green is
-        # indistinguishable from one that interpreted everything."* It is a true no-op, so
-        # it completes rather than fails; what it owes him is a sentence that says so.
-        already = len(interpreted_runs(conn, source_key))
-        jobs.append_log(
-            conn, job["job_id"],
-            f"{directory.display_name}: every stored run has already been interpreted "
-            f"— {already:,} of them — so there is nothing new to read. Nothing was "
-            "fetched and nothing was written", source_key=source_key)
-        jobs._update(conn, job["job_id"], progress_done=0, progress_total=0,
-                     current_source_key=source_key, last_heartbeat_at=utc_now_iso(),
-                     **({} if job["started_at"] else {"started_at": utc_now_iso()}))
-        jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
-        return jobs.get_job(conn, job_ref)
+        # A retired run is never offered again, so a parser FIXED after it was read has no
+        # press that reaches its pages -- and this module's history is a parser growing:
+        # issue 782 (profile pages the selection could not see), issue 823 itself (the mark
+        # shipped after its run had been interpreted five times), and `_pairs`' locale
+        # branch (every stored page skipped, *"a full sweep interpreted to zero rows while
+        # reporting success"*). `main` re-read the newest run on every press, which is the
+        # one guarantee a parser fix ever had. Keeping it costs one re-read of the newest
+        # run per press -- two page pairs on his warehouse on the day of the ruling.
+        #
+        # OLDER RUNS STAY RETIRED, and reaching them after a parser fix is its own
+        # question, filed rather than half-answered here.
+        #
+        # APPENDED LAST, because it is the newest: the walk stays oldest first, so the
+        # freshest evidence is still the last thing written.
+        newest = latest_crawl_run_ref(conn, source_key)
+        if newest[0] not in {ref for ref, _rows in plan}:
+            plan.append(newest)
+            rereads_newest = newest
 
     run_ref = plan[0][0]
     pages = sum(one[1] for one in plan)
@@ -395,6 +396,14 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # pairs it will actually read, and the two shared this line's wording.
         + (f" — {pages:,} stored reading(s) on disk" if pages else "")
         + ". Nothing is fetched", source_key=source_key)
+    if rereads_newest is not None:
+        # SAID, BECAUSE OTHERWISE IT READS AS THE LEDGER FAILING. A run the record already
+        # holds, read again on every press, looks like a defect unless the job says why.
+        jobs.append_log(
+            conn, job["job_id"],
+            f"{rereads_newest[0]} was already interpreted and is read again: the newest "
+            "run is read on every press, so a corrected parser reaches its pages",
+            source_key=source_key)
     conn.commit()
 
     done = {"pairs": 0, "total": 0}

@@ -670,9 +670,11 @@ def test_an_older_run_nobody_read_is_interpreted_even_though_a_newer_one_is_done
         f"the run holding the evidence was never read: {fake.refs}. This is the defect "
         f"exactly -- the newest run is read, the older one is not, and the 37 stay in "
         f"the number for ever")
-    assert "job-job_two_pages" not in fake.refs, (
-        f"a run an earlier interpretation already read to the end was read again, so "
-        f"every press pays for all of the evidence instead of what is new: {fake.refs}")
+    # AND THE NEWEST IS READ TOO, AFTER IT, by the owner's ruling of 2026-09-26: the
+    # newest run is read on every press so a corrected parser reaches it. Oldest first
+    # still holds, so the freshest evidence is the last thing written.
+    assert fake.refs == ["job-job_holds_the_37", "job-job_two_pages"], (
+        f"the older unread run was not read before the newest: {fake.refs}")
 
 
 def test_the_walk_goes_oldest_first_so_the_freshest_page_is_written_last(
@@ -854,18 +856,17 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
         f"writes an older page over a newer row")
 
 
-def test_a_press_with_nothing_new_says_so_instead_of_interpreting_nothing(
+def test_a_press_with_nothing_new_reads_only_the_newest_run_and_says_why(
         conn, monkeypatch):
-    """AFTER THIS CHANGE THIS IS THE COMMON PATH -- every press after the first.
+    """EVERY PRESS AFTER THE FIRST, and the owner ruled what it does, 2026-09-26: it reads
+    the newest run again -- so a corrected parser reaches it -- and nothing older.
 
-    The gate found it logging `interpreting the stored pages of . Nothing is fetched`,
-    an empty ref in the middle of a sentence, and then finishing COMPLETED at 0 of 0.
-    `NothingToInterpret`'s own docstring names that outcome as the one to refuse: *"A job
-    that interpreted nothing and finished green is indistinguishable from one that
-    interpreted everything."*
+    The branch that used to answer this finished COMPLETED at 0 of 0 with `interpreting
+    the stored pages of . Nothing is fetched`. The ruling makes an empty plan impossible
+    while any run exists, so that branch is gone rather than left unreachable.
 
-    It is a true no-op, so it completes rather than fails. What it owes him is a sentence
-    that says which of the two happened.
+    WHAT THE JOB OWES HIM IS THE REASON. A run the ledger already holds, read again on
+    every press, reads as the ledger failing unless the job says why.
     """
     fake = _Interpreter(pairs=2)
     monkeypatch.setattr(contractors, "approve", fake)
@@ -878,18 +879,17 @@ def test_a_press_with_nothing_new_says_so_instead_of_interpreting_nothing(
     found = datasetjob.run_dataset_interpret_job_once(conn, ref)
 
     assert found["status"] == JobStatus.COMPLETED.value, found
-    assert fake.refs == [], f"it re-read runs the ledger already holds: {fake.refs}"
+    assert fake.refs == ["job-job_two"], (
+        f"a press with nothing new read something other than the newest run alone: "
+        f"{fake.refs}")
     said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
-    assert "every stored run has already been interpreted" in said, (
-        f"the job does not say why it read nothing, so it is indistinguishable from an "
-        f"interpretation of everything: {said}")
-    assert "2 of them" in said, (
-        f"it does not say how much has already been read: {said}")
+    assert "job-job_two was already interpreted and is read again" in said, (
+        f"the job re-read a run the ledger holds and did not say why: {said}")
+    assert "a corrected parser reaches its pages" in said, (
+        f"the reason is missing, so the re-read reads as a defect: {said}")
     # AND THE BROKEN SENTENCE MAY NOT COME BACK. An empty ref reads as a missing word.
     assert "stored pages of ." not in said, (
         f"the opening line names an empty run ref: {said}")
-    assert "page pair(s) read from disk" not in said, (
-        f"it reported a read that did not happen: {said}")
 
 
 # ---- what the merge gate's mutation sweep found unwatched ---------------------
@@ -1072,10 +1072,12 @@ def test_a_run_that_GREW_after_it_was_read_is_read_again(conn, monkeypatch):
         f"the ledger did not move to the size it has now read: "
         f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
 
-    # AND IT SETTLES. A third press with nothing new added reads nothing.
-    fake.refs.clear()
-    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
-    assert fake.refs == [], f"a run that has not grown was read again: {fake.refs}"
+    # AND THE LEDGER SETTLES. Nothing is unread once the grown run is read at its new
+    # size. (A press would still read it -- it is the newest, and the owner ruled that
+    # the newest is read on every press -- which is why this asks the ledger, not a press.)
+    assert datasetjob.runs_to_interpret(conn, "muqawil_org") == [], (
+        f"a run read at its full size is still offered as unread: "
+        f"{datasetjob.runs_to_interpret(conn, 'muqawil_org')}")
 
 
 def test_the_ledger_moves_UP_to_the_largest_size_read_never_down(conn, monkeypatch):
@@ -1202,4 +1204,62 @@ def test_a_ref_asked_for_by_name_records_the_size_it_actually_held(conn, monkeyp
     conn.commit()
     datasetjob.run_dataset_interpret_job_once(conn, other)
     assert datasetjob.interpreted_runs(conn, "muqawil_org")["job-invented-by-hand"] == 0
+
+
+def test_a_corrected_parser_reaches_the_newest_run_on_the_next_press(conn, monkeypatch):
+    """THE OWNER'S RULING, 2026-09-26, AND THE REASON FOR IT.
+
+    The fourth gate pass demonstrated the door the ledger closed: a parser that reads
+    nothing retires the run at its full size, the parser is fixed, and the next press
+    hands the fixed parser NOTHING -- so the fix reaches no stored page. `main` re-read the
+    newest run on every press, which was the one guarantee a parser fix ever had.
+    """
+    class _Blind(_Interpreter):
+        def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
+            self.refs.append(run_ref)
+            self.run_ref = run_ref
+            contractors.say(f"approve {run_ref}: 0 page pair(s) to interpret")
+            contractors.say("approved 0 page(s)")
+
+    blind = _Blind()
+    monkeypatch.setattr(contractors, "approve", blind)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    assert blind.refs == ["job-job_one"] and blind.seen == 0
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}, (
+        "precondition: the blind pass retired the run at its full size")
+
+    fixed = _Interpreter(pairs=4)
+    monkeypatch.setattr(contractors, "approve", fixed)
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert fixed.refs == ["job-job_one"], (
+        f"the parser was corrected and the next press did not reach the pages it failed "
+        f"on: {fixed.refs}")
+    assert fixed.seen == 4, f"the corrected parser was handed nothing: {fixed.seen}"
+
+
+def test_only_the_NEWEST_is_read_again_an_older_read_run_stays_retired(
+        conn, monkeypatch):
+    """THE RULING HAS A LIMIT, AND THE LIMIT IS THE LEDGER'S WHOLE POINT.
+
+    "The newest run always" must not drift into "every run always": that is the version
+    he was not offered, and on his warehouse it is ~3,309 page pairs and ~20 minutes on
+    every press -- repeated for every crawl, now that a crawl queues its own
+    interpretation. Older runs stay retired; reaching them after a parser fix is filed
+    as its own question.
+    """
+    fake = _Interpreter(pairs=1)
+    monkeypatch.setattr(contractors, "approve", fake)
+    for name in ("job_one", "job_two", "job_three"):
+        _a_crawl_that_stored(conn, name, pages=4)
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+    assert fake.refs == ["job-job_one", "job-job_two", "job-job_three"]
+
+    fake.refs.clear()
+    datasetjob.run_dataset_interpret_job_once(conn, _queue(conn))
+
+    assert fake.refs == ["job-job_three"], (
+        f"runs older than the newest were read again, so every press pays for the whole "
+        f"warehouse: {fake.refs}")
 
