@@ -160,7 +160,7 @@ def test_the_inset_form_paints_no_gap():
     spread outside a control that sits flush in a container, so each inset rule clears it."""
     found = _focus_declarations()
     insets = _insets(found)
-    assert len(insets) >= 12, sorted(insets)
+    assert len(insets) >= 16, sorted(insets)
     cleared = {selector for _where, selector, prop, value in found if prop == "box-shadow" and value == "none"}
     assert not insets - cleared, f"inset rules that leave the gap painted: {sorted(insets - cleared)}"
 

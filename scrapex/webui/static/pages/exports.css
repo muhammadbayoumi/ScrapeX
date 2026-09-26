@@ -142,6 +142,8 @@
 .exports-last-details dd{margin-top:var(--sp-1)}
 .exports-last-wide{grid-column:1/-1}
 .exports-advanced{overflow:hidden}
+/* Inset (#721): the card clips, so a ring outside its summary would not show. */
+.exports-advanced summary:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width));box-shadow:none}
 .exports-advanced summary{display:flex;align-items:center;justify-content:space-between;
   gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);color:var(--text);
   font-weight:var(--fw-medium);cursor:pointer;list-style:none}

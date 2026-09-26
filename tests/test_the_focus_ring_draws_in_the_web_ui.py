@@ -77,5 +77,5 @@ def test_every_control_on_every_page_draws_the_ring(webui):
         seen[key] += value
     assert seen["controls"] >= 300, seen
     assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
-    assert not seen["clipped"], f"controls whose ring is cut off on every side: {seen['clipped']}"
+    assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
