@@ -223,10 +223,10 @@ test("two sources keep the count, because no one kind covers them", () => {
 
 test("on the Data tab the handoff redraws the card, not only the Run list", async () => {
   // `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
-  // DATASET CARD is drawn by `loadDatasets`, whose only callers are `showView("data")`
+  // DATASET CARD is drawn by `loadDatasets`, whose only callers were `showView("data")`
   // and the pause action -- so with the Data tab open and nothing navigating, the card
-  // kept the row count it had BEFORE the crawl, went on saying "Interpretation under
-  // way" after that job ended, and kept its Interpret row disabled.
+  // kept the row count it had BEFORE the crawl, and kept withholding its "Interpret
+  // stored pages" badge after the interpretation that withheld it had ended.
   //
   // That stale row count is the exact complaint this whole feature exists for,
   // reappearing on the surface the feature added.

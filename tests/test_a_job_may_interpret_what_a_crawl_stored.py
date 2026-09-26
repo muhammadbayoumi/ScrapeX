@@ -1400,8 +1400,8 @@ def test_the_refusal_is_about_interpretations_and_nothing_else(tmp_path):
 
 def test_another_sources_interpretation_does_not_refuse_this_one(tmp_path):
     """The refusal is per SOURCE. One source waiting to be interpreted is no reason to
-    refuse interpreting another -- and `source_keys LIKE` matching, had the rule used it,
-    would match a key that merely CONTAINS this one."""
+    refuse interpreting another, and the other key here begins with this one, so a rule
+    that matched by prefix would refuse it."""
     client, db_path = _panel(tmp_path)
     _interpretation_in(db_path, "queued", source="muqawil_org_archive")
 
