@@ -172,7 +172,8 @@ def latest_crawl_run_ref(conn: sqlite3.Connection, source_key: str) -> tuple[str
     return runs[-1]
 
 
-def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
+def interpreted_runs(conn: sqlite3.Connection,
+                     source_key: str) -> dict[str, int]:
     """What each run held the last time an interpretation read it to the end.
 
     A REF IS NOT A UNIT OF "READ", AND THE SECOND GATE PASS FOUND THAT OUT. A run ref
@@ -218,6 +219,15 @@ def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
             (JOB_KIND, f'%"{source_key}"%')):
         try:
             done = (json.loads(row[0] or "{}") or {}).get("runs_read") or []
+            # PARSED INSIDE THE GUARD, NOT AFTER IT. The shaping below used to sit
+            # outside, so a `runs_read` holding a number raised `TypeError` past this
+            # `except` and killed the whole source's ledger -- while the two sentences
+            # below promised the opposite. A value no writer in this repo can produce is
+            # still a value the ledger must survive, because its blast radius is every
+            # run of that source, permanently, with no panel route to clear it.
+            pairs = (((str(ref), int(rows or 0)) for ref, rows in done.items())
+                     if isinstance(done, dict) else ((str(ref), 0) for ref in done))
+            pairs = list(pairs)
         except (TypeError, ValueError, AttributeError):
             # A CHECKPOINT THAT WILL NOT PARSE IS NOT A REASON TO RE-READ NOTHING.
             # Unreadable means unknown, and unknown runs are read again.
@@ -227,10 +237,6 @@ def interpreted_runs(conn: sqlite3.Connection, source_key: str) -> set[str]:
             # then raises on `.get` -- and the two words above promised a robustness the
             # two exception types did not deliver.
             continue
-        if isinstance(done, dict):
-            pairs = ((str(ref), int(rows or 0)) for ref, rows in done.items())
-        else:
-            pairs = ((str(ref), 0) for ref in done)
         for ref, rows in pairs:
             # THE LARGEST READ WINS across jobs, because two jobs may each have read the
             # same ref at different sizes and the question is what has been covered.
@@ -341,7 +347,8 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     # page, and returns an empty list for one whose every run is already read -- so "no
     # crawl yet" and "nothing new" stay two different answers with two different
     # outcomes, a refusal and a green no-op.
-    plan = [(asked, 0)] if asked else runs_to_interpret(conn, source_key)
+    plan = ([(asked, _rows_under(conn, source_key, asked))] if asked
+            else runs_to_interpret(conn, source_key))
     if not plan:
         # NOTHING NEW IS NOT NOTHING AT ALL, and after this change it is the COMMON path:
         # every press after the first finds the ledger already holding every stored run.
@@ -480,11 +487,14 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # RECORDED AFTER THE RUN, NOT BEFORE, and committed on its own: a walk that
         # fails on run 7 keeps runs 1 to 6 out of the next walk, and run 7 in it.
         #
-        # THE SIZE IS RE-READ RATHER THAN TAKEN FROM THE PLAN, because a crawl resuming
-        # under this same ref may have stored more pages while the walk was working. What
-        # this pass can honestly claim to have covered is what `approve` saw, and the
-        # count at the START of the run is the safe under-statement of it: over-stating
-        # would retire pages nobody read.
+        # THE SIZE IS THE PLAN'S, WHICH IS THE COUNT AT THE START OF THE RUN, and that
+        # is deliberate: a crawl resuming under this same ref may have stored more pages
+        # while the walk was working, so a count taken now would retire pages `approve`
+        # never saw. Under-stating costs one re-read; over-stating buries evidence.
+        #
+        # (An earlier version of this comment opened by claiming the size is RE-READ here.
+        # It is not, and it never was -- `_rows` is unpacked from `plan`. The rest of the
+        # paragraph argued for the plan's value while its first clause denied it.)
         read_to_the_end[ref] = _rows
         _remember_runs_read(conn, job["job_id"], read_to_the_end)
         # THE EARLIER RUNS' PAGES STAY COUNTED. `page_closed` writes this job's total
@@ -506,6 +516,18 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
                  progress_total=walked["pairs"])
     jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
     return jobs.get_job(conn, job_ref)
+
+
+def _rows_under(conn: sqlite3.Connection, source_key: str, ref: str) -> int:
+    """What `runs_holding_pages` says this ref holds, or 0 when it names no known run.
+
+    A REF ASKED FOR BY NAME IS STILL A RUN THAT WAS READ, and recording it at size 0 left
+    it permanently unread: correct in that it is never retired wrongly, wrong in that a
+    by-name press then buys nothing for the ledger. Zero for a ref no collecting job
+    stored under -- an operator may name anything, and the honest record of a size nobody
+    can count is none.
+    """
+    return dict(runs_holding_pages(conn, source_key)).get(ref, 0)
 
 
 def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
@@ -542,8 +564,8 @@ def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
     # `job-job_925080aad843` (7,934 rows) and `job-job_6eb28381bf56` (6,713) -- 14,647 of
     # 17,627 -- and the next press applies both over everything newer.
     #
-    # ORDER-PRESERVING UNION rather than a set, so the record still reads in the order
-    # the runs were walked. `interpreted_runs` takes a set of it either way.
+    # THE LARGER SIZE WINS, per ref. A record that can shrink never settles: the run is
+    # offered again for ever, and every press pays for it.
     stored = held.get("runs_read") or {}
     if not isinstance(stored, dict):
         stored = {str(one): 0 for one in stored}

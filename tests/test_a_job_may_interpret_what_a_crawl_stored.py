@@ -1141,3 +1141,65 @@ def test_a_ledger_written_in_the_older_LIST_shape_retires_nothing(conn, monkeypa
     assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}, (
         "the re-read did not upgrade the sizeless record, so it never heals")
 
+
+def test_a_ledger_value_no_writer_can_produce_still_leaves_the_source_readable(conn):
+    """THE GUARD PROMISED THIS AND DID NOT DELIVER IT.
+
+    The shaping of `runs_read` used to sit OUTSIDE the `try`, so a value holding a number
+    raised `TypeError` past the `except` and killed the whole source's ledger -- while the
+    two sentences beside it promised *"Unreadable means unknown, and unknown runs are read
+    again."*
+
+    No writer in this repo can produce these: `_remember_runs_read` always writes `int`,
+    and no panel route sets `runs_read`. They are guarded anyway because the blast radius
+    is every run of that source, permanently, with no control that can clear it.
+    """
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    for payload in ('{"runs_read": 5}', '{"runs_read": true}',
+                    '{"runs_read": {"job-job_one": "many"}}',
+                    '{"runs_read": {"job-job_one": [4]}}',
+                    '{"runs_read": {"job-job_one": null}}',
+                    '{"runs_read": {"job-job_one": -3}}'):
+        ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                              job_kind=datasetjob.JOB_KIND)
+        conn.execute("UPDATE crawl_job SET checkpoint_json = ? WHERE job_ref = ?",
+                     (payload, ref))
+        conn.commit()
+
+        # IT MUST NOT RAISE, and the run must still be offered.
+        datasetjob.interpreted_runs(conn, "muqawil_org")
+        assert [one[0] for one in datasetjob.runs_to_interpret(conn, "muqawil_org")] == [
+            "job-job_one"], f"{payload} retired a run nobody read"
+
+        conn.execute("UPDATE crawl_job SET checkpoint_json = NULL WHERE job_ref = ?",
+                     (ref,))
+        conn.commit()
+
+
+def test_a_ref_asked_for_by_name_records_the_size_it_actually_held(conn, monkeypatch):
+    """A BY-NAME PRESS IS STILL A READ, and recording it at size 0 left the run
+    permanently unread -- never retired wrongly, but buying the ledger nothing.
+    """
+    fake = _Interpreter(pairs=2)
+    monkeypatch.setattr(contractors, "approve", fake)
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                          job_kind=datasetjob.JOB_KIND,
+                          checkpoint={"run_ref": "job-job_one"})
+    conn.commit()
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    assert fake.refs == ["job-job_one"]
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}, (
+        f"a by-name read recorded a size the run never held: "
+        f"{datasetjob.interpreted_runs(conn, 'muqawil_org')}")
+    # AND A REF NO COLLECTING JOB STORED UNDER RECORDS NOTHING, because a size nobody can
+    # count is not a size.
+    other = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                            job_kind=datasetjob.JOB_KIND,
+                            checkpoint={"run_ref": "job-invented-by-hand"})
+    conn.commit()
+    datasetjob.run_dataset_interpret_job_once(conn, other)
+    assert datasetjob.interpreted_runs(conn, "muqawil_org")["job-invented-by-hand"] == 0
+
