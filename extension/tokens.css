@@ -310,6 +310,16 @@
      inside, not against the page. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
+  /* ONE FOCUS RECIPE (#721), Supabase's two utilities (packages/config/css/
+     utilities.css@86c813ec:196-208). `focus-ring` is the ring at its offset with the
+     offset PAINTED in the background (`ring-offset-background`): the outline draws the
+     ring and the shadow paints the gap. The ring is the outline, not the shadow, so a
+     control whose own box-shadow outranks the focus rule keeps its ring (only the gap
+     goes unpainted), and forced colours draw it in a system colour. `focus-inset` is
+     the same outline at minus its width, for a control flush inside a container that
+     clips. The colour is one token; #746 moves it to full strength. */
+  --focus-ring-color: color-mix(in srgb, var(--focus) 70%, transparent);
+  --focus-ring-gap: 0 0 0 var(--focus-ring-offset) var(--bg);
   --z-sticky: 10;
   --z-overlay: 20;
   --z-modal: 30;

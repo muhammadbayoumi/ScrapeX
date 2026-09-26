@@ -10,7 +10,7 @@
   border-radius:var(--radius);background:var(--accent-weak);color:var(--accent-ink);
   font:inherit;font-size:.8rem;font-weight:var(--fw-heavy);cursor:pointer}
 .dataset-menu-trigger:hover{background:color-mix(in srgb,var(--accent) 18%,transparent);filter:none}
-.dataset-menu-trigger:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.dataset-menu-trigger:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .dataset-menu-trigger svg{width:1.05rem;height:1.05rem;fill:currentColor}
 .dataset-menu-chevron{transition:transform var(--dur) var(--ease)}
 .dataset-menu[open] .dataset-menu-chevron{transform:rotate(180deg)}
@@ -32,7 +32,7 @@
   fill:var(--muted);transform:translateY(-50%);pointer-events:none}
 .dataset-search{display:block;width:100%;min-width:0!important;padding:.48rem .6rem .48rem 1.85rem;
   border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
-.dataset-search:focus{border-color:var(--accent);outline:2px solid var(--accent-weak)}
+.dataset-search:focus{border-color:var(--accent);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .dataset-result-count{display:block;margin-top:.45rem;color:var(--muted);font-size:.64rem}
 .dataset-list{min-height:0;padding:.38rem;overflow-y:auto;scrollbar-width:thin;
   scrollbar-color:var(--line) transparent}
@@ -112,7 +112,7 @@
 .data-source-overview-trigger{display:flex;align-items:center;justify-content:space-between;gap:1rem;
   min-height:3.35rem;padding:.68rem 1rem;color:var(--text);cursor:pointer;user-select:none}
 .data-source-overview-trigger:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}
-.data-source-overview-trigger:focus-visible{outline:2px solid var(--focus);outline-offset:-3px}
+.data-source-overview-trigger:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:calc(-1 * var(--focus-ring-width))}
 .data-source-overview-trigger-main,.data-source-overview-trigger-meta{display:flex;align-items:center;gap:.65rem;min-width:0}
 .data-source-overview-trigger-main>.sx-icon{width:1.15rem;height:1.15rem;flex:none;color:var(--accent-ink);fill:currentColor}
 .data-source-overview-trigger-main>span{display:grid;gap:.05rem;min-width:0}
@@ -194,6 +194,8 @@ a.data-source-status:hover{border-color:var(--accent);background:var(--accent-we
 .dataset-items a:hover{background:var(--accent-weak);color:var(--accent-ink);text-decoration:none}
 .dataset-items a[aria-current="page"]{background:var(--accent-weak);color:var(--accent-ink);
   box-shadow:inset 3px 0 var(--accent)}
+/* The ring is a shadow (#721), so the current item's bar is composed with it. */
+.dataset-items a[aria-current="page"]:focus-visible{box-shadow:var(--focus-ring-gap),inset 3px 0 var(--accent)}
 .saved-views-menu .field{display:grid;gap:.5rem;margin:0;padding:.8rem 1rem;border-top:1px solid var(--line)}
 .saved-views-menu .field input{width:100%;min-width:0;margin:0}
 .saved-views-menu .field button{width:100%;margin:0}
