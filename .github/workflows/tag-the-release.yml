@@ -42,11 +42,16 @@ concurrency:
 
 jobs:
   tag:
-    # A red `main` publishes nothing. `workflow_dispatch` carries no conclusion, so it is
-    # admitted explicitly rather than by the absence of a failure.
+    # What it admits, clause by clause; a `workflow_run` must meet the last three at once:
+    #   a manual dispatch — it carries no conclusion, so it is admitted by name;
+    #   a CI run that passed — a red `main` publishes nothing;
+    #   that was a push — a pull request from a branch named `main` passes `branches:`;
+    #   from this repository — a fork's `main` never reaches a job that writes tags.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: The commit CI actually passed, with every tag fetched
