@@ -54,16 +54,27 @@ THE WEEKLY LOG is issue #1181: one comment per run, each comparing itself with t
 last. `--markdown` writes that comment, and ends it with a hidden copy of the run
 that `--previous` reads back. A lesson is compared only while its signature is the
 one that counted the old number (the `fingerprint`); a rewritten regex starts a new
-baseline and says so. A scheduled task runs it every Monday; by hand it is the same,
-from a checkout of main:
+baseline and says so.
 
-    gh api repos/{owner}/{repo}/issues/1181/comments --paginate --jq '.[].body' > prev.md
-    python -m tools.recurrence_scan --markdown --previous prev.md > run.md
-    gh issue comment 1181 --body-file run.md
+THE REPOSITORY IS PUBLIC, so anyone can comment on the log, and a hidden copy anyone
+wrote would decide what next week calls new. `--previous` therefore takes the log's
+comments as GitHub returns them, with their authors, and reads only the last run the
+repository's OWNER posted. A log with no such run yet is the first run, and the
+comment says so. An empty or unreadable comments file is an error, never a first
+run: it is what a failed fetch leaves.
 
-`prev.md` holds every comment and the LAST run in it wins; drop `--previous` only on
-the log's first run. Each lesson listed under "New barrier candidates" then gets its
-own issue, unless an open issue already names it.
+A scheduled task runs it every Monday. By hand it is the same, from Git Bash in a
+checkout of main (PowerShell reads the braces and `$(...)` differently), and the
+`&&` stops it at the first command that fails:
+
+    T=$(mktemp -d) && export GH_TOKEN=$(gh auth token --user muhammadbayoumi) &&
+    gh api 'repos/{owner}/{repo}/issues/1181/comments' --paginate --slurp > "$T/log.json" &&
+    python -m tools.recurrence_scan --markdown --previous "$T/log.json" > "$T/run.md" &&
+    gh issue comment 1181 --body-file "$T/run.md"
+
+The files go to a temporary folder, because the log's comments are anyone's text.
+Each lesson listed under "New barrier candidates" then gets its own issue, unless an
+open issue already names it.
 """
 from __future__ import annotations
 
@@ -377,25 +388,61 @@ def _code(text: str) -> str:
     return "`" + text.replace("`", "'") + "`"
 
 
-def load_previous(text: str) -> tuple[str, dict[str, dict]]:
-    """The run the LAST --markdown block in `text` carried, or ValueError saying why not."""
-    start = text.rfind(MARK)
+def read_copy(body: str) -> tuple[str, dict[str, dict]]:
+    """The run the LAST hidden copy in one comment carried, or ValueError saying why not.
+    Every field is checked, in the exact shape `markdown` writes it: the owner can edit
+    the copy by hand, and whatever passes here is printed into the next comment."""
+    start = body.rfind(MARK)
     if start < 0:
         raise ValueError("it carries no recurrence-scan block")
-    end = text.find(" -->", start)
+    end = body.find(" -->", start)
     if end < 0:
         raise ValueError("its recurrence-scan block is not closed")
     try:
-        data = json.loads(text[start + len(MARK):end])
+        data = json.loads(body[start + len(MARK):end])
     except json.JSONDecodeError as exc:
         raise ValueError(f"its recurrence-scan block is not JSON: {exc}") from exc
-    lessons = data.get("lessons") if isinstance(data, dict) else None
-    if not (isinstance(data, dict) and isinstance(data.get("run"), str) and isinstance(lessons, list)
+    if not isinstance(data, dict) or not isinstance(data.get("run"), str):
+        raise ValueError("its recurrence-scan block names no run")
+    try:
+        dt.date.fromisoformat(data["run"])
+    except ValueError as exc:
+        raise ValueError(f"its run {data['run'][:40]!r} is not a date") from exc
+    lessons = data.get("lessons")
+    if not (isinstance(lessons, list)
             and all(isinstance(x, dict) and isinstance(x.get("lesson"), str)
+                    and x["lesson"] and x["lesson"].isprintable()
                     and isinstance(x.get("fingerprint"), str) and isinstance(x.get("candidate"), bool)
-                    and (x.get("after") is None or type(x.get("after")) is int) for x in lessons)):
+                    and "after" in x and (x["after"] is None or (type(x["after"]) is int and x["after"] >= 0))
+                    for x in lessons)):
         raise ValueError("its recurrence-scan block is not a run of lessons")
+    names = [x["lesson"] for x in lessons]
+    if len(set(names)) != len(names):
+        raise ValueError("its recurrence-scan block names a lesson twice")
     return data["run"], {x["lesson"]: x for x in lessons}
+
+
+OWNER = "OWNER"  # the author_association GitHub gives the repository's owner
+
+
+def load_previous(text: str) -> tuple[str, dict[str, dict]] | None:
+    """The baseline in the log's comments, as `gh api --paginate --slurp` prints them: the
+    last run the repository's owner posted, or None when the owner has posted none yet.
+    ValueError says why the file cannot be read. Nobody else's copy is read, because
+    the repository is public."""
+    try:
+        pages = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"it is not the JSON `gh api --paginate --slurp` prints: {exc}") from exc
+    if not (isinstance(pages, list) and all(isinstance(page, list) for page in pages)):
+        raise ValueError("it is not a list of pages of comments")
+    comments = [c for page in pages for c in page]
+    if not all(isinstance(c, dict) and isinstance(c.get("body"), str) and isinstance(c.get("created_at"), str)
+               and isinstance(c.get("author_association"), str) for c in comments):
+        raise ValueError("a comment in it has no body, created_at or author_association")
+    runs = sorted((c for c in comments if c["author_association"] == OWNER and MARK in c["body"]),
+                  key=lambda c: c["created_at"])
+    return read_copy(runs[-1]["body"]) if runs else None
 
 
 def _since(r: Row, previous: dict[str, dict] | None) -> str:
@@ -484,14 +531,16 @@ def main(argv: list[str] | None = None) -> int:
     out = parser.add_mutually_exclusive_group()
     out.add_argument("--json", action="store_true")
     out.add_argument("--markdown", action="store_true", help="a comment for the weekly log")
-    parser.add_argument("--previous", type=Path, help="the log's comments; the last run in it is the baseline")
+    parser.add_argument("--previous", type=Path,
+                        help="the log's comments from gh api --paginate --slurp; its owner's last run is the baseline")
     args = parser.parse_args(argv)
     if args.previous is not None and not args.markdown:
         parser.error("--previous needs --markdown")
     previous = None
     if args.previous is not None:
         try:
-            previous = load_previous(args.previous.read_text(encoding="utf-8"))
+            # utf-8-sig: a PowerShell redirect writes a byte-order mark before the JSON
+            previous = load_previous(args.previous.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError) as exc:
             print(f"recurrence_scan: cannot compare with {args.previous}: {exc}", file=sys.stderr)
             return 1

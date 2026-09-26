@@ -457,6 +457,13 @@ def test_an_unreadable_signature_is_reported_by_name_and_the_rest_still_scan(wor
     assert any(line.startswith("good") and line.split()[4] == "1" for line in out.splitlines())
     assert "0 with no failure_signature" in out, "a broken signature is not an unmeasured lesson"
 
+    # The weekly comment is the only place the log records it, so it must say so too.
+    assert _run(projects, memory, "--markdown") == 0
+    comment = capsys.readouterr().out
+    line = next(x for x in comment.splitlines() if x.startswith("- unreadable signature in `broken`: `"))
+    assert said in line and line.endswith("`"), "the parser's text stays inside its code span"
+    assert "0 with no failure_signature" in comment
+
 
 @pytest.mark.parametrize(("text", "said"), [
     ("---\nname: flat\nmetadata:\n  failure_signature: 'just a string'\n---\n\nx\n",
@@ -535,15 +542,28 @@ def test_the_memory_folder_is_named_the_way_claude_code_names_it(checkout, folde
 
 
 # THE WEEKLY LOG. `--markdown` writes one comment for the log issue, and hides a copy of
-# the run at its end; `--previous` reads the last such copy back, so each comment says
-# what changed since the one before. A number compared across two different signatures
-# compares two different measures, which is what the fingerprint refuses.
+# the run at its end; `--previous` reads the log's comments back, so each comment says
+# what changed since the one before. The repository is public: only a run its OWNER
+# posted is a baseline, because anyone can comment and a forged copy would decide what
+# next week calls new. A number compared across two different signatures compares two
+# different measures, which is what the fingerprint refuses.
 
 
 def _markdown(projects: Path, memory: Path, capsys, previous: Path | None = None) -> str:
     extra = ("--previous", str(previous)) if previous else ()
     assert _run(projects, memory, "--markdown", *extra) == 0
     return capsys.readouterr().out
+
+
+def _comment(body: str, at: str = "2026-09-21T06:00:00Z", by: str = "OWNER") -> dict:
+    """One issue comment, with the fields GitHub's REST API returns and the tool reads."""
+    return {"body": body, "created_at": at, "author_association": by, "user": {"login": "someone"}}
+
+
+def _log(path: Path, *pages: list[dict]) -> Path:
+    """The log's comments the way `gh api --paginate --slurp` prints them: one list per page."""
+    path.write_text(json.dumps(list(pages)), encoding="utf-8")
+    return path
 
 
 def _table(text: str) -> dict[str, list[str]]:
@@ -554,6 +574,13 @@ def _table(text: str) -> dict[str, list[str]]:
 
 def _new_candidates(text: str) -> str:
     return next(x for x in text.splitlines() if x.startswith("**New barrier candidates**")).split(": ", 1)[1]
+
+
+def _dated(text: str, run: str) -> str:
+    """A comment as if it had been posted on `run` rather than today."""
+    today = rs.dt.date.today().isoformat()
+    assert text.count(f'"run":"{today}"') == 1
+    return text.replace(f'"run":"{today}"', f'"run":"{run}"')
 
 
 def test_the_first_comment_is_the_table_and_a_hidden_copy_of_the_run(world, capsys):
@@ -570,7 +597,10 @@ def test_the_first_comment_is_the_table_and_a_hidden_copy_of_the_run(world, caps
         .call(T3, "Bash", {"command": "pytest -x | tail"}, "ok").save()
 
     text = _markdown(projects, memory, capsys)
-    assert "The log's first run." in text and text.startswith("## Recurrence scan, ")
+    lines = text.splitlines()
+    assert lines[0] == f"## Recurrence scan, {rs.dt.date.today().isoformat()}"
+    assert lines[2] == "Scanned 1 transcripts and 10 tool calls. The log's first run.", \
+        "the header is the reader's evidence of what was read; the two counts must not swap"
     table = _table(text)
     assert list(table) == ["piped", "twice", "once", "older"], "most recurrences first, as in the report"
     #                          kind      recorded      before after since        total sessions last          flag
@@ -584,14 +614,19 @@ def test_the_first_comment_is_the_table_and_a_hidden_copy_of_the_run(world, caps
     assert "- start unknown for `older`: `the earliest surviving write is an update, so the lesson is older`" in text
     assert "4 lessons measured, 1 with no failure_signature: `unsigned`" in text
 
-    assert text.rstrip().splitlines()[-1].startswith(rs.MARK), "the copy closes the comment"
-    run, lessons = rs.load_previous(text)
+    assert lines[-1].startswith(rs.MARK), "the copy closes the comment"
+    run, lessons = rs.read_copy(text)
     assert run == rs.dt.date.today().isoformat()
     assert set(lessons) == {"twice", "piped", "once", "older"}, "an unsigned note has no count to compare"
     assert (lessons["twice"]["after"], lessons["twice"]["candidate"]) == (2, True)
     assert (lessons["older"]["after"], lessons["older"]["candidate"]) == (None, False)
     assert lessons["twice"]["fingerprint"] == rs.fingerprint(rs.parse_signature(
         {"result": "unexpected EOF while looking for matching"}))
+
+
+def test_the_header_counts_carry_thousands_separators():
+    text = rs.markdown([], rs.dt.datetime(2026, 9, 28), 1234, 56789)
+    assert text.splitlines()[2] == "Scanned 1,234 transcripts and 56,789 tool calls. The log's first run."
 
 
 def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_path):
@@ -608,8 +643,7 @@ def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_pa
         .call(T1, "Bash", {"command": "b"}, "boom").call(T1, "Bash", {"command": "c"}, "boom") \
         .call(T1, "Bash", {"command": "d"}, "bang").call(T1, "Bash", {"command": "e"}, "crash")
     first.save()
-    previous = tmp_path / "prev.md"
-    previous.write_text(_markdown(projects, memory, capsys), encoding="utf-8")
+    previous = _log(tmp_path / "log.json", [_comment(_dated(_markdown(projects, memory, capsys), "2026-09-21"))])
 
     _session(projects, "s2").call(T2, "Bash", {"command": "f"}, PARSE_ERROR) \
         .call(T2, "Bash", {"command": "g"}, "bang").call(T2, "Bash", {"command": "h"}, "boom") \
@@ -620,7 +654,7 @@ def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_pa
     _session(projects, "s3").create(T3, newcomer).save()
 
     text = _markdown(projects, memory, capsys, previous)
-    assert f"Compared with the run of {rs.load_previous(previous.read_text(encoding='utf-8'))[0]}." in text
+    assert "Compared with the run of 2026-09-21." in text, "the baseline's own date, not today's"
     since = {name: cells[4] for name, cells in _table(text).items()}
     assert _table(text)["grows"][3] == "3"
     assert since == {"grows": "+1", "flagged": "+1", "becomes": "+1", "rewritten": "signature changed",
@@ -630,23 +664,61 @@ def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_pa
     assert "**No longer measured** since the last run: `gone`" in text
 
 
-def test_the_last_run_in_the_file_is_the_baseline_and_an_unchanged_world_changes_nothing(world, capsys, tmp_path):
-    """The log's comments are fetched in order into one file, so the LAST copy in it is
-    last week's run; an earlier one with other numbers must not be read."""
+@pytest.mark.parametrize("forger", ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "COLLABORATOR", "MEMBER"])
+def test_only_a_run_the_owner_posted_is_the_baseline(world, capsys, tmp_path, forger):
+    """#1181 is on a public repository. A later comment by anyone else, carrying a copy
+    that marks a lesson flagged already, would hide that it is newly flagged and so
+    withhold the issue it is owed; its `run` would also be printed under his name."""
     projects, memory = world
     note = _note(memory, "twice", HEREDOC)
     _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR) \
         .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
-    latest = _markdown(projects, memory, capsys)
-    stale = latest.replace('"after":2,"candidate":true', '"after":0,"candidate":false')
-    assert stale != latest
-    previous = tmp_path / "prev.md"
-    previous.write_text(stale + "\nsomeone replied in between\n" + latest, encoding="utf-8")
+    now = _markdown(projects, memory, capsys)
+    owners = _dated(now, "2026-09-14").replace('"after":2,"candidate":true', '"after":0,"candidate":false')
+    forged = "Nice log, thanks!\n" + _dated(now, "2026-09-20")
+    previous = _log(tmp_path / "log.json", [_comment(owners, "2026-09-14T06:00:00Z"),
+                                            _comment(forged, "2026-09-20T06:00:00Z", by=forger)])
 
     text = _markdown(projects, memory, capsys, previous)
-    assert _table(text)["twice"][4] == "+0"
-    assert _new_candidates(text) == "none."
+    assert "Compared with the run of 2026-09-14." in text
+    assert _table(text)["twice"][4] == "+2" and _new_candidates(text) == "`twice`"
+
+
+def test_the_owners_latest_run_wins_whatever_page_or_order_it_arrives_in(world, capsys, tmp_path):
+    projects, memory = world
+    note = _note(memory, "twice", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR) \
+        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+    now = _markdown(projects, memory, capsys)
+    stale = _dated(now, "2026-09-14").replace('"after":2,"candidate":true', '"after":0,"candidate":false')
+    # The newest run quotes an older copy above its own; its LAST copy is its run.
+    latest = stale + "\n\n" + _dated(now, "2026-09-21")
+    notice = "Run failed: recurrence_scan: found 0 transcripts"  # the owner's, and no run
+    previous = _log(tmp_path / "log.json",
+                    [_comment(latest, "2026-09-21T06:00:00Z"), _comment(notice, "2026-09-28T06:00:00Z")],
+                    [_comment(stale, "2026-09-14T06:00:00Z")])
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert "Compared with the run of 2026-09-21." in text
+    assert _table(text)["twice"][4] == "+0" and _new_candidates(text) == "none."
     assert "**Signature changed**" not in text and "**No longer measured**" not in text
+
+
+@pytest.mark.parametrize("content", [
+    "[[]]",  # gh's answer for a log with no comments yet
+    "[]",
+    "﻿[[]]",  # the same, redirected by PowerShell, which writes a byte-order mark
+    json.dumps([[_comment("Watching this.", by="NONE"), _comment("Run failed: DNS")]]),
+])
+def test_a_log_with_no_run_by_its_owner_is_the_first_run(world, capsys, tmp_path, content):
+    projects, memory = world
+    note = _note(memory, "twice", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+    previous = tmp_path / "log.json"
+    previous.write_text(content, encoding="utf-8")
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert "The log's first run." in text and _table(text)["twice"][4] == "first run"
 
 
 @pytest.mark.parametrize(("then", "now_known"), [
@@ -662,8 +734,7 @@ def test_a_count_is_compared_only_when_both_runs_knew_the_start(world, capsys, t
     t.call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
     copy = {"run": "2026-09-21", "lessons": [{"lesson": "lesson", "after": then, "candidate": False,
                                               "fingerprint": rs.fingerprint(rs.parse_signature({"result": "unexpected EOF while looking for matching"}))}]}
-    previous = tmp_path / "prev.md"
-    previous.write_text(rs.MARK + json.dumps(copy) + " -->\n", encoding="utf-8")
+    previous = _log(tmp_path / "log.json", [_comment(rs.MARK + json.dumps(copy) + " -->")])
 
     assert _table(_markdown(projects, memory, capsys, previous))["lesson"][4] == "?"
 
@@ -694,7 +765,7 @@ def test_no_lesson_name_can_close_the_hidden_copy_or_break_the_table():
     copy = text.splitlines()[-1]
     assert copy.count("-->") == 1 and copy.endswith(" -->"), "only the copy's own end closes the comment"
     assert "| `a\\|b-->c` |" in text, "the pipe is escaped, so the row keeps its cells"
-    assert list(rs.load_previous(text)[1]) == ["a|b-->c"]
+    assert list(rs.read_copy(text)[1]) == ["a|b-->c"]
 
 
 def test_a_quoted_tool_result_can_neither_mention_a_user_nor_link_an_issue(world, capsys):
@@ -715,37 +786,66 @@ def test_a_quoted_tool_result_can_neither_mention_a_user_nor_link_an_issue(world
 def test_previous_needs_markdown_and_markdown_excludes_json(world, tmp_path):
     projects, memory = world
     with pytest.raises(SystemExit) as exc:
-        _run(projects, memory, "--previous", str(tmp_path / "prev.md"))
+        _run(projects, memory, "--previous", str(tmp_path / "log.json"))
     assert exc.value.code == 2
     with pytest.raises(SystemExit) as exc:
         _run(projects, memory, "--markdown", "--json")
     assert exc.value.code == 2
 
 
+_LESSON = {"lesson": "a", "fingerprint": "f", "after": 1, "candidate": False}
+
+
+def _owner_copy(copy: object) -> str:
+    return json.dumps([[_comment(rs.MARK + json.dumps(copy) + " -->")]])
+
+
 @pytest.mark.parametrize(("content", "said"), [
-    ("## a comment written by hand\n", "carries no recurrence-scan block"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[]}\n', "is not closed"),
-    ("<!-- recurrence-scan {not json} -->", "is not JSON"),
-    ("<!-- recurrence-scan [] -->", "is not a run of lessons"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a"}]} -->', "is not a run of lessons"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
-     '"after":"2","candidate":false}]} -->', "is not a run of lessons"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
-     '"after":true,"candidate":false}]} -->', "is not a run of lessons"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
-     '"after":1}]} -->', "is not a run of lessons"),
-    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a",'
-     '"after":1,"candidate":false}]} -->', "is not a run of lessons"),
-    ('<!-- recurrence-scan {"lessons":[]} -->', "is not a run of lessons"),
+    # The comments file itself: what a failed or foreign fetch leaves.
+    ("", "is not the JSON `gh api --paginate --slurp` prints"),
+    ("## a markdown file, not the comments\n", "is not the JSON"),
+    ("{}", "is not a list of pages of comments"),
+    ("[{}]", "is not a list of pages of comments"),
+    ("[[1]]", "has no body, created_at or author_association"),
+    (json.dumps([[{"body": "x", "created_at": "2026-09-21T06:00:00Z"}]]), "has no body, created_at or author_association"),
+    (json.dumps([[{"body": 5, "created_at": "2026-09-21T06:00:00Z", "author_association": "OWNER"}]]),
+     "has no body, created_at or author_association"),
+    # The owner's copy, which he can edit by hand.
+    (json.dumps([[_comment(rs.MARK + '{"run":"2026-09-21","lessons":[]}')]]), "is not closed"),
+    (json.dumps([[_comment(rs.MARK + "{not json} -->")]]), "is not JSON"),
+    (_owner_copy([]), "names no run"),
+    (_owner_copy({"lessons": []}), "names no run"),
+    (_owner_copy({"run": 5, "lessons": []}), "names no run"),
+    (_owner_copy({"run": "banana @octocat #12", "lessons": []}), "is not a date"),
+    (_owner_copy({"run": "", "lessons": []}), "is not a date"),
+    (_owner_copy({"run": "2026-09-21", "lessons": {}}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [1]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{k: v for k, v in _LESSON.items() if k != "lesson"}]}),
+     "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "lesson": ""}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "lesson": "a\n<!-- x"}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "fingerprint": 5}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{k: v for k, v in _LESSON.items() if k != "fingerprint"}]}),
+     "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "candidate": "false"}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{k: v for k, v in _LESSON.items() if k != "candidate"}]}),
+     "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "after": "2"}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "after": True}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{**_LESSON, "after": -7}]}), "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [{k: v for k, v in _LESSON.items() if k != "after"}]}),
+     "is not a run of lessons"),
+    (_owner_copy({"run": "2026-09-21", "lessons": [_LESSON, {**_LESSON, "after": 5}]}), "names a lesson twice"),
     (None, "cannot compare with"),
 ])
 def test_a_previous_run_that_cannot_be_read_is_an_error_not_a_first_run(world, capsys, tmp_path, content, said):
     """Read as "no previous run", every lesson would be reported new and every
-    candidate would be owed a second issue."""
+    candidate would be owed a second issue; read loosely, a bad copy prints a wrong
+    comparison, or its text, into the next comment."""
     projects, memory = world
     note = _note(memory, "heredoc", HEREDOC)
     _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
-    previous = tmp_path / "prev.md"
+    previous = tmp_path / "log.json"
     if content is not None:
         previous.write_text(content, encoding="utf-8")
 
@@ -771,9 +871,10 @@ def test_a_caveat_outside_the_windows_code_page_survives_a_redirected_run(world,
     assert "a floor → اقرأ الجلسة" in done.stdout.decode("utf-8")
 
 
-def test_an_error_naming_a_path_outside_the_windows_code_page_is_printed_not_a_crash(world, tmp_path):
+def test_an_error_naming_a_path_outside_the_windows_code_page_prints_it_as_written(world, tmp_path):
     """The errors go to stderr, which encodes cp1252 as well when redirected, and they
-    name paths the owner chose."""
+    name paths the owner chose. Without the fix Python escaped the name (`\\u0633...`),
+    which is legible to nobody."""
     projects, memory = world
     _note(memory, "heredoc", HEREDOC)
     _session(projects).create(T0, memory / "heredoc.md").save()
