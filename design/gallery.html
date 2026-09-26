@@ -65,6 +65,30 @@
     .g-note { padding: var(--sp-3) var(--sp-4); border-inline-start: 3px solid var(--accent);
               background: var(--accent-weak); color: var(--text); font-size: var(--fs-sm); }
     .g-swatches { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    /* ONE CLASS PER TOKEN SHOWN, named for the token, in place of the inline
+       styles this page held (#637): a demonstration of --radius-sm is a rule
+       that reads --radius-sm, which is what every other page writes too. */
+    .g-radius-xs { border-radius: var(--radius-xs); }
+    .g-radius-sm { border-radius: var(--radius-sm); }
+    .g-radius { border-radius: var(--radius); }
+    .g-radius-lg { border-radius: var(--radius-lg); }
+    .g-radius-xl { border-radius: var(--radius-xl); }
+    .g-radius-pill { border-radius: var(--radius-pill); }
+    .g-fw-regular { font-weight: var(--fw-regular); }
+    .g-fw-medium { font-weight: var(--fw-medium); }
+    .g-fw-bold { font-weight: var(--fw-bold); }
+    .g-fw-heavy { font-weight: var(--fw-heavy); }
+    .g-font-heading { font-family: var(--font-heading); }
+    .g-font-mono { font-family: var(--font-mono); }
+    .g-shadow-xs { box-shadow: var(--shadow-xs); }
+    .g-shadow-sm { box-shadow: var(--shadow-sm); }
+    .g-shadow-lg { box-shadow: var(--shadow-lg); }
+    .g-swatch-accent { --palette-swatch: var(--accent); }
+    .g-swatch-accent-weak { --palette-swatch: var(--accent-weak); }
+    .g-swatch-text { --palette-swatch: var(--text); }
+    /* The one demonstration that is not a token: .icon-tile's two custom
+       properties at the larger size a caller may set (components.css). */
+    .g-icon-tile-lg { --icon-tile: 3rem; --icon-tile-glyph: 1.5rem; }
   </style>
 </head>
 <body>
@@ -726,7 +750,7 @@
       <span class="icon-tile quiet">
         <span class="brand-logo" aria-hidden="true"></span>
       </span>
-      <span class="icon-tile" style="--icon-tile:3rem;--icon-tile-glyph:1.5rem">
+      <span class="icon-tile g-icon-tile-lg">
         <svg aria-hidden="true"><use href="#sync"></use></svg>
       </span>
     </div>
@@ -880,7 +904,7 @@
                  appearance.js is the one place allowed to name a colour. -->
             <button type="button" class="appearance-palette-tile" role="radio" aria-checked="true">
               <span class="appearance-palette-strip" aria-hidden="true">
-                <i style="--palette-swatch:var(--accent)"></i><i style="--palette-swatch:var(--accent-weak)"></i><i style="--palette-swatch:var(--text)"></i>
+                <i class="g-swatch-accent"></i><i class="g-swatch-accent-weak"></i><i class="g-swatch-text"></i>
               </span>
               <span class="appearance-palette-copy">
                 <strong>ScrapeX</strong><small>Green accent on flat, bordered surfaces</small>
@@ -943,25 +967,25 @@
       colours below move while the shape, type and motion do not.</p>
     <div class="g-demo stack">
       <div class="cluster">
-        <span class="chip" style="border-radius:var(--radius-xs)">radius-xs</span>
-        <span class="chip" style="border-radius:var(--radius-sm)">radius-sm</span>
-        <span class="chip" style="border-radius:var(--radius)">radius</span>
-        <span class="chip" style="border-radius:var(--radius-lg)">radius-lg</span>
-        <span class="chip" style="border-radius:var(--radius-xl)">radius-xl</span>
-        <span class="chip" style="border-radius:var(--radius-pill)">radius-pill</span>
+        <span class="chip g-radius-xs">radius-xs</span>
+        <span class="chip g-radius-sm">radius-sm</span>
+        <span class="chip g-radius">radius</span>
+        <span class="chip g-radius-lg">radius-lg</span>
+        <span class="chip g-radius-xl">radius-xl</span>
+        <span class="chip g-radius-pill">radius-pill</span>
       </div>
       <div class="stack">
-        <span style="font-weight:var(--fw-regular)">fw-regular — body text at the weight the appearance asks for</span>
-        <span style="font-weight:var(--fw-medium)">fw-medium — labels and active states</span>
-        <span style="font-weight:var(--fw-bold)">fw-bold — headings</span>
-        <span style="font-weight:var(--fw-heavy)">fw-heavy — the top of the ramp, which an appearance may flatten</span>
-        <span style="font-family:var(--font-heading)">font-heading — a second face, if the appearance pairs two</span>
-        <code class="code" style="font-family:var(--font-mono)">font-mono</code>
+        <span class="g-fw-regular">fw-regular — body text at the weight the appearance asks for</span>
+        <span class="g-fw-medium">fw-medium — labels and active states</span>
+        <span class="g-fw-bold">fw-bold — headings</span>
+        <span class="g-fw-heavy">fw-heavy — the top of the ramp, which an appearance may flatten</span>
+        <span class="g-font-heading">font-heading — a second face, if the appearance pairs two</span>
+        <code class="code g-font-mono">font-mono</code>
       </div>
       <div class="cluster">
-        <span class="card" style="box-shadow:var(--shadow-xs)">shadow-xs</span>
-        <span class="card" style="box-shadow:var(--shadow-sm)">shadow-sm</span>
-        <span class="card" style="box-shadow:var(--shadow-lg)">shadow-lg</span>
+        <span class="card g-shadow-xs">shadow-xs</span>
+        <span class="card g-shadow-sm">shadow-sm</span>
+        <span class="card g-shadow-lg">shadow-lg</span>
       </div>
     </div>
     <pre>/* design/tokens.css — the design system, for every colour choice */

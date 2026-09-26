@@ -135,9 +135,12 @@ def test_ui_templates_do_not_embed_svg_paths() -> None:
 
 
 def test_ui_templates_do_not_use_inline_style_attributes() -> None:
+    # The catalogue too, with no exemption (#637): it demonstrates each token through a
+    # class that reads it, as every other page does.
     files = [
         *ROOT.joinpath("extension").glob("*.html"),
         *ROOT.joinpath("scrapex", "webui", "templates").glob("*.html"),
+        *ROOT.joinpath("design").glob("*.html"),
     ]
     offenders = [
         path.relative_to(ROOT)
