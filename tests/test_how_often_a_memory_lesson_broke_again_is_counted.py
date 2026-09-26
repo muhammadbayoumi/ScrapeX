@@ -769,3 +769,21 @@ def test_a_caveat_outside_the_windows_code_page_survives_a_redirected_run(world,
                            "--memory", str(memory), *output], capture_output=True, env=env, check=False)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     assert "a floor → اقرأ الجلسة" in done.stdout.decode("utf-8")
+
+
+def test_an_error_naming_a_path_outside_the_windows_code_page_is_printed_not_a_crash(world, tmp_path):
+    """The errors go to stderr, which encodes cp1252 as well when redirected, and they
+    name paths the owner chose."""
+    projects, memory = world
+    _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T0, memory / "heredoc.md").save()
+    missing = tmp_path / "سجل الأسبوع.md"
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    env.pop("PYTHONUTF8", None)
+
+    done = subprocess.run([sys.executable, str(ROOT / "tools" / "recurrence_scan.py"), "--projects", str(projects),
+                           "--memory", str(memory), "--markdown", "--previous", str(missing)],
+                          capture_output=True, env=env, check=False)
+    err = done.stderr.decode("utf-8")
+    assert done.returncode == 1 and "Traceback" not in err
+    assert "cannot compare with" in err and "سجل الأسبوع.md" in err
