@@ -323,6 +323,12 @@ def waiting_interpretation(conn: sqlite3.Connection, source_key: str) -> dict | 
     pages existed, so a second one is not a duplicate: it reads the runs the first did
     not plan for. And a paused one waits on him and never advances by itself, so counting
     it would stop this source interpreting again until he acts.
+
+    NOR ONE THAT NAMES ITS RUN. A `checkpoint.run_ref` makes the runner read that one run
+    and nothing else -- *"A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS"* --
+    so it will not read this crawl's pages, and saying it will would be false. No caller
+    in this repository writes one for this kind today; the runner accepts it, so the rule
+    does not assume it away.
     """
     # NO WINDOW. `jobs.list_jobs` reads the newest N live jobs, so a waiting one older
     # than N others would be missed in silence and a duplicate made. Only the kind and
@@ -337,7 +343,8 @@ def waiting_interpretation(conn: sqlite3.Connection, source_key: str) -> dict | 
             f"SELECT job_ref FROM crawl_job WHERE job_kind = ? AND status IN ({marks}) "
             "ORDER BY job_id", (JOB_KIND, *sorted(NOT_STARTED))).fetchall():
         one = jobs.get_job(conn, ref)
-        if one is not None and source_key in (one.get("source_keys") or []):
+        if (one is not None and source_key in (one.get("source_keys") or [])
+                and not (one.get("checkpoint") or {}).get("run_ref")):
             return one
     return None
 

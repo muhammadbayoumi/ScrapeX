@@ -4686,9 +4686,9 @@ def create_app(
             # THE REFUSAL LIVES WHERE THE WRITE HAPPENS -- issue 779. Before it, this
             # route accepted a second interpretation of a source that already had one
             # waiting, so a press on the card made a job that read nothing the first
-            # would not. The panel was left to explain the gap in copy, and explaining it
-            # took eight sentences that each claimed a state the code was not in.
-            # Refusing here means the card needs to explain nothing.
+            # would not. The panel was left to explain the gap in copy, and each sentence
+            # it tried claimed a state the code was not in. Refusing here means the card
+            # needs to explain nothing.
             #
             # THE SAME RULE THE CRAWL'S CHAIN READS, not a second one: `datasetjob.
             # waiting_interpretation` decides both whether a crawl queues another and

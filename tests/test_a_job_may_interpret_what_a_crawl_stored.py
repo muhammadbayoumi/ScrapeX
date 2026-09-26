@@ -1557,3 +1557,28 @@ def test_the_route_asks_with_the_write_lock_held(tmp_path, monkeypatch):
         "a refused press kept the write lock, so the engine's next writer waits on a "
         "request that has already answered")
 
+
+def test_one_pinned_to_its_run_is_not_waiting_for_these_pages(tmp_path):
+    """A JOB THAT NAMES ITS RUN READS THAT RUN AND NOTHING ELSE. The runner honours
+    `checkpoint.run_ref` -- "A CALLER THAT KNOWS EXACTLY WHICH RUN IT MEANS STILL WINS"
+    -- so a queued one of that shape will not read the pages this press is for. Counted
+    as waiting, it would refuse the press with a sentence ("it will read every stored run
+    nobody has read") that is false of it, and the chain would skip the interpretation
+    its crawl is owed."""
+    client, db_path = _panel(tmp_path)
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                        job_kind=datasetjob.JOB_KIND,
+                        checkpoint={"run_ref": "job-job_one"})
+        conn.commit()
+        assert datasetjob.waiting_interpretation(conn, "muqawil_org") is None, (
+            "a job pinned to one run was counted as reading everything unread")
+    finally:
+        conn.close()
+
+    accepted = _press_interpret(client)
+
+    assert accepted.status_code == 200, (
+        f"a job pinned to another run refused this press: {accepted.text}")

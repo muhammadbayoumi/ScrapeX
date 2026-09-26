@@ -812,15 +812,14 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     rather than swallowed, so a session that expected a second job and got none can see
     why.
     """
-    # IMPORTED HERE, like the caller does at `:239` and for its reason: `jobs`
+    # IMPORTED HERE, as `run_directory_crawl_job_once` does and for its reason: `jobs`
     # names this module in `SPECIALISED_RUNNERS`, so importing it at the top would
     # close the circle. `datasetjob` is safe at the top -- it names no runner.
     from . import jobs
 
     # ONE AT A TIME, AND ISSUE 779 IS WHY. That issue records what a second identical job
     # for one source costs: *"a worker slot out of `job_capacity` (3), held by a job doing
-    # nothing for 29 minutes"* and *"the Run screen, because the panel adopts the newest
-    # active job"* -- he watched a frozen `0/938` and reported the crawl as stuck.
+    # nothing for 29 minutes"*.
     #
     # THIS PATH IS WORSE THAN THE BUTTONS THAT ISSUE IS ABOUT, which is why the guard is
     # here rather than left to it: those needed him to press twice. This queues by itself,
@@ -886,9 +885,9 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
         jobs.append_log(
             conn, jobs.get_job(conn, ref)["job_id"],
             f"started automatically when the listing crawl {job['job_ref']} finished, "
-            f"because it stored pages nothing had read yet. It reads them from disk and "
-            f"makes no request. Open the Jobs page and press Cancel on its row to "
-            f"stop it",
+            f"to turn the pages this source has stored into rows. It reads them from "
+            f"disk and makes no request. Open the Jobs page and press Cancel on its row "
+            f"to stop it",
             source_key=source_key)
         conn.commit()
         return ref

@@ -5272,13 +5272,13 @@ async function pollJobOnce() {
     // this branch never had to know the difference: the adopted job was always the one
     // he had started, so repointing at it lost nothing.
     //
-    // The branch below -- the one that refreshes the cards with `loadSources()` -- runs
-    // ONLY when the active list is empty, and the chain guarantees it is not: `_finish`
+    // The branch below -- the one that refreshed the cards -- runs ONLY when the active
+    // list is empty, and the chain guarantees it is not: `_finish`
     // commits COMPLETED and the interpretation is committed `queued` about 2.5 ms later,
     // inside one 1500 ms poll. So the row counts he crawled for never refreshed at all,
     // and the card went on showing what it showed before the crawl started.
     //
-    // `loadSources()` AND NOT THE FINISHED JOB'S VERDICT, and the difference is the
+    // THE CARDS AND NOT THE FINISHED JOB'S VERDICT, and the difference is the
     // whole of what this line can honestly claim. A first version drew the outgoing
     // job here as well; the design session opened the next three lines and killed it.
     // `renderActivity` writes the single `#activity` box, so `renderActivity(job)` four
@@ -5329,7 +5329,7 @@ async function pollJobOnce() {
 /** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
  *
  * `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
- * DATASET CARD is drawn by `loadDatasets`, whose only callers are `showView("data")` and
+ * DATASET CARD is drawn by `loadDatasets`, whose only callers were `showView("data")` and
  * the pause action — so with the Data tab open and nothing navigating, the card kept the
  * row count it had before the crawl, and kept withholding its "Interpret stored pages"
  * badge after the interpretation that withheld it had ended. That stale row count is the
@@ -5674,8 +5674,8 @@ function waitingLine(s) {
   //
   // `interpretation_live` is a flag, not a status, on purpose. An earlier version sent
   // the job's status and had this line narrate it -- "under way", "paused", "has not
-  // started", "stopping" -- and each of those sentences, rewritten across five review
-  // passes, claimed a state the code was not in, one status-set further out every time.
+  // started", "stopping" -- and each of those sentences, rewritten pass after pass,
+  // claimed a state the code was not in, one status-set further out every time.
   // A flag that only withholds adds no sentence, so it adds no claim to be wrong.
   //
   // IT GATES BOTH PRODUCERS OF THE SAME BADGE. "Interpret stored pages" is drawn from
