@@ -60,6 +60,12 @@ def _ring_wrappers(found) -> set[str]:
             if selector.endswith(":focus-within") and prop == "outline" and value in RECIPES["outline"]}
 
 
+def _insets(found) -> set[str]:
+    """Rules that draw the inset form: the outline at minus its width."""
+    return {selector for _where, selector, prop, value in found
+            if prop == "outline-offset" and value == "calc(-1 * var(--focus-ring-width))"}
+
+
 def _suppressed_under_a_ring(selector: str, wrappers: set[str]) -> bool:
     """An inner control may drop its own indicator only where its wrapper draws the ring."""
     parts = [part.strip() for part in selector.split(",")]
@@ -71,13 +77,14 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
     found = _focus_declarations()
     assert len(found) > 50, f"only {len(found)} focus declarations were read"
     wrappers = _ring_wrappers(found)
+    insets = _insets(found)
     wrong = []
     for where, selector, prop, value in found:
         if any(re.search(pattern, selector) for pattern in LEFT_TO):
             continue
         if prop == "box-shadow":
             ok = (value.split(",")[0].strip() == "var(--focus-ring-gap)"
-                  or (value == "none" and _suppressed_under_a_ring(selector, wrappers)))
+                  or (value == "none" and (selector in insets or _suppressed_under_a_ring(selector, wrappers))))
         elif prop == "outline" and value in ("0", "none"):
             ok = _suppressed_under_a_ring(selector, wrappers)
         else:
@@ -94,6 +101,16 @@ def test_every_rule_left_to_another_item_is_still_there():
     gone = [f"{pattern} ({reason})" for pattern, reason in LEFT_TO.items()
             if not any(re.search(pattern, selector) for selector in selectors)]
     assert not gone, f"left to another item and no longer there, so drop them from LEFT_TO: {gone}"
+
+
+def test_the_inset_form_paints_no_gap():
+    """Supabase's focus-inset has no offset to paint, and the shared rule's gap would
+    spread outside a control that sits flush in a container, so each inset rule clears it."""
+    found = _focus_declarations()
+    insets = _insets(found)
+    assert len(insets) >= 7, sorted(insets)
+    cleared = {selector for _where, selector, prop, value in found if prop == "box-shadow" and value == "none"}
+    assert not insets - cleared, f"inset rules that leave the gap painted: {sorted(insets - cleared)}"
 
 
 def test_the_recipe_is_the_tokens_and_supabases_geometry():
