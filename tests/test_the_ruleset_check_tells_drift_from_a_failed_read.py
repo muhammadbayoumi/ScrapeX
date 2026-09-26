@@ -584,6 +584,10 @@ def test_ci_runs_the_check_once_as_the_last_step_of_contract_parity():
     [(_, index)] = placed
     step = steps[index]
     assert "if" not in step and not step.get("continue-on-error")
+    assert step["run"].strip() == "python3 tools/check_the_ruleset.py", (
+        f"the ruleset check's step runs {step['run']!r}. It is compared whole: matched "
+        "by the script's name, `echo tools/check_the_ruleset.py`, `... || true` and a "
+        "trailing `exit 0` all passed, green while nothing was compared")
     assert step["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
     assert index == len(steps) - 1, (
         f"the check is step {index} of {len(steps)} in `contract-parity`, not the last: "
