@@ -39,6 +39,8 @@ import re
 
 import pytest
 
+from tests.test_a_palette_may_change_nothing_but_colour import _palette_entries
+
 # Guards the extension: this file reads extension/ sources, so a change to a
 # button must run it. See tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -97,6 +99,11 @@ def _classes_defined_in(css: str) -> set[str]:
     body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     body = re.sub(r"url\([^)]*\)", "", body)
     return set(re.findall(r"\.([a-zA-Z][\w-]*)", body))
+
+
+def _live_markup(html: str) -> str:
+    """The markup a page renders: what a <pre> shows as code, and comments, removed."""
+    return re.sub(r"<pre\b.*?</pre>|<!--.*?-->", "", html, flags=re.S)
 
 
 def _webui_sheets() -> list[pathlib.Path]:
@@ -182,7 +189,8 @@ def test_every_shared_component_is_in_the_catalogue(defined):
     gallery = (ROOT / "design" / "gallery.html")
     assert gallery.exists(), "the catalogue is gone; its header comment says why it exists"
     shown: set[str] = set()
-    for attribute in re.findall(r'class="([^"]*)"', gallery.read_text(encoding="utf-8")):
+    # A class named in the code a <pre> shows, or in a comment, is not an example of it.
+    for attribute in re.findall(r'class="([^"]*)"', _live_markup(gallery.read_text(encoding="utf-8"))):
         shown |= set(attribute.split())
 
     missing = sorted(shared - shown)
@@ -253,8 +261,23 @@ def test_the_design_system_teaches_one_colour_choice():
              if stale.search(line)]
     assert not found, f"design/ still teaches more than one colour choice: {found}"
 
+    # The catalogue and the web UI's settings page are where the choice is offered.
+    for page in (ROOT / "design" / "gallery.html", ROOT / "scrapex" / "webui" / "templates" / "settings.html"):
+        text = page.read_text(encoding="utf-8")
+        assert not re.search(r"device\s+(?:theme\s+and\s+)?colou?rs?\b", text, re.IGNORECASE), (
+            f"{page.relative_to(ROOT).as_posix()} still offers or names device colours, which R-85 removed")
+
+    # The tiles, and the palettes the example names, are the registry's: one piece of
+    # knowledge, held in design/appearance.js.
+    registry = _palette_entries()
+    expected = [(re.search(r'label: "([^"]+)"', entry).group(1),
+                 re.search(r'description: "([^"]+)"', entry).group(1)) for entry in registry.values()]
     gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
-    assert not re.search(r"device colou?rs", gallery, re.IGNORECASE), (
-        "the catalogue still shows or names Device colours, which R-85 removed")
-    assert '["brand"' not in gallery, (
-        "the catalogue's palette example names `brand`, which is only an alias now")
+    tiles = [re.search(r"<strong>([^<]+)</strong>\s*<small>([^<]+)</small>", tile).groups()
+             for tile in _live_markup(gallery).split('class="appearance-palette-tile"')[1:]]
+    assert tiles == expected, f"the catalogue's colour tiles {tiles} are not the registry's {expected}"
+    named = re.findall(r"\[\s*[\"']([a-z-]+)[\"']\s*,\s*\{", gallery)
+    assert named, "the catalogue's palette example is gone, or its shape changed"
+    assert set(named) <= set(registry), (
+        f"the catalogue's palette example names {sorted(set(named) - set(registry))}, "
+        f"which the registry does not hold (aliases are not palettes)")
