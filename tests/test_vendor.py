@@ -1306,7 +1306,9 @@ def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
     assert ".selected-product-card" in css
     assert "#offer-panel button.selected-product-image-nav:active:not(:disabled)" in css
     assert "#offer-panel button.selected-product-image-nav:focus-visible" in css
-    assert "outline-offset: -3px" in css
+    # Inset, so the ring is not clipped by the card it sits in: the focus-inset recipe (#721).
+    assert re.search(r"selected-product-image-nav:focus-visible \{\s*outline: var\(--focus-ring-width\) "
+                     r"solid var\(--focus-ring-color\); outline-offset: calc\(-1 \* var\(--focus-ring-width\)\)", css)
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
