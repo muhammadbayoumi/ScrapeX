@@ -672,16 +672,24 @@ def test_an_older_run_nobody_read_is_interpreted_even_though_a_newer_one_is_done
         f"the number for ever")
     # AND THE NEWEST IS READ TOO, AFTER IT, by the owner's ruling of 2026-09-26: the
     # newest run is read on every press so a corrected parser reaches it. Oldest first
-    # still holds, so the freshest evidence is the last thing written.
+    # still holds.
     assert fake.refs == ["job-job_holds_the_37", "job-job_two_pages"], (
         f"the older unread run was not read before the newest: {fake.refs}")
 
 
-def test_the_walk_goes_oldest_first_so_the_freshest_page_is_written_last(
+def test_the_walk_goes_oldest_first_so_history_is_written_in_order(
         conn, monkeypatch):
-    """ORDER IS NOT COSMETIC HERE. `approve` writes what each page says, so a walk that
-    read the newest run first and an older one after it would leave the OLDER value in
-    the row -- a stale name, a stale membership -- with nothing failing.
+    """ORDER NO LONGER DECIDES THE LIVE VALUE, AND THIS TEST USED TO SAY IT DID.
+
+    A Resume stores new pages under an old job's ref, so runs interleave in capture time
+    and no ordering of runs guarantees the newest page is written last -- measured on a
+    copy of his warehouse, the job-order walk left 99 contractors on an older value.
+    #1178 fixed that where it belongs: a page captured before the one the record cites is
+    refused, in whatever order it arrives.
+
+    WHAT ORDER STILL DECIDES IS THE HISTORY. Oldest first, each change is written as a
+    revision in the order it happened. Newest first, the newest is written and every older
+    reading is refused, so the values in between never become revisions at all.
     """
     fake = _Interpreter(pairs=2)
     monkeypatch.setattr(contractors, "approve", fake)
@@ -815,10 +823,11 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
     with a fresh `read_to_the_end`, so a ledger written by replacing the key loses every
     run the first pass finished.
 
-    AND THE COST IS NOT REPEATED WORK, IT IS STALE DATA. The runs that fall out of the
-    ledger are read again on a LATER press -- after the newer runs have already been
-    applied -- which writes the older page over the newer row. That is exactly what
-    `test_the_walk_goes_oldest_first_...` says must not happen.
+    WHAT IT COSTS CHANGED WITH #1178, AND IS STILL NOT NOTHING. The runs that fall out of
+    the ledger are read again on a LATER press, after the newer runs have been applied.
+    Before #1178 that wrote the older page over the newer row; since, the record refuses
+    it -- so what remains is every row of those runs read again for nothing, and a history
+    written out of the order it happened in.
     """
     class _StopsInTheThirdRun(_Interpreter):
         def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
@@ -849,11 +858,19 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
     datasetjob.run_dataset_interpret_job_once(conn, ref)
 
     after_the_resume = set(datasetjob.interpreted_runs(conn, "muqawil_org"))
+    # AND THE RESUME SAYS SO. The re-entry line used to promise "every pair is read from
+    # disk again", which the ledger made false: the resumed pass above read only the two
+    # runs the first pass had not finished.
+    said = " | ".join(row["message"] for row in jobs.job_logs(conn, ref))
+    assert "already finished are not read again" in said, (
+        f"the resumed pass does not say which runs it skipped: {said}")
+    assert fake.refs == ["job-job_three", "job-job_four"], (
+        f"the resume read runs the first pass had finished: {fake.refs}")
     assert after_the_resume == {"job-job_one", "job-job_two",
                                 "job-job_three", "job-job_four"}, (
         f"the resume dropped runs the first pass read to the end: {after_the_resume}. "
         f"They are now unread, so a later press applies them AFTER the newer runs and "
-        f"writes an older page over a newer row")
+        f"reads them again after the newer ones, out of order")
 
 
 def test_a_press_with_nothing_new_reads_only_the_newest_run_and_says_why(

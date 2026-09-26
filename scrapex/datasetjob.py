@@ -148,9 +148,20 @@ def runs_holding_pages(conn: sqlite3.Connection,
         # crawl that stored nothing produces no row to count in the first place. Said
         # here rather than left as a clause somebody trusts.
         " GROUP BY j.job_id "
-        # OLDEST FIRST, AND THE CALLERS TAKE THE END THEY WANT. `latest_crawl_run_ref`
-        # takes the last; the walk below takes them in this order so the freshest
-        # evidence is written LAST and cannot be overwritten by an older page.
+        # OLDEST FIRST BY JOB, AND THE CALLERS TAKE THE END THEY WANT.
+        # `latest_crawl_run_ref` takes the last; the walk below takes them in this order.
+        #
+        # THIS ORDER DOES NOT DECIDE WHICH VALUE A ROW KEEPS, and this comment used to say
+        # it did. A Resume stores new pages under an OLD job's ref, so runs interleave in
+        # capture time -- on his warehouse job 150 holds 09-03 to 09-12 and job 157 holds
+        # 09-05 to 09-06 -- and no ordering of runs puts the newest page last. Measured on
+        # a copy, this walk left 99 contractors on an older, different value. What stops
+        # that is per RECORD: `extract.service.NOT_OLDER_THAN_CURRENT_SQL` (#1178) refuses
+        # any page captured before the one the record cites, in whatever order it arrives.
+        #
+        # WHAT THE ORDER DOES DECIDE IS THE HISTORY. Read oldest first, each change becomes
+        # a revision in the order it happened; read newest first, the newest is written and
+        # every older reading is refused, so the values in between never become history.
         " ORDER BY j.job_id ASC",
         (*COLLECTING_KINDS, f'%"{source_key}"%')).fetchall()
     return [(f"job-{row[0]}", int(row[1])) for row in rows]
@@ -365,8 +376,14 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # OLDER RUNS STAY RETIRED, and reaching them after a parser fix is its own
         # question, filed rather than half-answered here.
         #
-        # APPENDED LAST, because it is the newest: the walk stays oldest first, so the
-        # freshest evidence is still the last thing written.
+        # APPENDED LAST, which keeps the walk in job order. Whether its pages win over
+        # older ones is decided per record by #1178's rule, not by being last.
+        #
+        # "NEWEST" IS BY JOB, and after a Resume into an old job that is not always the run
+        # holding the newest evidence. On the day of the ruling they agree (job 180, two
+        # page pairs). Where they part, a corrected parser reaches the newest JOB's pages,
+        # and #1178 keeps any older value it carries from overwriting a newer one -- which
+        # of the two a parser fix should reach first is part of #1168.
         newest = latest_crawl_run_ref(conn, source_key)
         if newest[0] not in {ref for ref, _rows in plan}:
             plan.append(newest)
@@ -378,10 +395,15 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     # ISSUE 796. Above the reset because that is the order the sentence describes -- not
     # because the order is load-bearing: `note_a_re_entry` reads the `job` dict fetched
     # above, and the UPDATE below writes the row, not the dict.
+    # THE CONSEQUENCE IS THE LEDGER'S, and it used to say "every pair is read from disk
+    # again" -- true before the ledger, false after it. A re-entry recomputes its plan from
+    # `runs_to_interpret`, so the runs this job finished are not read again; only the run
+    # it stopped inside starts from its first pair.
     jobs.note_a_re_entry(
         conn, job, unit="page pair(s)", source_key=source_key,
-        consequence="Every pair is read from disk again and the site is asked for "
-                    "nothing, so this costs time and no requests")
+        consequence="Runs this job already finished are not read again; the one it "
+                    "stopped inside starts from its first pair, and the site is asked "
+                    "for nothing")
     jobs._update(conn, job["job_id"], status=JobStatus.PREPARING.value,
                  stage=JobStage.PREPARING.value, progress_done=0,
                  current_source_key=source_key, last_heartbeat_at=utc_now_iso(),
@@ -564,10 +586,11 @@ def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
     # happening to a `dataset_interpret` job on the owner's warehouse on 2026-09-06.
     #
     # Replacing the key meant the resumed pass's first finished run erased every run the
-    # first pass had read. THE COST IS NOT REPEATED WORK. Those runs fall back to unread,
-    # so a LATER press reads them AFTER the newer runs have already been applied and
-    # writes an older page over a newer row -- the exact inversion this module refuses at
-    # `runs_holding_pages`, and which `test_the_walk_goes_oldest_first_...` exists to stop.
+    # first pass had read. Those runs fall back to unread, so a LATER press reads them
+    # AFTER the newer runs have already been applied. Before #1178 that wrote an older page
+    # over a newer row; since #1178 the record refuses the older page, so what remains is
+    # the cost below -- every row read again for nothing -- and a history written out of
+    # the order it happened in.
     #
     # Measured on his warehouse: pausing inside run 3 of the 9 discards
     # `job-job_925080aad843` (7,934 rows) and `job-job_6eb28381bf56` (6,713) -- 14,647 of
