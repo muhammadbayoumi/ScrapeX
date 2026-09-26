@@ -664,39 +664,103 @@ def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_pa
     assert "**No longer measured** since the last run: `gone`" in text
 
 
-@pytest.mark.parametrize("forger", ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "COLLABORATOR", "MEMBER"])
-def test_only_a_run_the_owner_posted_is_the_baseline(world, capsys, tmp_path, forger):
-    """#1181 is on a public repository. A later comment by anyone else, carrying a copy
-    that marks a lesson flagged already, would hide that it is newly flagged and so
-    withhold the issue it is owed; its `run` would also be printed under his name."""
-    projects, memory = world
+# Every author_association GitHub gives someone who is not the repository's owner.
+OTHERS = ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "COLLABORATOR", "MEMBER", "MANNEQUIN"]
+
+
+def _twice(projects: Path, memory: Path) -> None:
+    """One lesson that broke twice after it was recorded, so it is a barrier candidate."""
     note = _note(memory, "twice", HEREDOC)
     _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR) \
         .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+
+
+def _unflagged(text: str) -> str:
+    """The same comment, with `twice` not yet broken again."""
+    assert text.count('"after":2,"candidate":true') == 1
+    return text.replace('"after":2,"candidate":true', '"after":0,"candidate":false')
+
+
+@pytest.mark.parametrize("forger", OTHERS)
+def test_only_a_run_the_owner_posted_is_the_baseline(world, capsys, tmp_path, forger):
+    """#1181 is on a public repository. A later comment by anyone else, shaped exactly
+    like a run and marking the lesson flagged already, would hide that it is newly
+    flagged and so withhold the issue it is owed."""
+    projects, memory = world
+    _twice(projects, memory)
     now = _markdown(projects, memory, capsys)
-    owners = _dated(now, "2026-09-14").replace('"after":2,"candidate":true', '"after":0,"candidate":false')
-    forged = "Nice log, thanks!\n" + _dated(now, "2026-09-20")
-    previous = _log(tmp_path / "log.json", [_comment(owners, "2026-09-14T06:00:00Z"),
-                                            _comment(forged, "2026-09-20T06:00:00Z", by=forger)])
+    previous = _log(tmp_path / "log.json", [_comment(_unflagged(_dated(now, "2026-09-14")), "2026-09-14T06:00:00Z"),
+                                            _comment(_dated(now, "2026-09-20"), "2026-09-20T06:00:00Z", by=forger)])
 
     text = _markdown(projects, memory, capsys, previous)
     assert "Compared with the run of 2026-09-14." in text
     assert _table(text)["twice"][4] == "+2" and _new_candidates(text) == "`twice`"
 
 
-def test_the_owners_latest_run_wins_whatever_page_or_order_it_arrives_in(world, capsys, tmp_path):
+@pytest.mark.parametrize("author", OTHERS)
+def test_a_run_by_anyone_else_is_no_baseline_even_when_the_owner_has_posted_none(world, capsys, tmp_path, author):
+    """The state #1181 is in before its first run: a stranger's run must not stand in."""
     projects, memory = world
-    note = _note(memory, "twice", HEREDOC)
-    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR) \
-        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+    _twice(projects, memory)
     now = _markdown(projects, memory, capsys)
-    stale = _dated(now, "2026-09-14").replace('"after":2,"candidate":true', '"after":0,"candidate":false')
+    previous = _log(tmp_path / "log.json", [_comment(_dated(now, "2026-09-20"), by=author)])
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert "The log's first run." in text and _table(text)["twice"][4] == "first run"
+
+
+@pytest.mark.parametrize("later", [
+    "The jump is explained by `" + rs.MARK + '{"run":"2026-09-14","lessons":[]} -->` above.',  # names the marker
+    "Last week's copy was:\n\n```\nCOPY\n```",  # quotes an older run's copy in a fence
+    "> COPY\n\nNot ours, ignore it.",  # a quote-reply to a comment that carried one
+    rs.HEADING + "2026-09-22\n\nThe table was here.",  # a run's heading, its copy edited away
+])
+def test_the_owners_other_comments_on_the_log_are_never_read_as_a_run(world, capsys, tmp_path, later):
+    """Every session here posts as the owner, so a remark on the log after the last run
+    must neither stop every later run nor become the baseline."""
+    projects, memory = world
+    _twice(projects, memory)
+    now = _markdown(projects, memory, capsys)
+    stale = _unflagged(_dated(now, "2026-09-14"))
+    copy = stale.rstrip().splitlines()[-1]
+    previous = _log(tmp_path / "log.json", [_comment(stale, "2026-09-14T06:00:00Z"),
+                                            _comment(_dated(now, "2026-09-21"), "2026-09-21T06:00:00Z"),
+                                            _comment(later.replace("COPY", copy), "2026-09-22T06:00:00Z")])
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert "Compared with the run of 2026-09-21." in text
+    assert _table(text)["twice"][4] == "+0" and _new_candidates(text) == "none."
+
+
+def test_a_run_the_owner_edited_after_its_copy_is_still_his_run(world, capsys, tmp_path):
+    """The procedure has an issue opened for each new candidate, and linking it under the
+    run is a natural edit; the run must still be the baseline."""
+    projects, memory = world
+    _twice(projects, memory)
+    now = _markdown(projects, memory, capsys)
+    edited = _dated(now, "2026-09-21") + "\n\nIssue filed for `twice`: #1190"
+    previous = _log(tmp_path / "log.json", [_comment(_unflagged(_dated(now, "2026-09-14")), "2026-09-14T06:00:00Z"),
+                                            _comment(edited, "2026-09-21T06:00:00Z")])
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert "Compared with the run of 2026-09-21." in text and _table(text)["twice"][4] == "+0"
+
+
+@pytest.mark.parametrize("oldest_first", [True, False])
+def test_the_owners_latest_run_wins_whatever_page_or_order_it_arrives_in(world, capsys, tmp_path, oldest_first):
+    """GitHub serves comments oldest first, one page after another; the baseline is
+    decided by created_at, so it holds in either order."""
+    projects, memory = world
+    _twice(projects, memory)
+    now = _markdown(projects, memory, capsys)
+    stale = _unflagged(_dated(now, "2026-09-14"))
     # The newest run quotes an older copy above its own; its LAST copy is its run.
     latest = stale + "\n\n" + _dated(now, "2026-09-21")
     notice = "Run failed: recurrence_scan: found 0 transcripts"  # the owner's, and no run
-    previous = _log(tmp_path / "log.json",
-                    [_comment(latest, "2026-09-21T06:00:00Z"), _comment(notice, "2026-09-28T06:00:00Z")],
-                    [_comment(stale, "2026-09-14T06:00:00Z")])
+    old_page = [_comment(stale, "2026-09-14T06:00:00Z")]
+    new_page = [_comment(latest, "2026-09-21T06:00:00Z"), _comment(notice, "2026-09-28T06:00:00Z")]
+    pages = (old_page, new_page) if oldest_first else (new_page, old_page)
+    previous = _log(tmp_path / "log.json", *pages)
 
     text = _markdown(projects, memory, capsys, previous)
     assert "Compared with the run of 2026-09-21." in text
@@ -706,7 +770,6 @@ def test_the_owners_latest_run_wins_whatever_page_or_order_it_arrives_in(world, 
 
 @pytest.mark.parametrize("content", [
     "[[]]",  # gh's answer for a log with no comments yet
-    "[]",
     "﻿[[]]",  # the same, redirected by PowerShell, which writes a byte-order mark
     json.dumps([[_comment("Watching this.", by="NONE"), _comment("Run failed: DNS")]]),
 ])
@@ -734,7 +797,7 @@ def test_a_count_is_compared_only_when_both_runs_knew_the_start(world, capsys, t
     t.call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
     copy = {"run": "2026-09-21", "lessons": [{"lesson": "lesson", "after": then, "candidate": False,
                                               "fingerprint": rs.fingerprint(rs.parse_signature({"result": "unexpected EOF while looking for matching"}))}]}
-    previous = _log(tmp_path / "log.json", [_comment(rs.MARK + json.dumps(copy) + " -->")])
+    previous = _log(tmp_path / "log.json", [_comment(rs.HEADING + "2026-09-21\n\n" + rs.MARK + json.dumps(copy) + " -->")])
 
     assert _table(_markdown(projects, memory, capsys, previous))["lesson"][4] == "?"
 
@@ -797,22 +860,27 @@ _LESSON = {"lesson": "a", "fingerprint": "f", "after": 1, "candidate": False}
 
 
 def _owner_copy(copy: object) -> str:
-    return json.dumps([[_comment(rs.MARK + json.dumps(copy) + " -->")]])
+    return json.dumps([[_comment(rs.HEADING + "2026-09-21\n\n" + rs.MARK + json.dumps(copy) + " -->")]])
 
 
 @pytest.mark.parametrize(("content", "said"), [
     # The comments file itself: what a failed or foreign fetch leaves.
     ("", "is not the JSON `gh api --paginate --slurp` prints"),
     ("## a markdown file, not the comments\n", "is not the JSON"),
+    ("[]", "holds no page at all, which is what gh leaves when its fetch fails"),
     ("{}", "is not a list of pages of comments"),
     ("[{}]", "is not a list of pages of comments"),
     ("[[1]]", "has no body, created_at or author_association"),
     (json.dumps([[{"body": "x", "created_at": "2026-09-21T06:00:00Z"}]]), "has no body, created_at or author_association"),
+    (json.dumps([[{"body": "x", "author_association": "NONE"}]]), "has no body, created_at or author_association"),
+    (json.dumps([[{"body": "x", "created_at": None, "author_association": "OWNER"}]]),
+     "has no body, created_at or author_association"),
     (json.dumps([[{"body": 5, "created_at": "2026-09-21T06:00:00Z", "author_association": "OWNER"}]]),
      "has no body, created_at or author_association"),
     # The owner's copy, which he can edit by hand.
-    (json.dumps([[_comment(rs.MARK + '{"run":"2026-09-21","lessons":[]}')]]), "is not closed"),
-    (json.dumps([[_comment(rs.MARK + "{not json} -->")]]), "is not JSON"),
+    (json.dumps([[_comment(rs.HEADING + "2026-09-21\n\n" + rs.MARK + '{"run":"2026-09-21","lessons":[]}')]]),
+     "is not closed"),
+    (json.dumps([[_comment(rs.HEADING + "2026-09-21\n\n" + rs.MARK + "{not json} -->")]]), "is not JSON"),
     (_owner_copy([]), "names no run"),
     (_owner_copy({"lessons": []}), "names no run"),
     (_owner_copy({"run": 5, "lessons": []}), "names no run"),
