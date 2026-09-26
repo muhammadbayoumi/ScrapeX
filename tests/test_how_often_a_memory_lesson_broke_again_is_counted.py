@@ -20,6 +20,8 @@ the lesson began; without it the start is unknown, and the report says so.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -530,3 +532,240 @@ def test_a_relative_projects_path_dates_lessons_like_an_absolute_one(world, caps
 ])
 def test_the_memory_folder_is_named_the_way_claude_code_names_it(checkout, folder):
     assert rs.project_folder(Path(checkout)) == folder
+
+
+# THE WEEKLY LOG. `--markdown` writes one comment for the log issue, and hides a copy of
+# the run at its end; `--previous` reads the last such copy back, so each comment says
+# what changed since the one before. A number compared across two different signatures
+# compares two different measures, which is what the fingerprint refuses.
+
+
+def _markdown(projects: Path, memory: Path, capsys, previous: Path | None = None) -> str:
+    extra = ("--previous", str(previous)) if previous else ()
+    assert _run(projects, memory, "--markdown", *extra) == 0
+    return capsys.readouterr().out
+
+
+def _table(text: str) -> dict[str, list[str]]:
+    """lesson -> its cells, from the comment's table."""
+    rows = [line.strip("|").split(" | ") for line in text.splitlines() if line.startswith("| `")]
+    return {cells[0].strip(" `"): [c.strip() for c in cells[1:]] for cells in rows}
+
+
+def _new_candidates(text: str) -> str:
+    return next(x for x in text.splitlines() if x.startswith("**New barrier candidates**")).split(": ", 1)[1]
+
+
+def test_the_first_comment_is_the_table_and_a_hidden_copy_of_the_run(world, capsys):
+    projects, memory = world
+    twice = _note(memory, "twice", HEREDOC)
+    once = _note(memory, "once", "result: 'no such thing'\ncaveat: 'a floor: this one is shy'")
+    shape = _note(memory, "piped", "command: 'pytest.*\\| tail'")
+    older = _note(memory, "older", HEREDOC)
+    _note(memory, "unsigned")
+    _session(projects).create(T0, twice).create(T0, once).create(T0, shape).update(T0, older) \
+        .call(T1, "Bash", {"command": "a"}, PARSE_ERROR).call(T2, "Bash", {"command": "b"}, PARSE_ERROR) \
+        .call(T2, "Bash", {"command": "c"}, "no such thing") \
+        .call(T2, "Bash", {"command": "pytest | tail"}, "ok").call(T3, "Bash", {"command": "pytest | tail"}, "ok") \
+        .call(T3, "Bash", {"command": "pytest -x | tail"}, "ok").save()
+
+    text = _markdown(projects, memory, capsys)
+    assert "The log's first run." in text and text.startswith("## Recurrence scan, ")
+    table = _table(text)
+    assert list(table) == ["piped", "twice", "once", "older"], "most recurrences first, as in the report"
+    #                          kind      recorded      before after since        total sessions last          flag
+    assert table["twice"] == ["failure", "2026-09-10", "0", "2", "first run", "2", "1", "2026-09-14", "**barrier candidate**"]
+    assert table["piped"][:2] == ["shape", "2026-09-10"] and table["piped"][3] == "3" and table["piped"][-1] == ""
+    assert table["once"][3] == "1" and table["once"][-1] == ""
+    assert table["older"] == ["failure", "unknown", "?", "?", "first run", "2", "?", "-", ""], \
+        "an unknown start shows no split, no sessions and no flag"
+    assert _new_candidates(text) == "`twice`"
+    assert "- caveat on `once`: a floor: this one is shy" in text
+    assert "- start unknown for `older`: `the earliest surviving write is an update, so the lesson is older`" in text
+    assert "4 lessons measured, 1 with no failure_signature: `unsigned`" in text
+
+    assert text.rstrip().splitlines()[-1].startswith(rs.MARK), "the copy closes the comment"
+    run, lessons = rs.load_previous(text)
+    assert run == rs.dt.date.today().isoformat()
+    assert set(lessons) == {"twice", "piped", "once", "older"}, "an unsigned note has no count to compare"
+    assert (lessons["twice"]["after"], lessons["twice"]["candidate"]) == (2, True)
+    assert (lessons["older"]["after"], lessons["older"]["candidate"]) == (None, False)
+    assert lessons["twice"]["fingerprint"] == rs.fingerprint(rs.parse_signature(
+        {"result": "unexpected EOF while looking for matching"}))
+
+
+def test_the_next_comment_says_what_changed_since_the_last(world, capsys, tmp_path):
+    projects, memory = world
+    grows = _note(memory, "grows", HEREDOC)
+    flagged = _note(memory, "flagged", "result: 'boom'")
+    becomes = _note(memory, "becomes", "result: 'bang'")
+    rewritten = _note(memory, "rewritten", "result: 'crash'")
+    gone = _note(memory, "gone", "result: 'fizz'")
+    older = _note(memory, "older", "result: 'fizz'")
+    first = _session(projects, "s1").create(T0, grows).create(T0, flagged).create(T0, becomes) \
+        .create(T0, rewritten).create(T0, gone).update(T0, older) \
+        .call(T1, "Bash", {"command": "a"}, PARSE_ERROR).call(T1, "Bash", {"command": "a2"}, PARSE_ERROR) \
+        .call(T1, "Bash", {"command": "b"}, "boom").call(T1, "Bash", {"command": "c"}, "boom") \
+        .call(T1, "Bash", {"command": "d"}, "bang").call(T1, "Bash", {"command": "e"}, "crash")
+    first.save()
+    previous = tmp_path / "prev.md"
+    previous.write_text(_markdown(projects, memory, capsys), encoding="utf-8")
+
+    _session(projects, "s2").call(T2, "Bash", {"command": "f"}, PARSE_ERROR) \
+        .call(T2, "Bash", {"command": "g"}, "bang").call(T2, "Bash", {"command": "h"}, "boom") \
+        .call(T2, "Bash", {"command": "i"}, "fizz").save()
+    gone.unlink()
+    _note(memory, "rewritten", "result: 'crash|burn'")
+    newcomer = _note(memory, "newcomer", "result: 'boom'")
+    _session(projects, "s3").create(T3, newcomer).save()
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert f"Compared with the run of {rs.load_previous(previous.read_text(encoding='utf-8'))[0]}." in text
+    since = {name: cells[4] for name, cells in _table(text).items()}
+    assert _table(text)["grows"][3] == "3"
+    assert since == {"grows": "+1", "flagged": "+1", "becomes": "+1", "rewritten": "signature changed",
+                     "older": "?", "newcomer": "new lesson"}
+    assert _new_candidates(text) == "`becomes`", "a lesson flagged last week is not new; one flagged now is"
+    assert "**Signature changed** since the last run, so its count starts a new baseline: `rewritten`" in text
+    assert "**No longer measured** since the last run: `gone`" in text
+
+
+def test_the_last_run_in_the_file_is_the_baseline_and_an_unchanged_world_changes_nothing(world, capsys, tmp_path):
+    """The log's comments are fetched in order into one file, so the LAST copy in it is
+    last week's run; an earlier one with other numbers must not be read."""
+    projects, memory = world
+    note = _note(memory, "twice", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR) \
+        .call(T2, "Bash", {"command": "b"}, PARSE_ERROR).save()
+    latest = _markdown(projects, memory, capsys)
+    stale = latest.replace('"after":2,"candidate":true', '"after":0,"candidate":false')
+    assert stale != latest
+    previous = tmp_path / "prev.md"
+    previous.write_text(stale + "\nsomeone replied in between\n" + latest, encoding="utf-8")
+
+    text = _markdown(projects, memory, capsys, previous)
+    assert _table(text)["twice"][4] == "+0"
+    assert _new_candidates(text) == "none."
+    assert "**Signature changed**" not in text and "**No longer measured**" not in text
+
+
+@pytest.mark.parametrize(("then", "now_known"), [
+    (1, False),  # the creating Write was in a transcript that is gone now
+    (None, True),  # last week could not date it; this week can
+])
+def test_a_count_is_compared_only_when_both_runs_knew_the_start(world, capsys, tmp_path, then, now_known):
+    projects, memory = world
+    note = _note(memory, "lesson", HEREDOC)
+    t = _session(projects)
+    if now_known:
+        t.create(T0, note)
+    t.call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+    copy = {"run": "2026-09-21", "lessons": [{"lesson": "lesson", "after": then, "candidate": False,
+                                              "fingerprint": rs.fingerprint(rs.parse_signature({"result": "unexpected EOF while looking for matching"}))}]}
+    previous = tmp_path / "prev.md"
+    previous.write_text(rs.MARK + json.dumps(copy) + " -->\n", encoding="utf-8")
+
+    assert _table(_markdown(projects, memory, capsys, previous))["lesson"][4] == "?"
+
+
+@pytest.mark.parametrize(("change", "same"), [
+    ({"kind": "failure"}, True),  # the default written out is the same measure
+    ({"caveat": "read the session"}, True),  # a caveat changes how to read, not what is counted
+    ({"tool": ["Bash", "PowerShell"]}, True),  # what `shell` means, written as a list
+    ({"result": "unexpected EOF"}, False),
+    ({"tool": "Bash"}, False),
+    ({"command": "python"}, False),
+])
+def test_the_fingerprint_changes_with_what_is_counted_and_nothing_else(change, same):
+    base = {"result": "unexpected EOF while looking for matching"}
+    before = rs.fingerprint(rs.parse_signature(base))
+    assert (rs.fingerprint(rs.parse_signature({**base, **change})) == before) is same
+    assert (rs.fingerprint(rs.parse_signature({"result": "x", "kind": "shape"}))
+            != rs.fingerprint(rs.parse_signature({"result": "x"})))
+
+
+def test_no_lesson_name_can_close_the_hidden_copy_or_break_the_table():
+    """A lesson is a file name, and on Linux a file name may hold `-->` or `|`."""
+    sig = rs.parse_signature({"result": "x"})
+    row = rs.Row(rs.Note("a|b-->c", Path("a.md"), sig), rs.dt.datetime(2026, 9, 10), "created in a transcript")
+    row.after, row.total = 2, 2
+    text = rs.markdown([row], rs.dt.datetime(2026, 9, 28), 1, 3)
+
+    copy = text.splitlines()[-1]
+    assert copy.count("-->") == 1 and copy.endswith(" -->"), "only the copy's own end closes the comment"
+    assert "| `a\\|b-->c` |" in text, "the pipe is escaped, so the row keeps its cells"
+    assert list(rs.load_previous(text)[1]) == ["a|b-->c"]
+
+
+def test_a_quoted_tool_result_can_neither_mention_a_user_nor_link_an_issue(world, capsys):
+    """The reason for an unknown start quotes a tool's output, and a GitHub comment
+    would ping `@name` and link `#12` written outside a code span."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).call(T0, "Write", {"file_path": str(note)}, "Wrote `it for @octocat, see #12") \
+        .call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+
+    text = _markdown(projects, memory, capsys)
+    line = next(x for x in text.splitlines() if x.startswith("- start unknown for `heredoc`"))
+    assert "@octocat" in line
+    outside = "".join(line.split("`")[0::2])
+    assert "@octocat" not in outside and "#12" not in outside
+
+
+def test_previous_needs_markdown_and_markdown_excludes_json(world, tmp_path):
+    projects, memory = world
+    with pytest.raises(SystemExit) as exc:
+        _run(projects, memory, "--previous", str(tmp_path / "prev.md"))
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        _run(projects, memory, "--markdown", "--json")
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(("content", "said"), [
+    ("## a comment written by hand\n", "carries no recurrence-scan block"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[]}\n', "is not closed"),
+    ("<!-- recurrence-scan {not json} -->", "is not JSON"),
+    ("<!-- recurrence-scan [] -->", "is not a run of lessons"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a"}]} -->', "is not a run of lessons"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
+     '"after":"2","candidate":false}]} -->', "is not a run of lessons"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
+     '"after":true,"candidate":false}]} -->', "is not a run of lessons"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a","fingerprint":"f",'
+     '"after":1}]} -->', "is not a run of lessons"),
+    ('<!-- recurrence-scan {"run":"2026-09-21","lessons":[{"lesson":"a",'
+     '"after":1,"candidate":false}]} -->', "is not a run of lessons"),
+    ('<!-- recurrence-scan {"lessons":[]} -->', "is not a run of lessons"),
+    (None, "cannot compare with"),
+])
+def test_a_previous_run_that_cannot_be_read_is_an_error_not_a_first_run(world, capsys, tmp_path, content, said):
+    """Read as "no previous run", every lesson would be reported new and every
+    candidate would be owed a second issue."""
+    projects, memory = world
+    note = _note(memory, "heredoc", HEREDOC)
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, PARSE_ERROR).save()
+    previous = tmp_path / "prev.md"
+    if content is not None:
+        previous.write_text(content, encoding="utf-8")
+
+    assert _run(projects, memory, "--markdown", "--previous", str(previous)) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "", "no half-compared comment"
+    assert "cannot compare with" in captured.err and said in captured.err
+
+
+@pytest.mark.parametrize("output", [(), ("--markdown",)])
+def test_a_caveat_outside_the_windows_code_page_survives_a_redirected_run(world, output):
+    """Redirected on Windows, stdout encodes cp1252, and one caveat outside it killed
+    the whole report; the log's comment is always a redirected run."""
+    projects, memory = world
+    note = _note(memory, "arrow", "result: 'boom'\ncaveat: 'a floor → اقرأ الجلسة'")
+    _session(projects).create(T0, note).call(T1, "Bash", {"command": "a"}, "boom").save()
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    env.pop("PYTHONUTF8", None)
+
+    done = subprocess.run([sys.executable, str(ROOT / "tools" / "recurrence_scan.py"), "--projects", str(projects),
+                           "--memory", str(memory), *output], capture_output=True, env=env, check=False)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert "a floor → اقرأ الجلسة" in done.stdout.decode("utf-8")
