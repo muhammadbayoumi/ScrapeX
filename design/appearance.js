@@ -151,10 +151,9 @@
     return {
       mode: candidate.mode === "manual" ? "manual" : "device",
       scheme: SCHEMES.has(candidate.scheme) ? candidate.scheme : DEFAULTS.scheme,
-      // Resolving rather than testing membership is what carries R-59 decision
-      // 3: a preference stored as `whatsapp` or `github` -- which is every
-      // preference stored before today -- arrives here and comes out as `brand`
-      // or `blue` instead of being dropped on the floor for the default.
+      // Resolving rather than testing membership is what carried R-59 decision
+      // 3. Since R-85 every retired id -- `whatsapp`, `github`, `brand`, `blue` --
+      // resolves to `supabase`, the one colour choice, as the default does.
       palette: resolvePalette(candidate.palette),
       // `deviceColors` and its v1 name `followColors` are READ AND DISCARDED. Every
       // appearance stored before 2026-08-31 carries one of them, and R-85 removed
@@ -236,8 +235,8 @@
     const theme = themeFor(palette, effectiveScheme(value));
     // Removal is meaningful, not a no-op: `supabase` declares no colours at all
     // because its colours ARE tokens.css's, so this loop removes all 36 and the
-    // baseline shows through. `brand` and `blue` set the ones they override and
-    // leave the rest to fall through the same way.
+    // baseline shows through. A palette added to the registry would set the ones
+    // it overrides and leave the rest to fall through the same way.
     THEME_PROPERTIES.forEach((property) => {
       if (theme[property]) root.style.setProperty(`--${property}`, theme[property]);
       else root.style.removeProperty(`--${property}`);
