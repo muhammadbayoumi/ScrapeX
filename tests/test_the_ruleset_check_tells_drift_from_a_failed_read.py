@@ -535,23 +535,77 @@ def test_a_malformed_expected_file_is_could_not_check(capsys, tmp_path, content,
     assert says in out
 
 
-# --- it is wired where it runs on every change --------------------------------------
+# --- it is wired where it runs on every change, and a red answer skips nothing ------
+#
+# The owner's decision in #1153: `contract-parity`, not `scope`. `test` needs `scope`,
+# so a red check there would skip the suite, and when the ruleset is deleted or disabled
+# or the repository goes private nothing is required any more -- that merge would be
+# possible AND untested.
 
 
-def test_ci_runs_the_check_in_the_scope_job_on_every_run():
-    """`scope` is required and always runs. A step with an `if:`, or one in a job that
-    can be skipped, would let the check vanish the way protection did."""
+def _ci_jobs() -> dict:
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml")
                               .read_text(encoding="utf-8"))
-    scope = workflow["jobs"]["scope"]
-    assert "if" not in scope and "needs" not in scope
+    return workflow["jobs"]
 
-    steps = scope["steps"]
-    runs = [i for i, step in enumerate(steps)
-            if "tools/check_the_ruleset.py" in str(step.get("run") or "")]
-    assert len(runs) == 1, "the scope job no longer runs the ruleset check exactly once"
-    step = steps[runs[0]]
+
+def _runs_the_check(step: dict) -> bool:
+    return "tools/check_the_ruleset.py" in str(step.get("run") or "")
+
+
+def _needs(job: dict) -> list[str]:
+    needs = job.get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+def test_the_check_is_not_in_scope_which_test_needs():
+    scope = _ci_jobs()["scope"]
+
+    assert not any(_runs_the_check(step) for step in scope["steps"]), (
+        "the ruleset check is back in `scope`. `test` needs `scope`, so a red check "
+        "there skips the suite, and with the ruleset gone a merge is then possible "
+        "AND untested (#1153).")
+
+
+def test_ci_runs_the_check_once_as_the_last_step_of_contract_parity():
+    """`contract-parity` is required and always runs. A step with an `if:`, or one in a
+    job that can be skipped, would let the check vanish the way protection did. Last,
+    so a red check leaves the job's own gates answered."""
+    jobs = _ci_jobs()
+    placed = [(name, i) for name, job in jobs.items()
+              for i, step in enumerate(job.get("steps") or []) if _runs_the_check(step)]
+    assert [name for name, _ in placed] == ["contract-parity"], (
+        f"the ruleset check should run exactly once, in `contract-parity`; it runs at "
+        f"(job, step index) {placed}")
+
+    job = jobs["contract-parity"]
+    assert "if" not in job and "needs" not in job and not job.get("continue-on-error")
+    steps = job["steps"]
+    [(_, index)] = placed
+    step = steps[index]
     assert "if" not in step and not step.get("continue-on-error")
     assert step["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
-    assert str(steps[runs[0] - 1].get("uses", "")).startswith("actions/checkout"), (
-        "the check no longer runs right after the checkout")
+    assert index == len(steps) - 1, (
+        f"the check is step {index} of {len(steps)} in `contract-parity`, not the last: "
+        "a red check skips every step after it, so the gates below it go unanswered "
+        "on exactly the runs where the ruleset is gone")
+    assert any(str(s.get("uses", "")).startswith("actions/checkout")
+               for s in steps[:index]), "no checkout runs before the check"
+
+
+def test_nothing_needs_the_job_that_runs_the_check():
+    """A job that needs it is skipped whenever the check is red -- `test` above all."""
+    jobs = _ci_jobs()
+    hosts = {name for name, job in jobs.items()
+             if any(_runs_the_check(step) for step in job.get("steps") or [])}
+    assert hosts, "no job runs the ruleset check"
+
+    dependants = {name: sorted(hosts & set(_needs(job))) for name, job in jobs.items()
+                  if hosts & set(_needs(job))}
+    assert "test" not in dependants, (
+        f"`test` needs {dependants.get('test')}, which runs the ruleset check: a red "
+        "check would skip the suite, and with the ruleset "
+        "gone that merge is possible AND untested (#1153)")
+    assert dependants == {}, (
+        f"these jobs need the job that runs the ruleset check, and a red check skips "
+        f"them: {dependants}")
