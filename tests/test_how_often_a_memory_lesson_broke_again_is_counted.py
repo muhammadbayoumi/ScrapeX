@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -714,6 +715,8 @@ def test_a_run_by_anyone_else_is_no_baseline_even_when_the_owner_has_posted_none
     "Last week's copy was:\n\n```\nCOPY\n```",  # quotes an older run's copy in a fence
     "> COPY\n\nNot ours, ignore it.",  # a quote-reply to a comment that carried one
     rs.HEADING + "2026-09-22\n\nThe table was here.",  # a run's heading, its copy edited away
+    "Last week's comment was:\n\n```\nSTALE\n```",  # a whole older run, heading and all, pasted in a fence
+    "## Recurrence scan: why `twice` jumped\n\nThe copy was `COPY`.",  # another heading, not the run's
 ])
 def test_the_owners_other_comments_on_the_log_are_never_read_as_a_run(world, capsys, tmp_path, later):
     """Every session here posts as the owner, so a remark on the log after the last run
@@ -725,7 +728,8 @@ def test_the_owners_other_comments_on_the_log_are_never_read_as_a_run(world, cap
     copy = stale.rstrip().splitlines()[-1]
     previous = _log(tmp_path / "log.json", [_comment(stale, "2026-09-14T06:00:00Z"),
                                             _comment(_dated(now, "2026-09-21"), "2026-09-21T06:00:00Z"),
-                                            _comment(later.replace("COPY", copy), "2026-09-22T06:00:00Z")])
+                                            _comment(later.replace("COPY", copy).replace("STALE", stale),
+                                                     "2026-09-22T06:00:00Z")])
 
     text = _markdown(projects, memory, capsys, previous)
     assert "Compared with the run of 2026-09-21." in text
@@ -921,6 +925,28 @@ def test_a_previous_run_that_cannot_be_read_is_an_error_not_a_first_run(world, c
     captured = capsys.readouterr()
     assert captured.out == "", "no half-compared comment"
     assert "cannot compare with" in captured.err and said in captured.err
+
+
+def test_the_weekly_procedure_stops_when_the_owners_token_cannot_be_found(tmp_path):
+    """`export X=$(...)` succeeds even when the command inside fails, and gh then posts
+    as whichever account is active. The documented chain must stop there instead."""
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("no bash here; CI and his Git Bash both have one")
+    first = next(line.strip() for line in rs.__doc__.splitlines() if line.strip().startswith("T=$(mktemp -d)"))
+    assert first.endswith("&&"), "the procedure's first line chains into the fetch"
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    gh = stubs / "gh"  # a gh whose token lookup fails, found before the real one
+    gh.write_text("#!/bin/sh\necho 'no oauth token found for github.com account' >&2\nexit 1\n",
+                  encoding="utf-8", newline="\n")
+    gh.chmod(0o755)
+    env = {**os.environ, "PATH": str(stubs) + os.pathsep + os.environ["PATH"], "TMPDIR": str(tmp_path)}
+    env.pop("GH_TOKEN", None)
+
+    done = subprocess.run([bash, "-c", first + " echo REACHED"], capture_output=True, text=True,
+                          env=env, check=False)
+    assert done.returncode != 0 and "REACHED" not in done.stdout, done.stdout + done.stderr
 
 
 @pytest.mark.parametrize("output", [(), ("--markdown",)])
