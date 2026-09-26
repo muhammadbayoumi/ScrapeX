@@ -52,7 +52,9 @@
       grid-template-rows:auto auto;column-gap:var(--sp-3);align-items:center;min-height:4.5rem;
       padding:var(--sp-3) var(--sp-4);cursor:pointer;list-style:none}
     details.sect>summary::-webkit-details-marker{display:none}
-    details.sect>summary:focus{outline:none}
+    /* Inset (#747): .settings-list clips, so a ring outside the summary would be cut. */
+    details.sect>summary:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);
+      outline-offset:calc(-1 * var(--focus-ring-width));box-shadow:none}
     details.sect>summary::after{content:"›";grid-column:2;grid-row:1/-1;align-self:center;
       color:var(--muted);font-size:var(--fs-xl);line-height:1;transition:transform var(--dur)}
     details.sect>summary:hover{background:var(--surface-subtle);color:var(--accent-ink)}

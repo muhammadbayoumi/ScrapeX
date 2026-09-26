@@ -38,8 +38,6 @@ LEFT_TO = {
     r"\.appearance-switch": "#738 rebuilds the switch",
     r"\.split-button": "#1059 rebuilds the split button",
     r"\.finance-converter-select-trigger": "#729 rebuilds the select, whose trigger shares this rule",
-    r"^input:focus, select:focus$": "#745, extension/enrichment.css, which cancels the ring",
-    r"^details\.sect>summary:focus$": "#747, the web UI's settings page, which removes it",
 }
 
 
@@ -146,6 +144,20 @@ def test_every_wrapper_takes_both_its_inner_controls_ring_and_gap():
              if dropped.get(wrapper, {}).get("outline") not in ("0", "none")
              or dropped.get(wrapper, {}).get("box-shadow") != "none"}
     assert not wrong, f"wrappers whose inner field keeps its ring or its gap: {wrong}"
+
+
+def test_a_bare_focus_rule_never_draws():
+    """`:focus` matches a mouse click too, so a ring drawn on it shows where Supabase's
+    `focus-visible` draws none, and a ring cancelled on it is cancelled for the keyboard
+    as well (#745, #747). A bare `:focus` may only drop an inner control's own indicator
+    under a wrapper that draws the ring."""
+    found = _focus_declarations()
+    wrappers = _ring_wrappers(found)
+    bare = re.compile(r":focus(?![\w-])")
+    wrong = [f"{where} {selector} {{ {prop}: {value} }}" for where, selector, prop, value in found
+             if bare.search(selector) and not any(re.search(pattern, selector) for pattern in LEFT_TO)
+             and not (value in ("0", "none") and _suppressed_under_a_ring(selector, wrappers))]
+    assert not wrong, "a bare :focus rule draws or cancels a ring; use :focus-visible:\n  " + "\n  ".join(wrong)
 
 
 def test_every_rule_left_to_another_item_is_still_there():
