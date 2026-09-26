@@ -7,14 +7,20 @@ with main. It happened to #1042 on 2026-09-24. A server-side update-branch ends 
 same way. The one record of what the author meant is the pull request's body, which
 no rebase touches -- so the body says it, and this compares.
 
-THE LINE, at the start of a line in the pull request body:
+THE LINE, a line of its own anywhere in the pull request body, exactly one of:
 
-    VERSION: 0.4.23      this pull request raises VERSION to 0.4.23
-    VERSION: unchanged   this pull request does not move VERSION
+    VERSION: 0.4.23
+    VERSION: unchanged
 
-No line means unchanged, so a pull request that leaves VERSION alone needs nothing.
-A line inside a fenced code block is an example, not a declaration. Two lines that
-disagree are refused rather than resolved.
+The first says the pull request raises VERSION to 0.4.23, the second that it leaves
+VERSION alone. No line also means unchanged, so such a pull request needs nothing.
+
+NOTHING ELSE MAY LOOK LIKE ONE. Any other line whose first word is VERSION -- a
+heading, bold, a quote, a list item, trailing words, "Version:" -- is refused by name
+rather than read as unchanged, because reading it as unchanged is the false pass
+#1086 is about. That holds inside code blocks too: write examples mid-line. Two
+declarations that disagree are refused rather than resolved. A byte-order mark at the
+very start of the body is dropped first; GitHub has delivered one.
 
 THE RULE, with H the pull request's VERSION and M main's:
 
@@ -42,7 +48,9 @@ from scrapex.version import parse_version  # noqa: E402
 
 UNCHANGED = "unchanged"
 DECLARATION = re.compile(r"^VERSION:[ \t]*(\S+)[ \t]*$")
-FENCE = re.compile(r"^[ \t]*(```|~~~)")
+# A line whose first word, past any Markdown decoration or invisible space, is
+# VERSION, or "version:" in any case. Every such line must BE a declaration.
+LOOKS_LIKE_ONE = re.compile(r"^[\s\ufeff>#*`_~|\d.)-]*(?:VERSION\b|(?i:version)\s*:)")
 
 _module_names = count()
 
@@ -50,14 +58,21 @@ _module_names = count()
 def declared(body: str | None) -> str:
     """The body's VERSION line: a version, or UNCHANGED when there is none."""
     found: list[str] = []
-    fenced = False
-    for line in (body or "").splitlines():
-        if FENCE.match(line):
-            fenced = not fenced
-            continue
-        match = None if fenced else DECLARATION.match(line)
+    refused: list[str] = []
+    for line in (body or "").removeprefix("\ufeff").splitlines():
+        match = DECLARATION.match(line)
         if match:
             found.append(match.group(1))
+        elif LOOKS_LIKE_ONE.match(line):
+            refused.append(line)
+    if refused:
+        shown = "; ".join(repr(line[:80]) for line in refused[:3])
+        more = f" and {len(refused) - 3} more" if len(refused) > 3 else ""
+        raise ValueError(
+            f"the pull request body has a line that names VERSION but is not a "
+            f"declaration ({shown}{more}). Make it a line of its own reading exactly "
+            f"`VERSION: <version>` or `VERSION: {UNCHANGED}`, or reword it so it does "
+            "not start with VERSION")
     if not found:
         return UNCHANGED
     if len(set(found)) > 1:

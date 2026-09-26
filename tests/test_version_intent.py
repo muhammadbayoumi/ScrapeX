@@ -36,12 +36,12 @@ def _version_file(folder: Path, name: str, version: str) -> Path:
 # ---- the line in the body --------------------------------------------------------
 
 @pytest.mark.parametrize("body", [None, "", "No version talk here.\n",
-                                  "VERSION 0.4.17, on his word\n",
-                                  "- VERSION: 0.4.23\n",
                                   "It raises `VERSION: 0.4.23` somewhere mid-line.\n",
-                                  "Version: 0.4.23\n"])
+                                  "The version-intent check is advisory.\n",
+                                  "| Version | Date |\n",
+                                  "VERSIONS move rarely.\n"])
 def test_a_body_without_a_declaration_means_unchanged(body):
-    """Prose, a list item, inline code and the wrong case are not the line."""
+    """Prose, a mid-line mention and a word that only begins with VERSION are not the line."""
     assert tool.declared(body) == tool.UNCHANGED
 
 
@@ -51,6 +51,8 @@ def test_a_body_without_a_declaration_means_unchanged(body):
     ("VERSION:0.4.23", "0.4.23"),
     ("VERSION: \t0.4.23 \t", "0.4.23"),
     ("Intro.\r\nVERSION: 0.4.23\r\nMore.\r\n", "0.4.23"),
+    ("Intro.\rVERSION: 0.4.23\rMore.\r", "0.4.23"),
+    ("\ufeffVERSION: 0.4.23\n\nThe body GitHub delivered started with a BOM.", "0.4.23"),
     ("VERSION: unchanged", tool.UNCHANGED),
     ("VERSION: 0.4.23\nand again:\nVERSION: 0.4.23\n", "0.4.23"),
 ])
@@ -58,11 +60,45 @@ def test_the_declaration_is_read_at_the_start_of_a_line(body, expected):
     assert tool.declared(body) == expected
 
 
-@pytest.mark.parametrize("fence", ["```", "~~~", "  ```text"])
-def test_a_line_inside_a_code_block_is_an_example_not_a_declaration(fence):
-    body = f"How to write it:\n{fence}\nVERSION: 9.9.9\n{fence}\nVERSION: 0.4.23\n"
-    assert tool.declared(body) == "0.4.23"
-    assert tool.declared(f"{fence}\nVERSION: 9.9.9\n{fence}\n") == tool.UNCHANGED
+def test_a_declaration_inside_a_code_block_still_counts():
+    """A fence tracker failed open twice in review, so there is none: examples go mid-line."""
+    assert tool.declared("```\nVERSION: 0.4.23\n```\n") == "0.4.23"
+    with pytest.raises(ValueError, match="more than once"):
+        tool.declared("```\nVERSION: 9.9.9\n```\nVERSION: 0.4.23\n")
+
+
+@pytest.mark.parametrize("line", [
+    "VERSION: 0.4.23      this pull request raises VERSION to 0.4.23",
+    "VERSION: 0.4.23, on his word",
+    "VERSION: 0.4.23 (raises)",
+    "VERSION:",
+    "VERSION:   ",
+    "**VERSION: 0.4.23**",
+    "> VERSION: 0.4.23",
+    "## VERSION 0.4.23",
+    "## VERSION 0.4.22, derived rather than reserved",
+    "- VERSION: 0.4.23",
+    "1. VERSION: 0.4.23",
+    "`VERSION: 0.4.23`",
+    "| VERSION: 0.4.23 |",
+    "Version: 0.4.23",
+    "version: 0.4.23",
+    "  VERSION: 0.4.23",
+    "\u00a0VERSION: 0.4.23",
+    "VERSION 0.4.17, on his word",
+])
+def test_a_line_that_looks_like_a_declaration_is_refused_never_read_as_unchanged(line):
+    """Read as unchanged, each of these passes the exact #1086 state: the raise gone,
+    the body still claiming it. So each is refused, and the refusal quotes it."""
+    for body in (f"{line}\n", f"Intro.\n\n{line}\n", f"VERSION: 0.4.23\n{line}\n"):
+        with pytest.raises(ValueError, match="names VERSION but is not a declaration") as err:
+            tool.declared(body)
+        assert repr(line[:80]) in str(err.value)
+
+
+def test_a_byte_order_mark_anywhere_but_the_start_is_refused_and_shown():
+    with pytest.raises(ValueError, match=r"\\ufeffVERSION"):
+        tool.declared("Intro.\n\ufeffVERSION: 0.4.23\n")
 
 
 def test_two_declarations_that_disagree_are_refused_not_resolved():
@@ -72,7 +108,8 @@ def test_two_declarations_that_disagree_are_refused_not_resolved():
         tool.declared("VERSION: unchanged\nVERSION: 0.4.24\n")
 
 
-@pytest.mark.parametrize("value", ["0.4", "0.4.23.1", "v0.4.23", "next", "Unchanged", "0.4.x"])
+@pytest.mark.parametrize("value", ["0.4", "0.4.23.1", "v0.4.23", "next", "Unchanged", "0.4.x",
+                                   "0.4.23,"])
 def test_a_declaration_that_is_not_a_version_is_refused_by_name(value):
     with pytest.raises(ValueError, match=f"VERSION: {value}"):
         tool.declared(f"VERSION: {value}\n")
@@ -117,8 +154,10 @@ def test_a_declared_number_behind_main_is_refused():
     assert "not a raise" in tool.problem("0.4.17", "0.4.17", "0.4.22")
 
 
-def test_a_body_and_a_file_that_disagree_are_told_to_agree():
-    assert "make them agree" in tool.problem("0.4.24", "0.4.23", "0.4.22")
+@pytest.mark.parametrize("declaration, head", [("0.4.24", "0.4.23"), ("0.4.23", "0.4.24")])
+def test_a_body_and_a_file_that_disagree_are_told_to_agree(declaration, head):
+    """Both directions: the file behind the body, and the file ahead of it."""
+    assert "make them agree" in tool.problem(declaration, head, "0.4.22")
 
 
 def test_versions_are_compared_as_numbers_not_as_text():
@@ -184,18 +223,42 @@ def test_the_command_exits_by_verdict(tmp_path, monkeypatch, capsys):
     assert "error: " in capsys.readouterr().err
 
 
-def test_the_script_runs_standalone_from_any_directory(tmp_path):
-    """The workflow calls it as a file, with nothing installed: it must find
-    scrapex.version on its own."""
-    head = _version_file(tmp_path, "head.py", "0.4.22")
-    main = _version_file(tmp_path, "main.py", "0.4.22")
-    done = subprocess.run(
-        [sys.executable, str(SCRIPT), "--head", str(head), "--main", str(main)],
+def _run_script(tmp_path, body, head_version, main_version):
+    """The script as the workflow's last step runs it: a file, from elsewhere, with no
+    site-packages (-S) and a bare environment, so nothing installed can stand in for
+    the sys.path line that finds scrapex.version."""
+    head = _version_file(tmp_path, "head.py", head_version)
+    main = _version_file(tmp_path, "main.py", main_version)
+    return subprocess.run(
+        [sys.executable, "-S", str(SCRIPT), "--head", str(head), "--main", str(main)],
         cwd=tmp_path, capture_output=True, text=True, encoding="utf-8",
-        # A bare environment, as a runner step has: no PYTHONPATH to lean on.
-        env={"PR_BODY": "", "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")})
-    assert done.returncode == 0, done.stderr
-    assert "consistent" in done.stdout
+        env={"PR_BODY": body, "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")})
+
+
+def test_the_premise_nothing_installed_is_importable_under_dash_s(tmp_path):
+    """Without this, the standalone runs below could pass on an editable install of
+    scrapex and prove nothing about the script finding it by itself."""
+    probe = subprocess.run([sys.executable, "-S", "-c", "import scrapex"], cwd=tmp_path,
+                           capture_output=True, text=True,
+                           env={"SYSTEMROOT": os.environ.get("SYSTEMROOT", "")})
+    assert probe.returncode != 0 and "ModuleNotFoundError" in probe.stderr, probe.stderr
+
+
+@pytest.mark.parametrize("body, head, main, code, says", [
+    ("", "0.4.22", "0.4.22", 0, "consistent"),
+    ("VERSION: 0.4.23\n", "0.4.23", "0.4.22", 0, "consistent"),
+    ("VERSION: 0.4.23\n", "0.4.22", "0.4.22", 1, "not on this branch"),
+    ("", "0.4.23", "0.4.22", 1, "`VERSION: 0.4.23`"),
+    ("VERSION: 0.4.22\n", "0.4.22", "0.4.22", 1, "not a raise"),
+    ("VERSION: 0.4.23\nVERSION: 0.4.24\n", "0.4.23", "0.4.22", 2, "error: "),
+    ("## VERSION 0.4.23\n", "0.4.22", "0.4.22", 2, "names VERSION"),
+])
+def test_the_script_exits_by_verdict_as_github_reads_it(tmp_path, body, head, main, code, says):
+    """The exit status is the check's only output GitHub reads. main() returning the
+    right number proves nothing if the file stops passing it to sys.exit."""
+    done = _run_script(tmp_path, body, head, main)
+    assert done.returncode == code, (done.stdout, done.stderr)
+    assert says in (done.stdout if code == 0 else done.stderr)
 
 
 # ---- the workflow -------------------------------------------------------------------
@@ -222,9 +285,32 @@ def test_the_body_reaches_the_script_only_through_the_environment():
     assert (ROOT / "tools" / "version_intent.py").is_file()
 
 
+def test_how_the_two_versions_and_the_verdict_travel_is_pinned():
+    """Five one-line edits each passed every other test here, and each turned verdicts
+    green or wrong: main's copy taken from the branch, HEAD read instead of FETCH_HEAD,
+    --head and --main swapped, `|| true`, and continue-on-error."""
+    data = _workflow()
+    steps = data["jobs"]["version-intent"]["steps"]
+    fetch = next(step for step in steps if "FETCH_HEAD" in step.get("run", ""))
+    assert [line.strip() for line in fetch["run"].strip().splitlines()] == [
+        "set -euo pipefail",
+        "git fetch --no-tags --depth=1 origin main",
+        'git show FETCH_HEAD:scrapex/version.py > "$RUNNER_TEMP/main-version.py"',
+    ]
+    runner = next(step for step in steps if "tools/version_intent.py" in step.get("run", ""))
+    assert runner["run"].strip() == (
+        'python tools/version_intent.py --head scrapex/version.py '
+        '--main "$RUNNER_TEMP/main-version.py"')
+    for where in (data, *data["jobs"].values(), *steps):
+        assert "continue-on-error" not in where, "a failing verdict must fail the job"
+
+
 def test_the_job_can_read_and_cannot_write():
     data = _workflow()
     assert data["permissions"] == {"contents": "read"}
+    for name, job in data["jobs"].items():
+        # A job-level block overrides the workflow's, so it may only repeat it.
+        assert job.get("permissions", {"contents": "read"}) == {"contents": "read"}, name
     checkout = next(step for step in data["jobs"]["version-intent"]["steps"]
                     if str(step.get("uses", "")).startswith("actions/checkout"))
     assert checkout["with"]["persist-credentials"] is False
