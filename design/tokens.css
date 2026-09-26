@@ -317,8 +317,10 @@
      control whose own box-shadow outranks the focus rule keeps its ring (only the gap
      goes unpainted), and forced colours draw it in a system colour. `focus-inset` is
      the same outline at minus its width, for a control flush inside a container that
-     clips. The colour is one token; #746 moves it to full strength. */
-  --focus-ring-color: color-mix(in srgb, var(--focus) 70%, transparent);
+     clips. The colour is --focus at full strength, as their `ring-ring` draws it
+     (#746): a 70% mix of it measured 2.35:1 against the dark --bg, under the 3:1
+     WCAG 1.4.11 asks of a focus indicator, where --focus itself is 3.55:1. */
+  --focus-ring-color: var(--focus);
   --focus-ring-gap: 0 0 0 var(--focus-ring-offset) var(--bg);
   --z-sticky: 10;
   --z-overlay: 20;

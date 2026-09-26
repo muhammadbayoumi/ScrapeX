@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("playwright")
-from tests.test_panel_dom import ROOT, browser, open_panel  # noqa: E402,F401  (the fixtures)
+from tests.test_panel_dom import ROOT, _contrast, _over, browser, open_panel  # noqa: E402,F401  (the fixtures)
 
 # Guards the extension's panel; see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -44,6 +44,11 @@ def test_a_focused_ghost_button_draws_the_ring_at_a_background_offset(open_panel
     assert read["id"] == "focus-probe" and read["visible"], read
     assert read["shadow"] == f"{read['bg']} 0px 0px 0px 2px", read
     assert read["outline"] == ["solid", "2px", read["ring"], "2px"], read
+    if scheme == "dark":
+        # WCAG 1.4.11 asks 3:1 of a focus indicator against what it sits on, scored as it
+        # is painted over the gap (#746). Light is Supabase's own --ring, 1.47:1, and
+        # tokens.css records it beside --focus.
+        assert _contrast(_over(read["ring"], read["bg"]), read["bg"]) >= 3.0, read
 
 
 @pytest.mark.parametrize("control", ["#source-dataset", "#entity-key", "#detail-dataset", "#detail-key",

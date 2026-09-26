@@ -183,7 +183,8 @@ def test_the_recipe_is_the_tokens_and_supabases_geometry():
     assert declared["--focus-ring-width"] == "2px" and declared["--focus-ring-offset"] == "2px"
     # ring-offset-background: the gap between control and ring is painted in the page's.
     assert declared["--focus-ring-gap"] == "0 0 0 var(--focus-ring-offset) var(--bg)", declared
-    assert "var(--focus)" in declared["--focus-ring-color"], declared
+    # ring-ring: the token at full strength, with no opacity modifier (#746).
+    assert declared["--focus-ring-color"] == "var(--focus)", declared
 
 
 @pytest.mark.parametrize("selector,expected", [
