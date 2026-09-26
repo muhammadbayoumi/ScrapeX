@@ -59,15 +59,20 @@ baseline and says so.
 THE REPOSITORY IS PUBLIC, so anyone can comment on the log, and a hidden copy anyone
 wrote would decide what next week calls new. `--previous` therefore takes the log's
 comments as GitHub returns them, with their authors, and reads only the last run the
-repository's OWNER posted. A log with no such run yet is the first run, and the
-comment says so. An empty or unreadable comments file is an error, never a first
-run: it is what a failed fetch leaves.
+repository's OWNER posted. A comment is a run only when it begins with the heading
+`--markdown` writes, so his other comments on the log, which may quote a copy or
+name the marker, are never read as one. A log with no such run yet is the first run,
+and the comment says so. An empty or unreadable comments file is an error, never a
+first run, and so is `[]`: gh prints `[[]]` for a log with no comments, and `[]` is
+what it leaves when its fetch fails.
 
 A scheduled task runs it every Monday. By hand it is the same, from Git Bash in a
 checkout of main (PowerShell reads the braces and `$(...)` differently), and the
-`&&` stops it at the first command that fails:
+`&&` stops it at the first command that fails. The token is assigned before it is
+exported, because `export X=$(...)` succeeds even when the command inside fails, and
+gh then posts as whichever account is active:
 
-    T=$(mktemp -d) && export GH_TOKEN=$(gh auth token --user muhammadbayoumi) &&
+    T=$(mktemp -d) && GH_TOKEN=$(gh auth token --user muhammadbayoumi) && export GH_TOKEN &&
     gh api 'repos/{owner}/{repo}/issues/1181/comments' --paginate --slurp > "$T/log.json" &&
     python -m tools.recurrence_scan --markdown --previous "$T/log.json" > "$T/run.md" &&
     gh issue comment 1181 --body-file "$T/run.md"
@@ -96,6 +101,7 @@ FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 BARRIER_AT = 2
 KEYS = {"tool", "command", "result", "kind", "caveat"}
 MARK = "<!-- recurrence-scan "  # opens the hidden copy of a run that --previous reads back
+HEADING = "## Recurrence scan, "  # how a run's comment begins; nothing else is read as a run
 
 
 @dataclass
@@ -428,6 +434,7 @@ OWNER = "OWNER"  # the author_association GitHub gives the repository's owner
 def load_previous(text: str) -> tuple[str, dict[str, dict]] | None:
     """The baseline in the log's comments, as `gh api --paginate --slurp` prints them: the
     last run the repository's owner posted, or None when the owner has posted none yet.
+    A run is a comment that begins with HEADING and carries a copy.
     ValueError says why the file cannot be read. Nobody else's copy is read, because
     the repository is public."""
     try:
@@ -436,11 +443,15 @@ def load_previous(text: str) -> tuple[str, dict[str, dict]] | None:
         raise ValueError(f"it is not the JSON `gh api --paginate --slurp` prints: {exc}") from exc
     if not (isinstance(pages, list) and all(isinstance(page, list) for page in pages)):
         raise ValueError("it is not a list of pages of comments")
+    if not pages:
+        raise ValueError("it holds no page at all, which is what gh leaves when its fetch fails "
+                         "(a log with no comments is [[]])")
     comments = [c for page in pages for c in page]
     if not all(isinstance(c, dict) and isinstance(c.get("body"), str) and isinstance(c.get("created_at"), str)
                and isinstance(c.get("author_association"), str) for c in comments):
         raise ValueError("a comment in it has no body, created_at or author_association")
-    runs = sorted((c for c in comments if c["author_association"] == OWNER and MARK in c["body"]),
+    runs = sorted((c for c in comments if c["author_association"] == OWNER
+                   and c["body"].startswith(HEADING) and MARK in c["body"]),
                   key=lambda c: c["created_at"])
     return read_copy(runs[-1]["body"]) if runs else None
 
@@ -464,7 +475,7 @@ def markdown(rows: list[Row], when: dt.datetime, files: int, calls: int,
     hidden copy of this run for the next one to read back."""
     measured = _measured(rows)
     run, before = previous or (None, None)
-    lines = [f"## Recurrence scan, {when.date().isoformat()}", "",
+    lines = [f"{HEADING}{when.date().isoformat()}", "",
              f"Scanned {files:,} transcripts and {calls:,} tool calls. "
              + (f"Compared with the run of {run}." if run else "The log's first run."), "",
              "| lesson | kind | recorded | before | after | since last run | total | sessions after | last | |",
