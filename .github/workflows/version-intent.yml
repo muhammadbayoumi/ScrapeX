@@ -1,0 +1,54 @@
+name: Version intent
+
+# A PULL REQUEST SAYS IN ITS BODY WHICH VERSION IT CARRIES, AND THIS CHECKS IT (#1086).
+# A rebase drops a VERSION commit silently when main already carries the same change,
+# and every other guard stays green because the branch then agrees with main. The
+# body is the one place a rebase cannot reach, so the author's intent lives there:
+# `VERSION: 0.4.23`, or `VERSION: unchanged`, or no line at all for unchanged. The
+# rule and the line's format are in tools/version_intent.py.
+#
+# ITS OWN WORKFLOW, NOT A JOB IN ci.yml, because it must re-run when the body is
+# EDITED and nothing else changes. Adding `edited` to ci.yml would re-run the whole
+# suite (~13 minutes) for every change of wording; this job takes seconds.
+#
+# Advisory until the owner adds `version-intent` to ruleset 23994761's required
+# status checks. That is a repository security setting, so it is his to make.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  version-intent:
+    runs-on: ubuntu-latest
+    steps:
+      # The pull request's own head, not the merge ref: the question is what THIS
+      # branch carries, and a merge ref cannot even be built while the VERSION line
+      # conflicts with main's.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Read main's VERSION
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scrapex/version.py > "$RUNNER_TEMP/main-version.py"
+      # THE BODY TRAVELS IN AN ENVIRONMENT VARIABLE AND NOWHERE ELSE. It is text a
+      # pull request author controls, and an expression spliced into `run:` would be
+      # executed as shell. tests/test_version_intent.py fails if it ever is.
+      - name: The body says what scrapex/version.py says
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python tools/version_intent.py --head scrapex/version.py --main "$RUNNER_TEMP/main-version.py"
