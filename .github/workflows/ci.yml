@@ -548,8 +548,9 @@ jobs:
     # vectors byte-for-byte, or two engines could fork one warehouse's history.
     #
     # Always runs, on every change, and is never scoped: it is seconds long, it
-    # needs no Python, and it is the one gate that would go unwatched if either
-    # side of the split forgot it.
+    # installs no Python -- its last step, the ruleset check, runs on the
+    # runner's own python3 and the stdlib -- and it is the one gate that would
+    # go unwatched if either side of the split forgot it.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -571,3 +572,30 @@ jobs:
         # thing that was costing the owner a re-paste. This runs the real
         # StagingAppScript.txt with a fake spreadsheet under it.
         run: node --test apps_script/tests/*.test.mjs
+      - name: Main's ruleset is still the one on record
+        # PROTECTION HAS VANISHED SILENTLY ONCE, and `mergeStateStatus` read CLEAN
+        # while it was gone (#864, #842). This reads main's effective rules and the
+        # repository's visibility back -- on GitHub Free a ruleset binds only while
+        # the repository is public -- and turns this required job red on any
+        # difference from .github/ruleset-main.json, or on a read that fails twice.
+        #
+        # IN THIS JOB BECAUSE NOTHING NEEDS IT, and the owner chose it for that
+        # (#1153). In `scope` a red check would skip `test`, which needs `scope` --
+        # and in the case this exists for, the ruleset deleted or disabled or the
+        # repository made private, nothing is required any more, so that merge
+        # would be possible AND untested. Here a red check blocks the merge while
+        # `contract-parity` is required, and `test` runs either way.
+        #
+        # LAST, for the same reason one level down: a red check skips nothing after
+        # it, so the parity gate and both `node --test` suites have answered first.
+        # A red gate above it skips it for that run; the job is already red, and
+        # drift still shows on every run whose gates pass.
+        #
+        # It CANNOT see bypass actors: the workflow token is not shown them. A
+        # deliberate ruleset change re-captures that file, and the fixture its
+        # tests hold it to, from one GET in the same PR -- the script's docstring
+        # says how (#1133). The runner's own python3 and the stdlib only, so no
+        # setup step and no install.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/check_the_ruleset.py
