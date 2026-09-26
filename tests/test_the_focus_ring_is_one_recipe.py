@@ -73,6 +73,12 @@ def _suppressed_under_a_ring(selector: str, wrappers: set[str]) -> bool:
                and m.group(1) in wrappers for part in parts)
 
 
+#: The two rules that compose the gap with the 3px bar marking the current or checked
+#: item; the outline they sit beside is the shared rule's or the card's.
+COMPOSED = ('.dataset-items a[aria-current="page"]:focus-visible',
+            ".exports-source-card:has(input:checked):has(input:focus-visible)")
+
+
 def test_every_focus_indicator_is_one_of_the_two_recipes():
     found = _focus_declarations()
     assert len(found) > 50, f"only {len(found)} focus declarations were read"
@@ -83,7 +89,10 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
         if any(re.search(pattern, selector) for pattern in LEFT_TO):
             continue
         if prop == "box-shadow":
-            ok = (value.split(",")[0].strip() == "var(--focus-ring-gap)"
+            # The gap, and after it only the inset bar a composition adds: a glow or a
+            # second ring after the gap is not the recipe.
+            parts = [part.strip() for part in value.split(",")]
+            ok = ((parts[0] == "var(--focus-ring-gap)" and all(part.startswith("inset ") for part in parts[1:]))
                   or (value == "none" and (selector in insets or _suppressed_under_a_ring(selector, wrappers))))
         elif prop == "outline" and value in ("0", "none"):
             ok = _suppressed_under_a_ring(selector, wrappers)
@@ -94,6 +103,49 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
     assert not wrong, ("focus drawn outside the two recipes; draw the outline in --focus-ring-color "
                        "at --focus-ring-offset (with --focus-ring-gap), or at calc(-1 * "
                        "var(--focus-ring-width)) for the inset:\n  " + "\n  ".join(wrong))
+
+
+def test_every_rule_that_draws_the_ring_draws_all_of_it():
+    """Each declaration being a recipe value is not enough: a rule with the outline and no
+    offset draws neither form, and a rule painting the gap with no outline paints a band
+    and no ring. So a rule that draws the outline also places it and says what it paints
+    beside it, and a rule that paints the gap also draws the outline."""
+    rules: dict[tuple[str, str], dict[str, str]] = {}
+    for where, selector, prop, value in _focus_declarations():
+        if not any(re.search(pattern, selector) for pattern in LEFT_TO):
+            rules.setdefault((where.rsplit(":", 1)[0], selector), {})[prop] = value
+    wrong = []
+    for (sheet, selector), declared in rules.items():
+        outline, offset, shadow = declared.get("outline"), declared.get("outline-offset"), declared.get("box-shadow")
+        if outline in RECIPES["outline"]:
+            if offset == "var(--focus-ring-offset)":
+                ok = shadow is not None and shadow.startswith("var(--focus-ring-gap)")
+            else:
+                ok = offset == "calc(-1 * var(--focus-ring-width))" and shadow == "none"
+        else:
+            ok = not (shadow or "").startswith("var(--focus-ring-gap)") or selector in COMPOSED
+        if not ok:
+            wrong.append(f"{sheet} {selector} {declared}")
+    assert len(rules) > 30, f"only {len(rules)} focus rules were read"
+    assert not wrong, "focus rules that draw part of a recipe:\n  " + "\n  ".join(wrong)
+
+
+def test_every_wrapper_takes_both_its_inner_controls_ring_and_gap():
+    """A wrapper draws the ring for the field inside it, so the field drops its own ring
+    AND the shared rule's gap: an outline left on it draws a second ring inside the
+    wrapper's, and a gap left on it paints --bg over the wrapper's border."""
+    found = _focus_declarations()
+    wrappers = _ring_wrappers(found)
+    assert len(wrappers) >= 8, sorted(wrappers)
+    dropped: dict[str, dict[str, str]] = {}
+    for _where, selector, prop, value in found:
+        for part in (part.strip() for part in selector.split(",")):
+            if (m := re.fullmatch(r"(.+?)\s+(?:input|select|textarea):focus", part)) and m.group(1) in wrappers:
+                dropped.setdefault(m.group(1), {})[prop] = value
+    wrong = {wrapper: dropped.get(wrapper, {}) for wrapper in sorted(wrappers)
+             if dropped.get(wrapper, {}).get("outline") not in ("0", "none")
+             or dropped.get(wrapper, {}).get("box-shadow") != "none"}
+    assert not wrong, f"wrappers whose inner field keeps its ring or its gap: {wrong}"
 
 
 def test_every_rule_left_to_another_item_is_still_there():
@@ -108,7 +160,7 @@ def test_the_inset_form_paints_no_gap():
     spread outside a control that sits flush in a container, so each inset rule clears it."""
     found = _focus_declarations()
     insets = _insets(found)
-    assert len(insets) >= 7, sorted(insets)
+    assert len(insets) >= 12, sorted(insets)
     cleared = {selector for _where, selector, prop, value in found if prop == "box-shadow" and value == "none"}
     assert not insets - cleared, f"inset rules that leave the gap painted: {sorted(insets - cleared)}"
 

@@ -58,7 +58,7 @@
 .exports-search:focus-within{border-color:var(--focus);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .exports-search svg{flex:none;fill:currentColor}
 .exports-search input{min-width:0;border:0;background:transparent;box-shadow:none}
-.exports-search input:focus{outline:0}
+.exports-search input:focus{outline:0;box-shadow:none}
 .exports-selection-actions{display:flex;align-items:center;gap:var(--sp-2)}
 .exports-source-tools>.hint{grid-column:1/-1;margin-top:calc(var(--sp-2) * -1)}
 .exports-source-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
@@ -100,7 +100,7 @@
   overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:var(--control-bg)}
 .exports-input-suffix:focus-within{border-color:var(--focus);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .exports-input-suffix input{border:0;border-radius:0;box-shadow:none}
-.exports-input-suffix input:focus{outline:0}
+.exports-input-suffix input:focus{outline:0;box-shadow:none}
 .exports-input-suffix span{align-self:stretch;display:grid;place-items:center;
   padding-inline:var(--sp-3);border-inline-start:1px solid var(--line);background:var(--chip);
   color:var(--muted);font-family:var(--font-mono);font-size:var(--fs-xs)}

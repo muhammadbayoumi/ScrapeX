@@ -267,7 +267,7 @@
   text-transform: none;
 }
 
-.model-search input:focus { box-shadow: none; }
+.model-search input:focus { outline: 0; box-shadow: none; }
 
 .model-zoom {
   display: flex;

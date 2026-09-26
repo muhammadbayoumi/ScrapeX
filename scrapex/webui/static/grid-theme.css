@@ -394,6 +394,7 @@
   background: transparent;
   color: var(--text);
 }
+.column-chooser-search input:focus { outline: 0; box-shadow: none; }
 .column-chooser-list {
   min-height: 0;
   overflow: auto;
