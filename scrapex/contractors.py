@@ -1537,6 +1537,10 @@ def approve(conn, directory: Directory, run_ref: str, *,
     recovered = 0
     reparsed = 0
     lonely = 0
+    # ROWS AN OLDER PAGE DID NOT OVERWRITE, because the record already holds a page
+    # captured after it. `extract.service.NOT_OLDER_THAN_CURRENT_SQL` says why that rule
+    # exists; this is the count that keeps it from being silent.
+    kept_newer = 0
     # `R-54`: rows whose date a confirmation moved. Counted separately from `recovered`
     # because one confirmed PAGE carries many rows, and the number that answers "did the
     # confirmation reach the records" is the row count, not the page count.
@@ -1681,6 +1685,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
             continue
         conn.commit()
         made += 1
+        kept_newer += int(result.get("kept_newer") or 0)
         if contractor is not None:
             # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
             # that actually read. muqawil reissues membership numbers, so an id serving
@@ -1706,6 +1711,11 @@ def approve(conn, directory: Directory, run_ref: str, *,
         f"({confirmed_rows:,} row date(s) moved, no revision written), "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
+    if kept_newer:
+        # SAID ONLY WHEN IT HAPPENED, and said in full when it did. A pass that read older
+        # evidence after newer must not read as a pass that wrote everything it was given.
+        say(f"  {kept_newer:,} row(s) kept their newer evidence: this pass read an older "
+            f"page of the same record, and an older page never overwrites a newer one")
     if unwitnessed:
         # "CHECKED AND CLEAN" AND "NEVER CHECKED" MUST NOT LOOK ALIKE, which is
         # the whole argument of `OP-64`. A run that prints no mismatch line today

@@ -646,6 +646,14 @@ def approve_candidate(
                 (dataset_id, *record_keys))
         }
 
+    kept_newer = 0
+    # ROWS THIS PAGE ACTUALLY CHANGED. `reparsed` below is a claim about VALUES -- "same
+    # page, different values, a parser that was corrected" -- and a page whose every row
+    # was refused as older changed none. The merge gate on #1178 found it reporting
+    # `1 re-parsed with new values` beside `4 row(s) kept their newer evidence`, with not
+    # one value written; on `main` the same pass printed 0, because the revision collision
+    # refused it first.
+    rewritten = 0
     for row_position, (row, record_key) in enumerate(
         zip(rows, record_keys, strict=True), start=1
     ):
@@ -665,6 +673,7 @@ def approve_candidate(
             "data_json=excluded.data_json, source_snapshot_id=excluded.source_snapshot_id, "
             "source_locator=excluded.source_locator, content_hash=excluded.content_hash, "
             "last_seen_at=strftime('%Y-%m-%dT%H:%M:%SZ','now'), status='active' "
+            f"WHERE {NOT_OLDER_THAN_CURRENT_SQL} "
             "RETURNING generic_record_id",
             (
                 dataset_id,
@@ -676,8 +685,21 @@ def approve_candidate(
                 content_hash,
             ),
         )
-        record_id = int(cursor.fetchone()["generic_record_id"])
+        written = cursor.fetchone()
+        if written is None:
+            # REFUSED AS OLDER, AND THAT IS A DECISION, NOT A FAILURE. The record already
+            # holds evidence from a page captured after this one, so this page's value is
+            # a stale reading of it. Nothing is written: not the value, and not a revision
+            # -- a revision here would record a "change back" that never happened, in a
+            # table that is append-only and cannot take it back.
+            #
+            # COUNTED AND RETURNED, never silent: a caller that read a thousand pages and
+            # wrote nothing from two hundred of them has to be able to say so.
+            kept_newer += 1
+            continue
+        record_id = int(written["generic_record_id"])
         if not unchanged:
+            rewritten += 1
             # A REVISION PER REAL CHANGE, which is what makes "when did this
             # classification change" answerable. `R-20`, and it is `SR-6` applied to
             # a directory instead of a price — *"an unchanged price is confirmed, not
@@ -718,9 +740,56 @@ def approve_candidate(
         # caller counting no-ops are asking different questions. `scrapex contractors
         # --approve` prints the recovered count out loud so a run that repaired nothing
         # cannot be mistaken for one that did; this is the other half of that report.
-        "reparsed": recovered is not None,
+        "reparsed": recovered is not None and rewritten > 0,
+        # HOW MANY ROWS OF THIS PAGE WERE REFUSED BECAUSE THE RECORD ALREADY HOLDS A NEWER
+        # PAGE. Zero on every page of a crawl read in capture order; above zero only when
+        # older evidence is read after newer, which is the case the rule exists for.
+        "kept_newer": kept_newer,
     })
     return result
+
+
+#: AN OLDER PAGE NEVER OVERWRITES A RECORD WHOSE CURRENT EVIDENCE IS NEWER.
+#:
+#: The upsert below used to take whichever page arrived LAST, however old it was. Nothing
+#: stopped a stale write except the revision insert colliding with
+#: `UNIQUE (generic_record_id, source_snapshot_id, content_hash)` and rolling the page
+#: back -- and R-20 confirms an unchanged record instead of writing a revision, so on the
+#: owner's warehouse most pages never had that accidental protection at all.
+#:
+#: MEASURED THERE, 2026-09-26, the day PR #1082 would have made it happen at scale. A
+#: Resume stores new pages under an OLD job's ref, so run `job-job_925080aad843` (job 150)
+#: holds listing evidence from 2026-09-03 to 2026-09-12 and run `job-job_6eb28381bf56`
+#: (job 157) holds 2026-09-05 to 2026-09-06. Any walk that reads 150 before 157 writes
+#: the older listing over the newer one:
+#:
+#:     listing URLs in 150 captured after 157 ended      1,076
+#:       also present in 157                              1,072
+#:       where 157's copy has no revision to collide      236   <- overwritten, silently
+#:
+#: No ordering of RUNS can fix that, because runs interleave in time: 150 spans the whole
+#: of 157. Only the RECORD knows which page it came from, so the rule lives here.
+#:
+#: EQUAL IS ALLOWED, and it is not an edge case. Re-reading the same page with a corrected
+#: parser is how a parser fix reaches stored evidence -- the reason the newest run is
+#: re-read on every press -- and that write compares a page with itself.
+#:
+#: UNKNOWN IS ALLOWED TOO. `COALESCE(..., 1)`: a record whose source page cannot be found,
+#: or an incoming page with no capture time, keeps today's behaviour. The rule refuses
+#: only what it can PROVE is older; it does not invent a refusal from missing evidence.
+#:
+#: `INDEXED BY ix_generic_page_snapshot_page` FOR THE REASON `LAST_EVIDENCE_SQL` GIVES:
+#: `captured_at` sits beside the page body, and reading it through the covering index
+#: never touches the row that holds the HTML.
+NOT_OLDER_THAN_CURRENT_SQL = (
+    "COALESCE("
+    "(SELECT p.captured_at FROM generic_page_snapshot AS p "
+    "INDEXED BY ix_generic_page_snapshot_page "
+    "WHERE p.page_snapshot_id = excluded.source_snapshot_id) >= "
+    "(SELECT q.captured_at FROM generic_page_snapshot AS q "
+    "INDEXED BY ix_generic_page_snapshot_page "
+    "WHERE q.page_snapshot_id = generic_record.source_snapshot_id), 1)"
+)
 
 
 #: The freshness read, as a constant so a test can put it through
