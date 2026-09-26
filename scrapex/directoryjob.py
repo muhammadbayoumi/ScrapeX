@@ -828,48 +828,45 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     # interpretations with nobody pressing anything. Measured before the guard existed:
     # two finished crawls, two `queued` interpretations.
     #
-    # ON THE SOURCE AND THE KIND, not on the run: a second interpretation of the same
-    # source would read the same stored evidence, and `datasetjob.latest_crawl_run_ref`
-    # takes the newest collecting run either way (issue 823). So the one already waiting
-    # does this crawl's work when it runs.
-    # `BLOCKING_JOB_STATUSES`, NOT "ANY NON-TERMINAL", and the repository had already
-    # decided this the other way round. `scheduler._source_is_busy` says why in terms:
-    # *"Deliberately NOT 'any non-terminal job': `paused` and `requires_review` wait on
-    # the OWNER and never advance on their own, so counting them as busy would silently
-    # stop that source's schedule from ever firing again."* The first version of this
-    # guard used `active_only` alone, and a paused interpretation then blocked every
-    # future crawl of that source -- permanently, with nothing failing.
+    # WHICH SIBLING COUNTS IS `datasetjob.waiting_interpretation`'s question, not this
+    # function's, and `POST /api/jobs` asks the same one to decide whether to refuse a
+    # press -- so the chain and the route cannot disagree about what a duplicate is. Only
+    # a sibling that has NOT STARTED counts: it plans its reading when it starts, so it
+    # will read this crawl's pages. One already running planned before they existed, and
+    # a paused one waits on him and never advances by itself.
     #
-    # NOT YET STARTED, NOT MERELY BLOCKING -- and the difference decides whether the
-    # skip is safe. `run_dataset_interpret_job_once` resolves its run ONCE, at
-    # `scrapex/datasetjob.py:217`, before it writes PREPARING at :226. So a sibling that
-    # is still `scheduled` or `queued` has bound nothing and will take the newest run,
-    # which is this crawl's. One that is already `preparing`, `running`, `resuming`,
-    # `pausing` or `cancelling` bound its ref BEFORE this crawl's pages existed, and
-    # skipping for it leaves them unread while the log says they are covered.
+    # ASKED INSIDE THE GUARD, because the question is part of queueing. It sat above the
+    # `try` and so could raise past it -- after `_finish` had already committed
+    # COMPLETED -- and a crawl that stored every page would have been reported as the
+    # failure of a step that is ours.
     #
-    # The second interpretation does not run beside the first: the worker takes `queued`
-    # jobs up to `job_capacity`, and this one waits its turn and then resolves the newest
-    # run -- which by then includes this crawl.
-    not_started_yet = {JobStatus.SCHEDULED.value, JobStatus.QUEUED.value}
-    waiting = [one for one in jobs.list_jobs(conn, limit=200, active_only=True)
-               if one.get("job_kind") == datasetjob.JOB_KIND
-               and one.get("status") in not_started_yet
-               and source_key in (one.get("source_keys") or [])]
-    if waiting:
-        jobs.append_log(
-            conn, job["job_id"],
-            f"an interpretation of this source is already waiting as "
-            f"{waiting[0]['job_ref']}, so this crawl queued none: it has not started "
-            "yet, so it reads the newest stored run, which is this one",
-            source_key=source_key)
-        conn.commit()
-        return None
-
+    # AND UNDER THE WRITE LOCK, for the reason `POST /api/jobs` gives beside its own
+    # `BEGIN IMMEDIATE`: the route asks the same rule on another thread, and two askers
+    # that both hear "nothing is waiting" both queue one. `_finish` has just committed,
+    # so no transaction is open here.
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        waiting = datasetjob.waiting_interpretation(conn, source_key)
+        if waiting:
+            # "EVERY RUN NOBODY HAS READ", NOT "THE NEWEST". Since #1082 an
+            # interpretation reads each unread run oldest first
+            # (`datasetjob.runs_to_interpret`), so the one waiting reads this crawl's
+            # pages along with any older unread ones.
+            jobs.append_log(
+                conn, job["job_id"],
+                f"an interpretation of this source is already waiting as "
+                f"{waiting['job_ref']}, so this crawl queued none: it has not started "
+                "yet, so it will read every stored run nobody has read, this one "
+                "included",
+                source_key=source_key)
+            conn.commit()
+            return None
+        # `commit=False`: THE JOB AND BOTH LINES ABOUT IT ARE ONE WRITE. Committed on its
+        # own, the row outlived a failure on the next line, and the warning below then
+        # said "could not be queued" about a job that was queued.
         ref = jobs.create_job(conn, [source_key],
                               run_mode=RunMode.UPDATE,
-                              job_kind=datasetjob.JOB_KIND)
+                              job_kind=datasetjob.JOB_KIND, commit=False)
         jobs.append_log(
             conn, job["job_id"],
             f"queued the interpretation of these pages as {ref}: it turns the stored "
@@ -877,9 +874,10 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
             "Cancel on its row if you do not want it",
             source_key=source_key)
         # AND THE SAME SENTENCE IN THE NEW JOB'S OWN LOG, because that is the pane the
-        # panel is about to open. `pollJobOnce` adopts the newest live job and draws ITS
-        # log, so the line above -- written on the crawl -- is off screen within about
-        # 1.5 s of being written. A job he did not start, whose log opens empty, is the
+        # panel is about to open. `pollJobOnce` draws the log of the job `liveJob`
+        # adopts, and once this crawl has finished that is usually this interpretation,
+        # so the line above -- written on the crawl -- is off screen within about 1.5 s
+        # of being written. A job he did not start, whose log opens empty, is the
         # shape issue 778 records: he reads the panel and cannot tell what is happening.
         #
         # NOT A DUPLICATE OF THE LINE ABOVE. That one tells the crawl's reader what the
@@ -895,6 +893,9 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
         conn.commit()
         return ref
     except Exception as exc:
+        # WHATEVER THE LOCK HELD IS UNDONE FIRST, so the line below is written in a
+        # transaction of its own rather than committed beside a half-written job.
+        conn.rollback()
         jobs.append_log(
             conn, job["job_id"],
             f"the crawl finished, but its interpretation could not be queued: "

@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  controlsFor, isMoving, isStopping, jobLabel, liveJob, observeRate, progressFraction,
-  progressLine, recentRate, rowsFrom, statusWords, summariseJobs, waitsOnHim,
+  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
+  statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -1601,10 +1601,7 @@ async function resumeSource(key, button) {
       source_keys: [key], resume: true,
       run_mode: source.observations > 0 ? "update" : "initial_crawl",
     });
-    // BOTH, OR THE FIRST POLL AFTER STARTING A JOB REDRAWS FOR NOTHING: the redraw
-    // fires when the status MOVES, and `undefined` moves to anything.
     state.jobRef = r.job_ref;
-    state.jobStatus = r.status;
     await pollJob();
   } catch (e) {
     button.disabled = false;
@@ -4951,10 +4948,7 @@ async function startRun() {
   $("run").disabled = true;
   try {
     const r = await post("/api/jobs", { source_keys: keys, run_mode: mode });
-    // BOTH, OR THE FIRST POLL AFTER STARTING A JOB REDRAWS FOR NOTHING: the redraw
-    // fires when the status MOVES, and `undefined` moves to anything.
     state.jobRef = r.job_ref;
-    state.jobStatus = r.status;
     await pollJob();
   } catch (e) {
     $("run-blocked").textContent = "Couldn't start: " + e.message;
@@ -5296,21 +5290,8 @@ async function pollJobOnce() {
     // interpretation's own log opens by naming the crawl that started it
     // (`scrapex/directoryjob.py`). That is durable, it survives every poll, and it is
     // there when he scrolls back.
-    // THE REF IS NOT THE ONLY THING THAT CHANGES, and until this PR that did not matter.
-    // The card drew counts and a badge, both of which only move when a job ENDS. It now
-    // draws `interpreting.status` -- a live value -- and `loadDatasets` has three
-    // callers: opening the Data tab, the pause action, and this redraw. A status moving
-    // inside one job trips none of them, so the card painted `queued` once and kept it
-    // while the mini-player above it -- outside `<main>`, on every tab -- showed the
-    // same job reaching `paused`. Two sentences about one job, on one screen,
-    // disagreeing, with the card's half telling him there is nothing to press while the
-    // engine waits for him.
-    if (state.jobRef
-        && (state.jobRef !== job.job_ref || state.jobStatus !== job.status)) {
-      await redrawWhatTheJobChanged();
-    }
+    if (state.jobRef && state.jobRef !== job.job_ref) await redrawWhatTheJobChanged();
     state.jobRef = job.job_ref;
-    state.jobStatus = job.status;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
     // No ?limit: the log shows EVERY entry now (the 200 cap was the client's,
@@ -5340,7 +5321,6 @@ async function pollJobOnce() {
       renderLogs(log.entries, log);
     } catch (_) {}
     state.jobRef = null;
-    state.jobStatus = null;
     await redrawWhatTheJobChanged();
   }
   refreshRunButton();
@@ -5351,8 +5331,8 @@ async function pollJobOnce() {
  * `loadSources()` redraws `#sites`, which lives in `<section id="view-run">`. The
  * DATASET CARD is drawn by `loadDatasets`, whose only callers are `showView("data")` and
  * the pause action — so with the Data tab open and nothing navigating, the card kept the
- * row count it had before the crawl, went on saying "Interpretation under way" after
- * that job had ended, and kept its Interpret row disabled. That stale row count is the
+ * row count it had before the crawl, and kept withholding its "Interpret stored pages"
+ * badge after the interpretation that withheld it had ended. That stale row count is the
  * exact complaint this whole feature exists for, reappearing on the surface the feature
  * added.
  */
@@ -5690,85 +5670,24 @@ function coverageShare(c) {
 function waitingLine(s) {
   const waiting = s.work_waiting || {};
   const rows = [];
-  // AN ANSWER IN THE BADGE'S PLACE, NOT A GAP WHERE IT WAS. The engine stops filling
-  // `interpret` while an interpretation of this source is on its way, and the first
-  // version of that stopped there -- so the amber row simply vanished, which reads as
-  // "nothing is owed": the one sentence this line exists to keep from being false.
+  // WITHHELD WHILE AN INTERPRETATION IS LIVE, AND NOTHING IS DRAWN IN ITS PLACE.
   //
-  // AND IT GATES BOTH PRODUCERS. "Interpret stored pages" is drawn from `interpret`
-  // AND again from `profiles.rowless` below, and only the first went quiet -- so in the
-  // measured 469-rowless / 938-fetched state the card kept the identical badge for the
-  // whole run of the interpretation. One fact, read once, ahead of both.
+  // `interpretation_live` is a flag, not a status, on purpose. An earlier version sent
+  // the job's status and had this line narrate it -- "under way", "paused", "has not
+  // started", "stopping" -- and each of those sentences, rewritten across five review
+  // passes, claimed a state the code was not in, one status-set further out every time.
+  // A flag that only withholds adds no sentence, so it adds no claim to be wrong.
   //
-  // THREE SENTENCES, BECAUSE `interpreting` CARRIES NINE STATUSES AND THEY ARE NOT ONE
-  // THING. Two earlier versions of this line got it wrong in the same direction, each
-  // time by claiming activity the status does not have:
+  // IT GATES BOTH PRODUCERS OF THE SAME BADGE. "Interpret stored pages" is drawn from
+  // `interpret` and again from `profiles.rowless` below; the engine withholds only the
+  // first, so this flag is what stops the second offering a press an interpretation is
+  // already doing.
   //
-  //   one sentence  -- said a PAUSED job "is turning the stored pages into rows";
-  //   two sentences -- split on `controlsFor(...).includes("resume")`, which is true for
-  //                    `paused` ALONE, so `queued`, `scheduled`, `preparing`, `pausing`,
-  //                    `cancelling` and `requires_review` all kept the working sentence.
-  //
-  // `queued` IS REACHABLE AND THE CARD MUST NOT GUESS WHY. An earlier version of this
-  // comment said the interpretation waits behind the crawl that queued it, and the copy
-  // below said "the engine runs one job at a time". Both were wrong, and the second was
-  // wrong three ways at once -- which is why the branch now states the status and stops.
-  //
-  //   the wait is NOT behind that crawl: `_finish(COMPLETED)` runs at
-  //   `scrapex/directoryjob.py:776` and the chain at :777, so the crawl is terminal
-  //   before the interpretation row exists, and `_reap_finished` runs before `_dispatch`
-  //   on every 0.5 s poll;
-  //   the number is a SETTING, not a constant -- `jobs.job_capacity` reads
-  //   `crawl_parallel_sources`, capped at 8, and his own value is recorded twice in this
-  //   repository as 3;
-  //   and `preparing` lands in this branch while HOLDING a slot, so waiting for one is
-  //   not its reason for anything.
-  //
-  // The panel already says the true thing twice, reading the number from the engine
-  // (`renderQueue`, `jobWaitingLine`). A third hardcoded opinion about one fact is the
-  // disagreement this row exists to end.
-  //
-  // `controlsFor` WAS THE WRONG READER and `HIS_MOVE` was there all along. It answers
-  // "which buttons will the route honour" -- `["cancel"]` for `requires_review`, because
-  // there is no resume to offer, not because the job is working. `waitsOnHim` reads the
-  // set `statusTone` already reads, so the dataset card and the Jobs list stop saying
-  // opposite things about one status.
-  const busy = waiting.interpreting;
-  if (busy && busy.job_ref) {
-    const ref = esc(busy.job_ref);
-    rows.push(
-      waitsOnHim(busy)
-        // `paused` DOES NOT MEAN IT RAN. `set_control` settles a job the worker is not
-        // holding immediately, so pausing a `queued` interpretation -- which this chain
-        // leaves after every crawl, with Pause offered on it -- writes `paused` with
-        // nothing read. "Stopped part-way" was false of exactly the job this PR creates.
-        ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-          `<span class="muted"> · ${ref} ${busy.read_so_far ? "stopped part-way and " : ""}` +
-          `waits for you. Open the Jobs page and press ` +
-          `${controlsFor(busy).includes("resume") ? "Resume" : "Cancel"} on its row</span>`
-        : isMoving(busy)
-          ? `<span class="badge">Interpretation under way</span>` +
-            `<span class="muted"> · ${ref} is turning the stored pages into rows; ` +
-            `nothing to press</span>`
-          // WINDING DOWN IS NOT THE SAME AS NOT STARTED, and the version before this
-          // one said it was. `set_control` writes PAUSING and CANCELLING only for a job
-          // the worker is HOLDING (`scrapex/jobs.py`), so those two arrive FROM reading.
-          //
-          // `isStopping`, NOT `ownsAWorker`: the held set is the ENGINE's and includes
-          // `preparing`, which is starting. Reading it here told a `preparing`
-          // interpretation it was stopping — the same mistake, one set over, as reading
-          // `controlsFor` as "waits on him".
-          : isStopping(busy)
-            ? `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-              `<span class="muted"> · ${ref} is stopping at its next safe boundary; ` +
-              `nothing to press</span>`
-            // AND THE REST HAVE NOT BEGUN. That is the whole of what the payload
-            // knows, so it is the whole of what this says.
-            : `<span class="badge off">Interpretation ${esc(statusWords(busy.status))}</span>` +
-              `<span class="muted"> · ${ref} has not started reading yet; nothing to ` +
-              `press</span>`);
-  }
-  if (!busy && waiting.interpret && waiting.interpret.crawl_finished_at) {
+  // What is running is shown where running jobs are already described correctly: the
+  // mini-player, on every tab, and the Jobs page. A press cannot make a duplicate
+  // either way -- `POST /api/jobs` refuses one while an interpretation is waiting.
+  const live = Boolean(waiting.interpretation_live);
+  if (!live && waiting.interpret && waiting.interpret.crawl_finished_at) {
     const when = window.ScrapeXTime.markup(
       waiting.interpret.crawl_finished_at, "datetime", {zone: true});
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
@@ -5799,12 +5718,12 @@ function waitingLine(s) {
       `<span class="muted"> · ${esc(fmtCount(profiles.fetch))} ` +
       `${profiles.fetch === 1 ? "contractor needs" : "contractors need"} a profile ` +
       `page fetched</span>`);
-  } else if (profiles.rowless && !busy) {
+  } else if (profiles.rowless && !live) {
     // PAGES ON DISK AND NO ROWS: the next press is an INTERPRETATION, not a request.
     // Saying so is the difference between him finding the right button and pressing the
     // one that says "profiles" because the word matches.
     //
-    // `&& !busy` FOR THE SAME REASON THE FIRST ROW HAS IT: this is the SECOND producer
+    // `&& !live` FOR THE SAME REASON THE FIRST ROW HAS IT: this is the SECOND producer
     // of that badge, and suppressing only the first left this one offering the press
     // while an interpretation was already running.
     rows.push(`<span class="badge off">Interpret stored pages</span>` +
@@ -6028,47 +5947,16 @@ function sourceActions(source) {
   // work. A `dataset` card exists because rows exist, which means a crawl ran, so the
   // action always has either pages to interpret or an honest count of none.
   //
-  // AND DISABLED WHILE ONE IS ALREADY ON ITS WAY. The badge above going quiet is not a
-  // refusal -- `POST /api/jobs` accepts a second interpretation of a source that is
-  // already being interpreted, which is issue 779 and not fixed here -- so the row that
-  // sends it has to say so itself. Without this the change makes things WORSE than it
-  // found them: the sentence warning him disappears at exactly the moment pressing is
-  // harmful, and the press still lands.
-  const busyRef = (source.work_waiting || {}).interpreting;
+  // A PRESS WHILE ONE IS WAITING IS REFUSED BY THE ROUTE, not disabled here. `POST
+  // /api/jobs` answers 409 when an interpretation of the source has not started yet
+  // (issue 779), so the row stays live and the refusal says why. An earlier version
+  // disabled it and wrote the reason on the row, and that reason was wrong for most of
+  // the statuses it was written over.
   const interpretable = source.site_key && source.kind === "dataset" ? [{
     action: "interpret",
     label: "Interpret stored pages",
-  // THE CONTROL THAT IS KEYED TO THE JOB, and this line reached it on the third try.
-    //
-    // It said "Stop it from the jobs list", which I then "corrected" by writing in a
-    // comment that no such list exists. It does: `<section id="view-jobs">` in
-    // `app.html`, drawn by this file, which builds a button per `controlsFor` row and
-    // wires it to `pressJobControl(row.job_ref, control, button)` -- whose own docstring
-    // says "THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER
-    // ADOPTED".
-    //
-    // The second try named the player's Cancel, which is worse than vague: `controlJob`
-    // posts to `state.jobRef`, the job `liveJob` ADOPTED, and `ADOPTION_ORDER` ranks
-    // `running` above `queued`. This PR makes a queued interpretation follow every crawl,
-    // so the player is routinely holding a different job -- and the card would have sent
-    // him to cancel this one with a button that cancels that one.
-    //
-    // So the sentence names the Jobs page row for the ref it just named, which is the
-    // only control bound to it.
-    why: busyRef && busyRef.job_ref
-      ? `${busyRef.job_ref} is ${statusWords(busyRef.status)} for this source. Open the `
-        + `Jobs page and press `
-        + `${controlsFor(busyRef).includes("resume") ? "Resume" : "Cancel"} on its row to `
-        + `change that.`
-      : "Turn the pages the last crawl saved into rows. Fetches nothing.",
+    why: "Turn the pages the last crawl saved into rows. Fetches nothing.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
-    // THE SAME THREE STATES, IN FOUR WORDS. "one is already running" was said over a
-    // `queued` job, which is the state this chain creates and the one that lasts longest.
-    ...(busyRef && busyRef.job_ref
-      ? {ready: false,
-         note: waitsOnHim(busyRef) ? `one is ${statusWords(busyRef.status)}`
-           : isMoving(busyRef) ? "one is already running"
-             : `one is ${statusWords(busyRef.status)} for this source`} : {}),
   }] : [];
   // AND FETCHING THE PROFILE PAGES THE LISTING NAMED, the third verb over one key and the
   // last of the three to get a door. Measured 2026-09-06 on his warehouse: 17,848
@@ -6135,8 +6023,7 @@ function sourceMenu(source) {
     <button class="split-button-option" role="menuitem" type="button"
             data-split-action="${esc(item.action)}"${item.ready === false ? " disabled" : ""}
             title="${esc(item.why)}">${esc(item.label)}${
-      item.ready === false
-        ? ` <span class="muted">· ${esc(item.note || "not built yet")}</span>` : ""
+      item.ready === false ? ' <span class="muted">· not built yet</span>' : ""
     }</button>`).join("");
   return `<div class="split-button" role="group"
                aria-label="Actions for ${esc(source.source_key)}">

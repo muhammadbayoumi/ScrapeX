@@ -1326,9 +1326,9 @@ def test_an_interpretation_that_never_read_the_pages_does_not_count_as_one(serve
     So the worst case is not a missing badge, it is a WRONG one: he cancels an
     interpretation, its finish time lands after the crawl's, and the card concludes the
     pages have been read. The badge goes out and stays out until the next crawl of that
-    source -- and `datasetjob` closes as exactly one of three, `completed`, `cancelled`
-    (`scrapex/datasetjob.py:286`) or `failed` (`:305`), so two of its three endings
-    silently said "read".
+    source -- and `run_dataset_interpret_job_once` closes as exactly one of three,
+    `completed`, `cancelled` or `failed`, so two of its three endings silently said
+    "read".
 
     THE CHAIN IN THIS PR IS WHAT MAKES IT ROUTINE. An interpretation now exists after
     every crawl whether or not he asked for one, so cancelling the one he did not ask for
@@ -1564,16 +1564,18 @@ def test_another_kind_on_its_way_does_not_clear_the_badge(served):
     )
 
 
-@pytest.mark.parametrize("status", ["queued", "running", "paused", "requires_review"])
-def test_the_card_is_told_WHICH_job_is_interpreting_and_not_just_that_one_is(served,
-                                                                            status):
-    """SUPPRESSION IS NOT AN ANSWER, AND THE PANEL NEEDS THE REF TO GIVE ONE.
+@pytest.mark.parametrize("status", [
+    "scheduled", "queued", "preparing", "running", "resuming",
+    "pausing", "cancelling", "paused", "requires_review"])
+def test_every_live_interpretation_raises_the_flag_and_withholds_the_press(
+        served, status):
+    """NO PRESS IS OWED WHILE ANY INTERPRETATION OF THIS SOURCE IS LIVE -- all nine
+    non-terminal statuses, not the four an earlier version drove.
 
-    `interpret` going `None` tells the card only that it must not offer the press. The
-    card then has to say something in its place -- "Interpretation under way · job_x" --
-    and it has to disable the menu row that sends the press, because `POST /api/jobs`
-    still accepts a duplicate (issue 779). Both need the REF, so the engine carries it
-    rather than leaving the panel to re-derive a fact it cannot see.
+    The flag is a yes/no and carries no status, on purpose: an earlier version sent
+    the status so the card could narrate it, and each sentence it wrote claimed a
+    state the code was not in. Driving four statuses left five unguarded, so a query
+    that missed `pausing` or `scheduled` would have passed.
     """
     client, path = served
     conn = dbmod.connect(path)
@@ -1596,27 +1598,22 @@ def test_the_card_is_told_WHICH_job_is_interpreting_and_not_just_that_one_is(ser
                    if row.get("site_key") == SITE and row.get("work_waiting"))
 
     assert waiting["interpret"] is None, "the press is still offered"
-    # THE STATUS TRAVELS WITH THE REF, and it is not decoration: the card says opposite
-    # things over a job that is working and one that waits on HIM. Over `paused` the
-    # copy "is turning the stored pages into rows; nothing to press" was false three
-    # ways, and the panel could not tell because it was sent a ref and nothing else.
-    # `read_so_far` TRAVELS TOO, because `paused` does not mean the job ran. Pausing a
-    # `queued` interpretation -- the one this chain leaves after every crawl -- settles
-    # it on the spot with nothing read, and the card must not call that "part-way".
-    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": status,
-                                       "read_so_far": 0}, (
-        f"the card is told the press is not owed and not what is doing it instead: "
-        f"{waiting['interpreting']!r}. A badge that vanishes reads as 'nothing is owed', "
-        f"and without the status the sentence it draws cannot be true for both states."
-    )
+    assert waiting["interpret"] is None, (
+        f"a {status} interpretation is live and the card still offers the press")
+    assert waiting["interpretation_live"] is True, (
+        f"a {status} interpretation is live and the flag the panel withholds both "
+        f"producers on is not raised: {waiting!r}")
+    assert "interpreting" not in waiting, (
+        "the status field is back; the card has nothing to narrate and must not be "
+        "handed a status to narrate with")
 
 
-def test_the_interpreting_field_is_honest_before_any_crawl_has_finished(served):
+def test_the_flag_is_raised_before_any_crawl_has_finished(served):
     """IT IS COMPUTED OUTSIDE `if crawled:`, AND THAT IS THE WHOLE REASON.
 
     The first version asked this question inside the block that needs a FINISHED crawl,
     so a source with an interpretation under way and no completed collecting run
-    reported `interpreting: None` -- and the panel's other badge producer,
+    reported nothing live -- and the panel's other badge producer,
     `profiles.rowless`, is computed outside that block and would have gone on offering
     the press.
 
@@ -1640,15 +1637,14 @@ def test_the_interpreting_field_is_honest_before_any_crawl_has_finished(served):
                    if row.get("site_key") == SITE and row.get("work_waiting"))
 
     assert waiting["interpret"] is None
-    assert waiting["interpreting"] == {"job_ref": "job_reading", "status": "running",
-                                       "read_so_far": 0}, (
-        f"no crawl has finished, an interpretation is running, and the card was told "
-        f"nothing: {waiting!r}. `profiles.rowless` draws the same badge from outside "
-        f"that block, so it would have gone on offering the press."
+    assert waiting["interpretation_live"] is True, (
+        f"no crawl has finished, an interpretation is running, and the flag is not "
+        f"raised: {waiting!r}. `profiles.rowless` draws the same badge from outside "
+        f"`if crawled:`, so it would have gone on offering the press."
     )
 
 
-def test_nothing_interpreting_leaves_the_field_empty(served):
+def test_the_flag_clears_when_nothing_is_live(served):
     """THE SWITCH HAS TO TURN BACK ON. A field that is only ever set is a field that
     silences this card permanently after its first interpretation."""
     client, path = served
@@ -1672,48 +1668,9 @@ def test_nothing_interpreting_leaves_the_field_empty(served):
     waiting = next(row["work_waiting"] for row in rows
                    if row.get("site_key") == SITE and row.get("work_waiting"))
 
-    assert waiting["interpreting"] is None, (
-        f"a finished interpretation still reads as one under way: "
-        f"{waiting['interpreting']!r}")
+    assert waiting["interpretation_live"] is False, (
+        f"a finished interpretation still raises the flag, which withholds this card's "
+        f"badge for good: {waiting!r}")
     assert waiting["interpret"] is not None, "and the press it owes is not offered"
 
 
-def test_the_card_names_the_NEWEST_interpretation_when_two_are_on_their_way(served):
-    """TWO AT ONCE IS A STATE THIS PR MANUFACTURES, and no test reached it.
-
-    A crawl queues one by itself; `POST /api/jobs` accepts a second (issue 779 -- still
-    open, and this change does not close it). So the card can be naming one of two, and
-    `LIMIT 1` without an order is whatever SQLite hands back first.
-
-    THE NEWEST IS THE ONE TO NAME. It is the one he most likely just made, and the one
-    that will still exist when the older settles -- naming the older points him at a job
-    that is about to vanish from the Jobs page, and then at nothing.
-    """
-    client, path = served
-    conn = dbmod.connect(path)
-    try:
-        conn.execute(
-            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
-            "                       finished_at) "
-            "VALUES ('job_sweep','update',?,?,'completed','2026-09-07T14:23:50Z')",
-            (f'["{SITE}"]', profilejob.JOB_KIND))
-        for ref, status in (("job_older", "running"), ("job_newer", "queued")):
-            conn.execute(
-                "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, "
-                "                       status) VALUES (?,'update',?,?,?)",
-                (ref, f'["{SITE}"]', datasetjob.JOB_KIND, status))
-        conn.commit()
-    finally:
-        conn.close()
-
-    rows = client.get("/api/sources").json()["sources"]
-    waiting = next(row["work_waiting"] for row in rows
-                   if row.get("site_key") == SITE and row.get("work_waiting"))
-
-    assert waiting["interpreting"] == {"job_ref": "job_newer", "status": "queued",
-                                       "read_so_far": 0}, (
-        f"the card names {waiting['interpreting']!r}. With two on their way it must name "
-        f"the newest -- the older one settles first and leaves the card pointing at a "
-        f"job that is no longer there."
-    )
-    assert waiting["interpret"] is None, "and it must still not offer the press"

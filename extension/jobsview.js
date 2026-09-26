@@ -57,36 +57,6 @@ export function ownsAWorker(job) {
   return HELD.has(String(job?.status || ""));
 }
 
-/** The two statuses a job passes through on its way OUT of work.
- *
- * NOT `WORKER_HELD_STATUSES`, which is the engine's set and includes `preparing`. That
- * set answers "must a pause wait for a safe boundary"; this answers "is this job
- * stopping". Reading the first as the second told a `preparing` interpretation it was
- * "stopping at its next safe boundary" when it was starting — the same mistake, one set
- * over, as reading `controlsFor` as "waits on him".
- *
- * `set_control` writes these two only for a job the worker is holding
- * (`scrapex/jobs.py`), so a job in either of them HAS been reading.
- */
-const WINDING_DOWN = new Set(["pausing", "cancelling"]);
-
-export function isStopping(job) {
-  return WINDING_DOWN.has(String(job?.status || ""));
-}
-
-/** Whether this job waits on HIM and will not advance until he acts.
- *
- * `HIS_MOVE`, NOT `controlsFor`, AND THE TWO DISAGREE ON `requires_review`.
- * `controlsFor` answers "which buttons will the route honour", which is a different
- * question: it returns `["cancel"]` for `requires_review` because there is no resume to
- * offer, not because the job is working. Reading it as "waits on him" put a
- * `requires_review` interpretation in the working branch of `waitingLine` while
- * `statusTone` — which reads THIS set — gave it the waiting tone one screen over.
- */
-export function waitsOnHim(job) {
-  return HIS_MOVE.has(String(job?.status || ""));
-}
-
 /** Whether this is the one moving, which is what the row's dot claims. */
 export function isMoving(job) {
   return MOVING.has(String(job?.status || ""));

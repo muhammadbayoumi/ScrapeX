@@ -1280,3 +1280,280 @@ def test_only_the_NEWEST_is_read_again_an_older_read_run_stays_retired(
         f"runs older than the newest were read again, so every press pays for the whole "
         f"warehouse: {fake.refs}")
 
+
+# ---- one interpretation waiting is enough -- issue 779 ----------------------
+
+def _interpretation_in(db_path, status: str, source: str = "muqawil_org") -> str:
+    """An interpretation of `source` sitting in `status`, written through the engine's
+    own job table, so the route and the chain are both asked about a row that exists."""
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        ref = jobs.create_job(conn, [source], RunMode.UPDATE,
+                              job_kind=datasetjob.JOB_KIND)
+        jobs._update(conn, jobs.get_job(conn, ref)["job_id"], status=status)
+        conn.commit()
+        return ref
+    finally:
+        conn.close()
+
+
+def _interpretations_of(db_path, source: str = "muqawil_org") -> list[str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        return [row[0] for row in conn.execute(
+            "SELECT job_ref FROM crawl_job WHERE job_kind = ? AND source_keys LIKE ? "
+            "ORDER BY job_id", (datasetjob.JOB_KIND, f'%"{source}"%'))]
+    finally:
+        conn.close()
+
+
+def _press_interpret(client, source: str = "muqawil_org"):
+    return client.post("/api/jobs", json={"source_keys": [source],
+                                          "run_mode": "update",
+                                          "job_kind": datasetjob.JOB_KIND})
+
+
+@pytest.mark.parametrize("status", ["queued", "scheduled"])
+def test_a_second_interpretation_is_refused_while_one_has_not_started(tmp_path, status):
+    """ISSUE 779, REFUSED WHERE THE WRITE HAPPENS.
+
+    Before this, `POST /api/jobs` accepted a second interpretation of a source that
+    already had one waiting, so one press made a job that read nothing the first would
+    not -- a worker slot out of `job_capacity` spent on nothing. The panel was left to
+    explain the gap in copy, and every sentence it wrote claimed a state the code was
+    not in. Refused at the door, the card has nothing to explain.
+
+    A job still `queued` or `scheduled` plans its reading when it STARTS, so it will read
+    every stored run nobody has read -- which is exactly what the second press asked for.
+    """
+    client, db_path = _panel(tmp_path)
+    waiting = _interpretation_in(db_path, status)
+
+    refused = _press_interpret(client)
+
+    assert refused.status_code == 409, (
+        f"a {status} interpretation was waiting and the route queued another: "
+        f"{refused.status_code} {refused.text}")
+    assert waiting in refused.json()["detail"], (
+        f"the refusal does not name the job that will do the work, so he cannot go and "
+        f"find it: {refused.text}")
+    assert _interpretations_of(db_path) == [waiting], (
+        f"the route answered 409 and wrote a job anyway: {_interpretations_of(db_path)}")
+
+
+@pytest.mark.parametrize("status", ["preparing", "running", "resuming",
+                                    "pausing", "cancelling", "paused",
+                                    "requires_review"])
+def test_one_that_already_planned_does_not_refuse_the_press(tmp_path, status):
+    """NOT "ANY LIVE INTERPRETATION", and the difference decides whether a refusal loses
+    pages.
+
+    One that is `preparing` or later computed `runs_to_interpret` when it started,
+    possibly before the pages he now wants read existed -- so a second one is not a
+    duplicate: it reads the runs the first did not plan for. Refusing it would leave those
+    pages unread with nothing on the screen saying so. A `paused` or `requires_review` one
+    waits on him and does not advance by itself.
+    """
+    client, db_path = _panel(tmp_path)
+    first = _interpretation_in(db_path, status)
+
+    accepted = _press_interpret(client)
+
+    assert accepted.status_code == 200, (
+        f"a {status} interpretation had already planned its reading and the route "
+        f"refused a second one, which would read what the first did not plan for: "
+        f"{accepted.status_code} {accepted.text}")
+    assert _interpretations_of(db_path) == [first, accepted.json()["job_ref"]], (
+        "the route answered 200 without writing the second job")
+
+
+@pytest.mark.parametrize("status", ["completed", "completed_with_errors",
+                                    "partially_completed", "failed", "cancelled"])
+def test_a_finished_interpretation_refuses_nothing(tmp_path, status):
+    """The other end of the list: a job that ended reads nothing more, so the press it
+    would block is the only way the runs stored since get read."""
+    client, db_path = _panel(tmp_path)
+    _interpretation_in(db_path, status)
+
+    accepted = _press_interpret(client)
+
+    assert accepted.status_code == 200, (
+        f"a {status} interpretation refused a new one: {accepted.text}")
+
+
+def test_the_refusal_is_about_interpretations_and_nothing_else(tmp_path):
+    """A waiting interpretation does not stop him CRAWLING. The two are different work --
+    a crawl buys pages, an interpretation reads them -- and a refusal that reached past
+    its own kind would block the Update button on every source with an interpretation
+    queued, which after this PR is every source a crawl has just finished."""
+    client, db_path = _panel(tmp_path)
+    _interpretation_in(db_path, "queued")
+
+    crawl = client.post("/api/jobs", json={"source_keys": ["muqawil_org"],
+                                           "run_mode": "update"})
+
+    assert crawl.status_code == 200, (
+        f"a queued interpretation refused a CRAWL of the same source: {crawl.text}")
+    assert _kind_of(db_path, crawl.json()["job_ref"]) == "directory_crawl"
+
+
+def test_another_sources_interpretation_does_not_refuse_this_one(tmp_path):
+    """The refusal is per SOURCE. One source waiting to be interpreted is no reason to
+    refuse interpreting another -- and `source_keys LIKE` matching, had the rule used it,
+    would match a key that merely CONTAINS this one."""
+    client, db_path = _panel(tmp_path)
+    _interpretation_in(db_path, "queued", source="muqawil_org_archive")
+
+    accepted = _press_interpret(client)
+
+    assert accepted.status_code == 200, (
+        f"another source's queued interpretation refused this one: {accepted.text}")
+
+
+@pytest.mark.parametrize("status", [
+    "scheduled", "queued", "preparing", "running", "resuming",
+    "pausing", "cancelling", "paused", "requires_review"])
+def test_the_chain_and_the_route_give_one_answer(tmp_path, status):
+    """ONE RULE, TWO READERS, AND THEY MAY NOT DISAGREE -- on any of the nine live
+    statuses.
+
+    The crawl's chain decides whether to queue another interpretation; the route decides
+    whether to refuse one he pressed. Both read `datasetjob.waiting_interpretation`. Were
+    either to grow its own copy, a press could make the duplicate the chain would have
+    skipped, or a crawl queue the one the route would have refused -- and this PR's own
+    first version had a chain and a card that asked two different questions.
+    """
+    client, db_path = _panel(tmp_path)
+    _interpretation_in(db_path, status)
+
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        chain_skips = datasetjob.waiting_interpretation(conn, "muqawil_org") is not None
+    finally:
+        conn.close()
+    route_refuses = _press_interpret(client).status_code == 409
+
+    assert chain_skips == route_refuses, (
+        f"for a {status} interpretation the chain {'skips' if chain_skips else 'queues'} "
+        f"and the route {'refuses' if route_refuses else 'accepts'} -- one rule, read two "
+        f"ways, so whichever path disagrees makes a duplicate or loses a reading")
+    assert chain_skips == (status in {"scheduled", "queued"}), (
+        f"the shared rule itself moved: for {status} it says "
+        f"{'waiting' if chain_skips else 'not waiting'}")
+
+
+def test_the_rule_reads_only_interpretations(tmp_path):
+    """A queued CRAWL of the source is not an interpretation waiting to read it. Without
+    the kind in the rule, a crawl queued behind another would make the chain skip the
+    interpretation its own finish owes."""
+    _client, db_path = _panel(tmp_path)
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE, job_kind="directory_crawl")
+        conn.commit()
+        assert datasetjob.waiting_interpretation(conn, "muqawil_org") is None
+    finally:
+        conn.close()
+
+
+def test_the_rule_names_the_job_it_found(tmp_path):
+    """The refusal's message and the chain's skip line both print the waiting job's ref,
+    so the rule must hand back THAT job, not merely say one exists."""
+    _client, db_path = _panel(tmp_path)
+    _interpretation_in(db_path, "completed")
+    waiting = _interpretation_in(db_path, "queued")
+
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        found = datasetjob.waiting_interpretation(conn, "muqawil_org")
+    finally:
+        conn.close()
+
+    assert found is not None and found["job_ref"] == waiting, found
+
+
+def test_the_rule_is_not_read_through_a_window(tmp_path):
+    """A WAITING ONE OLDER THAN TWO HUNDRED OTHERS IS STILL WAITING. The first version read
+    `jobs.list_jobs(limit=200)`, newest first, so an interpretation queued before two
+    hundred other live jobs fell outside the window and the rule said nothing was
+    waiting -- and the chain and the route would both make the duplicate it exists to
+    stop."""
+    _client, db_path = _panel(tmp_path)
+    waiting = _interpretation_in(db_path, "queued")
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        for _ in range(201):
+            jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
+                            job_kind="directory_crawl", commit=False)
+        conn.commit()
+        found = datasetjob.waiting_interpretation(conn, "muqawil_org")
+    finally:
+        conn.close()
+
+    assert found is not None and found["job_ref"] == waiting, (
+        f"201 newer live jobs hid the waiting interpretation: {found}")
+
+
+def test_of_two_waiting_the_rule_names_the_one_that_starts_first(tmp_path):
+    """Two can be waiting -- one queued before this PR, or by a caller that is not the
+    route. The worker starts the OLDEST first, so that is the one that will read the
+    pages, and the ref he is sent to must be that one."""
+    _client, db_path = _panel(tmp_path)
+    first = _interpretation_in(db_path, "queued")
+    _interpretation_in(db_path, "queued")
+    from scrapex import db as dbmod
+    conn = dbmod.connect(db_path)
+    try:
+        found = datasetjob.waiting_interpretation(conn, "muqawil_org")
+    finally:
+        conn.close()
+
+    assert found is not None and found["job_ref"] == first, found
+
+
+def _write_lock_is_held(db_path) -> bool:
+    """Whether some connection holds the write lock: a second one asking for it with no
+    patience at all is refused."""
+    other = sqlite3.connect(db_path, timeout=0)
+    try:
+        other.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        return True
+    else:
+        other.rollback()
+        return False
+    finally:
+        other.close()
+
+
+def test_the_route_asks_with_the_write_lock_held(tmp_path, monkeypatch):
+    """TWO PRESSES A MOMENT APART ARE TWO THREADS OF ONE ENGINE, and the rule is asked
+    once by each. Asked without the lock, both can hear "nothing is waiting" before
+    either has written, and both write, which is #779's double press arriving by the one
+    path this refusal was built to close. Asked under the lock, the second waits for the
+    first to commit and then hears the truth."""
+    client, db_path = _panel(tmp_path)
+    held = []
+    real = datasetjob.waiting_interpretation
+
+    def probing(conn, source_key):
+        held.append(_write_lock_is_held(db_path))
+        return real(conn, source_key)
+
+    monkeypatch.setattr(datasetjob, "waiting_interpretation", probing)
+
+    first = _press_interpret(client)
+    second = _press_interpret(client)
+
+    assert held == [True, True], (
+        f"the route asked whether one was waiting without the write lock: {held}")
+    assert (first.status_code, second.status_code) == (200, 409), (first.text, second.text)
+    assert not _write_lock_is_held(db_path), (
+        "a refused press kept the write lock, so the engine's next writer waits on a "
+        "request that has already answered")
+

@@ -650,8 +650,7 @@ def test_two_crawls_of_one_source_queue_one_interpretation(conn, monkeypatch):
         if row["job_kind"] == datasetjob.JOB_KIND]
     assert len(queued) == 1, (
         f"two crawls of one source queued {len(queued)} interpretations. The second is "
-        f"a worker slot doing nothing and, because the panel adopts the newest active "
-        f"job, the screen he watches."
+        f"a worker slot doing nothing, and a second job for the panel to draw."
     )
     # AND THE SECOND CRAWL SAYS SO, because a step that silently did nothing is
     # indistinguishable from a step that was never reached.
@@ -1145,20 +1144,20 @@ def test_an_interpretation_already_RUNNING_does_not_cover_this_crawl(conn, monke
     """THE SKIP IS SAFE ONLY FOR A SIBLING THAT HAS NOT STARTED, and the first version of
     this guard could not tell the difference.
 
-    `run_dataset_interpret_job_once` resolves its run ONCE, at
-    `scrapex/datasetjob.py:217`, before it writes PREPARING at :226. So an interpretation
-    that was already under way when this crawl committed COMPLETED bound its ref BEFORE
-    these pages existed, and it will never read them. Skipping for it leaves them unread
-    while the crawl's own log says they are covered -- a silent loss with a sentence
-    asserting the opposite, which is the worst shape a log line can take.
+    `run_dataset_interpret_job_once` plans its reading ONCE, calling `runs_to_interpret`
+    before it writes PREPARING. So an interpretation that was already under way when this
+    crawl committed COMPLETED planned BEFORE these pages existed, and it will never read
+    them. Skipping for it leaves them unread while the crawl's own log says they are
+    covered -- a silent loss with a sentence asserting the opposite, which is the worst
+    shape a log line can take.
 
-    A `queued` sibling is the opposite case and still skips: it resolves when it starts,
-    so it takes the newest run, which is this one. That is
+    A `queued` sibling is the opposite case and still skips: it plans when it starts, so
+    it reads every stored run nobody has read, this one included. That is
     `test_two_crawls_of_one_source_queue_one_interpretation`.
 
-    And the second interpretation does not run beside the first -- the worker takes
-    `queued` jobs up to `job_capacity`, so it waits its turn and then reads the newest
-    run, which by then includes this crawl.
+    And the second interpretation plans only when IT starts -- at once if `job_capacity`
+    has room, after the first if not -- so either way it reads every run nobody has read,
+    and by then that includes this crawl.
     """
     already = jobs.create_job(conn, [SITE], job_kind=datasetjob.JOB_KIND)
     jobs._update(conn, jobs.get_job(conn, already)["job_id"],
@@ -1178,3 +1177,110 @@ def test_an_interpretation_already_RUNNING_does_not_cover_this_crawl(conn, monke
         (jobs.get_job(conn, crawl)["job_id"],))]
     assert not any("already waiting" in one for one in log), (
         f"and the crawl claimed it was covered: {log!r}")
+
+
+def _write_lock_is_held(db_path) -> bool:
+    """Whether some connection holds the write lock: a second one asking for it with no
+    patience at all is refused."""
+    other = sqlite3.connect(db_path, timeout=0)
+    try:
+        other.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError:
+        return True
+    else:
+        other.rollback()
+        return False
+    finally:
+        other.close()
+
+
+def _one_finished_crawl(conn, monkeypatch) -> dict:
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+    fetcher = _Fetcher()
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+    monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    return directoryjob.run_directory_crawl_job_once(conn, ref)
+
+
+def test_the_chain_asks_with_the_write_lock_held(conn, monkeypatch, tmp_path):
+    """ASKED AND ACTED ON UNDER ONE LOCK, or the answer can be stale by the time it is
+    used. `POST /api/jobs` asks the same rule on another thread of the same engine. If
+    either asks without holding the write lock, both can hear "nothing is waiting" and
+    both queue one: the duplicate of #779, made without anybody pressing twice."""
+    held = []
+    real = datasetjob.waiting_interpretation
+
+    def probing(c, source_key):
+        held.append(_write_lock_is_held(tmp_path / "engine.db"))
+        return real(c, source_key)
+
+    monkeypatch.setattr(datasetjob, "waiting_interpretation", probing)
+    done = _one_finished_crawl(conn, monkeypatch)
+
+    assert held == [True], (
+        f"the chain asked whether an interpretation is waiting without the write lock "
+        f"({held}), so a press on another thread can queue the same one in between")
+    assert done["status"] == JobStatus.COMPLETED.value
+    assert not _write_lock_is_held(tmp_path / "engine.db"), (
+        "the chain queued its interpretation and kept the write lock, so every other "
+        "writer in the engine now waits on a crawl that has finished")
+
+
+def test_the_question_failing_does_not_fail_the_crawl(conn, monkeypatch, tmp_path):
+    """THE QUESTION IS PART OF QUEUEING, AND A FAILURE TO QUEUE MAY NOT FAIL THE CRAWL.
+    It used to sit above the `try`. `_finish` had already committed COMPLETED, so an
+    error raised there escaped `run_directory_crawl_job_once` and reached the worker as
+    the crawl's own failure, reported against a crawl that stored every page it was
+    sent for."""
+    def broken(_conn, _source_key):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(datasetjob, "waiting_interpretation", broken)
+    done = _one_finished_crawl(conn, monkeypatch)
+
+    assert done["status"] == JobStatus.COMPLETED.value, (
+        f"asking whether one was waiting failed, and the crawl was reported "
+        f"{done['status']}")
+    warned = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? AND level = ?",
+        (done["job_id"], LogLevel.WARNING.value))]
+    assert any("could not be queued" in line and "OperationalError" in line
+               for line in warned), (
+        f"the failure was not recorded where he reads the crawl: {warned!r}")
+    assert not [row for row in conn.execute(
+        "SELECT 1 FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert not _write_lock_is_held(tmp_path / "engine.db"), (
+        "the failed question left the write lock held")
+
+
+def test_a_half_queued_interpretation_is_undone_with_the_failure(conn, monkeypatch):
+    """THE WARNING SAYS "COULD NOT BE QUEUED", SO NOTHING MAY BE QUEUED. The job row is
+    written before the interpretation's own log line. If that line fails, committing what
+    the lock held would leave a `queued` interpretation beside a warning saying there is
+    none, and beside the crawl's own line announcing it. That is two sentences about one
+    job, and one of them is false. So the failure path rolls back first."""
+    real = jobs.append_log
+
+    def failing_on_the_new_job(c, job_id, message, *a, **k):
+        if message.startswith("started automatically"):
+            raise sqlite3.OperationalError("disk I/O error")
+        return real(c, job_id, message, *a, **k)
+
+    monkeypatch.setattr(jobs, "append_log", failing_on_the_new_job)
+    done = _one_finished_crawl(conn, monkeypatch)
+
+    assert done["status"] == JobStatus.COMPLETED.value
+    queued = [row[0] for row in conn.execute(
+        "SELECT job_ref FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    said = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (done["job_id"],))]
+    assert queued == [], (
+        f"the log says the interpretation could not be queued and {queued} is queued")
+    assert not [line for line in said if line.startswith("queued the interpretation")], (
+        f"the crawl announces a job the warning says does not exist: {said!r}")
+    assert any("could not be queued" in line for line in said), said
+

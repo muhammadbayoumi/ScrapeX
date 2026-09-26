@@ -73,7 +73,7 @@ function runner({ active, byRef, visible = true, view = "run" }) {
     activity: undefined, everDrawn: [], logShown: undefined, logsFor: [],
     miniplayer: undefined, loadSources: 0, loadDatasets: 0, fetched: [],
   };
-  const state = { job: null, jobRef: null, jobStatus: null };
+  const state = { job: null, jobRef: null };
   const api = async (path) => {
     seen.fetched.push(path);
     if (path.startsWith("/api/jobs?")) return { jobs: active };
@@ -127,7 +127,6 @@ test("the handoff refreshes the cards the crawl was run for", async () => {
     },
   });
   second.state.jobRef = "job_crawl";
-  second.state.jobStatus = CRAWL.status;
   await second.pollJobOnce();
 
   assert.equal(second.seen.loadSources, 1,
@@ -150,7 +149,6 @@ test("it does not draw the outgoing job, because the incoming one owns that box"
     },
   });
   over.state.jobRef = "job_crawl";
-  over.state.jobStatus = CRAWL.status;
   await over.pollJobOnce();
 
   assert.equal(over.seen.activity, "job_read",
@@ -169,10 +167,7 @@ test("a poll that stays on one job does not refresh every card", async () => {
   // Firing each time would call `loadSources()` at 1500 ms for the whole run of a
   // fourteen-hour crawl.
   const still = runner({ active: [CRAWL], byRef: { job_crawl: CRAWL } });
-  // BOTH, because the runtime now sets both: a `null` status reads as a status that
-  // MOVED, and the redraw fires. Every place that adopts a ref adopts its status.
   still.state.jobRef = "job_crawl";
-  still.state.jobStatus = CRAWL.status;
   await still.pollJobOnce();
   assert.equal(still.seen.loadSources, 0,
     "the poll refreshed every card while the same job was still running");
@@ -187,7 +182,6 @@ test("nothing active still reports the last job, because nothing overwrites it",
     byRef: { job_crawl: { ...CRAWL_DONE, log: [{ message: "job completed" }] } },
   });
   over.state.jobRef = "job_crawl";
-  over.state.jobStatus = CRAWL.status;
   await over.pollJobOnce();
   assert.equal(over.seen.activity, "job_crawl", "the verdict is not on screen");
   assert.deepEqual(over.seen.logShown, [{ message: "job completed" }]);
@@ -244,7 +238,6 @@ test("on the Data tab the handoff redraws the card, not only the Run list", asyn
     },
   });
   onData.state.jobRef = "job_crawl";
-  onData.state.jobStatus = CRAWL.status;
   await onData.pollJobOnce();
 
   assert.equal(onData.seen.loadDatasets, 1,
@@ -264,52 +257,9 @@ test("on the Run tab it does not redraw a card nobody is looking at", async () =
     },
   });
   onRun.state.jobRef = "job_crawl";
-  onRun.state.jobStatus = CRAWL.status;
   await onRun.pollJobOnce();
 
   assert.equal(onRun.seen.loadDatasets, 0,
     "it rebuilt the dataset cards while the Run tab was the one on screen");
   assert.equal(onRun.seen.loadSources, 1);
-});
-
-
-test("a status change inside one job redraws the card that now shows it", async () => {
-  // THE CARD DRAWS A LIVE VALUE AND HAD NO LIVE REFRESH. Before this change the dataset
-  // card showed counts and a badge, which only move when a job ENDS, so redrawing on a
-  // ref change was enough. It now shows `interpreting.status`.
-  //
-  // `loadDatasets` has three callers: opening the Data tab, the pause action, and this
-  // redraw. A status moving inside ONE job trips none of them — the ref never changes —
-  // so the card painted `queued` once and kept it while the mini-player, which sits
-  // outside `<main>` on every tab, showed the same job reach `paused`. The card then
-  // said "nothing to press" over a job waiting for him to press Resume.
-  const moving = runner({
-    active: [{ ...CHAINED, status: "paused" }], view: "data",
-    byRef: { job_read: { ...CHAINED, status: "paused", log: [] } },
-  });
-  moving.state.jobRef = "job_read";
-  moving.state.jobStatus = "queued";          // what the last poll drew
-  await moving.pollJobOnce();
-
-  assert.equal(moving.seen.loadDatasets, 1,
-    "the job went queued -> paused and the card was not redrawn, so it still says " +
-    "\"queued ... Nothing to press\" over a job the player above it calls paused");
-  assert.equal(moving.state.jobStatus, "paused",
-    "and the new status was not remembered, so it would redraw again every poll");
-});
-
-test("the same status on the same job redraws nothing", async () => {
-  // The other side. Without this, the redraw fires on every poll for the whole run of a
-  // fourteen-hour crawl — `loadDatasets` rebuilds every card and refetches their counts.
-  const still = runner({
-    active: [CHAINED], view: "data",
-    byRef: { job_read: { ...CHAINED, log: [] } },
-  });
-  still.state.jobRef = "job_read";
-  still.state.jobStatus = CHAINED.status;
-  await still.pollJobOnce();
-
-  assert.equal(still.seen.loadDatasets, 0,
-    "nothing changed and every dataset card was rebuilt anyway");
-  assert.equal(still.seen.loadSources, 0);
 });
