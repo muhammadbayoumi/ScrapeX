@@ -587,7 +587,7 @@
     background: transparent;
     box-shadow: none;
   }
-  .source-manager-search input:focus { box-shadow: none; }
+  .source-manager-search input:focus { outline: 0; box-shadow: none; }
   .source-manager-list {
     display: flex;
     flex: 1;
@@ -995,6 +995,8 @@
   .settings-item { overflow: hidden; border: 1px solid var(--line);
                    border-radius: var(--radius-lg); background: var(--surface); }
   .settings-item + .settings-item { border-top: 1px solid var(--line); }
+  /* Inset (#721): .settings-item clips, so a ring outside the toggle would not show. */
+  #view-settings .settings-toggle:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   #view-settings .settings-toggle { display: grid; grid-template-columns: 1.5rem minmax(0,1fr) auto;
                                     align-items: center; gap: var(--sp-3); width: 100%;
                                     min-height: 3.75rem; padding: var(--sp-3) var(--sp-4); }
@@ -1329,6 +1331,8 @@
      tall child grows the view instead of handing the overflow to the scroller
      inside it — which is the page-scrolls-instead-of-rows behaviour the chain
      exists to remove. */
+  /* Inset (#721): the tabpanel fills `main`, which clips a ring drawn outside it. */
+  #view-profile:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   #view-profile {
     display: flex;
     flex-direction: column;
@@ -2239,6 +2243,8 @@
     border-radius: var(--radius-xl);
     overflow: hidden;
   }
+  /* Inset (#721): the row list clips, so a ring outside a row would not show. */
+  button.manage-account-row-button:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   .manage-account-rows > * + * {
     border-top: 1px solid var(--line);
   }
@@ -3484,6 +3490,8 @@
     background: var(--surface);
     overflow: hidden;
   }
+  /* Inset (#721): .engine-list clips, so a ring outside the row would not show. */
+  button.engine-row:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   /* One engine. A real <button>, because the whole row is the target and a row
      that reacts to a click while looking like nothing is a control nobody
      discovers — the same reasoning .account-switch carries on Profile.

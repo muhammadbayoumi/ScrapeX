@@ -36,6 +36,7 @@
   .schedule-search:focus-within{border-color:var(--focus);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
   .schedule-search svg{width:17px;height:17px;fill:currentColor}
   .schedule-search input{width:100%;padding:.5rem 0;border:0;outline:0;background:transparent}
+  .schedule-search input:focus{outline:0;box-shadow:none}
   .schedule-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.25rem;
     margin-top:.55rem;padding:.2rem;border-radius:var(--radius);background:var(--bg)}
   .schedule-filter{border:0;background:transparent;color:var(--muted);padding:.42rem .7rem;
