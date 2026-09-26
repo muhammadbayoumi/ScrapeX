@@ -474,6 +474,10 @@ def project_folder(checkout: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A redirected run on Windows encodes cp1252, and the first caveat or path outside it
+    # would kill the run; `_force_utf8_output` in scrapex/cli.py answers the same fact.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--projects", type=Path, default=Path.home() / ".claude" / "projects")
     parser.add_argument("--memory", type=Path, help="default: this checkout's auto-memory folder")
@@ -510,7 +514,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recurrence_scan: no memory notes in {args.memory}", file=sys.stderr)
         return 1
     rows = scan(notes, calls, args.projects)
-    sys.stdout.reconfigure(encoding="utf-8")  # else a caveat outside cp1252 kills a redirected run
     if args.markdown:
         print(markdown(rows, dt.datetime.now(dt.UTC).astimezone(), len(files), len(calls), previous))
     else:
