@@ -100,25 +100,24 @@ _WAL_RESET_BACKPORTS = ((3, 50, 7), (3, 44, 6))
 
 
 def wal_reset_bug(version: tuple[int, ...] | None = None) -> str:
-    """Is this SQLite affected by its WAL-reset bug? "fixed", "affected" or "unknown".
+    """Is this SQLite affected by its WAL-reset bug? "fixed" or "affected".
 
     `connect` puts every connection in WAL mode, and the engine holds several at
     once from several threads — the precondition of the bug SQLite documents at
     https://www.sqlite.org/wal.html#the_wal_reset_bug: two connections in separate
     threads or processes writing or checkpointing at the same instant can leave a
     later checkpoint skipping part of a committed transaction, which corrupts the
-    database. Present from 3.7.0 through 3.51.2; fixed in 3.51.3, and backported
-    to 3.50.7 and 3.44.6. SQLite calls it rare and not an emergency (#1207).
+    database. Present from 3.7.0 through 3.51.2; fixed in 3.51.3 "and later", and
+    backported to 3.50.7 and 3.44.6. SQLite calls it rare and not an emergency
+    (#1207). The withdrawn 3.52.0 is later and carries the fix: its `src/wal.c` is
+    byte-identical to 3.51.3's.
 
     THE VERSION IS THE INTERPRETER'S. Python on Windows bundles its own
     `sqlite3.dll`, so the engine cannot choose it, and this is a report, never a
-    refusal to start. 3.52.0 is "unknown": it was withdrawn, and it came out a
-    week before the fix, so SQLite's page lists it as neither affected nor fixed.
-    Nothing older than 3.7.0 can load here — Python 3.12 needs 3.15.2 or newer.
+    refusal to start. Nothing older than 3.7.0 can load here — Python 3.12 needs
+    3.7.15 or newer.
     """
     version = tuple(sqlite3.sqlite_version_info if version is None else version)
-    if version[:2] == (3, 52):
-        return "unknown"
     if version >= (3, 51, 3):
         return "fixed"
     if any(fixed <= version < (fixed[0], fixed[1] + 1)

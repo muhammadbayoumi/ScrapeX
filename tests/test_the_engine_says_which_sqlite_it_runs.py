@@ -40,7 +40,7 @@ CASES = [
     ((3, 51, 0), "affected"),     # past the 3.50 branch
     ((3, 51, 2), "affected"),     # the last affected release
     ((3, 51, 3), "fixed"),        # the fix
-    ((3, 52, 0), "unknown"),      # withdrawn, a week before the fix
+    ((3, 52, 0), "fixed"),        # withdrawn, but after the fix: its src/wal.c is 3.51.3's
     ((3, 53, 0), "fixed"),
     ((3, 53, 4), "fixed"),        # what Python 3.15 bundles
     ((4, 0, 0), "fixed"),
@@ -91,4 +91,7 @@ def test_it_answers_when_the_database_cannot_be_read(client, tmp_path):
         leftover.write_bytes(b"not a database")
     response = client.get("/api/health")
     assert response.status_code == 200, response.text
-    assert response.json()["sqlite"]["version"] == sqlite3.sqlite_version
+    assert response.json()["sqlite"] == {
+        "version": sqlite3.sqlite_version,
+        "wal_reset_bug": dbmod.wal_reset_bug(sqlite3.sqlite_version_info)}, (
+        "the verdict, which is what the badge reads, depended on the database")

@@ -3887,7 +3887,8 @@ function engineBuildText(build) {
 // WAL-reset bug (#1207). The engine decides `wal_reset_bug` (`scrapex/db.py`,
 // `wal_reset_bug`); this only words it. An engine from before the field is "Not
 // reported", as on the Build row, and a fixed build wears no badge, so the badge
-// is read when it appears.
+// is read when it appears. A verdict this panel does not know — a newer engine's —
+// is said to be unrecognised, never guessed at.
 function engineSqliteText(sqlite) {
   if (!sqlite || !sqlite.version) return { value: "Not reported", verdict: "", detail: "" };
   const value = String(sqlite.version);
@@ -3898,8 +3899,8 @@ function engineSqliteText(sqlite) {
   }
   if (sqlite.wal_reset_bug === "fixed") return { value, verdict: "", detail: "" };
   return { value, verdict: "",
-           detail: "SQLite does not say whether this release has the fix for its "
-                   + "WAL-reset bug." };
+           detail: "This panel does not recognise the engine's answer about "
+                   + "SQLite's WAL-reset bug." };
 }
 
 // THE COMPATIBILITY PARAGRAPH IS GONE, not moved. It said the mismatch a second
@@ -4638,7 +4639,7 @@ function renderEngineDetail(id) {
   $("engine-licence").textContent = engine.licence;
 
   for (const row of ["engine-spec-installed", "engine-spec-build",
-                     "engine-spec-latest",
+                     "engine-spec-sqlite", "engine-spec-latest",
                      "engine-spec-protocol", "engine-spec-power"]) {
     $(row).classList.toggle("hidden", !installed);
   }
