@@ -79,8 +79,9 @@ def fields_as_seeded(conn: sqlite3.Connection, source_key: str,
     still had to take the database's write lock to try — so it waited five
     seconds behind any writer and then failed. GET is a safe method (RFC 9110
     §9.2.1): the caller asks for no change. So a read gets the same list this
-    way, and the rows are written only by the write that needs them to exist
-    (`POST /api/fields`, under the write lock).
+    way, and the rows are written only by the writes that need them to exist,
+    both under the write lock: `POST /api/fields`, and a publish
+    (`publish.workbook_tables(register=True)`).
     """
     return list_fields(conn, source_key) + [
         {"field_key": column, "original_name": column, "display_name": None,

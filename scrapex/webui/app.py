@@ -1403,8 +1403,9 @@ def create_app(
                 #
                 # READ, NOT REGISTERED. This page used to `ensure_fields` and
                 # commit, so opening it wrote to the warehouse without the write
-                # lock (#1192). The rows are written by the POST that arranges
-                # them; until then the page reads them as they would be.
+                # lock (#1192). The rows are written by the writes that need them
+                # — his first change, or a publish — and until then the page
+                # reads them as they would be.
                 present = column_presence(conn, source_key)
                 seed = column_seed(present)
                 fields, views = (fields_as_seeded(conn, source_key, seed),
@@ -2764,7 +2765,9 @@ def create_app(
         # read has no business inside the one writer's window.
         dataset_keys = _dataset_seed(source_key)
         def apply(conn):
-            # THE ONLY PLACE A COLUMN IS REGISTERED NOW, under the write lock.
+            # ONE OF THE TWO WRITES THAT REGISTER COLUMNS, both under the write
+            # lock; the other is a publish (`publish.workbook_tables(register=
+            # True)`), and `reports.column_seed` is what both register first.
             # Opening the page or the chooser no longer registers anything
             # (#1192); they read `fields_as_seeded` instead. So this registers
             # exactly the list they showed, in the order they showed it, before

@@ -12,9 +12,9 @@ sources carried export columns nobody had registered.
 
 GET is a safe method: the client asks for no change (RFC 9110 §9.2.1). So a read
 now shows the columns as they would be registered (`fields.fields_as_seeded`),
-and the rows are written by the one write that needs them — `POST /api/fields`,
-under the write lock — which registers exactly the list the read showed, in the
-order it showed it.
+and the rows are written by the two writes that need them, both under the
+write lock — `POST /api/fields`, and a publish — each registering the list the
+read showed first, in the order it showed it (`reports.column_seed`).
 """
 from __future__ import annotations
 
@@ -199,7 +199,7 @@ def test_a_dataset_read_does_not_wait_for_a_writer(warehouse, path):
     assert took < 2.0, f"GET {path} waited {took:.2f}s for a lock it has no reason to take"
 
 
-# ---- 2 · the one write that registers ----------------------------------------
+# ---- 2 · his first change registers ------------------------------------------
 
 def test_the_first_change_keeps_the_order_the_chooser_showed(client, db_path):
     """The POST registers the list the GET showed, BEFORE changing one column.
@@ -390,6 +390,22 @@ def test_a_current_view_publish_registers_no_label_as_a_column(client, db_path):
 
     assert "Unit price" not in registered(db_path, SOURCE), (
         "his renamed label was registered as a column of its own")
+    assert registered(db_path, SOURCE) == expected_registration(db_path), (
+        "a publish after his first change did not register the rest of the export")
+
+
+def test_a_publish_after_his_first_change_registers_the_rest(client, db_path):
+    """The order he actually works in, and the state all 12 of his price sources
+    are in: some columns already registered. A publish that registered only an
+    EMPTY registry would leave every export-only column unhideable for good."""
+    first = client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    assert first.status_code == 200, first.text
+
+    publish(db_path)
+
+    then = client.post(f"/api/fields/{SOURCE}", json={"field_key": "country", "hidden": True})
+    assert then.status_code == 200, (
+        f"after a publish, an exported column still cannot be hidden: {then.text[:120]}")
 
 
 def test_the_sheet_send_registers_what_it_sent(db_path):
