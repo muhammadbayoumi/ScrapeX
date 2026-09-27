@@ -13,7 +13,14 @@ from typing import Protocol
 
 from .fields import ORIGINAL_SCHEMA, apply_schema, ensure_fields
 from .payload import utc_now_iso
-from .reports import export_details_table, export_history_table, export_source_table, source_summary
+from .reports import (
+    column_presence,
+    column_seed,
+    export_details_table,
+    export_history_table,
+    export_source_table,
+    source_summary,
+)
 
 
 class UnexportableCell(TypeError):
@@ -217,12 +224,21 @@ def workbook_tables(conn: sqlite3.Connection, source_key: str,
     # a site facet) in Choose-Columns, where he can hide or rename it — nothing
     # else registers those. It is a write, so it happens only for a caller that
     # commits it: `publish_source` and `apps_script_send`, which the engine runs
-    # under `_integration`'s write lock, and the CLI's `export` and `push`, which
-    # commit through `publish_source` themselves. `GET /export/{key}.xlsx` passes False and
+    # under `_integration`'s write lock. The CLI's `export` also reaches here
+    # through `publish_source`, and commits without that lock — a second writer
+    # older than this change (#1212). `GET /export/{key}.xlsx` passes False and
     # takes no lock — it used to register too, and behind any writer it waited
     # five seconds and answered 500 (#1192).
+    #
+    # THE SEED FIRST, THEN THE REST, and before `apply_schema` projects anything.
+    # Reads no longer register, so a publish may be the first write a source
+    # ever sees; registering the export header as written would give
+    # Choose-Columns the export's order instead of the agreed one it just
+    # showed. And registering after the projection would, under the current
+    # view, write his renamed LABELS as new field keys.
     if register:
-        ensure_fields(conn, source_key, header)
+        ensure_fields(conn, source_key,
+                      column_seed(column_presence(conn, source_key)) + header)
     header, rows = apply_schema(conn, source_key, header, rows, schema)
     name = tab or source_key
     tabs = [(name, header, rows)]

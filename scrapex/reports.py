@@ -808,6 +808,25 @@ def browse_columns() -> list[tuple[str, str]]:
 # agreed order, so the three surfaces cannot disagree by construction.
 COLUMN_RANK: dict[str, int] = {key: rank for rank, (key, _) in enumerate(browse_columns())}
 
+
+def column_seed(present, touching: str | None = None) -> list[str]:
+    """The columns a PRICE source's column list starts from, in registration order.
+
+    Every browse column the source publishes, in the order the owner agreed to
+    read them — plus the one column a write is touching, so hiding a column that
+    has just lost its data still works.
+
+    ONE ANSWER FOR EVERY SURFACE AND EVERY REGISTRAR. The Data page seeded from
+    `BROWSE_COLUMNS` as written, Choose-Columns from `browse_columns()`, the POST
+    from `BROWSE_COLUMNS` again, and a publish from the export header's order;
+    `ensure_fields` numbers by insertion, so whichever registered a source first
+    decided the order its chooser listed. Now the reads show this list without
+    writing it, and the two writes that register — `POST /api/fields` and a
+    publish (`publish.workbook_tables(register=True)`) — both register it first
+    (#1192). Lives here, beside `browse_columns`, because it is that order.
+    """
+    return [key for key, _ in browse_columns() if key in present or key == touching]
+
 # The bilingual pairs, declared ONCE (owner's standing rule: a site that
 # publishes both languages is captured in both). Everything downstream reads
 # this map — the presence gates, the payload keys and the grid's AR|EN

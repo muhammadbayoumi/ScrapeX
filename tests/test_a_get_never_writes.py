@@ -33,7 +33,7 @@ from scrapex import fields, outputs
 from scrapex.config import MANIFEST_FILE
 from scrapex.ingest import ingest_payloads
 from scrapex.publish import publish_source, workbook_tables
-from scrapex.reports import export_source_table
+from scrapex.reports import column_presence, column_seed, export_source_table
 from scrapex.webui.app import create_app
 from tests.test_ingest import make_entry, make_payload, one_row
 from tests.test_outputs import FakeFunnel, FakeSink
@@ -296,21 +296,42 @@ def test_on_an_arranged_source_the_table_lists_new_columns_as_the_chooser_does(
 
 # ---- 3 · a publish is a write, and registers what it exported ----------------
 
-def test_a_publish_registers_what_it_exported_so_he_can_hide_it(client, db_path):
+def expected_registration(db_path: Path) -> list[str]:
+    """What the first registration of a source must write, in order: the seed
+    Choose-Columns shows, then every other exported column."""
+    conn = dbmod.connect(db_path)
+    try:
+        seed = column_seed(column_presence(conn, SOURCE))
+        header, _ = export_source_table(conn, SOURCE)
+    finally:
+        conn.close()
+    return seed + [key for key in header if key not in seed]
+
+
+def publish(db_path: Path, schema: str = fields.ORIGINAL_SCHEMA) -> None:
+    conn = dbmod.connect(db_path)
+    try:
+        publish_source(conn, SOURCE, FakeSink(), "folder", "book", schema=schema)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("schema", [fields.ORIGINAL_SCHEMA, fields.CURRENT_VIEW])
+def test_a_publish_registers_what_it_exported_so_he_can_hide_it(client, db_path, schema):
     """Registering export-only columns is what puts them in Choose-Columns.
 
     The first version of this fix took registration out of `apply_schema` for
     every caller, the committing publish included, so no path registered a
     column that is not a browse column: the chooser never offered `country`, a
     hide answered 404, and the current-view export kept it. A publish holds the
-    write lock and commits, so it registers again; a download does not.
+    write lock and commits, so it registers again; a download does not. Both
+    schemas the panel's "Columns to export" setting offers are held to it.
     """
-    conn = dbmod.connect(db_path)
-    try:
-        publish_source(conn, SOURCE, FakeSink(), "folder", "book")
-        conn.commit()
-    finally:
-        conn.close()
+    publish(db_path, schema)
+
+    assert registered(db_path, SOURCE) == expected_registration(db_path), (
+        "a publish registered something other than the seed, then the rest of the export")
 
     offered = {f["field_key"] for f in client.get(f"/api/fields/{SOURCE}").json()["fields"]}
     assert "country" in offered, "an exported column is still not offered after a publish"
@@ -328,29 +349,75 @@ def test_a_publish_registers_what_it_exported_so_he_can_hide_it(client, db_path)
     assert "country" not in shown, "he hid the column and the current-view export kept it"
 
 
-def test_the_sheet_send_registers_what_it_sent(db_path):
+def test_a_publish_keeps_the_order_the_chooser_showed(client, db_path):
+    """Reads no longer register, so a publish may be the first write a source
+    sees. Registering the export header as written reordered 15 of 16 columns in
+    Choose-Columns (gate pass 2): the list must be the one he was just shown,
+    with the exported extras after it."""
+    before = [f["field_key"] for f in client.get(f"/api/fields/{SOURCE}").json()["fields"]]
+    publish(db_path)
+    after = [f["field_key"] for f in client.get(f"/api/fields/{SOURCE}").json()["fields"]]
+
+    assert after[:len(before)] == before, "a publish reordered the columns he was shown"
+
+
+def test_a_publish_does_not_move_an_arranged_table(client, db_path):
     conn = dbmod.connect(db_path)
     try:
-        outputs.apps_script_send(conn, SOURCE, client=FakeFunnel())
+        fields.ensure_fields(conn, SOURCE, ["price", "product_name"])
+        fields.reorder(conn, SOURCE, ["price", "product_name"])
         conn.commit()
     finally:
         conn.close()
-    assert "country" in registered(db_path, SOURCE), (
-        "the Apps Script send exported columns and registered none of them")
+
+    def table_order():
+        return [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]]
+
+    before = table_order()
+    publish(db_path)
+    assert table_order() == before, "a publish moved the columns of an arranged table"
+
+
+def test_a_current_view_publish_registers_no_label_as_a_column(client, db_path):
+    """Registration happens before the schema projects the header. After it, the
+    current view's header holds his LABELS — registering that would write
+    `Unit price` as a new field key, and registration only ever adds."""
+    response = client.post(f"/api/fields/{SOURCE}",
+                           json={"field_key": "price", "display_name": "Unit price"})
+    assert response.status_code == 200, response.text
+
+    publish(db_path, fields.CURRENT_VIEW)
+
+    assert "Unit price" not in registered(db_path, SOURCE), (
+        "his renamed label was registered as a column of its own")
+
+
+def test_the_sheet_send_registers_what_it_sent(db_path):
+    funnel = FakeFunnel()
+    conn = dbmod.connect(db_path)
+    try:
+        outputs.apps_script_send(conn, SOURCE, client=funnel)
+        conn.commit()
+    finally:
+        conn.close()
+    assert funnel.sent, "the send sent nothing"
+    assert registered(db_path, SOURCE) == expected_registration(db_path), (
+        "the Apps Script send registered something other than the seed, then the "
+        "rest of what it exported")
 
 
 def test_only_a_caller_that_commits_asks_the_workbook_to_register(db_path):
     """The flag is the whole difference between the download and the publish."""
     conn = dbmod.connect(db_path)
     try:
-        header, _ = export_source_table(conn, SOURCE)
         workbook_tables(conn, SOURCE)
         assert fields.list_fields(conn, SOURCE) == [], "a download registered columns"
 
         workbook_tables(conn, SOURCE, register=True)
-        assert [f["field_key"] for f in fields.list_fields(conn, SOURCE)] == header
+        written = [f["field_key"] for f in fields.list_fields(conn, SOURCE)]
     finally:
         conn.close()
+    assert written == expected_registration(db_path)
 
 
 # ---- 4 · the rule that lets a read answer as if it had written ---------------

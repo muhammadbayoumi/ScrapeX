@@ -173,9 +173,8 @@ def column_order(conn: sqlite3.Connection, source_key: str,
 
         # A COLUMN HE HAS NOT PLACED GOES WHERE REGISTERING IT WILL PUT IT:
         # after every column he has, in the agreed order — `_unregistered`'s
-        # rule, fed by the POST's agreed-order seed. The tie used to break on
-        # the key's spelling, and it used to sit at a fixed `ceiling` that a
-        # `reset_view` order (display_order = dataset_field_id) can exceed.
+        # rule, fed by `reports.column_seed`, which both registrars register
+        # first. The tie used to break on the key's spelling.
         # Since reads stopped registering (#1192), such a column stays
         # unregistered until his next save, so the grid listed it one way,
         # Choose-Columns another, and an unrelated rename moved the grid.

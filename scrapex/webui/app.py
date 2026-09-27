@@ -120,10 +120,10 @@ from ..reports import (
     FILTERABLE,
     SORTABLE,
     SourceSummary,
-    browse_columns,
     browse_google_finance_rates,
     browse_observations,
     column_presence,
+    column_seed,
     crawl_history,
     data_model_report,
     export_source_table,
@@ -372,23 +372,6 @@ def _source_domain(value: str | None) -> str:
     parsed = urlsplit(raw if "://" in raw else f"//{raw}")
     host = (parsed.hostname or "").strip(".")
     return host[4:] if host.lower().startswith("www.") else host
-
-
-def _column_seed(present, touching: str | None = None) -> list[str]:
-    """The columns a PRICE source's column list starts from.
-
-    Every browse column the source publishes, in the order the owner agreed to
-    read them — plus the one column a write is touching, so hiding a column that
-    has just lost its data still works.
-
-    ONE ANSWER FOR THREE CALLERS, and it used to be three. The Data page seeded
-    from `BROWSE_COLUMNS` as written, Choose-Columns from `browse_columns()` in
-    the agreed order, and the POST from `BROWSE_COLUMNS` again; `ensure_fields`
-    numbers by insertion, so whichever surface registered a source first decided
-    the order its chooser listed. Now the reads show this list without writing
-    it (#1192), and the POST registers exactly the list they showed.
-    """
-    return [key for key, _ in browse_columns() if key in present or key == touching]
 
 
 def _dataset_freshness(conn, dataset_id: int) -> dict | None:
@@ -1423,7 +1406,7 @@ def create_app(
                 # lock (#1192). The rows are written by the POST that arranges
                 # them; until then the page reads them as they would be.
                 present = column_presence(conn, source_key)
-                seed = _column_seed(present)
+                seed = column_seed(present)
                 fields, views = (fields_as_seeded(conn, source_key, seed),
                                  list_views(conn, source_key))
                 # The owner's arrangement wins; the per-source seed fills in
@@ -2726,9 +2709,9 @@ def create_app(
             #
             # AND NOW NOT REGISTERED AT ALL (#1192). Opening the chooser
             # committed these rows without the write lock; the POST that first
-            # changes a column registers the same `_column_seed`, in the same
+            # changes a column registers the same `column_seed`, in the same
             # agreed order, so the list he saw is the list that is written.
-            seed = _column_seed(column_presence(conn, source_key))
+            seed = column_seed(column_presence(conn, source_key))
             return {"source_key": source_key,
                     "fields": fields_as_seeded(conn, source_key, seed),
                     "views": list_views(conn, source_key),
@@ -2803,7 +2786,7 @@ def create_app(
             if dataset_keys is not None:
                 wanted = dataset_keys
             else:
-                wanted = _column_seed(column_presence(conn, source_key),
+                wanted = column_seed(column_presence(conn, source_key),
                                       touching=body.get("field_key"))
             ensure_fields(conn, source_key, wanted)
             if "reset" in body:
