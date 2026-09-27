@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.22"
+VERSION = "0.4.23"
 
 #: Whether ScrapeX has been published to anybody but its owner.
 #:

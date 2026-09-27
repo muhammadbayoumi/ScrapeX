@@ -2061,7 +2061,13 @@ def create_app(
                 # ADVERTISES and never what it IS. The compact form rides the timed
                 # poll; the module list is on /api/version with the ledger, for the
                 # reason stated there.
-                "build": provenance.summary()}
+                "build": provenance.summary(),
+                # WHICH SQLITE THIS PROCESS LOADED, and whether it carries the
+                # WAL-reset fix (#1207). The engine applies the rule and the
+                # panel only draws it, the split `/api/version` already makes.
+                # It needs no database, so it answers when the database cannot.
+                "sqlite": {"version": sqlite3.sqlite_version,
+                           "wal_reset_bug": dbmod.wal_reset_bug()}}
 
     @app.get("/api/version")
     def api_version(extension_version: str | None = None):

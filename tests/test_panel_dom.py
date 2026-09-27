@@ -5250,6 +5250,51 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     assert old.locator("#engine-build-verdict").is_visible() is False
 
 
+def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
+    """#1207: SQLite's WAL-reset bug, on the screen he reads.
+
+    On 2026-09-27 his engine ran SQLite 3.50.4 and the downloadable one 3.49.1, both
+    inside the range of a bug that can corrupt a WAL database, and nothing said so.
+    Driven through the real health payload, and the NEGATIVE matters as much: a fixed
+    build wears no badge, or the badge becomes furniture.
+    """
+    fixed = open_panel()
+    fixed.click("#tab-engines")
+    open_engine(fixed)
+    assert text_of(fixed, "#engine-sqlite-value") == "3.53.4"
+    assert fixed.locator("#engine-sqlite-verdict").is_visible() is False, (
+        "a fixed SQLite wore a badge")
+    assert text_of(fixed, "#engine-sqlite-detail") == ""
+
+    affected = open_panel(engine_sqlite={"version": "3.50.4", "wal_reset_bug": "affected"})
+    affected.click("#tab-engines")
+    open_engine(affected)
+    assert text_of(affected, "#engine-sqlite-value") == "3.50.4"
+    assert affected.locator("#engine-sqlite-verdict").is_visible() is True
+    assert text_of(affected, "#engine-sqlite-verdict") == "Affected"
+    assert affected.get_attribute("#engine-sqlite-verdict", "class") == "badge off", (
+        "the amber badge is the kit's one 'attend to this'")
+    assert "3.51.3" in text_of(affected, "#engine-sqlite-detail"), (
+        "the row must say which release fixes it")
+    # Two independent facts: an affected SQLite is not a stale build.
+    assert affected.locator("#engine-build-verdict").is_visible() is False
+
+    unknown = open_panel(engine_sqlite={"version": "3.52.0", "wal_reset_bug": "unknown"})
+    unknown.click("#tab-engines")
+    open_engine(unknown)
+    assert text_of(unknown, "#engine-sqlite-value") == "3.52.0"
+    assert unknown.locator("#engine-sqlite-verdict").is_visible() is False, (
+        "an unknown verdict was dressed as a known one")
+    assert "WAL-reset" in text_of(unknown, "#engine-sqlite-detail")
+
+    # An engine from before the field is not an engine in trouble.
+    old = open_panel(engine_sqlite=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-sqlite-value") == "Not reported"
+    assert old.locator("#engine-sqlite-verdict").is_visible() is False
+
+
 def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
     """OP-114. The value column resolved to 0px and the version printed VERTICALLY.
 
