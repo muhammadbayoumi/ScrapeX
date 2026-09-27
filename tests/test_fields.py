@@ -166,9 +166,16 @@ def test_original_schema_ignores_all_cosmetics(conn):
     assert header == COLUMNS and rows == [["a", "b", 1, "EGP"]]
 
 
-def test_apply_schema_registers_unseen_columns(conn):
-    apply_schema(conn, "FRESH", ["x", "y"], [[1, 2]], CURRENT_VIEW)
-    assert [f["field_key"] for f in list_fields(conn, "FRESH")] == ["x", "y"]
+def test_apply_schema_shows_unseen_columns_without_registering_them(conn):
+    """It used to register them first, and the Excel export reaches here through a
+    GET — so every export of a source with unregistered columns had to take the
+    write lock, and behind a writer it failed after five seconds (#1192). The
+    view must be the same as if they were registered, and nothing written."""
+    before = conn.total_changes
+    header, rows = apply_schema(conn, "FRESH", ["x", "y"], [[1, 2]], CURRENT_VIEW)
+    assert header == ["x", "y"] and rows == [[1, 2]]
+    assert list_fields(conn, "FRESH") == [], "a read registered columns"
+    assert conn.total_changes == before, "a read wrote to the warehouse"
 
 
 def test_hiding_every_column_yields_an_empty_view_not_all_of_them(conn):
@@ -176,10 +183,10 @@ def test_hiding_every_column_yields_an_empty_view_not_all_of_them(conn):
     "none registered", so hiding everything published the ENTIRE table."""
     for column in COLUMNS:
         set_visibility(conn, "SHOP", column, True)
-    assert visible_columns(conn, "SHOP", fallback=COLUMNS) == []
+    assert visible_columns(conn, "SHOP", seed=COLUMNS) == []
     header, rows = apply_schema(conn, "SHOP", COLUMNS, [["a", "b", 1, "EGP"]], CURRENT_VIEW)
     assert header == [] and rows == [[]]
 
 
 def test_unregistered_source_still_falls_back(conn):
-    assert visible_columns(conn, "NEVER_SEEN", fallback=COLUMNS) == COLUMNS
+    assert visible_columns(conn, "NEVER_SEEN", seed=COLUMNS) == COLUMNS

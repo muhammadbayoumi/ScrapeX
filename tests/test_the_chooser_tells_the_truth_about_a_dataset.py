@@ -38,7 +38,6 @@ from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.extract import service
 from scrapex.extract.models import ApprovalField, CandidateApproval, SnapshotCreate
 from scrapex.extract.muqawil import listing_candidate
-from scrapex.fields import set_display_name, set_visibility
 from scrapex.webui.app import create_app
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "muqawil"
@@ -101,21 +100,30 @@ def payload(registry, **kw):
         conn.close()
 
 
-def open_the_chooser(registry) -> dict:
-    """What the owner does before he can arrange anything.
+def arrange(registry, body: dict) -> dict:
+    """Open the chooser, then change one thing in it — through the two routes the
+    owner's panel uses, in that order.
 
-    NOT A SHORTCUT AROUND THE ENDPOINT, and the first version of this file was
-    wrong to skip it: `set_visibility` is an UPDATE, so with no `dataset_field`
+    NOT A SHORTCUT AROUND THE ENDPOINTS, and the first version of this file was
+    wrong to skip them: `set_visibility` is an UPDATE, so with no `dataset_field`
     row it matches nothing and silently succeeds. A column he was never offered
-    is a column he cannot hide, and the seeding is `GET /api/fields`'s job.
+    is a column he cannot hide.
+
+    THE POST IS WHAT REGISTERS THEM NOW. This helper used to open the chooser
+    first because the GET wrote the rows. Since #1192 a GET writes nothing, and
+    the POST that changes a column registers the list the GET showed — so both
+    routes are driven, exactly as the panel drives them, and a test that called
+    `set_visibility` after the GET would now be hiding a row that is not there.
     """
-    return TestClient(create_app(databases=registry)).get(
-        "/api/fields/contractors").json()
+    client = TestClient(create_app(databases=registry))
+    client.get("/api/fields/contractors")
+    response = client.post("/api/fields/contractors", json=body)
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
-def arrange(registry, fn):
-    """Open the chooser, then change one thing in it — in that order."""
-    open_the_chooser(registry)
+def on_disk(registry, fn):
+    """Put rows in the warehouse directly — for a state only an OLD engine made."""
     conn = registry.engine.connect()
     try:
         fn(conn)
@@ -159,7 +167,7 @@ def test_price_keys_already_on_disk_are_not_listed(warehouse):
     `COMPATIBILITY.md` puts that behind a review gate that is HIS — so the panel
     stops believing them instead, and nothing on disk is destroyed.
     """
-    arrange(warehouse, lambda conn: [
+    on_disk(warehouse, lambda conn: [
         conn.execute(
             "INSERT INTO dataset_field (source_key, field_key, original_name, "
             "display_order) VALUES ('contractors', ?, ?, ?)", (key, key, index))
@@ -195,8 +203,7 @@ def test_hiding_a_dataset_column_removes_it_from_the_table(warehouse):
     before = {column["key"] for column in payload(warehouse, cap=5)["columns"]}
     assert "membership_level" in before
 
-    arrange(warehouse, lambda conn: set_visibility(
-        conn, "contractors", "membership_level", True))
+    arrange(warehouse, {"field_key": "membership_level", "hidden": True})
 
     after = {column["key"] for column in payload(warehouse, cap=5)["columns"]}
     assert "membership_level" not in after, (
@@ -206,8 +213,7 @@ def test_hiding_a_dataset_column_removes_it_from_the_table(warehouse):
 
 def test_a_hidden_dataset_column_is_moved_and_not_lost(warehouse):
     """`R-45`: hide means MOVE IT TO THE CARD, which is what this list feeds."""
-    arrange(warehouse, lambda conn: set_visibility(
-        conn, "contractors", "membership_level", True))
+    arrange(warehouse, {"field_key": "membership_level", "hidden": True})
 
     moved = payload(warehouse, cap=5)["moved_to_details"]
 
@@ -217,10 +223,8 @@ def test_a_hidden_dataset_column_is_moved_and_not_lost(warehouse):
 
 def test_showing_it_again_moves_it_back(warehouse):
     """Reversible, because a presentation change is never destructive."""
-    arrange(warehouse, lambda conn: set_visibility(
-        conn, "contractors", "membership_level", True))
-    arrange(warehouse, lambda conn: set_visibility(
-        conn, "contractors", "membership_level", False))
+    arrange(warehouse, {"field_key": "membership_level", "hidden": True})
+    arrange(warehouse, {"field_key": "membership_level", "hidden": False})
 
     result = payload(warehouse, cap=5)
 
@@ -229,8 +233,7 @@ def test_showing_it_again_moves_it_back(warehouse):
 
 
 def test_a_renamed_dataset_column_carries_his_label(warehouse):
-    arrange(warehouse, lambda conn: set_display_name(
-        conn, "contractors", "company_name", "Contractor"))
+    arrange(warehouse, {"field_key": "company_name", "display_name": "Contractor"})
 
     labels = {c["key"]: c["label"] for c in payload(warehouse, cap=5)["columns"]}
 
@@ -257,8 +260,7 @@ def test_an_untouched_table_keeps_the_schemas_own_order(warehouse):
 
 def test_the_observed_columns_survive_an_arrangement(warehouse):
     """Ours, not the site's — they are appended after his columns and stay."""
-    arrange(warehouse, lambda conn: set_visibility(
-        conn, "contractors", "membership_level", True))
+    arrange(warehouse, {"field_key": "membership_level", "hidden": True})
 
     drawn = [c["key"] for c in payload(warehouse, cap=5)["columns"]]
 

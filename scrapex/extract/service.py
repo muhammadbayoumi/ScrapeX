@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from .. import catalog, runs, taxonomy
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
-from ..fields import arranged, list_fields
+from ..fields import arranged, fields_as_seeded
 from ..sightings import STATE_MEANING, row_state
 from ..snapshotbody import decode, encode
 from .html_table import TableCandidate, candidate_by_index, detect_html_tables
@@ -1271,7 +1271,14 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     # one-database product this is the same file. If some legacy split ever put
     # the presentation rows in the other file, this finds none and every column
     # stays visible — today's behaviour, not a corruption.
-    presentation = {row["field_key"]: row for row in list_fields(conn, dataset_key)}
+    #
+    # READ AS THE CHOOSER READS IT (#1192). A field the schema grew after he
+    # arranged the table has no row until his next save — reads stopped
+    # registering — so `list_fields` alone sorted it as order 0, at the top,
+    # while Choose-Columns listed it last, and an unrelated rename then moved
+    # the table. `fields_as_seeded` places it where registering will.
+    presentation = {row["field_key"]: row for row in fields_as_seeded(
+        conn, dataset_key, [row["field_key"] for row in fields])}
     site_columns = [
         {"key": row["field_key"],
          # His rename wins; otherwise the SITE's name, never the bare key —
