@@ -69,6 +69,7 @@ from ..fields import (
     arranged,
     delete_view,
     ensure_fields,
+    fields_as_seeded,
     list_fields,
     list_views,
     promotable_attributes,
@@ -371,6 +372,23 @@ def _source_domain(value: str | None) -> str:
     parsed = urlsplit(raw if "://" in raw else f"//{raw}")
     host = (parsed.hostname or "").strip(".")
     return host[4:] if host.lower().startswith("www.") else host
+
+
+def _column_seed(present, touching: str | None = None) -> list[str]:
+    """The columns a PRICE source's column list starts from.
+
+    Every browse column the source publishes, in the order the owner agreed to
+    read them — plus the one column a write is touching, so hiding a column that
+    has just lost its data still works.
+
+    ONE ANSWER FOR THREE CALLERS, and it used to be three. The Data page seeded
+    from `BROWSE_COLUMNS` as written, Choose-Columns from `browse_columns()` in
+    the agreed order, and the POST from `BROWSE_COLUMNS` again; `ensure_fields`
+    numbers by insertion, so whichever surface registered a source first decided
+    the order its chooser listed. Now the reads show this list without writing
+    it (#1192), and the POST registers exactly the list they showed.
+    """
+    return [key for key, _ in browse_columns() if key in present or key == touching]
 
 
 def _dataset_freshness(conn, dataset_id: int) -> dict | None:
@@ -1396,21 +1414,25 @@ def create_app(
                     sort=sort or None, direction=direction,
                     column_filters=column_filters,
                     offset=(page - 1) * per_page, limit=per_page)
-                # Register THIS SOURCE's columns — not a constant header shared by
-                # every site — so "manage columns" manages what the table shows,
-                # and a source with no variants is never given a Variant column.
+                # THIS SOURCE's columns — not a constant header shared by every
+                # site — so "manage columns" manages what the table shows, and a
+                # source with no variants is never given a Variant column.
+                #
+                # READ, NOT REGISTERED. This page used to `ensure_fields` and
+                # commit, so opening it wrote to the warehouse without the write
+                # lock (#1192). The rows are written by the POST that arranges
+                # them; until then the page reads them as they would be.
                 present = column_presence(conn, source_key)
-                seed = [key for key, _ in BROWSE_COLUMNS if key in present]
-                ensure_fields(conn, source_key, seed)
-                conn.commit()
-                fields, views = list_fields(conn, source_key), list_views(conn, source_key)
-                # The owner's arrangement wins; the per-source seed is the
-                # fallback for a source whose fields have never been registered.
-                shown = visible_columns(conn, source_key, fallback=seed)
+                seed = _column_seed(present)
+                fields, views = (fields_as_seeded(conn, source_key, seed),
+                                 list_views(conn, source_key))
+                # The owner's arrangement wins; the per-source seed fills in
+                # whatever has never been registered.
+                shown = visible_columns(conn, source_key, seed)
                 # A column registered once and no longer published is NOT the
                 # same as one the owner hid; conflating them sends them hunting
                 # for a control that was never there.
-                absent_columns = [f["field_key"] for f in list_fields(conn, source_key)
+                absent_columns = [f["field_key"] for f in fields
                                   if f["field_key"] not in present
                                   and f["field_key"] in dict(BROWSE_COLUMNS)]
                 labels = dict(BROWSE_COLUMNS)
@@ -2625,7 +2647,23 @@ def create_app(
 
     app.include_router(create_enrichment_router(general_read_conn, _general_write))
 
-    def _dataset_fields(source_key: str, schema_fields):
+    def _dataset_seed(source_key: str) -> list[str] | None:
+        """A DATASET's own field keys in its schema's order, or None for a price source.
+
+        The catalogue is asked FIRST, for the reason `/api/table` asks it first:
+        a dataset key is lower-case with underscores and a source key is
+        upper-case, so the two cannot collide, and the cheaper table costs
+        nothing when it misses. ONE answer for the chooser's read and for the
+        POST that registers what the chooser showed (#1192).
+        """
+        general = general_read_conn()
+        try:
+            resolved = extract_service.dataset_schema_fields(general, source_key)
+        finally:
+            general.close()
+        return None if resolved is None else [row["field_key"] for row in resolved[1]]
+
+    def _dataset_fields(source_key: str, keys: list[str]):
         """Choose-Columns for a DATASET: its own fields, and only its own.
 
         Two rules, and each answers a defect measured on 2026-08-22.
@@ -2642,14 +2680,13 @@ def create_app(
         is HIS, and old data is never rewritten just to make the model look
         clean. The rows stay on disk; the panel stops believing them.
         """
-        keys = [row["field_key"] for row in schema_fields]
         conn = read_conn()
         try:
-            ensure_fields(conn, source_key, keys)
-            conn.commit()
+            # READ, NOT REGISTERED (#1192): the POST registers these same keys,
+            # in this same order, when he first changes one.
             wanted = set(keys)
             return {"source_key": source_key,
-                    "fields": [field for field in list_fields(conn, source_key)
+                    "fields": [field for field in fields_as_seeded(conn, source_key, keys)
                                if field["field_key"] in wanted],
                     "views": list_views(conn, source_key),
                     "order_source": ("yours" if arranged(conn, source_key)
@@ -2675,13 +2712,9 @@ def create_app(
         # category_leaf, category_leaf_ar, price_changed_on, last_confirmed_on,
         # curation. Measured in the live warehouse 2026-08-22 — all eleven are
         # there, and not one of the directory's own 28 fields was.
-        general = general_read_conn()
-        try:
-            resolved = extract_service.dataset_schema_fields(general, source_key)
-        finally:
-            general.close()
-        if resolved is not None:
-            return _dataset_fields(source_key, resolved[1])
+        dataset_keys = _dataset_seed(source_key)
+        if dataset_keys is not None:
+            return _dataset_fields(source_key, dataset_keys)
 
         conn = read_conn()
         try:
@@ -2690,15 +2723,14 @@ def create_app(
             # header, so merely opening the panel registered columns the source
             # does not publish — and they then showed up in the manage list
             # forever, because ensure_fields is additive by design.
-            present = column_presence(conn, source_key)
-            # Seeded in the AGREED order, not the order the list happens to be
-            # written in: ensure_fields assigns display_order by insertion, so
-            # a source registered here would otherwise carry the unsorted order
-            # the moment its owner arranges anything.
-            ensure_fields(conn, source_key,
-                          [key for key, _ in browse_columns() if key in present])
-            conn.commit()
-            return {"source_key": source_key, "fields": list_fields(conn, source_key),
+            #
+            # AND NOW NOT REGISTERED AT ALL (#1192). Opening the chooser
+            # committed these rows without the write lock; the POST that first
+            # changes a column registers the same `_column_seed`, in the same
+            # agreed order, so the list he saw is the list that is written.
+            seed = _column_seed(column_presence(conn, source_key))
+            return {"source_key": source_key,
+                    "fields": fields_as_seeded(conn, source_key, seed),
                     "views": list_views(conn, source_key),
                     # Whose order this is. The panel says it out loud, because an
                     # owner who arranged his columns should never have to wonder
@@ -2745,22 +2777,34 @@ def create_app(
     def api_update_fields(source_key: str, body: dict):
         """Rename / hide / reorder / reset — all reversible, none destructive."""
         body = body or {}
+        # Asked before the write lock is taken: it reads the catalogue, and a
+        # read has no business inside the one writer's window.
+        dataset_keys = _dataset_seed(source_key)
         def apply(conn):
-            # The grid can name a column the side panel has never registered —
-            # the panel registers on open, the grid's menu does not need it open.
-            # Without this, hiding a column UPDATEd zero rows and returned 404,
-            # which the grid then reloaded straight past. Additive by design, so
-            # calling it here cannot disturb an existing view.
+            # THE ONLY PLACE A COLUMN IS REGISTERED NOW, under the write lock.
+            # Opening the page or the chooser no longer registers anything
+            # (#1192); they read `fields_as_seeded` instead. So this registers
+            # exactly the list they showed, in the order they showed it, before
+            # changing one column of it — otherwise the first column he hid
+            # would be written first and jump to the top of his list.
             #
-            # PRESENCE-GATED like the GET path, and for the same reason: seeding
-            # every BROWSE_COLUMNS key registered columns the source does not
-            # publish (Category L1-L4 on a flat-label shop), and they then sat
-            # in the manage list forever. The one key the caller is actually
-            # touching is included even when absent, so hiding a column that
+            # A DATASET REGISTERS ITS OWN SCHEMA. This used to take the price
+            # path for every key, and `column_presence` answers the eleven
+            # ungated price keys for a key it does not know — so hiding one
+            # contractor column also wrote `price`, `tax` and nine more against
+            # the directory.
+            #
+            # A PRICE SOURCE is presence-gated, like the reads, and for the same
+            # reason: seeding every BROWSE_COLUMNS key registered columns the
+            # source does not publish (Category L1-L4 on a flat-label shop), and
+            # they then sat in the manage list forever. The one key the caller
+            # is touching is included even when absent, so hiding a column that
             # just lost its data still works.
-            present = column_presence(conn, source_key)
-            wanted = [key for key, _ in BROWSE_COLUMNS
-                      if key in present or key == body.get("field_key")]
+            if dataset_keys is not None:
+                wanted = dataset_keys
+            else:
+                wanted = _column_seed(column_presence(conn, source_key),
+                                      touching=body.get("field_key"))
             ensure_fields(conn, source_key, wanted)
             if "reset" in body:
                 reset_view(conn, source_key)

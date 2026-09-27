@@ -17,6 +17,35 @@ import sqlite3
 ORIGINAL_SCHEMA = "original"      # every field, discovery order — the raw contract
 CURRENT_VIEW = "current"          # the owner's arrangement: visible only, their order
 
+# The type a field has before anything types it: the column's DEFAULT at
+# db/engine/schema.sql:133. `fields_as_seeded` has to say it for a row it has
+# not written, and `test_a_get_never_writes` holds the two equal.
+UNREGISTERED_TYPE = "text"
+
+
+def _unregistered(conn: sqlite3.Connection, source_key: str,
+                  columns: list[str]) -> list[tuple[str, int]]:
+    """The columns `ensure_fields` would add, each with the display_order it would get.
+
+    ONE RULE, TWO USES. `ensure_fields` writes these rows; `fields_as_seeded`
+    shows them without writing. If the two computed the next position
+    separately, a column list read before registration and the same list read
+    after it could disagree about where a new column sits.
+    """
+    known = {r["field_key"] for r in conn.execute(
+        "SELECT field_key FROM dataset_field WHERE source_key = ?", (source_key,))}
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(display_order), -1) + 1 FROM dataset_field WHERE source_key = ?",
+        (source_key,)).fetchone()[0]
+    added: list[tuple[str, int]] = []
+    for column in columns:
+        if column in known:
+            continue
+        added.append((column, next_order))
+        known.add(column)          # a duplicate within `columns` must not re-insert
+        next_order += 1
+    return added
+
 
 def ensure_fields(conn: sqlite3.Connection, source_key: str, columns: list[str]) -> None:
     """Register any column not seen before, preserving its original name+order.
@@ -24,24 +53,40 @@ def ensure_fields(conn: sqlite3.Connection, source_key: str, columns: list[str])
     Idempotent and additive: an existing field is left completely alone, so a
     connector that grows a column never disturbs the owner's arrangement of the
     ones already there.
+
+    A WRITE, so only a caller holding the write lock may make it. Reads use
+    `fields_as_seeded`, which answers the same question without writing (#1192).
     """
-    known = {r["field_key"] for r in conn.execute(
-        "SELECT field_key FROM dataset_field WHERE source_key = ?", (source_key,))}
-    next_order = conn.execute(
-        "SELECT COALESCE(MAX(display_order), -1) + 1 FROM dataset_field WHERE source_key = ?",
-        (source_key,)).fetchone()[0]
-    for column in columns:
-        if column in known:
-            continue
+    for column, order in _unregistered(conn, source_key, columns):
         # INSERT OR IGNORE, not a bare INSERT: two callers can race between the
-        # SELECT above and here, and losing that race must be a no-op rather than
-        # an IntegrityError on ux_dataset_field.
+        # SELECT in `_unregistered` and here, and losing that race must be a
+        # no-op rather than an IntegrityError on ux_dataset_field.
         conn.execute(
             "INSERT OR IGNORE INTO dataset_field "
             "(source_key, field_key, original_name, display_order) VALUES (?,?,?,?)",
-            (source_key, column, column, next_order))
-        known.add(column)          # a duplicate within `columns` must not re-insert
-        next_order += 1
+            (source_key, column, column, order))
+
+
+def fields_as_seeded(conn: sqlite3.Connection, source_key: str,
+                     columns: list[str]) -> list[dict]:
+    """What `list_fields` would return once `columns` were registered — without
+    registering them.
+
+    A READ MUST NOT WRITE, and three of them did (#1192). `GET /source/{key}`,
+    `GET /api/fields/{key}` and the Excel export each called `ensure_fields` so
+    that the column list they were about to read would include the columns the
+    source publishes. The first two committed it; the export rolled it back, but
+    still had to take the database's write lock to try — so it waited five
+    seconds behind any writer and then failed. GET is a safe method (RFC 9110
+    §9.2.1): the caller asks for no change. So a read gets the same list this
+    way, and the rows are written only by the write that needs them to exist
+    (`POST /api/fields`, under the write lock).
+    """
+    return list_fields(conn, source_key) + [
+        {"field_key": column, "original_name": column, "display_name": None,
+         "data_type": UNREGISTERED_TYPE, "is_hidden": False,
+         "display_order": order, "label": column}
+        for column, order in _unregistered(conn, source_key, columns)]
 
 
 def list_fields(conn: sqlite3.Connection, source_key: str) -> list[dict]:
@@ -55,19 +100,21 @@ def list_fields(conn: sqlite3.Connection, source_key: str) -> list[dict]:
 
 
 def visible_columns(conn: sqlite3.Connection, source_key: str,
-                    fallback: list[str] | None = None) -> list[str]:
+                    seed: list[str] | None = None) -> list[str]:
     """field_keys the current view shows, in the owner's order.
 
-    The fallback triggers on "no fields REGISTERED", not on "none visible".
-    Keying it off visibility meant that hiding every column made the current-view
-    export fall back to showing them ALL — the exact opposite of what was asked.
+    Every registered field he has not hidden, then each column of `seed` not
+    registered yet, where registering it would put it. That is exactly what the
+    callers used to get by calling `ensure_fields(seed)` first, which a read may
+    not do (#1192).
+
+    Visibility is read off `is_hidden`, never inferred from what is missing.
+    Keying a fallback off "none visible" meant that hiding every column made the
+    current-view export fall back to showing them ALL — the exact opposite of
+    what was asked. A column he hid stays hidden whatever the seed says.
     """
-    rows = conn.execute(
-        "SELECT field_key, is_hidden FROM dataset_field WHERE source_key = ? "
-        "ORDER BY display_order, dataset_field_id", (source_key,)).fetchall()
-    if not rows:
-        return fallback or []
-    return [r["field_key"] for r in rows if not r["is_hidden"]]
+    return [f["field_key"] for f in fields_as_seeded(conn, source_key, seed or [])
+            if not f["is_hidden"]]
 
 
 def hidden_columns(conn: sqlite3.Connection, source_key: str) -> set[str]:
@@ -219,13 +266,19 @@ def apply_schema(conn: sqlite3.Connection, source_key: str, header: list[str],
 
     ORIGINAL_SCHEMA returns the table untouched — the raw contract, so a
     downstream consumer is never surprised by the owner's cosmetic choices.
+
+    READS THE REGISTRY, NEVER WRITES IT. It used to `ensure_fields(header)`
+    first, and `GET /export/{key}.xlsx` reaches here: measured, 10 of his 12
+    price sources carried export columns nobody had registered, so every such
+    export had to take the write lock, and behind a writer it failed after five
+    seconds with a bare 500 (#1192).
     """
-    ensure_fields(conn, source_key, header)
     if schema == ORIGINAL_SCHEMA:
         return header, rows
 
     keep = [c for c in visible_columns(conn, source_key, header) if c in header]
-    labels = {f["field_key"]: f["label"] for f in list_fields(conn, source_key)}
+    labels = {f["field_key"]: f["label"]
+              for f in fields_as_seeded(conn, source_key, header)}
     index = [header.index(c) for c in keep]
     return [labels.get(c, c) for c in keep], [[row[i] for i in index] for row in rows]
 
