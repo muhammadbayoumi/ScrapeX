@@ -164,14 +164,27 @@ def column_order(conn: sqlite3.Connection, source_key: str,
     """
     from . import reports
 
+    ceiling = len(reports.COLUMN_RANK)
     if arranged(conn, source_key):
         stored = {row["field_key"]: row["display_order"]
                   for row in conn.execute(
                       "SELECT field_key, display_order FROM dataset_field "
                       "WHERE source_key = ?", (source_key,))}
-        ceiling = len(stored) + len(keys)
-        return sorted(keys, key=lambda key: (stored.get(key, ceiling), key))
-    ceiling = len(reports.COLUMN_RANK)
+
+        # A COLUMN HE HAS NOT PLACED GOES WHERE REGISTERING IT WILL PUT IT:
+        # after every column he has, in the agreed order — `_unregistered`'s
+        # rule, fed by the POST's agreed-order seed. The tie used to break on
+        # the key's spelling, and it used to sit at a fixed `ceiling` that a
+        # `reset_view` order (display_order = dataset_field_id) can exceed.
+        # Since reads stopped registering (#1192), such a column stays
+        # unregistered until his next save, so the grid listed it one way,
+        # Choose-Columns another, and an unrelated rename moved the grid.
+        def position(pair):
+            index, key = pair
+            if key in stored:
+                return (0, stored[key], key)     # his order; a tie as it always broke
+            return (1, reports.COLUMN_RANK.get(key, ceiling + index), index)
+        return [key for _, key in sorted(enumerate(keys), key=position)]
     return [key for _, key in sorted(
         enumerate(keys),
         key=lambda pair: reports.COLUMN_RANK.get(pair[1], ceiling + pair[0]))]

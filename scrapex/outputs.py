@@ -160,7 +160,7 @@ def excel_export(conn: sqlite3.Connection, source_keys: list[str], *,
             # but it moved the exception out of this catch, and widening it is
             # what keeps the behaviour that change would otherwise remove.
             failures.append(f"{key}: {exc}")
-    conn.commit()                          # apply_schema registers new columns
+    conn.commit()                          # publish_source registered the columns it exported
 
     ok = total > 0
     detail = (f"Wrote {total} rows into {len(source_keys) - len(failures)} tab(s)."
@@ -291,7 +291,7 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     from .publish import workbook_tables
 
     try:
-        tables = workbook_tables(conn, source_key)
+        tables = workbook_tables(conn, source_key, register=True)
     except UnexportableCell as exc:
         # ITS OWN SENTENCE, and THIS CLAUSE — ahead of the one below — is what
         # produces it. Reported through that one it would tell him to crawl and

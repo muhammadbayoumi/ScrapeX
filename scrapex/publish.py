@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import AbstractContextManager, nullcontext
 from typing import Protocol
 
-from .fields import ORIGINAL_SCHEMA, apply_schema
+from .fields import ORIGINAL_SCHEMA, apply_schema, ensure_fields
 from .payload import utc_now_iso
 from .reports import export_details_table, export_history_table, export_source_table, source_summary
 
@@ -73,7 +73,7 @@ def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
     update behaviour keeps each export beside the last instead of replacing it
     (spec 19) — the sink itself needs no knowledge of that choice.
     """
-    tabs = workbook_tables(conn, source_key, schema=schema, tab=tab)
+    tabs = workbook_tables(conn, source_key, schema=schema, tab=tab, register=True)
     handle = sink.ensure_workbook(folder, workbook)
     with _sink_batch(sink, handle):
         for name, header, rows in tabs:
@@ -168,6 +168,7 @@ def workbook_tables(conn: sqlite3.Connection, source_key: str,
                     schema: str = ORIGINAL_SCHEMA,
                     tab: str | None = None,
                     general: sqlite3.Connection | None = None,
+                    *, register: bool = False,
                     ) -> list[tuple[str, list[str], list[list]]]:
     """EVERY tab one source's export is made of: [(tab, header, rows), ...].
 
@@ -211,6 +212,17 @@ def workbook_tables(conn: sqlite3.Connection, source_key: str,
     header, rows = export_source_table(conn, source_key)
     if not rows:
         raise ValueError(f"nothing to publish for {source_key} — crawl + ingest it first")
+    # A PUBLISH REGISTERS WHAT IT EXPORTS; A DOWNLOAD DOES NOT. Registering is
+    # what puts an export-only column (country, price_basis, a promoted detail,
+    # a site facet) in Choose-Columns, where he can hide or rename it — nothing
+    # else registers those. It is a write, so it happens only for a caller that
+    # commits it: `publish_source` and `apps_script_send`, which the engine runs
+    # under `_integration`'s write lock, and the CLI's `export` and `push`, which
+    # commit through `publish_source` themselves. `GET /export/{key}.xlsx` passes False and
+    # takes no lock — it used to register too, and behind any writer it waited
+    # five seconds and answered 500 (#1192).
+    if register:
+        ensure_fields(conn, source_key, header)
     header, rows = apply_schema(conn, source_key, header, rows, schema)
     name = tab or source_key
     tabs = [(name, header, rows)]

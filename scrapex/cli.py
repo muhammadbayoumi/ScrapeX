@@ -807,7 +807,7 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     try:
         n, location = publish_source(conn, args.source, sink, args.folder, args.workbook,
                                      schema=getattr(args, "schema", "original"))
-        conn.commit()   # apply_schema registers any newly-seen columns
+        conn.commit()   # publish_source registered the columns it exported
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
