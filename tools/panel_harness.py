@@ -146,7 +146,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
-         worker_alive=True, engine_build=None, bundle=None) -> str:
+         worker_alive=True, engine_build=None, engine_sqlite=None, bundle=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -202,6 +202,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
              "detail": "running from source, and level with the code on disk."}
     if isinstance(engine_build, dict):
         build = engine_build
+    # `engine_sqlite` is the seventh, on the same three terms: None is a fixed
+    # SQLite, worded by the REAL rule so the panel is never tested against a
+    # verdict the engine would not give; `False` removes the key; a dict
+    # overrides it.
+    from scrapex.db import wal_reset_bug
+    sqlite = {"version": "3.53.4", "wal_reset_bug": wal_reset_bug((3, 53, 4))}
+    if isinstance(engine_sqlite, dict):
+        sqlite = engine_sqlite
     health = {"ok": True, "app": "scrapex", "version": engine_version,
               "worker_alive": worker_alive,
               "latest_extension_version": VERSION,
@@ -211,6 +219,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
               "sources_with_data": 2}
     if engine_build is not False:
         health["build"] = build
+    if engine_sqlite is not False:
+        health["sqlite"] = sqlite
     routes = {
         "/api/health": health,
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},

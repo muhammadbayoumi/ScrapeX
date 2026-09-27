@@ -50,6 +50,10 @@ export async function checkEngine({backend = null, signal = null,
       // and for the same reason: an engine too old to answer is not an engine
       // reporting a fault.
       build: h.build || null,
+      // WHICH SQLITE THE ENGINE LOADED, and the engine's verdict on its
+      // WAL-reset bug (#1207). `null` for an engine from before the field, as
+      // with `build`.
+      sqlite: h.sqlite || null,
       // THE BANNER THAT COULD NOT APPEAR. The engine has published
       // `schema_lag` on every health answer since the schema gate was
       // built (scrapex/webui/app.py), and app.js renders it in full —

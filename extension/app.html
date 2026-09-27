@@ -1669,6 +1669,20 @@
             </span>
             <span class="engine-spec-value tech" id="engine-build-value">—</span>
           </div>
+          <!-- UNDER BUILD, because it is the same question one layer down: which
+               SQLite this engine loaded, and whether it carries the fix for
+               SQLite's WAL-reset bug (#1207). The badge appears only when it is
+               affected. -->
+          <div class="engine-spec-row" id="engine-spec-sqlite">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label">
+                SQLite
+                <span class="badge hidden" id="engine-sqlite-verdict"></span>
+              </span>
+              <small id="engine-sqlite-detail"></small>
+            </span>
+            <span class="engine-spec-value tech" id="engine-sqlite-value">—</span>
+          </div>
           <div class="engine-spec-row" id="engine-spec-latest">
             <span class="engine-spec-note">
               <span class="engine-spec-label">

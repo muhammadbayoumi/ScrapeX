@@ -5250,6 +5250,70 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     assert old.locator("#engine-build-verdict").is_visible() is False
 
 
+def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
+    """#1207: SQLite's WAL-reset bug, on the screen he reads.
+
+    On 2026-09-27 his engine ran SQLite 3.50.4 and the downloadable one 3.49.1, both
+    inside the range of a bug that can corrupt a WAL database, and nothing said so.
+    Driven through the real health payload, and the NEGATIVE matters as much: a fixed
+    build wears no badge, or the badge becomes furniture.
+    """
+    fixed = open_panel()
+    fixed.click("#tab-engines")
+    open_engine(fixed)
+    assert text_of(fixed, "#engine-sqlite-value") == "3.53.4"
+    assert fixed.locator("#engine-sqlite-verdict").is_visible() is False, (
+        "a fixed SQLite wore a badge")
+    assert text_of(fixed, "#engine-sqlite-detail") == ""
+
+    from scrapex.db import wal_reset_bug
+    affected = open_panel(engine_sqlite={"version": "3.50.4",
+                                         "wal_reset_bug": wal_reset_bug((3, 50, 4))})
+    affected.click("#tab-engines")
+    open_engine(affected)
+    assert text_of(affected, "#engine-sqlite-value") == "3.50.4"
+    assert affected.locator("#engine-sqlite-verdict").is_visible() is True
+    assert text_of(affected, "#engine-sqlite-verdict") == "Affected"
+    assert affected.get_attribute("#engine-sqlite-verdict", "class") == "badge off", (
+        "the amber badge is the kit's one 'attend to this'")
+    assert "3.51.3" in text_of(affected, "#engine-sqlite-detail"), (
+        "the row must say which release fixes it")
+    # Two independent facts: an affected SQLite is not a stale build.
+    assert affected.locator("#engine-build-verdict").is_visible() is False
+
+    # A VERDICT THIS PANEL DOES NOT KNOW — a newer engine's — is neither dressed
+    # as a known one nor blamed on SQLite.
+    unknown = open_panel(engine_sqlite={"version": "3.60.0", "wal_reset_bug": "partly"})
+    unknown.click("#tab-engines")
+    open_engine(unknown)
+    assert text_of(unknown, "#engine-sqlite-value") == "3.60.0"
+    assert unknown.locator("#engine-sqlite-verdict").is_visible() is False, (
+        "an unrecognised verdict was dressed as a known one")
+    assert "does not recognise" in text_of(unknown, "#engine-sqlite-detail")
+
+    # An engine from before the field is not an engine in trouble.
+    old = open_panel(engine_sqlite=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-sqlite-value") == "Not reported"
+    assert old.locator("#engine-sqlite-verdict").is_visible() is False
+
+    # AN ENGINE THAT STOPS takes its facts with it: the row must not go on saying
+    # "3.50.4 Affected" beside "Installed version: Not detected". The Build row's
+    # identical line had no guard either, so it is held here too.
+    affected.evaluate("() => FAIL.push('/api/health')")
+    affected.click("#engine-recheck")
+    affected.wait_for_function(
+        "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
+    affected.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    assert text_of(affected, "#engine-sqlite-value") == "Not reported", (
+        "a stopped engine's SQLite verdict stayed on the screen")
+    assert affected.locator("#engine-sqlite-verdict").is_visible() is False
+    assert text_of(affected, "#engine-sqlite-detail") == ""
+    assert text_of(affected, "#engine-build-value") == "Not reported", (
+        "a stopped engine's build stayed on the screen")
+
+
 def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
     """OP-114. The value column resolved to 0px and the version printed VERTICALLY.
 
@@ -6244,6 +6308,22 @@ def test_the_engine_card_uses_outlined_cards(open_panel):
     assert second == "1px", f"rows are not divided from each other ({second})"
 
 
+#: What docs/MASTER-PLAN.md §8.3 records about a candidate backend, and all its
+#: screen may show of the engine card's rows.
+CANDIDATE_SPEC_ROWS = {"engine-spec-role", "engine-spec-shape", "engine-spec-licence"}
+
+
+def _all_spec_rows(page) -> set[str]:
+    return set(page.eval_on_selector_all(
+        "#view-engine-detail .engine-spec-row", "rows => rows.map(r => r.id)"))
+
+
+def _visible_spec_rows(page) -> set[str]:
+    rows = page.locator("#view-engine-detail .engine-spec-row")
+    return {rows.nth(i).get_attribute("id") for i in range(rows.count())
+            if rows.nth(i).is_visible()}
+
+
 def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_install(open_panel):
     """WHAT THE SECOND GROUP IS FOR, and the promise it must not make.
 
@@ -6267,6 +6347,14 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     note = text_of(page, ".engine-scope-note")
     assert "not commitments" in note and "None is installable yet" in note
 
+    # ScrapeX's own screen first, so every one of its rows has been painted
+    # before a candidate's screen is asked to hide them.
+    open_engine(page)
+    assert _visible_spec_rows(page) == _all_spec_rows(page) - {
+        "engine-spec-role", "engine-spec-shape"}
+    page.click("#engine-detail-back")
+    page.wait_for_selector("#view-engines:not(.hidden)")
+
     # Its own screen states the role and the licence, and offers NOTHING to press.
     open_engine(page, "firecrawl")
     assert text_of(page, "#engine-detail-title") == "Firecrawl"
@@ -6274,12 +6362,16 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     assert "AGPL-3.0" in text_of(page, "#engine-licence")
     assert "scraping" in text_of(page, "#engine-role").lower()
     for hidden in ("#engine-detail-actions", "#engine-action-list",
-                   "#engine-spec-installed", "#engine-spec-build",
-                   "#engine-spec-latest",
-                   "#engine-spec-protocol", "#engine-spec-power",
                    "#engine-install-steps"):
         assert not page.locator(hidden).is_visible(), (
             f"{hidden} is offered for a backend that cannot be installed")
+    # EVERY ROW BUT THE THREE §8.3 RECORDS, read from the page rather than listed
+    # here. This test once listed the rows to hide by hand, beside the same hand
+    # list in `renderEngineDetail`, and the SQLite row (#1207) reached all six
+    # candidates' screens — Affected badge and all — with both lists green.
+    assert _visible_spec_rows(page) == CANDIDATE_SPEC_ROWS, (
+        "a ScrapeX row is offered on a backend that cannot be installed: "
+        f"{sorted(_visible_spec_rows(page) - CANDIDATE_SPEC_ROWS)}")
 
     # A LIVE ENGINE'S STATE MUST NOT LEAK ONTO A CANDIDATE'S SCREEN. The health
     # answer arrives on its own schedule and every one of them writes the banner;
@@ -6287,6 +6379,8 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     page.evaluate("() => window.dispatchEvent(new Event('focus'))")
     page.wait_for_timeout(200)
     assert text_of(page, "#engine-state-text") == "Not installed"
+    assert _visible_spec_rows(page) == CANDIDATE_SPEC_ROWS, (
+        "a late health answer painted a ScrapeX row onto a candidate's screen")
 
     # AND NEITHER MAY THE RELEASE ANSWER, which arrives on a SECOND schedule of
     # its own. The install steps and the installer's checksum are ScrapeX-Engine's

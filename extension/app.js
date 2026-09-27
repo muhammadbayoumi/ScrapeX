@@ -118,6 +118,9 @@ const state = {
   // What the engine says it IS, as opposed to the number it advertises. `null`
   // means no engine has answered, or one answered that predates the field.
   engineBuild: null,
+  // The SQLite the engine loaded, and its verdict on the WAL-reset bug; `null`
+  // on the same two conditions.
+  engineSqlite: null,
   versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
@@ -662,6 +665,7 @@ function setStatus(engine) {
   // installed build — collapsing them at the door is how `null` becomes `false`
   // and an honest "cannot know" turns into a claim.
   state.engineBuild = engine.build || null;
+  state.engineSqlite = engine.sqlite || null;
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
   // exactly one place: the Diagnostics output, which only appears when someone
@@ -3879,6 +3883,26 @@ function engineBuildText(build) {
   return { value, verdict: "", detail: "" };
 }
 
+// WHICH SQLITE THE ENGINE LOADED, and whether it carries the fix for SQLite's
+// WAL-reset bug (#1207). The engine decides `wal_reset_bug` (`scrapex/db.py`,
+// `wal_reset_bug`); this only words it. An engine from before the field is "Not
+// reported", as on the Build row, and a fixed build wears no badge, so the badge
+// is read when it appears. A verdict this panel does not know — a newer engine's —
+// is said to be unrecognised, never guessed at.
+function engineSqliteText(sqlite) {
+  if (!sqlite || !sqlite.version) return { value: "Not reported", verdict: "", detail: "" };
+  const value = String(sqlite.version);
+  if (sqlite.wal_reset_bug === "affected") {
+    return { value, verdict: "Affected",
+             detail: "A rare SQLite bug can corrupt the database when two connections "
+                     + "write at the same moment. Fixed in SQLite 3.51.3." };
+  }
+  if (sqlite.wal_reset_bug === "fixed") return { value, verdict: "", detail: "" };
+  return { value, verdict: "",
+           detail: "This panel does not recognise the engine's answer about "
+                   + "SQLite's WAL-reset bug." };
+}
+
 // THE COMPATIBILITY PARAGRAPH IS GONE, not moved. It said the mismatch a second
 // time in a `.notice` class no loaded stylesheet defined, so it rendered as bare
 // text; the banner now carries `data-tone="danger"` and the Protocol row states
@@ -3901,6 +3925,14 @@ function renderEngineStatusUI() {
   // sweep (docs/LESSONS.md §5); amber already means "attend to this".
   buildBadge.className = build.verdict === "Restart needed" ? "badge off" : "badge";
   buildBadge.classList.toggle("hidden", !build.verdict);
+  const sqlite = engineSqliteText(state.engineSqlite);
+  $("engine-sqlite-value").textContent = sqlite.value;
+  $("engine-sqlite-detail").textContent = sqlite.detail;
+  const sqliteBadge = $("engine-sqlite-verdict");
+  sqliteBadge.textContent = sqlite.verdict;
+  // Amber, the one "attend to this" badge the kit has (see the Build badge above).
+  sqliteBadge.className = "badge off";
+  sqliteBadge.classList.toggle("hidden", !sqlite.verdict);
   // The version beside the name on the catalogue row: shown only when there IS
   // one, because an empty `.tech` chip beside a name reads as a missing value
   // rather than as an engine nobody has installed.
@@ -4607,7 +4639,7 @@ function renderEngineDetail(id) {
   $("engine-licence").textContent = engine.licence;
 
   for (const row of ["engine-spec-installed", "engine-spec-build",
-                     "engine-spec-latest",
+                     "engine-spec-sqlite", "engine-spec-latest",
                      "engine-spec-protocol", "engine-spec-power"]) {
     $(row).classList.toggle("hidden", !installed);
   }
