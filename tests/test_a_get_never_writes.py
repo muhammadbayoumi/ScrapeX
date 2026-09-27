@@ -18,6 +18,7 @@ read showed first, in the order it showed it (`reports.column_seed`).
 """
 from __future__ import annotations
 
+import dataclasses
 import shutil
 import sqlite3
 import time
@@ -31,6 +32,10 @@ from fastapi.testclient import TestClient
 from scrapex import db as dbmod
 from scrapex import fields, outputs
 from scrapex.config import MANIFEST_FILE
+from scrapex.databases import DatabaseRegistry, EngineDatabase
+from scrapex.extract import service
+from scrapex.extract.models import ApprovalField, CandidateApproval, SnapshotCreate
+from scrapex.extract.muqawil import listing_candidate
 from scrapex.ingest import ingest_payloads
 from scrapex.publish import publish_source, workbook_tables
 from scrapex.reports import column_presence, column_seed, export_source_table
@@ -40,6 +45,7 @@ from tests.test_outputs import FakeFunnel, FakeSink
 
 # The approved `contractors` dataset, built the way the product builds it.
 from tests.test_the_chooser_tells_the_truth_about_a_dataset import (
+    LISTING,
     PRICE_KEYS_FOUND_IN_THE_WILD,
     schema_keys,
     warehouse,
@@ -262,10 +268,10 @@ def test_on_an_arranged_source_the_table_lists_new_columns_as_the_chooser_does(
         client, db_path):
     """He arranged two columns; the source publishes more that were never placed.
 
-    Those columns stay unregistered until his next save now, so the table and
-    Choose-Columns must agree on where they go meanwhile — and a save that
-    changes nothing about order (a rename) must not move the table. The table's
-    arranged branch used to break the tie on the key's spelling.
+    Those columns stay unregistered until his next save or publish now, so the
+    table and Choose-Columns must agree on where they go meanwhile — and a save
+    that changes nothing about order (a rename) must not move the table. The
+    table's arranged branch used to break the tie on the key's spelling.
     """
     conn = dbmod.connect(db_path)
     try:
@@ -290,6 +296,76 @@ def test_on_an_arranged_source_the_table_lists_new_columns_as_the_chooser_does(
 
     response = client.post(f"/api/fields/{SOURCE}",
                            json={"field_key": "price", "display_name": "Unit price"})
+    assert response.status_code == 200, response.text
+    assert table_order() == table, "a rename moved the columns of the table"
+
+
+def test_on_an_arranged_dataset_the_table_lists_grown_fields_as_the_chooser_does(
+        tmp_path):
+    """The dataset twin: he arranged `contractors`, then its schema GREW (R-31).
+
+    The new fields have no row until his next save — a dataset publish does not
+    register — so the table read `list_fields` alone and sorted them as order 0,
+    at the top, while Choose-Columns listed them last; a rename then moved them.
+    `main` hid this because opening Choose-Columns registered them. TWO grow, so
+    the order among the unplaced ones is checked too, not only their place.
+    """
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    full = listing_candidate(LISTING)
+    grown = [f.field_key for f in full.fields[-2:]]
+    smaller = dataclasses.replace(
+        full, fields=full.fields[:-2],
+        rows=tuple({k: v for k, v in row.items() if k not in grown} for row in full.rows))
+
+    def approve(candidate, page):
+        conn = registry.engine.connect()
+        try:
+            snapshot = service.save_snapshot(conn, SnapshotCreate(
+                source_url=f"https://muqawil.org/en/contractors?page={page}",
+                html_content=LISTING))
+            service.approve_candidate(
+                conn, int(snapshot["page_snapshot_id"]),
+                CandidateApproval(
+                    table_index=0, site_key="muqawil_org", site_display_name="SCA",
+                    dataset_key="contractors", dataset_name="Contractors",
+                    fields=[ApprovalField(field_key=f.field_key, display_name=f.source_name,
+                                          data_type="text",
+                                          identity=(f.field_key == "contractor_id"))
+                            for f in candidate.fields]),
+                candidate=candidate)
+            conn.commit()
+        finally:
+            conn.close()
+
+    approve(smaller, 1)
+    client = TestClient(create_app(databases=registry))
+    shown = [f["field_key"] for f in client.get("/api/fields/contractors").json()["fields"]]
+    assert not set(grown) & set(shown)
+    arranged = client.post("/api/fields/contractors", json={"order": [shown[-1], *shown[:-1]]})
+    assert arranged.status_code == 200, arranged.text
+    approve(full, 2)
+    schema = set(shown) | set(grown)
+
+    def table_order():
+        return [c["key"] for c in client.get("/api/table/contractors").json()["columns"]
+                if c["key"] in schema]
+
+    chooser = [f["field_key"] for f in client.get("/api/fields/contractors").json()["fields"]
+               if not f["is_hidden"]]
+    assert chooser[-2:] == grown, (
+        f"Choose-Columns did not list the grown fields last, in schema order: {chooser}")
+    table = table_order()
+    assert table == chooser, (
+        "the table and Choose-Columns order the grown fields differently: "
+        f"table {[table.index(key) + 1 for key in grown]}, "
+        f"chooser {[chooser.index(key) + 1 for key in grown]}")
+    assert not set(grown) & set(registered(registry.engine.path, "contractors")), (
+        "the precondition is gone: a read registered a grown field")
+
+    response = client.post("/api/fields/contractors",
+                           json={"field_key": shown[0], "display_name": "Renamed"})
     assert response.status_code == 200, response.text
     assert table_order() == table, "a rename moved the columns of the table"
 

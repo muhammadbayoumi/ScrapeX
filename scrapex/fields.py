@@ -177,8 +177,9 @@ def column_order(conn: sqlite3.Connection, source_key: str,
         # rule, fed by `reports.column_seed`, which both registrars register
         # first. The tie used to break on the key's spelling.
         # Since reads stopped registering (#1192), such a column stays
-        # unregistered until his next save, so the grid listed it one way,
-        # Choose-Columns another, and an unrelated rename moved the grid.
+        # unregistered until his next save or publish, so the grid listed it
+        # one way, Choose-Columns another, and an unrelated rename moved the
+        # grid.
         def position(pair):
             index, key = pair
             if key in stored:
