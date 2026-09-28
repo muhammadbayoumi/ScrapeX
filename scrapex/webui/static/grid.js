@@ -22,6 +22,19 @@
   if (!mount || typeof Tabulator !== "function") return;
 
   const SOURCE = mount.dataset.source;
+  // THE HOST MAY NAME THE ENGINE AND LOAD THE TABLE ITSELF (#1198). The
+  // extension's Data page runs this same file from its own origin, where a
+  // root-relative path would ask the extension instead of the engine, and it
+  // fetches the table through its own guarded request path. The engine's own
+  // page names neither, so every path below stays root-relative there and the
+  // table is fetched exactly as it always was. Each field is checked on its
+  // own, so a partial host, or an element whose id clobbers the name, still
+  // gets today's behaviour.
+  const HOST = window.ScrapeXGridHost || {};
+  const BASE = typeof HOST.base === "string" ? HOST.base : "";
+  const loadTable = typeof HOST.loadTable === "function" ? HOST.loadTable
+    : (path) => fetch(BASE + path)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)));
   const text = (v) => (v === null || v === undefined) ? "" : String(v);
   // One numeric convention across the workspace: comma for thousands and dot
   // for decimals. Stored precision is preserved, never padded or rounded.
@@ -808,7 +821,7 @@
 
   function updateFields(body) {
     chooserSaveQueue = chooserSaveQueue.catch(() => {}).then(async () => {
-      const response = await fetch("/api/fields/" + encodeURIComponent(SOURCE), {
+      const response = await fetch(BASE + "/api/fields/" + encodeURIComponent(SOURCE), {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify(body),
       });
@@ -947,7 +960,7 @@
         box.addEventListener("change", () => {
           box.disabled = true;
           status.textContent = "Saving…";
-          fetch("/api/promotable/" + encodeURIComponent(SOURCE), {
+          fetch(BASE + "/api/promotable/" + encodeURIComponent(SOURCE), {
             method: "POST", headers: {"Content-Type": "application/json"},
             body: JSON.stringify({attribute_code: attribute.attribute_code,
                                   promote: box.checked}),
@@ -969,7 +982,7 @@
       }
     }
 
-    fetch("/api/promotable/" + encodeURIComponent(SOURCE))
+    fetch(BASE + "/api/promotable/" + encodeURIComponent(SOURCE))
       .then((response) => (response.ok ? response.json() : {attributes: []}))
       .then((body) => renderPromotable(body.attributes))
       .catch(() => { promoteZone.hidden = true; });
@@ -1202,7 +1215,7 @@
       render();
     });
 
-    fetch("/api/fields/" + encodeURIComponent(SOURCE))
+    fetch(BASE + "/api/fields/" + encodeURIComponent(SOURCE))
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("HTTP " + response.status)))
       .then((data) => {
         if (!document.body.contains(panel)) return;
@@ -1234,7 +1247,7 @@
       localStorage.removeItem("scrapex-treeby-" + SOURCE);
       localStorage.removeItem("tabulator-scrapex-grid-v2-" + SOURCE + "-columns");
     } catch (err) { /* nothing to clear */ }
-    fetch("/api/fields/" + encodeURIComponent(SOURCE), {
+    fetch(BASE + "/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({reset: true}),
     }).then(() => location.reload()).catch(() => location.reload());
@@ -1243,7 +1256,7 @@
   function remember(field, hidden) {
     // Hiding persists through the SAME endpoint the side panel uses, so the
     // choice survives a reload instead of living only in this tab.
-    return fetch("/api/fields/" + encodeURIComponent(SOURCE), {
+    return fetch(BASE + "/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({field_key: field, hidden: hidden}),
     }).catch(() => {});
@@ -2236,7 +2249,7 @@
     panel.textContent = "";
     panel.className = "record-panel is-loading";
     panel.appendChild(el("p", "muted", "Loading this record…"));
-    fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
+    fetch(BASE + "/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
       .then((data) => {
         if (openOfferId === offerId && openOfferMode === mode) {
@@ -2815,7 +2828,7 @@
     function fullRecordAction() {
       const footer = el("footer", "record-inspector-footer");
       const full = el("a", "record-action record-action-subtle", "Full record");
-      full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
+      full.href = BASE + "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
       footer.appendChild(full);
       return footer;
     }
@@ -3087,7 +3100,7 @@
     rowsData.forEach((row) => {
       const placeholder = productSummaryCard(row, null, () => {}, () => {});
       productGrid.appendChild(placeholder);
-      fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
+      fetch(BASE + "/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
         .then((response) => response.ok
           ? response.json()
           : Promise.reject(new Error("HTTP " + response.status)))
@@ -3135,7 +3148,7 @@
       // Tabulator's xlsx writer, which needs a SheetJS library that has never
       // been vendored here, so the button logged a console error and produced
       // no file at all, silently, for as long as it has existed.
-      else if (kind === "xlsx") window.location = "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
+      else if (kind === "xlsx") window.location = BASE + "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
     });
   }
 
@@ -3187,9 +3200,8 @@
   let foldChoice = null;
   try { foldChoice = localStorage.getItem("scrapex-fold-variants-" + SOURCE); }
   catch (err) { foldChoice = null; }
-  fetch("/api/table/" + encodeURIComponent(SOURCE)
+  loadTable("/api/table/" + encodeURIComponent(SOURCE)
         + (foldChoice === "on" ? "?fold=1" : foldChoice === "off" ? "?fold=0" : ""))
-    .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then((data) => {
       payload = data;
       // Before the empty-source return below. A source with no rows still has
