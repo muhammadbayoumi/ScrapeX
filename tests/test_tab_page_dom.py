@@ -323,3 +323,104 @@ def test_the_page_asks_for_the_source_it_was_opened_for(open_data):
     asked = page.evaluate("window.__ASKED__")
 
     assert any("/api/table/ALSWEED" in url for url in asked), asked
+
+
+# ---- the harness itself (#1198) ---------------------------------------------------------
+#
+# The Data page is about to run the engine's own grid, which loads stylesheets and
+# scripts this page does not load today. A harness that injected its own list would test
+# a page nobody ships, so it builds the page from data.html's tags and answers only the
+# engine. These hold it to that.
+
+def _linked_sheets() -> list[str]:
+    html = (harness.EXT / "data.html").read_text(encoding="utf-8")
+    return harness._SHEET.findall(html)
+
+
+def test_the_page_is_built_from_its_own_tags(open_data):
+    """If this fails, the harness is loading a list of its own again, and a Data page
+    that stopped linking a stylesheet (or appearance.js) would still pass every test."""
+    page = open_data()
+
+    loaded = page.evaluate("""() => [...document.styleSheets]
+        .map((sheet) => sheet.href).filter(Boolean)""")
+    expected = _linked_sheets()
+    assert expected, "data.html links no stylesheet; the check below would be vacuous"
+    assert len(loaded) == len(expected), (loaded, expected)
+    for relative in expected:
+        assert any(url.endswith("/" + relative) for url in loaded), (
+            f"data.html links {relative}, and the built page did not load it: {loaded}")
+    assert page.evaluate("() => document.documentElement.dataset.appearance"), (
+        "appearance.js, which data.html loads first, never ran")
+    assert page.evaluate(
+        "() => getComputedStyle(document.querySelector('.data-head')).display") == "flex", (
+        "data.css, which data.html links, did not reach the page")
+
+
+def test_the_stub_answers_only_the_engine(open_data):
+    """If this fails, a page that asked its own origin or the internet for data would be
+    handed the table anyway, and the defect would pass as a working page."""
+    page = open_data(fields={"fields": [{"field_key": "price"}]})
+    seen = page.evaluate("""async () => {
+        const out = {};
+        try { await fetch("https://example.com/api/table/X"); out.off = "answered"; }
+        catch (err) { out.off = String(err.message); }
+        try { await fetch("/api/table/X"); out.own = "answered"; }
+        catch (err) { out.own = String(err.message); }
+        out.unknown = (await fetch("http://127.0.0.1:8000/api/nothing/X")).status;
+        const fields = await fetch("http://127.0.0.1:8000/api/fields/X");
+        out.fields = [fields.status, await fields.json()];
+        return out;
+    }""")
+    assert seen["off"].startswith("the harness refuses a request that is not to the engine")
+    assert seen["own"].startswith("the harness refuses a request that is not to the engine")
+    assert seen["unknown"] == 404
+    assert seen["fields"] == [200, {"fields": [{"field_key": "price"}]}]
+
+
+def test_the_request_log_survives_a_reload(open_data):
+    """If this fails, a test that saves a column (after which the grid reloads the page)
+    could no longer read what was posted before the reload."""
+    page = open_data()
+    page.evaluate("""() => fetch("http://127.0.0.1:8000/api/fields/SAMEHGABRIEL",
+        {method: "POST", body: JSON.stringify({field_key: "price", hidden: true})})""")
+    page.reload()
+    page.wait_for_timeout(600)
+    posted = [r for r in page.evaluate("window.__REQUESTS__") if r["method"] == "POST"]
+    assert posted == [{"method": "POST",
+                       "url": "http://127.0.0.1:8000/api/fields/SAMEHGABRIEL",
+                       "body": '{"field_key":"price","hidden":true}'}], posted
+
+
+def _fake_extension(root: Path, *, data_js: str = "", extra_head: str = "") -> Path:
+    root.mkdir()
+    (root / "data.html").write_text(
+        "<!doctype html><html><head>" + extra_head + "</head><body>"
+        '<script type="module" src="data.js"></script></body></html>', encoding="utf-8")
+    for module in harness.DATA_PAGE_MODULES:
+        (root / module).write_text(data_js if module == "data.js" else "", encoding="utf-8")
+    return root
+
+
+def test_a_file_the_page_loads_that_does_not_exist_fails_the_build(tmp_path):
+    """If this fails, a page that names a file the extension does not carry would be
+    built without it, and render the way it renders when that file is lost."""
+    ext = _fake_extension(tmp_path / "ext",
+                          extra_head='<link rel="stylesheet" href="gone.css">')
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(FileNotFoundError, match=r"gone\.css"):
+        harness.build_data_page(out, "", ext=ext)
+
+
+def test_a_script_the_page_adds_to_itself_is_carried(tmp_path):
+    """If this fails, the grid.js that the Data page adds to itself at run time would be
+    missing from the built page, and the page would silently draw no table."""
+    ext = _fake_extension(tmp_path / "ext",
+                          data_js='const s = document.createElement("script");\n'
+                                  's.src = "grid.js";\n')
+    (ext / "grid.js").write_text("window.__carried = true;", encoding="utf-8")
+    out = tmp_path / "out"
+    out.mkdir()
+    harness.build_data_page(out, "", ext=ext)
+    assert (out / "grid.js").read_text(encoding="utf-8") == "window.__carried = true;"

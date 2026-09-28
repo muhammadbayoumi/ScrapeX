@@ -201,10 +201,11 @@ def test_the_page_list_is_read_from_the_directories() -> None:
 @pytest.mark.parametrize("page", _documents(), ids=lambda page: page.relative_to(ROOT).as_posix())
 def test_every_page_loads_the_design_system(page: Path) -> None:
     """Each page is its own document with no build step, so each can forget the design
-    system on its own (#711). The browser suites cannot see it happen: tools/panel_harness.py
-    and tools/tabpage_harness.py read the sheets off disk and inject them whatever the page
-    links, so a page that dropped one rendered unstyled while every browser test stayed
-    green.
+    system on its own (#711). Most browser suites cannot see it happen: tools/panel_harness.py
+    reads the sheets off disk and injects them whatever the page links, so a page that
+    dropped one rendered unstyled while every browser test stayed green. The Data page's
+    harness (tools/tabpage_harness.py) now builds the page from its own tags (#1198), so for
+    that one page the browser suite would see it too.
 
     The copies are the ones tools/sync_design_assets.py writes for this page's own surface;
     a URL that reaches the other surface's copy, or design/'s source, fetches nothing once

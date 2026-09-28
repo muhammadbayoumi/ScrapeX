@@ -54,7 +54,9 @@ def flatten(source: str) -> str:
 
 
 def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
-         status: int = 200, fail: str = "", taxonomy: dict | None = None) -> str:
+         status: int = 200, fail: str = "", taxonomy: dict | None = None,
+         fields: dict | None = None, promotable: dict | None = None,
+         offer: dict | None = None) -> str:
     """The two things a plain browser tab cannot have: chrome, and an engine.
 
     `fail` makes the engine unreachable the way a stopped engine is — a rejected
@@ -67,12 +69,32 @@ def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
     would find no groups, hide itself, and every guard for it would pass against a
     control that was never drawn. Left None, that is exactly what happens, which is
     the right answer for a price source: it has no vocabulary and gets no control.
+
+    IT ANSWERS ONLY THE ENGINE, BY ROUTE (#1198). The engine's grid asks for its
+    fields, the details it can promote and one record at a time as well, so each
+    route gets its own answer. Any other path on the engine gets a 404, and a
+    request that is not to the engine at all is refused — a page that asked the
+    extension's own origin, or the internet, for data must fail here, where it can
+    be seen, rather than be handed the table. `status` still applies to the table
+    and the taxonomy, the two answers the page's own error sentences are about.
+
+    EVERY REQUEST IS RECORDED — method, URL and body — in `window.__REQUESTS__`,
+    and kept in sessionStorage too, because the grid reloads the page after some
+    of its saves and a test must still be able to read what was asked before.
+    `window.__ASKED__` keeps the URLs alone, as the older tests read them.
     """
-    body = json.dumps(payload or {}, ensure_ascii=False)
-    tax = json.dumps(taxonomy if taxonomy is not None else {"groups": []},
-                     ensure_ascii=False)
+    answers = {
+        "/api/taxonomy/": taxonomy if taxonomy is not None else {"groups": []},
+        "/api/table/": payload or {},
+        "/api/fields/": fields if fields is not None else {"fields": []},
+        "/api/promotable/": promotable if promotable is not None else {"attributes": []},
+        "/api/offer/": offer if offer is not None else {},
+    }
     return f"""
 window.__ASKED__ = [];
+try {{
+  window.__REQUESTS__ = JSON.parse(sessionStorage.getItem("__harness_requests__") || "[]");
+}} catch (err) {{ window.__REQUESTS__ = []; }}
 window.chrome = {{
   storage: {{local: {{
     get: async () => ({{backend: {json.dumps(backend)}}}),
@@ -81,25 +103,47 @@ window.chrome = {{
   runtime: {{getURL: (path) => path}},
   tabs: {{create: () => {{}}}},
 }};
-window.fetch = async (input, options) => {{
-  const url = String(input && input.url ? input.url : input);
-  window.__ASKED__.push(url);
-  if ({json.dumps(bool(fail))}) throw new TypeError({json.dumps(fail or "failed to fetch")});
-  if (url.includes("/api/taxonomy/")) {{
-    return new Response({json.dumps(tax)}, {{
-      status: {status}, headers: {{"Content-Type": "application/json"}},
-    }});
-  }}
-  return new Response({json.dumps(body)}, {{
-    status: {status},
-    headers: {{"Content-Type": "application/json"}},
+(() => {{
+  const BACKEND = {json.dumps(backend.rstrip("/"))};
+  const ANSWERS = {json.dumps(answers, ensure_ascii=False)};
+  const STATUSED = ["/api/table/", "/api/taxonomy/"];
+  const json = (value, code) => new Response(JSON.stringify(value), {{
+    status: code, headers: {{"Content-Type": "application/json"}},
   }});
-}};
+  window.fetch = async (input, options) => {{
+    const url = String(input && input.url ? input.url : input);
+    const method = String((options && options.method) || (input && input.method) || "GET");
+    const body = options && typeof options.body === "string" ? options.body : null;
+    window.__ASKED__.push(url);
+    window.__REQUESTS__.push({{method, url, body}});
+    try {{
+      sessionStorage.setItem("__harness_requests__", JSON.stringify(window.__REQUESTS__));
+    }} catch (err) {{ /* a log that cannot persist still lives on window */ }}
+    if ({json.dumps(bool(fail))}) throw new TypeError({json.dumps(fail or "failed to fetch")});
+    if (!url.startsWith(BACKEND + "/")) {{
+      throw new TypeError("the harness refuses a request that is not to the engine: " + url);
+    }}
+    const path = url.slice(BACKEND.length).split("?")[0];
+    const route = Object.keys(ANSWERS).find((prefix) => path.startsWith(prefix));
+    if (!route) return json({{detail: "Not Found"}}, 404);
+    return json(ANSWERS[route], STATUSED.includes(route) ? {status} : 200);
+  }};
+}})();
 """
 
 
-def build_data_page(tmp: Path, stub_js: str, name: str = "data.html") -> Path:
-    """A single self-contained file that runs the real Data page.
+#: The stylesheets and scripts a page loads, read from its own tags. A page is
+#: static HTML, so its tags are the whole of what it loads, and a test that
+#: builds it from anything else is testing a page nobody ships.
+_SHEET = re.compile(r'<link\s+rel="stylesheet"\s+href="([^"]+)"\s*/?>')
+_SCRIPT = re.compile(r'<script\b([^>]*)\bsrc="([^"]+)"([^>]*)>\s*</script>')
+#: A script the page's own code adds to itself at run time: `x.src = "grid.js"`.
+_INJECTED = re.compile(r'\.src\s*=\s*["\']([\w./-]+\.js)["\']')
+
+
+def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
+                    ext: Path = EXT) -> Path:
+    """The real Data page, built from its own tags, beside the files it loads.
 
     WHICH SOURCE IT SHOWS IS NOT SET HERE. Open it with a query string —
     `page.goto(path.as_uri() + "?source=KEY")` — because a file:// URL carries
@@ -107,27 +151,42 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html") -> Path:
     shipped page reads. The first version of this redefined `window.location`
     instead; that property is not configurable, the assignment threw, and the
     page fell back to "no source" while looking like a harness fault.
+
+    WHAT IT LOADS IS WHAT data.html LOADS (#711, #1198). This used to read three
+    stylesheets and Tabulator off disk and inject them whatever the page linked,
+    and it never ran appearance.js — so a page that dropped a sheet rendered
+    unstyled with every browser test green. Now every `<link rel="stylesheet">`
+    and every classic `<script src>` in data.html is copied beside the built page,
+    keeping its relative path, and loads from there as it would in the extension;
+    so is any script the page's modules add to themselves (`x.src = "grid.js"`).
+    A file the page names that does not exist fails HERE, by name. Only two things
+    are changed: the stub goes first in <head>, and the one module tag is replaced
+    by the flattened modules, because file:// refuses a module's imports.
     """
-    html = (EXT / "data.html").read_text(encoding="utf-8")
-    body = html.split("<body>", 1)[1].split("<script", 1)[0]
+    html = (ext / "data.html").read_text(encoding="utf-8")
+    modules = [flatten((ext / m).read_text(encoding="utf-8")) for m in DATA_PAGE_MODULES]
 
-    css = "\n".join((EXT / sheet).read_text(encoding="utf-8") for sheet in
-                    ("tokens.css", "components.css", "data.css"))
-    grid_css = (EXT / "vendor" / "tabulator.min.css").read_text(encoding="utf-8")
-    grid_js = (EXT / "vendor" / "tabulator.min.js").read_text(encoding="utf-8")
-    modules = "\n".join(flatten((EXT / m).read_text(encoding="utf-8"))
-                        for m in DATA_PAGE_MODULES)
+    module_tag = '<script type="module" src="data.js"></script>'
+    assert html.count(module_tag) == 1, (
+        f"data.html no longer loads data.js as one module tag; this harness replaces "
+        f"exactly {module_tag!r} and must learn whatever took its place")
+    loads = _SHEET.findall(html)
+    loads += [src for before, src, after in _SCRIPT.findall(html)
+              if "module" not in before + after]
+    loads += [src for source in modules for src in _INJECTED.findall(source)]
+    for relative in dict.fromkeys(loads):
+        source = ext / relative
+        if not source.is_file():
+            raise FileNotFoundError(f"data.html loads {relative}, which is not in {ext}")
+        copy = tmp / relative
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes(source.read_bytes())
 
+    assert html.count("<head>") == 1, "data.html must have exactly one <head>"
+    html = html.replace("<head>", f"<head>\n<script>{stub_js}</script>", 1)
+    html = html.replace(module_tag, "<script>" + "\n".join(modules) + "</script>", 1)
     page = tmp / name
-    page.write_text(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-        f"<style>{grid_css}</style><style>{css}</style></head>"
-        f"<body>{body}"
-        f"<script>{stub_js}</script>\n"
-        f"<script>{grid_js}</script>\n"
-        f"<script>{modules}</script>"
-        "</body></html>",
-        encoding="utf-8")
+    page.write_text(html, encoding="utf-8")
     return page
 
 
