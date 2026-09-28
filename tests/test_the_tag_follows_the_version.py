@@ -178,17 +178,25 @@ def test_a_dry_run_publishes_nothing_and_a_release_still_publishes():
 
 
 def _run_the_newer_step(tmp_path: Path, event: str, dry_run: str,
-                        published: str) -> subprocess.CompletedProcess[str]:
+                        published: str, bash: str | None = None,
+                        ) -> subprocess.CompletedProcess[str]:
     """RUN, NOT READ: the step's own script, invoked the way GitHub runs `shell: bash`.
 
     `curl` answers with a manifest naming `published`, and `python` is the interpreter
     running this test. Every `${{ }}` in the script is rendered as GitHub renders it,
     and one this function does not know fails here rather than reaching bash verbatim.
+
+    THE STUBS ARE SHELL FUNCTIONS, NOT FILES ON `PATH`. They were files on `PATH`, and
+    the release job on the Windows runner runs its tests with Git's `bin\\bash.exe` —
+    a launcher that puts `/mingw64/bin` and `/usr/bin` in front of `PATH` — so the real
+    `curl` fetched the real manifest, every case read "published says 0.4.22", and the
+    engine-v0.4.23 release stopped at its own test step. A function is found before
+    `PATH` is searched, whichever bash runs the script.
     """
     import os
     import shutil
 
-    bash = shutil.which("bash")
+    bash = bash or shutil.which("bash")
     if not bash:
         pytest.skip("bash is not on PATH, so the step's script cannot be run")
 
@@ -204,23 +212,46 @@ def _run_the_newer_step(tmp_path: Path, event: str, dry_run: str,
     assert not unknown, f"the step now reads {sorted(unknown)}; render each one here"
     script = expression.sub(lambda m: rendered[m.group(1)], script)
 
-    stubs = tmp_path / "bin"
-    stubs.mkdir()
-    for name, body in {
-        "curl": f"cat <<'JSON'\n{{\"version\": \"{published}\"}}\nJSON\n",
-        "python": f'exec "{Path(sys.executable).as_posix()}" "$@"\n',
-    }.items():
-        (stubs / name).write_text(f"#!/usr/bin/env bash\n{body}",
-                                  encoding="utf-8", newline="\n")
-        (stubs / name).chmod(0o755)
+    stubs = (
+        f"curl() {{\ncat <<'JSON'\n{{\"version\": \"{published}\"}}\nJSON\n}}\n"
+        f'python() {{ "{Path(sys.executable).as_posix()}" "$@"; }}\n')
     step = tmp_path / "step.sh"
-    step.write_text(script, encoding="utf-8", newline="\n")
+    step.write_text(stubs + script, encoding="utf-8", newline="\n")
 
     return subprocess.run(
         [bash, "--noprofile", "--norc", "-eo", "pipefail", step.as_posix()],
         cwd=tmp_path, capture_output=True, text=True, timeout=120,
-        env={**os.environ, **release["env"], "ENGINE_VERSION": ENGINE,
-             "PATH": f"{stubs.as_posix()}{os.pathsep}{os.environ.get('PATH', '')}"})
+        env={**os.environ, **release["env"], "ENGINE_VERSION": ENGINE})
+
+
+def _github_bash_on_windows() -> str | None:
+    """`shell: bash` on a Windows runner: Git's `bin\\bash.exe`, the launcher."""
+    import shutil
+
+    git = shutil.which("git")
+    if sys.platform != "win32" or not git:
+        return None
+    # `git` resolves to <Git>\cmd, <Git>\bin or <Git>\mingw64\bin, depending on the
+    # shell the tests were started from; the root is the ancestor holding both bashes.
+    for root in Path(git).resolve().parents:
+        launcher = root / "bin" / "bash.exe"
+        if launcher.is_file() and (root / "usr" / "bin" / "bash.exe").is_file():
+            return str(launcher)
+    return None
+
+
+def test_the_stubs_win_under_the_bash_github_runs_on_windows(tmp_path):
+    """The engine-v0.4.23 release stopped at this file: under the launcher, stubs on
+    `PATH` lost to the real `curl`. CI runs on Linux, where that launcher does not
+    exist, so only a Windows run — the release job, or his machine — can hold this."""
+    bash = _github_bash_on_windows()
+    if bash is None:
+        pytest.skip("not Windows, or Git's bin\\bash.exe launcher is not installed")
+    proc = _run_the_newer_step(tmp_path, *TAG_PUSH, published="0.4.9", bash=bash)
+
+    assert "published says 0.4.9" in proc.stdout, (
+        f"under {bash} the step read something other than the stub: {proc.stdout!r}")
+    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
 
 
 @NOT_NEWER
