@@ -691,9 +691,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # and a visible token-based focus state.
     # design-system-44: the export split control gained a quieter hierarchy
     # and a structured, descriptive menu without changing export behaviour.
-    assert '/static/grid.js?v=design-system-45' in page
-    assert '/static/grid-theme.css?v=design-system-45' in page
-    assert '/static/grid-theme.css?v=design-system-45' in (
+    # design-system-46: a refresh the host asks for dims the grid until the
+    # newest rows are drawn, and the AR|EN choice survives every rebuild.
+    assert '/static/grid.js?v=design-system-46' in page
+    assert '/static/grid-theme.css?v=design-system-46' in page
+    assert '/static/grid-theme.css?v=design-system-46' in (
         TEMPLATES / "datasets.html").read_text(encoding="utf-8")
     # design-system-45: opening a card no longer rearranges the others — the
     # column count is unchanged on focus and nothing is pinned to a row.

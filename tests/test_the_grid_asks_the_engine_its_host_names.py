@@ -90,6 +90,9 @@ def open_grid(browser, tmp_path):
         page.navigations = []
         page.on("request", lambda r: page.navigations.append(r.url)
                 if r.is_navigation_request() else None)
+        # Before goto, so an error grid.js throws while it starts is on the record.
+        page.errors = []
+        page.on("pageerror", lambda error: page.errors.append(str(error)))
         page.goto(target.as_uri())
         if expect_rows:
             page.wait_for_function(
@@ -241,15 +244,19 @@ def test_a_loader_that_fails_is_said_on_the_page(open_grid):
 
 
 @pytest.mark.parametrize("host_js", [
-    "window.ScrapeXGridHost = {base: 42, loadTable: 'not a function'};",
+    "window.ScrapeXGridHost = {base: 42, loadTable: 'not a function',"
+    " connect: 'not a function'};",
     "window.ScrapeXGridHost = {};",
     # An element whose id is the name: `window.ScrapeXGridHost` is then that element.
     "document.body.insertAdjacentHTML('beforeend', '<div id=\"ScrapeXGridHost\"></div>');",
 ], ids=["wrong-types", "empty", "clobbered-by-an-element"])
 def test_a_host_that_names_nothing_usable_is_the_engines_page(open_grid, host_js):
+    """If this fails, a host whose `connect` is not a function breaks the page with an
+    uncaught TypeError as the grid starts: the string is called instead of ignored."""
     page = open_grid(host_js=host_js)
     paths = [request["path"] for request in page.evaluate("() => window.__requests")]
     assert paths == ["/api/table/TESTSRC"], paths
+    assert page.errors == []
 
 
 @pytest.mark.parametrize("sprite,href", [
