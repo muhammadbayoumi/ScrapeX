@@ -74,7 +74,7 @@ def test_every_generated_copy_says_it_is_one() -> None:
 
     # A filter that quietly matched nothing would make every assertion above
     # vacuous, and this file's own history is the argument for saying so.
-    assert checked >= 10, (
+    assert checked >= 15, (
         f"only {checked} generated copies were checked; the asset table or the "
         "suffix filter has changed and this test is no longer covering them")
 
