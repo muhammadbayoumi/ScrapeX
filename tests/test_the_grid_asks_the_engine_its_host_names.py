@@ -200,6 +200,31 @@ def test_a_host_loader_is_asked_for_the_table_and_its_answer_is_drawn(open_grid)
     assert not tables, f"the grid fetched the table itself as well: {tables}"
 
 
+def test_a_host_that_names_both_gets_its_loader_for_the_table_and_its_base_for_the_rest(
+        open_grid):
+    """The configuration the extension's Data page ships: data.js loads the table
+    through its own request path, and grid.js writes every other address to the
+    engine. The loader is handed the path WITHOUT the base — it adds the engine
+    itself — and the grid asks the engine for nothing it has already been given."""
+    page = open_grid(host_js=HOST_LOADER.replace(
+        "window.ScrapeXGridHost = {",
+        f"window.ScrapeXGridHost = {{\n  base: {json.dumps(ENGINE)},"))
+
+    assert page.evaluate("() => window.__loaded") == ["/api/table/TESTSRC"]
+    page.evaluate("""() => {
+        const table = Tabulator.findTable('#grid')[0];
+        table.selectRow(table.getRows()[0]);
+    }""")
+    page.wait_for_function(
+        "() => window.__requests.some(r => r.path.includes('/api/offer/'))")
+    paths = [r["path"] for r in page.evaluate("() => window.__requests")]
+    assert not [p for p in paths if "/api/table/" in p], (
+        f"the grid fetched the table itself as well: {paths}")
+    assert f"{ENGINE}/api/offer/TESTSRC/1" in paths, paths
+    strays = [p for p in paths if not p.startswith(f"{ENGINE}/api/")]
+    assert not strays, f"these still asked the page's own origin: {strays}"
+
+
 def test_the_loader_is_handed_the_readers_fold_choice(open_grid):
     page = open_grid(host_js="localStorage.setItem('scrapex-fold-variants-TESTSRC', 'on');"
                              + HOST_LOADER)
