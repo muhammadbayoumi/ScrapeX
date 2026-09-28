@@ -157,8 +157,10 @@ semantic token to the canonical file. Do not create a page-local colour system.
 - Accessibility: `.visually-hidden`, consistent `:focus-visible`, coarse
   pointer sizing, reduced-motion fallbacks, and forced-colour fallbacks.
 
-Tables use `static/table-theme.css`. Tabulator maps to the same table vocabulary
-through `static/grid-theme.css`; renderer-specific overrides stay there.
+Tables use `table-theme.css`. Tabulator maps to the same table vocabulary through
+`grid-theme.css`; renderer-specific overrides stay there. Both are authored in `design/`
+and served as generated copies from `scrapex/webui/static/` (#1198): edit the `design/`
+file and run `python tools/sync_design_assets.py`.
 
 ## Material icons
 
@@ -231,8 +233,12 @@ canonical sprite only when the repository contains no suitable symbol already.
 
 - Shared visual values and interaction states: `design/`.
 - Web application shell: `scrapex/webui/static/webui.css`.
-- One web page's layout: `scrapex/webui/static/pages/`.
-- Native and Tabulator tables: `table-theme.css` and `grid-theme.css`.
+- One web page's layout: `scrapex/webui/static/pages/`, except the Data page's, which is
+  `design/data-workspace.css` (served as `static/pages/data-workspace.css`).
+- Native and Tabulator tables: `design/table-theme.css` and `design/grid-theme.css`.
+- The Data page's grid: `design/grid.js` and `design/ui.js`. Every file in `design/` is
+  copied by `tools/sync_design_assets.py` to the surfaces its `ASSETS` entry names, and a
+  copy is never edited.
 - Extension panel and onboarding layout: `extension/app.css` and
   `extension/onboarding.css`.
 - Extension console and data pages: `extension/console.css` and
