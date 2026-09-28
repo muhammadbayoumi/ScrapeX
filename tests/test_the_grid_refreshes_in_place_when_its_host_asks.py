@@ -643,6 +643,45 @@ def test_the_language_choice_survives_a_rebuild(open_grid, rebuild):
         .getAttribute('aria-pressed')""") == "true"
 
 
+#: A bilingual answer whose English name he hid in Choose Columns: the pair is still
+#: declared (both producers gate `bilingual` on the columns the source HAS), but only its
+#: Arabic half is in `columns`.
+ENGLISH_HIDDEN = dict(A, columns=[c for c in copy.deepcopy(COLUMNS) if c["key"] != "product_name"])
+
+
+@pytest.mark.parametrize("rebuild", ["engine-page-feature-switch", "host-refresh"])
+def test_a_rebuild_keeps_his_sort_on_a_pair_whose_other_half_he_hid(open_grid, rebuild):
+    """If this fails, he hides the English name, sorts by the Arabic one, and the next
+    grouping, pin, feature switch or activity tick silently throws his sort away: the
+    AR|EN re-apply moved the sort to the English column, which is not in the table, and
+    Tabulator answers a sort on a missing column by clearing it."""
+    engine = rebuild == "engine-page-feature-switch"
+    page = open_grid(ENGLISH_HIDDEN, host_js="" if engine else DEFERRED)
+    if not engine:
+        _resolve(page, 0, ENGLISH_HIDDEN)
+    _quiet(page)
+    page.evaluate("() => Tabulator.findTable('#grid')[0].setSort('product_name_ar', 'desc')")
+    page.wait_for_timeout(150)
+    order = """() => Tabulator.findTable('#grid')[0].getRows('active')
+        .map((row) => row.getData().offer_id)"""
+    sorters = """() => Tabulator.findTable('#grid')[0].getSorters()
+        .map((s) => [s.field, s.dir])"""
+    assert page.evaluate(order) == [3, 2, 1]
+
+    if engine:
+        _rebuild(page, lambda: _flip(page, "stripe"))
+    else:
+        index = _refresh(page)
+        _resolve(page, 1, ENGLISH_HIDDEN)
+        assert _outcome(page, index)["ok"] == "drawn"
+        page.wait_for_timeout(150)
+
+    assert page.evaluate(sorters) == [["product_name_ar", "desc"]], (
+        "the rebuild cleared his sort")
+    assert page.evaluate(order) == [3, 2, 1]
+    assert page.errors == []
+
+
 # ---- an answer with no rows ---------------------------------------------------------------
 
 @pytest.mark.parametrize("case", [
@@ -774,6 +813,47 @@ def test_a_refresh_clears_a_dataset_tables_selection(open_grid):
         "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
 
 
+def test_a_narrowing_refresh_clears_a_dataset_selection_its_survivors_included(open_grid):
+    """If this fails, a tick keeps rows he had selected because they are still in the
+    narrowed answer, which his ruling on #1198 refused: a filter change clears the
+    selection, as Unified Logs does, and re-selecting would also steal focus."""
+    first = _dataset(1)
+    page = open_grid(first, host_js=DEFERRED)
+    _shown(page, first)
+    page.evaluate("""() => {
+        const table = Tabulator.findTable('#grid')[0];
+        table.selectRow([table.getRows()[0], table.getRows()[1]]);
+    }""")
+    narrowed = dict(first, rows=first["rows"][1:], total=2, returned=2)
+    index = _refresh(page)
+    _resolve(page, 1, narrowed)
+    assert _outcome(page, index)["ok"] == "drawn"
+    page.wait_for_timeout(200)
+    assert page.evaluate(
+        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+    assert page.evaluate(
+        "() => document.querySelectorAll('#grid .grid-footer-stat')[1].hidden") is True
+
+
+def test_a_narrowing_refresh_leaves_the_record_panel_closed(open_grid):
+    """If this fails, the record he opened stays open after a tick that kept its row,
+    describing a selection the table no longer holds."""
+    page = open_grid(A, host_js=DEFERRED)
+    _shown(page, A)
+    page.evaluate("""() => {
+        const table = Tabulator.findTable('#grid')[0];
+        table.selectRow(table.getRows()[1]);
+    }""")
+    page.wait_for_selector("#offer-panel:not([hidden])", timeout=WAIT)
+    index = _refresh(page)
+    _resolve(page, 1, _table(A["rows"][1:]))
+    assert _outcome(page, index)["ok"] == "drawn"
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => document.getElementById('offer-panel').hidden") is True
+    assert page.evaluate(
+        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+
+
 def test_a_refresh_dismisses_an_open_header_popup(open_grid):
     """If this fails, a Brand filter popup opened before the tick stays on screen over the
     new rows, offering the old rows' values."""
@@ -863,6 +943,52 @@ def test_the_newest_request_wins(open_grid, race):
     assert _uncaught(page) == []
 
 
+def test_a_first_load_that_fails_after_a_refresh_drew_paints_nothing(open_grid):
+    """If this fails, the extension aborts the first load when he ticks (its loader may),
+    the tick's rows are drawn, and then the aborted first load writes 'Could not load
+    the table: aborted' over a table that loaded."""
+    page = open_grid(A, host_js=DEFERRED)
+    page.wait_for_function("() => window.__asks.length === 1 && !!window.__grid",
+                           polling=50, timeout=WAIT)
+    index = _refresh(page)
+    _resolve(page, 1, B)
+    assert _outcome(page, index)["ok"] == "drawn"
+    _reject(page, 0, "new Error('aborted')")
+    page.wait_for_timeout(300)
+    assert _offers(page) == [4, 5]
+    assert _note(page) == {"hidden": False,
+                           "text": "Loaded 2 of 9; filters search only what is loaded"}
+    assert page.errors == []
+    assert _uncaught(page) == []
+
+
+def test_an_answer_overtaken_inside_a_build_gap_paints_nothing(open_grid):
+    """If this fails, an answer that arrived while the table was being rebuilt, and was
+    then overtaken by a newer tick, still builds its rows once the build finishes."""
+    page = open_grid(A, host_js=DEFERRED)
+    _shown(page, A)
+    page.wait_for_timeout(300)
+    seen = page.evaluate("""async (p) => {
+        const box = document.querySelector('[data-feature="stripe"]');
+        box.checked = !box.checked;
+        box.dispatchEvent(new Event('change', {bubbles: true}));
+        const first = window.__refresh();
+        window.__asks[1].resolve(p);
+        for (let k = 0; k < 30; k++) await Promise.resolve();
+        const pendingBuild = !window.__tables[window.__tables.length - 1].built;
+        const second = window.__refresh();
+        return {first, second, pendingBuild, builds: window.__builds};
+    }""", B)
+    assert seen["pendingBuild"] is True, "the race did not happen inside the build gap"
+    _quiet(page)
+    page.wait_for_timeout(300)
+    assert _outcome(page, seen["first"])["ok"] == "superseded"
+    assert page.evaluate("() => window.__builds") == 2, (
+        "the overtaken answer built a table of its own")
+    assert _offers(page) == [1, 2, 3]
+    assert page.errors == []
+
+
 @pytest.mark.parametrize("stored,path", [
     (None, "/api/table/TESTSRC"),
     ("on", "/api/table/TESTSRC?fold=1"),
@@ -902,10 +1028,21 @@ NOT_A_TABLE = "Could not load the table: the answer is not a table"
      NOT_A_TABLE),
     ("() => Promise.resolve(Object.assign({}, window.__payload,"
      " {columns: [{label: 'Price'}]}))", NOT_A_TABLE),
+    # Every row and every column is read, not the first of each (gate pass 1 on #1240).
+    ("() => Promise.resolve(Object.assign({}, window.__payload,"
+     " {rows: window.__payload.rows.concat([null])}))", NOT_A_TABLE),
+    ("() => Promise.resolve(Object.assign({}, window.__payload, {rows: [42]}))", NOT_A_TABLE),
+    ("() => Promise.resolve(Object.assign({}, window.__payload, {columns: 'x'}))", NOT_A_TABLE),
+    ("() => Promise.resolve(Object.assign({}, window.__payload,"
+     " {columns: window.__payload.columns.concat([{label: 'x'}])}))", NOT_A_TABLE),
+    ("() => Promise.resolve(Object.assign({}, window.__payload, {columns: [null]}))",
+     NOT_A_TABLE),
     ("() => Promise.reject('offline')", "Could not load the table: offline"),
     ("() => Promise.reject()", "Could not load the table: the loader gave no reason"),
 ], ids=["throws", "answers-a-number", "answers-the-table-itself", "resolves-nothing",
         "rows-not-a-list", "a-row-that-is-null", "a-column-with-no-key",
+        "a-null-row-after-good-ones", "a-row-that-is-a-number", "columns-not-a-list",
+        "a-keyless-column-after-good-ones", "a-column-that-is-null",
         "rejects-a-string", "rejects-with-no-reason"])
 def test_a_loader_that_cannot_answer_a_table_is_said_on_the_page(open_grid, loader, note):
     """If this fails, a host that breaks leaves him an empty page with no sentence, or a

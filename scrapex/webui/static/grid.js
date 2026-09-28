@@ -2004,13 +2004,20 @@
       // account for, and no visible column carries an arrow to explain it.
       // The counterpart column is the same fact in the other language, so the
       // sort moves there and the table keeps the order it was asked for.
+      //
+      // ONLY BETWEEN TWO COLUMNS THE TABLE HAS, as the visibility loop above
+      // asks. A pair whose other half he hid in Choose Columns has nothing to
+      // move to, and Tabulator answers a sort on a missing column by clearing
+      // the sort — which, once this ran on every rebuild (#1198), cleared his
+      // sort at every grouping, pin, feature switch and refresh.
       try {
         const [current] = table.getSorters();
         if (current && current.field) {
           const hiddenSide = (arabic, english) => code === "ar" ? english : arabic;
           const shownSide = (arabic, english) => code === "ar" ? arabic : english;
           const moved = pairs.find(([arabic, english]) =>
-            current.field === hiddenSide(arabic, english));
+            table.getColumn(arabic) && table.getColumn(english)
+            && current.field === hiddenSide(arabic, english));
           if (moved) table.setSort(shownSide(moved[0], moved[1]), current.dir);
         }
       } catch (err) { /* an unsorted table has nothing to move */ }
