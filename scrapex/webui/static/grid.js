@@ -30,11 +30,21 @@
   // table is fetched exactly as it always was. Each field is checked on its
   // own, so a partial host, or an element whose id clobbers the name, still
   // gets today's behaviour.
+  //
+  // THE CONTRACT. `loadTable(path)` is handed a root-relative path, the table
+  // route for this source, that may already carry ?fold=1 or ?fold=0 and never
+  // carries the base; it answers a promise of the table (a plain answer is
+  // accepted too). It is called for the first load, and again, synchronously,
+  // inside every refresh. `connect(grid)` is called once, after the first load
+  // has been asked for, with a frozen {refresh}: the one thing a host may ask
+  // of the grid, which the extension's activity filter uses. The engine's page
+  // names no connect, so no refresh exists there.
   const HOST = window.ScrapeXGridHost || {};
   const BASE = typeof HOST.base === "string" ? HOST.base : "";
   const loadTable = typeof HOST.loadTable === "function" ? HOST.loadTable
     : (path) => fetch(BASE + path)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)));
+  const connect = typeof HOST.connect === "function" ? HOST.connect : null;
   const text = (v) => (v === null || v === undefined) ? "" : String(v);
   // One numeric convention across the workspace: comma for thousands and dot
   // for decimals. Stored precision is preserved, never padded or rounded.
@@ -221,6 +231,10 @@
   const active = new Map();
   let table = null;
   let payload = null;
+  // Settles when the table on screen has been BUILT. new Tabulator() only
+  // queues its build on a timer, and destroying a table whose build is still
+  // queued leaves that instance to build itself into #grid anyway.
+  let tableReady = Promise.resolve();
   let viewportResizeTimer = null;
   let lastViewportWidth = 0;
   if (viewport && typeof ResizeObserver === "function") {
@@ -1842,8 +1856,12 @@
     mount.classList.toggle("wrap", !!features.wrap);
     mount.classList.toggle("striped", !!features.stripe);
 
-    table = new Tabulator(mount, options);
+    const built = new Tabulator(mount, options);
+    table = built;
     table.on("tableBuilt", () => {
+      // A table replaced before its queued build ran still builds, and still
+      // fires this. It must not act on the table that replaced it.
+      if (built !== table) return;
       guardHeaderButtons();
       wireLanguageToggle();
       applyFilters();
@@ -1853,7 +1871,10 @@
       // exists, so the last column is cut by exactly its width — 15px, enough
       // to add a horizontal scrollbar nobody asked for. One redraw once the
       // rows are in remeasures against the real client width.
-      requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
+      requestAnimationFrame(() => {
+        if (built !== table) return;
+        try { table.redraw(true); } catch (err) {}
+      });
     });
     // AFTER the stack unwinds. Tabulator dispatches dataFiltered from INSIDE
     // its filter routine, before the filtered rows become the active set, so
@@ -1893,6 +1914,9 @@
       nextSelectionPanelMode = null;
       openOfferPanel(chosen[0].offer_id, requestedMode, chosen[0]);
     });
+    // After the tableBuilt handler above, so whoever waits on this sees the
+    // filters, the note, the footer and the language already applied.
+    tableReady = new Promise((resolve) => built.on("tableBuilt", resolve));
   }
 
   // ---- AR | EN: which language the whole page is in -------------------------
@@ -1912,6 +1936,7 @@
   const LANG_KEY = "scrapex-name-lang-" + (mount.dataset.source || "");
   let nameLang = "en";
   try { nameLang = localStorage.getItem(LANG_KEY) || "en"; } catch (err) { nameLang = "en"; }
+  let applyNameLang = null;
 
   function wireLanguageToggle() {
     // The server declares which columns pair (reports.BILINGUAL_COLUMNS), so
@@ -1919,6 +1944,12 @@
     // field list of its own.
     const pairs = Object.entries(payload.bilingual || {});
     if (!pairs.length) return;
+    // build() writes the name columns with no `visible`, so every rebuild
+    // (grouping, a pin, a feature switch, auto-fit, a refresh) showed BOTH
+    // until the choice was applied again. save=false skips the write and the
+    // panel redraw. The pairs cannot change under a selection: both producers
+    // derive them from the source's columns, never from the rows it returns.
+    if (applyNameLang) { applyNameLang(nameLang, false); return; }
     if (document.getElementById("grid-lang-toggle")) return;
     const host = document.querySelector(".data-grid-commandbar");
     if (!host) return;
@@ -1990,6 +2021,7 @@
       // leaving it as it was would make the switch look half-connected.
       if (save) redrawOpenPanel();
     }
+    applyNameLang = apply;
     apply(nameLang, false);
   }
 
@@ -3164,7 +3196,11 @@
 
   function wireFeatures() {
     const panel = document.getElementById("grid-features");
-    if (!panel) return;
+    // Once, as wireColumnsButton is: every answer the grid draws calls each
+    // wirer, and a second set of listeners would build the table twice per
+    // toggle.
+    if (!panel || panel.dataset.wired) return;
+    panel.dataset.wired = "1";
     panel.querySelectorAll("[data-feature]").forEach((box) => {
       const name = box.dataset.feature;
       box.checked = !!features[name];
@@ -3200,27 +3236,107 @@
   let foldChoice = null;
   try { foldChoice = localStorage.getItem("scrapex-fold-variants-" + SOURCE); }
   catch (err) { foldChoice = null; }
-  loadTable("/api/table/" + encodeURIComponent(SOURCE)
-        + (foldChoice === "on" ? "?fold=1" : foldChoice === "off" ? "?fold=0" : ""))
-    .then((data) => {
+
+  // ---- loading, and loading again when the host asks -----------------------
+  //
+  // A REFRESH IS THE FIRST LOAD RUN AGAIN WITH A TABLE ON SCREEN (#1198). The
+  // answer replaces the module's payload WHOLE, because the tax column, the
+  // filter popups, the truncation note and nesting all read it; build() draws
+  // it, keeping the reader's sort, filters, pins, widths and grouping; and only
+  // the NEWEST ask paints. An ask that a newer one overtakes settles at once as
+  // superseded, so a slow answer can never put an older selection on screen.
+  const SUPERSEDED = Object.freeze({state: "superseded"});
+  const busyHost = viewport || mount;
+  let loadTicket = 0;
+  let supersede = null;
+
+  // The table on screen, once it is built. A build the reader starts while
+  // this waits (grouping, a pin) replaces the promise, so wait for that too.
+  function whenTableBuilt() {
+    const waiting = tableReady;
+    return waiting.then(() => (waiting === tableReady ? undefined : whenTableBuilt()));
+  }
+
+  function draw(data, current) {
+    return whenTableBuilt().then(() => {
+      if (!current()) return undefined;
+      // The rows an open record came from are going, and destroying a table
+      // dispatches no deselection that would close it. An open header popup
+      // needs nothing: Tabulator closes it when build() destroys the table.
+      if (table) closeOfferPanel();
       payload = data;
       // Before the empty-source return below. A source with no rows still has
       // columns to arrange, and a door that only appears once there is data is
       // not a door.
       wireColumnsButton();
-      if (!payload.rows.length) {
+      // "No records yet." is true only of the source itself: no table on
+      // screen, and an answer no selection narrowed. A selection that matches
+      // nothing is a built grid showing its own empty row, with every control
+      // still in reach.
+      const nodes = payload.filtered_by && payload.filtered_by.nodes;
+      const filtered = Array.isArray(nodes) && nodes.length > 0;
+      if (!payload.rows.length && !filtered && !table) {
         if (note) { note.hidden = false; note.textContent = "No records yet."; }
-        return;
+        return undefined;
       }
       build();
       wireExport();
       wireFeatures();
       wireFoldToggle();
-    })
-    .catch((err) => {
-      if (note) {
-        note.hidden = false;
-        note.textContent = "Could not load the table: " + err.message;
-      }
+      return whenTableBuilt();
     });
+  }
+
+  function load(refreshing) {
+    const ticket = ++loadTicket;
+    const current = () => ticket === loadTicket;
+    if (supersede) supersede();
+    return new Promise((settle) => {
+      supersede = () => settle(SUPERSEDED);
+      const finish = (outcome) => {
+        if (!current()) return;
+        supersede = null;
+        busyHost.removeAttribute("aria-busy");
+        settle(outcome);
+      };
+      // Inside a promise, so a loader that throws, or answers a plain value,
+      // reaches the same failure path as one that rejects (#1233).
+      new Promise((resolve) => resolve(loadTable("/api/table/" + encodeURIComponent(SOURCE)
+        + (foldChoice === "on" ? "?fold=1" : foldChoice === "off" ? "?fold=0" : ""))))
+        .then((data) => {
+          if (!current()) return undefined;
+          if (!data || !Array.isArray(data.rows) || !Array.isArray(data.columns)
+              || !data.rows.every((row) => row !== null && typeof row === "object")
+              || !data.columns.every((column) => column && typeof column.key === "string")) {
+            throw new Error("the answer is not a table");
+          }
+          return draw(data, current);
+        })
+        .then(() => finish(Object.freeze({state: "drawn", payload})), (reason) => {
+          if (!current()) return;
+          const error = reason instanceof Error ? reason
+            : new Error(reason === undefined ? "the loader gave no reason" : String(reason));
+          // A failed refresh keeps the rows on screen and tells only the host;
+          // the page says it only when there is no table to keep.
+          if (note && (!refreshing || !table)) {
+            note.hidden = false;
+            note.textContent = "Could not load the table: " + error.message;
+          }
+          finish(Object.freeze({state: "failed", error}));
+        });
+    });
+  }
+
+  // The one thing a host may ask of the grid (#1198). The previous rows stay on
+  // screen, marked busy and dimmed, until the newest answer is drawn.
+  function refresh() {
+    busyHost.setAttribute("aria-busy", "true");
+    return load(true).then((outcome) => {
+      if (outcome.state === "failed") throw outcome.error;
+      return outcome;
+    });
+  }
+
+  load(false);
+  if (connect) connect(Object.freeze({refresh}));
 })();

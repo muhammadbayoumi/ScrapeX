@@ -262,6 +262,46 @@ def test_an_unknown_mode_widens_rather_than_narrowing(warehouse):
     assert out["filtered_by"]["mode"] == "any"
 
 
+def test_a_selection_changes_the_rows_and_never_the_columns(warehouse):
+    """THE GRID READS ITS AR|EN PAIRS ONCE AND REDRAWS FROM EACH ANSWER'S COLUMNS (#1198).
+    A tick refreshes the grid in place, so an answer whose columns or pairs followed the
+    rows it happened to return would drop columns he arranged and break the language
+    switch. And a selection matching nothing must still SAY it was a selection: without
+    `filtered_by.nodes` the grid cannot tell it from an empty source, and he would read
+    'No records yet.' about a dataset of thousands."""
+    definition, version = _dataset(warehouse)
+    # A bilingual pair in the schema, so the equality of `bilingual` below is about
+    # something rather than {} == {}.
+    for order, key in ((2, "company_name"), (3, "company_name_ar")):
+        field = warehouse.execute(
+            "INSERT INTO field_definition (dataset_definition_id, field_key, "
+            "                              original_name, data_type) "
+            "VALUES (?, ?, ?, 'text') RETURNING field_definition_id",
+            (definition, key, key)).fetchone()[0]
+        warehouse.execute(
+            "INSERT INTO schema_version_field (schema_version_id, field_definition_id, "
+            "                                  field_order) VALUES (?, ?, ?)",
+            (version, field, order))
+    warehouse.commit()
+    nodes = _tree(warehouse)
+    held = _record(warehouse, definition, version, "6001")
+    _hold(warehouse, held, nodes["leaf"])
+
+    whole = _payload(warehouse)
+    narrowed = _payload(warehouse, nodes=[nodes["root"]])
+    nothing = _payload(warehouse, nodes=[nodes["other"]])
+
+    assert whole["bilingual"] == {"company_name_ar": "company_name"}, whole["bilingual"]
+    assert [len(answer["rows"]) for answer in (whole, narrowed, nothing)] == [1, 1, 0]
+    for answer in (narrowed, nothing):
+        assert answer["columns"] == whole["columns"], (
+            "a selection changed which columns the table has")
+        assert answer["bilingual"] == whole["bilingual"], (
+            "a selection changed which columns pair as AR|EN")
+    assert nothing["rows"] == []
+    assert nothing["filtered_by"]["nodes"] == [nodes["other"]], nothing["filtered_by"]
+
+
 def test_no_selection_leaves_the_payload_exactly_as_it_was(warehouse):
     """EVERY EXISTING READER OF `total` IS UNTOUCHED, which is why `population` is a new
     key rather than a redefinition of an old one."""
