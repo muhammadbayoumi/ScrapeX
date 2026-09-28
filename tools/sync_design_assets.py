@@ -89,6 +89,25 @@ ASSETS = {
         ROOT / "extension" / "icons" / "x-mark.LICENSE.txt",
         ROOT / "scrapex" / "webui" / "static" / "x-mark.LICENSE.txt",
     ),
+    # THE DATA PAGE'S GRID, authored here so the extension's Data page can run the
+    # engine's own grid rather than a second one (#1198). The engine's copies keep
+    # the paths its templates already load; the extension's are added with the page
+    # that loads them.
+    ROOT / "design" / "grid.js": (
+        ROOT / "scrapex" / "webui" / "static" / "grid.js",
+    ),
+    ROOT / "design" / "ui.js": (
+        ROOT / "scrapex" / "webui" / "static" / "ui.js",
+    ),
+    ROOT / "design" / "grid-theme.css": (
+        ROOT / "scrapex" / "webui" / "static" / "grid-theme.css",
+    ),
+    ROOT / "design" / "table-theme.css": (
+        ROOT / "scrapex" / "webui" / "static" / "table-theme.css",
+    ),
+    ROOT / "design" / "data-workspace.css": (
+        ROOT / "scrapex" / "webui" / "static" / "pages" / "data-workspace.css",
+    ),
 }
 
 
