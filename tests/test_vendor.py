@@ -1134,7 +1134,8 @@ def test_choose_columns_is_an_inline_searchable_reorderable_tool_panel():
     css = THEME.read_text(encoding="utf-8")
 
     assert "function openColumnChooser()" in script
-    assert 'fetch("/api/fields/"' in script
+    # BASE is the host's engine, "" on the engine's own page (#1198).
+    assert 'fetch(BASE + "/api/fields/"' in script
     assert 'search.type = "search"' in script
     assert "row.draggable = true" in script
     assert 'event.key !== "ArrowUp"' in script
@@ -1258,7 +1259,7 @@ def test_history_opens_inline_and_the_full_page_link_survives():
     assert 'id="offer-panel"' in page
     assert "openOfferPanel" in script and "/api/offer/" in script
     assert 'el("a", "record-action record-action-subtle", "Full record")' in script
-    assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
+    assert 'full.href = BASE + "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
 
 
 def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():

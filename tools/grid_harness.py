@@ -19,6 +19,7 @@ of markup, without a crawl, a migration, or a running server.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from pathlib import Path
@@ -82,14 +83,17 @@ def _host_dom(source_key: str) -> str:
 
 
 def _stub_fetch(payload: dict, fields: dict, promotable: dict, offer: dict) -> str:
-    """Answer the four endpoints the grid calls, and record every POST.
+    """Answer the four endpoints the grid calls, and record every request.
 
     POSTs are captured rather than applied: a test asserting that unticking a
     column SAVES it should assert on the request, not on a fake server's
-    imitation of the real one.
+    imitation of the real one. EVERY request is recorded too, method and URL as
+    the grid wrote it, because which engine a request goes to is the question a
+    host page asks (#1198).
     """
     return (
         "window.__posts = [];\n"
+        "window.__requests = [];\n"
         f"window.__payload = {json.dumps(payload)};\n"
         f"window.__fields = {json.dumps(fields)};\n"
         f"window.__promotable = {json.dumps(promotable)};\n"
@@ -105,6 +109,7 @@ window.fetch = function (url, options) {
   const method = (options && options.method) || "GET";
   const signature = method + " " + path;
   const body = options && options.body ? JSON.parse(options.body) : null;
+  window.__requests.push({method, path});
   if (method === "POST") window.__posts.push({path, body});
   for (const needle of Object.keys(window.__fetchFailures)) {
     if (signature.includes(needle) || path.includes(needle)) {
@@ -139,8 +144,15 @@ try {
 
 def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
                fields: dict | None = None, promotable: dict | None = None,
-               offer: dict | None = None, name: str = "grid.html") -> Path:
-    """Inline the grid's own CSS and JS into one file so file:// can load it."""
+               offer: dict | None = None, name: str = "grid.html",
+               host_js: str | None = None, icon_sprite: str | None = None) -> Path:
+    """Inline the grid's own CSS and JS into one file so file:// can load it.
+
+    `host_js` runs just before grid.js, where a host page such as the
+    extension's Data page sets `window.ScrapeXGridHost` (#1198); None is the
+    engine's own page, which sets nothing. `icon_sprite`, when not None, goes on
+    ui.js's tag as `data-icon-sprite`.
+    """
     vendor_css = (STATIC / "vendor" / "tabulator.min.css").read_text(encoding="utf-8")
     vendor_js = (STATIC / "vendor" / "tabulator.min.js").read_text(encoding="utf-8")
     tokens_css = (STATIC / "tokens.css").read_text(encoding="utf-8")
@@ -197,10 +209,13 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         f"<script>{timezone_js}</script>\n"
         f"<script>{stub}</script>\n"
         f"<script>{vendor_js}</script>\n"
-        f"<script>{ui_js}</script>\n"
+        + ("<script>" if icon_sprite is None
+           else f'<script data-icon-sprite="{html.escape(icon_sprite)}">')
+        + f"{ui_js}</script>\n"
         f"<script>{split_button_js}</script>\n"
+        + (f"<script>{host_js}</script>\n" if host_js is not None else "")
         # grid.js last: it runs its fetch immediately, so the stub above and the
         # library it constructs against must both already exist.
-        f"<script>{grid_js}</script>",
+        + f"<script>{grid_js}</script>",
         encoding="utf-8")
     return page
