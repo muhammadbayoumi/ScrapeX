@@ -460,19 +460,37 @@ def test_the_request_log_survives_a_reload(open_data):
 
 def test_nothing_but_a_fetch_leaves_the_page(open_data):
     """If this fails, a test that clicks Excel or a record's link, or draws a picture,
-    would send that request to whatever listens on the harness's engine address."""
-    page = open_data()
-    export = harness.BACKEND + "/export/SAMEHGABRIEL.xlsx"
-    picture = "https://example.com/picture.png"
-    page.evaluate("""(url) => {
-        const img = document.createElement("img");
-        img.src = url;
-        document.body.append(img);
-    }""", picture)
-    page.evaluate("(url) => { window.location = url; }", export)
-    page.wait_for_timeout(600)
-    assert export in page.fenced, page.fenced
+    would send that request to whatever listens on the harness's engine address.
+
+    The page aims at a listener this test opens, so what it proves is that the request
+    never arrived, not only that the fence saw it."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(4)
+    listener.settimeout(2)
+    target = f"http://127.0.0.1:{listener.getsockname()[1]}"
+    picture, export = target + "/picture.png", target + "/export/SAMEHGABRIEL.xlsx"
+    reached = False
+    try:
+        page = open_data()
+        page.evaluate("""(url) => {
+            const img = document.createElement("img");
+            img.src = url;
+            document.body.append(img);
+        }""", picture)
+        page.evaluate("(url) => { window.location = url; }", export)
+        try:
+            connection, _ = listener.accept()
+        except TimeoutError:
+            pass
+        else:
+            reached = True
+            connection.close()
+    finally:
+        listener.close()
+    assert not reached, "a request left the page and reached the listener"
     assert picture in page.fenced, page.fenced
+    assert export in page.fenced, page.fenced
 
 
 def test_nothing_listens_at_the_harness_engine_address():
