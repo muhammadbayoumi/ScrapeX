@@ -46,6 +46,12 @@ EXT = ROOT / "extension"
 DATA_PAGE_MODULES = ("startup.js", "transport.js", "engine.js", "backend.js",
                      "datatable.js", "taxonomyfilter.js", "data.js")
 
+#: The engine address the stub answers for: one nothing listens on (#1264). The stub
+#: replaces `window.fetch` only, so a navigation (Excel), a link (a record's Full record)
+#: or an image leaves the page by another path. It was the owner's own engine address
+#: until #1264, so such a request went to whatever he had running.
+BACKEND = "http://127.0.0.1:9"
+
 
 def flatten(source: str) -> str:
     """One module's code with its imports and `export` keywords removed."""
@@ -53,7 +59,7 @@ def flatten(source: str) -> str:
     return re.sub(r"\bexport\s+", "", source)
 
 
-def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
+def stub(payload: dict | None = None, *, backend: str = BACKEND,
          status: int = 200, fail: str = "", taxonomy: dict | None = None,
          fields: dict | None = None, promotable: dict | None = None,
          offer: dict | None = None) -> str:
@@ -70,7 +76,9 @@ def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
     control that was never drawn. Left None, that is exactly what happens, which is
     the right answer for a price source: it has no vocabulary and gets no control.
 
-    IT ANSWERS ONLY THE ENGINE, BY ROUTE (#1198). The engine's grid asks for its
+    IT ANSWERS ONLY THE ENGINE, BY ROUTE (#1198), AND ONLY `fetch`.
+    A navigation, a link or an image never reaches it; the tests' fixture aborts those
+    (#1264). The engine's grid asks for its
     fields, the details it can promote and one record at a time as well, so each
     route gets its own answer. Any other path on the engine gets a 404, and a
     request that is not to the engine at all is refused — a page that asked the
