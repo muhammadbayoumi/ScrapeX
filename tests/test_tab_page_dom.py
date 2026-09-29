@@ -19,6 +19,7 @@ browser, in extension/tests/datatable.test.mjs.
 from __future__ import annotations
 
 import inspect
+import re
 import socket
 import sys
 from pathlib import Path
@@ -389,6 +390,24 @@ def _table_asks(page) -> list[str]:
     return [url for url in page.evaluate("window.__ASKED__") if "/api/table/" in url]
 
 
+_TABLE_ASKS_JS = "window.__ASKED__.filter((url) => url.includes('/api/table/')).length"
+
+
+def _asks_within(page, action_js: str, ms: int) -> int:
+    """Table requests made within `ms` of `action_js`. Kept under the 250 ms settle pause,
+    it tells "at once" from "after the pause"."""
+    return page.evaluate(f"""async () => {{
+        const before = {_TABLE_ASKS_JS};
+        {action_js};
+        await new Promise((resolve) => setTimeout(resolve, {ms}));
+        return {_TABLE_ASKS_JS} - before;
+    }}""")
+
+
+_SET_ALL = ("const s = document.getElementById('data-activities-mode'); s.value = 'all';"
+            " s.dispatchEvent(new Event('change'))")
+
+
 def test_a_selection_in_the_address_is_the_first_table_asked(open_data):
     """If this fails, a reload the grid starts (after Columns, Reset columns or a fold
     change) would drop the activities he had ticked, because a reload keeps only the
@@ -473,11 +492,8 @@ def test_clear_asks_at_once_and_takes_the_selection_out_of_the_address(open_data
     """If this fails, Clear would wait out the tick pause, or leave a selection in the
     address that the next reload would put back."""
     page = open_data(taxonomy=TAXONOMY, query="&nodes=11&nodes_mode=any")
-    asked = len(_table_asks(page))
-    page.locator("#data-activities-clear").click()
 
-    page.wait_for_function(f"window.__ASKED__.filter((url) => url.includes('/api/table/')).length > {asked}",
-                           timeout=1_000)
+    assert _asks_within(page, "document.getElementById('data-activities-clear').click()", 100) == 1
     assert _table_asks(page)[-1].endswith("/api/table/SAMEHGABRIEL"), _table_asks(page)
     assert "nodes" not in page.evaluate("location.search")
     assert not page.locator("#data-activities-clear").is_visible()
@@ -520,6 +536,255 @@ def test_a_missing_piece_of_the_grid_is_named_on_the_page(open_data):
     assert said.startswith("The table cannot start: ScrapeXSplitButton did not load."), said
     assert not _table_asks(page), "a table was asked for a grid that cannot start"
     assert not page.locator("#grid-note").is_visible()
+
+def test_all_with_two_activities_asks_at_once_and_writes_the_address(open_data):
+    """If this fails, flipping Any to All would leave the rows matching ANY under a
+    label that says ALL, or wait out the tick pause for one decision."""
+    page = open_data(taxonomy=TAXONOMY, query="&nodes=1,11&nodes_mode=any")
+
+    assert _asks_within(page, _SET_ALL, 100) == 1
+    assert _table_asks(page)[-1].endswith("?nodes=1,11&nodes_mode=all"), _table_asks(page)
+    assert "nodes_mode=all" in page.evaluate("location.search")
+
+
+def test_all_with_one_activity_writes_the_address_and_asks_nothing(open_data):
+    """If this fails, flipping Any/All over one activity, the same question either way,
+    would spend a table request on an identical answer."""
+    page = open_data(taxonomy=TAXONOMY, query="&nodes=11&nodes_mode=any")
+
+    assert _asks_within(page, _SET_ALL, 500) == 0
+    assert "nodes_mode=all" in page.evaluate("location.search")
+
+
+def test_a_selection_in_the_address_says_what_it_left(open_data):
+    """If this fails, every reload the grid starts (Columns, Reset columns, fold) would
+    land on a narrowed table with nothing saying by how much."""
+    narrowed = {**DATASET_PAYLOAD, "population": 17811,
+                "filtered_by": {"nodes": [11], "mode": "any"}}
+    page = open_data(narrowed, source="contractors", taxonomy=TAXONOMY,
+                     query="&nodes=11&nodes_mode=any")
+
+    assert page.locator("#data-summary").inner_text() == (
+        "2 of 17,811 rows · 1 activity chosen, matching any of them")
+
+
+def test_opening_the_page_asks_for_one_table(open_data):
+    """If this fails, every first open costs two table requests: connect() asked for a
+    refresh that the first load already made. On contractors each is seconds."""
+    page = open_data()
+    page.wait_for_timeout(500)
+
+    assert len(_table_asks(page)) == 1, _table_asks(page)
+
+
+#: Every table request after the first answers 400 ms late.
+_SLOW_AFTER_FIRST = """(() => {
+  const inner = window.fetch;
+  let tables = 0;
+  window.fetch = async (input, options) => {
+    const url = String(input && input.url ? input.url : input);
+    if (url.includes('/api/table/') && ++tables > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    return inner(input, options);
+  };
+})();"""
+
+
+def test_a_superseded_refresh_says_nothing(open_data):
+    """If this fails, an ask a newer one overtook blanks the status line while the newer
+    one is still on its way."""
+    page = open_data(before=_SLOW_AFTER_FIRST)
+    said = page.evaluate("""async () => {
+        const reload = document.getElementById('data-reload');
+        reload.click();
+        reload.click();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return document.getElementById('data-summary').textContent;
+    }""")
+
+    assert said == "Asking the engine again…", said
+
+
+#: The first table (the address's selection) answers a second late, and narrowed; Clear,
+#: pressed meanwhile, is answered at once and unnarrowed.
+_OVERTAKEN_FIRST = """(() => {
+  const inner = window.fetch;
+  let tables = 0;
+  window.fetch = async (input, options) => {
+    const url = String(input && input.url ? input.url : input);
+    if (!url.includes('/api/table/')) return inner(input, options);
+    if (++tables === 1) {
+      setTimeout(() => document.getElementById('data-activities-clear').click(), 50);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return inner(input, options);
+    }
+    const reply = await inner(input, options);
+    const body = await reply.json();
+    delete body.filtered_by;
+    return new Response(JSON.stringify(body), {status: 200,
+      headers: {'Content-Type': 'application/json'}});
+  };
+})();"""
+
+
+def test_a_first_table_a_refresh_overtook_does_not_write_the_line(open_data):
+    """If this fails, a slow first answer lands after Clear's and writes a narrowed
+    count over a table that is no longer narrowed, and it stays there."""
+    narrowed = {**DATASET_PAYLOAD, "population": 17811,
+                "filtered_by": {"nodes": [11], "mode": "any"}}
+    page = open_data(narrowed, source="contractors", taxonomy=TAXONOMY,
+                     query="&nodes=11&nodes_mode=any", before=_OVERTAKEN_FIRST)
+    page.wait_for_timeout(1500)
+
+    assert len(_table_asks(page)) == 2, _table_asks(page)
+    assert page.locator("#data-summary").inner_text() == "", (
+        page.locator("#data-summary").inner_text())
+
+
+def test_a_refresh_with_no_table_on_screen_claims_no_rows(open_data):
+    """If this fails, a Reload over a failed first load says "The rows below are the last
+    answer drawn" over no rows, and the fault is stated twice."""
+    page = open_data(fail="Failed to fetch")
+    page.locator("#data-reload").click()
+    page.wait_for_function(
+        "!document.querySelector('[data-grid-viewport]').hasAttribute('aria-busy')", timeout=5_000)
+
+    assert page.locator(".tabulator-row").count() == 0
+    assert page.locator("#data-summary").inner_text() == "", (
+        page.locator("#data-summary").inner_text())
+    assert page.locator("#grid-note").inner_text().startswith("Could not load the table: ")
+
+
+def test_a_selection_whose_list_cannot_be_read_can_still_be_cleared(open_data):
+    """If this fails, an address's selection narrows the table while the activity list
+    fails to load, and the page has no control to take it off and says nothing."""
+    page = open_data(taxonomy=TAXONOMY, query="&nodes=11&nodes_mode=any",
+                     fail_when="/api/taxonomy/")
+
+    assert page.locator("#data-activities").is_visible()
+    assert page.locator("#data-activities-clear").is_visible()
+    assert not page.locator("#data-activities-toggle").is_visible()
+    said = page.locator("#data-undeclared").inner_text()
+    assert "could not be read" in said and "1 chosen" in said, said
+    assert _asks_within(page, "document.getElementById('data-activities-clear').click()", 100) == 1
+    assert _table_asks(page)[-1].endswith("/api/table/SAMEHGABRIEL"), _table_asks(page)
+
+
+#: grid.js's script tag, pointed at a file the page does not carry.
+_LOSE_GRID = r"""(() => {
+  const append = Element.prototype.append;
+  Element.prototype.append = function (...nodes) {
+    for (const node of nodes) {
+      if (node instanceof HTMLScriptElement && /\/grid\.js$/.test(node.src)) node.src = 'no-such-grid.js';
+    }
+    return append.apply(this, nodes);
+  };
+})();"""
+
+
+def test_a_grid_script_that_does_not_load_is_named(open_data):
+    """If this fails, a page whose grid.js is missing says "Loading the table…" for ever,
+    the same silent first load #194 was."""
+    page = open_data(before=_LOSE_GRID)
+
+    assert page.locator("#data-blocked").inner_text() == (
+        "The table's script did not load. Reload the page; if it stays, reinstall the extension.")
+    assert not page.locator("#grid-note").is_visible()
+
+
+def test_a_grid_that_runs_without_starting_is_named(open_data):
+    """If this fails, a grid.js that returns before it starts (it does so silently when
+    it finds no Tabulator it can call) leaves the page saying nothing."""
+    not_a_function = ("Object.defineProperty(window, 'Tabulator', "
+                      "{get() { return {}; }, set() {}, configurable: true});")
+    page = open_data(before=not_a_function)
+
+    assert page.locator("#data-blocked").inner_text() == (
+        "The table's script ran but the grid did not start.")
+
+
+#: chrome.storage answering 300 ms late, as it may in the real extension.
+_SLOW_STORAGE = """(() => {
+  const get = window.chrome.storage.local.get;
+  window.chrome.storage.local.get = async (...args) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    return get(...args);
+  };
+})();"""
+
+
+def test_the_first_load_paints_when_storage_answers_slowly(open_data):
+    """THE #194 ORDER, HELD ON PURPOSE. The harness's storage answers in a microtask, so
+    the taxonomy request activates the backend before grid.js loads and the order of
+    `await backendBase()` in start() stops mattering. With storage slow, that order is
+    the only thing between the first load and "the engine's address changed"."""
+    page = open_data(before=_SLOW_STORAGE)
+
+    assert page.locator(".tabulator-row").count() == 2, page.locator("#grid-note").inner_text()
+    assert page.locator("#data-blocked").inner_text() == ""
+
+
+def test_selecting_a_row_opens_its_record_from_the_engine(open_data):
+    """If this fails, the record panel, which grid.js skips without a word when its
+    markup is missing, is gone from the Data page."""
+    page = open_data(offer={"offer_id": 1, "product_name_ar": "سلك"})
+    page.locator(".tabulator-row").first.locator("input[type=checkbox]").check()
+    page.wait_for_function("!document.getElementById('offer-panel').hidden", timeout=5_000)
+
+    assert harness.BACKEND + "/api/offer/SAMEHGABRIEL/1" in page.evaluate("window.__ASKED__")
+
+
+# ---- data.html's copy of the engine page's grid frame ---------------------------
+#
+# The frame is written twice, in source.html and here, and both change for one reason:
+# grid.js gaining or losing a control. grid.js skips a control whose markup is missing
+# without a word, so these hold the copy to grid.js and to the engine page.
+
+_ROOT = Path(__file__).resolve().parent.parent
+_GRID_JS = (_ROOT / "design" / "grid.js").read_text(encoding="utf-8")
+_SOURCE_HTML = (_ROOT / "scrapex" / "webui" / "templates" / "source.html").read_text(encoding="utf-8")
+_DATA_HTML = (harness.EXT / "data.html").read_text(encoding="utf-8")
+
+
+def test_data_html_carries_every_element_grid_js_looks_up():
+    """If this fails, grid.js looks for an element the Data page does not have, and the
+    control it belongs to is missing there while the engine page keeps it."""
+    wanted = set(re.findall(r'getElementById\("([^"]+)"\)', _GRID_JS))
+    made_by_the_grid = set(re.findall(r'\.id\s*=\s*"([^"]+)"', _GRID_JS))
+    assert len(wanted) >= 9, f"the lookup pattern found only {sorted(wanted)}"
+    missing = sorted(i for i in wanted - made_by_the_grid if f'id="{i}"' not in _DATA_HTML)
+    assert missing == [], missing
+
+
+def test_data_html_offers_the_engine_pages_switches_and_planned_list():
+    """If this fails, the Data page's Grid Features menu offers a different set of
+    switches or planned items from the engine page's, for the same grid."""
+    defaults = re.search(r"DEFAULT_FEATURES\s*=\s*\{([^}]*)\}", _GRID_JS).group(1)
+    features = set(re.findall(r"(\w+)\s*:", defaults))
+    assert features, "DEFAULT_FEATURES was not found in design/grid.js"
+    assert set(re.findall(r'data-feature="(\w+)"', _DATA_HTML)) == features
+    assert set(re.findall(r'data-feature="(\w+)"', _SOURCE_HTML)) == features
+
+    loop = re.search(r"\{%\s*for feature in \[(.*?)\]\s*%\}", _SOURCE_HTML, re.DOTALL).group(1)
+    planned = re.findall(r'"([^"]+)"', loop)
+    ours = re.findall(r'<input type="checkbox" disabled> ([^<]+?) <small>Planned</small>', _DATA_HTML)
+    assert planned and ours == planned, (ours, planned)
+
+
+def test_the_stylesheets_load_in_the_engine_pages_order():
+    """If this fails, the grid's theme may load before the library it overrides, or the
+    page shell after the grid's sheets, and the table stops looking like the engine's."""
+    def order(html):
+        return [Path(href).name for href in re.findall(r'<link\s+rel="stylesheet"\s+href="([^"?]+)', html)]
+
+    engine = order((_ROOT / "scrapex" / "webui" / "templates" / "base.html").read_text(encoding="utf-8")
+                   + _SOURCE_HTML)
+    # data.css stands where the engine page loads webui.css.
+    ours = ["webui.css" if name == "data.css" else name for name in order(_DATA_HTML)]
+    shared = [name for name in engine if name in ours]
+    assert len(shared) >= 7, shared
+    assert [name for name in ours if name in shared] == shared, (ours, engine)
 
 # ---- the harness itself (#1198) ---------------------------------------------------------
 #

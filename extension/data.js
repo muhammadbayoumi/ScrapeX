@@ -120,8 +120,13 @@ function refreshNow(doing, failed = "Could not filter") {
     // A superseded ask says nothing: the newer one will.
     if (outcome.state === "drawn") $("data-summary").textContent = filterSummary(outcome.payload);
   }, (error) => {
-    $("data-summary").textContent = `${failed}: ${error.message} The rows below `
-      + "are the last answer drawn.";
+    // ROWS ARE CLAIMED ONLY WHEN THERE ARE ROWS. With no table on screen (the first
+    // load failed, or the source had none) grid.js has already put the fault in its
+    // own note, and a second line here would say it twice, one of them wrongly.
+    // Tabulator marks the element it builds into with its own class.
+    $("data-summary").textContent = $("grid").classList.contains("tabulator")
+      ? `${failed}: ${error.message} The rows below are the last answer drawn.`
+      : "";
   });
 }
 
@@ -201,12 +206,17 @@ async function loadActivities() {
   } catch (_) {
     // NOT A SECOND RED LINE. The table already says when the engine is not
     // answering, and reporting one fault twice is how a screen stops being read.
+    // But a selection from the address narrows the table whether or not this
+    // answers, and it must stay possible to take it off.
+    strandedSelection();
     return;
   }
   const group = (answer?.groups || [])[0];
-  if (!group) return;
-  const roots = treeFrom(group);
-  if (!roots.length) return;
+  const roots = group ? treeFrom(group) : [];
+  if (!roots.length) {
+    strandedSelection();
+    return;
+  }
   const list = document.createElement("ul");
   roots.forEach((node) => list.append(drawNode(node)));
   $("data-activities-tree").replaceChildren(list);
@@ -220,6 +230,20 @@ async function loadActivities() {
     $("data-activities-toggle").setAttribute("aria-expanded", "true");
     $("data-activities-tree").querySelector("input:checked")?.scrollIntoView({block: "nearest"});
   }
+}
+
+/**
+ * The address carried a selection and the list it came from could not be drawn: the
+ * taxonomy was refused, timed out, or has no groups. The table is still narrowed by
+ * it, so the control to take it off is shown with a line saying why the list is not.
+ */
+function strandedSelection() {
+  if (!chosen.size) return;
+  $("data-activities-toggle").hidden = true;
+  $("data-undeclared").textContent = `The list of activities could not be read, so the `
+    + `${chosen.size} chosen in this page's address cannot be shown. The table is narrowed `
+    + "by them; Clear shows every row.";
+  $("data-activities").classList.remove("hidden");
 }
 
 function sayMode() {
