@@ -80,10 +80,10 @@ behind a login.
 
 ### Every other address ScrapeX contacts
 
-Besides the sites you add, the extension can reach exactly three addresses, and
-only these three. Both are narrowed to a single path rather than a whole host: an
-extension that may read all of `googleapis.com` can read a great deal more than
-the name on your account.
+Besides the sites you add, the extension can reach only the addresses below.
+Each is narrowed to a single path rather than a whole host: an extension that may
+read all of `googleapis.com` can read a great deal more than the name on your
+account.
 
 | Host | What for |
 |---|---|
