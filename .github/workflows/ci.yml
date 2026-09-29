@@ -216,11 +216,15 @@ jobs:
     # runner's shape -- and a timing failure should show in both or in neither.
     # tests/test_the_extension_tier_runs_in_the_suites_shape.py holds both to it.
     #
-    # `-n 3` ON THE RUNNER'S 4 vCPU, which the suite step prints every run. `-n 4`
-    # failed tests/test_panel_startup.py:137, a 250ms budget on the PRODUCT's
-    # startup, so the answer was to back off rather than widen it; why four
-    # workers stretch it on four cores is still open. Not `-n auto`: that follows
-    # the machine, and a contributor on 24 cores would run a shape CI never runs.
+    # `-n 3`, AND READ THE `runner:` LINE THE SUITE STEP PRINTS BEFORE CHANGING
+    # IT: the runner's core count has changed under this workflow once already,
+    # and a worker count right for one shape oversubscribes the other. The only
+    # `-n 4` red -- tests/test_panel_startup.py:137, a 250ms budget on the
+    # PRODUCT's startup -- ran on a 2 vCPU runner, four workers on two cores;
+    # `-n 4` has not been measured since the runner became 4 vCPU. `-n 3` takes
+    # most of the measured gain without that experiment. Not `-n auto`: that
+    # follows the machine, and a contributor on 24 cores would run a shape CI
+    # never runs.
     #
     # `--dist loadfile` KEEPS A FILE IN ONE WORKER, so a module-scoped Chromium is
     # launched once per file, not once per worker. Its cost is a floor: no run
@@ -436,9 +440,8 @@ jobs:
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
         # The worker count and dist mode are `XDIST_ARGS`, on the job, with their
-        # reasons. The `runner:` line is the machine answering for itself: it
-        # printed 4 vCPU while this comment claimed two (#963), so read it before
-        # changing either.
+        # reasons. The `runner:` line is the machine answering for itself -- it
+        # has printed both 2 vCPU and 4 -- so read it before changing either.
         run: |
           echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
           python -m pytest $XDIST_ARGS
