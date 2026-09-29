@@ -12,9 +12,10 @@ not among them yet. Measured: an extension page's GET carries no `Origin` header
 (`sec-fetch-site: none`, the extension holds a host permission for 127.0.0.1),
 and the check passes a request without one. Only a write carries the origin, and
 this page makes none until PR 6.
-This page shipped broken once with every static test green (the comment in
-`load()` in `extension/data.js`), so #1198's gate opens it here as well. PR 6
-moves the page onto the engine's grid, and this file is what says it still draws.
+This page shipped broken once with every static test green (#194, named where
+`start()` in `extension/data.js` resolves the address), so #1198's gate opens it
+here as well. The page runs the engine's own grid.js, and this file is what says
+it draws there, icons and all.
 
 THE FENCE, because the extension's default engine is the owner's. `DEFAULT_BACKEND`
 is http://127.0.0.1:8000, and installing the extension opens `onboarding.html`,
@@ -36,6 +37,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import shutil
 import socket
 import tempfile
@@ -57,12 +59,8 @@ ROOT = Path(__file__).resolve().parent.parent
 EXTENSION = ROOT / "extension"
 PRICE_SOURCE = "ELSEWEDYSHOP"
 DATASET = "contractors"
-#: data.js pages the grid at this many rows (`paginationSize` in `extension/data.js`).
-PAGE_SIZE = 100
-#: Tabulator draws only the rows its viewport shows, so a row count read off the page
-#: means "every row" only while the seed fits in it. Measured: all 17 of the seed's
-#: contractors draw at 800 px. A larger seed needs this measured again.
-ROWS_THE_VIEWPORT_HOLDS = 17
+#: The sprite every icon on the page points into.
+SPRITE = EXTENSION / "icons" / "material-icons.svg"
 
 
 def _extension_id() -> str:
@@ -233,9 +231,16 @@ def open_data(extension, key: str):
     page.on("requestfailed", lambda r: seen["failed"].append(f"{r.url} {r.failure}"))
     page.on("request", lambda r: seen["requests"].append(r.url))
     page.goto(f"chrome-extension://{extension.extension_id}/data.html?source={key}")
+    # A drawn row, the page's own red line, or the grid's note once it says more
+    # than that it is loading: whichever comes, the test reads it by name rather
+    # than timing out.
     page.wait_for_function(
-        "() => document.querySelector('.tabulator-row')"
-        " || document.getElementById('data-blocked').textContent.trim()",
+        """() => {
+          const note = document.getElementById('grid-note');
+          return document.querySelector('.tabulator-row')
+            || document.getElementById('data-blocked').textContent.trim()
+            || (note && !note.hidden && !/Loading/.test(note.textContent));
+        }""",
         timeout=20_000)
     # The taxonomy answer follows the table's; let every request the load started finish.
     page.wait_for_load_state("networkidle")
@@ -282,16 +287,28 @@ def test_the_fence_keeps_the_browser_off_every_other_local_port(extension, fence
 def test_the_page_draws_every_row_the_engine_serves(extension, engine, key):
     answer = _engine_answer(engine, key)
     assert answer["rows"], f"the seed gave {key} no rows, so this test would measure nothing"
-    assert len(answer["rows"]) <= ROWS_THE_VIEWPORT_HOLDS, (
-        f"the seed gave {key} {len(answer['rows'])} rows, more than the viewport draws")
     page, _ = open_data(extension, key)
     try:
         assert page.locator("#data-blocked").inner_text() == ""
-        assert page.locator(".tabulator-row").count() == min(len(answer["rows"]), PAGE_SIZE)
         assert page.locator("#data-source").inner_text() == key
-        # Every column the engine sent, in its order, titled as `columnsFrom` titles it.
+        # Tabulator draws only the rows its viewport shows, so a row count read off
+        # the page means "every row" only while the seed fits in it; the page says
+        # how many fit.
+        holds = page.evaluate("""() => {
+            const holder = document.querySelector('.tabulator-tableholder');
+            const row = document.querySelector('.tabulator-row');
+            return Math.floor(holder.clientHeight / row.offsetHeight);
+        }""")
+        assert len(answer["rows"]) <= holds, (
+            f"the seed gave {key} {len(answer['rows'])} rows and the viewport draws {holds}")
+        assert page.locator(".tabulator-row").count() == len(answer["rows"])
+        # Every column the engine sent, in its order, titled as the engine titled
+        # it, after the grid's own row-selection column, which has no field.
+        fields = page.evaluate("""() => [...document.querySelectorAll('.tabulator-col')]
+            .map((column) => column.getAttribute('tabulator-field'))""")
         headers = [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()]
-        assert headers == [c.get("label") or c["key"] for c in answer["columns"] if c.get("key")]
+        assert fields == [None] + [c["key"] for c in answer["columns"]], fields
+        assert headers == [""] + [c.get("label") or c["key"] for c in answer["columns"]], headers
     finally:
         page.close()
 
@@ -321,3 +338,21 @@ def test_the_page_loads_within_the_extension_rules(extension, engine, key):
     assert stray == [], stray
     assert [href for href, _ in sheets] == linked, (sheets, linked)
     assert all(rules > 0 for _, rules in sheets), sheets
+
+
+@pytest.mark.parametrize("key", [PRICE_SOURCE, DATASET])
+def test_every_icon_points_at_a_symbol_the_sprite_holds(extension, key):
+    """The page's own icons and the ones grid.js draws, which ui.js points at the
+    sprite `data.html` names. A name the sprite lacks draws an empty box."""
+    symbols = set(re.findall(r'<symbol id="([^"]+)"', SPRITE.read_text(encoding="utf-8")))
+    page, _ = open_data(extension, key)
+    try:
+        uses = page.evaluate("() => [...document.querySelectorAll('use')].map((u) => u.href.baseVal)")
+    finally:
+        page.close()
+    here = f"chrome-extension://{extension.extension_id}/icons/material-icons.svg#"
+    assert uses, "the page drew no icon, so this test would measure nothing"
+    wrong = [use for use in uses if not use.startswith(("icons/material-icons.svg#", here))]
+    assert wrong == [], f"icons pointing somewhere other than the extension's sprite: {wrong}"
+    missing = sorted({use.split("#", 1)[1] for use in uses} - symbols)
+    assert missing == [], f"the sprite has no symbol for {missing}"

@@ -1,4 +1,5 @@
-// What the Data page MAKES of a `/api/table` payload — and nothing else.
+// What the Data page asks the engine for its table, and what it says when the
+// engine cannot answer — and nothing else.
 //
 // PURE ON PURPOSE, exactly like workbook.js: no DOM, no fetch, no chrome, no
 // Tabulator. data.js is a page controller and cannot be imported under
@@ -9,83 +10,13 @@
 // The rule for what belongs here: if getting it wrong would put WRONG NUMBERS
 // or a WRONG SENTENCE in front of the owner, it belongs here and it gets a test.
 // Layout and colour do not.
+//
+// THE COLUMNS, THE ROW COUNT, THE PREFIX LINE AND THE FOLD ARE THE GRID'S NOW
+// (#1198). The page runs the engine's own grid.js, which draws all four from the
+// payload the way the engine's page always has, so the helpers that drew them
+// here were a second opinion and are gone.
 
-/**
- * The columns to draw, taken from the payload's own list.
- *
- * NOT A LIST WRITTEN IN THIS REPOSITORY. `columns` arrives ordered by
- * `fields.column_order`, which is the one answer the export, the Choose-Columns
- * panel and this grid all read. A literal list here would be a fourth opinion,
- * and the defect that produced that rule was exactly this: dragging a column
- * saved, reloaded the page, and changed nothing on screen because the grid was
- * reading its own copy.
- *
- * SCRAPED VALUES ARE UNTRUSTED. Every one of these came off somebody else's
- * website, so the formatter is `plaintext` — Tabulator sets textContent with
- * it, and nothing a shop publishes can become markup here.
- */
-export function columnsFrom(payload) {
-  return (payload?.columns || [])
-    .filter((column) => column && column.key)
-    .map((column) => ({
-      title: column.label || column.key,
-      field: column.key,
-      formatter: "plaintext",
-      headerSort: true,
-      headerTooltip: true,
-      resizable: true,
-      widthGrow: 1,
-      minWidth: 90,
-    }));
-}
-
-/**
- * The sentence under the source name.
- *
- * "3 of 20000" RATHER THAN "3" is the whole point: a count that shows a prefix
- * as if it were the total is the failure the row cap exists to prevent, and the
- * summary is where a reader looks first.
- */
-export function summarise(payload) {
-  const rows = payload?.rows || [];
-  const shown = payload?.returned ?? rows.length;
-  const total = payload?.total ?? shown;
-  const parts = [shown === total ? `${total} rows` : `${shown} of ${total} rows`];
-  if (payload?.folded) parts.push("variants folded");
-  if (payload?.bilingual) parts.push("bilingual");
-  return parts.join(" · ");
-}
-
-/**
- * What to say when the engine stopped at the cap — or nothing when it did not.
- *
- * SAID, NOT INFERRED. `truncated` is a field the engine sets; deriving it from
- * a row count would mean re-deciding upstream's own bound in a second place,
- * and the two would disagree the day the cap moves.
- */
-export function truncationNotice(payload) {
-  if (!payload?.truncated) return "";
-  const shown = payload?.returned ?? (payload?.rows || []).length;
-  return `Stopped at ${shown} rows. This is a PREFIX of the table, not the `
-    + "whole of it — export the source to read every row.";
-}
-
-/**
- * The fold switch: what it says, and whether it can be touched.
- *
- * A source with nothing to fold gets a DISABLED switch that says why, rather
- * than a live one that does nothing when pressed. `foldable` is the engine's
- * answer about what this source publishes — a shop has variants, a commodity
- * feed does not.
- */
-export function foldControl(payload) {
-  const foldable = Boolean(payload?.foldable);
-  return {
-    disabled: !foldable,
-    label: foldable ? "Fold variants that share a price"
-                    : "This source has no variants to fold",
-  };
-}
+import { selectionQuery } from "./taxonomyfilter.js";
 
 /**
  * The source key this page was opened for, read from its own address.
@@ -97,4 +28,40 @@ export function foldControl(payload) {
 export function sourceKeyFrom(search) {
   const raw = new URLSearchParams(String(search || "")).get("source") || "";
   return raw.trim();
+}
+
+/**
+ * The table request for the path grid.js hands its host, narrowed to this page's
+ * site and activity selection.
+ *
+ * THE PATH MAY ALREADY CARRY A QUERY. grid.js appends `?fold=1` or `?fold=0` when
+ * the reader chose ALL or ONE, and nothing otherwise, so the join is `&` or `?`
+ * by what is there. Appending `&nodes=…` to a bare path would ask for a source
+ * whose key ends in it.
+ */
+export function tableRequest(path, site, nodes, mode) {
+  const narrowing = (site ? `&site_key=${encodeURIComponent(site)}` : "")
+    + selectionQuery(nodes, mode);
+  if (!narrowing) return String(path);
+  return String(path) + (String(path).includes("?") ? "&" : "?") + narrowing.slice(1);
+}
+
+/**
+ * The sentence for a table the engine did not give, by what actually happened.
+ *
+ * A 404 IS AN ANSWER, NOT A STOPPED ENGINE. `request()` in backend.js marks an
+ * HTTP refusal with `kind: "http"` and its status; anything else never reached an
+ * answer. Telling the owner to start an engine that answered 404 sends him to
+ * restart something that is running perfectly well.
+ */
+export function whyNoTable(error, key) {
+  const message = String(error?.message || "no reason given");
+  if (error?.kind === "http" && error?.status === 404) {
+    return `The engine has no table named ${key}.`;
+  }
+  if (error?.kind === "http") {
+    return `The engine refused the table (HTTP ${error.status}): ${message}.`;
+  }
+  return `The engine did not answer: ${message}. It may be stopped — the panel's `
+    + "Run screen starts it.";
 }

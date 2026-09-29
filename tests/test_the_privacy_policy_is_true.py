@@ -282,6 +282,10 @@ def test_every_place_the_extension_persists_data_is_in_the_policy():
         # reasoning, different file — and the same row covers both, because a
         # reader asking "what does this keep about my Drive" wants one answer.
         "console.js": "spreadsheet",
+        # The engine's grid, which the Data page runs since #1198, keeps how each
+        # source's table is arranged: the switches, grouping, nesting, AR|EN, the
+        # fold and the column widths, under the extension's own origin.
+        "grid.js": "arranged on the Data page",
     }
     missing = [name for name in writers
                if name in described and described[name].lower() not in storage_table.lower()]

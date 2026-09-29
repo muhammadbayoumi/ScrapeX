@@ -74,12 +74,61 @@ export function undeclaredLine(group) {
  * reasonable picks, and he asked for a toggle rather than one fixed meaning.
  */
 export function selectionQuery(nodeIds, mode) {
-  const chosen = [...new Set((nodeIds || [])
+  const chosen = nodesOf(nodeIds);
+  if (!chosen.length) return "";
+  return `&nodes=${chosen.join(",")}&nodes_mode=${modeOf(mode)}`;
+}
+
+/**
+ * ONE READING OF A SELECTION, for the three places a selection is spelled: the
+ * table request above, and the page's own address below, written and read back.
+ * Node ids are positive integers, each once, ascending; the mode is `all` or else
+ * `any`, the widening one.
+ */
+function nodesOf(nodeIds) {
+  return [...new Set((Array.isArray(nodeIds) ? nodeIds : [])
     .map((one) => Number(one))
     .filter((one) => Number.isInteger(one) && one > 0))].sort((a, b) => a - b);
-  if (!chosen.length) return "";
-  const wanted = String(mode).toLowerCase() === "all" ? "all" : "any";
-  return `&nodes=${chosen.join(",")}&nodes_mode=${wanted}`;
+}
+
+function modeOf(mode) {
+  return String(mode).toLowerCase() === "all" ? "all" : "any";
+}
+
+/**
+ * The selection a page address carries, in the names the table route takes.
+ *
+ * READ ONCE, WHEN THE PAGE OPENS (#1198). The grid reloads the page after a
+ * column change, a Reset columns and a fold change, and a reload keeps only what
+ * is in the address, so the address is where a selection has to live.
+ */
+export function selectionFrom(search) {
+  const params = new URLSearchParams(String(search || ""));
+  return {
+    nodes: nodesOf(String(params.get("nodes") || "").split(",")),
+    mode: modeOf(params.get("nodes_mode")),
+  };
+}
+
+/**
+ * The page address with this selection in it, every other parameter kept.
+ *
+ * AN EMPTY SELECTION TAKES BOTH PARAMETERS OUT, so a cleared filter leaves the
+ * address the panel opened. The commas stay commas: they are legal in a query,
+ * and an address that reads `nodes=11,22` is one a person can check.
+ */
+export function selectionUrl(href, nodeIds, mode) {
+  const url = new URL(String(href));
+  const chosen = nodesOf(nodeIds);
+  if (chosen.length) {
+    url.searchParams.set("nodes", chosen.join(","));
+    url.searchParams.set("nodes_mode", modeOf(mode));
+  } else {
+    url.searchParams.delete("nodes");
+    url.searchParams.delete("nodes_mode");
+  }
+  url.search = url.searchParams.toString().replaceAll("%2C", ",");
+  return url.href;
 }
 
 /**

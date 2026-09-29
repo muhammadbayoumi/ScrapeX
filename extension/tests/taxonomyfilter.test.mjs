@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  filterSummary, modeLabel, selectionQuery, treeFrom, undeclaredLine,
+  filterSummary, modeLabel, selectionFrom, selectionQuery, selectionUrl, treeFrom,
+  undeclaredLine,
 } from "../taxonomyfilter.js";
 
 const GROUP = {
@@ -89,4 +90,40 @@ test("the summary carries what the filter left AND what it started from", () => 
   assert.match(filterSummary({ total: 6564, population: 17811,
                                filtered_by: { nodes: [11], mode: "any" } }),
     /1 activity chosen/, "one activity was called activities");
+});
+
+// ---- the selection in the page's own address (#1198) -------------------------
+
+test("the address's selection is read back in the names the route takes", () => {
+  assert.deepEqual(selectionFrom("?source=contractors&nodes=22,11&nodes_mode=all"),
+    { nodes: [11, 22], mode: "all" });
+  assert.deepEqual(selectionFrom("?source=contractors"), { nodes: [], mode: "any" });
+  assert.deepEqual(selectionFrom(""), { nodes: [], mode: "any" });
+});
+
+test("a hostile address reads as the selection it could honestly mean", () => {
+  // Anyone can type an address, and the panel's own links carry it verbatim.
+  assert.deepEqual(selectionFrom("?nodes=11,,abc,-4,0,2.5,11,7&nodes_mode=DROP"),
+    { nodes: [7, 11], mode: "any" });
+  assert.deepEqual(selectionFrom("?nodes=11%2C22&nodes_mode=ALL"),
+    { nodes: [11, 22], mode: "all" });
+  assert.deepEqual(selectionFrom(null), { nodes: [], mode: "any" });
+});
+
+test("writing the selection keeps every other parameter and reads as commas", () => {
+  const href = "chrome-extension://id/data.html?source=contractors&site=muqawil_org";
+  assert.equal(selectionUrl(href, [22, 11, 22], "all"),
+    "chrome-extension://id/data.html?source=contractors&site=muqawil_org"
+    + "&nodes=11,22&nodes_mode=all");
+});
+
+test("an empty selection takes both parameters out of the address", () => {
+  const href = "chrome-extension://id/data.html?source=contractors&nodes=11&nodes_mode=any";
+  assert.equal(selectionUrl(href, [], "all"),
+    "chrome-extension://id/data.html?source=contractors");
+});
+
+test("what is written is what is read back, so a reload keeps the selection", () => {
+  const written = selectionUrl("file:///C:/x/data.html?source=S", [46, "11"], "ALL");
+  assert.deepEqual(selectionFrom(new URL(written).search), { nodes: [11, 46], mode: "all" });
 });

@@ -1,6 +1,6 @@
 /* AUTHORED IN design/ui.js, and copied byte-for-byte into
- * scrapex/webui/static/ui.js by tools/sync_design_assets.py. The extension's Data
- * page runs this same file once it gains its own copy (#1198).
+ * scrapex/webui/static/ui.js and extension/ui.js by tools/sync_design_assets.py:
+ * the engine's page and the extension's Data page run this same ui.js (#1198).
  *
  * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY, and
  * an edit made here is reverted by the next sync without a word. Edit the

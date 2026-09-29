@@ -92,9 +92,11 @@ function localApiPath(input) {
   }
 }
 
-// The shared appearance/timezone modules use fetch directly. Install the same
-// endpoint policy beneath them without changing the byte-identical Web UI
-// copies of those modules. Calls that already declare a signal keep it.
+// The shared appearance/timezone modules use fetch directly, and so does the
+// engine's grid.js, which the Data page runs (#1198) for its fields, promotable
+// details and records. Install the same endpoint policy beneath them without
+// changing the byte-identical Web UI copies of those modules. Calls that already
+// declare a signal keep it.
 window.fetch = (input, options = {}) => {
   const path = localApiPath(input);
   if (!path || options.signal) return nativeFetch(input, options);
