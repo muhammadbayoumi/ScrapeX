@@ -786,6 +786,89 @@ def test_the_stylesheets_load_in_the_engine_pages_order():
     assert len(shared) >= 7, shared
     assert [name for name in ours if name in shared] == shared, (ours, engine)
 
+#: Every table request after the first answers 600 ms late, each answer names the
+#: selection it was asked for, and the page records how many requests are open at once
+#: and every sentence the status line shows.
+_SLOW_AND_COUNTED = """(() => {
+  const inner = window.fetch;
+  let tables = 0;
+  window.__OPEN__ = 0;
+  window.__MOST_OPEN__ = 0;
+  window.__SAID__ = [];
+  new MutationObserver(() => {
+    const line = document.getElementById('data-summary');
+    if (line) window.__SAID__.push(line.textContent);
+  }).observe(document, {subtree: true, childList: true, characterData: true});
+  window.fetch = async (input, options) => {
+    const url = String(input && input.url ? input.url : input);
+    if (!url.includes('/api/table/')) return inner(input, options);
+    const later = ++tables > 1;
+    if (later) {
+      window.__OPEN__ += 1;
+      window.__MOST_OPEN__ = Math.max(window.__MOST_OPEN__, window.__OPEN__);
+    }
+    try {
+      if (later) await new Promise((resolve) => setTimeout(resolve, 600));
+      const reply = await inner(input, options);
+      const body = await reply.json();
+      const nodes = new URL(url).searchParams.get('nodes');
+      if (nodes) {
+        body.filtered_by = {nodes: nodes.split(',').map(Number), mode: 'any'};
+        body.population = 17811;
+      }
+      return new Response(JSON.stringify(body), {status: reply.status,
+        headers: {'Content-Type': 'application/json'}});
+    } finally {
+      if (later) window.__OPEN__ -= 1;
+    }
+  };
+})();"""
+
+
+def test_ticks_slower_than_the_pause_ask_one_table_at_a_time(open_data):
+    """If this fails, ticks more than 250 ms apart each start a whole table while the
+    engine still computes the last (#1305). Measured on 17,811 contractors, the newest
+    then missed its 5 s deadline behind requests the page had already thrown away."""
+    page = open_data(taxonomy=TAXONOMY, before=_SLOW_AND_COUNTED)
+    page.locator("#data-activities-toggle").click()
+    for node in ("1", "11", "14"):
+        page.locator(f"#data-activities-tree input[value='{node}']").check()
+        page.wait_for_timeout(350)
+    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
+    page.wait_for_timeout(400)
+    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
+
+    narrowed = [url for url in _table_asks(page) if "nodes=" in url]
+    assert page.evaluate("window.__MOST_OPEN__") == 1, page.evaluate("window.__MOST_OPEN__")
+    assert len(narrowed) == 2, narrowed
+    assert narrowed[-1].endswith("?nodes=1,11,14&nodes_mode=any"), narrowed
+    said = page.evaluate("window.__SAID__")
+    assert said[-1] == "2 of 17,811 rows · 3 activities chosen, matching any of them", said
+    # The first answer arrived after the third tick, out of date, and said nothing:
+    # no line after the third tick names fewer activities.
+    third = max(i for i, line in enumerate(said) if "by 3 activities" in line)
+    stale = [line for line in said[third:] if "1 activity" in line or "2 activities" in line]
+    assert stale == [], said
+
+
+def test_a_choice_made_while_a_table_is_on_its_way_is_asked_for_when_it_lands(open_data):
+    """If this fails, a tick whose pause ends while a table is still on its way is
+    dropped: the grid keeps the rows of the earlier choice under a line that names the
+    newer one, and nothing asks again."""
+    page = open_data(taxonomy=TAXONOMY, before=_SLOW_AND_COUNTED)
+    page.locator("#data-activities-toggle").click()
+    page.locator("#data-activities-tree input[value='1']").check()
+    page.wait_for_timeout(350)
+    page.locator("#data-activities-tree input[value='11']").check()
+    page.wait_for_timeout(1800)
+    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
+
+    narrowed = [url for url in _table_asks(page) if "nodes=" in url]
+    assert len(narrowed) == 2 and narrowed[-1].endswith("?nodes=1,11&nodes_mode=any"), narrowed
+    assert page.evaluate("window.__MOST_OPEN__") == 1
+    assert page.locator("#data-summary").inner_text() == (
+        "2 of 17,811 rows · 2 activities chosen, matching any of them")
+
 # ---- the harness itself (#1198) ---------------------------------------------------------
 #
 # The Data page is about to run the engine's own grid, which loads stylesheets and
