@@ -6,10 +6,10 @@ those tests, and they exist because every way this can break is SILENT:
 
   - a template that is not a real migration hands every test a wrong schema
   - a guard that vetoes forever makes the suite slow again, never red
-  - a guard that under-fires lets an upgrade test assert against v57
+  - a guard that under-fires lets an upgrade test assert against the wrong version
 
 The one that matters most is the first. If the template IS one honest run of the
-real 57-file stream, then every restore that copies it is honest too, and the
+real stream, then every restore that copies it is honest too, and the
 whole mechanism reduces to that single claim.
 """
 from __future__ import annotations
@@ -87,7 +87,7 @@ def _shape(conn: sqlite3.Connection) -> dict:
 
 def test_the_template_is_one_honest_run_of_the_real_migrations(schema_template, tmp_path):
     """THE gate. Every restored database is a copy of this one, so if this holds,
-    all ~760 of them are as good as a real migration — and if it ever stops
+    every one of them is as good as a real migration — and if it ever stops
     holding, the whole suite has been testing a schema nobody ships."""
     if schema_template.disabled:
         pytest.skip("SCRAPEX_FULL_MIGRATIONS: there is no template to check")
@@ -118,7 +118,7 @@ def test_a_reloaded_db_module_does_not_disable_the_template(schema_template):
     The guard that shipped first compared `dbmod._migration_files` by IDENTITY.
     Reload installs a NEW function object that behaves identically, so that guard
     became a permanent veto and every file collected after test_db.py silently
-    paid full price again — 41 of the 57 migrate-calling files. Nothing turned
+    paid full price again — 41 of the 57 migrate-calling files at the time. Nothing turned
     red; the suite just got slow. This pins the content comparison that replaced it.
     """
     if schema_template.disabled:
