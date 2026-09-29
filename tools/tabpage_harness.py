@@ -82,6 +82,11 @@ def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
     and kept in sessionStorage too, because the grid reloads the page after some
     of its saves and a test must still be able to read what was asked before.
     `window.__ASKED__` keeps the URLs alone, as the older tests read them.
+
+    SO IS EVERY FILE THAT FAILS TO LOAD, in `window.__LOAD_FAILURES__`. A missing
+    stylesheet or script raises no pageerror, and Chromium still lists a missing
+    sheet in `document.styleSheets` with its href, so the element's own `error`
+    event is the one signal. It does not bubble, so the listener captures it.
     """
     answers = {
         "/api/taxonomy/": taxonomy if taxonomy is not None else {"groups": []},
@@ -92,6 +97,13 @@ def stub(payload: dict | None = None, *, backend: str = "http://127.0.0.1:8000",
     }
     return f"""
 window.__ASKED__ = [];
+window.__LOAD_FAILURES__ = [];
+window.addEventListener("error", (event) => {{
+  const target = event.target;
+  if (target && target !== window && (target.src || target.href)) {{
+    window.__LOAD_FAILURES__.push(target.src || target.href);
+  }}
+}}, true);
 try {{
   window.__REQUESTS__ = JSON.parse(sessionStorage.getItem("__harness_requests__") || "[]");
 }} catch (err) {{ window.__REQUESTS__ = []; }}

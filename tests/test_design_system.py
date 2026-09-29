@@ -204,8 +204,9 @@ def test_every_page_loads_the_design_system(page: Path) -> None:
     system on its own (#711). Most browser suites cannot see it happen: tools/panel_harness.py
     reads the sheets off disk and injects them whatever the page links, so a page that
     dropped one rendered unstyled while every browser test stayed green. The Data page's
-    harness (tools/tabpage_harness.py) now builds the page from its own tags (#1198), so for
-    that one page the browser suite would see it too.
+    harness (tools/tabpage_harness.py) now builds the page from its own tags, and
+    tests/test_tab_page_dom.py reads one effect of every sheet it links (#1198), so for that
+    one page the browser suite would see it too.
 
     The copies are the ones tools/sync_design_assets.py writes for this page's own surface;
     a URL that reaches the other surface's copy, or design/'s source, fetches nothing once

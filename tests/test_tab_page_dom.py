@@ -337,30 +337,52 @@ def _linked_sheets() -> list[str]:
     return harness._SHEET.findall(html)
 
 
+#: One effect per stylesheet data.html links: a computed style that sheet sets and no
+#: other does, each measured by building the page without it. The keys must equal the
+#: page's links, so a sheet the page stops linking, or one it starts linking with no
+#: effect named here, fails.
+SHEET_EFFECTS = {
+    "tokens.css":
+        "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() !== ''",
+    "components.css":
+        "getComputedStyle(document.getElementById('data-truncated')).display === 'none'",
+    "vendor/tabulator.min.css":
+        "getComputedStyle(document.querySelector('.tabulator')).position === 'relative'",
+    "data.css":
+        "getComputedStyle(document.querySelector('.data-head')).display === 'flex'",
+}
+
+
 def test_the_page_is_built_from_its_own_tags(open_data):
-    """If this fails, the harness is loading a list of its own again, and a Data page
-    that stopped linking a stylesheet (or appearance.js) would still pass every test."""
+    """If this fails, the harness is loading a list of its own again or failed to deliver
+    a file the page names, and a Data page that stopped linking a stylesheet (or
+    appearance.js) would still pass every test."""
     page = open_data()
 
+    assert page.evaluate("window.__LOAD_FAILURES__") == [], (
+        "a file data.html loads did not reach the built page")
+    expected = _linked_sheets()
+    assert sorted(expected) == sorted(SHEET_EFFECTS), (
+        f"data.html links {expected}; name an effect for each sheet it links, "
+        "and drop the effect of a sheet it no longer links")
     loaded = page.evaluate("""() => [...document.styleSheets]
         .map((sheet) => sheet.href).filter(Boolean)""")
-    expected = _linked_sheets()
-    assert expected, "data.html links no stylesheet; the check below would be vacuous"
     assert len(loaded) == len(expected), (loaded, expected)
     for relative in expected:
         assert any(url.endswith("/" + relative) for url in loaded), (
             f"data.html links {relative}, and the built page did not load it: {loaded}")
+        assert page.evaluate(f"() => {SHEET_EFFECTS[relative]}"), (
+            f"{relative}, which data.html links, did not reach the page")
     assert page.evaluate("() => document.documentElement.dataset.appearance"), (
         "appearance.js, which data.html loads first, never ran")
-    assert page.evaluate(
-        "() => getComputedStyle(document.querySelector('.data-head')).display") == "flex", (
-        "data.css, which data.html links, did not reach the page")
 
 
 def test_the_stub_answers_only_the_engine(open_data):
     """If this fails, a page that asked its own origin or the internet for data would be
     handed the table anyway, and the defect would pass as a working page."""
-    page = open_data(fields={"fields": [{"field_key": "price"}]})
+    page = open_data(fields={"fields": [{"field_key": "price"}]},
+                     promotable={"attributes": [{"key": "brand"}]},
+                     offer={"offer_id": 7})
     seen = page.evaluate("""async () => {
         const out = {};
         try { await fetch("https://example.com/api/table/X"); out.off = "answered"; }
@@ -368,14 +390,40 @@ def test_the_stub_answers_only_the_engine(open_data):
         try { await fetch("/api/table/X"); out.own = "answered"; }
         catch (err) { out.own = String(err.message); }
         out.unknown = (await fetch("http://127.0.0.1:8000/api/nothing/X")).status;
-        const fields = await fetch("http://127.0.0.1:8000/api/fields/X");
-        out.fields = [fields.status, await fields.json()];
+        for (const [name, path] of [["fields", "/api/fields/X"],
+                                    ["promotable", "/api/promotable/X"],
+                                    ["offer", "/api/offer/X/1"]]) {
+            const reply = await fetch("http://127.0.0.1:8000" + path);
+            out[name] = [reply.status, await reply.json()];
+        }
         return out;
     }""")
     assert seen["off"].startswith("the harness refuses a request that is not to the engine")
     assert seen["own"].startswith("the harness refuses a request that is not to the engine")
     assert seen["unknown"] == 404
     assert seen["fields"] == [200, {"fields": [{"field_key": "price"}]}]
+    assert seen["promotable"] == [200, {"attributes": [{"key": "brand"}]}]
+    assert seen["offer"] == [200, {"offer_id": 7}]
+
+
+def test_a_route_left_unset_answers_its_own_empty_shape(open_data):
+    """If this fails, a route the test did not set is handed something else, such as the
+    table, and a control that reads it hides itself while its guards pass against a
+    control that was never drawn."""
+    page = open_data()
+    seen = page.evaluate("""async () => {
+        const out = {};
+        for (const [name, path] of [["taxonomy", "/api/taxonomy/X"],
+                                    ["fields", "/api/fields/X"],
+                                    ["promotable", "/api/promotable/X"],
+                                    ["offer", "/api/offer/X/1"]]) {
+            const reply = await fetch("http://127.0.0.1:8000" + path);
+            out[name] = [reply.status, await reply.json()];
+        }
+        return out;
+    }""")
+    assert seen == {"taxonomy": [200, {"groups": []}], "fields": [200, {"fields": []}],
+                    "promotable": [200, {"attributes": []}], "offer": [200, {}]}, seen
 
 
 def test_the_request_log_survives_a_reload(open_data):
