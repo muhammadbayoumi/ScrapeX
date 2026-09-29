@@ -19,8 +19,8 @@ second copy of the value it guards, and the next change to the runner would have
 to be made twice. The count is `ci.yml`'s decision; this file only asserts that
 there is exactly one place making it.
 
-The docs tier is deliberately not held to it: it is seconds long, and starting the
-workers costs more than they save.
+The docs tier is deliberately not held to it: it runs in seconds, and the most anyone
+has measured for parallelising it is a few of them (#943).
 """
 from __future__ import annotations
 

@@ -227,8 +227,9 @@ jobs:
     # ends before its largest file does -- tests/test_panel_dom.py (#944) -- and
     # the extension tier already sits on it.
     #
-    # The docs tier stays serial: it is seconds long, and starting the workers
-    # costs more than they save. Measurements live in the PR that set each value.
+    # The docs tier is left serial: it runs in seconds, and the most anyone has
+    # measured for parallelising it is a few of them (#943). Measurements live in
+    # the PR that set each value.
     env:
       XDIST_ARGS: "-n 3 --dist loadfile"
     steps:
@@ -397,7 +398,10 @@ jobs:
         # unreachable — it is skipped because nothing it tests changed.
         #
         # IN THE SUITE'S WORKER SHAPE (`XDIST_ARGS`, on the job), because this
-        # tier holds every browser suite: it is the one a panel change waits on.
+        # tier holds the panel's browser suites, tests/test_panel_dom.py and
+        # tests/test_panel_startup.py among them: it is the one a panel change
+        # waits on. The grid's browser suites carry neither mark and run only in
+        # the full tier.
         #
         # `or docs` because this scope admits documentation files too, and the
         # docs set is not a subset of the extension set --
