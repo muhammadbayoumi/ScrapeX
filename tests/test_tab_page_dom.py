@@ -786,15 +786,23 @@ def test_the_stylesheets_load_in_the_engine_pages_order():
     assert len(shared) >= 7, shared
     assert [name for name in ours if name in shared] == shared, (ours, engine)
 
-#: Every table request after the first answers 600 ms late, each answer names the
-#: selection it was asked for, and the page records how many requests are open at once
-#: and every sentence the status line shows.
-_SLOW_AND_COUNTED = """(() => {
+#: Every table request after the first is HELD until the test releases it, oldest
+#: first, so the test decides when each answer lands. Each answer names the selection
+#: it was asked for, and the page records how many requests are open at once and every
+#: sentence the status line shows.
+_HELD = """(() => {
   const inner = window.fetch;
   let tables = 0;
   window.__OPEN__ = 0;
   window.__MOST_OPEN__ = 0;
   window.__SAID__ = [];
+  window.__HELD__ = [];
+  window.__TABLES__ = [];
+  window.__release__ = () => {
+    const next = window.__HELD__.shift();
+    if (next) next();
+    return Boolean(next);
+  };
   new MutationObserver(() => {
     const line = document.getElementById('data-summary');
     if (line) window.__SAID__.push(line.textContent);
@@ -802,13 +810,14 @@ _SLOW_AND_COUNTED = """(() => {
   window.fetch = async (input, options) => {
     const url = String(input && input.url ? input.url : input);
     if (!url.includes('/api/table/')) return inner(input, options);
+    window.__TABLES__.push(url);
     const later = ++tables > 1;
     if (later) {
       window.__OPEN__ += 1;
       window.__MOST_OPEN__ = Math.max(window.__MOST_OPEN__, window.__OPEN__);
     }
     try {
-      if (later) await new Promise((resolve) => setTimeout(resolve, 600));
+      if (later) await new Promise((resolve) => window.__HELD__.push(resolve));
       const reply = await inner(input, options);
       const body = await reply.json();
       const nodes = new URL(url).searchParams.get('nodes');
@@ -825,49 +834,48 @@ _SLOW_AND_COUNTED = """(() => {
 })();"""
 
 
-def test_ticks_slower_than_the_pause_ask_one_table_at_a_time(open_data):
-    """If this fails, ticks more than 250 ms apart each start a whole table while the
-    engine still computes the last (#1305). Measured on 17,811 contractors, the newest
-    then missed its 5 s deadline behind requests the page had already thrown away."""
-    page = open_data(taxonomy=TAXONOMY, before=_SLOW_AND_COUNTED)
+def test_one_table_is_asked_at_a_time_and_the_newest_choice_when_it_lands(open_data):
+    """If this fails, the page asks the engine for a new table while it still computes
+    the last (#1305). Measured on 17,811 contractors, ticks more than 250 ms apart then
+    left the newest request past its 5 s deadline, behind requests the page had
+    already thrown away. Or it drops the choice made while a table was on its way, or
+    lets that out-of-date table's count onto the status line, or asks again when
+    nothing moved."""
+    page = open_data(taxonomy=TAXONOMY, before=_HELD)
+
+    def narrowed():
+        # Counted as they are asked, not as the stub answers them: a held one has not
+        # reached the stub yet.
+        return [url for url in page.evaluate("window.__TABLES__") if "nodes=" in url]
+
     page.locator("#data-activities-toggle").click()
-    for node in ("1", "11", "14"):
+
+    # Three ticks, each past the pause, while the first narrowed table is held.
+    page.locator("#data-activities-tree input[value='1']").check()
+    page.wait_for_function("window.__HELD__.length === 1", timeout=5_000)
+    for node in ("11", "14"):
         page.locator(f"#data-activities-tree input[value='{node}']").check()
-        page.wait_for_timeout(350)
+        page.wait_for_timeout(400)
+        assert len(narrowed()) == 1, narrowed()
+    assert page.locator("#data-summary").inner_text() == "Filtering SAMEHGABRIEL by 3 activities…"
+
+    # The first answer lands, out of date: it says nothing, and the newest choice is asked.
+    heard = len(page.evaluate("window.__SAID__"))
+    page.evaluate("window.__release__()")
+    page.wait_for_function("window.__HELD__.length === 1", timeout=5_000)
+    assert len(narrowed()) == 2 and narrowed()[-1].endswith("?nodes=1,11,14&nodes_mode=any"), narrowed()
+    said = page.evaluate("window.__SAID__")[heard:]
+    assert not [line for line in said if "chosen" in line], said
+
+    # Reload while that one is on its way: nothing moved, so nothing more is asked.
+    page.locator("#data-reload").click()
+    page.evaluate("window.__release__()")
     page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
     page.wait_for_timeout(400)
-    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
-
-    narrowed = [url for url in _table_asks(page) if "nodes=" in url]
-    assert page.evaluate("window.__MOST_OPEN__") == 1, page.evaluate("window.__MOST_OPEN__")
-    assert len(narrowed) == 2, narrowed
-    assert narrowed[-1].endswith("?nodes=1,11,14&nodes_mode=any"), narrowed
-    said = page.evaluate("window.__SAID__")
-    assert said[-1] == "2 of 17,811 rows · 3 activities chosen, matching any of them", said
-    # The first answer arrived after the third tick, out of date, and said nothing:
-    # no line after the third tick names fewer activities.
-    third = max(i for i, line in enumerate(said) if "by 3 activities" in line)
-    stale = [line for line in said[third:] if "1 activity" in line or "2 activities" in line]
-    assert stale == [], said
-
-
-def test_a_choice_made_while_a_table_is_on_its_way_is_asked_for_when_it_lands(open_data):
-    """If this fails, a tick whose pause ends while a table is still on its way is
-    dropped: the grid keeps the rows of the earlier choice under a line that names the
-    newer one, and nothing asks again."""
-    page = open_data(taxonomy=TAXONOMY, before=_SLOW_AND_COUNTED)
-    page.locator("#data-activities-toggle").click()
-    page.locator("#data-activities-tree input[value='1']").check()
-    page.wait_for_timeout(350)
-    page.locator("#data-activities-tree input[value='11']").check()
-    page.wait_for_timeout(1800)
-    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
-
-    narrowed = [url for url in _table_asks(page) if "nodes=" in url]
-    assert len(narrowed) == 2 and narrowed[-1].endswith("?nodes=1,11&nodes_mode=any"), narrowed
+    assert len(narrowed()) == 2, narrowed()
     assert page.evaluate("window.__MOST_OPEN__") == 1
     assert page.locator("#data-summary").inner_text() == (
-        "2 of 17,811 rows · 2 activities chosen, matching any of them")
+        "2 of 17,811 rows · 3 activities chosen, matching any of them")
 
 # ---- the harness itself (#1198) ---------------------------------------------------------
 #
