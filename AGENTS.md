@@ -113,9 +113,11 @@ work; `vacancies` and `tenders` are named, unbuilt.
   `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
   run the JS suites `pytest` never reaches; there is no `package.json`, and the extension
   ships one vendored library (`extension/vendor/tabulator.min.js`) — add no second.
-- **A local green ran no browser test.** The `importorskip("playwright")` suites report
-  *skipped* until `pip install -e .[dev,browser]` and `python -m playwright install
-  chromium`.
+- **Python is `.python-version`'s — the newest stable CPython, adopted once the suite, every
+  wheel and PyInstaller pass on it.** CI, the release build, `requires-python` and ruff follow
+  it (`tests/test_one_python_version.py`). A local green ran no browser test: the
+  `importorskip("playwright")` suites report *skipped* until `pip install -e .[dev,browser]`
+  and `python -m playwright install chromium`.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
 - **Respect the politeness budget.** A crawl that hammers a site is a defect, and
   `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source

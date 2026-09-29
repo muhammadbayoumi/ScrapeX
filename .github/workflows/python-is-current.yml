@@ -1,0 +1,57 @@
+name: The engine's Python is the newest stable one
+
+# HIS RULE, 2026-09-29: the engine is always upgraded to the newest Python. A rule nobody
+# is reminded of is a promise, so once a week this asks actions/setup-python for the
+# newest stable CPython ("3.x" resolves to it, prereleases excluded) and compares it
+# with `.python-version`, the one file every other workflow reads its version from
+# (tests/test_one_python_version.py holds them to it).
+#
+# When a newer one exists it OPENS AN ISSUE — once, not every week — because an issue is
+# on the board he reads, where a red scheduled run is only an email. It does not move the
+# pin itself: a new CPython is adopted in a pull request, after the suite and the
+# PyInstaller build pass on it, since a x.0 release can ship before its wheels do.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  newest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: newest-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Compare with .python-version, and record a newer one as an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned=$(tr -d '\r\n ' < .python-version)
+          newest=$(python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')
+          echo "pinned: $pinned   newest stable: $newest"
+          if [ "$(printf '%s\n%s\n' "$pinned" "$newest" | sort -V | tail -n1)" = "$pinned" ]; then
+            echo "The engine is on the newest stable Python."
+            exit 0
+          fi
+          title="Python $newest is out and the engine is on $pinned"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length')
+          if [ "$open" != "0" ]; then
+            echo "Already recorded: $title"
+            exit 0
+          fi
+          body=$(printf '%s\n' \
+            "Opened by \`.github/workflows/python-is-current.yml\`: \`actions/setup-python\` resolves \`3.x\` to **$newest**, and \`.python-version\` says **$pinned**." \
+            "" \
+            "The rule is that the engine is always upgraded. The move is one line — \`.python-version\` — plus \`requires-python\` and ruff's \`target-version\` in \`pyproject.toml\`, which \`tests/test_one_python_version.py\` will name if they are missed." \
+            "" \
+            "Before it merges: the full suite passes on $newest, every dependency installs on it, and \`packaging/build_engine.py\` builds the engine with PyInstaller on it. A x.0 release can arrive before its wheels do; if one is missing, say which here and wait for it rather than pinning around it.")
+          gh issue create --title "$title" --body "$body"

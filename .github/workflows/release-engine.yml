@@ -99,7 +99,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: The tag and the version must be the same number
         # THE CHECK THAT MATTERS MOST HERE, and it runs before anything is

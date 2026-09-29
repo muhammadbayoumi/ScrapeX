@@ -8,7 +8,7 @@ name = "scrapex"
 # to ask. tests/test_version.py reads this line back and fails when they drift.
 version = "0.4.25"
 description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite warehouse. Categories: products, contractors"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     # `[http2]` pulls in `h2`. WHY IT IS NOT OPTIONAL: the crawl presents itself
     # as Chrome (connectors/base.browser_headers), and Chrome has spoken HTTP/2
@@ -30,10 +30,10 @@ dependencies = [
     # docs/STORAGE.md and scrapex/snapshotbody.py.
     #
     # NOT `compression.zstd`, which is the same library in the 3.14 standard
-    # library: requires-python is >=3.12 and CI runs 3.12, so importing it
-    # broke the package outright. This wheel behaves the same on 3.12, 3.13
-    # and 3.14, which also means a page compressed on one of the owner's two
-    # machines can be read on the other.
+    # library: it was chosen while requires-python was >=3.12 and CI ran 3.12,
+    # where importing it broke the package outright. The floor is 3.14 now, so
+    # the stdlib module would import; moving waits on explaining why this
+    # wheel measured 254x where the stdlib gave 187x (#1262).
     "zstandard>=0.22",
 ]
 
@@ -107,7 +107,7 @@ markers = [
 # 33,382 exceed 100. A limit the code already respects stops drift; one it does
 # not turns every future diff into a reformat argument.
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 # CHOSEN, not maximal. `--select ALL` reports 960 findings here and almost none

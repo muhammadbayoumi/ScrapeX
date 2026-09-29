@@ -190,7 +190,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
       - name: The promises must still be true of what ships
         # PUBLISHING IS NOT COPYING. This is the file that says which scopes the
