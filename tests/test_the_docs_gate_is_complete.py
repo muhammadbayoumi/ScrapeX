@@ -128,10 +128,17 @@ def test_every_test_file_that_reads_a_document_carries_the_mark():
 
 
 def test_the_reader_tells_a_document_from_a_scratch_file():
-    """The exactness above is a claim, so it is pinned both ways."""
+    """The exactness above is a claim, so it is pinned both ways -- and each way the
+    reader can see a document is pinned on its own, because a case both halves catch
+    lets either half go blind with every test here still green."""
     documents = _documents()
     assert reads_a_document('(ROOT / "docs" / "UI-KIT.md").read_text()', documents)
     assert reads_a_document('DOCUMENTS = ("CLAUDE.md", "README.md")', documents)
+    # The join alone. An f-string name is invisible to the quoted-name half, and
+    # tests/test_the_two_release_paths.py reads its documents exactly this way.
+    assert reads_a_document('(ROOT / "docs" / f"{doc}.md").is_file()', documents)
+    # A document that exists only under .claude/, so the set must include that tree.
+    assert reads_a_document('".claude/skills/review/SKILL.md"', documents)
     assert not reads_a_document('(tmp_path / "MEMORY.md").write_text("x")', documents)
     assert not reads_a_document('_write(was, "docs/a.md", "x")', documents)
 
