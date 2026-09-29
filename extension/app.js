@@ -4201,6 +4201,13 @@ let enginePollRunning = false;
 // The engine-side download was already protected -- `report.phase` says
 // "downloading" and the busy branch reads it. This is the same protection for
 // the half the engine knows nothing about.
+//
+// SET ON ONE PATH AND RELEASED ON EVERY WAY OUT: the `download()` rejection,
+// `finish` on complete or interrupted, and a record Chrome stops listing or
+// stops answering about for `INSTALLER_SEARCH_MISSES` ticks. A paused download
+// is deliberately NOT a way out -- it resumes from Chrome, and releasing on it
+// would allow a second fetch beside it. A flag that outlives its work is a
+// permanently dead button, which is worse than the duplicate it prevents.
 let installerDownloadRunning = false;
 
 async function pollEngineUpdate() {
@@ -4418,6 +4425,32 @@ async function updateEngineReleaseUI(panelLatest) {
   // above it argues.
   const staged = Boolean(report && report.phase === "staged"
     && report.staged_version === latest.version);
+
+  // A BROWSER-SIDE INSTALL IN FLIGHT OWNS THE BUTTON, and this check has to come
+  // before EVERY branch that writes it -- which is where the first version of it
+  // was not. It sat below the engine branch, so a render that found the engine
+  // able to take the work re-armed the button onto `startEngineUpdate`: a
+  // DIFFERENT downloader, which the engine's own `running` flag cannot
+  // deduplicate. Reachable with no timing luck: engine installed but stopped,
+  // press Download, start the engine, come back. Measured 2 x 73,400,320 bytes
+  // for one update.
+  //
+  // IT PROTECTS `disabled` AND `onclick`, NOT THE LABEL. `paintEngineRelease`
+  // ran above and rewrote the label; the download's own interval puts it back
+  // within 400 ms. Saying the guard keeps "the button as it is" was not true of
+  // the label, and a comment that overstates its guard is how the next reader
+  // trusts one that is not there.
+  //
+  // AND THE STEPS ARE WRITTEN HERE, because this return skips the only other
+  // line that un-hides them. Opening a candidate hides `#engine-install-steps`;
+  // coming back to ScrapeX mid-download used to leave them hidden for the rest
+  // of it, so he watched the installer arrive with the instructions for what to
+  // do with it -- and its SHA-256 -- gone from the screen.
+  if (installerDownloadRunning) {
+    steps.classList.toggle("hidden", !theInstalledEngineIsOnScreen());
+    return;
+  }
+
   if (engineCanTakeIt || busy || staged) {
     $("engine-download-label").textContent =
       busy ? "Downloading…"
@@ -4435,14 +4468,6 @@ async function updateEngineReleaseUI(panelLatest) {
     return;
   }
 
-  // A BROWSER-SIDE INSTALL IN FLIGHT KEEPS THE BUTTON AS IT IS. Any re-render
-  // used to re-arm it mid-download -- and the reopen path made that reachable
-  // with no timing luck at all: first install, no engine, so the repaint is
-  // microtasks rather than network. Press Download, go back, reopen, and the
-  // button was enabled again; pressing it started a second ~70 MB fetch of the
-  // same file, landing as `scrapex-engine (1).exe`, with two intervals then
-  // writing one label.
-  if (installerDownloadRunning) return;
 
   // THE ENGINE ALREADY JUDGED THIS FILE, and until now the panel threw the
   // verdict away. `Installer.verifiable` is false when the digest is missing or
@@ -4507,6 +4532,12 @@ async function updateEngineReleaseUI(panelLatest) {
 // panel is loaded in a plain page by the DOM tests, and a first install failing
 // because a permission was declined is exactly when the old behaviour is worth
 // having.
+// TEN TICKS OF THE 400 ms INTERVAL BELOW, so four seconds of Chrome not
+// listing the download or not answering. Long enough that the brief gap after
+// `download()` resolves cannot trip it; short enough that a download erased
+// from Chrome's history gives the button back in the time it takes to notice.
+const INSTALLER_SEARCH_MISSES = 10;
+
 async function startInstallerDownload(installer) {
   const steps = $("engine-install-steps");
   const label = $("engine-download-label");
@@ -4550,15 +4581,58 @@ async function startInstallerDownload(installer) {
     label.textContent = text;
     button.disabled = false;
   };
+  // THREE PATHS USED TO RETURN WITHOUT RELEASING ANYTHING: `search` rejecting,
+  // the record missing, and `in_progress` -- which is also what Chrome reports
+  // for a PAUSED download. The interval ran forever (measured: 15 `search()`
+  // calls in 6 s, 29 by 11 s) and the flag stayed set, so every later render
+  // returned before writing the button: the only control on the first-install
+  // screen was dead for the life of the panel, under a label frozen at a
+  // percentage that was no longer moving.
+  //
+  // A MISS IS NOT A VERDICT, SO IT IS COUNTED. The record can be briefly absent
+  // just after `download()` resolves, and one rejected `search` is not a
+  // download that has gone. `INSTALLER_SEARCH_MISSES` in a row is; the button
+  // then comes back with a sentence naming which of the two it was.
+  let misses = 0;
+  let lastMissWasAnError = false;
   const poll = setInterval(async () => {
     let item;
     try {
       [item] = await chrome.downloads.search({ id });
-    } catch (_) { return; }
-    if (!item) return;
+      lastMissWasAnError = false;
+    } catch (_) {
+      // Counted rather than reported on the spot, for the reason above; it
+      // becomes a visible sentence when the count runs out, and says it was
+      // Chrome not answering rather than the download being gone.
+      item = undefined;
+      lastMissWasAnError = true;
+    }
+    if (!item) {
+      misses += 1;
+      if (misses < INSTALLER_SEARCH_MISSES) return;
+      clearInterval(poll);
+      finish(lastMissWasAnError
+        ? "Chrome did not answer — press to retry"
+        : "Download no longer listed — press to retry");
+      button.onclick = () => startInstallerDownload(installer);
+      return;
+    }
+    misses = 0;
     if (item.state === "in_progress") {
       const total = item.totalBytes || installer.bytes || 0;
       const percent = total > 0 ? Math.floor((item.bytesReceived / total) * 100) : 0;
+      // PAUSED IS NOT TERMINAL, and releasing on it would be the defect again.
+      // A paused download resumes from Chrome's own bar; re-arming the button
+      // here would let a second press start a SECOND fetch beside one that is
+      // only waiting. So the watching continues and the button stays held --
+      // and the label says why, which is the part that was missing: a frozen
+      // "Downloading 42%" is a false record of a download nobody is moving.
+      if (item.paused) {
+        label.textContent = total > 0
+          ? `Paused at ${percent}% — resume in Chrome`
+          : "Paused — resume in Chrome";
+        return;
+      }
       label.textContent = total > 0 ? `Downloading ${percent}%` : "Downloading…";
       return;
     }

@@ -3887,6 +3887,27 @@
     flex: 1;
   }
 
+  /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
+     `.engine-action-row > span` already makes for the rows above. `button` sets
+     `white-space: nowrap` (components.css), so a label longer than its button
+     overflowed ON TOP OF THE ONE BESIDE IT. Measured at a 360px panel: the
+     Download button is 122px wide, "Download failed — NETWORK_FAILED" ran to
+     x=316, and `#engine-recheck` starts at x=148 with its centre at x=218 -- so
+     pressing Check again pressed Download, and started another 70 MB fetch.
+     The installer download writes its reason into this label on purpose, so
+     the reason has to fit rather than be cut off: wrapped, not ellipsised.
+
+     `overflow-wrap: anywhere` BECAUSE THE REASON IS ONE TOKEN. Chrome's reasons
+     are codes -- `NETWORK_FAILED`, `SERVER_FORBIDDEN` -- with no space to break
+     at, so `white-space: normal` alone left "Download failed — NETWORK_FAILED"
+     43px wider than its button, still over the left of Check again. */
+  .engine-detail-actions > button > span {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+
   /* Under 22rem the two actions stack, each to the full width. The primary is
      named a second time because `.engine-detail-actions > .engine-action-primary`
      is (0,2,0) and would otherwise out-specify a `> button` rule inside this
