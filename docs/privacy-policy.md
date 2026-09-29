@@ -1,6 +1,6 @@
 # ScrapeX — Privacy Policy
 
-*Last updated: 13 August 2026*
+*Last updated: 29 September 2026*
 
 ScrapeX is a Chrome extension and a companion program, **ScrapeX-Engine**, that
 run on your own computer. This policy describes every piece of data either of
@@ -35,6 +35,7 @@ your email address. The extension contains no telemetry of any kind.
 | The address of your local engine — `127.0.0.1:8000` unless you change it | The same | You |
 | The spreadsheet you chose for exports — its name, its link, and Google's id for it | The same | You |
 | The spreadsheet holding your Excel add-in's configuration, if you open the Console — its name and id | The same | You |
+| How each source's table is arranged on the Data page — visible features, grouping, nesting, English or Arabic names, rows per product and column widths | This browser's storage for the extension | You |
 
 Nothing in that table leaves your computer unless you press a button that says
 it will.
@@ -92,6 +93,8 @@ the name on your account.
 | `www.googleapis.com/drive/v3` | Finding, listing and downloading your backups. **Only files ScrapeX itself made.** The permission it holds is Google's `drive.file`, which grants access to files an app created and to files you hand it yourself — never to the rest of your Drive. ScrapeX cannot see, list or open a document it did not create, and no setting inside ScrapeX can change that: it is a limit Google enforces, not a promise ScrapeX keeps. |
 | `www.googleapis.com/upload/drive/v3` | Sending a backup up. The upload is resumable and reports its progress, which is why it is a separate address from the one above. |
 | `sheets.googleapis.com/v4` | Writing your exported rows into a spreadsheet. The same `drive.file` limit applies: a spreadsheet ScrapeX made, or one you chose for it, and no other. ScrapeX does **not** hold Google's `spreadsheets` permission — the one that would let an app read and edit every spreadsheet you own. |
+
+When you open a record, its pictures load from the address the site published them at.
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is
 your own computer.

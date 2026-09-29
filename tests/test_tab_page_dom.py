@@ -63,15 +63,25 @@ def browser():
             instance.close()
 
 
+#: What a page looks like once its first load has come to something.
+SETTLED = """() => {
+  const note = document.getElementById('grid-note');
+  return document.querySelector('.tabulator-row')
+    || document.getElementById('data-blocked').textContent.trim()
+    || (note && !note.hidden && !/Loading/.test(note.textContent));
+}"""
+
+
 @pytest.fixture()
 def open_data(browser, tmp_path):
     """Open the Data page against a stubbed engine and return the live page."""
     pages = []
 
-    def opener(payload=None, *, source="SAMEHGABRIEL", **stub_kwargs):
+    def opener(payload=None, *, source="SAMEHGABRIEL", query="", before="", **stub_kwargs):
+        # `before` runs after the stub and before any of the page's scripts.
         page_file = harness.build_data_page(
             tmp_path,
-            harness.stub(PAYLOAD if payload is None else payload, **stub_kwargs),
+            harness.stub(PAYLOAD if payload is None else payload, **stub_kwargs) + before,
             name=f"data{len(pages)}.html")
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         errors: list[str] = []
@@ -91,8 +101,12 @@ def open_data(browser, tmp_path):
         page.route("**/*", fence)
         # The source rides in the address, exactly as it does when the panel
         # opens this page. A file:// URL carries a query string fine.
-        page.goto(page_file.as_uri() + (f"?source={source}" if source else ""))
-        page.wait_for_timeout(600)
+        page.goto(page_file.as_uri() + (f"?source={source}" if source else "") + query)
+        # SETTLED, NOT TIMED: a drawn row, the page's own red line, or the grid's
+        # note once it says more than that it is loading. The taxonomy is asked
+        # beside the table, so its answer is given the same chance to land.
+        page.wait_for_function(SETTLED, timeout=10_000)
+        page.wait_for_timeout(100)
         page.js_errors = errors
         page.fenced = fenced
         pages.append(page)
@@ -113,11 +127,11 @@ def test_the_first_load_paints(open_data):
     against will always abort itself, and only a rendered page can tell."""
     page = open_data()
 
-    assert page.locator("#data-summary").inner_text() != "Reading…", (
+    assert page.locator(".tabulator-row").count() == 2, (
         "the page never got past its own freshness guard — this is the defect "
         "of 2026-08-15, where the generation was read before backendBase() had "
         "resolved the address that creates it")
-    assert page.locator(".tabulator-row").count() == 2
+    assert page.locator("#data-blocked").inner_text() == ""
     assert page.js_errors == [], f"the page threw: {page.js_errors}"
 
 
@@ -125,9 +139,15 @@ def test_it_draws_the_payload_it_was_given(open_data):
     page = open_data()
 
     assert page.locator("#data-source").inner_text() == "SAMEHGABRIEL"
-    assert page.locator("#data-summary").inner_text() == "2 rows · bilingual"
+    assert page.title() == "SAMEHGABRIEL — ScrapeX"
+    # Inside the closed Grid Features menu, so read as text rather than as seen.
+    assert page.locator("#data-features-scope").text_content() == "Saved for SAMEHGABRIEL"
+    # The grid's own row-selection column comes first, and has no title.
     assert [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()] \
-        == ["Product name (AR)", "Price", "Currency"]
+        == ["", "Product name (AR)", "Price", "Currency"]
+    # Nothing narrowed this table, so the status line has nothing to say; the row
+    # count is in the grid's own footer.
+    assert page.locator("#data-summary").inner_text() == ""
 
 
 #: What `/api/table/contractors` really answers, trimmed to three columns. Taken
@@ -169,13 +189,13 @@ def test_it_draws_a_dataset_and_not_only_a_price_table(open_data):
 
     assert page.js_errors == [], f"the page threw on a dataset: {page.js_errors}"
     assert page.locator("#data-source").inner_text() == "contractors"
-    assert page.locator("#data-summary").inner_text() != "Reading…"
     assert page.locator(".tabulator-row").count() == 2, (
         "the dataset's rows did not reach the grid")
     assert [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()] \
-        == ["Contractor id", "Company name", "Membership level"]
+        == ["", "Contractor id", "Company name", "Membership level"]
     # The Arabic value arrives as text, in a grid whose column labels are English.
-    assert "شركة المقاولات" in page.locator(".tabulator-cell").all_inner_texts()[1]
+    names = page.locator(".tabulator-cell[tabulator-field=company_name]").all_inner_texts()
+    assert "شركة المقاولات" in names[0], names
 
 
 def test_scraped_text_reaches_the_screen_as_TEXT(open_data):
@@ -185,19 +205,22 @@ def test_scraped_text_reaches_the_screen_as_TEXT(open_data):
         {"offer_id": 1, "product_name_ar": "<img src=x onerror=alert(1)>",
          "price": "1", "currency": "EGP"}]}
     page = open_data(hostile)
+    cell = page.locator(".tabulator-cell[tabulator-field=product_name_ar]").first
 
-    assert page.locator("#data-grid img").count() == 0, (
+    assert cell.locator("img").count() == 0, (
         "a product name became an element — the grid is interpreting markup")
-    assert "<img" in page.locator(".tabulator-cell").first.inner_text()
+    assert "<img" in cell.inner_text()
+    assert page.js_errors == [], page.js_errors
 
 
 def test_arabic_keeps_its_own_direction(open_data):
     """An Arabic name in a left-to-right table drags the punctuation around it
     unless the cell is isolated. The rule is stated in CSS; this is what proves
     it reaches the rendered cell."""
-    page = open_data()
+    page = open_data(DATASET_PAYLOAD, source="contractors")
     direction = page.evaluate(
-        "getComputedStyle(document.querySelector('.tabulator-cell')).unicodeBidi")
+        "getComputedStyle(document.querySelector('.tabulator-cell[tabulator-field=company_name]'))"
+        ".unicodeBidi")
     assert direction == "plaintext", f"cells render as {direction!r}"
 
 
@@ -205,18 +228,16 @@ def test_a_prefix_says_it_is_one(open_data):
     """The bound exists so a partial table is never read as a whole one."""
     page = open_data({**PAYLOAD, "total": 91234, "returned": 2, "truncated": True})
 
-    assert page.locator("#data-summary").inner_text().startswith("2 of 91234")
-    notice = page.locator("#data-truncated")
-    assert "PREFIX" in notice.inner_text()
-    assert "hidden" not in (notice.get_attribute("class") or "")
+    note = page.locator("#grid-note")
+    assert note.is_visible(), "a prefix was drawn with nothing saying it is one"
+    assert "Loaded 2 of 91,234" in note.inner_text(), note.inner_text()
 
 
-def test_a_source_with_nothing_to_fold_gets_a_switch_it_cannot_press(open_data):
-    page = open_data({**PAYLOAD, "foldable": False})
-
-    assert page.locator("#data-fold").is_disabled()
-    assert page.locator("#data-fold-label").inner_text() == \
-        "This source has no variants to fold"
+def test_the_fold_switch_is_the_grids_and_only_where_there_is_something_to_fold(open_data):
+    """One control decides one question: the grid's ALL|ONE, as on the engine's page,
+    drawn only for a source whose variants share a price."""
+    assert open_data({**PAYLOAD, "foldable": False}).locator("#grid-fold-toggle").count() == 0
+    assert open_data({**PAYLOAD, "foldable": True}).locator("#grid-fold-toggle").count() == 1
 
 
 def test_a_stopped_engine_is_named_rather_than_left_blank(open_data):
@@ -224,10 +245,22 @@ def test_a_stopped_engine_is_named_rather_than_left_blank(open_data):
     nothing sends them looking at the data for a fault that is in the engine."""
     page = open_data(fail="Failed to fetch")
 
-    blocked = page.locator("#data-blocked")
-    assert "hidden" not in (blocked.get_attribute("class") or "")
-    assert "engine" in blocked.inner_text().lower()
-    assert page.locator("#data-summary").inner_text() == ""
+    note = page.locator("#grid-note")
+    assert note.is_visible()
+    assert note.inner_text().startswith(
+        "Could not load the table: The engine did not answer: Failed to fetch."), note.inner_text()
+    assert "Run screen" in note.inner_text()
+    # ONE RED LINE, not two: the page's own stays for faults the grid cannot report.
+    assert page.locator("#data-blocked").inner_text() == ""
+
+
+def test_a_table_the_engine_does_not_have_is_not_called_a_stopped_engine(open_data):
+    """A 404 is an answer. Telling him to start an engine that answered sends him to
+    restart something that is running perfectly well."""
+    page = open_data(status=404, source="NOSUCH")
+
+    said = page.locator("#grid-note").inner_text()
+    assert said == "Could not load the table: The engine has no table named NOSUCH.", said
 
 
 #: `/api/taxonomy/{key}` as the engine really answers it, cut down to what a reader
@@ -302,7 +335,8 @@ def test_ticking_a_node_asks_the_engine_to_narrow_and_says_which_way(open_data):
     page = open_data(taxonomy=TAXONOMY)
     page.locator("#data-activities-toggle").click()
     page.locator("#data-activities-tree input[value='11']").check()
-    page.wait_for_timeout(300)
+    page.wait_for_function("window.__ASKED__.some((url) => url.includes('nodes=11'))",
+                           timeout=5_000)
 
     asked = page.evaluate("window.__ASKED__")
     narrowed = [one for one in asked if "nodes=11" in one]
@@ -333,6 +367,9 @@ def test_a_page_opened_with_no_source_asks_for_one(open_data):
     assert "needs a source" in page.locator("#data-blocked").inner_text()
     assert page.evaluate("window.__ASKED__.length") == 0, (
         "the page asked the engine for a table with no source key")
+    # Nor does it leave an empty frame, or a "Loading the table…" that never ends.
+    assert not page.locator("#data-frame").is_visible()
+    assert not page.locator("#grid-note").is_visible()
 
 
 def test_the_page_asks_for_the_source_it_was_opened_for(open_data):
@@ -341,6 +378,148 @@ def test_the_page_asks_for_the_source_it_was_opened_for(open_data):
 
     assert any("/api/table/ALSWEED" in url for url in asked), asked
 
+
+# ---- the page as the grid's host (#1198) ---------------------------------------
+#
+# grid.js draws the table; data.js tells it where the engine is, loads the table
+# for it with the page's site and activity selection, and asks it to refresh when
+# the selection changes. These hold data.js to that.
+
+def _table_asks(page) -> list[str]:
+    return [url for url in page.evaluate("window.__ASKED__") if "/api/table/" in url]
+
+
+def test_a_selection_in_the_address_is_the_first_table_asked(open_data):
+    """If this fails, a reload the grid starts (after Columns, Reset columns or a fold
+    change) would drop the activities he had ticked, because a reload keeps only the
+    address."""
+    page = open_data(taxonomy=TAXONOMY, query="&nodes=11,14&nodes_mode=all")
+
+    first = _table_asks(page)[0]
+    assert first.endswith("?nodes=11,14&nodes_mode=all"), first
+    assert page.locator("#data-activities-tree").is_visible(), (
+        "the tree stayed closed over a selection the address carries")
+    assert page.locator("#data-activities-tree input[value='11']").is_checked()
+    assert page.locator("#data-activities-tree input[value='14']").is_checked()
+    assert page.locator("#data-activities-mode").input_value() == "all"
+    assert "ALL" in page.locator("#data-activities-mode-label").inner_text()
+    assert page.locator("#data-activities-clear").is_visible()
+
+
+def test_a_tick_writes_the_address_and_adds_no_back_entry(open_data):
+    """If this fails, either the selection would not survive the grid's own reloads,
+    or every tick would leave one more page for Back to walk through."""
+    page = open_data(taxonomy=TAXONOMY)
+    before = page.evaluate("history.length")
+    page.locator("#data-activities-toggle").click()
+    page.locator("#data-activities-tree input[value='11']").check()
+
+    search = page.evaluate("location.search")
+    assert "source=SAMEHGABRIEL" in search and "nodes=11&nodes_mode=any" in search, search
+    assert page.evaluate("history.length") == before
+
+
+def test_quick_ticks_settle_into_one_table_request(open_data):
+    """If this fails, four ticks in a row cost four table requests, each redrawing the
+    grid, against a table the study measured at up to 2.61 s to its first byte."""
+    page = open_data(taxonomy=TAXONOMY)
+    page.locator("#data-activities-toggle").click()
+    for node in ("1", "11", "14"):
+        page.locator(f"#data-activities-tree input[value='{node}']").check()
+    page.wait_for_function("window.__ASKED__.some((url) => url.includes('nodes='))",
+                           timeout=5_000)
+    page.wait_for_timeout(500)
+
+    narrowed = [url for url in _table_asks(page) if "nodes=" in url]
+    assert narrowed == [narrowed[0]] and narrowed[0].endswith("?nodes=1,11,14&nodes_mode=any"), (
+        _table_asks(page))
+
+
+def test_the_status_line_says_what_the_filter_left(open_data):
+    """If this fails, the rows change under him and nothing says by how much, which is
+    how he once read a narrowed table as a dataset that had lost its rows."""
+    narrowed = {**DATASET_PAYLOAD, "population": 17811,
+                "filtered_by": {"nodes": [11], "mode": "any"}}
+    page = open_data(narrowed, source="contractors", taxonomy=TAXONOMY)
+    page.locator("#data-activities-toggle").click()
+    page.locator("#data-activities-tree input[value='11']").check()
+    page.wait_for_function(
+        "document.getElementById('data-summary').textContent.includes('of 17,811 rows')",
+        timeout=5_000)
+
+    assert page.locator("#data-summary").inner_text() == (
+        "2 of 17,811 rows · 1 activity chosen, matching any of them")
+    assert page.locator("[data-grid-viewport]").get_attribute("aria-busy") is None
+
+
+def test_a_refresh_that_fails_keeps_the_rows_and_says_so(open_data):
+    """If this fails, a filter the engine could not answer would empty the table, or
+    leave the old rows looking like the answer."""
+    page = open_data(taxonomy=TAXONOMY, fail_when="nodes=")
+    page.locator("#data-activities-toggle").click()
+    page.locator("#data-activities-tree input[value='11']").check()
+    page.wait_for_function(
+        "document.getElementById('data-summary').textContent.startsWith('Could not filter')",
+        timeout=5_000)
+
+    said = page.locator("#data-summary").inner_text()
+    assert said.startswith("Could not filter: The engine did not answer"), said
+    assert said.endswith("The rows below are the last answer drawn."), said
+    assert page.locator(".tabulator-row").count() == 2, "the failed refresh emptied the table"
+    assert page.js_errors == [], page.js_errors
+
+
+def test_clear_asks_at_once_and_takes_the_selection_out_of_the_address(open_data):
+    """If this fails, Clear would wait out the tick pause, or leave a selection in the
+    address that the next reload would put back."""
+    page = open_data(taxonomy=TAXONOMY, query="&nodes=11&nodes_mode=any")
+    asked = len(_table_asks(page))
+    page.locator("#data-activities-clear").click()
+
+    page.wait_for_function(f"window.__ASKED__.filter((url) => url.includes('/api/table/')).length > {asked}",
+                           timeout=1_000)
+    assert _table_asks(page)[-1].endswith("/api/table/SAMEHGABRIEL"), _table_asks(page)
+    assert "nodes" not in page.evaluate("location.search")
+    assert not page.locator("#data-activities-clear").is_visible()
+
+
+def test_reload_asks_the_engine_again_in_place(open_data):
+    """If this fails, the one control that shows a crawl's new rows without leaving the
+    tab does nothing."""
+    page = open_data()
+    asked = len(_table_asks(page))
+    page.locator("#data-reload").click()
+
+    page.wait_for_function(f"window.__ASKED__.filter((url) => url.includes('/api/table/')).length > {asked}",
+                           timeout=2_000)
+    page.wait_for_function("!document.querySelector('[data-grid-viewport]').hasAttribute('aria-busy')",
+                           timeout=2_000)
+    assert page.locator(".tabulator-row").count() == 2
+    assert page.locator("#data-summary").inner_text() == ""
+
+
+def test_excel_goes_to_the_engine_the_page_was_given(open_data):
+    """If this fails, the export would ask the extension for /export/…, which it does
+    not have, instead of the engine."""
+    page = open_data()
+    page.locator("[data-split-action=xlsx]").click()
+    page.wait_for_timeout(500)
+
+    assert page.fenced == [harness.BACKEND + "/export/SAMEHGABRIEL.xlsx"], page.fenced
+
+
+def test_a_missing_piece_of_the_grid_is_named_on_the_page(open_data):
+    """If this fails, a page whose split button, time zone, icons or library did not
+    load would draw no table and say nothing: grid.js returns silently or throws on
+    its first line."""
+    lose = ("Object.defineProperty(window, 'ScrapeXSplitButton', "
+            "{get() { return undefined; }, set() {}, configurable: true});")
+    page = open_data(before=lose)
+
+    said = page.locator("#data-blocked").inner_text()
+    assert said.startswith("The table cannot start: ScrapeXSplitButton did not load."), said
+    assert not _table_asks(page), "a table was asked for a grid that cannot start"
+    assert not page.locator("#grid-note").is_visible()
 
 # ---- the harness itself (#1198) ---------------------------------------------------------
 #
@@ -362,11 +541,19 @@ SHEET_EFFECTS = {
     "tokens.css":
         "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() !== ''",
     "components.css":
-        "getComputedStyle(document.getElementById('data-truncated')).display === 'none'",
+        "getComputedStyle(document.getElementById('data-blocked')).display === 'none'",
+    "data.css":
+        "getComputedStyle(document.querySelector('.tabulator-cell')).unicodeBidi === 'plaintext'",
+    "table-theme.css":
+        "getComputedStyle(document.documentElement).getPropertyValue('--table-radius').trim() !== ''",
     "vendor/tabulator.min.css":
         "getComputedStyle(document.querySelector('.tabulator')).position === 'relative'",
-    "data.css":
-        "getComputedStyle(document.querySelector('.data-head')).display === 'flex'",
+    "grid-theme.css":
+        "getComputedStyle(document.querySelector('.data-grid-frame'))"
+        ".getPropertyValue('--data-grid-height').trim() !== ''",
+    "data-workspace.css":
+        "getComputedStyle(document.querySelector('.data-workspace'))"
+        ".getPropertyValue('--data-canvas-width').trim() !== ''",
 }
 
 

@@ -260,8 +260,8 @@ export function statusTone(status) {
  *  module and strips the `import` lines, so a name that exists only as an ALIAS
  *  (`import { summarise as summariseJobs }`) is not defined in the harness at all --
  *  it threw inside `showView`, the page kept its placeholder, and the guard reported
- *  "0 of 4 jobs drawn". `datatable.js` already exports a `summarise` of its own, so
- *  the specific name is the better one regardless. */
+ *  "0 of 4 jobs drawn". `datatable.js` exported a `summarise` of its own until #1198,
+ *  and the specific name is the better one regardless. */
 export function summariseJobs(payload) {
   const jobs = (payload?.jobs || []).filter(Boolean);
   if (!jobs.length) return "No jobs yet. Start one from the Run screen.";

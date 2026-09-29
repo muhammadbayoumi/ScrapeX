@@ -60,14 +60,17 @@ def flatten(source: str) -> str:
 
 
 def stub(payload: dict | None = None, *, backend: str = BACKEND,
-         status: int = 200, fail: str = "", taxonomy: dict | None = None,
+         status: int = 200, fail: str = "", fail_when: str = "",
+         taxonomy: dict | None = None,
          fields: dict | None = None, promotable: dict | None = None,
          offer: dict | None = None) -> str:
     """The two things a plain browser tab cannot have: chrome, and an engine.
 
     `fail` makes the engine unreachable the way a stopped engine is — a rejected
     fetch rather than an HTTP error — because those reach the page by different
-    paths and the page says different things about them.
+    paths and the page says different things about them. `fail_when` does the
+    same to only the requests whose URL holds it, so a first table can be drawn
+    and a narrower one then refused.
 
     `taxonomy` ANSWERS A SECOND ROUTE, and until issue 543 there was only ever one.
     The Data page now asks `/api/taxonomy/{key}` as well, and a stub that answers
@@ -140,6 +143,9 @@ window.chrome = {{
       sessionStorage.setItem("__harness_requests__", JSON.stringify(window.__REQUESTS__));
     }} catch (err) {{ /* a log that cannot persist still lives on window */ }}
     if ({json.dumps(bool(fail))}) throw new TypeError({json.dumps(fail or "failed to fetch")});
+    if ({json.dumps(bool(fail_when))} && url.includes({json.dumps(fail_when)})) {{
+      throw new TypeError("failed to fetch");
+    }}
     if (!url.startsWith(BACKEND + "/")) {{
       throw new TypeError("the harness refuses a request that is not to the engine: " + url);
     }}
@@ -179,9 +185,10 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
     and every classic `<script src>` in data.html is copied beside the built page,
     keeping its relative path, and loads from there as it would in the extension;
     so is any script the page's modules add to themselves (`x.src = "grid.js"`).
-    A file the page names that does not exist fails HERE, by name. Only two things
-    are changed: the stub goes first in <head>, and the one module tag is replaced
-    by the flattened modules, because file:// refuses a module's imports.
+    A file the page names that does not exist fails HERE, by name. Only three things
+    are changed: the stub goes first in <head>; the one module tag is replaced by the
+    flattened modules, because file:// refuses a module's imports; and the icon
+    sprite is inlined, because file:// refuses a <use> into another file too.
     """
     html = (ext / "data.html").read_text(encoding="utf-8")
     modules = [flatten((ext / m).read_text(encoding="utf-8")) for m in DATA_PAGE_MODULES]
@@ -201,6 +208,21 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
         copy = tmp / relative
         copy.parent.mkdir(parents=True, exist_ok=True)
         copy.write_bytes(source.read_bytes())
+
+    # THE ONE REWRITE OF THE PAGE'S OWN MARKUP (#1198). file:// refuses a <use> into
+    # another file, and its error would land in __LOAD_FAILURES__, so the sprite the
+    # page names is inlined, hidden, and every <use> points at its symbols: ui.js is
+    # given an empty sprite path, which it reads as "the symbols in this page". A
+    # spelling of the sprite's path this does not know is left over, and fails here.
+    sprite_path = "icons/material-icons.svg"
+    if sprite_path in html:
+        sprite = (ext / sprite_path).read_text(encoding="utf-8")
+        html = html.replace(f'data-icon-sprite="{sprite_path}"', 'data-icon-sprite=""')
+        html = html.replace(f'href="{sprite_path}#', 'href="#')
+        assert sprite_path not in html, (
+            f"data.html names {sprite_path} in a way this harness does not rewrite")
+        assert html.count("<body>") == 1, "data.html must have exactly one <body>"
+        html = html.replace("<body>", "<body>\n" + sprite.replace("<svg ", "<svg hidden ", 1), 1)
 
     assert html.count("<head>") == 1, "data.html must have exactly one <head>"
     html = html.replace("<head>", f"<head>\n<script>{stub_js}</script>", 1)

@@ -72,13 +72,15 @@ ROOT = Path(__file__).resolve().parents[1]
 #: file of its own.
 READERS = (
     "scrapex/webui/static/grid.js",
-    "extension/datatable.js",
-    "extension/data.js",
     # THE FOURTH READER, and the file above predicted it: "moving a source page into
     # the extension adds readers rather than replacing one". It reads `population` and
     # `filtered_by` for issue 543's activity filter, and leaving it off this list would
     # have reported both keys as emitted-but-dead.
     "extension/taxonomyfilter.js",
+    # NOT extension/data.js OR extension/datatable.js, SINCE #1198. The Data page runs
+    # grid.js above and hands it the table whole, so neither reads a key of its own
+    # any more; `test_every_reader_actually_reads_the_payload` fails a listed file that
+    # reads none.
 )
 
 #: Both producers, and the function in each that builds the payload.
@@ -98,7 +100,13 @@ PRODUCERS = (
 #: that is a name collision, not a read of this key. Recorded rather than deleted:
 #: removing a key from the contract while a third producer is being written is two
 #: changes at once, and the owner's standing instruction is one step at a time.
-UNREAD_BY_EVERY_READER = frozenset({"source_key", "tree"})
+#:
+#: `folded` -- whether the engine folded this answer's variants. Its readers were the
+#: extension's own row summary and fold checkbox, both gone with #1198: grid.js
+#: decides folding from `fold_variants` and `foldable` and the reader's own ALL|ONE,
+#: and asks for `?fold=` itself. Recorded rather than deleted, for the same reason
+#: `tree` is.
+UNREAD_BY_EVERY_READER = frozenset({"source_key", "tree", "folded"})
 
 #: `payload.key` and `payload?.key`. Deliberately does NOT match `payload["key"]` --
 #: no reader uses it, and matching it would invite the belief that this regex sees

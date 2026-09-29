@@ -4,15 +4,20 @@
  * two-column grid with a column reserved for the side rail, and a full-width
  * page that loaded it would inherit a rail that is not there.
  *
- * The grid's own stylesheet is Tabulator's, vendored beside it. Everything below
- * is either the page around the grid, or the few places the library's defaults
- * have to be told about this product's tokens — never a colour literal. */
+ * THE GRID IS THE ENGINE'S (#1198), and so is its look: table-theme.css,
+ * grid-theme.css and data-workspace.css are generated copies of what the engine's
+ * /source/<key> page loads. This file sits where the engine page loads webui.css,
+ * ahead of them, and holds only what that page gets from webui.css and this one
+ * does not: the page around the grid, four shell rules, one direction rule and
+ * the activity filter. Tokens only — never a colour literal. */
 
 body {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  height: 100vh;
+  /* A minimum, not a height: the grid's viewport has a height of its own and the
+     record panel opens beneath it, so a fixed body would clip the page. */
+  min-height: 100vh;
   margin: 0;
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
   background: var(--bg);
@@ -22,93 +27,42 @@ body {
   line-height: 1.55;
 }
 
-.data-head {
+/* ---- What the engine page takes from webui.css -------------------------------
+   grid.js paints filter chips into `#grid-chips.answer` and writes `hint` lines,
+   and the export bar is a `.toolbar`. Unstyled, the chips run together and the
+   hint reads as body text. */
+
+.hint { color: var(--muted); font-size: var(--fs-sm); }
+/* After `.hint`, which would otherwise mask components.css's red. */
+.hint.err { color: var(--red); }
+
+.answer {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-3);
-  align-items: flex-end;
-  justify-content: space-between;
-}
-
-.data-title h1 {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xl);
-  font-weight: var(--fw-bold);
-}
-
-.data-title p { margin: var(--sp-1) 0 0; }
-
-.data-actions { align-items: center; gap: var(--sp-3); }
-
-.data-fold {
-  display: flex;
   gap: var(--sp-2);
   align-items: center;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-
-.data-fold input:disabled + span { opacity: .55; }
-
-/* The grid takes whatever is left. A fixed height would either waste a tall
-   screen or clip a short one, and this page is nothing but the table. */
-.data-grid {
-  flex: 1;
-  min-height: 0;
-}
-
-/* ---- Tabulator, told about this product's tokens --------------------------
-   The library ships its own palette. Left alone it renders a light-grey table
-   on a dark page — legible to nobody and, in the owner's own theme, wrong. */
-
-.tabulator {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
+  margin: var(--sp-2) 0 var(--sp-3);
   font-size: var(--fs-sm);
 }
 
-.tabulator .tabulator-header,
-.tabulator .tabulator-header .tabulator-col {
-  border-color: var(--line);
-  background: var(--surface-subtle);
-  color: var(--text);
-  font-weight: var(--fw-medium);
+.chip.pill {
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+  cursor: pointer;
 }
 
-.tabulator-row,
-.tabulator-row.tabulator-row-even {
-  border-color: var(--line);
-  background: var(--surface);
-  color: var(--text);
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: center;
 }
 
-.tabulator-row:hover { background: var(--surface-subtle); }
-
-/* SCRAPED TEXT DECIDES ITS OWN DIRECTION. An Arabic product name inside a
-   left-to-right table drags the punctuation and the numbers around it unless
-   the cell is isolated — the same rule the panel states for every content
-   span. */
-.tabulator-cell {
-  border-color: var(--line);
-  unicode-bidi: plaintext;
-}
-
-.tabulator .tabulator-footer {
-  border-color: var(--line);
-  background: var(--surface-subtle);
-  color: var(--muted);
-}
-
-.tabulator .tabulator-footer .tabulator-page {
-  border-color: var(--line);
-  background: var(--surface);
-  color: var(--text);
-}
-
-.tabulator .tabulator-footer .tabulator-page.active { color: var(--accent-ink); }
+/* SCRAPED TEXT DECIDES ITS OWN DIRECTION. An Arabic name inside a left-to-right
+   table drags the punctuation and the numbers around it unless the cell is
+   isolated. grid.js isolates the product name and the variant itself; a
+   dataset's Arabic columns, such as a company's name, have only this. */
+.tabulator-cell { unicode-bidi: plaintext; }
 
 /* THE ACTIVITY FILTER — issue 543. Tokens only: this page renders in whichever
    theme and palette he has chosen, and a literal colour here would be the one
