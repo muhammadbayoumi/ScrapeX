@@ -18,8 +18,11 @@ browser, in extension/tests/datatable.test.mjs.
 """
 from __future__ import annotations
 
+import inspect
+import socket
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -73,11 +76,25 @@ def open_data(browser, tmp_path):
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        # THE FENCE (#1264). The stub answers `fetch` alone. Anything else that
+        # leaves the built page (a navigation, a link, an image) is aborted here
+        # and recorded, so no test can reach an engine running on this machine.
+        fenced: list[str] = []
+
+        def fence(route):
+            if route.request.url.startswith("file:"):
+                route.continue_()
+            else:
+                fenced.append(route.request.url)
+                route.abort()
+
+        page.route("**/*", fence)
         # The source rides in the address, exactly as it does when the panel
         # opens this page. A file:// URL carries a query string fine.
         page.goto(page_file.as_uri() + (f"?source={source}" if source else ""))
         page.wait_for_timeout(600)
         page.js_errors = errors
+        page.fenced = fenced
         pages.append(page)
         return page
 
@@ -383,21 +400,21 @@ def test_the_stub_answers_only_the_engine(open_data):
     page = open_data(fields={"fields": [{"field_key": "price"}]},
                      promotable={"attributes": [{"key": "brand"}]},
                      offer={"offer_id": 7})
-    seen = page.evaluate("""async () => {
+    seen = page.evaluate("""async (base) => {
         const out = {};
         try { await fetch("https://example.com/api/table/X"); out.off = "answered"; }
         catch (err) { out.off = String(err.message); }
         try { await fetch("/api/table/X"); out.own = "answered"; }
         catch (err) { out.own = String(err.message); }
-        out.unknown = (await fetch("http://127.0.0.1:8000/api/nothing/X")).status;
+        out.unknown = (await fetch(base + "/api/nothing/X")).status;
         for (const [name, path] of [["fields", "/api/fields/X"],
                                     ["promotable", "/api/promotable/X"],
                                     ["offer", "/api/offer/X/1"]]) {
-            const reply = await fetch("http://127.0.0.1:8000" + path);
+            const reply = await fetch(base + path);
             out[name] = [reply.status, await reply.json()];
         }
         return out;
-    }""")
+    }""", harness.BACKEND)
     assert seen["off"].startswith("the harness refuses a request that is not to the engine")
     assert seen["own"].startswith("the harness refuses a request that is not to the engine")
     assert seen["unknown"] == 404
@@ -411,17 +428,17 @@ def test_a_route_left_unset_answers_its_own_empty_shape(open_data):
     table, and a control that reads it hides itself while its guards pass against a
     control that was never drawn."""
     page = open_data()
-    seen = page.evaluate("""async () => {
+    seen = page.evaluate("""async (base) => {
         const out = {};
         for (const [name, path] of [["taxonomy", "/api/taxonomy/X"],
                                     ["fields", "/api/fields/X"],
                                     ["promotable", "/api/promotable/X"],
                                     ["offer", "/api/offer/X/1"]]) {
-            const reply = await fetch("http://127.0.0.1:8000" + path);
+            const reply = await fetch(base + path);
             out[name] = [reply.status, await reply.json()];
         }
         return out;
-    }""")
+    }""", harness.BACKEND)
     assert seen == {"taxonomy": [200, {"groups": []}], "fields": [200, {"fields": []}],
                     "promotable": [200, {"attributes": []}], "offer": [200, {}]}, seen
 
@@ -430,14 +447,44 @@ def test_the_request_log_survives_a_reload(open_data):
     """If this fails, a test that saves a column (after which the grid reloads the page)
     could no longer read what was posted before the reload."""
     page = open_data()
-    page.evaluate("""() => fetch("http://127.0.0.1:8000/api/fields/SAMEHGABRIEL",
-        {method: "POST", body: JSON.stringify({field_key: "price", hidden: true})})""")
+    page.evaluate("""(base) => fetch(base + "/api/fields/SAMEHGABRIEL",
+        {method: "POST", body: JSON.stringify({field_key: "price", hidden: true})})""",
+                  harness.BACKEND)
     page.reload()
     page.wait_for_timeout(600)
     posted = [r for r in page.evaluate("window.__REQUESTS__") if r["method"] == "POST"]
     assert posted == [{"method": "POST",
-                       "url": "http://127.0.0.1:8000/api/fields/SAMEHGABRIEL",
+                       "url": harness.BACKEND + "/api/fields/SAMEHGABRIEL",
                        "body": '{"field_key":"price","hidden":true}'}], posted
+
+
+def test_nothing_but_a_fetch_leaves_the_page(open_data):
+    """If this fails, a test that clicks Excel or a record's link, or draws a picture,
+    would send that request to whatever listens on the harness's engine address."""
+    page = open_data()
+    export = harness.BACKEND + "/export/SAMEHGABRIEL.xlsx"
+    picture = "https://example.com/picture.png"
+    page.evaluate("""(url) => {
+        const img = document.createElement("img");
+        img.src = url;
+        document.body.append(img);
+    }""", picture)
+    page.evaluate("(url) => { window.location = url; }", export)
+    page.wait_for_timeout(600)
+    assert export in page.fenced, page.fenced
+    assert picture in page.fenced, page.fenced
+
+
+def test_nothing_listens_at_the_harness_engine_address():
+    """If this fails, the stub's default engine address is one something answers on
+    (before #1264 it was the owner's own engine), so a request the fence misses would
+    reach it."""
+    address = urlsplit(harness.BACKEND)
+    assert inspect.signature(harness.stub).parameters["backend"].default == harness.BACKEND
+    with socket.socket() as probe:
+        probe.settimeout(2)
+        assert probe.connect_ex((address.hostname, address.port)) != 0, (
+            f"something answers at {harness.BACKEND}")
 
 
 def _fake_extension(root: Path, *, data_js: str = "", extra_head: str = "") -> Path:
