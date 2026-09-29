@@ -467,7 +467,10 @@ def test_nothing_but_a_fetch_leaves_the_page(open_data):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(4)
-    listener.settimeout(2)
+    # Never blocking: the fence is a route handler, and Playwright runs it only while
+    # this thread is inside a Playwright call, so a blocking accept would hold every
+    # request unanswered and prove nothing.
+    listener.setblocking(False)
     target = f"http://127.0.0.1:{listener.getsockname()[1]}"
     picture, export = target + "/picture.png", target + "/export/SAMEHGABRIEL.xlsx"
     reached = False
@@ -479,13 +482,15 @@ def test_nothing_but_a_fetch_leaves_the_page(open_data):
             document.body.append(img);
         }""", picture)
         page.evaluate("(url) => { window.location = url; }", export)
-        try:
-            connection, _ = listener.accept()
-        except TimeoutError:
-            pass
-        else:
+        for _ in range(20):
+            page.wait_for_timeout(100)
+            try:
+                connection, _ = listener.accept()
+            except BlockingIOError:
+                continue
             reached = True
             connection.close()
+            break
     finally:
         listener.close()
     assert not reached, "a request left the page and reached the listener"
