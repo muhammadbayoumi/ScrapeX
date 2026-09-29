@@ -4436,18 +4436,30 @@ async function updateEngineReleaseUI(panelLatest) {
   // for one update.
   //
   // IT PROTECTS `disabled` AND `onclick`, NOT THE LABEL. `paintEngineRelease`
-  // ran above and rewrote the label; the download's own interval puts it back
-  // within 400 ms. Saying the guard keeps "the button as it is" was not true of
-  // the label, and a comment that overstates its guard is how the next reader
-  // trusts one that is not there.
+  // ran above and rewrote the label, and the download's interval writes it back
+  // only on a tick that finds Chrome's record: within 400 ms while Chrome is
+  // tracking the download, and not at all while the record is missing, when the
+  // label keeps the renderer's text until the record returns or the misses run
+  // out. Saying the guard keeps "the button as it is" was not true of the label,
+  // and a comment that overstates its guard is how the next reader trusts one
+  // that is not there.
   //
   // AND THE STEPS ARE WRITTEN HERE, because this return skips the only other
   // line that un-hides them. Opening a candidate hides `#engine-install-steps`;
   // coming back to ScrapeX mid-download used to leave them hidden for the rest
   // of it, so he watched the installer arrive with the instructions for what to
   // do with it -- and its SHA-256 -- gone from the screen.
+  //
+  // AND IF THE ENGINE IS DOWNLOADING TOO, ITS WATCHER STILL RESTARTS. This
+  // return skips the engine branch, where `if (busy) pollEngineUpdate();` lives,
+  // so with a browser download and an engine download both in flight -- a
+  // second Chrome window, or a report that timed out and let the browser path be
+  // armed -- the engine's progress line froze at whatever the render painted.
+  // Measured: 40% on screen while the engine reported 80%, and no further GETs.
+  // `pollEngineUpdate` refuses a second concurrent run, so this cannot stack.
   if (installerDownloadRunning) {
     steps.classList.toggle("hidden", !theInstalledEngineIsOnScreen());
+    if (busy) pollEngineUpdate();
     return;
   }
 
@@ -4516,6 +4528,13 @@ async function updateEngineReleaseUI(panelLatest) {
   }
 }
 
+// TEN TICKS OF THE 400 ms INTERVAL IN `startInstallerDownload`, so four seconds
+// of Chrome not listing the download or not answering. Tolerance for a gap that
+// has not been observed (see the interval), and short enough that a download
+// erased from Chrome's history gives the button back in the time it takes to
+// notice.
+const INSTALLER_SEARCH_MISSES = 10;
+
 // THE FIRST INSTALL, AND ONLY THE FIRST. R-36: the panel can never be the
 // installer, so this is the most it can honestly do -- and it is a great deal
 // more than what it did, which was `window.open(url)`: hand a URL to the
@@ -4532,12 +4551,6 @@ async function updateEngineReleaseUI(panelLatest) {
 // panel is loaded in a plain page by the DOM tests, and a first install failing
 // because a permission was declined is exactly when the old behaviour is worth
 // having.
-// TEN TICKS OF THE 400 ms INTERVAL BELOW, so four seconds of Chrome not
-// listing the download or not answering. Long enough that the brief gap after
-// `download()` resolves cannot trip it; short enough that a download erased
-// from Chrome's history gives the button back in the time it takes to notice.
-const INSTALLER_SEARCH_MISSES = 10;
-
 async function startInstallerDownload(installer) {
   const steps = $("engine-install-steps");
   const label = $("engine-download-label");
@@ -4589,10 +4602,15 @@ async function startInstallerDownload(installer) {
   // screen was dead for the life of the panel, under a label frozen at a
   // percentage that was no longer moving.
   //
-  // A MISS IS NOT A VERDICT, SO IT IS COUNTED. The record can be briefly absent
-  // just after `download()` resolves, and one rejected `search` is not a
-  // download that has gone. `INSTALLER_SEARCH_MISSES` in a row is; the button
-  // then comes back with a sentence naming which of the two it was.
+  // A MISS IS COUNTED BEFORE IT IS BELIEVED, and that is tolerance, not a
+  // measured need. Measured in Chromium 149: the first `search()` after
+  // `download()` resolves returns the record, five times of five, and `erase()`
+  // on a download in progress aborts the transfer -- so a record Chrome no
+  // longer lists is a download that has gone, and releasing is right. The count
+  // spends four seconds before saying so, in case a gap nobody has seen does
+  // happen. `INSTALLER_SEARCH_MISSES` IN A ROW is the rule: a tick that finds the
+  // record resets it, so misses scattered across a long download never add up
+  // to a verdict against a download that is still running.
   let misses = 0;
   let lastMissWasAnError = false;
   const poll = setInterval(async () => {
@@ -4613,7 +4631,7 @@ async function startInstallerDownload(installer) {
       clearInterval(poll);
       finish(lastMissWasAnError
         ? "Chrome did not answer — press to retry"
-        : "Download no longer listed — press to retry");
+        : "Chrome no longer lists this download — press to retry");
       button.onclick = () => startInstallerDownload(installer);
       return;
     }

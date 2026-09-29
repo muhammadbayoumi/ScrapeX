@@ -3908,13 +3908,28 @@
     text-align: center;
   }
 
-  /* Under 22rem the two actions stack, each to the full width. The primary is
+  /* Up to 25rem the two actions stack, each to the full width. The primary is
      named a second time because `.engine-detail-actions > .engine-action-primary`
      is (0,2,0) and would otherwise out-specify a `> button` rule inside this
      query and keep its `flex: 1` — measured: it rendered 244px inside a 276px
-     bar instead of stacking. `min-width` is what forces the wrap: two 10rem
-     minimums plus the gap cannot share a 320px panel. */
-  @media (max-width: 22rem) {
+     bar instead of stacking.
+
+     25rem AND NOT 22rem, his decision, and the reason is the label. Between 353
+     and 400px the two buttons sat side by side and left the primary's label 59
+     to 106px — narrower than the word "Download" — so a label that wraps inside
+     its button, as the rule above requires, broke that word: "Download engine"
+     on three lines at 353px. Stacked, the label has the whole bar. The cost is a
+     taller pinned bar for the resting label in that range.
+
+     `flex-basis: auto` IS WHAT DECIDES IT, not the 10rem minimums the old
+     comment credited: at 25rem two of those do fit side by side. Inside this
+     query no button is ever narrower than its own label -- they share a row
+     only when both fit whole, and otherwise take a row each -- which is exactly
+     the property the wrap rule above needs. Outside it the primary is `flex: 1`,
+     a zero basis, and that is what squeezed the label below its words.
+     Measured: forcing a full-row basis instead changed nothing any label here
+     can show, so the smaller change stands. */
+  @media (max-width: 25rem) {
     .engine-detail-actions {
       flex-wrap: wrap;
     }

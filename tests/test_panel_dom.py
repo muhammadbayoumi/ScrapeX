@@ -9443,14 +9443,19 @@ def test_a_browser_install_in_flight_keeps_the_button_when_the_engine_comes_up(o
     assert page.locator("#engine-download").is_disabled(), (
         "the engine came up mid-download and the render re-armed the button, so a "
         "second ~70 MB fetch of the same installer is one press away")
-    assert "Download and check" not in _label(page), (
-        f"the button now offers the ENGINE's download while the browser's is still "
-        f"running: {_label(page)!r}")
-    page.evaluate("() => document.getElementById('engine-download').click()")
-    page.wait_for_timeout(300)
+    # THE HANDLER, CALLED DIRECTLY. The first version pressed the button with
+    # `click()`, which does nothing on a disabled button, so "no POST" was true
+    # whatever the button was wired to -- measured: a guard that re-wired
+    # `onclick` to `startEngineUpdate` and kept the button disabled passed. A
+    # label assertion beside it could not fail either, because the interval
+    # overwrites any label the render wrote. What the guard owns is `onclick`,
+    # so `onclick` is what is exercised.
+    page.evaluate("() => { const b = document.getElementById('engine-download');"
+                  " if (b.onclick) b.onclick(); }")
+    page.wait_for_timeout(500)
     assert page.evaluate("() => window.__updatePosts") == 0, (
-        "pressing the button during a browser download asked the engine to fetch "
-        "the same installer too")
+        "the held button is wired to the ENGINE's downloader, so a second ~70 MB "
+        "fetch of the same installer is one enable away")
 
 
 def test_a_paused_installer_download_says_so_and_keeps_the_button(open_panel):
@@ -9494,7 +9499,7 @@ def test_an_installer_download_chrome_stops_listing_gives_the_button_back(open_p
     page.evaluate("() => { window.__dl.item = null; }")
     page.wait_for_function(
         "() => document.getElementById('engine-download-label')"
-        ".textContent.includes('no longer listed')", timeout=15_000)
+        ".textContent.includes('no longer lists')", timeout=15_000)
     assert not page.locator("#engine-download").is_disabled(), (
         "a download Chrome no longer lists left the button held for good")
 
@@ -9524,7 +9529,7 @@ def test_an_installer_download_chrome_stops_answering_about_gives_the_button_bac
     page.wait_for_function(
         "() => document.getElementById('engine-download-label')"
         ".textContent.includes('did not answer')", timeout=15_000)
-    assert "no longer listed" not in _label(page), (
+    assert "no longer lists" not in _label(page), (
         f"Chrome not answering was reported as the download being gone: "
         f"{_label(page)!r}")
     assert not page.locator("#engine-download").is_disabled()
@@ -9600,7 +9605,7 @@ def test_the_install_steps_survive_a_candidate_round_trip_mid_download(open_pane
 #: first. Listed rather than derived, because the property is about the longest
 #: string that can reach the label and a reason Chrome supplies is not in source.
 _LONG_LABELS = [
-    "Download no longer listed — press to retry",
+    "Chrome no longer lists this download — press to retry",
     "Chrome did not answer — press to retry",
     "Download failed — NETWORK_FAILED",
     "Download failed — SERVER_FORBIDDEN",
@@ -9608,7 +9613,27 @@ _LONG_LABELS = [
 ]
 
 
-@pytest.mark.parametrize("width", [360, 400])
+#: Labels the button shows at rest or in progress, whose words must never be
+#: broken. A reason code from Chrome -- one token, no space -- is allowed to
+#: break; a word he reads is not.
+_PLAIN_LABELS = ["Download engine", "Update to 0.9.0", "Downloading 40%",
+                 "Downloaded and checked", "Download and check 0.9.0"]
+
+_BROKEN_WORDS = """() => {
+  const l = document.getElementById('engine-download-label');
+  const node = l.firstChild; const text = node.textContent;
+  const broken = []; const re = /\\S+/g; let m;
+  while ((m = re.exec(text))) {
+    if (m[0].includes('_')) continue;
+    const r = document.createRange();
+    r.setStart(node, m.index); r.setEnd(node, m.index + m[0].length);
+    if (new Set([...r.getClientRects()].map(x => Math.round(x.top))).size > 1) broken.push(m[0]);
+  }
+  return broken;
+}"""
+
+
+@pytest.mark.parametrize("width", [353, 360, 400, 401, 480])
 def test_a_long_download_label_stays_inside_its_button(open_panel, width):
     """A LABEL LONGER THAN ITS BUTTON LAY ON TOP OF CHECK AGAIN.
 
@@ -9619,37 +9644,79 @@ def test_a_long_download_label_stays_inside_its_button(open_panel, width):
     Found because a test that pressed Check again after an interrupted download
     failed three runs in three, and the cause was the screen, not the test.
 
-    Asserted as the reader meets it -- what is under the middle of Check again --
-    and as the geometry: the label's text fits its button.
+    AND NO WORD HE READS MAY BREAK. Wrapping fixed the overflow and broke
+    "Download engine" onto three lines at 353px, because the side-by-side
+    buttons left the label 59px -- narrower than the word "Download". The
+    buttons now stack up to 25rem, and this asserts both halves at the widths
+    either side of that boundary.
+
+    The hit test is not here: measured, with Download ENABLED, Check again comes
+    later in the page and paints over an overflowing label, so a hit test in
+    this state passes with the fix removed. The state where the label covers
+    Check again is the held one, and it has its own test below.
     """
     page = _browser_download_offered(open_panel)
     page.set_viewport_size({"width": width, "height": 800})
-    for text in _LONG_LABELS:
+    for text in _LONG_LABELS + _PLAIN_LABELS:
         page.evaluate("(t) => { document.getElementById('engine-download-label')"
                       ".textContent = t; }", text)
-        m = page.evaluate("""() => {
-          const b = document.getElementById('engine-download');
-          const r = document.getElementById('engine-recheck').getBoundingClientRect();
-          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return {overflow: b.scrollWidth - b.clientWidth,
-                  onRecheck: !!hit && !!hit.closest('#engine-recheck')};
-        }""")
-        assert m["onRecheck"], (
-            f"at {width}px, the label {text!r} covers the middle of Check again, "
-            "so pressing it presses Download")
-        assert m["overflow"] <= 1, (
-            f"at {width}px, the label {text!r} is {m['overflow']}px wider than its "
-            "button")
+        overflow = page.evaluate("() => { const b = document.getElementById("
+                                 "'engine-download'); return b.scrollWidth - b.clientWidth; }")
+        assert overflow <= 1, (
+            f"at {width}px, the label {text!r} is {overflow}px wider than its button")
+        broken = page.evaluate(_BROKEN_WORDS)
+        assert not broken, (
+            f"at {width}px, the label {text!r} breaks the word(s) {broken} across "
+            "lines")
+
+
+@pytest.mark.parametrize("width", [401, 480])
+@pytest.mark.parametrize("paused", [False, True], ids=["downloading", "paused"])
+def test_check_again_can_be_pressed_while_the_installer_is_held(open_panel, width, paused):
+    """THE LASTING DEFECT, MEASURED IN THE STATE THAT HAS IT.
+
+    A disabled button is drawn at 0.38 opacity, which gives it its own stacking
+    context, so its overflowing label paints OVER Check again -- measured, with
+    the wrap rule removed, `elementFromPoint` at Check again's centre returned
+    `engine-download-label` while Download was held and `engine-recheck` while it
+    was enabled. So while the installer downloads or waits paused, Check again
+    could not be pressed at all.
+
+    Side-by-side widths only: up to 25rem the buttons stack and the label has the
+    whole bar, so 401px is the tightest case. Asserted as the reader meets it:
+    what is under the middle of Check again, and that pressing it asks the engine.
+    """
+    page = _browser_download_offered(
+        open_panel, item=_downloading(received=4, total=10, paused=paused))
+    page.set_viewport_size({"width": width, "height": 800})
+    page.click("#engine-download")
+    page.wait_for_function(
+        "(p) => document.getElementById('engine-download-label')"
+        ".textContent.includes(p ? 'Paused' : 'Downloading')",
+        arg=paused, timeout=15_000)
+    assert page.locator("#engine-download").is_disabled()
+
+    on_recheck = page.evaluate("""() => {
+      const r = document.getElementById('engine-recheck').getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && !!hit.closest('#engine-recheck'); }""")
+    assert on_recheck, (
+        f"at {width}px the held Download's label ({_label(page)!r}) covers Check "
+        "again, so it cannot be pressed while the installer is held")
+    before = page.evaluate("() => window.__updateGets")
+    page.click("#engine-recheck")
+    page.wait_for_function(f"() => window.__updateGets > {before}", timeout=15_000)
 
 
 def test_a_moment_without_a_record_does_not_give_the_button_back(open_panel):
-    """A MISS IS NOT A VERDICT, and this is the half of the repair that says so.
+    """A MISS IS COUNTED BEFORE IT IS BELIEVED, and only a run of them counts.
 
     Counting misses is what lets a download Chrome stopped listing give the
-    button back; it is also what stops a brief gap from doing the same. The
-    record can be absent just after `download()` resolves, and one rejected
-    `search` is not a download that has gone. Releasing on the first miss would
-    re-arm the button beside a download that is still running.
+    button back; it is also what stops a gap from doing the same. No such gap has
+    been observed -- in Chromium the first `search()` after `download()` returns
+    the record -- so this is tolerance, and what it must not do is let misses
+    scattered across a long download add up and re-arm the button beside a
+    download that is still running.
     """
     page = _browser_download_offered(open_panel)
     page.click("#engine-download")
@@ -9657,15 +9724,103 @@ def test_a_moment_without_a_record_does_not_give_the_button_back(open_panel):
         "() => document.getElementById('engine-download-label')"
         ".textContent.includes('Downloading')", timeout=15_000)
 
-    # Absent for about two ticks of the 400 ms interval, far under the bound.
-    page.evaluate("() => { window.__held = window.__dl.item; window.__dl.item = null; }")
-    page.wait_for_timeout(900)
-    page.evaluate("() => { window.__dl.item = window.__held; }")
-    page.wait_for_timeout(900)
+    # TWO ABSENCES OF ABOUT SIX TICKS EACH, with the record back between them.
+    # Each is under the bound of ten; together they are over it. So this holds
+    # only if a tick that finds the record resets the count -- the "in a row"
+    # that makes scattered misses across a 70 MB download unable to add up to a
+    # verdict. Measured before this was added: deleting `misses = 0` left every
+    # test green.
+    page.evaluate("() => { window.__held = window.__dl.item; }")
+    for _ in range(2):
+        page.evaluate("() => { window.__dl.item = null; }")
+        page.wait_for_timeout(2400)
+        page.evaluate("() => { window.__dl.item = window.__held; }")
+        page.wait_for_timeout(1200)
 
     assert page.locator("#engine-download").is_disabled(), (
         "a moment without a record gave the button back while the download was "
         "still running")
     assert "Downloading" in _label(page), (
         f"a brief miss replaced the progress with a verdict: {_label(page)!r}")
+
+
+def test_a_render_that_lands_on_a_candidate_mid_download_keeps_the_steps_hidden(open_panel):
+    """THE GUARD'S STEPS WRITE HAS A CONDITION, and it was tested one way only.
+
+    The guard shows `#engine-install-steps` only while ScrapeX's own screen is up.
+    The round-trip test proves it shows them; nothing proved it hides them,
+    because no render landed while a candidate was open -- measured, an
+    unconditional un-hide in the guard passed every test. A render that
+    resolves late is exactly how the older writer of the same rule went wrong,
+    so the report is delayed and a candidate opened before it lands.
+    """
+    page = _browser_download_offered(open_panel)
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Downloading')", timeout=15_000)
+
+    page.evaluate("() => { window.__update.__delay_ms = 1500; }")
+    _back_to_the_catalogue(page)          # renders, and waits on the slow report
+    open_engine(page, "firecrawl")        # before that report comes back
+    settle_view(page, "engine-detail")
+    page.wait_for_timeout(2200)           # the report has landed and the guard ran
+
+    assert not page.locator("#engine-install-steps").is_visible(), (
+        "a render that finished while a candidate was open put ScrapeX's install "
+        "steps and its SHA-256 on the candidate's screen")
+
+
+def test_the_engine_s_progress_keeps_moving_while_a_browser_install_is_held(open_panel):
+    """THE GUARD RETURNED BEFORE THE ENGINE'S WATCHER COULD RESTART.
+
+    `if (busy) pollEngineUpdate();` lives in the engine branch, which the guard
+    now returns before. With a browser download and an engine download both in
+    flight, the engine's line froze at whatever the render painted -- measured:
+    40% on screen while the engine reported 80%.
+    """
+    page = _browser_download_offered(open_panel)
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Downloading')", timeout=15_000)
+
+    _flip(page, _report(phase="downloading",
+                        progress={"received": 4, "total": 10, "percent": 40}))
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('40%')", timeout=15_000)
+
+    _flip(page, _report(phase="downloading",
+                        progress={"received": 8, "total": 10, "percent": 80}))
+    page.wait_for_function(
+        "() => document.getElementById('engine-update-state')"
+        ".textContent.includes('80%')", timeout=15_000)
+    assert page.locator("#engine-download").is_disabled(), (
+        "restarting the engine's watcher released the browser download's button")
+
+
+def test_a_download_cancelled_while_paused_gives_the_button_back(open_panel):
+    """CANCELLED WHILE PAUSED IS `interrupted` AND STILL `paused: true`.
+
+    Measured in Chromium. The code releases it only because `paused` is read
+    inside the `in_progress` branch; a change that checked `paused` first would
+    hold the button for good over a download that has ended.
+    """
+    page = _browser_download_offered(
+        open_panel, item=_downloading(received=4, total=10, paused=True))
+    page.click("#engine-download")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Paused')", timeout=15_000)
+
+    page.evaluate("() => { window.__dl.item = {id: 7, state: 'interrupted', "
+                  "paused: true, error: 'USER_CANCELED', bytesReceived: 4, "
+                  "totalBytes: 10}; }")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=15_000)
+    assert "USER_CANCELED" in _label(page), (
+        f"a download cancelled while paused did not say why it ended: {_label(page)!r}")
 
