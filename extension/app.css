@@ -3875,13 +3875,19 @@
   .engine-detail-actions {
     flex: none;
     display: flex;
-    /* WRAP WHEREVER THE LABELS DO NOT FIT, not only below a fixed width. The
-       25rem query below was his decision and it holds on this machine's fonts,
-       but a width is a guess about a font: on CI's Linux fonts the buttons still
-       sat side by side at 401px and broke "Downloading" across lines. Measured
-       with the button font 15% wider: 25rem alone broke two words at 401px;
-       wrapping here as well broke none, stacking up to 420px instead. */
-    flex-wrap: wrap;
+    /* STACKED AT EVERY WIDTH, his decision, because a layout that follows the
+       label moves the buttons under the pointer. Every render paints the label
+       from what the panel has in hand and then again from the engine's answer,
+       and the two differ -- "Update to 0.9.0", then "Download and check 0.9.0".
+       While the buttons shared a row whenever both labels fit, one press on
+       Check again re-laid the bar for as long as the engine took to answer, and
+       the enabled Download slid under the spot just pressed: measured, a second
+       press there started the engine's ~70 MB download at 401, 420, 440 and
+       470px. A fixed breakpoint only moves that band, and a width is a guess
+       about a font -- 25rem broke "Downloading" at 401px on CI's Linux fonts.
+       Stacked, where each button sits never depends on what it says. The cost
+       is a taller pinned bar above 25rem: 113px, not 65px. */
+    flex-direction: column;
     gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
     border-top: 1px solid var(--line);
@@ -3890,65 +3896,27 @@
   .engine-detail-actions > button {
     min-height: 40px;
   }
-  .engine-detail-actions > .engine-action-primary {
-    /* `auto`, NOT `flex: 1`'s zero basis: a zero basis let the button shrink
-       below its own words, which is what broke them. With its content as the
-       basis it grows to fill the row and never narrows past its label -- and
-       when the two no longer fit side by side, the wrap above takes over. */
-    flex: 1 1 auto;
-  }
 
   /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
      `.engine-action-row > span` already makes for the rows above. `button` sets
      `white-space: nowrap` (components.css), so a label longer than its button
-     overflowed ON TOP OF THE ONE BESIDE IT. Measured at a 360px panel: the
-     Download button is 122px wide, "Download failed — NETWORK_FAILED" ran to
-     x=316, and `#engine-recheck` starts at x=148 with its centre at x=218 -- so
-     pressing Check again pressed Download, and started another 70 MB fetch.
-     The installer download writes its reason into this label on purpose, so
-     the reason has to fit rather than be cut off: wrapped, not ellipsised.
+     ran out of it: while the two shared a row, over Check again -- measured at
+     360px, "Download failed — NETWORK_FAILED" ran to x=316, past Check again's
+     centre at x=218 -- and stacked, past the panel's edge: measured at 320px,
+     "Chrome no longer lists this download — press to retry" 174px wider than
+     its button. The installer download writes its reason into this label on
+     purpose, so the reason has to fit rather than be cut off: wrapped, not
+     ellipsised.
 
      `overflow-wrap: anywhere` BECAUSE THE REASON IS ONE TOKEN. Chrome's reasons
-     are codes -- `NETWORK_FAILED`, `SERVER_FORBIDDEN` -- with no space to break
-     at, so `white-space: normal` alone left "Download failed — NETWORK_FAILED"
-     43px wider than its button, still over the left of Check again. */
+     are codes with no space to break at, and the long ones do not fit a full
+     row: measured at 320px, `white-space: normal` alone left "Download failed —
+     SERVER_CONTENT_LENGTH_MISMATCH" 78px wider than its button. */
   .engine-detail-actions > button > span {
     min-width: 0;
     white-space: normal;
     overflow-wrap: anywhere;
     text-align: center;
-  }
-
-  /* Up to 25rem the two actions stack, each to the full width. The primary is
-     named a second time because `.engine-detail-actions > .engine-action-primary`
-     is (0,2,0) and would otherwise out-specify a `> button` rule inside this
-     query and keep its `flex: 1` — measured: it rendered 244px inside a 276px
-     bar instead of stacking.
-
-     25rem AND NOT 22rem, his decision, and the reason is the label. Between 353
-     and 400px the two buttons sat side by side and left the primary's label 59
-     to 106px — narrower than the word "Download" — so a label that wraps inside
-     its button, as the rule above requires, broke that word: "Download engine"
-     on three lines at 353px. Stacked, the label has the whole bar. The cost is a
-     taller pinned bar for the resting label in that range.
-
-     `flex-basis: auto` IS WHAT DECIDES IT, not the 10rem minimums the old
-     comment credited: at 25rem two of those do fit side by side. Inside this
-     query no button is ever narrower than its own label -- they share a row
-     only when both fit whole, and otherwise take a row each -- which is exactly
-     the property the wrap rule above needs. The rules above now do the same at
-     every width; what this query adds is the look he chose for the stacked
-     bar, both buttons full width, up to 25rem. Measured: forcing a full-row
-     basis instead changed nothing any label here can show. */
-  @media (max-width: 25rem) {
-    .engine-detail-actions {
-      flex-wrap: wrap;
-    }
-    .engine-detail-actions > button,
-    .engine-detail-actions > .engine-action-primary {
-      flex: 1 1 auto;
-      min-width: min(100%, 10rem);
-    }
   }
 
   /* ---- Forced colours (Windows High Contrast) ----------------------------

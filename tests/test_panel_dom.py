@@ -9601,12 +9601,17 @@ def test_the_install_steps_survive_a_candidate_round_trip_mid_download(open_pane
         "installer arrived")
 
 
-#: EVERY SENTENCE THE INSTALLER DOWNLOAD WRITES INTO THE BUTTON, the long ones
-#: first. Listed rather than derived, because the property is about the longest
-#: string that can reach the label and a reason Chrome supplies is not in source.
+#: THE LONG SENTENCES THE INSTALLER DOWNLOAD WRITES INTO THE BUTTON. Listed
+#: rather than derived, because the property is about the longest string that
+#: can reach the label and a reason Chrome supplies is not in source.
+#: SERVER_CONTENT_LENGTH_MISMATCH is the longest of Chrome's `InterruptReason`
+#: codes, and the only one here that does not fit a full row at 320px without
+#: `overflow-wrap: anywhere` -- measured: with the two shorter codes alone,
+#: deleting that rule left this list green.
 _LONG_LABELS = [
     "Chrome no longer lists this download — press to retry",
     "Chrome did not answer — press to retry",
+    "Download failed — SERVER_CONTENT_LENGTH_MISMATCH",
     "Download failed — NETWORK_FAILED",
     "Download failed — SERVER_FORBIDDEN",
     "Paused at 40% — resume in Chrome",
@@ -9634,34 +9639,29 @@ _BROKEN_WORDS = """() => {
 
 
 @pytest.mark.parametrize("scale", [1.0, 1.15], ids=["this-font", "a-wider-font"])
-@pytest.mark.parametrize("width", [353, 360, 400, 401, 420, 480])
+@pytest.mark.parametrize("width", [320, 360, 401, 480])
 def test_a_long_download_label_stays_inside_its_button(open_panel, width, scale):
-    """A LABEL LONGER THAN ITS BUTTON LAY ON TOP OF CHECK AGAIN.
+    """A LABEL LONGER THAN ITS BUTTON RAN OUT OF IT.
 
     `button` sets `white-space: nowrap`, so the Download button's label ran past
-    its own 122px box: measured, "Download failed — NETWORK_FAILED" reached
-    x=316 and `document.elementFromPoint` at the centre of `#engine-recheck`
-    returned `engine-download-label`. Pressing Check again pressed Download.
-    Found because a test that pressed Check again after an interrupted download
-    failed three runs in three, and the cause was the screen, not the test.
+    its own box: measured on a shared row at 360px, "Download failed —
+    NETWORK_FAILED" reached x=316, over Check again. Stacked, it runs past the
+    panel's edge instead -- measured at 320px, the longest sentence 174px wider
+    than its button. Found because a test that pressed Check again after an
+    interrupted download failed three runs in three, and the cause was the
+    screen, not the test.
 
-    AND NO WORD HE READS MAY BREAK. Wrapping fixed the overflow and broke
-    "Download engine" onto three lines at 353px, because the side-by-side
-    buttons left the label 59px -- narrower than the word "Download". The
-    buttons now stack up to 25rem, and this asserts both halves at the widths
-    either side of that boundary.
-
-    The hit test is not here: measured, with Download ENABLED, Check again comes
-    later in the page and paints over an overflowing label, so a hit test in
-    this state passes with the fix removed. The state where the label covers
-    Check again is the held one, and it has its own test below.
+    AND NO WORD HE READS MAY BREAK. Wrapping fixed the overflow and, while the
+    buttons shared a row, broke "Download engine" onto three lines at 353px.
+    They stack at every width now, and this asserts both halves from the
+    narrowest panel up. Where each button sits is its own test below.
     """
     page = _browser_download_offered(open_panel)
     page.set_viewport_size({"width": width, "height": 800})
-    # A WIDER FONT, because the width that fits is a fact about the font. This
-    # passed here and failed on CI's Linux fonts: at 401px the buttons still sat
-    # side by side and "Downloading" broke. 15% wider reproduces that failure
-    # on this machine, so the defect cannot wait for CI to be seen.
+    # A WIDER FONT, because what fits is a fact about the font. A layout that
+    # passed here broke "Downloading" on CI's Linux fonts at 401px, and 15%
+    # wider reproduced that failure on this machine, so a defect of that kind
+    # cannot wait for CI to be seen.
     page.add_style_tag(content=".engine-detail-actions button "
                                f"{{ font-size: calc(1em * {scale}) !important; }}")
     for text in _LONG_LABELS + _PLAIN_LABELS:
@@ -9677,42 +9677,121 @@ def test_a_long_download_label_stays_inside_its_button(open_panel, width, scale)
             "lines")
 
 
-@pytest.mark.parametrize("width", [401, 480])
 @pytest.mark.parametrize("paused", [False, True], ids=["downloading", "paused"])
-def test_check_again_can_be_pressed_while_the_installer_is_held(open_panel, width, paused):
-    """THE LASTING DEFECT, MEASURED IN THE STATE THAT HAS IT.
+def test_check_again_can_be_pressed_while_the_installer_is_held(open_panel, paused):
+    """WHILE THE INSTALLER IS HELD, CHECK AGAIN STILL ASKS THE ENGINE.
 
-    A disabled button is drawn at 0.38 opacity, which gives it its own stacking
-    context, so its overflowing label paints OVER Check again -- measured, with
-    the wrap rule removed, `elementFromPoint` at Check again's centre returned
-    `engine-download-label` while Download was held and `engine-recheck` while it
-    was enabled. So while the installer downloads or waits paused, Check again
-    could not be pressed at all.
-
-    Side-by-side widths only: up to 25rem the buttons stack and the label has the
-    whole bar, so 401px is the tightest case. Asserted as the reader meets it:
-    what is under the middle of Check again, and that pressing it asks the engine.
+    Found as a covered button: a disabled Download is drawn at 0.38 opacity,
+    which gives it its own stacking context, so while the two shared a row its
+    overflowing label painted OVER Check again -- measured, `elementFromPoint` at
+    Check again's centre returned `engine-download-label`. They never share a
+    row now, and the stack test below holds where each sits; no CSS change tried
+    can make a held label cover Check again, so this does not claim to catch
+    one. What it holds is the other half: held, Check again is enabled, takes
+    the press -- Playwright's click refuses a target another element covers --
+    and the press reaches the engine.
     """
     page = _browser_download_offered(
         open_panel, item=_downloading(received=4, total=10, paused=paused))
-    page.set_viewport_size({"width": width, "height": 800})
     page.click("#engine-download")
     page.wait_for_function(
         "(p) => document.getElementById('engine-download-label')"
         ".textContent.includes(p ? 'Paused' : 'Downloading')",
         arg=paused, timeout=15_000)
     assert page.locator("#engine-download").is_disabled()
-
-    on_recheck = page.evaluate("""() => {
-      const r = document.getElementById('engine-recheck').getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && !!hit.closest('#engine-recheck'); }""")
-    assert on_recheck, (
-        f"at {width}px the held Download's label ({_label(page)!r}) covers Check "
-        "again, so it cannot be pressed while the installer is held")
     before = page.evaluate("() => window.__updateGets")
     page.click("#engine-recheck")
     page.wait_for_function(f"() => window.__updateGets > {before}", timeout=15_000)
+
+
+#: The Download button's label while the installer is held, besides the long
+#: ones: the stack must not move for any sentence that button can show.
+_HELD_LABELS = ["Starting download…", "Downloading…", "Paused — resume in Chrome"]
+
+
+@pytest.mark.parametrize("width", [401, 480, 800])
+def test_the_engine_actions_stack_full_width_whatever_the_label(open_panel, width):
+    """STACKED AT EVERY WIDTH, HIS DECISION, and for every label.
+
+    While the buttons shared a row whenever both labels fit, where Check again
+    sat depended on what Download said -- and Download says something else
+    between the render's first paint and the engine's answer, so the bar moved
+    under the pointer (the next test). The 320px test holds the narrowest
+    panel; this holds the widths where the two used to share a row, and every
+    label that can reach the button. Measured before this was added: moving the
+    stack's breakpoint from 25rem to 22rem left every test green.
+    """
+    page = _browser_download_offered(open_panel)
+    page.set_viewport_size({"width": width, "height": 800})
+    inner = page.evaluate("""() => {
+      const el = document.getElementById('engine-detail-actions');
+      const s = getComputedStyle(el);
+      return el.getBoundingClientRect().width
+             - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+    }""")
+    for text in _PLAIN_LABELS + _LONG_LABELS + _HELD_LABELS:
+        page.evaluate("(t) => { document.getElementById('engine-download-label')"
+                      ".textContent = t; }", text)
+        download = page.locator("#engine-download").bounding_box()
+        recheck = page.locator("#engine-recheck").bounding_box()
+        assert recheck["y"] >= download["y"] + download["height"] - 1, (
+            f"at {width}px, with {text!r}, Check again shares Download's row")
+        assert download["width"] >= inner - 1 and recheck["width"] >= inner - 1, (
+            f"at {width}px, with {text!r}, the buttons are {download['width']} and "
+            f"{recheck['width']}px wide in a {inner}px bar")
+
+
+@pytest.mark.parametrize("width", [401, 440, 470])
+def test_a_second_press_on_check_again_does_not_land_on_download(open_panel, width):
+    """THE BAR MOVED UNDER THE POINTER, AND THE SECOND PRESS STARTED A DOWNLOAD.
+
+    Every render paints the label twice: first from what the panel has in hand
+    ("Update to 0.9.0"), then from the engine's answer ("Download and check
+    0.9.0"). While the buttons shared a row whenever both labels fit, the long
+    label stacked the bar and the short one did not, so one press on Check again
+    re-laid the bar for as long as the engine took to answer -- and the enabled
+    Download, wired to `startEngineUpdate`, slid under the spot just pressed.
+    Measured at 401, 420, 440 and 470px: a second press there POSTed
+    `/api/update`, which starts the engine's ~70 MB download. `__delay_ms`
+    stands for the engine's own manifest fetch, which is not cached.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "u" * 64},
+    })
+    page.set_viewport_size({"width": width, "height": 800})
+    _engines(page)
+    _engine_with_update(page, _report())
+    open_engine(page)
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Download and check')", timeout=15_000)
+    settle_view(page, "engine-detail")
+    box = page.locator("#engine-recheck").bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+    page.evaluate("() => { window.__update.__delay_ms = 1500; }")
+    page.mouse.click(x, y)
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download-label')"
+        ".textContent.includes('Download and check')", timeout=15_000)
+    # THE FIRST PAINT IS ON SCREEN AND THE ENGINE HAS NOT ANSWERED: the window
+    # in which he presses again because the first press seemed to do nothing.
+    under = page.evaluate("""([x, y]) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit ? (hit.closest('button') || hit).id : null; }""", [x, y])
+    assert under == "engine-recheck", (
+        f"at {width}px, with {_label(page)!r} on screen, the spot where Check again "
+        f"was is now {under!r}")
+    page.mouse.click(x, y)
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label')"
+        ".textContent.includes('Download and check')", timeout=15_000)
+    assert page.evaluate("() => window.__updatePosts") == 0, (
+        f"at {width}px, a second press on Check again started the engine's download")
 
 
 def test_a_moment_without_a_record_does_not_give_the_button_back(open_panel):
