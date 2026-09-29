@@ -211,6 +211,31 @@ jobs:
   test:
     needs: scope
     runs-on: ubuntu-latest
+    # HOW A TIER THAT RUNS THE BROWSER SUITES SPREADS OVER THE RUNNER, held once:
+    # the full suite and the extension tier change for the same reason -- the
+    # runner's shape -- and a timing failure should show in both or in neither.
+    # tests/test_the_extension_tier_runs_in_the_suites_shape.py holds both to it.
+    #
+    # `-n 3`, AND READ THE `runner:` LINE THE SUITE STEP PRINTS BEFORE CHANGING
+    # IT: the runner's core count has changed under this workflow once already,
+    # and a worker count right for one shape oversubscribes the other. The only
+    # `-n 4` red -- tests/test_panel_startup.py:137, a 250ms budget on the
+    # PRODUCT's startup -- ran on a 2 vCPU runner, four workers on two cores;
+    # `-n 4` has not been measured since the runner became 4 vCPU. `-n 3` takes
+    # most of the measured gain without that experiment. Not `-n auto`: that
+    # follows the machine, and a contributor on 24 cores would run a shape CI
+    # never runs.
+    #
+    # `--dist loadfile` KEEPS A FILE IN ONE WORKER, so a module-scoped Chromium is
+    # launched once per file, not once per worker. Its cost is a floor: no run
+    # ends before its largest file does -- tests/test_panel_dom.py (#944) -- and
+    # the extension tier already sits on it.
+    #
+    # The docs tier is left serial: it runs in seconds, and the most anyone has
+    # measured for parallelising it is a few of them (#943). Measurements live in
+    # the PR that set each value.
+    env:
+      XDIST_ARGS: "-n 3 --dist loadfile"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -372,9 +397,15 @@ jobs:
 
       - name: Extension gate only (this change touched nothing else)
         if: needs.scope.outputs.scope == 'extension'
-        # THE POINT OF THE SPLIT. A button change runs the 325 tests that guard
-        # the extension and stops there. The engine suite is not skipped by
-        # being unreachable — it is skipped because nothing it tests changed.
+        # THE POINT OF THE SPLIT. A button change runs the tests that guard the
+        # extension and stops there. The engine suite is not skipped by being
+        # unreachable — it is skipped because nothing it tests changed.
+        #
+        # IN THE SUITE'S WORKER SHAPE (`XDIST_ARGS`, on the job), because this
+        # tier holds the panel's browser suites, tests/test_panel_dom.py and
+        # tests/test_panel_startup.py among them: it is the one a panel change
+        # waits on. The grid's browser suites carry neither mark and run only in
+        # the full tier.
         #
         # `or docs` because this scope admits documentation files too, and the
         # docs set is not a subset of the extension set --
@@ -383,7 +414,7 @@ jobs:
         # line an extension+docs change could hand-edit that generated ruling and
         # pass. Strictly more coverage than the old `-m extension`, and the two
         # sets overlap so the cost is a few seconds.
-        run: python -m pytest -m "extension or docs"
+        run: python -m pytest -m "extension or docs" $XDIST_ARGS
 
       - name: Tests (Python engine + Python-vs-frozen contract)
         if: needs.scope.outputs.scope == 'full'
@@ -408,48 +439,12 @@ jobs:
         # reach that step too and silence them where nothing would notice.
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
-        # `-n 2`, AND NOT BECAUSE OF THE CORE COUNT. This comment used to say
-        # the runner has two cores -- `ubuntu-latest` on a private repository --
-        # taken from GitHub's documented tier rather than from the machine. The
-        # `nproc` line below was added in the same commit SO THAT IT WOULD BE
-        # READ, and then it was not: it has printed `4 vCPU, ~16 GB` in every run
-        # it ever produced, six for six across three branches (#963). A control
-        # that only prints is not a control.
-        #
-        # WHAT DECIDES IT IS THE RED CHECK, WHICH SURVIVES THE CORRECTION. At
-        # `-n 4` CI failed tests/test_panel_startup.py:137: `shell-interactive`
-        # minus `document-first-script` measured 323.6ms against that test's
-        # 250ms budget. That budget is an assertion about the PRODUCT, so the
-        # answer is to match the machine rather than widen it. What changes is
-        # the explanation -- four workers were not oversubscribing two cores, and
-        # why four workers stretch a product timing on four cores is open.
-        #
-        # AND THE CLOCKS POINT THE SAME WAY, WHICH IS NOT WHAT IDLE CORES WOULD
-        # PREDICT: three `-n 4` runs came in at 396s, 541s and 563s, against
-        # 293s, 328s, 349s and 352s at `-n 2`. Different commits and a 42% spread
-        # within the `-n 4` arm, so this settles nothing on its own -- but the
-        # FASTEST `-n 4` run is still slower than the SLOWEST `-n 2` run, and no
-        # ordering of those seven numbers makes more workers look like a win.
-        #
-        # THE REASON IS BELOW, NOT HERE: `--dist loadfile` keeps
-        # tests/test_panel_dom.py whole and that file is very nearly the entire
-        # run, so the suite cannot finish before it does whatever `-n` says.
-        # Splitting it (#944) is what would make a higher `-n` mean anything.
-        #
-        # `-n 2` RATHER THAN `-n auto`: auto follows the machine, so a contributor
-        # on 24 cores runs a shape CI never runs and meets failures nobody else
-        # can reproduce.
-        #
-        # `--dist loadfile` KEEPS A FILE IN ONE WORKER, so module-scoped fixtures
-        # are built once instead of once per worker -- a chromium launch each for
-        # the eight browser files that hold one (tests/test_grid_dom.py launches
-        # per test, so the mode saves it nothing: #945). Its cost is now the
-        # binding one: a file is indivisible, so the suite cannot finish before
-        # tests/test_panel_dom.py does, and that file is very nearly the whole
-        # run. Splitting it, not changing this flag, is the next win (#944).
+        # The worker count and dist mode are `XDIST_ARGS`, on the job, with their
+        # reasons. The `runner:` line is the machine answering for itself -- it
+        # has printed both 2 vCPU and 4 -- so read it before changing either.
         run: |
           echo "runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM"
-          python -m pytest -n 2 --dist loadfile
+          python -m pytest $XDIST_ARGS
 
       - name: The schema template still has a suite, and the run above skips it
         if: needs.scope.outputs.scope == 'full'

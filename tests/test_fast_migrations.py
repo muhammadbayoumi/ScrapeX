@@ -251,12 +251,12 @@ def test_the_controller_sums_what_every_worker_restored(tmp_path):
     while the outer suite may be running the same file in a sibling worker.
 
     WORST CASE THIS TEST CREATES, SAID OUT LOUD: three nested pytest runs, one
-    after another, and only the first at `-n 2` -- so under CI's own `-n 2` six
-    pytest processes share the runner's two cores for the length of that one arm.
-    The other two are serial and each carries half of what the combined serial arm
-    used to, so the total work is roughly unchanged. That peak is the same
-    oversubscription `ci.yml` removed when it went from `-n 4` to `-n 2`, and it
-    is bounded to this test rather than the whole suite.
+    after another, and only the first at `-n 2` -- so for the length of that one
+    arm it adds a controller and two workers to whatever `ci.yml`'s `XDIST_ARGS`
+    already has running. The other two are serial and each carries half of what
+    the combined serial arm used to, so the total work is roughly unchanged. The
+    `-n 2` here is not CI's worker count: it is one worker per file, because the
+    assertion below needs each of the two files on its own process.
 
     Run as subprocesses because what is under test happens BETWEEN processes;
     there is no in-process way to ask it.
