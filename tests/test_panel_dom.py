@@ -9633,8 +9633,9 @@ _BROKEN_WORDS = """() => {
 }"""
 
 
-@pytest.mark.parametrize("width", [353, 360, 400, 401, 480])
-def test_a_long_download_label_stays_inside_its_button(open_panel, width):
+@pytest.mark.parametrize("scale", [1.0, 1.15], ids=["this-font", "a-wider-font"])
+@pytest.mark.parametrize("width", [353, 360, 400, 401, 420, 480])
+def test_a_long_download_label_stays_inside_its_button(open_panel, width, scale):
     """A LABEL LONGER THAN ITS BUTTON LAY ON TOP OF CHECK AGAIN.
 
     `button` sets `white-space: nowrap`, so the Download button's label ran past
@@ -9657,6 +9658,12 @@ def test_a_long_download_label_stays_inside_its_button(open_panel, width):
     """
     page = _browser_download_offered(open_panel)
     page.set_viewport_size({"width": width, "height": 800})
+    # A WIDER FONT, because the width that fits is a fact about the font. This
+    # passed here and failed on CI's Linux fonts: at 401px the buttons still sat
+    # side by side and "Downloading" broke. 15% wider reproduces that failure
+    # on this machine, so the defect cannot wait for CI to be seen.
+    page.add_style_tag(content=".engine-detail-actions button "
+                               f"{{ font-size: calc(1em * {scale}) !important; }}")
     for text in _LONG_LABELS + _PLAIN_LABELS:
         page.evaluate("(t) => { document.getElementById('engine-download-label')"
                       ".textContent = t; }", text)

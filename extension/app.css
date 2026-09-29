@@ -3875,6 +3875,13 @@
   .engine-detail-actions {
     flex: none;
     display: flex;
+    /* WRAP WHEREVER THE LABELS DO NOT FIT, not only below a fixed width. The
+       25rem query below was his decision and it holds on this machine's fonts,
+       but a width is a guess about a font: on CI's Linux fonts the buttons still
+       sat side by side at 401px and broke "Downloading" across lines. Measured
+       with the button font 15% wider: 25rem alone broke two words at 401px;
+       wrapping here as well broke none, stacking up to 420px instead. */
+    flex-wrap: wrap;
     gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
     border-top: 1px solid var(--line);
@@ -3884,7 +3891,11 @@
     min-height: 40px;
   }
   .engine-detail-actions > .engine-action-primary {
-    flex: 1;
+    /* `auto`, NOT `flex: 1`'s zero basis: a zero basis let the button shrink
+       below its own words, which is what broke them. With its content as the
+       basis it grows to fill the row and never narrows past its label -- and
+       when the two no longer fit side by side, the wrap above takes over. */
+    flex: 1 1 auto;
   }
 
   /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
@@ -3925,10 +3936,10 @@
      comment credited: at 25rem two of those do fit side by side. Inside this
      query no button is ever narrower than its own label -- they share a row
      only when both fit whole, and otherwise take a row each -- which is exactly
-     the property the wrap rule above needs. Outside it the primary is `flex: 1`,
-     a zero basis, and that is what squeezed the label below its words.
-     Measured: forcing a full-row basis instead changed nothing any label here
-     can show, so the smaller change stands. */
+     the property the wrap rule above needs. The rules above now do the same at
+     every width; what this query adds is the look he chose for the stacked
+     bar, both buttons full width, up to 25rem. Measured: forcing a full-row
+     basis instead changed nothing any label here can show. */
   @media (max-width: 25rem) {
     .engine-detail-actions {
       flex-wrap: wrap;
