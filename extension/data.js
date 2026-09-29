@@ -125,6 +125,12 @@ function refreshNow(doing, failed = "Could not filter") {
   });
 }
 
+/** The selection, written into this page's address in place: no Back entry. */
+function writeAddress() {
+  window.history.replaceState(window.history.state, "",
+    selectionUrl(window.location.href, [...chosen], mode()));
+}
+
 /**
  * A tick, an untick, Clear, or a change of Any/All that changes the answer.
  *
@@ -134,7 +140,7 @@ function refreshNow(doing, failed = "Could not filter") {
  * ticks cost one request; Clear and Any/All are one decision each and ask at once.
  */
 function selectionChanged({now = false} = {}) {
-  history.replaceState(history.state, "", selectionUrl(window.location.href, [...chosen], mode()));
+  writeAddress();
   $("data-activities-clear").hidden = chosen.size === 0;
   const doing = chosen.size
     ? `Filtering ${SOURCE_KEY} by ${chosen.size} ${chosen.size === 1 ? "activity" : "activities"}…`
@@ -286,7 +292,7 @@ $("data-activities-mode").addEventListener("change", () => {
   // so flipping the toggle with nothing or one thing ticked writes the address and
   // asks nothing.
   if (chosen.size > 1) selectionChanged({now: true});
-  else history.replaceState(history.state, "", selectionUrl(window.location.href, [...chosen], mode()));
+  else writeAddress();
 });
 $("data-activities-clear").addEventListener("click", () => {
   chosen.clear();
