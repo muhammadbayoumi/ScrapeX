@@ -54,6 +54,13 @@ let tableAsks = 0;
 /** The pause after the last tick before the table is asked again. */
 let settling = null;
 const SETTLE_MS = 250;
+/** ONE TABLE ASK AT A TIME (#1305, his ruling of 2026-09-29). Ticks more than
+ *  SETTLE_MS apart each started a whole table while the engine still computed the
+ *  last, and on contractors the newest missed its 5 s deadline behind requests the
+ *  page had thrown away. Now a refresh asked for while one is in flight waits, and
+ *  is asked once it lands, only if the selection moved meanwhile. */
+let inFlight = null;
+let waiting = null;
 
 function show(id, text) {
   const node = $(id);
@@ -116,10 +123,22 @@ function refreshNow(doing, failed = "Could not filter") {
     return;
   }
   $("data-summary").textContent = doing;
-  grid.refresh().then((outcome) => {
-    // A superseded ask says nothing: the newer one will.
-    if (outcome.state === "drawn") $("data-summary").textContent = filterSummary(outcome.payload);
+  if (inFlight) {
+    waiting = {failed};
+    return;
+  }
+  // The address holds the selection, written before every ask, so an answer is out
+  // of date exactly when the address moved after its ask began.
+  const askedFor = window.location.search;
+  const outOfDate = () => window.location.search !== askedFor;
+  inFlight = grid.refresh().then((outcome) => {
+    // A superseded ask says nothing, and neither does an out-of-date one: the
+    // newer ask will.
+    if (!outOfDate() && outcome.state === "drawn") {
+      $("data-summary").textContent = filterSummary(outcome.payload);
+    }
   }, (error) => {
+    if (outOfDate()) return;
     // ROWS ARE CLAIMED ONLY WHEN THERE ARE ROWS. With no table on screen (the first
     // load failed, or the source had none) grid.js has already put the fault in its
     // own note, and a second line here would say it twice, one of them wrongly.
@@ -127,7 +146,19 @@ function refreshNow(doing, failed = "Could not filter") {
     $("data-summary").textContent = $("grid").classList.contains("tabulator")
       ? `${failed}: ${error.message} The rows below are the last answer drawn.`
       : "";
+  }).finally(() => {
+    inFlight = null;
+    const next = waiting;
+    waiting = null;
+    if (next && outOfDate()) refreshNow(filteringText(), next.failed);
   });
+}
+
+/** What the status line says while the table is asked for the current selection. */
+function filteringText() {
+  return chosen.size
+    ? `Filtering ${SOURCE_KEY} by ${chosen.size} ${chosen.size === 1 ? "activity" : "activities"}…`
+    : "Showing every row again…";
 }
 
 /** The selection, written into this page's address in place: no Back entry. */
@@ -147,9 +178,7 @@ function writeAddress() {
 function selectionChanged({now = false} = {}) {
   writeAddress();
   $("data-activities-clear").hidden = chosen.size === 0;
-  const doing = chosen.size
-    ? `Filtering ${SOURCE_KEY} by ${chosen.size} ${chosen.size === 1 ? "activity" : "activities"}…`
-    : "Showing every row again…";
+  const doing = filteringText();
   if (now) {
     refreshNow(doing);
     return;

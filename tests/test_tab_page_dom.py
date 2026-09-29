@@ -786,6 +786,97 @@ def test_the_stylesheets_load_in_the_engine_pages_order():
     assert len(shared) >= 7, shared
     assert [name for name in ours if name in shared] == shared, (ours, engine)
 
+#: Every table request after the first is HELD until the test releases it, oldest
+#: first, so the test decides when each answer lands. Each answer names the selection
+#: it was asked for, and the page records how many requests are open at once and every
+#: sentence the status line shows.
+_HELD = """(() => {
+  const inner = window.fetch;
+  let tables = 0;
+  window.__OPEN__ = 0;
+  window.__MOST_OPEN__ = 0;
+  window.__SAID__ = [];
+  window.__HELD__ = [];
+  window.__TABLES__ = [];
+  window.__release__ = () => {
+    const next = window.__HELD__.shift();
+    if (next) next();
+    return Boolean(next);
+  };
+  new MutationObserver(() => {
+    const line = document.getElementById('data-summary');
+    if (line) window.__SAID__.push(line.textContent);
+  }).observe(document, {subtree: true, childList: true, characterData: true});
+  window.fetch = async (input, options) => {
+    const url = String(input && input.url ? input.url : input);
+    if (!url.includes('/api/table/')) return inner(input, options);
+    window.__TABLES__.push(url);
+    const later = ++tables > 1;
+    if (later) {
+      window.__OPEN__ += 1;
+      window.__MOST_OPEN__ = Math.max(window.__MOST_OPEN__, window.__OPEN__);
+    }
+    try {
+      if (later) await new Promise((resolve) => window.__HELD__.push(resolve));
+      const reply = await inner(input, options);
+      const body = await reply.json();
+      const nodes = new URL(url).searchParams.get('nodes');
+      if (nodes) {
+        body.filtered_by = {nodes: nodes.split(',').map(Number), mode: 'any'};
+        body.population = 17811;
+      }
+      return new Response(JSON.stringify(body), {status: reply.status,
+        headers: {'Content-Type': 'application/json'}});
+    } finally {
+      if (later) window.__OPEN__ -= 1;
+    }
+  };
+})();"""
+
+
+def test_one_table_is_asked_at_a_time_and_the_newest_choice_when_it_lands(open_data):
+    """If this fails, the page asks the engine for a new table while it still computes
+    the last (#1305). Measured on 17,811 contractors, ticks more than 250 ms apart then
+    left the newest request past its 5 s deadline, behind requests the page had
+    already thrown away. Or it drops the choice made while a table was on its way, or
+    lets that out-of-date table's count onto the status line, or asks again when
+    nothing moved."""
+    page = open_data(taxonomy=TAXONOMY, before=_HELD)
+
+    def narrowed():
+        # Counted as they are asked, not as the stub answers them: a held one has not
+        # reached the stub yet.
+        return [url for url in page.evaluate("window.__TABLES__") if "nodes=" in url]
+
+    page.locator("#data-activities-toggle").click()
+
+    # Three ticks, each past the pause, while the first narrowed table is held.
+    page.locator("#data-activities-tree input[value='1']").check()
+    page.wait_for_function("window.__HELD__.length === 1", timeout=5_000)
+    for node in ("11", "14"):
+        page.locator(f"#data-activities-tree input[value='{node}']").check()
+        page.wait_for_timeout(400)
+        assert len(narrowed()) == 1, narrowed()
+    assert page.locator("#data-summary").inner_text() == "Filtering SAMEHGABRIEL by 3 activities…"
+
+    # The first answer lands, out of date: it says nothing, and the newest choice is asked.
+    heard = len(page.evaluate("window.__SAID__"))
+    page.evaluate("window.__release__()")
+    page.wait_for_function("window.__HELD__.length === 1", timeout=5_000)
+    assert len(narrowed()) == 2 and narrowed()[-1].endswith("?nodes=1,11,14&nodes_mode=any"), narrowed()
+    said = page.evaluate("window.__SAID__")[heard:]
+    assert not [line for line in said if "chosen" in line], said
+
+    # Reload while that one is on its way: nothing moved, so nothing more is asked.
+    page.locator("#data-reload").click()
+    page.evaluate("window.__release__()")
+    page.wait_for_function("window.__OPEN__ === 0", timeout=5_000)
+    page.wait_for_timeout(400)
+    assert len(narrowed()) == 2, narrowed()
+    assert page.evaluate("window.__MOST_OPEN__") == 1
+    assert page.locator("#data-summary").inner_text() == (
+        "2 of 17,811 rows · 3 activities chosen, matching any of them")
+
 # ---- the harness itself (#1198) ---------------------------------------------------------
 #
 # The Data page is about to run the engine's own grid, which loads stylesheets and
