@@ -295,6 +295,13 @@ def test_the_interval_is_jittered_not_metronomic(monkeypatch):
     window a rate limiter counts in."""
     slept: list[float] = []
     monkeypatch.setattr("scrapex.connectors.base.time.sleep", slept.append)
+    # FREEZE THE CLOCK THE PACER READS. It sleeps `interval - elapsed`, and with a
+    # real clock `elapsed` is whatever one mocked get() happened to cost, so every
+    # recorded wait sat just under the drawn interval: the 0.7 floor had no margin
+    # (a run failed CI 25 microseconds under it), and the waits differed from each
+    # other through clock noise alone -- this passed with the jitter switched off.
+    # Frozen, each wait IS the drawn interval, so both assertions test the jitter.
+    monkeypatch.setattr("scrapex.connectors.base.time.monotonic", lambda: 0.0)
     fetcher, _ = fetcher_over([httpx.Response(200)] * 12,
                               min_interval_s=1.0, jitter=0.3)
 
@@ -309,12 +316,15 @@ def test_the_interval_is_jittered_not_metronomic(monkeypatch):
 def test_politeness_can_be_widened_for_a_large_crawl(monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr("scrapex.connectors.base.time.sleep", slept.append)
+    # Frozen for the same reason as the test above: with a real clock the wait is
+    # 5.0 minus however long a mocked get() took, so this could only assert "about".
+    monkeypatch.setattr("scrapex.connectors.base.time.monotonic", lambda: 0.0)
     fetcher, _ = fetcher_over([httpx.Response(200)] * 3, min_interval_s=5.0, jitter=0.0)
 
     fetcher.get(URL)
     fetcher.get(URL)
 
-    assert any(w >= 4.9 for w in slept), "the configured interval was not applied"
+    assert slept == [5.0, 5.0], f"the configured interval was not applied: {slept}"
 
 
 # ---- the live-progress hook --------------------------------------------------
