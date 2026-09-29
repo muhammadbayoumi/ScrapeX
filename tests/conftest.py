@@ -1,34 +1,30 @@
 """One migrated template database, restored per test instead of rebuilt.
 
-WHY THIS FILE EXISTS (2026-07-31)
----------------------------------
-The suite took ~90 minutes because 114 call sites across 57 files each ran
-`dbmod.migrate()` inside a FUNCTION-scoped fixture. Nothing was wrong with any of
-them individually; the cost is that `migrate()` replays 57 files / 616 statements
-every time, and 74 of those statements are `ALTER TABLE` (36 `RENAME COLUMN`).
-SQLite re-parses the whole schema DDL per rename, so that is 93-97% of the SQL
-time and it is SQLite working as designed — not a pathology to fix.
+WHY THIS FILE EXISTS
+--------------------
+Many tests call `dbmod.migrate()` inside a FUNCTION-scoped fixture, and each call
+replays the whole stream -- `db/engine/schema.sql` and every migration after it.
+This file runs the real stream once per session, holds the result open, and
+restores it into each fresh connection instead.
 
-Measured on the owner's box:
+WHETHER IT STILL EARNS ITS PLACE IS A MEASUREMENT, NOT A MEMORY. It was written
+when the stream was 57 files and the suite took over an hour; R-84 then squashed
+the stream to one baseline, and it has grown again since. Time one `migrate()`
+against one `backup()` at the head you are on before arguing either way. The
+figures are in #655 and the PR that closed it rather than here: the set this
+docstring used to carry was wrong within weeks, and two sessions quoted it as
+current.
 
-    dbmod.migrate()                          ~1900 ms
-    shutil.copyfile of the migrated file       17.8 ms
-    template_conn.backup(target)               25.4 ms
-    full suite, before                     ~90 min (estimated, never cleanly timed)
-    full suite, with this file               6m18s (measured)
+`backup()` is the primitive rather than `copyfile` because every caller already
+holds an OPEN connection when it calls `migrate()`. Restoring into that connection
+is what lets this file speed the suite up without editing a single test. Fidelity
+is not assumed: tests/test_fast_migrations.py compares the template's tables,
+indexes, triggers (the A7 append-only pair among them), views, pragmas and seed
+rows against a real migration on every run that uses the template.
 
-`backup()` is the primitive rather than `copyfile` because every one of those 114
-sites already holds an OPEN connection when it calls `migrate()`. Restoring into
-that connection is what lets this file speed the suite up without editing a single
-test. Fidelity was verified rather than assumed: user_version, application_id, all
-50 tables, 86 indexes, 18 triggers (including the A7 append-only pair), 2 views,
-integrity_check, foreign_key_check and both seed rows are identical to a freshly
-migrated database.
-
-Options that were measured and rejected: storage pragmas (`synchronous=OFF`,
-`journal_mode=MEMORY`) bought 0% and were marginally SLOWER; one transaction for
-all 57 bought 5%; squashing to a v57 baseline bought a lot but deletes the upgrade
-path T5 exists to check.
+Options measured and rejected when this was written: storage pragmas
+(`synchronous=OFF`, `journal_mode=MEMORY`) bought nothing and were marginally
+slower, and one transaction for the whole stream bought little.
 
 THREE THINGS HERE ARE LOAD-BEARING. Each was found by breaking a version without
 it, and two of them fail SILENTLY, which is why they are commented at length.
@@ -246,7 +242,7 @@ def _stream_fingerprint() -> tuple[tuple[int, str], ...]:
     """What the migration stream IS right now — by content, never by identity.
 
     The obvious guard, `dbmod._migration_files is not _THE_ORIGINAL`, is WRONG
-    here and fails in the silent direction. `tests/test_db.py:346` calls
+    here and fails in the silent direction. tests/test_db.py calls
     `importlib.reload(scrapex.db)`, which installs a NEW function object that
     behaves identically — so an identity check turns into a permanent veto for
     the rest of the session and every later test quietly pays full price again.
@@ -272,7 +268,7 @@ _REAL_STREAM: tuple[tuple[int, str], ...] = ()
 #   test_migrate_is_idempotent                            FAILED      |   passed
 #   test_pending_migrations_agrees_with_migrate            FAILED      |   passed
 #
-# A synthetic [1..57] equals `pending_migrations()` on a fresh database by
+# A synthetic list of every applied number equals `pending_migrations()` on a fresh database by
 # construction, so the assertion becomes a tautology and the test stops testing.
 # Anything added to this set needs the same standard of evidence.
 NEVER_RESTORE = frozenset({"test_db"})
@@ -286,14 +282,15 @@ _TEMPLATE_APPLIED: list[int] = []
 # pathologies exists (an AV-scanned CA file load, a resident process eating a
 # core). Setting this makes the suite byte-for-byte what it was before this file
 # existed, so "the fast suite might hide something" has a definitive answer rather
-# than an argument: .github/workflows/ci.yml runs the real 57-file stream 805
-# times on every push, and the developer's inner loop does not.
+# than an argument: .github/workflows/ci.yml's whole-suite step sets it, so every
+# full-scope run replays the real stream on every call, and the developer's inner
+# loop does not.
 _FULL_MIGRATIONS = bool(os.environ.get("SCRAPEX_FULL_MIGRATIONS"))
 
 # A broken re-arm or a mis-firing predicate does not turn anything red — it just
 # makes the suite slow again, which is exactly the failure nobody notices until
-# an afternoon is gone. A full run restores ~759 times; anything near zero after a
-# whole-suite run means this file has quietly stopped working.
+# an afternoon is gone. A whole-suite run restores far more times than the floor
+# below; anything near zero after one means this file has quietly stopped working.
 _EXPECT_RESTORES_OVER = 500
 
 # Exposed so tests/test_fast_migrations.py can pin this file's behaviour (Q8: a
@@ -339,34 +336,34 @@ def _may_restore(conn: sqlite3.Connection) -> bool:
     if _bypass["on"] or _TEMPLATE_CONN is None:
         return False
 
-    # The stream must be the STOCK one. tests/test_db.py:204 `_at_version_46`
-    # monkeypatches `_migration_files` to truncate history and replay it; a
-    # restore would hand it v57 instead of v46. Three of the four tests it guards
-    # fail loudly only by luck — they happen to name a column a later migration
-    # renamed. One that didn't would pass against the wrong schema.
+    # The stream must be the STOCK one. A test that monkeypatches
+    # `_migration_files` to truncate or repoint history wants THAT stream replayed,
+    # and a restore would hand it the whole schema instead -- passing against the
+    # wrong one, loudly only if it happens to name a column a later migration
+    # renamed. Measured on the whole suite with this check removed: only its own
+    # pin in tests/test_fast_migrations.py fails, so today it guards a future
+    # caller rather than a current one. The helper the old comment named is gone.
     if _stream_fingerprint() != _REAL_STREAM:
         return False
 
     # The target must be EMPTY. `migrate()` on a partly-migrated or populated
-    # database is an UPGRADE and `backup()` would discard its rows. This guard is
-    # the only thing catching the three helpers that hand-replay a migration
-    # prefix on the stock stream and then upgrade over it:
-    #   tests/test_schema.py:158            "the pre-0020 warehouse"
-    #   tests/test_display_method_and_quantity_facts.py:556  "the pre-0056 warehouse"
-    #   tests/test_the_weight_the_price_is_quoted_against.py:546 "the pre-0057 one"
-    # It is load-bearing, not belt-and-braces: with it removed those three fail.
+    # database is an UPGRADE and `backup()` would discard its rows. Load-bearing,
+    # not belt-and-braces -- measured on the whole suite with this check removed:
+    # tests/test_api_jobs.py's queued-job tests fail (their database already holds
+    # rows when `migrate()` runs again), beside its own pin in
+    # tests/test_fast_migrations.py.
     if not _is_pristine(conn):
         return False
 
     # No open transaction. A destination inside a write txn raises
     # "destination database is in use"; a SOURCE inside one HANGS FOREVER with no
-    # exception (killed at 75s in testing). Measured: 0 of the 114 sites hit this,
-    # so this is a guard against a future caller, not a current one.
+    # exception (killed at 75s in testing). No caller hit this when it was written,
+    # so it is a guard against a future caller, not a current one.
     return not conn.in_transaction
 
 
 def _fast_migrate(conn: sqlite3.Connection) -> list[int]:
-    """`dbmod.migrate` with the 57-file replay swapped for a template restore."""
+    """`dbmod.migrate` with the stream's replay swapped for a template restore."""
     if not _may_restore(conn):
         STATS["real"] += 1
         # Whatever is installed now — an importlib.reload may have replaced the
@@ -391,13 +388,13 @@ def _fast_migrate(conn: sqlite3.Connection) -> list[int]:
 
 def _arm() -> None:
     if dbmod.migrate is not _fast_migrate:
-        # LOAD-BEARING #2: tests/test_db.py:346,355,364,372 call
+        # LOAD-BEARING #2: tests/test_db.py calls
         # `importlib.reload(scrapex.db)`, which re-execs the module in place and
         # rebinds EVERY attribute — including `migrate`, back to the real one. A
         # patch installed once at pytest_configure dies there, silently, for the
-        # rest of the session. test_db.py is file 21 of 87 in collection order and
-        # 41 of the 57 migrate-calling files sort after it, so ~72% of the suite
-        # quietly reverted to full cost. Proven with the same 25 tests reversed:
+        # rest of the session, and most migrate-calling files sort after
+        # test_db.py -- so most of the suite would quietly revert to full cost.
+        # Proven, when this was written, with the same 25 tests reversed:
         #   test_archive.py then test_db.py  -> restored=4
         #   test_db.py then test_archive.py  -> restored=0
         # Re-arming per test is what makes this file's saving real.
