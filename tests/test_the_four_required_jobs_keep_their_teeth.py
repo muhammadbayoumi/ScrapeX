@@ -91,6 +91,11 @@ PINNED_RUNS = {
     ),
 }
 
+#: `test`'s shared pytest arguments are executable input to both its extension
+#: and full tiers. `--collect-only` here leaves both steps green while running no
+#: test, so the measured worker shape is pinned just like each command below.
+XDIST_ARGS = "-n 3 --dist loadfile"
+
 #: `test`'s step-level conditions, each beside the command of the step that
 #: carries it, so that moving a condition to another step fails as surely as
 #: deleting it. The three tiers are compared WHOLE, as the gates above are, the
@@ -102,10 +107,10 @@ PINNED_RUNS = {
 SCOPED_TEST_STEPS = (
     ("needs.scope.outputs.scope == 'docs'", "whole", "python -m pytest -m docs"),
     ("needs.scope.outputs.scope == 'extension'", "whole",
-     'python -m pytest -m "extension or docs"'),
+     'python -m pytest -m "extension or docs" $XDIST_ARGS'),
     ("needs.scope.outputs.scope == 'full'", "whole",
      "echo \"runner: $(nproc) vCPU, $(free -m | awk '/Mem:/{print $2}') MB RAM\"\n"
-     "python -m pytest -n 2 --dist loadfile"),
+     "python -m pytest $XDIST_ARGS"),
     ("needs.scope.outputs.scope == 'full'", "first line",
      "python -m pytest tests/test_fast_migrations.py --junitxml=/tmp/fast.xml"),
 )
@@ -279,6 +284,32 @@ def test_each_scope_tier_still_runs_its_suite(jobs, condition, compared, command
           "`if false; then` ahead of it, the tier stops running that suite while "
           "`test` stays green. If the command itself is meant to change, change "
           "it here in the same pull request.")
+
+
+def test_the_shared_pytest_arguments_still_run_the_suite(jobs):
+    test_job = jobs["test"]
+    env = test_job.get("env")
+    found = env.get("XDIST_ARGS") if isinstance(env, dict) else env
+    assert isinstance(env, dict) and found == XDIST_ARGS, (
+        f"`test.env.XDIST_ARGS` is {found!r}, and it was "
+        f"{XDIST_ARGS!r}. Both the extension and full tiers append it to pytest, "
+        "so `--collect-only` here makes both report green without running a test. "
+        "A deliberate worker-shape change updates this pin in the same pull request.")
+
+    readers = {command for _, _, command in SCOPED_TEST_STEPS
+               if "$XDIST_ARGS" in command}
+    overrides = []
+    for step in steps_of(test_job):
+        step_env = step.get("env")
+        if isinstance(step_env, dict) and "XDIST_ARGS" in step_env:
+            overrides.append(f"step env on {step.get('name') or step.get('run')!r}")
+        run = lines(step.get("run"))
+        if "XDIST_ARGS" in run and run not in readers:
+            overrides.append(f"run block {run!r}")
+    assert not overrides, (
+        "`XDIST_ARGS` has one source in `test.env`; these places override it or "
+        "can write a new value through `$GITHUB_ENV`, after the pinned value was "
+        f"checked: {overrides}")
 
 
 @pytest.mark.parametrize("name", NEUTRALISER_FREE_JOBS)
