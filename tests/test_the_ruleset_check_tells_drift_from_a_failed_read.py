@@ -21,7 +21,12 @@ import copy
 import http.client
 import io
 import json
+import os
+import runpy
+import subprocess
+import sys
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -32,6 +37,7 @@ from tools import check_the_ruleset
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "github_rules_branches_main.json"
 EXPECTED = ROOT / ".github" / "ruleset-main.json"
+SCRIPT = ROOT / "tools" / "check_the_ruleset.py"
 
 REPO = "muhammadbayoumi/ScrapeX"
 RULES_ENDPOINT = f"repos/{REPO}/rules/branches/main"
@@ -468,8 +474,11 @@ def test_no_repository_is_could_not_check(capsys):
 class _Response:
     status = 200
 
+    def __init__(self, body: bytes = b"[]"):
+        self.body = body
+
     def read(self) -> bytes:
-        return b"[]"
+        return self.body
 
     def __enter__(self):
         return self
@@ -533,6 +542,69 @@ def test_a_malformed_expected_file_is_could_not_check(capsys, tmp_path, content,
 
     assert code == 2, out
     assert says in out
+
+
+# --- run as the step runs it: the verdict is the process's exit status -------------
+#
+# Every test above calls check() and reads the number it returns. GitHub reads neither:
+# it reads the exit status, and only `raise SystemExit(check(os.environ))` at the foot
+# of the script sets it. Without that line the step is green on drift and on
+# could-not-check alike, and every test above still passes.
+
+
+def test_run_with_no_token_the_process_exits_2():
+    """The exit status is the step's only output GitHub reads. check() returning the
+    right number proves nothing if the file stops passing it to SystemExit. No token,
+    so the script returns before it reads anything. -S, because `contract-parity`
+    installs nothing: the script runs on the stdlib alone."""
+    done = subprocess.run(
+        [sys.executable, "-S", str(SCRIPT)], cwd=ROOT, capture_output=True, text=True,
+        encoding="utf-8",
+        env={"SYSTEMROOT": os.environ.get("SYSTEMROOT", ""), "GITHUB_REPOSITORY": REPO})
+
+    assert done.returncode == 2, (done.stdout, done.stderr)
+    assert done.stdout.startswith("::error title=Ruleset not checked::no token"), done.stdout
+
+
+def _answer_both_endpoints(monkeypatch, rules: object) -> list[str]:
+    """The real fetch, with a urlopen that answers the two endpoints from memory, 200
+    each, and refuses anything else. Returns the URLs the script asked for."""
+    asked: list[str] = []
+
+    def urlopen(request, timeout):
+        asked.append(request.full_url)
+        if request.full_url == RULES_URL:
+            return _Response(json.dumps(rules).encode("utf-8"))
+        if request.full_url == REPO_URL:
+            return _Response(json.dumps({"full_name": REPO, "visibility": "public"})
+                             .encode("utf-8"))
+        raise AssertionError(f"the script asked for an endpoint it has no reason to read: "
+                             f"{request.full_url}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    monkeypatch.setenv("GITHUB_TOKEN", TOKEN)
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    return asked
+
+
+@pytest.mark.parametrize("rules, code, says", [
+    ([], 1, "::error title=Ruleset drift::rule `deletion` is missing from main's "
+            "effective rules"),
+    (_real_rules(), 0, "main's effective rules match .github/ruleset-main.json"),
+], ids=["ruleset-deleted", "ruleset-as-recorded"])
+def test_run_as_main_the_script_exits_with_the_verdict(monkeypatch, capsys, rules, code,
+                                                       says):
+    """In process, so the API can answer from memory. `[]` is what main's rules
+    endpoint returns once the ruleset is deleted or disabled, which is #864 again."""
+    asked = _answer_both_endpoints(monkeypatch, rules)
+
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(SCRIPT), run_name="__main__")
+    out = capsys.readouterr().out
+
+    assert exited.value.code == code, out
+    assert says in out
+    assert asked == [RULES_URL, REPO_URL]
 
 
 # --- it is wired where it runs on every change, and a red answer skips nothing ------
