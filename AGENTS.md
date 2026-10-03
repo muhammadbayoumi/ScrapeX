@@ -109,7 +109,8 @@ work; `vacancies` and `tenders` are named, unbuilt.
   `python -m scrapex.contract` re-freezes, `CONTRACT_VERSION` bumps only when the change
   is breaking, and every changed vector and `tests/fixtures/live/` row is explained in
   the PR body.
-- **No module without its test file**, and error paths are tested like happy ones.
+- **No module without its test file**, and error paths are tested like happy ones. A
+  script a workflow runs gets a test that runs it as a process and sees it exit non-zero.
   `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
   run the JS suites `pytest` never reaches; there is no `package.json`, and the extension
   ships one vendored library (`extension/vendor/tabulator.min.js`) — add no second.
@@ -135,9 +136,8 @@ work; `vacancies` and `tenders` are named, unbuilt.
 **Before every merge — green is not mergeable.** A change merges only when CI is green on
 the head it has right now — a recorded green expires — and a critical review over all four
 dimensions, with an adversary attacking what it found, returns no *must fix* and no
-*should fix*. Documentation-only changes are exempt, except this file. Run it, and every
-review he asks for, from the **`review` skill**: it carries the dimensions, the per-issue
-format, and the rules that decide the outcome.
+*should fix*. Run it, and every review he asks for, from the **`review` skill**: it
+carries the dimensions, the per-issue format, and the rules that decide the outcome.
 
 ## The tools, not the files
 
