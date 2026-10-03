@@ -222,6 +222,29 @@ def test_the_catalogue_uses_only_the_canonical_sheets(defined):
         f"design/components.css, or it exists only on this page")
 
 
+def test_every_class_the_catalogue_writes_resolves_to_a_rule():
+    """`test_every_class_in_markup_resolves_to_a_rule` reads `_markup()`, the pages the
+    extension and the web UI ship, and never the catalogue. Since #637 each token it
+    shows is a class (`g-radius-sm`), and a class whose rule is gone renders the
+    component's default -- a pill, for a chip -- while its label still names the token.
+
+    Resolved against what this page loads -- the two canonical sheets and its own
+    <style> block -- and not against `defined`, the union of every sheet: a class only
+    extension/app.css defines renders as nothing here."""
+    gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
+    chrome = re.search(r"<style>(.*?)</style>", gallery, re.S)
+    assert chrome, "the catalogue lost its own chrome styles"
+    known = _classes_defined_in(chrome.group(1))
+    for sheet in CANONICAL:
+        known |= _classes_defined_in((ROOT / sheet).read_text(encoding="utf-8"))
+    # Either quote: a single-quoted attribute is markup the page renders too.
+    used = {name for _, attribute in re.findall(r"""class=(["'])(.*?)\1""", _live_markup(gallery))
+            for name in attribute.split()}
+    assert used, "the catalogue's markup carries no class at all; the pattern stopped matching"
+    assert not used - known, (
+        f"design/gallery.html writes classes no sheet it loads defines: {sorted(used - known)}")
+
+
 def test_the_allow_list_cannot_grow_without_a_reason():
     """An allow-list with bare names becomes a place to hide mistakes. Every
     entry states why the class exists with no rule behind it; a name and an
