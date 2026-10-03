@@ -17,8 +17,8 @@ any workflow that names a version of its own instead.
 The one exception is the weekly job whose whole purpose is to ask for the NEWEST
 stable Python (`python-is-current.yml`, step id `newest-python`). It must say `3.x`,
 never a number, or it would be a second pin wearing an exemption — and it must set
-`check-latest`, or setup-python answers from the runner's cache, which lags a release
-by weeks. The release build sets it too, so the shipped engine takes the newest patch.
+`check-latest`, or setup-python answers from the runner's cache, which took 107 days
+to add 3.13. The release build sets it too, so the shipped engine takes the newest patch.
 """
 
 from __future__ import annotations
