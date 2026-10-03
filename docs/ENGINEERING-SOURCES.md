@@ -92,7 +92,7 @@ waited for by the owner.
 | source | what it contributes |
 |---|---|
 | [GOV.UK Service Manual — *Design around user needs, not government structures*](https://www.gov.uk/service-manual/design) | A service is what the person is trying to do. "Crawl, then interpret" is two of our stages, not one of his tasks. The same manual's *"do the hard work to make it simple"* is the cost side: the complexity does not vanish, it moves to us. |
-| [Dagster — Software-Defined Assets](https://docs.dagster.io/guides/build/assets) | Declare the **asset** and what it depends on; the system works out what must run. `_work_waiting` already computes exactly that condition and then declines to act on it. |
+| [Dagster — Software-Defined Assets](https://docs.dagster.io/guides/build/assets) | Declare the **asset** and what it depends on; the system works out what must run. `_work_waiting` already computes that condition, and the card only drew a line about it. |
 | [Apache Airflow — DAG dependencies](https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html) | A downstream task runs when its upstream succeeds. Sequencing is declared once, not remembered by an operator each time. |
 | Hohpe & Woolf, *Enterprise Integration Patterns* — **Process Manager** | A multi-step process holds its own state, and a step's failure is handled inside the process rather than reported to whoever started it. This is what preserves the next paragraph. |
 

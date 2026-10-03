@@ -789,9 +789,14 @@ def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
     pass -- `capture.py` fetches and ingests straight into the warehouse -- and a
     directory source was two, with a button between them for a stage that is ours.
 
-    THE ENGINE ALREADY KNEW IT WAS DUE. `webui/app.py::_work_waiting` computes exactly
-    this: *"`interpret` is due when a listing crawl has finished MORE RECENTLY than the
-    last interpretation of this source"*. It drew a line on the card and waited for him.
+    THE ENGINE ALREADY KNEW IT WAS DUE. `webui/app.py::_work_waiting` computes this:
+    *"`interpret` is due when a listing crawl has finished MORE RECENTLY than the last
+    interpretation of this source"*. It drew a line on the card and waited for him.
+
+    ONLY THE LISTING CRAWL CHAINS, AND THE BADGE ASKS MORE. `_work_waiting` reads every
+    kind in `datasetjob.COLLECTING_KINDS`, a profile sweep included, and only this runner
+    calls the function below -- so after `Fetch missing profiles` he still presses the
+    stage. Whether the sweep chains too is #1337.
 
     QUEUED, NOT RUN, and that is what keeps `datasetjob`'s own argument true. That module
     states why interpretation is a job and not a stage of the crawl -- *"interpretation
