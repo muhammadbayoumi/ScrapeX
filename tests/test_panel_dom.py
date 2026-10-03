@@ -2115,6 +2115,124 @@ def test_a_dataset_card_can_interpret_what_the_crawl_stored(open_panel):
         f"and never reads the kind: {body}")
 
 
+#: A directory whose crawl stored pages that are not rows yet, shaped as
+#: `_registered_directories` builds it -- `kind: "directory"`, `observations: 0`, no
+#: `last_success`, and `work_waiting.interpret` set. The Oman register on his office
+#: machine: a completed crawl, 2,838 stored pages, no dataset, and nothing on the Data
+#: page. `tests/test_a_directory_holding_stored_pages_is_owed_its_interpretation.py`
+#: asserts the engine sends exactly this shape.
+STORED_NOT_ROWS = {
+    "kind": "directory", "site_key": "oman_tenderboard", "source_key": "oman_tenderboard",
+    "source_name": "Oman Tender Board registered vendors", "source_name_ar": "",
+    "base_url": "https://etendering.tenderboard.gov.om", "family": "generic",
+    "active": False, "implemented": True, "supports_history": False,
+    "observations": 0, "products": 0, "last_success": None,
+    "work_waiting": {"interpret": {"crawl_finished_at": "2026-10-02T09:15:00Z",
+                                   "interpreted_at": None},
+                     "profiles": None, "resumable": None},
+    "kept_pages": 0, "kept_at": None,
+}
+
+
+def test_a_directory_holding_stored_pages_gets_a_card_that_interprets_them(open_panel):
+    """THE SITE APPEARED NOWHERE, SO NOTHING COULD START THE STEP THAT MAKES IT APPEAR.
+
+    The Data page drew a card only for `observations > 0`, a directory has rows only after
+    an interpretation, and "Interpret stored pages" was offered only to a `dataset` card.
+    So the Oman register's 2,838 stored pages had no card and no control.
+
+    FOUR THINGS ARE READ OFF ONE CARD: that it is drawn; that it says pages are stored and
+    not rows yet, not "0" rows or "no successful crawl yet" (it has crawled); that it is
+    NOT a link, because `/source/<key>` is a dead page for a site with no dataset; and that
+    its one press posts the interpretation for the SITE key, with the kind named.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    never_crawled = {**STORED_NOT_ROWS, "site_key": "another_directory",
+                     "source_key": "another_directory",
+                     "work_waiting": {"interpret": None, "profiles": None,
+                                      "resumable": None}}
+    page = open_panel(sources=[*STRESS_SOURCES, STORED_NOT_ROWS, never_crawled])
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    page.click(DATA_TAB)
+    # DRAWN, AND THEN COUNTED: `loadDatasets` writes either cards or its empty-state card,
+    # so a missing card fails below by name rather than as a timeout.
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    card = page.locator('.dataset-card[data-open="oman_tenderboard"]')
+
+    assert card.count() == 1, "a directory holding uninterpreted pages has no card"
+    assert page.locator('.dataset-card[data-open="another_directory"]').count() == 0, (
+        "a directory with nothing stored is drawn, and its card would offer nothing")
+
+    said = card.text_content() or ""
+    assert "not rows yet" in said, f"the card does not say its pages are not rows: {said!r}"
+    for wrong in ("0 rows", "0 products", "no successful crawl yet"):
+        assert wrong not in said, f"the card claims {wrong!r} about a crawled site: {said!r}"
+    assert card.locator(".source-identity-meta").count() == 0, (
+        "the identity line prints a row count of 0 for pages that are not rows")
+
+    assert card.get_attribute("role") is None and card.get_attribute("tabindex") is None, (
+        "the card is announced as a link to a dataset that does not exist")
+    # AND IT DOES NOT LOOK LIKE ONE, while a card with rows still does.
+    cursor = "element => getComputedStyle(element).cursor"
+    assert card.evaluate(cursor) != "pointer", (
+        "the card shows the link cursor over a click that opens nothing")
+    assert page.locator('.dataset-card[data-open="LONG_AR"]').evaluate(cursor) == "pointer", (
+        "a card with rows lost the cursor that says it opens its dataset")
+    card.locator(".dataset-identity-line").click()
+    card.press("Enter")
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => window.__opened") == [], (
+        "pressing the card opened /source/<key>, a dead page for a site with no dataset")
+
+    page.evaluate("() => { window.__writes.length = 0; }")
+    card.locator(".split-button-trigger").click()
+    offered = card.locator("[data-split-action]")
+    actions = [offered.nth(i).get_attribute("data-split-action")
+               for i in range(offered.count())]
+    assert "interpret" in actions, f"the card offers no interpretation: {actions}"
+    for dead in ("table", "enrich", "profiles"):
+        assert dead not in actions, (
+            f"{dead!r} is offered on a site with no dataset, and its route cannot work: "
+            f"{actions}")
+
+    card.locator('[data-split-action="interpret"]').click()
+    page.wait_for_function("() => window.__writes.some(w => w.path === '/api/jobs')",
+                           timeout=10_000)
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(queued) == 1, f"one press, {len(queued)} jobs queued: {queued}"
+    assert queued[0]["body"] == {"source_keys": ["oman_tenderboard"],
+                                 "run_mode": "update",
+                                 "job_kind": "dataset_interpret"}, queued[0]["body"]
+
+
+def test_the_empty_state_does_not_send_him_to_crawl_what_he_crawled(open_panel):
+    """"No data yet. Run a crawl from the Run tab." is the next action for a warehouse
+    that has crawled nothing. With pages stored and only the interpretation owed, it is
+    the wrong one -- the card with the press is the right one. And with nothing stored it
+    must still say it."""
+    page = open_panel(sources=[STORED_NOT_ROWS])
+    page.click(DATA_TAB)
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    assert "No data yet" not in (page.text_content("#datasets") or ""), (
+        "the page tells him to run a crawl when the crawl ran and only the "
+        "interpretation is owed")
+    assert page.locator('.dataset-card[data-open="oman_tenderboard"]').count() == 1
+
+    nothing = {**STORED_NOT_ROWS, "work_waiting": {"interpret": None, "profiles": None,
+                                                   "resumable": None}}
+    page = open_panel(sources=[nothing])
+    page.click(DATA_TAB)
+    page.wait_for_function(
+        "() => (document.getElementById('datasets').textContent || '').includes('No data yet')",
+        timeout=4000)
+    assert page.locator(".dataset-card").count() == 0
+
+
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
     """A CONTRACTOR IS NOT A PRODUCT, and the card said 17,304 of them were.
 

@@ -743,7 +743,8 @@ def create_app(
             source.base_url = entry.base_url or source.base_url
         return sources
 
-    def _work_waiting(general, site_key: str, dataset_key: str) -> dict:
+    def _work_waiting(general, site_key: str, dataset_key: str, *,
+                      defined: bool = True) -> dict:
         """What this directory has on disk that needs a press, and nothing else.
 
         HIS REQUIREMENT, in his words: *«اريد الظهور على الكارت انه يحتاج لعمل interpret
@@ -756,6 +757,10 @@ def create_app(
         TWO STATES, AND EACH IS THE THING ITS OWN BUTTON ACTS ON. `interpret` is due when
         a listing crawl has finished MORE RECENTLY than the last interpretation of this
         source; `profiles` is due when contractors are sighted with no profile page.
+
+        `defined` IS FALSE FOR A REGISTERED DIRECTORY WITH NO `dataset_definition` YET
+        (`_registered_directories`). Its row stands for the dataset its first
+        interpretation will create, so it is asked about `interpret` and not `profiles`.
 
         A COMPARISON OF FINISH TIMES, NOT A COUNT OF UNINTERPRETED PAGES, and that is a
         deliberate limit rather than a shortcut. Counting what an interpretation would
@@ -777,8 +782,8 @@ def create_app(
             return waiting
         directory = directories.get(site_key)
         # A STOPPED RUN IS A PROPERTY OF THE SITE, NOT OF A DATASET, so it is answered
-        # BEFORE the dataset guard below. It is the one of the three that a
-        # `kind: "directory"` card can carry -- and that card is where the pages are most
+        # BEFORE the dataset guard below. It is the one of the three that every row of
+        # the site carries -- and a `kind: "directory"` card is where the pages are most
         # at risk: no dataset exists, so no crawl of this source was ever interpreted,
         # and a run cancelled before that is the one nothing else on the screen mentions.
         # A test caught the omission by failing on the row that branch builds.
@@ -794,9 +799,7 @@ def create_app(
         if directory.dataset_key != dataset_key:
             # NOT THE PRIMARY DATASET OF THIS SITE. The panel folds a site's tables into
             # one card, and putting the same badge on the folded rows would say a press
-            # is owed three times for one press. A directory row reaches here too, with
-            # no dataset key at all: interpreting and fetching profiles are claims about
-            # a dataset that does not exist yet, so they stay `None`.
+            # is owed three times for one press.
             return waiting
         like = f'%"{site_key}"%'
         # ANY KIND THAT COLLECTS PAGES, NOT THE LISTING CRAWL ALONE -- issue 792, which
@@ -826,7 +829,26 @@ def create_app(
             if read is None or str(crawled[0]) > str(read[0]):
                 waiting["interpret"] = {"crawl_finished_at": crawled[0],
                                         "interpreted_at": read[0] if read else None}
-        if directory.profiles is not None:
+        if not defined and waiting["interpret"] is not None:
+            # A SITE WITH NO DATASET YET MAY HAVE STORED NOTHING, and then this badge
+            # would offer a press that can only fail: the runner refuses a source no
+            # crawl stored a page for (`datasetjob.runs_to_interpret`), the trap issue
+            # 1196 records. A dataset row cannot be in that state -- its rows came from
+            # stored pages -- but a directory whose one crawl failed before its first
+            # page can. So the runner's own question is asked, and only once the finish
+            # times above already say a press is owed: its join scans the snapshot index
+            # once per collecting job of the source, measured at about 18 ms a job on a
+            # synthetic warehouse of 112,000 snapshots and 190 jobs.
+            try:
+                unread = datasetjob.runs_to_interpret(general, site_key)
+            except datasetjob.NothingToInterpret:
+                unread = []
+            if not unread:
+                waiting["interpret"] = None
+        # NOT FOR A SITE WITH NO DATASET YET. Every contractor it sighted is rowless
+        # there, so `fetch` would be the whole frontier -- the ~87-hour press his ruling
+        # keeps off the button -- and its card offers no profiles control to press.
+        if defined and directory.profiles is not None:
             # TWO NUMBERS, BECAUSE THEY ARE TWO QUESTIONS AND THE CARD OFFERS TWO
             # BUTTONS. `rowless` is who has no profile ROW -- the coverage figure, and
             # what an INTERPRETATION would close. `fetch` is who still needs a REQUEST,
@@ -994,7 +1016,8 @@ def create_app(
                 # Borrowing the dataset marker to get the crawl control would have
                 # brought a dead one with it, which is the rule this codebase states
                 # as "a button that cannot work is worse than no button". The panel
-                # admits this kind to the crawl and to nothing else.
+                # admits this kind only to what needs no dataset: the crawl, continuing
+                # a stopped one, and interpreting the pages one stored.
                 "kind": "directory",
                 "site_key": key,
                 "source_key": key,
@@ -1016,8 +1039,9 @@ def create_app(
                 # count into both of these; there are no rows yet.
                 "observations": 0,
                 "products": 0,
-                # Never crawled, which the panel renders in words rather than as a
-                # blank or a nought (`freshnessLine`).
+                # None, because there are no rows to date, whether or not a crawl has
+                # run. A card whose pages are not rows yet is dated from
+                # `work_waiting.interpret` instead (`app.js` `loadDatasets`).
                 "last_success": None,
                 # A DIRECTORY CARD CAN HOLD A STOPPED RUN TOO, and this is the case where
                 # the pages are MOST at risk. `kind: "directory"` means no dataset exists
@@ -1033,15 +1057,20 @@ def create_app(
         # handle is opened once and closed on every path including a raise. A leaked
         # handle on this file is what blocks a restore from renaming it.
         #
-        # `interpret` AND `profiles` COME BACK `None` HERE, and that is right rather than
-        # a gap: `kind: "directory"` means no dataset exists, so both would be claims
-        # about a table that is not there. `resumable` is a property of the SITE, and
-        # this is the card where a stopped run's pages are most at risk -- nothing else
-        # on this screen mentions them.
+        # `interpret` IS THE ONE PRESS THAT TURNS THIS ROW INTO A DATASET CARD, so it is
+        # asked here as it is for the dataset it will become. It used to come back `None`
+        # on the reasoning that no dataset exists -- backwards, because no dataset exists
+        # BECAUSE nothing has interpreted the pages. Measured on his office machine: the
+        # Oman register's crawl completed with 2,838 stored pages, no `dataset_definition`
+        # was ever born, and nothing on any screen could start the interpretation.
+        # `profiles` stays `None` (see `_work_waiting`), and `resumable` is a property of
+        # the SITE -- this is the card where a stopped run's pages are most at risk.
         if rows:
             with closing(general_read_conn()) as general:
                 for row in rows:
-                    row["work_waiting"] = _work_waiting(general, row["site_key"], "")
+                    row["work_waiting"] = _work_waiting(
+                        general, row["site_key"],
+                        directories.get(row["site_key"]).dataset_key, defined=False)
         return rows
 
     def _dataset_listing():
