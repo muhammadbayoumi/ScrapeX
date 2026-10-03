@@ -19,22 +19,22 @@
  * than a description.
  *
  * «design system هو supabase ولكن قد ضفنا له استثناء 3 palette الوان واتساب وجت
- * هب و device» — the design system is Supabase's; WhatsApp, GitHub and device are
- * three COLOUR exceptions added on top of it. «واى تعارض معاها يلغى.»
+ * هب و device» — R-74 made the design system Supabase's, with three COLOUR
+ * exceptions on top of it. «واى تعارض معاها يلغى.» R-85 then deleted all three,
+ * so there is ONE colour choice, `supabase`, and #1040 keeps it so.
  *
- * SO EVERY VALUE BELOW THAT IS NOT A COLOUR IS THE BASELINE FOR ALL FOUR COLOUR
- * CHOICES, and no appearance may move it. Shape, typography, spacing, elevation,
- * motion and focus geometry are Supabase's, always. A palette entry in
- * design/appearance.js carries colour and nothing else, and
- * tests/test_a_palette_may_change_nothing_but_colour.py refuses one that does.
+ * SO EVERY VALUE BELOW THAT IS NOT A COLOUR IS THE BASELINE, and no appearance
+ * may move it. Shape, typography, spacing, elevation, motion and focus geometry
+ * are Supabase's, always. A palette entry in design/appearance.js carries colour
+ * and nothing else, and tests/test_a_palette_may_change_nothing_but_colour.py
+ * refuses one that does.
  *
  * WHY THIS FILE HOLDS THEM RATHER THAN THE PALETTE. R-73 first built the
  * opposite — a per-palette design axis — and measured on the built engine it
- * gave the design system to `supabase` and to NOBODY ELSE: `whatsapp`, `github`
- * and device colours all fell back to the pre-Supabase 9px radius, 14px body and
- * Segoe UI. Three of four choices lost it, and device colours is what a fresh
- * install uses. Putting the system in the baseline is what makes «كاملة بكل
- * جوانبه» true instead of true-for-one-palette.
+ * gave the design system to `supabase` and to NOBODY ELSE: every other colour
+ * choice of the time fell back to the pre-Supabase 9px radius, 14px body and
+ * Segoe UI. Putting the system in the baseline is what makes «كاملة بكل جوانبه»
+ * true instead of true-for-one-palette.
  *
  * The colours in `:root` are Supabase's too, because `supabase` is the default
  * colour choice. That is also what finally DISCHARGES R-59 decision 2: the teal
@@ -143,7 +143,7 @@
      AN ALIAS, NOT A 37th THEME PROPERTY. The ladder is already
      --control-bg (--surface) -> --control-hover (--surface-subtle) -> and --chip is
      the next step down in both schemes. Deriving from it means the pressed state
-     follows every palette AND device colours for free, and `THEME_PROPERTIES` stays
+     follows the palette for free, and `THEME_PROPERTIES` stays
      at 36 with no palette gaining a cell -- which is what R-59 decision 4 argues
      for: components consume semantic roles. OP-103, and the fix docs/LESSONS.md
      proposed. */
@@ -405,10 +405,10 @@
 
   /* OP-94. This was the literal `#171b21` while --control-bg was not reachable
      by any appearance, so every palette's dark control backgrounds stayed on the
-     default surface no matter what the palette said -- WhatsApp's dark surface
-     is #182229 and GitHub's #151B23, and neither ever arrived. It follows
-     --surface now, which is the only value that can be right for all four
-     colour choices. */
+     default surface no matter what the palette said -- the WhatsApp and GitHub
+     palettes of the time had dark surfaces of #182229 and #151B23, and neither
+     ever arrived. It follows --surface now, so a control sits on whatever
+     surface the palette sets. */
   --control-bg: var(--surface);
   --control-hover: #1e1f1e;
   /* Dropped a further three steps from light, which is what their Dialog does:
