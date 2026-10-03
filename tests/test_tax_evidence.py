@@ -310,6 +310,21 @@ def test_gpp_records_the_real_statement_and_claims_no_rate():
     assert by_material["ELECTRICITY"].endswith("/electricity_prices/")
 
 
+def test_ahmedelsallab_prices_are_final_as_its_cart_shows():
+    """His ruling, #1260 §10 Q2: the shop's own cart adds no tax to the
+    displayed price. Its storeConfig reads 'display excluding tax'; back to
+    `excl`, every row would claim a tax is added that the cart never adds."""
+    from scrapex.config import load_manifest
+
+    entry = load_manifest().get("AHMEDELSALLAB")
+
+    assert entry.vat_mode.value == "incl"
+    [rule] = entry.tax
+    assert (rule.region, rule.vat_mode.value, rule.evidence) == ("EG", "incl", "general")
+    assert rule.rate_pct is None, "the cart names no rate"
+    assert rule.statement_url.startswith("https://www.ahmedelsallab.com/")
+
+
 # ---- per-material rules: the owner's "all links come from the diesel page" ---
 
 def _gpp_like_entry():
