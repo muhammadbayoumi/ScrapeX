@@ -85,25 +85,7 @@ waited for by the owner.
 
 **Cited at:** `scrapex/datasetjob.py:12`, `scrapex/directoryjob.py:785`.
 
-### What was measured
-
-A price source is one pass: `scrapex/capture.py`'s `capture_source` *"fetch a source via
-its connector and ingest straight into"* the warehouse — crawl, then browse the table.
-
-A directory source is two. The listing crawl stores pages; `dataset_interpret` turns them
-into rows. Between them the owner had to press a button, and on 2026-09-23 he named the
-cost: *«المستخدم العادى عمل crawl مش هيفهم يعنى اى تفسير اصلا ولية يطر يعمل خطوة زيادة»*.
-
-Measured on his own warehouse, the step he was asked to take:
-
-```
-job_7223cf1aa257   471 page pairs   12:52:11 → 12:52:52 = 41 s   0 network requests
-job_ff83c29729a8    75 page pairs                       = 20 s   0 network requests
-```
-
-And the engine already computes that it is due: `scrapex/webui/app.py`'s `_work_waiting`
-holds *"`interpret` is due when a listing crawl has finished MORE RECENTLY than the last
-interpretation of this source"*. It draws a line on the card and waits.
+**Measured** in #1042: the step this removes, timed on his warehouse.
 
 ### The sources
 
@@ -127,16 +109,11 @@ Every word of that is about **jobs**, and none of it is about **buttons**. A cha
 still reports its own verdict, still runs without a crawl when asked, and still takes no
 politeness reservation. What changes is who starts it.
 
-### The decision taken
+**Decided** by the owner in #1042, from three costed options.
 
-The owner ruled on 2026-09-23, choosing from three options with their costs:
-**the engine starts the dependent job itself, and the panel shows it running with a
-control to stop it.** Not silently (he would not see a 41-second write-lock holder), and
-not manually (the stage is ours, not his).
-
-`CLAUDE.md`'s *"never start a run you cannot watch to the end"* is satisfied by the second
-half: the run is visible and stoppable from the surface it appears on, which is what that
-rule protects.
+`CLAUDE.md`'s *"never start a run you cannot watch to the end"* still holds: the chained
+run is visible and stoppable from the surface it appears on, which is what that rule
+protects.
 
 ### How to re-open this
 
