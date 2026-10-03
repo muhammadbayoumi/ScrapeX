@@ -9535,7 +9535,8 @@ def test_an_installer_download_chrome_stops_answering_about_gives_the_button_bac
     assert not page.locator("#engine-download").is_disabled()
 
 
-@pytest.mark.parametrize("ending", ["download-refused", "complete", "interrupted"])
+@pytest.mark.parametrize("ending", ["download-refused", "complete", "interrupted",
+                                    "missing", "search-error"])
 def test_every_way_an_installer_download_ends_gives_the_button_back(open_panel, ending):
     """A FLAG RELEASED ON ONE EXIT IS A BUTTON THAT NEVER RETURNS.
 
@@ -9545,6 +9546,11 @@ def test_every_way_an_installer_download_ends_gives_the_button_back(open_panel, 
     belong to the renderer again: the engine comes up able to take the work, and
     the button has to become the engine's. A flag left set returns before that
     write, and the button stays the browser's for good.
+
+    ALL FIVE EXITS THE FLAG'S COMMENT NAMES, the two misses included. A miss
+    exit that re-enabled the button and wrote its sentence but left the flag
+    set passed both miss tests above -- measured -- because they read the label
+    and the button, and only a render reads the flag.
     """
     page = _browser_download_offered(
         open_panel, throw_on_download=(ending == "download-refused"))
@@ -9556,6 +9562,8 @@ def test_every_way_an_installer_download_ends_gives_the_button_back(open_panel, 
         page.wait_for_function(
             "() => document.getElementById('engine-download-label')"
             ".textContent.includes('Downloading')", timeout=15_000)
+
+    if ending in ("complete", "interrupted"):
         page.evaluate("(state) => { window.__dl.item = {id: 7, state, "
                       "bytesReceived: 10, totalBytes: 10, error: "
                       "state === 'interrupted' ? 'NETWORK_FAILED' : undefined}; }",
@@ -9563,6 +9571,13 @@ def test_every_way_an_installer_download_ends_gives_the_button_back(open_panel, 
         page.wait_for_function(
             "() => !document.getElementById('engine-download').disabled",
             timeout=15_000)
+    elif ending in ("missing", "search-error"):
+        page.evaluate("(missing) => { if (missing) window.__dl.item = null;"
+                      " else window.__dl.throwOnSearch = true; }",
+                      ending == "missing")
+        page.wait_for_function(
+            "() => document.getElementById('engine-download-label')"
+            ".textContent.includes('press to retry')", timeout=15_000)
 
     _the_engine_becomes_able_to_take_it(page)
     assert "Download and check" in _label(page), (
