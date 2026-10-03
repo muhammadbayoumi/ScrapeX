@@ -469,6 +469,20 @@ WRITES = [
     "gh api /repos/:owner/:repo -H 'Accept: application/vnd.github+json' --method=DELETE",
     "gh api '/repos/:owner/:repo' --method=DELETE",
     'gh api "/repos/:owner/:repo" --method=DELETE',
+    # A quoted path, then a flag, then the method: the `*` between the quote and the
+    # method holds the flag, so replacing it with one space lets each of these through.
+    "gh api 'repos/muhammadbayoumi/ScrapeX' -f visibility=private -X PATCH",
+    "gh api \"repos/muhammadbayoumi/ScrapeX\" -H 'Accept: application/vnd.github+json' -X DELETE",
+    "gh api 'repos/muhammadbayoumi/ScrapeX' --jq .name --method DELETE",
+    'gh api "repos/muhammadbayoumi/ScrapeX" -F private=true --method=PATCH',
+    "gh api 'repos/{owner}/{repo}' -H 'Accept: application/vnd.github+json' -XDELETE",
+    "gh api \"repos/{owner}/{repo}\" -H 'Accept: application/vnd.github+json' -X DELETE",
+    "gh api 'repos/{owner}/{repo}' -f default_branch=loose --method PATCH",
+    'gh api "repos/{owner}/{repo}" --jq .name --method DELETE',
+    "gh api 'repos/:owner/:repo' -F private=true -X=PATCH",
+    'gh api "repos/:owner/:repo" --input settings.json -X PATCH',
+    "gh api 'repos/:owner/:repo' --jq .name --method DELETE",
+    "gh api \"repos/:owner/:repo\" -H 'Accept: application/vnd.github+json' --method=DELETE",
     # The gh commands that change the repository, its workflows, secrets and variables.
     "gh repo edit --visibility private --accept-visibility-change-consequences",
     "gh repo edit muhammadbayoumi/ScrapeX --default-branch loose",
@@ -510,6 +524,22 @@ POWERSHELL_WRITES = [
     "Get-Content ruleset.json | gh api --method put repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --input -",
     "Set-Location C:\\Users\\sapac\\Desktop\\Claude\\ScrapeX; gh repo edit --visibility private --accept-visibility-change-consequences",
     "git status && gh secret set SHEET_KEY --body value",
+    # A quoted path glued to the method flag: requiring a space beside the `*` between
+    # the quote and the method lets each of these through. PowerShell passes the two as
+    # separate arguments (pwsh 7.6.6 gives `repos/:owner/:repo`, `-X`, `DELETE` for
+    # `'repos/:owner/:repo'-X DELETE`); Bash joins them into one word.
+    "gh api 'repos/muhammadbayoumi/ScrapeX'-X DELETE",
+    'gh api "repos/muhammadbayoumi/ScrapeX"-X DELETE',
+    "gh api 'repos/muhammadbayoumi/ScrapeX'--method DELETE",
+    'gh api "repos/muhammadbayoumi/ScrapeX"--method DELETE',
+    "gh api 'repos/{owner}/{repo}'-X DELETE",
+    'gh api "repos/{owner}/{repo}"-X DELETE',
+    "gh api 'repos/{owner}/{repo}'--method DELETE",
+    'gh api "repos/{owner}/{repo}"--method DELETE',
+    "gh api 'repos/:owner/:repo'-X DELETE",
+    'gh api "repos/:owner/:repo"-X DELETE',
+    "gh api 'repos/:owner/:repo'--method DELETE",
+    'gh api "repos/:owner/:repo"--method DELETE',
 ]
 
 WRITES_BY_TOOL = {"Bash": WRITES + BASH_WRITES, "PowerShell": WRITES + POWERSHELL_WRITES}
@@ -545,28 +575,33 @@ def test_every_bash_rule_is_the_only_one_refusing_some_write():
 
 
 def test_narrowing_any_wildcard_in_a_bash_rule_lets_a_write_through():
-    """A narrowed rule is a rule partly removed. Dropping any one `*`, or requiring a
-    space before or after it, must let a write in the table through, so the edit
-    fails test_every_write_to_his_decisions_is_refused. Only the narrowed rule
-    changes, so the write it lets through is one no other rule refuses.
+    """A narrowed rule is a rule partly removed. Dropping any one `*`, requiring a
+    space before or after it, or replacing it with one space must let a write in the
+    table through, so the edit fails test_every_write_to_his_decisions_is_refused.
+    Only the narrowed rule changes, so the write it lets through is one no other rule
+    refuses.
 
-    Not tried: a space beside the `*` between the quote that closes a path and the
-    flag after it (`ScrapeX'*-X*`). The shell needs whitespace there or the two join
-    into one word, and a session writes a space, so that space narrows nothing a
-    session writes."""
-    bash = [rule for rule in _deny() if rule.startswith("Bash(")]
-    refusing = {command: _refusing("Bash", command, bash) for command in WRITES_BY_TOOL["Bash"]}
+    A space beside the `*` between the quote that closes a path and the flag after it
+    (`ScrapeX'*-X*`) is checked against PowerShell's writes. Bash joins the quote and
+    the flag into one word, so a Bash write always has whitespace there; PowerShell
+    passes them as two arguments, and the parity test makes the edit narrow the
+    PowerShell twin too."""
+    deny = _deny()
+    refusing = {(tool, command): _refusing(tool, command, deny)
+                for tool in TOOLS for command in WRITES_BY_TOOL[tool]}
     unpinned = []
-    for rule in bash:
-        only_this = [command for command, rules in refusing.items() if rules == [rule]]
+    for rule in [rule for rule in deny if rule.startswith("Bash(")]:
         spec = rule[len("Bash("):-1]
+        only_this = {tool: [command for command in WRITES_BY_TOOL[tool]
+                            if refusing[tool, command] == [f"{tool}({spec})"]] for tool in TOOLS}
         for i in [i for i, char in enumerate(spec) if char == "*"]:
-            narrowed = [spec[:i] + spec[i + 1:]]
-            if not (spec[i - 1:i] in ("'", '"') and spec[i + 1:i + 2] == "-"):
-                narrowed += [spec[:i] + " " + spec[i:], spec[:i + 1] + " " + spec[i + 1:]]
-            for candidate in narrowed:
-                if all(_refusing("Bash", command, [f"Bash({candidate})"]) for command in only_this):
-                    unpinned.append(f"{rule} narrowed to Bash({candidate})")
+            beside = "PowerShell" if spec[i - 1:i] in ("'", '"') and spec[i + 1:i + 2] == "-" else "Bash"
+            for candidate, tool in [(spec[:i] + spec[i + 1:], "Bash"),
+                                    (spec[:i] + " " + spec[i:], beside),
+                                    (spec[:i + 1] + " " + spec[i + 1:], beside),
+                                    (spec[:i] + " " + spec[i + 1:], "Bash")]:
+                if all(_refusing(tool, command, [f"{tool}({candidate})"]) for command in only_this[tool]):
+                    unpinned.append(f"{tool}({spec}) narrowed to {tool}({candidate})")
     assert not unpinned, f"add a write that only each rule refuses and its narrowing does not: {unpinned}"
 
 
