@@ -31,11 +31,17 @@ import threading
 import time
 from contextlib import closing, nullcontext
 
-from . import contractors, directories, snapshotcrawl
+from . import contractors, datasetjob, directories, snapshotcrawl
 from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
-from .vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
+from .vocab import (
+    JobControl,
+    JobStage,
+    JobStatus,
+    LogLevel,
+    RunMode,
+)
 
 #: The kind this module runs. Named once; `jobs.SPECIALISED_RUNNERS` reads it so the
 #: string cannot be spelled two ways in two files.
@@ -768,4 +774,133 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         source_key=source_key)
     jobs._update(conn, job["job_id"], progress_done=cells)
     jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
+    _queue_the_interpretation(conn, job, source_key)
     return jobs.get_job(conn, job_ref)
+
+
+def _queue_the_interpretation(conn: sqlite3.Connection, job: dict,
+                              source_key: str) -> str | None:
+    """Queue the interpretation this crawl has just made due. Returns its ref, or None.
+
+    ES-1: a pipeline stage is not a user step. See `docs/ENGINEERING-SOURCES.md`.
+
+    WHAT HE SAID, 2026-09-23: *«المفروض التفسير دا يشتغل تلقائى يعنى المستخدم العادى عمل
+    crawl مش هيفهم يعنى اى تفسير اصلا ولية يطر يعمل خطوة زيادة»*. A price source is one
+    pass -- `capture.py` fetches and ingests straight into the warehouse -- and a
+    directory source was two, with a button between them for a stage that is ours.
+
+    THE ENGINE ALREADY KNEW IT WAS DUE. `webui/app.py::_work_waiting` computes exactly
+    this: *"`interpret` is due when a listing crawl has finished MORE RECENTLY than the
+    last interpretation of this source"*. It drew a line on the card and waited for him.
+
+    QUEUED, NOT RUN, and that is what keeps `datasetjob`'s own argument true. That module
+    states why interpretation is a job and not a stage of the crawl -- *"interpretation
+    fails on its own terms ... a failure reported as the crawl's would send the next
+    session looking at the network ... Two jobs, two verdicts"* -- and every word of it is
+    about JOBS. A queued job still reports its own verdict, still runs without a crawl
+    when he asks, and still takes no politeness reservation. What changed is who presses.
+
+    AND IT IS VISIBLE AND STOPPABLE, which is the half `CLAUDE.md`'s *"never start a run
+    you cannot watch to the end"* protects. A queued job is a row the panel draws with the
+    controls every other job has; the alternative he rejected was running it silently.
+
+    ONLY ON THE SUCCESS PATH. The caller returns before this on every stop, so a cancelled
+    crawl queues nothing -- interpreting a sweep he stopped is work he did not ask for.
+
+    A FAILURE TO QUEUE MAY NOT FAIL THE CRAWL, the same rule the heartbeat and the stop
+    guard above both state: the crawl is the work, this is what follows it. It is recorded
+    rather than swallowed, so a session that expected a second job and got none can see
+    why.
+    """
+    # IMPORTED HERE, as `run_directory_crawl_job_once` does and for its reason: `jobs`
+    # names this module in `SPECIALISED_RUNNERS`, so importing it at the top would
+    # close the circle. `datasetjob` is safe at the top -- it names no runner.
+    from . import jobs
+
+    # ONE AT A TIME, AND ISSUE 779 IS WHY. That issue records what a second identical job
+    # for one source costs: *"a worker slot out of `job_capacity` (3), held by a job doing
+    # nothing for 29 minutes"*.
+    #
+    # THIS PATH IS WORSE THAN THE BUTTONS THAT ISSUE IS ABOUT, which is why the guard is
+    # here rather than left to it: those needed him to press twice. This queues by itself,
+    # so two crawls of one source -- a re-run, a schedule, a resume that completes -- stack
+    # interpretations with nobody pressing anything. Measured before the guard existed:
+    # two finished crawls, two `queued` interpretations.
+    #
+    # WHICH SIBLING COUNTS IS `datasetjob.waiting_interpretation`'s question, not this
+    # function's, and `POST /api/jobs` asks the same one to decide whether to refuse a
+    # press -- so the chain and the route cannot disagree about what a duplicate is. Only
+    # a sibling that has NOT STARTED counts: it plans its reading when it starts, so it
+    # will read this crawl's pages. One already running planned before they existed, and
+    # a paused one waits on him and never advances by itself.
+    #
+    # ASKED INSIDE THE GUARD, because the question is part of queueing. It sat above the
+    # `try` and so could raise past it -- after `_finish` had already committed
+    # COMPLETED -- and a crawl that stored every page would have been reported as the
+    # failure of a step that is ours.
+    #
+    # AND UNDER THE WRITE LOCK, for the reason `POST /api/jobs` gives beside its own
+    # `BEGIN IMMEDIATE`: the route asks the same rule on another thread, and two askers
+    # that both hear "nothing is waiting" both queue one. `_finish` has just committed,
+    # so no transaction is open here.
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        waiting = datasetjob.waiting_interpretation(conn, source_key)
+        if waiting:
+            # "EVERY RUN NOBODY HAS READ", NOT "THE NEWEST". Since #1082 an
+            # interpretation reads each unread run oldest first
+            # (`datasetjob.runs_to_interpret`), so the one waiting reads this crawl's
+            # pages along with any older unread ones.
+            jobs.append_log(
+                conn, job["job_id"],
+                f"an interpretation of this source is already waiting as "
+                f"{waiting['job_ref']}, so this crawl queued none: it has not started "
+                "yet, so it will read every stored run nobody has read, this one "
+                "included",
+                source_key=source_key)
+            conn.commit()
+            return None
+        # `commit=False`: THE JOB AND BOTH LINES ABOUT IT ARE ONE WRITE. Committed on its
+        # own, the row outlived a failure on the next line, and the warning below then
+        # said "could not be queued" about a job that was queued.
+        ref = jobs.create_job(conn, [source_key],
+                              run_mode=RunMode.UPDATE,
+                              job_kind=datasetjob.JOB_KIND, commit=False)
+        jobs.append_log(
+            conn, job["job_id"],
+            f"queued the interpretation of these pages as {ref}: it turns the stored "
+            "evidence into rows and fetches nothing. Open the Jobs page and press "
+            "Cancel on its row if you do not want it",
+            source_key=source_key)
+        # AND THE SAME SENTENCE IN THE NEW JOB'S OWN LOG, because that is the pane the
+        # panel is about to open. `pollJobOnce` draws the log of the job `liveJob`
+        # adopts, and once this crawl has finished that is usually this interpretation,
+        # so the line above -- written on the crawl -- is off screen within about 1.5 s
+        # of being written. A job he did not start, whose log opens empty, is the
+        # shape issue 778 records: he reads the panel and cannot tell what is happening.
+        #
+        # NOT A DUPLICATE OF THE LINE ABOVE. That one tells the crawl's reader what the
+        # crawl did last; this one tells the interpretation's reader why it exists. Two
+        # readers, two questions, and neither log is the other's.
+        jobs.append_log(
+            conn, jobs.get_job(conn, ref)["job_id"],
+            f"started automatically when the listing crawl {job['job_ref']} finished, "
+            f"to turn the pages this source has stored into rows. It reads them from "
+            f"disk and makes no request. Open the Jobs page and press Cancel on its row "
+            f"to stop it",
+            source_key=source_key)
+        conn.commit()
+        return ref
+    except Exception as exc:
+        # WHATEVER THE LOCK HELD IS UNDONE FIRST, so the line below is written in a
+        # transaction of its own rather than committed beside a half-written job.
+        conn.rollback()
+        jobs.append_log(
+            conn, job["job_id"],
+            f"the crawl finished, but its interpretation could not be queued: "
+            f"{type(exc).__name__}: {exc}. The pages are on disk and cost nothing to "
+            f"keep, and the next crawl of this source queues one again. Nothing is "
+            f"lost by leaving it",
+            level=LogLevel.WARNING, source_key=source_key)
+        conn.commit()
+        return None
