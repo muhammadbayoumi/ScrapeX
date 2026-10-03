@@ -162,9 +162,9 @@ comparison is real and not a mix of sources.
 `compression.zstd` is in the standard library as of Python **3.14**, and the machine
 this was measured on runs 3.14.6 — so the study concluded that the constraint which
 made `DEC-9` choose zlib, *"no new dependency"*, was satisfied for free. It is not.
-`pyproject.toml` declares `requires-python = ">=3.12"` and **CI runs 3.12.14**, where
+`pyproject.toml` then declared `requires-python = ">=3.12"` and **CI ran 3.12.14**, where
 that module does not exist: importing it did not merely fail the tests, it stopped the
-package importing at all.
+package importing at all. (The floor has since moved to 3.14; whether to move is #1262.)
 
 **The fix is the `zstandard` wheel, and it is more portable than the thing it
 replaces.** Same libzstd underneath, identical behaviour on 3.12, 3.13 and 3.14 —

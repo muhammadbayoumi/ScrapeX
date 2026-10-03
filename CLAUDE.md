@@ -102,6 +102,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
   `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
   run the JS suites `pytest` never reaches; there is no `package.json`, and the extension
   ships one vendored library (`extension/vendor/tabulator.min.js`) — add no second.
+- **Python is `.python-version`'s — the newest stable CPython, adopted once the suite, every
+  wheel and PyInstaller pass on it.** His engine follows only when, with his OK, each machine
+  re-registers its native host from the new interpreter.
 - **A local green ran no browser test.** The `importorskip("playwright")` suites report
   *skipped* until `pip install -e .[dev,browser]` and `python -m playwright install
   chromium`.

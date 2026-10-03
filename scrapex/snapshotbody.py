@@ -33,9 +33,10 @@ dictionary for a page that is 97% skeleton is a page.
 
 WHY `zstandard` AND NOT `compression.zstd`, WHICH IS IN THE 3.14 STANDARD LIBRARY.
 The first version of this module used the stdlib one and was wrong: `pyproject.toml`
-declares `requires-python = ">=3.12"`, CI runs **3.12.14**, and `compression.zstd`
+then declared `requires-python = ">=3.12"`, CI ran **3.12.14**, and `compression.zstd`
 arrived in **3.14**. So the package did not merely fail its tests there -- it failed
-to IMPORT, which would have stopped the engine starting.
+to IMPORT, which would have stopped the engine starting. The floor is 3.14 now
+(`.python-version`); whether to move is #1262.
 
 And the fix is more portable than the thing it replaces, which is the part worth
 keeping: `zstandard` behaves identically on 3.12, 3.13 and 3.14, while

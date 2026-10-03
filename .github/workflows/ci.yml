@@ -91,7 +91,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       # Pinned: an unpinned linter turns somebody else's release into a red
       # build on a branch that changed nothing.
       - name: Install ruff
@@ -285,7 +285,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
           # Measured 2026-08-19: nothing in .github/workflows/ cached anything.
           # `pip install -e .[dev,browser]` is a steady 11s, so this is small --
           # but it is one line and it never costs more than it saves.

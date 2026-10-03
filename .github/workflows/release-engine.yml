@@ -99,7 +99,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
+          # The engine.exe this ships carries this interpreter, so take the newest
+          # patch of the pinned minor from the release manifest, not whichever one
+          # the runner image happens to cache. ci.yml keeps the cached one, which is
+          # faster: his ruling, 2026-10-03, for this build only.
+          check-latest: true
 
       - name: The tag and the version must be the same number
         # THE CHECK THAT MATTERS MOST HERE, and it runs before anything is
