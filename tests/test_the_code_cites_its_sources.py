@@ -37,7 +37,12 @@ import pytest
 # the panel too, so `REGISTERS` searches it. The gate is one-directional
 # (reads-extension implies marked), so carrying the mark costs nothing and its
 # absence would stop this guard running on an extension-only change.
-pytestmark = pytest.mark.extension
+#
+# AND `docs`, for the same reason at the other seam: it reads CLAUDE.md and the
+# registers, so a documentation-only change -- an entry renamed, a `Cited at:` line
+# edited -- runs `pytest -m docs` and must run this.
+# tests/test_the_docs_gate_is_complete.py is the guard that says so.
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HERE = pathlib.Path(__file__).resolve()
