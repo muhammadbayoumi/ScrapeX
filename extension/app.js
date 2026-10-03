@@ -6082,6 +6082,35 @@ function sourceMenu(source) {
     </div>`;
 }
 
+/**
+ * Take the owner to the job a card just started, and put it in front of him.
+ *
+ * THE FOUR CARD ACTIONS THAT START A JOB POSTED IT AND FORGOT IT: `showView("run")` and
+ * nothing else. Run polls only on its first visit per backend generation (the memo in
+ * `loadRunDestination`), so from the second visit on nothing asked the engine about the
+ * job, Activity stayed hidden, and the natural next step -- tick the site, press Start --
+ * queued the same crawl twice (issue 779). On a first visit the poll did run, and drew
+ * Activity below the fold: it is Run's last card.
+ *
+ * A POLL ALREADY IN FLIGHT MAY HAVE LEFT BEFORE THIS JOB WAS COMMITTED. `pollJob` hands
+ * back that promise rather than asking again, and a poll that saw nothing active does not
+ * re-arm, so it is waited out and the question asked afresh.
+ *
+ * THE REF IS KEPT, as `startRun` keeps it: a job that has already ended when Run asks is
+ * not in the active list, and only the ref lets the poll show how it ended.
+ *
+ * NO SITE IS SELECTED. Start stays pressable for any ticked site, so ticking the busy one
+ * here would put the duplicate one click away.
+ */
+async function followStartedJob(jobRef) {
+  if (pollPromise) await pollPromise;
+  state.jobRef = jobRef;
+  showView("run");
+  await pollJob();
+  $("activity").scrollIntoView({
+    behavior: reduceMotion.matches ? "auto" : "smooth", block: "center"});
+}
+
 /** Everything a source menu can do, in one place so the card stays a template. */
 async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
   // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
@@ -6122,8 +6151,8 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
       // `/api/jobs` with a canned success, so no DOM test validated a mode; and
       // `test_an_action_withheld_for_its_route_really_is_refused` accepted any 4xx, so a
       // 400 about the MODE read as the 404 about the KEY it claimed to be measuring.
-      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6136,9 +6165,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     // cannot infer which of the two verbs this is -- the same key supports both.
     const interpretKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
-                               job_kind: "dataset_interpret"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
+                                               job_kind: "dataset_interpret"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6160,9 +6189,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     if (!resumeRef) return;
     const crawlKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update",
-                               resume_run_ref: resumeRef});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update",
+                                               resume_run_ref: resumeRef});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6178,9 +6207,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     // contractors with no profile", which is what this button says it does.
     const profileKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [profileKey], run_mode: "update",
-                               job_kind: "profile_crawl"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [profileKey], run_mode: "update",
+                                               job_kind: "profile_crawl"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
