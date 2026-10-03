@@ -942,3 +942,39 @@ sources:
       and a re-crawl is what would replace them — not a repair of these rows,
       because rewriting a stored observation is the one thing this project
       does not do.
+
+  # ---- studied 2026-09-29, #1260: Magento 2 GraphQL, and the magento-graphql
+  #      connector returns ZERO products here, so it enters the list with no
+  #      collector: family TBD-probe, which validation keeps inactive ----
+  - source_key: AHMEDELSALLAB
+    source_name_ar: أحمد السلاب
+    source_name: Ahmed El Sallab
+    base_url: https://www.ahmedelsallab.com
+    family: TBD-probe
+    cadence: manual
+    authority: shop
+    active: false
+    currency: EGP
+    default_region: EG
+    default_language: ar
+    # Not a guess and not yet his ruling: the store's own configuration answers
+    # display_product_prices_in_catalog = 1, Magento's EXCLUDING_TAX (#1260,
+    # request 25), and no page states either way. `incl`, the default, would
+    # contradict the only evidence there is. His word decides (#1260 §10 Q2).
+    vat_mode: excl
+    # Its robots.txt asks Crawl-delay: 10 and disallows every filtered or paged
+    # listing, while POST /graphql, the only path a collector would use, is
+    # allowed (#1260 §2). Obeying it costs nothing a crawl needs.
+    robots: obey
+    extract:
+      - kind: product_prices
+        scope: census
+    notes: >-
+      On the list, not collected. Studied under the study-a-source standard in
+      #1260: 5,578 products; the existing magento-graphql connector fails four
+      ways here (it asks is_qty_decimal and qty_increments, which this schema
+      lacks, so its first request returns no data; it sends Store: en_SA where
+      this store is en; its category walk gets an empty categoryList; its
+      enrichment drops unit_measure, the hidden field that says what a price is
+      for — per m² on 898 of 1,249 ceramic products, per tile on 65, unstated on
+      286). The family becomes magento-graphql when that connector can read it.

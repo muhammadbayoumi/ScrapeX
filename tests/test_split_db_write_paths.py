@@ -89,25 +89,47 @@ def test_a_fresh_install_shows_every_configured_source(split_client):
     ingested something. On a fresh install that meant "No data yet" and none of
     the configured sources — a source that had never run did not look like a
     problem, it simply did not exist."""
+    import re
+
+    from scrapex.config import MANIFEST_FILE, load_manifest
+
     body = split_client.get("/").text
 
     assert "ScrapeX command center" in body
-    assert "GPP_ENERGY" in body and "ELSEWEDYSHOP" in body
+    # The overview draws six cards and counts the rest as "View N more"
+    # (`webui/app.py` `shown_sources`), so every configured source is either
+    # drawn or counted. This named GPP_ENERGY and ELSEWEDYSHOP until a
+    # thirteenth source sorted ahead of GPP_ENERGY and pushed it to seventh:
+    # the names only ever held because of where they fell alphabetically.
+    configured = {source.source_key for source in load_manifest(MANIFEST_FILE).sources}
+    cards = re.findall(r'data-overview-source="([A-Z_]+)"', body)
+    assert cards, "a fresh install drew no configured source at all"
+    assert set(cards) <= configured, f"cards that are not configured sources: {cards}"
+    more = re.search(r"View (\d+) more dataset", body)
+    assert len(cards) + (int(more.group(1)) if more else 0) >= len(configured), \
+        "some configured sources are neither drawn nor counted"
     assert "Never run" in body, "the status must be stated in words"
 
 
 def test_a_source_that_has_run_is_not_listed_as_never_run(split_client):
     """The two lists must be disjoint, or a source appears twice and the owner
     cannot tell which card is current."""
-    split_client.get("/source/GPP_ENERGY")     # registers nothing; still never run
-    body = split_client.get("/").text
-
     import re
 
     # Count overview source cards, not visible names: the English label is
     # humanised (GPP ENERGY), while the attribute keeps the canonical key.
-    cards = re.findall(r'data-overview-source="([A-Z_]+)"', body)
-    assert cards.count("GPP_ENERGY") == 1, f"listed more than once: {cards}"
+    def cards() -> list[str]:
+        return re.findall(r'data-overview-source="([A-Z_]+)"', split_client.get("/").text)
+
+    # A source that is drawn, whichever it is: naming one breaks the day a new
+    # source sorts ahead of it and it falls off the six-card overview.
+    drawn = cards()
+    assert drawn, "the overview drew no source card to visit"
+    visited = drawn[0]
+    split_client.get(f"/source/{visited}")     # registers nothing; still never run
+    after = cards()
+    assert after.count(visited) == 1, f"{visited} listed more than once: {after}"
+    assert len(after) == len(set(after)), f"a source is listed more than once: {after}"
 
 
 # ---- Data page, slice 1: a row can finally be asked about itself ------------
