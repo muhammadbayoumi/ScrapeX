@@ -840,8 +840,9 @@ def create_app(
         # the point: a crawl that was CANCELLED still bought pages -- 3,138 stored
         # readings over 802 URLs, measured on one -- so they are on disk and unread, and
         # this badge is the only thing that says so. An interpretation that was cancelled
-        # read nothing, so it may not count as a reading. Same column, opposite answers,
-        # because "did it leave pages behind" and "did it read them" are not one fact.
+        # may have stopped part-way, with runs it planned still unread, so it may not
+        # count as a reading. Same column, opposite answers, because "did it leave pages
+        # behind" and "did it read them all" are not one fact.
         marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
@@ -862,9 +863,11 @@ def create_app(
             # ordinary thing to do -- and it was the one action that put the badge out
             # for good. Before the chain he had to have started one by hand first.
             #
-            # `datasetjob` closes as exactly one of three: COMPLETED, CANCELLED
-            # or FAILED in `run_dataset_interpret_job_once`. Only the first read the
-            # pages, so only the first answers this question.
+            # An interpretation ends as one of three: COMPLETED, CANCELLED or FAILED,
+            # written by its runner, by a Cancel (`jobs.set_control`) or by the worker
+            # (`JobRunner._fail_orphan`). Only a COMPLETED one read everything it planned
+            # -- a cancel lands between page pairs, after some runs are already read --
+            # so only the first answers this question.
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
                 " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "

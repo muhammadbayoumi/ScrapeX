@@ -219,6 +219,15 @@ def test_each_entry_is_cited_where_it_says_it_is(register: Register):
             f"would be skipped rather than checked, so the entry could name a file that "
             f"does not cite it and pass."
         )
+        # AND IT MUST NAME CODE. An empty list passed the loop below by having nothing to
+        # check, so an entry whose `Cited at:` read "nowhere yet." -- or named only a test
+        # -- passed with every production citation gone, because a test naming the key in
+        # its docstring still satisfies the guard above. That is the drift the docstring
+        # says this test catches, so it now refuses it.
+        if not any(not path.startswith("tests/") for path in found):
+            missing.append(
+                f"{key} names no production file in `Cited at:` ({found or 'nothing'}); "
+                f"an entry is cited at the code it governs, not only at its tests")
         for path in found:
             whole = (ROOT / path)
             if not whole.exists():

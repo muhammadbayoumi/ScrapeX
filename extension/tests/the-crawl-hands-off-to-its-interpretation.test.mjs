@@ -246,6 +246,28 @@ test("on the Data tab the handoff redraws the card, not only the Run list", asyn
   assert.equal(onData.seen.loadSources, 1, "and the Run list must still refresh");
 });
 
+test("on the Data tab, the LAST job ending redraws the card too", async () => {
+  // THE END OF THE CHAIN, AND THE ONE THAT MATTERS MOST. The interpretation is the job
+  // that writes the rows, and it is usually the last one live, so it ends through the
+  // "nothing active" branch rather than through a handoff. That branch used to call
+  // `loadSources()` alone, which redraws the Run list and leaves the Data card on the
+  // count it had before the rows landed. Every other test here runs it on the Run tab,
+  // where reverting it to `loadSources()` changes nothing anyone can see.
+  const READ_DONE = { ...CHAINED, status: "completed", finished_at: "2026-09-24T09:01:00Z" };
+  const onData = runner({
+    active: [], view: "data",
+    byRef: { job_read: { ...READ_DONE, log: [{ message: "job completed" }] } },
+  });
+  onData.state.jobRef = "job_read";
+  await onData.pollJobOnce();
+
+  assert.equal(onData.seen.loadDatasets, 1,
+    "the interpretation finished with the Data tab open and its card never redrew, so " +
+    "it still shows the row count from before the rows were written");
+  assert.equal(onData.seen.loadSources, 1, "and the Run list must still refresh");
+  assert.equal(onData.state.jobRef, null, "the finished ref was not cleared");
+});
+
 test("on the Run tab it does not redraw a card nobody is looking at", async () => {
   // The other side: `loadDatasets` rebuilds every dataset card and refetches their
   // counts. Doing that on a tab that is not on screen is work for nobody, at 1500 ms.

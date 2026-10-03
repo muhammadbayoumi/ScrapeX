@@ -1256,6 +1256,58 @@ def test_the_question_failing_does_not_fail_the_crawl(conn, monkeypatch, tmp_pat
         "the failed question left the write lock held")
 
 
+class _RefusesTheLockOnce:
+    """The runner's connection, except that the first `BEGIN IMMEDIATE` is refused the
+    way SQLite refuses it when another writer holds the lock past `busy_timeout`."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.refused = 0
+
+    def execute(self, sql, *args):
+        if sql.strip().upper() == "BEGIN IMMEDIATE" and not self.refused:
+            self.refused += 1
+            raise sqlite3.OperationalError("database is locked")
+        return self._inner.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def test_the_lock_being_refused_does_not_fail_the_crawl(conn, monkeypatch, tmp_path):
+    """THE STATEMENT THAT CAN ACTUALLY SAY "LOCKED" IS `BEGIN IMMEDIATE`, and the guard
+    above never reaches it: it makes the QUESTION fail, which runs after the lock is
+    already held. Moved above the `try`, the lock request escaped the runner after
+    `_finish` had committed COMPLETED, and that guard and every other in this file still
+    passed. So this one refuses the lock itself, and only the chain's request for it."""
+    real = directoryjob._queue_the_interpretation
+    proxies = []
+
+    def through_a_refusing_connection(c, job, source_key):
+        proxies.append(_RefusesTheLockOnce(c))
+        return real(proxies[-1], job, source_key)
+
+    monkeypatch.setattr(directoryjob, "_queue_the_interpretation",
+                        through_a_refusing_connection)
+    done = _one_finished_crawl(conn, monkeypatch)
+
+    assert [one.refused for one in proxies] == [1], (
+        "the chain never asked for the lock, so this test refused nothing")
+    assert done["status"] == JobStatus.COMPLETED.value, (
+        f"the lock was refused after the crawl finished, and the crawl was reported "
+        f"{done['status']}")
+    warned = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? AND level = ?",
+        (done["job_id"], LogLevel.WARNING.value))]
+    assert any("could not be queued" in line and "database is locked" in line
+               for line in warned), (
+        f"the refusal was not recorded where he reads the crawl: {warned!r}")
+    assert not [row for row in conn.execute(
+        "SELECT 1 FROM crawl_job WHERE job_kind = ?", (datasetjob.JOB_KIND,))]
+    assert not _write_lock_is_held(tmp_path / "engine.db"), (
+        "the refused request left the write lock held")
+
+
 def test_a_half_queued_interpretation_is_undone_with_the_failure(conn, monkeypatch):
     """THE WARNING SAYS "COULD NOT BE QUEUED", SO NOTHING MAY BE QUEUED. The job row is
     written before the interpretation's own log line. If that line fails, committing what
