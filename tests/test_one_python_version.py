@@ -16,16 +16,22 @@ any workflow that names a version of its own instead.
 
 The one exception is the weekly job whose whole purpose is to ask for the NEWEST
 stable Python (`python-is-current.yml`, step id `newest-python`). It must say `3.x`,
-never a number, or it would be a second pin wearing an exemption.
+never a number, or it would be a second pin wearing an exemption — and it must set
+`check-latest`, or setup-python answers from the runner's cache, which lags a release
+by weeks. The release build sets it too, so the shipped engine takes the newest patch.
 """
 
 from __future__ import annotations
 
+import argparse
 import pathlib
 import re
 import tomllib
 
 import pytest
+
+from scrapex import nativehost
+from scrapex.cli import build_parser
 
 yaml = pytest.importorskip("yaml")
 
@@ -36,6 +42,9 @@ PIN_FILE = ".python-version"
 #: (workflow file, step id) of the one step allowed a literal, and the literal it must hold.
 NEWEST_PROBE = ("python-is-current.yml", "newest-python")
 NEWEST_LITERAL = "3.x"
+#: The workflow that builds the engine.exe he downloads. Only it, and the probe, check
+#: for the newest patch; ci.yml keeps the runner's cached one because it is faster.
+RELEASE_BUILD = "release-engine.yml"
 
 
 def _pinned() -> tuple[int, int]:
@@ -89,6 +98,51 @@ def test_the_newest_probe_asks_for_the_newest_and_nothing_else():
               if (workflow, step.get("id")) == NEWEST_PROBE]
     assert len(probes) == 1, f"expected exactly one {NEWEST_PROBE} step, found {len(probes)}"
     assert (probes[0].get("with") or {}).get("python-version") == NEWEST_LITERAL
+    assert _takes_latest(probes[0]), (
+        "without check-latest, '3.x' is the newest CPython the runner image has cached, "
+        "not the newest released, and the probe reports 'on the newest' for months")
+
+
+def _takes_latest(step: dict) -> bool:
+    # Actions hands every input over as a string; setup-python reads true/True/TRUE alike.
+    return str((step.get("with") or {}).get("check-latest")).lower() == "true"
+
+
+def test_only_the_release_build_and_the_probe_check_for_the_newest_patch():
+    """His ruling: the engine.exe he downloads takes the newest patch, and ci.yml and
+    the rest keep the patch the runner has cached, which is faster."""
+    steps = _setup_python_steps()
+    release = [step for workflow, _job, step in steps if workflow == RELEASE_BUILD]
+    assert release and all(_takes_latest(step) for step in release), (
+        f"{RELEASE_BUILD} must set check-latest: true, or the engine.exe it ships "
+        "carries whichever patch the runner happened to cache")
+    latest = {workflow for workflow, _job, step in steps if _takes_latest(step)}
+    assert latest == {RELEASE_BUILD, NEWEST_PROBE[0]}, (
+        f"check-latest belongs to {RELEASE_BUILD} and the probe only, found it in {sorted(latest)}")
+
+
+def _issue_body() -> str:
+    doc = yaml.safe_load((WORKFLOWS / NEWEST_PROBE[0]).read_text(encoding="utf-8"))
+    runs = [str(step.get("run") or "") for job in doc["jobs"].values()
+            for step in job.get("steps") or []]
+    filing = [run for run in runs if "gh issue create" in run]
+    assert len(filing) == 1, f"expected one step that files the issue, found {len(filing)}"
+    return filing[0]
+
+
+def test_the_upgrade_issue_reaches_the_engine_he_runs():
+    """Moving the pin moves CI and the release build, never his engine: it runs from
+    source through a launcher that names its interpreter once, at registration. So the
+    issue must name that step, and each name it cites must still be real — a renamed
+    command would leave a checklist that sends the next upgrade to nothing."""
+    body = _issue_body()
+    for cited in ("scrapex/nativehost.py", "write_launcher", "install-native-host", "[ui]"):
+        assert cited in body, f"the upgrade issue no longer names {cited!r}"
+    assert callable(getattr(nativehost, "write_launcher", None))
+    subcommands = next(action.choices for action in build_parser()._actions
+                       if isinstance(action, argparse._SubParsersAction))
+    assert "install-native-host" in subcommands
+    assert "ui" in _pyproject()["project"]["optional-dependencies"]
 
 
 def test_requires_python_is_the_pinned_version():

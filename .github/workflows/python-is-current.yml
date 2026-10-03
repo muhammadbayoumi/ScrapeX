@@ -2,9 +2,14 @@ name: The engine's Python is the newest stable one
 
 # HIS RULE, 2026-09-29: the engine is always upgraded to the newest Python. A rule nobody
 # is reminded of is a promise, so once a week this asks actions/setup-python for the
-# newest stable CPython ("3.x" resolves to it, prereleases excluded) and compares it
-# with `.python-version`, the one file every other workflow reads its version from
-# (tests/test_one_python_version.py holds them to it).
+# newest stable CPython and compares it with `.python-version`, the one file every other
+# workflow reads its version from (tests/test_one_python_version.py holds them to it).
+#
+# `check-latest: true` IS WHAT MAKES "3.x" MEAN THE NEWEST. Without it setup-python
+# answers from the runner image's own cache and reads the release manifest only when
+# nothing cached matches — and the ubuntu-24.04 image added 3.13 on 2025-01-22, 107 days
+# after 3.13.0 shipped. A release candidate never matches "3.x" (semver leaves
+# prereleases out of a range), so a 3.N.0rc opens no issue.
 #
 # When a newer one exists it OPENS AN ISSUE — once, not every week — because an issue is
 # on the board he reads, where a red scheduled run is only an email. It does not move the
@@ -29,6 +34,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+          check-latest: true
       - name: Compare with .python-version, and record a newer one as an issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,5 +59,7 @@ jobs:
             "" \
             "The rule is that the engine is always upgraded. The move is one line — \`.python-version\` — plus \`requires-python\` and ruff's \`target-version\` in \`pyproject.toml\`, which \`tests/test_one_python_version.py\` will name if they are missed." \
             "" \
-            "Before it merges: the full suite passes on $newest, every dependency installs on it, and \`packaging/build_engine.py\` builds the engine with PyInstaller on it. A x.0 release can arrive before its wheels do; if one is missing, say which here and wait for it rather than pinning around it.")
+            "Before it merges: the full suite passes on $newest, every dependency installs on it, and \`packaging/build_engine.py\` builds the engine with PyInstaller on it. A x.0 release can arrive before its wheels do; if one is missing, say which here and wait for it rather than pinning around it." \
+            "" \
+            "The pin does not move the engine he runs. On each of his machines that engine runs from source, through a native-host launcher that names its interpreter once, when it is registered (\`write_launcher\` in \`scrapex/nativehost.py\`). With his OK, on each machine: install CPython $newest; with it, \`pip install -e .\` with the extras the old interpreter has (the engine does not start without \`[ui]\`); and re-register the native host from it, \`python -m scrapex.cli install-native-host\`, naming every extension id its manifest allows today, because that command replaces the list. The panel's re-link cannot do this step: it keeps the interpreter that is already running. Until a machine has done it, its engine is behind the pin.")
           gh issue create --title "$title" --body "$body"
