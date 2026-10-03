@@ -333,10 +333,42 @@ WRITES = [
     "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --raw-field enforcement=disabled",
     "gh api --input - repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
     "echo '{}' | gh api -X PUT repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --input -",
-    # The ruleset, through a GraphQL mutation.
+    # What each `*` in a ruleset rule is there for: a flag before the method or field,
+    # the value glued to its flag, a path that starts with `/` or a quote, and a glued
+    # value after the path. Narrowing any one `*` lets one of these through.
+    "gh api -H 'Accept: application/vnd.github+json' -X DELETE repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' --method DELETE repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' -f enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' -F enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' --field enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' --raw-field enforcement=disabled repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -H 'Accept: application/vnd.github+json' --input ruleset.json repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api --method=DELETE repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api --method DELETE /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -fenforcement=disabled /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api -Fenforcement=disabled /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api --field=enforcement=disabled /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api --raw-field=enforcement=disabled /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api --input=ruleset.json /repos/muhammadbayoumi/ScrapeX/rulesets/23994761",
+    "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 -XDELETE",
+    "gh api repos/{owner}/{repo}/rulesets/23994761 -X=DELETE",
+    "gh api /repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --method DELETE",
+    "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 -Fenforcement=disabled",
+    "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --raw-field=enforcement=disabled",
+    "gh api repos/muhammadbayoumi/ScrapeX/rulesets/23994761 --input=ruleset.json",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/rulesets/23994761' -f enforcement=disabled",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/rulesets/23994761' -F enforcement=disabled",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/rulesets/23994761' --field enforcement=disabled",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/rulesets/23994761' --raw-field enforcement=disabled",
+    "gh api 'repos/muhammadbayoumi/ScrapeX/rulesets/23994761' --input ruleset.json",
+    # The ruleset, through a GraphQL mutation, spaced and unspaced: GraphQL needs no
+    # space before a field name, so the rule's leading `*` must not need one either.
     "gh api graphql -f query='mutation { deleteRepositoryRuleset(input: {repositoryRulesetId: \"RRS_1\"}) { clientMutationId } }'",
     "gh api graphql -F rid=RRS_1 -f query='mutation($rid: ID!) { updateRepositoryRuleset(input: {repositoryRulesetId: $rid, enforcement: DISABLED}) { clientMutationId } }'",
     "gh api graphql -f query='mutation { createRepositoryRuleset(input: {sourceId: \"R_1\", name: \"loose\", enforcement: ACTIVE, rules: []}) { clientMutationId } }'",
+    "gh api graphql -f query='mutation{deleteRepositoryRuleset(input:{repositoryRulesetId:\"RRS_1\"}){clientMutationId}}'",
+    "gh api graphql -f query='mutation{updateRepositoryRuleset(input:{repositoryRulesetId:\"RRS_1\",enforcement:DISABLED}){clientMutationId}}'",
+    "gh api graphql -f query='mutation{createRepositoryRuleset(input:{sourceId:\"R_1\",name:\"loose\",enforcement:ACTIVE,rules:[]}){clientMutationId}}'",
     # The repository object itself, PATCH or DELETE, by name and by both of gh's
     # placeholder spellings (`:owner/:repo` is the one .claude/skills/record-it
     # uses), bare, single-quoted (what gh's help asks PowerShell for around `{...}`)
@@ -384,6 +416,59 @@ WRITES = [
     "gh api repos/:owner/:repo --method PATCH -f visibility=private",
     "gh api 'repos/:owner/:repo' --method=DELETE",
     'gh api "repos/:owner/:repo" --method PATCH -F private=true',
+    # What each `*` in a repository-object rule is there for, in each path spelling: a
+    # quoted path with arguments after it, a flag before the method, the method glued
+    # to its flag, a path that starts with `/`, and a flag between the path and a
+    # method after it. Narrowing any one `*` lets one of these through.
+    'gh api -X PATCH "repos/muhammadbayoumi/ScrapeX" -f visibility=private',
+    'gh api --method PATCH "repos/muhammadbayoumi/ScrapeX" -f visibility=private',
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE /repos/muhammadbayoumi/ScrapeX",
+    "gh api -H 'Accept: application/vnd.github+json' -XPATCH /repos/muhammadbayoumi/ScrapeX -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE '/repos/muhammadbayoumi/ScrapeX'",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE \"/repos/muhammadbayoumi/ScrapeX\"",
+    "gh api /repos/muhammadbayoumi/ScrapeX -H 'Accept: application/vnd.github+json' -XDELETE",
+    "gh api '/repos/muhammadbayoumi/ScrapeX' -XDELETE",
+    'gh api "/repos/muhammadbayoumi/ScrapeX" -XDELETE',
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE /repos/muhammadbayoumi/ScrapeX",
+    "gh api -H 'Accept: application/vnd.github+json' --method=PATCH /repos/muhammadbayoumi/ScrapeX -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE '/repos/muhammadbayoumi/ScrapeX'",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE \"/repos/muhammadbayoumi/ScrapeX\"",
+    "gh api /repos/muhammadbayoumi/ScrapeX -H 'Accept: application/vnd.github+json' --method=DELETE",
+    "gh api '/repos/muhammadbayoumi/ScrapeX' --method=DELETE",
+    'gh api "/repos/muhammadbayoumi/ScrapeX" --method=DELETE',
+    'gh api -X PATCH "repos/{owner}/{repo}" -f visibility=private',
+    'gh api --method PATCH "repos/{owner}/{repo}" -f visibility=private',
+    "gh api --method PATCH 'repos/{owner}/{repo}' -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE /repos/{owner}/{repo}",
+    "gh api -H 'Accept: application/vnd.github+json' -XPATCH /repos/{owner}/{repo} -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE '/repos/{owner}/{repo}'",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE \"/repos/{owner}/{repo}\"",
+    "gh api /repos/{owner}/{repo} -H 'Accept: application/vnd.github+json' -XDELETE",
+    "gh api '/repos/{owner}/{repo}' -XDELETE",
+    'gh api "/repos/{owner}/{repo}" -XDELETE',
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE /repos/{owner}/{repo}",
+    "gh api -H 'Accept: application/vnd.github+json' --method=PATCH /repos/{owner}/{repo} -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE '/repos/{owner}/{repo}'",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE \"/repos/{owner}/{repo}\"",
+    "gh api /repos/{owner}/{repo} -H 'Accept: application/vnd.github+json' --method=DELETE",
+    "gh api '/repos/{owner}/{repo}' --method=DELETE",
+    'gh api "/repos/{owner}/{repo}" --method=DELETE',
+    'gh api -X PATCH "repos/:owner/:repo" -f visibility=private',
+    'gh api --method PATCH "repos/:owner/:repo" -f visibility=private',
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE /repos/:owner/:repo",
+    "gh api -H 'Accept: application/vnd.github+json' -XPATCH /repos/:owner/:repo -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE '/repos/:owner/:repo'",
+    "gh api -H 'Accept: application/vnd.github+json' -XDELETE \"/repos/:owner/:repo\"",
+    "gh api /repos/:owner/:repo -H 'Accept: application/vnd.github+json' -XDELETE",
+    "gh api '/repos/:owner/:repo' -XDELETE",
+    'gh api "/repos/:owner/:repo" -XDELETE',
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE /repos/:owner/:repo",
+    "gh api -H 'Accept: application/vnd.github+json' --method=PATCH /repos/:owner/:repo -f visibility=private",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE '/repos/:owner/:repo'",
+    "gh api -H 'Accept: application/vnd.github+json' --method=DELETE \"/repos/:owner/:repo\"",
+    "gh api /repos/:owner/:repo -H 'Accept: application/vnd.github+json' --method=DELETE",
+    "gh api '/repos/:owner/:repo' --method=DELETE",
+    'gh api "/repos/:owner/:repo" --method=DELETE',
     # The gh commands that change the repository, its workflows, secrets and variables.
     "gh repo edit --visibility private --accept-visibility-change-consequences",
     "gh repo edit muhammadbayoumi/ScrapeX --default-branch loose",
@@ -457,6 +542,38 @@ def test_every_bash_rule_is_the_only_one_refusing_some_write():
             needed.update(refusing)
     unneeded = [rule for rule in bash if rule not in needed]
     assert not unneeded, f"add a write that only each of these refuses: {unneeded}"
+
+
+def _narrowings(spec: str) -> list[str]:
+    """Every way to narrow one `*` in a rule specifier: drop it, or require a space
+    before or after it. Not tried: a space beside the `*` between the quote that
+    closes a path and the flag after it (`ScrapeX'*-X*`). The shell needs whitespace
+    there or the two join into one word, and a session writes a space, so that space
+    narrows nothing a session writes."""
+    narrowed = []
+    for i, char in enumerate(spec):
+        if char != "*":
+            continue
+        narrowed.append(spec[:i] + spec[i + 1:])
+        if not (spec[i - 1:i] in ("'", '"') and spec[i + 1:i + 2] == "-"):
+            narrowed += [spec[:i] + " " + spec[i:], spec[:i + 1] + " " + spec[i + 1:]]
+    return narrowed
+
+
+def test_narrowing_any_wildcard_in_a_bash_rule_lets_a_write_through():
+    """A narrowed rule is a rule partly removed. Narrowing any one `*` must let a write
+    in the table through, so the edit fails
+    test_every_write_to_his_decisions_is_refused. Only the narrowed rule changes, so
+    the write it lets through is one no other rule refuses."""
+    bash = [rule for rule in _deny() if rule.startswith("Bash(")]
+    refusing = {command: _refusing("Bash", command, bash) for command in WRITES_BY_TOOL["Bash"]}
+    unpinned = []
+    for rule in bash:
+        only_this = [command for command, rules in refusing.items() if rules == [rule]]
+        for spec in _narrowings(rule[len("Bash("):-1]):
+            if all(_refusing("Bash", command, [f"Bash({spec})"]) for command in only_this):
+                unpinned.append(f"{rule} narrowed to Bash({spec})")
+    assert not unpinned, f"add a write that only each rule refuses and its narrowing does not: {unpinned}"
 
 
 # ---------------------------------------------------------------------------
