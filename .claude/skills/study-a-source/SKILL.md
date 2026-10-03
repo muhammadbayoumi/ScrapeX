@@ -30,6 +30,9 @@ below are its shape, generalised.
   recorded as existing and gated — that is a finding, and getting at it is his decision.
 - Every claim about the site cites the response that carries it. Every claim about ScrapeX
   cites `file:line`. Where you did not fetch something, say so instead of guessing.
+- **A 200 is not a complete response.** A server can cut a large body off mid-stream and
+  still answer 200. Parse every response before counting it, and when one fails, re-ask in
+  smaller pages instead of treating the cut-off part as absent.
 
 ## Pass 0 · What the site permits
 
@@ -104,6 +107,14 @@ been found before, and a `no` is a finding as much as a `yes`.
     only in a quote. Record that it exists, what it is, and that you did not fetch it.
 15. **Identifiers you did not ask for**: internal ids, slugs, plant or branch codes, SKUs,
     barcodes, category ids. They are the join keys a later match depends on.
+16. **The page's own logic between the buyer and the cart**: calculators, configurators,
+    unit converters, quantity steppers. Read the script, not the widget. What it writes into
+    the cart's quantity is the unit the price is charged in, and the per-product constants
+    it carries are fields. A default it falls back to when a field is missing is the site's
+    guess, not a value the site stated. Never store it as one.
+
+A field that names a person is reported with exactly what it holds (a first name? contact
+details?) and recommended out. Taking it is his decision.
 
 For each field found, one row:
 
@@ -120,6 +131,27 @@ tier, plant, currency, unit basis, VAT. `docs/recon/heidelberg-materials-eg.md:2
 six-dimensional example. For each dimension: how many values, how you enumerate them, and
 whether the site states VAT or you are inferring it. **State how you know**; an inferred VAT
 mode is a question for him, not an assumption.
+
+**The cart is the measurement, and the label is a claim.** A unit field, a "prices exclude
+tax" setting and a "per piece" word on the page can all be wrong. A store's tax setting
+describes how prices are displayed, not what is charged. Before any of them is ruled, ask
+him whether to test a guest cart; he may run it himself. Add one product from each group the
+labels form, for example stated unit, no unit, and a label that looks wrong, then read the
+arithmetic: quantity × price = the line, and subtotal + shipping = total, so a missing tax
+line is evidence. Stop at the cart page: no checkout, no personal data.
+
+## When the site disagrees with itself
+
+A fact the site states twice (a field, the description text, the name, or a value derivable
+from its parts) is checked over the **whole** relevant category, not a sample. A sample is
+enough to find fields; a ruling needs counts from the census.
+
+- Before deriving a value for the rows that lack it, test the formula on the rows that
+  state it, and report the match rate. The rows that fail are usually the site's own entry
+  errors; a second statement, such as dimensions in the name, often repairs them.
+- Count agreements and conflicts for every pair of statements.
+- **Keep both values, mark where they agree, and recommend with the evidence where they
+  do not.** Never pick one silently, and never let a derived value pass as stated.
 
 Nothing is parsed locally. Money, units and Arabic-Indic digits go through
 `scrapex/normalize.py:42`, `:98` and `:37`, and a change there proves itself against the
@@ -175,7 +207,9 @@ refuses to make it active before it is probed (`scrapex/config.py:446`).
 
 - [ ] Every request is logged, and the total is at or under the ceiling you named.
 - [ ] `robots.txt` was read before the second request and obeyed throughout.
-- [ ] All fifteen hidden-field lines are answered — a `no` written down, not skipped.
+- [ ] All sixteen hidden-field lines are answered — a `no` written down, not skipped.
+- [ ] The price's unit and VAT are proved by a cart, or named as unproved in the questions.
+- [ ] Every fact the site states twice has its agreement counted over the census.
 - [ ] Every field has a sample value taken from a real response, not an example.
 - [ ] Every field has a destination, or is named as having none and costed.
 - [ ] Nothing was authenticated, bought, or bypassed.
