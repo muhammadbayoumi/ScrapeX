@@ -3875,6 +3875,19 @@
   .engine-detail-actions {
     flex: none;
     display: flex;
+    /* STACKED AT EVERY WIDTH, his decision, because a layout that follows the
+       label moves the buttons under the pointer. Every render paints the label
+       from what the panel has in hand and then again from the engine's answer,
+       and the two differ -- "Update to 0.9.0", then "Download and check 0.9.0".
+       While the buttons shared a row whenever both labels fit, one press on
+       Check again re-laid the bar for as long as the engine took to answer, and
+       the enabled Download slid under the spot just pressed: measured, a second
+       press there started the engine's ~70 MB download at 401, 420, 440 and
+       470px. A fixed breakpoint only moves that band, and a width is a guess
+       about a font -- 25rem broke "Downloading" at 401px on CI's Linux fonts.
+       Stacked, where each button sits never depends on what it says. The cost
+       is a taller pinned bar above 25rem: 113px, not 65px. */
+    flex-direction: column;
     gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-4);
     border-top: 1px solid var(--line);
@@ -3883,25 +3896,27 @@
   .engine-detail-actions > button {
     min-height: 40px;
   }
-  .engine-detail-actions > .engine-action-primary {
-    flex: 1;
-  }
 
-  /* Under 22rem the two actions stack, each to the full width. The primary is
-     named a second time because `.engine-detail-actions > .engine-action-primary`
-     is (0,2,0) and would otherwise out-specify a `> button` rule inside this
-     query and keep its `flex: 1` — measured: it rendered 244px inside a 276px
-     bar instead of stacking. `min-width` is what forces the wrap: two 10rem
-     minimums plus the gap cannot share a 320px panel. */
-  @media (max-width: 22rem) {
-    .engine-detail-actions {
-      flex-wrap: wrap;
-    }
-    .engine-detail-actions > button,
-    .engine-detail-actions > .engine-action-primary {
-      flex: 1 1 auto;
-      min-width: min(100%, 10rem);
-    }
+  /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
+     `.engine-action-row > span` already makes for the rows above. `button` sets
+     `white-space: nowrap` (components.css), so a label longer than its button
+     ran out of it: while the two shared a row, over Check again -- measured at
+     360px, "Download failed — NETWORK_FAILED" ran to x=316, past Check again's
+     centre at x=218 -- and stacked, past the panel's edge: measured at 320px,
+     "Chrome no longer lists this download — press to retry" 174px wider than
+     its button. The installer download writes its reason into this label on
+     purpose, so the reason has to fit rather than be cut off: wrapped, not
+     ellipsised.
+
+     `overflow-wrap: anywhere` BECAUSE THE REASON IS ONE TOKEN. Chrome's reasons
+     are codes with no space to break at, and the long ones do not fit a full
+     row: measured at 320px, `white-space: normal` alone left "Download failed —
+     SERVER_CONTENT_LENGTH_MISMATCH" 78px wider than its button. */
+  .engine-detail-actions > button > span {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
   }
 
   /* ---- Forced colours (Windows High Contrast) ----------------------------
