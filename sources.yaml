@@ -957,11 +957,24 @@ sources:
     currency: EGP
     default_region: EG
     default_language: ar
-    # Not a guess and not yet his ruling: the store's own configuration answers
-    # display_product_prices_in_catalog = 1, Magento's EXCLUDING_TAX (#1260,
-    # request 25), and no page states either way. `incl`, the default, would
-    # contradict the only evidence there is. His word decides (#1260 §10 Q2).
-    vat_mode: excl
+    # His ruling (#1260 §10 Q2): the displayed price is final. The shop's own
+    # guest cart for an address in Sohag, Egypt, read 2026-10-03: subtotal
+    # 3,529 + standard shipping 770 = order total 4,299 EGP, with no tax line.
+    # storeConfig answers display_product_prices_in_catalog = 1, Magento's
+    # EXCLUDING_TAX (#1260, request 25), but no tax rate is configured, so that
+    # setting changes no number. `excl` would mean tax is added on top.
+    vat_mode: incl
+    tax:
+      - region: EG
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          The displayed price is final: the shop's guest cart for an address in
+          Sohag, Egypt adds no tax line, subtotal 3,529 EGP + standard shipping
+          770 = order total 4,299 (owner-verified in the shop's own cart,
+          2026-10-03). No rate is named.
+        statement_url: https://www.ahmedelsallab.com/checkout/cart/
+        verified_at: "2026-10-03"
     # Its robots.txt asks Crawl-delay: 10 and disallows every filtered or paged
     # listing, while POST /graphql, the only path a collector would use, is
     # allowed (#1260 §2). Obeying it costs nothing a crawl needs.
