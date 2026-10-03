@@ -17,12 +17,10 @@ work; `vacancies` and `tenders` are named, unbuilt.
    fixing now becomes an issue, never a paragraph in a file — and what stopped being
    true is closed the moment it is found, a `HANDOVER` by the session that reads it.
    Never close a live finding to shorten the list.
-5. **One session merges, and one session works.** Ask; default to not merging. Claim it
-   before your first edit rather than before the merge — `gh pr edit <n> --add-assignee
-   @me`; an already-assigned PR is another session's, and unclaimed work is two sessions
-   spending a day each on one branch before either finds out. That session rebases what
-   it merges, and a conflict whose resolution picks a behaviour goes back to the
-   author.
+5. **One session holds a PR, from its first edit to its merge.** Ask; default to not
+   merging. Claim it before you edit or merge it — `gh pr edit <n> --add-assignee @me`;
+   an already-assigned PR is another session's. That session rebases what it merges, and
+   a conflict whose resolution picks a behaviour goes back to the author.
 
 ## Preferences that decide close calls
 
