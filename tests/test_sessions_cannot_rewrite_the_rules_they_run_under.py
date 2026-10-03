@@ -544,35 +544,29 @@ def test_every_bash_rule_is_the_only_one_refusing_some_write():
     assert not unneeded, f"add a write that only each of these refuses: {unneeded}"
 
 
-def _narrowings(spec: str) -> list[str]:
-    """Every way to narrow one `*` in a rule specifier: drop it, or require a space
-    before or after it. Not tried: a space beside the `*` between the quote that
-    closes a path and the flag after it (`ScrapeX'*-X*`). The shell needs whitespace
-    there or the two join into one word, and a session writes a space, so that space
-    narrows nothing a session writes."""
-    narrowed = []
-    for i, char in enumerate(spec):
-        if char != "*":
-            continue
-        narrowed.append(spec[:i] + spec[i + 1:])
-        if not (spec[i - 1:i] in ("'", '"') and spec[i + 1:i + 2] == "-"):
-            narrowed += [spec[:i] + " " + spec[i:], spec[:i + 1] + " " + spec[i + 1:]]
-    return narrowed
-
-
 def test_narrowing_any_wildcard_in_a_bash_rule_lets_a_write_through():
-    """A narrowed rule is a rule partly removed. Narrowing any one `*` must let a write
-    in the table through, so the edit fails
-    test_every_write_to_his_decisions_is_refused. Only the narrowed rule changes, so
-    the write it lets through is one no other rule refuses."""
+    """A narrowed rule is a rule partly removed. Dropping any one `*`, or requiring a
+    space before or after it, must let a write in the table through, so the edit
+    fails test_every_write_to_his_decisions_is_refused. Only the narrowed rule
+    changes, so the write it lets through is one no other rule refuses.
+
+    Not tried: a space beside the `*` between the quote that closes a path and the
+    flag after it (`ScrapeX'*-X*`). The shell needs whitespace there or the two join
+    into one word, and a session writes a space, so that space narrows nothing a
+    session writes."""
     bash = [rule for rule in _deny() if rule.startswith("Bash(")]
     refusing = {command: _refusing("Bash", command, bash) for command in WRITES_BY_TOOL["Bash"]}
     unpinned = []
     for rule in bash:
         only_this = [command for command, rules in refusing.items() if rules == [rule]]
-        for spec in _narrowings(rule[len("Bash("):-1]):
-            if all(_refusing("Bash", command, [f"Bash({spec})"]) for command in only_this):
-                unpinned.append(f"{rule} narrowed to Bash({spec})")
+        spec = rule[len("Bash("):-1]
+        for i in [i for i, char in enumerate(spec) if char == "*"]:
+            narrowed = [spec[:i] + spec[i + 1:]]
+            if not (spec[i - 1:i] in ("'", '"') and spec[i + 1:i + 2] == "-"):
+                narrowed += [spec[:i] + " " + spec[i:], spec[:i + 1] + " " + spec[i + 1:]]
+            for candidate in narrowed:
+                if all(_refusing("Bash", command, [f"Bash({candidate})"]) for command in only_this):
+                    unpinned.append(f"{rule} narrowed to Bash({candidate})")
     assert not unpinned, f"add a write that only each rule refuses and its narrowing does not: {unpinned}"
 
 
