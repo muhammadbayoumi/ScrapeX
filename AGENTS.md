@@ -134,10 +134,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
 ## Review
 
 **Before every merge — green is not mergeable.** A change merges only when CI is green on
-the head it has right now — a recorded green expires — and a critical review over all four
-dimensions, with an adversary attacking what it found, returns no *must fix* and no
-*should fix*. Run it, and every review he asks for, from the **`review` skill**: it
-carries the dimensions, the per-issue format, and the rules that decide the outcome.
+the head it has right now — a recorded green expires — and the merge gate in the
+**`review` skill**, at the size its table sets, returns no *must fix* and no *should fix*.
+Run every review he asks for from that skill too.
 
 ## The tools, not the files
 
