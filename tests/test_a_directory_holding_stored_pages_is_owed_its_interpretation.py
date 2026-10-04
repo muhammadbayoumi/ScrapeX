@@ -130,6 +130,28 @@ def test_a_completed_interpretation_settles_it(warehouse):
     assert row["work_waiting"]["interpret"] is None, row["work_waiting"]
 
 
+@pytest.mark.parametrize("status", [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED])
+def test_an_interpretation_on_its_way_is_said_on_the_directory_row(warehouse, status):
+    """THE CARD HANGS ON THIS FLAG WHILE ONE IS LIVE. `interpret` is withheld for as long as
+    an interpretation of the source is on its way (#1042), and a directory row has no rows
+    to keep its card drawn, so `interpretation_live` is what the panel reads instead
+    (`app.js` `storedNotRows`). A row that dropped it would lose its card the moment he
+    pressed it, and for as long as a paused one waits on him."""
+    conn, path, manifest = warehouse
+    _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
+         "2026-10-02T09:15:00Z", pages=4)
+    _job(conn, OMAN, datasetjob.JOB_KIND, status, None)
+
+    row = _row(path, manifest, OMAN)
+
+    assert row["kind"] == "directory", row
+    assert row["work_waiting"]["interpretation_live"] is True, (
+        f"a {status.value} interpretation is not said on the directory row, so its card "
+        f"has nothing left to stand on: {row['work_waiting']}")
+    assert row["work_waiting"]["interpret"] is None, row["work_waiting"]
+    assert row["observations"] == 0, row
+
+
 def test_a_crawl_still_running_is_not_offered_yet(warehouse):
     """THE PAGES OF A RUNNING CRAWL ARE NOT A PRESS YET. Interpreting while the crawl still
     writes would read half a run and contend for the write lock, and the dataset rows have

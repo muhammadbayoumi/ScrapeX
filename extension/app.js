@@ -5554,8 +5554,19 @@ async function controlJob(control) {
 // `work_waiting.interpret` on a `directory` row only when a finished crawl stored pages no
 // interpretation has read (`app.py` `_work_waiting`). Read twice -- whether the card is
 // drawn and whether it offers the press -- because it is one fact.
-const storedNotRows = (source) =>
-  source.kind === "directory" && Boolean((source.work_waiting || {}).interpret);
+//
+// AND WHILE AN INTERPRETATION OF THEM IS ON ITS WAY. The engine withholds `interpret` for
+// as long as one is queued, running or paused (#1042), so a card drawn from it alone
+// vanished the moment he pressed it, and where it was the only card this page said "Run a
+// crawl" about pages already on disk. `interpretation_live` keeps it until the first rows
+// list the site as a dataset instead (`_registered_directories`), or until the
+// interpretation ends without reading them and `interpret` is owed again. The card says
+// nothing about the job meanwhile (`waitingLine`).
+const storedNotRows = (source) => {
+  const waiting = source.work_waiting || {};
+  return source.kind === "directory"
+    && Boolean(waiting.interpret || waiting.interpretation_live);
+};
 
 async function loadDatasets() {
   const box = $("datasets");
@@ -6090,7 +6101,8 @@ function sourceActions(source) {
   // with `NothingToInterpret` -- correctly, and pointlessly. But "a directory has not
   // crawled" was an assumption, and the Oman register broke it: a completed crawl, 2,838
   // stored pages, no dataset, and no door. `storedNotRows` is the engine's word that pages
-  // are stored and unread, and the interpretation is what turns that card into a dataset.
+  // are stored and not rows yet, and the interpretation is what turns that card into a
+  // dataset.
   //
   // A PRESS WHILE ONE IS WAITING IS REFUSED BY THE ROUTE, not disabled here. `POST
   // /api/jobs` answers 409 when an interpretation of the source has not started yet

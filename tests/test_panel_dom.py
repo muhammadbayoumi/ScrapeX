@@ -2199,6 +2199,7 @@ STORED_NOT_ROWS = {
     "observations": 0, "products": 0, "last_success": None,
     "work_waiting": {"interpret": {"crawl_finished_at": "2026-10-02T09:15:00Z",
                                    "interpreted_at": None},
+                     "interpretation_live": False,
                      "profiles": None, "resumable": None},
     "kept_pages": 0, "kept_at": None,
 }
@@ -2301,6 +2302,48 @@ def test_the_empty_state_does_not_send_him_to_crawl_what_he_crawled(open_panel):
         "() => (document.getElementById('datasets').textContent || '').includes('No data yet')",
         timeout=4000)
     assert page.locator(".dataset-card").count() == 0
+
+
+def test_a_directory_card_stays_while_its_interpretation_is_on_its_way(open_panel):
+    """PRESSING IT MUST NOT MAKE IT VANISH.
+
+    The engine withholds `interpret` while an interpretation of the source is queued,
+    running or paused (#1042), and this card has no rows to stand on, so it disappeared the
+    moment he pressed it -- and, where it was the only card, the page said "No data yet.
+    Run a crawl from the Run tab." about a site whose pages were on disk. A paused one
+    waits on him, so that lasted until he found it on the Jobs page.
+
+    THE ROW IS THE ENGINE'S SHAPE WHILE ONE IS LIVE:
+    `tests/test_a_directory_holding_stored_pages_is_owed_its_interpretation.py` asserts
+    `interpret: None` with `interpretation_live: True` for each of those statuses.
+    The card says nothing about the job (`waitingLine`, withheld and not explained), and
+    its press stays offered as a dataset card's does: `POST /api/jobs` refuses a second one
+    while the first is waiting.
+    """
+    on_its_way = {**STORED_NOT_ROWS,
+                  "work_waiting": {"interpret": None, "interpretation_live": True,
+                                   "profiles": None, "resumable": None}}
+    page = open_panel(sources=[on_its_way])
+    page.click(DATA_TAB)
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    card = page.locator('.dataset-card[data-open="oman_tenderboard"]')
+
+    assert "No data yet" not in (page.text_content("#datasets") or ""), (
+        "the page tells him to run a crawl while the pages it stored are being interpreted")
+    assert card.count() == 1, (
+        "the card vanished when its interpretation was queued, and nothing on the Data "
+        "page says the site exists")
+    assert card.locator('[role="status"]').count() == 0, (
+        "the card narrates a live interpretation, which the mini-player and the Jobs page "
+        "already describe")
+    assert card.get_attribute("role") is None, (
+        "a card with no rows is announced as a link to a dataset that does not exist")
+
+    card.locator(".split-button-trigger").click()
+    offered = card.locator("[data-split-action]")
+    actions = [offered.nth(i).get_attribute("data-split-action")
+               for i in range(offered.count())]
+    assert "interpret" in actions, f"the card offers no interpretation: {actions}"
 
 
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
