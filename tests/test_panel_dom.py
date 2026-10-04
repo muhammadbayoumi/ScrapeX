@@ -2276,31 +2276,39 @@ def test_a_first_visit_to_run_puts_the_started_job_on_screen(open_panel):
         f"fold at {where['fold']}px")
 
 
-def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
-    """`pollJob` HANDS BACK A POLL ALREADY IN FLIGHT rather than asking again. One whose
-    request left before the job was committed sees nothing active and does not re-arm,
-    so a card action that only called `pollJob` would be handed it, and nothing would
-    follow the job.
+def _press_update_as_a_poll_leaves(page):
+    """Press Update now while a poll that left before the job was committed is still on
+    its way back. The panel coming back into view is what starts that poll; the press
+    lands while its answer is still on the way (`_QUEUES_WHAT_IS_POSTED` with a delay).
 
-    The panel coming back into view is what starts that poll here; the press lands
-    while its answer is still on the way."""
-    page = _open_on_data_after_run(open_panel)
-    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    IT REFUSES TO GO ON VACUOUSLY: the case is a poll that left before the POST was
+    answered and saw nothing. Without one, a test proves only what the plain press does.
+    """
     page.locator('.dataset-card[data-open="contractors"] .split-button-trigger').click()
     page.evaluate("""() => {
         document.dispatchEvent(new Event("visibilitychange"));
         document.querySelector(
           '.dataset-card[data-open="contractors"] [data-split-action="update"]').click();
     }""")
-    where = _where_activity_lands(page)
-
+    page.wait_for_function("() => window.__postedAt", timeout=5_000)
     polls = page.evaluate("() => window.__activePolls")
     posted_at = page.evaluate("() => window.__postedAt")
-    # IT REFUSES TO PASS VACUOUSLY: the case is a poll that left before the POST was
-    # answered and saw nothing. Without one, this proves only what the test above does.
     assert polls and polls[0]["saw"] == [] and polls[0]["left"] < posted_at, (
         f"no poll was in flight across the press, so this proves nothing: {polls}, "
         f"posted at {posted_at}")
+
+
+def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
+    """`pollJob` HANDS BACK A POLL ALREADY IN FLIGHT rather than asking again. One whose
+    request left before the job was committed sees nothing active and does not re-arm,
+    so a card action that only called `pollJob` would be handed it, and nothing would
+    follow the job."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    _press_update_as_a_poll_leaves(page)
+    where = _where_activity_lands(page)
+
+    polls = page.evaluate("() => window.__activePolls")
     # A POLL THAT SAW THE JOB, NOT ONLY A DRAWING OF IT. Waiting on the stale poll alone
     # still draws the job once -- its "nothing active" branch reads it by its ref -- and
     # then stops asking, so Activity sits at `queued` for the whole run. Measured.
@@ -2310,6 +2318,59 @@ def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
         "the mini-player is hidden, so no poll is following the job")
     assert where["inView"] and "muqawil_org" in where["said"], (
         f"Activity is not on screen naming the job: {where}")
+
+
+# A JOB THAT ENDS WITHIN ONE POLL OF THE PRESS: zero pages, an immediate failure. It ends
+# just after the panel first reads it, whichever way -- named in the active list, or by
+# its ref -- so the panel can draw it `queued` once and must still find out how it ended.
+# The answer that read it is copied before the end: a stub answer reads `ROUTES` only
+# when its body is read, and would otherwise hand back the end it was meant to precede.
+_ENDS_ONCE_THE_PANEL_HAS_READ_IT = """(ended) => {
+  const original = window.fetch;
+  let over = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace(/^[a-z]+:\\/\\/[^/]+/, "");
+    const method = (options && options.method) || "GET";
+    const answer = await original(url, options);
+    const listed = path.startsWith("/api/jobs?active_only");
+    if (over || method !== "GET" || !answer.ok
+        || !(listed || path === "/api/jobs/" + ended.job_ref)) return answer;
+    const body = await answer.json();
+    if (!listed || body.jobs.some((job) => job.job_ref === ended.job_ref)) {
+      over = true;
+      ROUTES["/api/jobs"] = {jobs: []};
+      ROUTES["/api/jobs/" + ended.job_ref] = ended;
+    }
+    return {ok: answer.ok, status: answer.status, json: async () => body};
+  };
+}"""
+
+
+def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(open_panel):
+    """THE POLL IN FLIGHT IS WAITED OUT BEFORE THE REF IS KEPT, NOT AFTER. Kept first,
+    the stale poll's nothing-active branch reads the new job by its ref, draws it
+    `queued` once and clears the ref. A job that ends before the fresh poll then leaves
+    nothing to ask about it: Activity says `queued` for a job that is over, and nothing
+    polls. Measured with `state.jobRef = jobRef` moved above the wait in
+    `followStartedJob`: `queued`, the mini-player hidden."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    page.evaluate(_ENDS_ONCE_THE_PANEL_HAS_READ_IT,
+                  _card_job("directory_crawl", status="failed", stage=None))
+    _press_update_as_a_poll_leaves(page)
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('act-state').textContent.includes('failed')",
+            timeout=8_000)
+    except PlaywrightTimeout:
+        pass
+    where = page.evaluate(_WHERE_ACTIVITY_IS)
+
+    assert where["shown"] and "failed" in where["said"], (
+        f"Activity does not say how a job that ended within a poll of the press ended "
+        f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
 
 
 @pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
