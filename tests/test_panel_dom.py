@@ -2312,19 +2312,25 @@ def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
         f"Activity is not on screen naming the job: {where}")
 
 
-def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel):
+@pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
+def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, action,
+                                                                     kind):
     """THE REF IS KEPT, as `startRun` keeps it. A job can be over by the time Run asks,
     and an ended job is not in the active list: without the ref the poll finds nothing,
-    and Run is as blank as it was for him."""
+    and Run is as blank as it was for him.
+
+    EVERY ACTION KEEPS ITS OWN. Each of the four reads `job_ref` off its own answer, and
+    a job still running hides a dropped ref: the active list names the job anyway."""
     page = _open_on_data_after_run(open_panel)
     page.evaluate(_QUEUES_WHAT_IS_POSTED, [None, 0])
-    ended = _card_job("dataset_interpret", status="failed", stage=None)
+    ended = _card_job(kind, status="failed", stage=None)
     page.evaluate("(job) => { ROUTES['/api/jobs/job_stub'] = job; }", ended)
 
-    _press_on_the_card(page, "interpret")
+    _press_on_the_card(page, action)
     where = _where_activity_lands(page)
 
-    assert where["shown"], f"Run shows nothing for a job that already ended: {where}"
+    assert where["shown"], (
+        f"Run shows nothing for a job {action!r} started that already ended: {where}")
     assert where["inView"], f"the ended job was drawn off screen: {where}"
     assert "failed" in where["said"], (
         f"Activity does not say how the job ended: {where['said']!r}")
