@@ -11,7 +11,8 @@ appeared nowhere and nothing could start the step that would have made it appear
 THE OTHER HALF IS A PRESS THAT CAN ONLY FAIL. A directory whose one crawl stored nothing
 has no evidence to read, and `datasetjob.runs_to_interpret` refuses it with
 `NothingToInterpret` (issue 1196 records the same trap). So "owed" here means a collecting
-job finished since the last interpretation AND the runner would find pages to read.
+job finished since the last COMPLETED interpretation AND the runner would find pages to
+read.
 
 Every row is written into the real schema (`dbmod.migrate`), and the answer is read from
 the route the panel reads.
@@ -150,6 +151,27 @@ def test_an_interpretation_on_its_way_is_said_on_the_directory_row(warehouse, st
         f"has nothing left to stand on: {row['work_waiting']}")
     assert row["work_waiting"]["interpret"] is None, row["work_waiting"]
     assert row["observations"] == 0, row
+
+
+@pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.CANCELLED])
+def test_an_interpretation_that_did_not_complete_leaves_the_press_owed(warehouse, status):
+    """A FINISH TIME IS NOT A READING. Every terminal status gets one, and a failed or
+    cancelled interpretation did not read what it planned -- so its finish time landing
+    after the crawl's must not settle the press. On a dataset card that cost a badge; here
+    it costs the card and its only door, until a new crawl buys every page again."""
+    conn, path, manifest = warehouse
+    _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
+         "2026-10-02T09:15:00Z", pages=4)
+    _job(conn, OMAN, datasetjob.JOB_KIND, status, "2026-10-02T10:00:00Z")
+
+    row = _row(path, manifest, OMAN)
+
+    assert datasetjob.runs_to_interpret(conn, OMAN) != []
+    assert row["work_waiting"]["interpret"] == {
+        "crawl_finished_at": "2026-10-02T09:15:00Z", "interpreted_at": None}, (
+        f"a {status.value} interpretation counted as a reading, so the only card of a "
+        f"site whose pages nobody read is gone: {row['work_waiting']}")
+    assert row["work_waiting"]["interpretation_live"] is False, row["work_waiting"]
 
 
 def test_a_crawl_still_running_is_not_offered_yet(warehouse):
