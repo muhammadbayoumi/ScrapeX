@@ -2253,6 +2253,22 @@ def test_a_directory_holding_stored_pages_gets_a_card_that_interprets_them(open_
         "the card shows the link cursor over a click that opens nothing")
     assert page.locator('.dataset-card[data-open="LONG_AR"]').evaluate(cursor) == "pointer", (
         "a card with rows lost the cursor that says it opens its dataset")
+    # NOR DOES IT LIGHT UP UNDER THE POINTER, the other half of looking like a link. Read
+    # once each transition has finished, so a colour mid-fade is not mistaken for either.
+    look = """async (element) => {
+        await Promise.all(element.getAnimations().map((one) => one.finished));
+        const style = getComputedStyle(element);
+        return [style.borderColor, style.backgroundColor];
+    }"""
+    link = page.locator('.dataset-card[data-open="LONG_AR"]')
+    resting, link_resting = card.evaluate(look), link.evaluate(look)
+    card.hover()
+    assert card.evaluate(look) == resting, (
+        "the card lights up under the pointer as if a click would open something")
+    link.hover()
+    assert link.evaluate(look) != link_resting, (
+        "a card with rows no longer lights up under the pointer, so the check above "
+        "proves nothing about hover")
     card.locator(".dataset-identity-line").click()
     card.press("Enter")
     page.wait_for_timeout(200)
@@ -2344,6 +2360,33 @@ def test_a_directory_card_stays_while_its_interpretation_is_on_its_way(open_pane
     actions = [offered.nth(i).get_attribute("data-split-action")
                for i in range(offered.count())]
     assert "interpret" in actions, f"the card offers no interpretation: {actions}"
+
+
+def test_only_a_directory_draws_the_card_for_pages_that_are_not_rows(open_panel):
+    """A DATASET REPORTING NO ROWS IS NOT "PAGES NOT ROWS YET".
+
+    A dataset row exists once an interpretation has registered it, and that happens inside
+    the same `approve_candidate` call that writes the first page's rows, with no commit
+    between them (`extract/service.py`). So a `dataset` row reporting 0 is not a site whose
+    pages were never read, and the card's words -- "its pages are not rows yet" -- would be
+    false about it. It keeps the rule it had: no rows, no card. Without the kind half of
+    `storedNotRows`, both rows below were drawn and the suite stayed green.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    rowless = {**STORED_NOT_ROWS, "kind": "dataset", "source_key": "vendors_owed",
+               "site_key": "vendors_owed"}
+    live = {**STORED_NOT_ROWS, "kind": "dataset", "source_key": "vendors_live",
+            "site_key": "vendors_live",
+            "work_waiting": {"interpret": None, "interpretation_live": True,
+                             "profiles": None, "resumable": None}}
+    page = open_panel(sources=[*STRESS_SOURCES, rowless, live])
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="LONG_AR"]', timeout=4000)
+
+    for key in ("vendors_owed", "vendors_live"):
+        assert page.locator(f'.dataset-card[data-open="{key}"]').count() == 0, (
+            f"a dataset with no rows is drawn as pages that are not rows yet: {key}")
 
 
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
