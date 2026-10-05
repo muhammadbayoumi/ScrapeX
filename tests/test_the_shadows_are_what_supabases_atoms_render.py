@@ -81,11 +81,11 @@ OVERLAYS = {
 #: The Dialog's dark half, in both of the ways a dark scheme is reached.
 DIALOG_IN_DARK = (':root[data-theme="dark"] .modal-card', ':root:not([data-theme="light"]) .modal-card')
 
-#: The at-rules around each half. The explicit choice is dark on any device, so it sits in
-#: none; `:root:not([data-theme="light"])` matches a light device too, so only the dark
-#: media query around it makes it dark.
-DIALOG_DARK_AT_RULES = {DIALOG_IN_DARK[0]: [()],
-                        DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)",)]}
+#: The rules around each half's box-shadow, outermost first. The explicit choice is dark on
+#: any device, so its rule stands alone; `:root:not([data-theme="light"])` matches a light
+#: device too, so only the dark media query around it makes it dark.
+DIALOG_DARK_RULES = {DIALOG_IN_DARK[0]: [(DIALOG_IN_DARK[0],)],
+                     DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)", DIALOG_IN_DARK[1])]}
 
 SHADOW_READ = re.compile(r"var\((--shadow(?:-[a-z0-9]+)?)\)")
 
@@ -104,11 +104,13 @@ def _declared() -> dict[tuple[str, str], str]:
     return found
 
 
-def _box_shadow_at_rules(css: str) -> list[tuple[tuple[str, ...], str]]:
-    """(the at-rules around it, selector) for each box-shadow in `css`.
+def _rules_around(css: str, prop: str) -> list[tuple[tuple[str, ...], str, str]]:
+    """(every rule around it, outermost first; property; value) for each declaration in
+    `css` whose property name fully matches the pattern `prop`.
 
-    declarations() reads the same rules and drops the at-rules, which is why a dark rule
-    moved into a media query that is not dark still passed the test that reads it."""
+    declarations() reads the same rules and keeps only the nearest selector, which is why a
+    dark rule moved into a media query that is not dark still passed the test that reads it.
+    A property name here may hold digits, as `--shadow-2xl` would."""
     css = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)), css, flags=re.S)
     stack: list[str] = []
     found = []
@@ -120,9 +122,10 @@ def _box_shadow_at_rules(css: str) -> list[tuple[tuple[str, ...], str]]:
         if char == "{":
             stack.append(" ".join(chunk.split()))
         else:
-            if re.fullmatch(r"\s*box-shadow\s*:.+", chunk, flags=re.S | re.I) and stack:
-                found.append((tuple(s for s in stack if s.startswith("@")),
-                              next((s for s in reversed(stack) if not s.startswith("@")), "")))
+            declaration = re.fullmatch(r"\s*([\w-]+)\s*:\s*(.+?)\s*", chunk, flags=re.S)
+            if declaration and stack and re.fullmatch(prop, declaration.group(1), flags=re.I):
+                found.append((tuple(stack), declaration.group(1),
+                              " ".join(declaration.group(2).split())))
             if char == "}":
                 assert stack, "a `}` closes nothing: a brace inside a string, or a broken sheet"
                 stack.pop()
@@ -149,19 +152,22 @@ def test_each_shadow_token_is_the_string_tailwinds_theme_declares(token):
 
 
 def test_the_unconditional_root_declares_the_four_and_the_alias():
-    """The test above reads the four, not the alias. The equality test below reads
-    declarations(), which keeps the nearest selector and drops the at-rules around it, so a
-    `:root` inside `@media (prefers-contrast: more)` reads as plain `:root`. Moved there, or
-    into a trailing `@media (min-width: 60rem)`, the alias was undefined everywhere else and
-    the eight bare `var(--shadow)` readers cast `none`, and both passed. So tokens.css's
-    unconditional `:root` is held to all five."""
-    light = {token: value for (block, token), value in _declared().items()
-             if block == LIGHT and token.startswith("--shadow")}
-    expected = {**SHADOWS, ALIAS[0]: ALIAS[1]}
-    assert light == expected, (
-        f"design/tokens.css's unconditional :root declares {light}; it must declare {expected}. "
-        f"A --shadow* declared only inside an at-rule is undefined outside it, and every "
-        f"reader of it casts nothing there (#1049).")
+    """Every --shadow* in tokens.css sits directly in a top-level `:root`, with no at-rule
+    and no other rule around it. A declaration inside any other rule applies only where that
+    rule does, so moved into the prefers-contrast `:root` or a trailing `@media`, the alias
+    was undefined everywhere else and the eight bare `var(--shadow)` readers cast `none`.
+    Reading the text of the first `:root {` block caught those two but not a nested
+    `@media` or `@supports` inside it, a nested `:root` (which is `:root :root`), or an
+    `@media` around the whole block. So the whole stack of rules around each one is held."""
+    placed = sorted(_rules_around(TOKENS.read_text(encoding="utf-8"), r"--shadow.*"))
+    expected = sorted(((":root",), token, value) for token, value in [*SHADOWS.items(), ALIAS])
+    assert placed == expected, (
+        f"design/tokens.css's --shadow* declarations are not the {len(expected)} below, each "
+        f"directly in a top-level :root.\n"
+        f"  declared, not expected: {sorted((Counter(placed) - Counter(expected)).elements())}\n"
+        f"  expected, not declared: {sorted((Counter(expected) - Counter(placed)).elements())}\n"
+        f"A --shadow* inside any other rule is undefined wherever that rule does not apply, "
+        f"and every reader of it casts nothing there (#1049).")
 
 
 def test_no_dark_block_re_declares_a_shadow():
@@ -175,11 +181,12 @@ def test_no_dark_block_re_declares_a_shadow():
 
 
 def test_the_shadow_tokens_are_declared_once_and_nowhere_else():
-    """The tests above read tokens.css's three blocks, and only the first of each; the
-    cascade obeys the last declaration anywhere. A trailing `:root`, the prefers-contrast block, a
-    dark block in another sheet, or the alias re-pointed to lg each changed what every
-    reader cast while it passed. So every --shadow* declaration in tokens.css and every
-    sheet this repository authors is listed here, duplicates included."""
+    """The tests above read only tokens.css, and two of them only the first of each of its
+    three blocks; the cascade obeys the last declaration anywhere. A trailing `:root`, the
+    prefers-contrast block, a dark block in another sheet, or the alias re-pointed to lg
+    each changed what every reader cast while they passed. So every --shadow* declaration
+    in tokens.css and every sheet this repository authors is listed here, duplicates
+    included."""
     found = sorted((sheet.relative_to(ROOT).as_posix(), selector, prop, value)
                    for sheet in [TOKENS, *authored()]
                    for selector, prop, value, _line in declarations(sheet.read_text(encoding="utf-8"))
@@ -229,17 +236,18 @@ def test_the_dialog_drops_to_xs_in_dark(selector):
 
 
 def test_each_dark_drop_sits_where_its_scheme_is_dark():
-    """The test above reads each selector and not the at-rules around it. Moved under
+    """The test above reads each selector and not the rules around it. Moved under
     `prefers-color-scheme: light`, the device-dark rule dropped the light Dialog to xs; moved
     into the dark media query, the explicit-dark rule left a reader who picks Dark on a light
-    device (design/appearance.js sets data-theme only then) with md. Both passed it."""
+    device (design/appearance.js sets data-theme only then) with md. Nested in another style
+    rule, either one matched nothing. Each passed it."""
     placed = {}
-    for at_rules, selector in _box_shadow_at_rules(APP_CSS.read_text(encoding="utf-8")):
-        if selector in DIALOG_DARK_AT_RULES:
-            placed.setdefault(selector, []).append(at_rules)
-    assert placed == DIALOG_DARK_AT_RULES, (
+    for rules, _prop, _value in _rules_around(APP_CSS.read_text(encoding="utf-8"), "box-shadow"):
+        if rules[-1] in DIALOG_DARK_RULES:
+            placed.setdefault(rules[-1], []).append(rules)
+    assert placed == DIALOG_DARK_RULES, (
         f"extension/app.css places the Dialog's dark drop at {placed}; {DIALOG} needs "
-        f"{DIALOG_DARK_AT_RULES}.")
+        f"{DIALOG_DARK_RULES}.")
 
 
 def test_the_gallery_shows_the_four_shadows_and_quotes_no_retired_one():
