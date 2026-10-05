@@ -574,7 +574,7 @@
     color: var(--muted);
   }
   .source-manager-search:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
@@ -926,7 +926,7 @@
   }
   .engine-url-field input:focus { outline: 0; box-shadow: none; }
   .engine-url-field:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
@@ -2957,7 +2957,7 @@
   }
   .finance-converter-row select { text-align: start; }
   .finance-converter-row:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
