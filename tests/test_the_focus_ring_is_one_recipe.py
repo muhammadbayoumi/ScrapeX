@@ -183,6 +183,35 @@ def test_a_bare_focus_rule_never_draws():
                        "the recipe's; use :focus-visible for a ring:\n  " + "\n  ".join(wrong))
 
 
+def _recipe_tokens() -> set[str]:
+    """Every token the recipes read, and every token those read in design/tokens.css."""
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+    defined = {name: value for name, value in re.findall(r"^\s*(--[\w-]+)\s*:\s*([^;]+);", tokens, re.M)}
+    pending = {name for values in RECIPES.values() for value in values
+               for name in re.findall(r"var\((--[\w-]+)", value)} | {"--focus-ring-gap"}
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        seen.add(name)
+        pending |= set(re.findall(r"var\((--[\w-]+)", defined.get(name, ""))) - seen
+    return seen
+
+
+def test_no_stylesheet_redeclares_a_token_the_recipes_read():
+    """The recipe guard reads the declarations, so `border-color: var(--line-control-hover)`
+    passes wherever it is written. A rule that also sets --line-control-hover to the brand,
+    on the field or on any ancestor, would paint the brand through a declaration the guard
+    accepts: rendered, the focused #schedule-search border went rgb(63,207,142) and every
+    test stayed green (#1354's tests pass). These tokens are design/tokens.css's alone."""
+    names = _recipe_tokens()
+    assert {"--line-control-hover", "--focus", "--focus-ring-gap", "--bg"} <= names, names
+    found = [f"{sheet.relative_to(ROOT).as_posix()}:{line} {selector} {{ {prop}: {value} }}"
+             for sheet in authored()
+             for selector, prop, value, line in declarations(sheet.read_text(encoding="utf-8"))
+             if prop in names]
+    assert not found, "a stylesheet redeclares a token the focus recipes read:\n  " + "\n  ".join(found)
+
+
 def test_every_rule_left_to_another_item_is_still_there():
     selectors = {selector for _where, selector, _prop, _value in _focus_declarations()}
     gone = [f"{pattern} ({reason})" for pattern, reason in LEFT_TO.items()
