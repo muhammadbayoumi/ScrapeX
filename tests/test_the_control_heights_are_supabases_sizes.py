@@ -20,7 +20,7 @@ HELD names the reads that are a Supabase component but not at its default yet, e
 issue that moves it. DEFAULT is what each component's default reads here: a READS row reads it,
 and a HELD row does not, so a row cannot cite a component whose default it is not. Where a
 row's selector matches extension/app.html, the element it matches is the element its component
-is: a Button is a <button>, an Input an <input>.
+is: a Button is a <button>, an Input an <input>, and one inside an InputGroup is the group's.
 """
 from __future__ import annotations
 
@@ -251,24 +251,45 @@ def test_each_panel_read_names_the_element_its_selector_matches():
     in extension/app.html must be that component's: the engine address Save, a <button>, was
     cited as the group's Input until #1432's review. A selector that matches nothing there is
     drawn by app.js, and a grid column names the Button that sits in it, not the element the
-    rule styles, so neither is read here."""
+    rule styles, so neither is read here.
+
+    A Button and an InputGroupButton are both a <button>, so where the element sits tells them
+    apart: an element inside a GROUP row's element is the group's Input or its InputGroupButton,
+    and a GROUP_INSIDE or GROUP_BUTTON row's element sits inside one. The Save passed in HELD
+    as a plain Button until #1432's second re-review."""
     markup = BeautifulSoup(PANEL.read_text(encoding="utf-8"), "html.parser")
-    checked, wrong = set(), []
+    checked, grouped, wrong = set(), set(), []
     rows = {**{where: component for where, (_value, component) in READS.items()},
             **{where: component for where, (_value, component, _issue) in HELD.items()}}
+    # By identity: a bs4 Tag compares equal to any tag with the same name, attributes and
+    # contents.
+    groups = {id(element) for (sheet, selector, _prop), component in rows.items()
+              if sheet == APP and component == GROUP for element in markup.select(selector)}
     for (sheet, selector, prop), component in sorted(rows.items()):
         if sheet != APP or prop == "grid-template-columns":
             continue
-        tags = {element.name for element in markup.select(selector)}
+        elements = markup.select(selector)
+        tags = {element.name for element in elements}
         if not tags:
             continue
         checked.add(selector)
         if not tags <= ELEMENT.get(component, set()):
             wrong.append(f"`{selector}` {prop} matches {sorted(tags)}, but its row names "
                          f"{component}, which is {sorted(ELEMENT.get(component, set()))}")
+        inside = [any(id(parent) in groups for parent in element.parents) for element in elements]
+        if any(inside):
+            grouped.add(selector)
+        if any(inside) and component not in {GROUP_INSIDE, GROUP_BUTTON}:
+            wrong.append(f"`{selector}` {prop} sits inside an InputGroup but names {component}")
+        if component in {GROUP_INSIDE, GROUP_BUTTON} and not all(inside):
+            wrong.append(f"`{selector}` {prop} names {component}, but matches an element "
+                         f"outside every GROUP row's element")
     assert not wrong, "\n  ".join(["a row names a component its element is not:", *wrong])
     # Eleven selectors match the panel's markup today; fewer means one or the parser moved.
     assert len(checked) >= 11 and ".engine-url-save" in checked, sorted(checked)
+    # Three sit inside a group: the two groups' inputs and the Save. Fewer means a group's
+    # selector stopped matching, and the check above stopped reading it.
+    assert len(grouped) >= 3 and ".engine-url-save" in grouped, sorted(grouped)
 
 
 @pytest.mark.parametrize("where", sorted(KEPT), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
