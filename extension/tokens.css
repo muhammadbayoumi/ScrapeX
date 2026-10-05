@@ -150,11 +150,11 @@
      computed to `unset` -- transparent -- and a pressed split-button option showed
      the container behind it while only its border darkened: a press that
      half-registered.
-     AN ALIAS, NOT A 37th THEME PROPERTY. The ladder is already
+     AN ALIAS, NOT ANOTHER THEME PROPERTY. The ladder is already
      --control-bg (--surface) -> --control-hover (--surface-subtle) -> and --chip is
      the next step down in both schemes. Deriving from it means the pressed state
-     follows the palette for free, and `THEME_PROPERTIES` stays
-     at 36 with no palette gaining a cell -- which is what R-59 decision 4 argues
+     follows the palette for free, and `THEME_PROPERTIES` does not
+     grow, with no palette gaining a cell -- which is what R-59 decision 4 argues
      for: components consume semantic roles. OP-103, and the fix docs/LESSONS.md
      proposed. */
   --control-active: var(--chip);
@@ -194,24 +194,23 @@
   --radius-xl: 0.75rem;
   --radius-sheet: 1rem;
   --radius-pill: 999px;
-  /* Elevation — and Supabase's position on it is "almost none". They define ZERO
-     shadow tokens: depth is a surface-colour ladder plus a 1px border, their
-     Dialog is `border shadow-md dark:shadow-xs` so the border is unconditional
-     and the shadow is what gets dropped. (An earlier line here claimed
-     `shadow-none` appears in more of their files than `shadow-md`. Measured over
-     packages/ui and packages/ui-patterns it is the other way round: shadow-none
-     in 7 files / 13 uses, shadow-md in 11 files / 13 uses. The position is still
-     "almost none" -- they author ZERO shadow tokens, which is the part that
-     matters -- but the count said something untrue.) Even their box-shadow
-     utilities draw a 1px line
-     at zero blur. So these are deliberately flat, and flatter again in the dark
-     blocks below. OP-95: --shadow-lg's colour was a literal while its two
-     siblings derived from --shadow-color, so no appearance could re-tone it;
-     all three derive now. */
-  --shadow-color: rgb(3 3 3 / 0.06);
-  --shadow-xs: 0 1px 2px var(--shadow-color);
-  --shadow-sm: 0 1px 3px var(--shadow-color);
-  --shadow-lg: 0 8px 24px var(--shadow-color);
+  /* Elevation is what Supabase's atoms render (#1049). They author ZERO shadow
+     tokens -- none of their CSS at the pin declares --shadow-* -- and their atoms
+     write Tailwind's shadow-* classes, so these four are
+     packages/tailwindcss/theme.css@v4.2.4:407-410 verbatim, the version their
+     pnpm-lock.yaml@86c813ec:2618-2620 resolves (docs/DESIGN-SYSTEM-SOURCES.md,
+     "Tailwind's values, stated once"). Menus, popovers and selects cast md, a
+     Sheet casts lg, and the Dialog casts md and drops to xs in dark AT THE ATOM,
+     so no dark block re-declares any of them.
+     tests/test_the_shadows_are_what_supabases_atoms_render.py pins the strings
+     and which surface casts which. Until then they were this product's own: one
+     tint, rgb(3 3 3 / 0.06), at offsets of its own, darkened again in both dark
+     blocks, with no md at all. --shadow-color went with them, because Tailwind's
+     strings carry their own colour and nothing read it any more. */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow: var(--shadow-xs);
   /* Published exactly: their dialog overlay is `bg-black/40`, identical in both
      schemes, so this one value is not re-declared in the dark blocks. */
@@ -440,14 +439,6 @@
      surface the palette sets. */
   --control-bg: var(--surface);
   --control-hover: #1e1f1e;
-  /* Dropped a further three steps from light, which is what their Dialog does:
-     `border shadow-md dark:shadow-xs`. The border is unconditional and the
-     shadow is the part that goes, because dark plates sit ~0.025 L apart and a
-     blur cannot separate them -- the 1px line can. */
-  --shadow-color: rgb(0 0 0 / 0.40);
-  --shadow-xs: 0 1px 1px var(--shadow-color);
-  --shadow-sm: 0 1px 2px var(--shadow-color);
-  --shadow-lg: 0 4px 16px var(--shadow-color);
   /* --overlay is NOT re-declared: their scrim is `bg-black/40` in both schemes,
      so repeating it here would be two declarations of one published value. */
 }
@@ -498,10 +489,6 @@
     /* OP-94, the prefers-color-scheme copy of the same defect. */
     --control-bg: var(--surface);
     --control-hover: #1e1f1e;
-    --shadow-color: rgb(0 0 0 / 0.40);
-    --shadow-xs: 0 1px 1px var(--shadow-color);
-    --shadow-sm: 0 1px 2px var(--shadow-color);
-    --shadow-lg: 0 4px 16px var(--shadow-color);
   }
 }
 

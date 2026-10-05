@@ -1472,7 +1472,7 @@ code {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   transform-origin: top right;
   animation: split-button-options-in var(--dur-fast) var(--ease);
 }

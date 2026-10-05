@@ -137,7 +137,7 @@ state their consequence, active voice, and specific verbs.
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
 | Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height-tiny` (26px) and `--control-height-small` (34px): Supabase's SIZE heights, whose scale is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`). A Button reads tiny, its default (`Button.tsx@86c813ec:192`); an Input or Select reads small (`input.tsx@86c813ec:31`, `SIZE_VARIANTS_DEFAULT` at `constants.ts@86c813ec:111`). `--touch-target` survives for the places that size for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
-| Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
+| Shape and elevation | `--radius-xs` through `--radius-pill`. `--shadow-xs`, `--shadow-sm`, `--shadow-md` and `--shadow-lg` are what Supabase's atoms render (Tailwind 4.2.4's theme, #1049): a menu, popover or select casts `md`, a Sheet `lg`, and a Dialog `md` dropping to `xs` in dark |
 | Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
 | Motion and layering | duration/easing tokens and `--z-sticky`, `--z-overlay`, `--z-modal` |
 

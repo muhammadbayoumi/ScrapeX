@@ -302,7 +302,7 @@ def test_the_design_system_is_the_baseline_and_not_a_palette():
     assert "R-74" in tokens
     assert "THIS FILE IS THE SUPABASE DESIGN SYSTEM" in tokens
 
-    # apply() still writes the 36 colours. THE REMOVAL HALF IS GONE WITH `R-85`:
+    # apply() still writes the colours. THE REMOVAL HALF IS GONE WITH `R-85`:
     # `clearTheme` existed for the `deviceColors` early return, that branch is
     # deleted, and a function with no caller is dead code -- so it went, and the
     # eslint gate is what said so. `supabase` declaring no colours no longer needs
