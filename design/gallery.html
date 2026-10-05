@@ -309,13 +309,12 @@
   <div class="g-item">
     <h3>Sizes and icon-only</h3>
     <p class="g-why">
-      <code class="code">icon-button</code> is square at the full touch-target size;
-      add <code class="code">compact</code> for a <em>small</em> square. The two were
-      never composable until 2026-08-05 — together they drew a rectangle.
-      <code class="code">xs</code> is the third notch, 32px, added 2026-08-11 for
-      <em>secondary</em> icon controls — a quiet action that must not out-shout the
-      page it sits on. It is under the 44px coarse-pointer floor, so a primary or
-      destructive action never uses it.
+      <code class="code">icon-button</code> is a square at Supabase's tiny Button
+      height, 26px, the Button's default size. <code class="code">compact</code> and
+      <code class="code">xs</code> draw the same square, because Supabase's Button has
+      no size below tiny. <code class="code">icon-button</code> and
+      <code class="code">compact</code> were never composable until 2026-08-05 —
+      together they drew a rectangle.
     </p>
     <div class="g-demo cluster">
       <button type="button" class="compact">Compact</button>

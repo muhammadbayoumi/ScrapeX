@@ -26,7 +26,7 @@ it as though a reader could open it:
     the technique of reading the CSSOM as well as the box.
 
 Neither comment was WRONG about the facts. The `button, .button { min-height:
-var(--control-height) }` clamp is real and still in `design/components.css`, and
+var(--control-height-tiny) }` clamp is real and still in `design/components.css`, and
 the 47.5 incident happened. What had gone was the ability to CHECK either, which
 is the only thing a citation is for.
 

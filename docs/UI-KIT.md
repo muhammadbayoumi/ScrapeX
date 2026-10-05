@@ -109,9 +109,9 @@ Compose, do not invent.
 |---|---|
 | *(none)* | filled primary |
 | `ghost` | outlined, regular weight |
-| `icon-button` | square at the full touch-target size |
+| `icon-button` | square, at Supabase's tiny Button height (26px) |
 | `compact` | shorter, smaller type |
-| `icon-button compact` | **small** square — added 2026-08-05, because the two together drew a rectangle |
+| `icon-button compact` | the same square — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny |
 | `split-button` + `split-button-primary` / `-trigger` / `-menu` / `-option` | an action with a menu beside it |
 
 **Surfaces** `card` · `card hi` · `card warn` · `banner` · `grid` · `row` ·

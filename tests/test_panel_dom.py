@@ -2757,14 +2757,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
         separatorHeight: getComputedStyle(element, '::after').height,
       }))
     """)
-    # 40 UNTIL R-85/OD-09 DELETED THE PANEL'S 48px FLOOR. These rows are sized by
-    # `--control-height-sm`, which the panel raised to 2.5rem over the baseline's
-    # 2rem; with the override gone they follow the baseline at 32. The assertion's
-    # SUBJECT is that both rows agree and carry a 24px separator, and that is
-    # unchanged — what moved is the value the baseline supplies.
+    # 34 SINCE #1050, 32 BEFORE IT AND 40 UNTIL R-85/OD-09. Each row is an Input and
+    # a Select sharing one border, Supabase's InputGroup, whose height is its Input's:
+    # small, 34px (input-group.tsx@86c813ec:164-170, input.tsx@86c813ec:31). The
+    # assertion's SUBJECT is that both rows agree and carry a 24px separator, and
+    # that is unchanged; what moved is the size the token supplies.
     assert converter_rows == [
-        {"height": 32, "separatorHeight": "24px"},
-        {"height": 32, "separatorHeight": "24px"},
+        {"height": 34, "separatorHeight": "24px"},
+        {"height": 34, "separatorHeight": "24px"},
     ]
     assert "Google Finance" in text_of(page, "#finance-converter-as-of")
     page.evaluate("() => window.ScrapeXTime.set('UTC')")
@@ -6653,20 +6653,20 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 32px-wide pill with no resting border or background, muted until hovered.
+    a 26px pill with no resting border or background, muted until hovered.
 
-    32 AND 40 SINCE R-85/OD-09, WAS 40 AND 48. The panel raised `--control-height`
-    to 48px and `--control-height-sm` to 40px over the baseline; «احذفها» removed
-    that override, because Supabase's control scale is 26/34/38/42/50 and has no
-    48px floor. THE ASYMMETRY THIS TEST IS ABOUT SURVIVES INTACT — the declared
-    width still reaches the width and the global `min-height` still clamps the
-    height — and only the two numbers the baseline supplies have moved.
+    26 SQUARE SINCE #1050, WAS 32 WIDE AND 40 TALL, AND 40 AND 48 BEFORE R-85/OD-09.
+    It is an icon-only Button, and Supabase's Button defaults to tiny, 26px
+    (Button.tsx@86c813ec:192, constants.ts@86c813ec:61), so the declared width and
+    the global `min-height` now read the same token and the box is square. The
+    asymmetry this test was written about, a 32px width under a 40px floor, went
+    with the two notches that made it.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
-    than a remembered one: `button, .button { min-height: var(--control-height) }`
-    in `design/components.css:369-371` applies to every bare `<button>`, so it
-    clamps the rendered height back up and a rendered box alone cannot catch a
-    height regression at all.
+    than a remembered one: `button, .button { min-height: var(--control-height-tiny) }`
+    in `design/components.css` applies to every bare `<button>`, so it clamps the
+    rendered height back up and a rendered box alone cannot catch a height
+    regression at all.
 
     The technique was established by
     `test_the_engine_overflow_trigger_has_no_visible_resting_container`, which is
@@ -6681,20 +6681,18 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
     declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "var(--control-height-sm)", declared
+    assert declared["width"] == "var(--control-height-tiny)", declared
 
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(32, abs=0.01), box["width"]
-    # 32 WIDE, 40 TALL, and the asymmetry is still the point. `button, .button` in
-    # components.css carries `min-height: var(--control-height)` and nothing here
-    # overrides it, so the declared `--control-height-sm` reaches the WIDTH while
-    # the global floor sets the HEIGHT from `--control-height`. Both now come from
-    # the baseline rather than the panel's deleted override, so the pair moved 40/48
-    # -> 32/40 together. Measured, not assumed — and identical to
-    # `.manage-account-back`, the control this one is a copy of.
-    assert box["height"] == pytest.approx(40, abs=0.01), box["height"]
+    assert box["width"] == pytest.approx(26, abs=0.01), box["width"]
+    # 26 TALL TOO. `button, .button` in components.css carries `min-height:
+    # var(--control-height-tiny)` and nothing here overrides it, and with no padding
+    # the 20px icon sits inside that floor, so the height is the token's. Measured,
+    # not assumed — and identical to `.manage-account-back`, the control this one is
+    # a copy of.
+    assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
     twin = page.locator("#manage-account-back").evaluate(
         "el => getComputedStyle(el).minHeight")
     assert twin == btn.evaluate("el => getComputedStyle(el).minHeight"), (
@@ -6707,6 +6705,36 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
     assert style["borderRadius"] == "999px", style["borderRadius"]
     assert btn.get_attribute("aria-label") == "Back to Engine"
+
+
+def test_each_control_takes_its_supabase_components_default_size(open_panel):
+    """A Button's floor is Supabase's tiny, 26px (Button.tsx@86c813ec:192), an Input's is
+    small, 34px (input.tsx@86c813ec:31), and the `xs` and `compact` icon buttons are both the
+    tiny square, because Supabase's Button has no size below it (#1050).
+
+    Read from the cascade, not the sheet: tests/test_the_control_heights_are_supabases_sizes.py
+    holds each declaration, and a later rule that overrides one, in a surface's own sheet or a
+    media block, is seen only here. The squares are measured as boxes because `compact` brings
+    its own padding, which stood the 20px icon 30px tall in a 26px-wide box until
+    `.icon-button.compact` zeroed it."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    floors = page.evaluate("""() => Object.fromEntries(
+      ['#manage-account', '#signout', '#accounts-card .account-menu-button'].map(selector =>
+        [selector, getComputedStyle(document.querySelector(selector)).minHeight]))""")
+    assert floors == {"#manage-account": "26px", "#signout": "26px",
+                      "#accounts-card .account-menu-button": "26px"}, floors
+    for selector in ("#signout", "#accounts-card .account-menu-button"):
+        box = page.locator(selector).first.bounding_box()
+        assert box, selector
+        assert (box["width"], box["height"]) == (pytest.approx(26, abs=0.01),
+                                                 pytest.approx(26, abs=0.01)), (selector, box)
+
+    page.click(SOURCE_TAB)
+    page.wait_for_selector("#view-source", state="visible")
+    assert page.evaluate(
+        "() => getComputedStyle(document.getElementById('url')).minHeight") == "34px"
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):

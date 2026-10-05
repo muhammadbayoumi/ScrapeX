@@ -382,7 +382,7 @@ a.card:hover {
 
 button,
 .button {
-  min-height: var(--control-height);
+  min-height: var(--control-height-tiny);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -482,43 +482,34 @@ button.link:hover:not(:disabled),
 
 button.icon-button,
 .button.icon-button {
-  width: var(--control-height);
-  min-width: var(--control-height);
+  width: var(--control-height-tiny);
+  min-width: var(--control-height-tiny);
   padding: 0;
 }
 
-/* A compact icon button was never square: `compact` shrinks the height while
-   `icon-button` pins the width to the full control height, so the two together
-   drew a rectangle. Asking for a small square is a real need — an Install
-   affordance that is only its icon — and it belongs here rather than as a
-   one-off override in one page's stylesheet. */
+/* THE THREE SQUARES ARE ONE SIZE NOW. `compact` and `xs` were the 32px notches
+   under a 40px default; Supabase's Button has no size below its tiny default
+   (constants.ts@86c813ec:61), so all three are that square (#1050). The two
+   rules stay because the markup and the catalogue name both classes.
+   `padding: 0` keeps `compact`'s padding, which comes later in this sheet, from
+   standing a 20px icon 30px tall in a 26px-wide box. */
 button.icon-button.compact,
 .button.icon-button.compact {
-  width: var(--control-height-sm);
-  min-width: var(--control-height-sm);
+  width: var(--control-height-tiny);
+  min-width: var(--control-height-tiny);
+  padding: 0;
 }
 
-/* The smallest square, and the only one that also lowers min-height.
-   `compact` shrinks a control to the small notch; `xs` goes one further, to
-   --control-height-xs (32px on both surfaces). It exists because the Profile
-   design puts a secondary sign-out icon in a top bar where a 48px square reads
-   as the loudest thing on a page about an account, and the owner ruled on
-   2026-08-11 that both sizes belong to the general rule rather than to one
-   screen's stylesheet.
-   USE IT FOR SECONDARY ICON CONTROLS ONLY. 32px is under the 44px coarse-pointer
-   floor this sheet applies below, and under --control-height-sm. A primary or
-   destructive action, or anything on a touch surface, uses `icon-button` or
-   `icon-button compact` instead. */
 button.icon-button.xs,
 .button.icon-button.xs {
-  width: var(--control-height-xs);
-  min-width: var(--control-height-xs);
-  min-height: var(--control-height-xs);
+  width: var(--control-height-tiny);
+  min-width: var(--control-height-tiny);
+  min-height: var(--control-height-tiny);
 }
 
 button.compact,
 .button.compact {
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-tiny);
   padding: var(--sp-1) var(--sp-3);
   font-size: var(--fs-sm);
 }
@@ -547,7 +538,7 @@ input,
 select,
 textarea {
   width: 100%;
-  min-height: var(--control-height);
+  min-height: var(--control-height-small);
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -665,7 +656,7 @@ textarea[aria-invalid="true"] {
 }
 
 button.chip {
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-tiny);
   border: 1px solid var(--line);
   cursor: pointer;
 }
@@ -1367,7 +1358,7 @@ code {
 }
 .split-button-primary,
 .split-button-trigger {
-  min-height: var(--control-height);
+  min-height: var(--control-height-tiny);
   border: 0;
   background: transparent;
   color: var(--text);
@@ -1409,8 +1400,8 @@ code {
 .split-button-menu > summary::-webkit-details-marker { display: none; }
 .split-button-trigger {
   display: grid;
-  width: var(--control-height);
-  min-width: var(--control-height);
+  width: var(--control-height-tiny);
+  min-width: var(--control-height-tiny);
   padding: 0;
   place-items: center;
   border-inline-start: 1px solid var(--line);
@@ -1502,7 +1493,6 @@ code {
   align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  min-height: var(--control-height);
   padding: var(--sp-2) var(--sp-3);
   color: var(--text);
   background: transparent;

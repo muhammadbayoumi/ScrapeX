@@ -55,7 +55,7 @@ FORBIDDEN_FAMILIES = {
     "shadow": "elevation is the design system's -- EXCEPT shadow-color, see below",
     "dur": "motion timing is the design system's",
     "ease": "easing curves are the design system's",
-    "control-height": "control metrics carry the panel's 48px touch floor",
+    "control-height": "control heights are Supabase's SIZE scale, not a colour",
     "touch-target": "the touch floor is not an appearance choice",
     "focus-ring": "focus geometry is the design system's; only --focus is a colour",
     "z": "layering is not an appearance choice",
