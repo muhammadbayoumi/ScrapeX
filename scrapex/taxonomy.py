@@ -26,6 +26,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from . import directories
+
 
 class CannotPairLocales(ValueError):
     """Two locales' readings of one group do not line up, so nothing is written.
@@ -376,3 +378,37 @@ def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
                        "name": scheme["scheme_name"],
                        "name_ar": scheme["scheme_name_ar"]},
             "nodes": nodes, "undeclared": undeclared}
+
+
+def dataset_taxonomy(conn: sqlite3.Connection, dataset_key: str) -> dict:
+    """The vocabularies a dataset's rows point at, with what holds each node.
+
+    ONE FUNCTION, TWO READERS: `GET /api/taxonomy/{dataset_key}` answers it, and the
+    light file (#1199) stores it for a reader with no engine.
+
+    GROUPS THE SOURCE DECLARES AS TREES, AND THAT IS NOT A LITERAL LIST. muqawil
+    declares five multi-valued groups and two are wired; `kind="tree"` is the
+    declaration that says a group is a hierarchy, and it is `interests` alone today.
+    His ruling of 2026-09-08 defers `licensed_activities` to issue 800 -- it declares
+    `kind="table"` and stores leaves where interests stores whole paths -- and this
+    predicate expresses that without a second place to state it.
+
+    NO GROUPS, NOT AN ERROR, for a dataset with no vocabulary. Every generic dataset
+    can be asked this and most have none; an error would make the panel branch on the
+    source instead of on the answer. A declared group that stores nothing is left out.
+    """
+    # `BUILDERS` AND NOT `keys()`: the registry is the one list of directories this
+    # build can crawl, and `directoryjob` already refuses a source that is not in
+    # it -- so the lookup and the refusal read the same dict.
+    directory = next(
+        (one for one in (directories.get(key) for key in directories.BUILDERS)
+         if one.profiles is not None
+         and one.profiles.dataset_key == dataset_key),
+        None)
+    if directory is None or directory.profiles is None:
+        return {"dataset_key": dataset_key, "groups": []}
+    groups = [group_tree(conn, group.key)
+              for group in directory.profiles.groups
+              if getattr(group, "kind", "") == "tree"]
+    return {"dataset_key": dataset_key,
+            "groups": [one for one in groups if one["scheme"] is not None]}

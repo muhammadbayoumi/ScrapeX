@@ -50,7 +50,7 @@ from .. import (
 from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
-from ..changes import change_summary, changes_for_offer, recent_changes
+from ..changes import change_summary, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
 from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
 from ..connectors.factory import _BUILDERS, supports_history
@@ -63,7 +63,6 @@ from ..databases import (
 )
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
-from ..features import FeatureKey, is_enabled
 from ..features import manifest as feature_manifest
 from ..fields import (
     arranged,
@@ -131,11 +130,11 @@ from ..reports import (
     google_finance_status,
     history_counts,
     list_sources,
+    offer_card,
     offer_identity,
     offer_observations,
     parse_filters,
     price_extremes,
-    product_attributes,
     schema_report,
     table_payload,
     watch,
@@ -901,55 +900,21 @@ def create_app(
         return waiting
 
     def _dataset_rows():
-        """Every approved dataset, in the shape a source listing already speaks.
+        """Every listed dataset, in the shape a source listing already speaks.
 
-        ONE QUERY, TWO READERS, and the reason is a bug that shipped. `/api/sources`
-        learned about datasets in #212 and the PAGE did not — so
-        `/source/contractors` answered 404 while `/api/table/contractors` served
-        11,059 rows to nobody at all. Copying the query into the page would have
-        left the next widening to drift the same way.
+        WHICH DATASETS, AND THE FLAG THAT GATES THEM, are
+        `extract_service.listed_datasets`'s: one list for this listing, the engine's
+        own `/source/{key}` page and the light file (#1199). This adds what only a
+        listing needs: the freshness and the work waiting.
 
         `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
         Wipe and Rename, and every one of those is a price-path action that would
         answer 400 or worse for a dataset. A button that cannot work is worse
         than no button, so the panel hides them on this marker.
-
-        AND THIS IS THE CALLER `is_enabled` WAS WRITTEN FOR. That function describes
-        itself as *"the gate that NAVIGATION and UI must call before advertising a
-        capability"* and it had **zero callers anywhere** — so `GENERIC_DATASET_CATALOG`
-        being lit was a CLAIM about a capability rather than a switch over it, and
-        turning it off would have changed nothing at all.
-
-        THIS FUNCTION IS THE ADVERTISEMENT. It is what puts a dataset in the source
-        listing the panel draws, which is precisely *telling a user the capability
-        exists* — the claim `is_enabled`'s docstring says spec section 40 forbids
-        inflating. The ROUTES stay mounted whatever the flag says, deliberately and as
-        that docstring requires: `/api/table/contractors` and `/source/contractors`
-        exist so the slice can be exercised and tested on a server bound to 127.0.0.1.
-        Gating the routes would make the flag a kill switch for development; gating the
-        listing makes it a switch over what is announced.
         """
-        if not is_enabled(FeatureKey.GENERIC_DATASET_CATALOG):
-            return []
         general = general_read_conn()
         try:
-            # READ WHOLE, THEN SHAPED. The freshness is a second query per
-            # dataset, and running it inside the walk of this one would nest a
-            # read in the middle of a GROUP BY scan for no gain — there are as
-            # many datasets as a site has tables, and the aggregate above is
-            # already the expensive half.
-            catalogue = general.execute(
-                "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
-                "s.source_key AS site_key, "
-                "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
-                "FROM dataset_definition AS d "
-                "JOIN source_site AS s "
-                "ON s.source_id = d.source_id "
-                "LEFT JOIN generic_record AS r "
-                "ON r.dataset_definition_id = d.dataset_definition_id "
-                "AND r.status = 'active' "
-                "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id"
-            ).fetchall()
+            catalogue = extract_service.listed_datasets(general)
             return [{
                 "kind": "dataset",
                 "site_key": row["site_key"],
@@ -1151,36 +1116,14 @@ def create_app(
         rows = _dataset_rows()
         if len(rows) < 2:
             return rows
+        entries = {row["source_key"]: row for row in rows}
+        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule, so
+        # the light file folds the same ones.
         general = general_read_conn()
         try:
-            # CONFIRMED AND ONE-TO-ONE, both load-bearing. `review_status` is the
-            # human gate — a proposed relationship is a guess, and collapsing two
-            # cards on a guess would hide a population behind a percentage. And
-            # `one_to_one` is what makes "704 of 17,304" a sentence: under
-            # `one_to_many` a parent row can carry several children, so the child
-            # count is not a fraction of the parent count at all.
-            links = general.execute(
-                "SELECT p.dataset_key AS parent, c.dataset_key AS child "
-                "FROM dataset_relationship AS r "
-                "JOIN dataset_definition AS p "
-                "ON p.dataset_definition_id = r.parent_dataset_id "
-                "JOIN dataset_definition AS c "
-                "ON c.dataset_definition_id = r.child_dataset_id "
-                "WHERE r.valid_to IS NULL AND r.review_status = 'confirmed' "
-                "AND r.cardinality = 'one_to_one'"
-            ).fetchall()
+            folded_into = extract_service.dataset_folds(general, entries)
         finally:
             general.close()
-        entries = {row["source_key"]: row for row in rows}
-        parents = {link["parent"] for link in links}
-        # A CHILD THAT IS ITSELF A PARENT KEEPS ITS OWN CARD. Folding it away would
-        # take its own children off the listing with it, and a dataset that reaches
-        # no card is worse than one that reaches a redundant card. One level, and the
-        # limit is stated rather than discovered: nothing in the warehouse is two
-        # deep today, and the day something is, its middle row stays visible.
-        folded_into = {link["child"]: link["parent"] for link in links
-                       if link["parent"] in entries and link["child"] in entries
-                       and link["child"] not in parents}
         listing = []
         for row in rows:
             key = row["source_key"]
@@ -1792,22 +1735,17 @@ def create_app(
 
         The same ownership rule as the HTML page: an offer that is not this
         source's answers 404 without confirming whether the id exists at all.
+        `reports.offer_card` builds it, so the light file stores this same body.
         """
         conn = read_conn()
         try:
-            offer = offer_identity(conn, source_key, offer_id)
-            if offer is None:
-                raise HTTPException(status_code=404,
-                                    detail=f"no offer {offer_id} in {source_key}")
-            return {
-                "offer": offer,
-                "periods": pricehistory.timeline(conn, offer_id),
-                "observations": offer_observations(conn, offer_id),
-                "changes": changes_for_offer(conn, offer_id),
-                "details": product_attributes(conn, offer_id),
-            }
+            card = offer_card(conn, source_key, offer_id)
         finally:
             conn.close()
+        if card is None:
+            raise HTTPException(status_code=404,
+                                detail=f"no offer {offer_id} in {source_key}")
+        return card
 
     # ---- Workspace tabs (spec 21) ------------------------------------------
     # Each tab is a thin render over logic that already exists and is tested;
@@ -2241,38 +2179,17 @@ def create_app(
         contractor's 22.9 interests are invisible on every screen. This is the read
         half of the filter his ruling asked for.
 
-        GROUPS THE SOURCE DECLARES AS TREES, AND THAT IS NOT A LITERAL LIST. muqawil
-        declares five multi-valued groups and two are wired; `kind="tree"` is the
-        declaration that says a group is a hierarchy, and it is `interests` alone today.
-        His ruling of 2026-09-08 defers `licensed_activities` to issue 800 -- it
-        declares `kind="table"` and stores leaves where interests stores whole paths --
-         and this predicate expresses that without a second place to state it.
+        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so the
+        light file stores this same body.
 
         WHOLE AND UNPAGED, because it is 214 nodes. The membership table it counts
         against is 407,384 rows and is scanned once, not once per node.
         """
-        # `BUILDERS` AND NOT `keys()`: the registry is the one list of directories this
-        # build can crawl, and `directoryjob` already refuses a source that is not in
-        # it -- so the lookup and the refusal read the same dict.
-        directory = next(
-            (one for one in (directories.get(key) for key in directories.BUILDERS)
-             if one.profiles is not None
-             and one.profiles.dataset_key == dataset_key),
-            None)
-        if directory is None or directory.profiles is None:
-            # NOT A 404 ON A REAL DATASET. Every generic dataset can be asked this and
-            # most have no vocabulary at all; an error would make the panel branch on
-            # the source instead of on the answer.
-            return {"dataset_key": dataset_key, "groups": []}
         general = general_read_conn()
         try:
-            groups = [taxonomy.group_tree(general, group.key)
-                      for group in directory.profiles.groups
-                      if getattr(group, "kind", "") == "tree"]
+            return taxonomy.dataset_taxonomy(general, dataset_key)
         finally:
             general.close()
-        return {"dataset_key": dataset_key,
-                "groups": [one for one in groups if one["scheme"] is not None]}
 
     @app.get("/api/resolve")
     def api_resolve(url: str):
