@@ -120,24 +120,6 @@ def test_the_extension_carries_the_same_vendored_bytes():
         "through two different libraries")
 
 
-def test_a_wheel_ships_every_file_the_grid_needs():
-    """setuptools' package-data globs decide what a non-editable install carries,
-    and a one-level `static/vendor/*.js` once matched every vendored file there was.
-    The TanStack modules nest, so a glob that stopped one level down would ship a
-    grid that cannot load its own imports — and every test here, run from the
-    source tree, would pass."""
-    import tomllib
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    globs = config["tool"]["setuptools"]["package-data"]["scrapex.webui"]
-    webui = ROOT / "scrapex" / "webui"
-    shipped = {path for pattern in globs for path in webui.glob(pattern) if path.is_file()}
-    needed = [webui / "static" / name for name in
-              ("grid.js", "datagrid.js", "grid-theme.css", "table-theme.css")]
-    needed += [path for path in TANSTACK.rglob("*") if path.is_file()]
-    missing = [path.relative_to(webui).as_posix() for path in needed if path not in shipped]
-    assert not missing, f"a wheel would not carry these: {missing}"
-
-
 def test_no_extension_page_loads_code_from_the_internet():
     """The same promise as the test below, for the pages that had no guard.
 
@@ -1366,7 +1348,9 @@ def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
     assert ".selected-product-card" in css
     assert "#offer-panel button.selected-product-image-nav:active:not(:disabled)" in css
     assert "#offer-panel button.selected-product-image-nav:focus-visible" in css
-    assert "outline-offset: -3px" in css
+    # Inset, so the ring is not clipped by the card it sits in: the focus-inset recipe (#721).
+    assert re.search(r"selected-product-image-nav:focus-visible \{\s*outline: var\(--focus-ring-width\) "
+                     r"solid var\(--focus-ring-color\); outline-offset: calc\(-1 \* var\(--focus-ring-width\)\)", css)
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css

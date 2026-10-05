@@ -52,8 +52,9 @@ NAME = "scrapex-engine"
 #:
 #: A LIST, RATHER THAN THREE MORE `--add-data` ARGUMENTS, because the drift is
 #: the defect. `pyproject.toml` already carries the same fact for wheels under
-#: `[tool.setuptools.package-data]`, the two disagreed, and nothing compared
-#: them. `tests/test_the_frozen_engine_carries_its_own_files.py` now stages this
+#: `[tool.setuptools.package-data]`, and the two disagreed until #1046 made it the
+#: same two trees, held by `tests/test_every_webui_file_is_package_data.py`.
+#: `tests/test_the_frozen_engine_carries_its_own_files.py` now stages this
 #: list the way PyInstaller would and starts the engine inside it, so a resource
 #: added tomorrow fails in CI instead of on a desktop.
 RUNTIME_DATA: tuple[tuple[str, str], ...] = (

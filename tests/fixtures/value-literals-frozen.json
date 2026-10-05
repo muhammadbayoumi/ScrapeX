@@ -22,29 +22,7 @@
   "design/components.css": {
    "3px": 1
   },
-  "design/data-workspace.css": {
-   "-3px": 1
-  },
-  "design/grid-theme.css": {
-   "-3px": 1,
-   "1px": 2
-  },
   "extension/app.css": {
-   "3px": 4
-  },
-  "extension/console.css": {
-   "1px": 1
-  },
-  "scrapex/webui/static/pages/data-model.css": {
-   "3px": 1
-  },
-  "scrapex/webui/static/pages/exports.css": {
-   "3px": 1
-  },
-  "scrapex/webui/static/pages/schedules.css": {
-   "3px": 1
-  },
-  "scrapex/webui/static/webui.css": {
    "3px": 1
   }
  },
