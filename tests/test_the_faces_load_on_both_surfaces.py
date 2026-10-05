@@ -1,7 +1,8 @@
 """The four faces load on both surfaces, measured in a browser (#1048).
 
-The panel is the page tools/panel_harness.py builds from extension/app.html, and the web
-UI is the overview the engine's own app serves through base.html, routed exactly as
+The panel is the page tools/panel_harness.py builds from extension/app.html, the Data page
+is the one tools/tabpage_harness.py builds from extension/data.html, and the web UI is the
+overview the engine's own app serves through base.html, routed exactly as
 tests/test_the_focus_ring_draws_in_the_web_ui.py routes it.
 
 `document.fonts.check('16px Inter')` ALONE PROVES NOTHING. It answers true when no face in
@@ -22,6 +23,7 @@ import pytest
 pytest.importorskip("playwright")
 pytest.importorskip("fastapi")
 from tests.test_panel_dom import browser, open_panel  # noqa: E402,F401  (the fixtures)
+from tests.test_tab_page_dom import open_data  # noqa: E402,F401  (the Data page's fixture)
 from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, webui  # noqa: E402,F401
 
 # Guards the extension's panel; see tests/test_the_extension_gate_is_complete.py.
@@ -124,3 +126,57 @@ def test_the_arabic_face_draws_the_web_uis_arabic(webui):  # noqa: F811
     webui.wait_for_load_state("networkidle")
     assert webui.evaluate(MARK_ARABIC) == "السويدي شوب", "the overview no longer shows the source's Arabic name"
     _assert_the_arabic_face_draws_arabic(webui, "scrapex/webui/templates/base.html")
+
+
+def test_every_face_loads_on_the_data_page(open_data):  # noqa: F811
+    """The Data page, built by tools/tabpage_harness.py as every test in
+    tests/test_tab_page_dom.py builds it. The harness copies each sheet data.html links
+    into a temporary directory, and a url() is read against that copy, so until it
+    carried the faces tokens.css names each one failed to load there: those tests
+    measured the platform's face, and passed (#1048)."""
+    page = open_data()
+    _assert_every_face_loads(page.evaluate(LOAD, list(FACES)), "extension/data.html")
+
+
+#: The family --font-mono computes to, read off a probe element, beside the family the
+#: data-model canvas and the dataset snapshot textarea are drawn with.
+READ_MONO = """() => {
+  const probe = document.createElement("code");
+  probe.style.fontFamily = "var(--font-mono)";
+  document.body.append(probe);
+  const mono = getComputedStyle(probe).fontFamily;
+  probe.remove();
+  const canvas = document.querySelector("canvas");
+  const textarea = document.querySelector(".snapshot-form textarea");
+  return {mono,
+          canvas: canvas && canvas.getContext("2d").font,
+          textarea: textarea && getComputedStyle(textarea).fontFamily};
+}"""
+
+
+def _read_mono(page, path: str) -> dict:
+    response = page.goto(ORIGIN + path)
+    assert response is not None and response.status == 200, (path, response and response.status)
+    page.wait_for_load_state("networkidle")
+    page.evaluate("() => document.fonts.ready.then(() => new Promise(requestAnimationFrame))")
+    read = page.evaluate(READ_MONO)
+    assert read["mono"].startswith('"Source Code Pro"'), read
+    return read
+
+
+def test_the_data_model_labels_draw_in_the_mono_token(webui):  # noqa: F811
+    """TSS-20's third site, a canvas font string that no stylesheet reaches. The static
+    scan refuses a mono stack written out in a script, and nothing more: delete the line
+    that sets the font and the labels draw in the canvas default, `10px sans-serif`, while
+    the scan still passes. So the canvas's own font is read, after the page has drawn.
+    The font is set per relationship, so a page that drew none reads the default too."""
+    read = _read_mono(webui, "/data-model")
+    assert read["canvas"] == f"600 12px {read['mono']}", read
+
+
+def test_the_snapshot_textarea_draws_in_the_mono_token(webui):  # noqa: F811
+    """TSS-20's second site. Without its own declaration the textarea takes
+    `font: inherit` from design/components.css, the sans stack, and the static scan still
+    passes. So the family it computes is read."""
+    read = _read_mono(webui, "/datasets")
+    assert read["textarea"] == read["mono"], read

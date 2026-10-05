@@ -372,6 +372,23 @@ def test_no_script_or_page_writes_a_mono_stack_of_its_own():
     assert not found, f"monospace stacks written outside --font-mono: {found}"
 
 
+def test_the_snapshot_textarea_reads_the_mono_token():
+    """The scans above refuse a mono stack written out, and nothing more: delete the
+    snapshot textarea's declaration and they still pass, while the textarea takes
+    `font: inherit` from design/components.css, the sans stack. So the rule's own
+    declarations are read, and the last one that sets the family must be the token.
+    tests/test_workspace.py holds `.source-identity-meta` the same way, and
+    tests/test_the_faces_load_on_both_surfaces.py reads both web UI sites drawn."""
+    sheet = ROOT / "scrapex" / "webui" / "static" / "pages" / "datasets.css"
+    rules = re.findall(r"\.snapshot-form textarea\s*\{([^}]*)\}",
+                       _uncommented(sheet.read_text(encoding="utf-8")))
+    assert len(rules) == 1, f"pages/datasets.css has {len(rules)} `.snapshot-form textarea` rules"
+    family = [value.strip() for prop, _, value in
+              (declaration.partition(":") for declaration in rules[0].split(";"))
+              if prop.strip() in ("font", "font-family")]
+    assert family[-1:] == ["var(--font-mono)"], rules[0]
+
+
 def test_the_panel_harness_points_each_face_at_the_extensions_own_file(tmp_path, monkeypatch):
     """tools/panel_harness.py inlines tokens.css into a page in a temporary directory, so
     it rewrites each url() onto extension/ -- and refuses a face the extension does not
@@ -386,3 +403,42 @@ def test_the_panel_harness_points_each_face_at_the_extensions_own_file(tmp_path,
     monkeypatch.setattr(panel_harness, "EXT", tmp_path)
     with pytest.raises(FileNotFoundError, match="fall back to the platform's face"):
         panel_harness._point_fonts_at_the_extension(css)
+
+
+def test_the_data_page_harness_carries_each_face_beside_its_tokens_css(tmp_path):
+    """tools/tabpage_harness.py copies each sheet data.html links into a temporary
+    directory, and a url() is read against that copy. It copied no fonts/, so every face
+    failed to load and the Data page's browser tests measured the platform's face. It now
+    copies what each copied sheet names, byte for byte, and refuses to build when a face
+    is missing or a url() leaves the extension. A data: URI and a bare fragment name no
+    file, and are passed over."""
+    import shutil
+
+    from tools import tabpage_harness
+
+    built = tmp_path / "built"
+    tabpage_harness.build_data_page(built, "")
+    for directory, name, *_ in FACES.values():
+        copy = built / "fonts" / directory / name
+        assert copy.is_file(), f"the Data page is built without fonts/{directory}/{name}"
+        assert copy.read_bytes() == (ROOT / "extension" / "fonts" / directory / name).read_bytes()
+
+    ext = tmp_path / "extension"
+    shutil.copytree(ROOT / "extension", ext, ignore=shutil.ignore_patterns("tests"))
+    tokens = ext / "tokens.css"
+    shipped = tokens.read_text(encoding="utf-8")
+
+    tokens.write_text(shipped + '\n.x { background: url("data:image/png;base64,AA==");'
+                      " mask: url(#clip); }\n", encoding="utf-8")
+    assert tabpage_harness.build_data_page(tmp_path / "inline", "", ext=ext).is_file()
+
+    (tmp_path / "outside.ttf").write_bytes(b"\0")
+    tokens.write_text(shipped.replace("fonts/manrope/Manrope-wght.ttf", "../outside.ttf"),
+                      encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match=r"tokens\.css names \.\./outside\.ttf"):
+        tabpage_harness.build_data_page(tmp_path / "escaped", "", ext=ext)
+
+    tokens.write_text(shipped, encoding="utf-8")
+    (ext / "fonts" / "manrope" / "Manrope-wght.ttf").unlink()
+    with pytest.raises(FileNotFoundError, match=r"tokens\.css names fonts/manrope/Manrope-wght\.ttf"):
+        tabpage_harness.build_data_page(tmp_path / "missing", "", ext=ext)
