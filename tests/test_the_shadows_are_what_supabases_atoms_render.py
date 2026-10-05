@@ -148,6 +148,22 @@ def test_each_shadow_token_is_the_string_tailwinds_theme_declares(token):
         f"lockfile resolves at the pin, as tools/read_supabase_values.py read it (#1049).")
 
 
+def test_the_unconditional_root_declares_the_four_and_the_alias():
+    """The test above reads the four, not the alias. The equality test below reads
+    declarations(), which keeps the nearest selector and drops the at-rules around it, so a
+    `:root` inside `@media (prefers-contrast: more)` reads as plain `:root`. Moved there, or
+    into a trailing `@media (min-width: 60rem)`, the alias was undefined everywhere else and
+    the eight bare `var(--shadow)` readers cast `none`, and both passed. So tokens.css's
+    unconditional `:root` is held to all five."""
+    light = {token: value for (block, token), value in _declared().items()
+             if block == LIGHT and token.startswith("--shadow")}
+    expected = {**SHADOWS, ALIAS[0]: ALIAS[1]}
+    assert light == expected, (
+        f"design/tokens.css's unconditional :root declares {light}; it must declare {expected}. "
+        f"A --shadow* declared only inside an at-rule is undefined outside it, and every "
+        f"reader of it casts nothing there (#1049).")
+
+
 def test_no_dark_block_re_declares_a_shadow():
     """Supabase renders the same shadow-* classes in both schemes. The one atom that swaps is
     the Dialog, and it swaps at the atom (`dark:shadow-xs`), not by re-toning a token."""
