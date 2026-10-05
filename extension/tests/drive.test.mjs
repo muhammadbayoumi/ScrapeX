@@ -543,6 +543,107 @@ test("a truncated pack shows nothing rather than half the rows", async () => {
   });
 });
 
+// ---- the pack reader at the one gate (#599, #619) -----------------------------
+//
+// fetchPanelPack is the one Drive reader that runs with no engine, and it read
+// the pointer itself: no format check at all, and a size check written
+// `if (promised && ...)`, the form the archive path had already been fixed out
+// of. A pack it could not read reached readPanelPack, which returned an empty
+// Map, and the panel said "That backup carries no datasets".
+
+/** A Drive holding one pointer and one pack, recording which files were downloaded. */
+function driveWithPack(pointer, packBody) {
+  const downloaded = [];
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [{id: "ptr", name: LATEST}]}}))],
+    [(url) => url.includes("alt=media"), (url) => {
+      if (url.includes("ptr")) return reply(200, {body: JSON.stringify(pointer)});
+      downloaded.push(url);
+      return reply(200, {body: packBody});
+    }],
+  ]);
+  return {fetchImpl, downloaded};
+}
+
+test("a pack from a bundle format this panel does not read is refused before it downloads", async () => {
+  const {fetchImpl, downloaded} = driveWithPack({
+    file_id: "a", bytes: 1, bundle_format: BUNDLE_FORMAT + 1,
+    panel_pack: {file_id: "pack", name: PANEL_PACK, bytes: 5},
+  }, "12345");
+
+  await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "wrong-format");
+    // THIS PANEL READS THE PACK, NOT THE ENGINE. The restore's sentence would
+    // send him to update an engine the machine may not have.
+    assert.match(error.message, /Update the extension, then reopen this panel/);
+    assert.doesNotMatch(error.message, /engine/);
+    assert.match(error.message, /Nothing is shown/);
+    return true;
+  });
+  assert.deepEqual(downloaded, [], "the pack was downloaded before its format was read");
+});
+
+test("a pack in the format this panel reads is handed back whole", async () => {
+  const {fetchImpl} = driveWithPack({
+    file_id: "a", bytes: 1, bundle_format: BUNDLE_FORMAT,
+    panel_pack: {file_id: "pack", name: PANEL_PACK, bytes: 5},
+  }, "12345");
+
+  const {pack, pointer} = await fetchPanelPack("tok", {fetchImpl});
+
+  assert.equal(pack.size, 5);
+  assert.equal(pointer.panel_pack.file_id, "pack");
+});
+
+test("a pointer that records a size of zero still has its size checked", async () => {
+  // Under `if (promised && ...)` a recorded 0 switched the comparison off, so
+  // five bytes against a promise of none passed as a good pack.
+  const {fetchImpl} = driveWithPack({
+    file_id: "a", bytes: 1,
+    panel_pack: {file_id: "pack", name: PANEL_PACK, bytes: 0},
+  }, "12345");
+
+  await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "truncated");
+    assert.match(error.message, /holds 5 bytes and the backup recorded 0/);
+    assert.match(error.message, /Nothing is shown/);
+    return true;
+  });
+});
+
+test("an empty pack is never shown as a backup with no data", async () => {
+  // The 2026-08-30 shape, where the pointer and the pack agree at zero, and an
+  // older pointer that recorded no size: neither has a comparison that can
+  // fail, and an empty pack is no data whatever the pointer says.
+  for (const bytes of [0, undefined]) {
+    const {fetchImpl} = driveWithPack({
+      file_id: "a", bytes: 1,
+      panel_pack: {file_id: "pack", name: PANEL_PACK, bytes},
+    }, "");
+
+    await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+      assert.equal(error.kind, "empty", `pointer bytes ${bytes}`);
+      assert.match(error.message, /nothing to show/);
+      return true;
+    });
+  }
+});
+
+test("a Drive with no pointer says no backup exists, through the pack reader too", async () => {
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+  ]);
+
+  await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "no-backup");
+    return true;
+  });
+});
+
 // ---- a backup of nothing, 2026-08-30 (OP-111) --------------------------------
 //
 // Drive ended up holding a 0-byte archive, a 0-byte panel pack and a pointer
