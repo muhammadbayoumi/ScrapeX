@@ -195,15 +195,18 @@ where this summary is brief.
      their ramp or in the stock ramp their mono context resets to.
      THIS ITEM SAID "THE VALUES MATCH" UNTIL 2026-09-25; --fs-2xs did not.
 
-  4. THE MOTION CURVES ARE THEIRS; NAMING THEM IS NOT. Both curves in
-     design/tokens.css are Supabase's own, at the commit above, in
+  4. THE MOTION CURVES ARE THEIRS; NAMING TWO OF THEM IS NOT. --ease and
+     --ease-travel in design/tokens.css are Supabase's own, at the commit above, in
      packages/config/css/animations.css: cubic-bezier(0.16, 1, 0.3, 1) in four of
      their --animate-* declarations and cubic-bezier(0.87, 0, 0.13, 1) in eight.
-     Three of their durations are here too, 0.1s and 0.15s and 0.25s. What is this
-     product's own is that the curves are ADDRESSABLE: they declare no custom
-     property for either and inline both inside animation shorthands, while
-     --ease and --ease-travel make them referable. Their most-used duration,
-     300ms, has no rung here.
+     What is this product's own is that those two are ADDRESSABLE: they declare no
+     custom property for either and inline both inside animation shorthands, while
+     --ease and --ease-travel make them referable. --ease-out,
+     cubic-bezier(0, 0, 0.2, 1), and --ease-in-out, cubic-bezier(0.4, 0, 0.2, 1),
+     are Tailwind's, under Tailwind's names (tailwindcss v4.2.4 theme.css): their
+     Button names the first, and their transition utilities draw the second when
+     they name no curve. Four of their durations are here too, 0.1s, 0.15s, 200ms
+     and 0.25s. Their most-used animation duration, 300ms, has no rung here.
 
      THIS ITEM CLAIMED THE OPPOSITE UNTIL 2026-09-07 -- that neither curve
      appeared in their source. It was wrong in the direction a licence notice can

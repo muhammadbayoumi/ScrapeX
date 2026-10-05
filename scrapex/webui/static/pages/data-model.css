@@ -384,9 +384,9 @@
   box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition:
-    border-color var(--dur-fast) ease,
-    box-shadow var(--dur-fast) ease,
-    opacity var(--dur-fast) ease;
+    border-color var(--dur-fast) var(--ease-in-out),
+    box-shadow var(--dur-fast) var(--ease-in-out),
+    opacity var(--dur-fast) var(--ease-in-out);
 }
 
 .model-stage.is-ready .model-table {

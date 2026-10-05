@@ -141,7 +141,7 @@ h3 {
         padding-top:calc(var(--sp-6) + 2.75rem)}
       .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
         inset:0;background:var(--overlay);opacity:0;
-        pointer-events:none;transition:opacity var(--dur) ease;z-index:8}
+        pointer-events:none;transition:opacity var(--dur) var(--ease-in-out);z-index:8}
       .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
       .sidebar-ready.sidebar-open{overflow:hidden}
       .workspace-footer{grid-template-columns:1fr;align-items:flex-start}
