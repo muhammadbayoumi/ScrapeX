@@ -79,10 +79,10 @@ FACES = {
 SUPABASE_SANS = "var(--font-inter), Inter, Helvetica Neue, Helvetica, ui-sans-serif, system-ui, sans-serif"
 SUPABASE_MONO = "var(--font-source-code-pro), 'Source Code Pro', ui-monospace, Menlo, monospace"
 
-#: CSS Fonts 4 §2.1.3's generic families. `system-ui` and `ui-sans-serif` are generic
-#: families too, and that is what decides where the Arabic face goes, below.
-GENERIC = {"serif", "sans-serif", "cursive", "fantasy", "monospace", "system-ui", "emoji",
-           "math", "fangsong", "ui-serif", "ui-sans-serif", "ui-monospace", "ui-rounded"}
+#: The shipped faces a stack can lead with. None carries an Arabic letter -- Inter's and
+#: Source Code Pro's one code point in the Arabic blocks is U+FEFF, and Manrope has none --
+#: so a stack that names Noto Sans Arabic right after one of them draws its Arabic in Noto.
+LATIN_FACES = ("Inter", "Manrope", "Source Code Pro")
 
 #: Every way a stylesheet or a script can name a monospace face without the token.
 MONO_NAMES = re.compile(r"\b(?:ui-monospace|monospace|Consolas|Courier New|Menlo|Cascadia"
@@ -293,20 +293,63 @@ def test_each_face_declares_what_its_file_holds(family):
     assert 'format("truetype")' in face["src"], face
 
 
+def test_every_face_is_upright_by_his_choice():
+    """UPRIGHT FACES ONLY, by his choice (#1431, issuecomment-6000869384). Supabase's sources
+    disagree: the design system's own loader loads upright faces only
+    (apps/design-system/lib/fonts.ts@86c813ec:10-23), studio's ships an italic Inter and an
+    italic Source Code Pro (apps/studio/fonts/index.ts@86c813ec:20-24 and :38-42), and their
+    docs say "No italics for emphasis" (copywriting.mdx@86c813ec:241). So the few italic
+    runs -- `.unverified` and the web UI's <em>, which #1436 takes -- are slanted by the
+    browser from the upright file.
+
+    Shipping an italic face is his decision to change, not drift: no @font-face in any
+    stylesheet or page declares a style other than normal, and no font file on any surface
+    is italic by its name or by its own tables -- OS/2 fsSelection bit 0 (ITALIC), head
+    macStyle bit 1 (Italic), or an `ital` or `slnt` variation axis (OpenType 1.9)."""
+    declared = [(path.relative_to(ROOT).as_posix(), face)
+                for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui")
+                for path in sorted(folder.rglob("*")) if path.suffix in (".css", ".html")
+                for face in _font_faces(path)]
+    assert len(declared) == len(FACES) * len(SURFACES), "the scan is reading the wrong files"
+    slanted = [(path, face) for path, face in declared if face.get("font-style", "normal") != "normal"]
+    assert not slanted, f"an @font-face declares a slanted face, against his choice: {slanted}"
+
+    files = [path for surface in SURFACES for path in sorted(surface.rglob("*"))
+             if path.suffix.lower() in {".ttf", ".otf", ".woff", ".woff2"}]
+    assert len(files) == len(FACES) * len(SURFACES), "the scan is reading the wrong files"
+    italic = []
+    for path in files:
+        where = path.relative_to(ROOT).as_posix()
+        if re.search(r"italic|oblique", path.name, re.IGNORECASE):
+            italic.append(f"{where}: its name")
+        if path.suffix.lower() in {".ttf", ".otf"}:
+            tables = _font_tables(path.read_bytes())
+            if struct.unpack(">H", tables["OS/2"][62:64])[0] & 0x0001:
+                italic.append(f"{where}: OS/2 fsSelection ITALIC")
+            if struct.unpack(">H", tables["head"][44:46])[0] & 0x0002:
+                italic.append(f"{where}: head macStyle Italic")
+            slants = {"ital", "slnt"} & set(_axes(tables["fvar"]) if "fvar" in tables else ())
+            if slants:
+                italic.append(f"{where}: a {'/'.join(sorted(slants))} axis")
+    assert not italic, f"an italic face ships, against his choice: {italic}"
+
+
 def _with_the_arabic_face(stack: str) -> list[str]:
     """Supabase's stack with next/font's handle dropped and Noto Sans Arabic placed
-    BEFORE THE FIRST GENERIC FAMILY.
+    DIRECTLY AFTER THE FIRST SHIPPED LATIN FACE, so no face this product does not ship
+    stands ahead of it. His ruling (a'), on #1431 (issuecomment-6000869384).
 
-    WHY THERE AND NOT BEFORE `sans-serif`. A family's glyphs are taken in order, one
-    character at a time, so the first family that holds an Arabic letter draws it -- and
-    `system-ui` is the platform's own face, which on Linux is DejaVu Sans and on Windows
-    Segoe UI, and both carry Arabic. Placed after it, the shipped face drew no Arabic
-    glyph at all in Chromium here: measured with CSS.getPlatformFontsForNode, 14 of 14
-    Arabic glyphs came from DejaVu Sans. Before it, 18 of 18 came from Noto Sans Arabic.
-    Supabase's own entries keep their order either way."""
+    A family's glyphs are taken in order, one character at a time, so the first family
+    that holds an Arabic letter draws it. Any platform face ahead of Noto may hold one:
+    `system-ui` is DejaVu Sans on Linux and Segoe UI on Windows, and both do -- placed
+    after it, the shipped face drew 0 of 14 Arabic glyphs here. NOR IS BEFORE THE FIRST
+    GENERIC FAMILY ENOUGH, which was his ruling (a): Chromium aliases a missing Helvetica
+    to Arial (alternate_font_family.h:96-102), Windows' Arial carries Arabic, and under
+    tests/fixtures/fontconfig-windows/fonts.conf a Noto behind Helvetica drew 0 glyphs on
+    the panel and on the web UI. Supabase's own entries keep their order."""
     names = [name for name in _families(stack) if not name.startswith("var(")]
-    first = next(index for index, name in enumerate(names) if name in GENERIC)
-    return names[:first] + ["Noto Sans Arabic"] + names[first:]
+    first = next(index for index, name in enumerate(names) if name in LATIN_FACES)
+    return names[:first + 1] + ["Noto Sans Arabic"] + names[first + 1:]
 
 
 def test_the_sans_stack_is_supabases_with_the_arabic_face():

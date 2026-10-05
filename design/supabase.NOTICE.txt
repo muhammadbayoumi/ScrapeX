@@ -53,7 +53,11 @@ WHAT WAS TAKEN, AND FROM WHERE
     * The type scale, the weights, the radius scale and the focus geometry.
     * The three font stacks, in their order, from
       apps/design-system/styles/globals.css. Noto Sans Arabic, placed in
-      each, is this product's own.
+      each, is this product's own, and it goes directly after the first
+      shipped Latin face, so no face this product does not ship stands ahead
+      of it. A glyph is drawn by the first family that has it, and Chromium
+      aliases a missing Helvetica to Arial, which on Windows carries Arabic:
+      placed behind Helvetica, the shipped face would draw no Arabic there.
     * Token NAMES, where this product's semantic role matches theirs.
 
   Some values came from their components rather than these token files: the
@@ -283,3 +287,13 @@ tests/test_the_faces_ship_with_their_licences.py fails a copy without one. The
 copyright holders are named in each OFL.txt: The Inter Project Authors, The
 Manrope Project Authors, Adobe Systems Incorporated for Source Code Pro (with
 Reserved Font Name 'Source'), and The Noto Project Authors.
+
+ONLY THE UPRIGHT FILES SHIP, BY HIS CHOICE (2026-10-05, #1431). Supabase's
+sources disagree on italic faces. The design system's own loader loads upright
+faces only (apps/design-system/lib/fonts.ts@86c813ec:10-23); studio's loader
+ships an italic Inter and an italic Source Code Pro
+(apps/studio/fonts/index.ts@86c813ec:20-24 and :38-42); and their docs say "No
+italics for emphasis"
+(apps/design-system/content/docs/copywriting.mdx@86c813ec:241). So no italic
+file is distributed, and the browser slants the upright file for the few italic
+runs there are: .unverified, and the web UI's <em>, whose emphasis #1436 takes.

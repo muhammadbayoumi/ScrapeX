@@ -55,7 +55,19 @@
  * font-weight is each file's own `wght` axis, so every weight here is drawn by the
  * variable face and none is synthesised. font-display is Supabase's: every face they
  * load is `display: 'swap'` (apps/studio/fonts/index.ts@86c813ec:6,12,30).
- * tests/test_the_faces_ship_with_their_licences.py reads both from the files. */
+ * tests/test_the_faces_ship_with_their_licences.py reads both from the files.
+ *
+ * UPRIGHT FACES ONLY, BY HIS CHOICE (#1431, issuecomment-6000869384). Supabase's
+ * sources disagree, so this is recorded rather than picked silently. The design
+ * system's own loader loads upright faces only
+ * (apps/design-system/lib/fonts.ts@86c813ec:10-23); studio's ships an italic Inter
+ * and an italic Source Code Pro (apps/studio/fonts/index.ts@86c813ec:20-24 and
+ * :38-42); and their docs say "No italics for emphasis"
+ * (apps/design-system/content/docs/copywriting.mdx@86c813ec:241). So no italic file
+ * ships, and the browser slants the upright file for the few italic runs there are
+ * -- `.unverified` in table-theme.css, and the web UI's <em>, whose emphasis #1436
+ * takes. test_every_face_is_upright_by_his_choice fails on an italic @font-face or
+ * an italic file, so adding one is a decision, not drift. */
 @font-face {
   font-family: "Inter";
   src: url("fonts/inter/Inter-opsz-wght.ttf") format("truetype");
@@ -277,15 +289,28 @@
      the face itself. --font-heading is their var(--font-manrope,
      var(--font-sans)): Manrope, then the sans stack.
 
-     "Noto Sans Arabic" IS OURS, AND IT GOES BEFORE THE FIRST GENERIC FAMILY.
-     This product is read and written in Arabic and none of their three faces
-     covers it. A glyph is drawn by the first family in the list that has it,
-     and system-ui is a generic family -- the platform's own face, DejaVu Sans
-     on Linux and Segoe UI on Windows, both of which carry Arabic. Named after
-     it, the shipped face drew no Arabic glyph at all; named before it, every
-     one (tests/test_the_faces_load_on_both_surfaces.py measures which face
-     draws). Their own entries keep their order. */
-  --font: Inter, "Helvetica Neue", Helvetica, "Noto Sans Arabic", ui-sans-serif,
+     "Noto Sans Arabic" IS OURS, AND IT GOES DIRECTLY AFTER THE FIRST SHIPPED
+     LATIN FACE, so no face this product does not ship stands ahead of it. This
+     product is read and written in Arabic and none of their three faces covers
+     it. A glyph is drawn by the first family in the list that has it, and any
+     platform face ahead of Noto may have Arabic: system-ui is DejaVu Sans on
+     Linux and Segoe UI on Windows, and both do. Before the first generic
+     family was not enough either. Chromium aliases a missing Helvetica to Arial
+     (third_party/blink/renderer/platform/fonts/alternate_font_family.h:96-102),
+     Windows has no Helvetica, and Windows' Arial carries Arabic -- so behind
+     Helvetica, Noto would draw no Arabic on Windows while every Linux run
+     passed. His ruling (a') on #1431 puts it here.
+     Inter, Manrope and Source Code Pro hold no Arabic letter, so Noto draws
+     every one; each still leads its stack, so Latin is theirs. What moves is 9
+     code points Noto has and Inter lacks -- format characters, two combining
+     marks, the dotted circle and U+2E41 -- which Noto now draws ahead of
+     Helvetica. Their own entries keep their order. --font-heading writes no
+     list of its own: Manrope, then this one, so only Manrope and Inter stand
+     ahead of Noto. tests/test_the_faces_load_on_both_surfaces.py measures which
+     face draws, on this platform and under
+     tests/fixtures/fontconfig-windows/fonts.conf, which gives Helvetica a face
+     with Arabic as Windows does. */
+  --font: Inter, "Noto Sans Arabic", "Helvetica Neue", Helvetica, ui-sans-serif,
     system-ui, sans-serif;
   --font-heading: Manrope, var(--font);
   --font-mono: "Source Code Pro", "Noto Sans Arabic", ui-monospace, Menlo,

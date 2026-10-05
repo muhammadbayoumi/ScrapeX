@@ -15,14 +15,26 @@ is not enough. A family's glyphs are taken in stack order, and a platform face a
 that carries Arabic -- `system-ui` is DejaVu Sans here and Segoe UI on Windows -- draws
 every Arabic letter while the shipped face loads and is never used. Chromium reports the
 face behind each glyph through CSS.getPlatformFontsForNode, so that is what is read.
+
+AND IT IS READ TWICE, once on this platform and once as Windows draws it. Chromium aliases a
+missing Helvetica to Arial (alternate_font_family.h:96-102), and Windows' Arial carries
+Arabic, so on Windows a Helvetica ahead of the shipped face draws every Arabic letter. Here
+Helvetica is Liberation Sans, which has none, so a run on this platform alone passes a stack
+that fails on his machine. tests/fixtures/fontconfig-windows/fonts.conf gives Helvetica and
+Arial a face with Arabic, and the `windows-stand-in` run draws under it.
 """
 from __future__ import annotations
+
+import os
+from pathlib import Path
 
 import pytest
 
 pytest.importorskip("playwright")
 pytest.importorskip("fastapi")
-from tests.test_panel_dom import browser, open_panel  # noqa: E402,F401  (the fixtures)
+from playwright.sync_api import sync_playwright  # noqa: E402
+
+from tests.test_panel_dom import open_panel  # noqa: E402,F401  (the fixture)
 from tests.test_tab_page_dom import open_data  # noqa: E402,F401  (the Data page's fixture)
 from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, webui  # noqa: E402,F401
 
@@ -30,6 +42,30 @@ from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, webui  # noqa:
 pytestmark = pytest.mark.extension
 
 FACES = ("Inter", "Manrope", "Source Code Pro", "Noto Sans Arabic")
+
+#: Windows' Helvetica, on Linux: see the module docstring and the file's own comment.
+WINDOWS_FONTCONFIG = Path(__file__).resolve().parent / "fixtures" / "fontconfig-windows" / "fonts.conf"
+
+#: The two platforms the Arabic tests draw on. `platform` is the machine running the suite;
+#: `windows-stand-in` is the same Chromium launched with FONTCONFIG_FILE at the fixture.
+PLATFORMS = pytest.mark.parametrize("browser", ["platform", "windows-stand-in"], indirect=True)
+
+
+@pytest.fixture(scope="module")
+def browser(request):
+    """The Chromium every test here opens its pages in. It replaces tests/test_panel_dom.py's
+    for this module, so `open_panel`, `open_data` and `webui` all draw in it. Unparametrised,
+    it is that fixture's launch exactly; a test marked with PLATFORMS gets the stand-in too."""
+    env = None
+    if getattr(request, "param", "platform") == "windows-stand-in":
+        assert WINDOWS_FONTCONFIG.is_file(), WINDOWS_FONTCONFIG
+        env = {**os.environ, "FONTCONFIG_FILE": str(WINDOWS_FONTCONFIG)}
+    with sync_playwright() as pw:
+        instance = pw.chromium.launch(env=env)
+        try:
+            yield instance
+        finally:
+            instance.close()
 
 LOAD = """async (families) => {
   const read = {};
@@ -90,6 +126,30 @@ def _assert_every_face_loads(read: dict, where: str) -> None:
             "tokens.css.")
 
 
+#: Arabic in Helvetica, with the shipped face behind it: the order the sans stack had before
+#: the owner's ruling (a') on #1431.
+HELVETICA_FIRST = """() => {
+  const probe = Object.assign(document.createElement("span"), {textContent: "مثال"});
+  probe.style.fontFamily = 'Helvetica, "Noto Sans Arabic"';
+  probe.setAttribute("data-face-probe", "helvetica");
+  document.body.append(probe);
+}"""
+
+
+def _assert_the_stand_in_took(page, platform: str) -> None:
+    """Under the stand-in, Helvetica must take Arabic ahead of the shipped face, as Windows'
+    Arial does. If the fixture failed to load -- a malformed file, or no DejaVu Sans on the
+    machine -- Helvetica is Liberation Sans again, Noto draws this probe, and the run below
+    would pass while proving nothing about Windows. So that fails here, by name."""
+    if platform != "windows-stand-in":
+        return
+    page.evaluate(HELVETICA_FIRST)
+    drawn = _faces_drawing(page, "helvetica")
+    assert drawn and "Noto Sans Arabic" not in drawn, (
+        f"{WINDOWS_FONTCONFIG.relative_to(Path(__file__).resolve().parent.parent).as_posix()} "
+        f"did not take: Helvetica drew no Arabic, {drawn}")
+
+
 def _assert_the_arabic_face_draws_arabic(page, where: str) -> None:
     for probe in ("text", "code"):
         drawn = _faces_drawing(page, probe)
@@ -105,9 +165,11 @@ def test_every_face_loads_in_the_panel(open_panel):
     _assert_every_face_loads(page.evaluate(LOAD, list(FACES)), "extension/app.html")
 
 
-def test_the_arabic_face_draws_the_panels_arabic(open_panel):
+@PLATFORMS
+def test_the_arabic_face_draws_the_panels_arabic(open_panel, request):
     page = open_panel(view="sources")
     assert page.evaluate(MARK_ARABIC), "the Sources screen showed no Arabic to measure"
+    _assert_the_stand_in_took(page, request.node.callspec.params["browser"])
     _assert_the_arabic_face_draws_arabic(page, "extension/app.html")
 
 
@@ -120,11 +182,13 @@ def test_every_face_loads_in_the_web_ui(webui):  # noqa: F811
     _assert_every_face_loads(webui.evaluate(LOAD, list(FACES)), "scrapex/webui/templates/base.html")
 
 
-def test_the_arabic_face_draws_the_web_uis_arabic(webui):  # noqa: F811
+@PLATFORMS
+def test_the_arabic_face_draws_the_web_uis_arabic(webui, request):  # noqa: F811
     response = webui.goto(ORIGIN + "/")
     assert response is not None and response.status == 200
     webui.wait_for_load_state("networkidle")
     assert webui.evaluate(MARK_ARABIC) == "السويدي شوب", "the overview no longer shows the source's Arabic name"
+    _assert_the_stand_in_took(webui, request.node.callspec.params["browser"])
     _assert_the_arabic_face_draws_arabic(webui, "scrapex/webui/templates/base.html")
 
 
