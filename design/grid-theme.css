@@ -1692,7 +1692,7 @@
 }
 .record-prose p {
   margin: 0 0 var(--sp-3, .75rem);
-  line-height: var(--lh-relaxed, 1.65);
+  line-height: var(--lh-relaxed, 1.625);
 }
 .record-prose p:last-child { margin-bottom: 0; }
 .record-prose-title {
