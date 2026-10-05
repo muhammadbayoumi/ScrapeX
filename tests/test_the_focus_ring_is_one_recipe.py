@@ -191,9 +191,15 @@ def _token_declarations() -> list[tuple[str, str, str, str]]:
             if prop.startswith("--")]
 
 
+#: A theme's whole scope and nothing below it: `:root`, `:root[data-theme="dark"]`,
+#: `:root:not([data-theme="light"])`. A prefix test let `:root .field:focus-within` and
+#: `:root:has(.field:focus-within)` through, and each painted the brand (#1354's gate).
+THEME_SCOPE = re.compile(r":root(?:\[[^\]]*\]|:not\(\[[^\]]*\]\))*")
+
+
 def _at_root(selector: str) -> bool:
-    """A theme's scope: `:root`, `:root[data-theme=…]` or `:root:not(…)`, every part of a list."""
-    return all(part.strip().startswith(":root") for part in selector.split(","))
+    """A theme's scope, every part of a list: the selector is the root and its attributes."""
+    return all(THEME_SCOPE.fullmatch(part.strip()) for part in selector.split(","))
 
 
 def _recipe_tokens() -> set[str]:
