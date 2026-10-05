@@ -97,6 +97,12 @@ ASSETS = {
         ROOT / "scrapex" / "webui" / "static" / "grid.js",
         ROOT / "extension" / "grid.js",
     ),
+    # The grid's renderer (TanStack Table and Virtual underneath, #1342). grid.js
+    # imports it from beside itself, so it sits wherever grid.js does.
+    ROOT / "design" / "datagrid.js": (
+        ROOT / "scrapex" / "webui" / "static" / "datagrid.js",
+        ROOT / "extension" / "datagrid.js",
+    ),
     ROOT / "design" / "ui.js": (
         ROOT / "scrapex" / "webui" / "static" / "ui.js",
         ROOT / "extension" / "ui.js",

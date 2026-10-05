@@ -93,15 +93,17 @@ def open_grid(browser, tmp_path):
         # Before goto, so an error grid.js throws while it starts is on the record.
         page.errors = []
         page.on("pageerror", lambda error: page.errors.append(str(error)))
-        page.goto(target.as_uri())
+        page.goto(f"{base}/{target.name}")
         if expect_rows:
             page.wait_for_function(
-                "() => document.querySelectorAll('#grid .tabulator-row').length > 0")
+                "() => document.querySelectorAll('#grid .dg-body .dg-row').length > 0")
         return page
 
-    yield opener
-    for context in contexts:
-        context.close()
+    # SERVED, because the grid's renderer is a module and file:// refuses modules.
+    with harness.serve(tmp_path) as base:
+        yield opener
+        for context in contexts:
+            context.close()
 
 
 def _drive(page) -> dict:
@@ -111,18 +113,14 @@ def _drive(page) -> dict:
     change a column (the fields POST) and promote a detail (the promotable POST).
     Excel goes last, because it leaves the page. The chooser stays open to the end:
     closing it after a change reloads the page, and the reload would take the log."""
-    page.evaluate("""() => {
-        const table = Tabulator.findTable('#grid')[0];
-        table.selectRow(table.getRows()[0]);
-    }""")
+    page.evaluate("""() => document.querySelector(
+        '#grid .dg-body .dg-row[data-index="0"] .dg-select').click()""")
     page.click('#offer-panel [data-inspector-view="history"]')
     page.wait_for_selector("#offer-panel a.record-action", timeout=5000)
     links = page.eval_on_selector_all(
         "#offer-panel a.record-action", "links => links.map(a => a.getAttribute('href'))")
-    page.evaluate("""() => {
-        const table = Tabulator.findTable('#grid')[0];
-        table.selectRow(table.getRows()[1]);
-    }""")
+    page.evaluate("""() => document.querySelector(
+        '#grid .dg-body .dg-row[data-index="1"] .dg-select').click()""")
     page.wait_for_function(
         "() => window.__requests.filter(r => r.path.includes('/api/offer/')).length >= 3")
 
@@ -148,7 +146,9 @@ def _drive(page) -> dict:
 
 def test_the_engines_own_page_names_no_host_and_every_address_stays_root_relative(
         open_grid):
-    seen = _drive(open_grid())
+    page = open_grid()
+    origin = page.evaluate("() => location.origin")
+    seen = _drive(page)
 
     paths = [request["path"] for request in seen["requests"]]
     assert paths[0] == "/api/table/TESTSRC", paths
@@ -160,7 +160,7 @@ def test_the_engines_own_page_names_no_host_and_every_address_stays_root_relativ
         f"{r['method']} {r['path']}" for r in seen["requests"]}
     assert "/source/TESTSRC/offer/1" in seen["links"], seen["links"]
     assert seen["excel"].endswith("/export/TESTSRC.xlsx")
-    assert seen["excel"].startswith("file:"), (
+    assert seen["excel"].startswith(origin + "/"), (
         f"the engine page's Excel left its own origin: {seen['excel']}")
 
 
@@ -196,7 +196,7 @@ def test_a_host_loader_is_asked_for_the_table_and_its_answer_is_drawn(open_grid)
     page = open_grid(host_js=HOST_LOADER)
 
     assert page.evaluate("() => window.__loaded") == ["/api/table/TESTSRC"]
-    assert page.evaluate("() => Tabulator.findTable('#grid')[0].getDataCount()") == 2, (
+    assert page.evaluate("() => ScrapeXDataGrid.find('#grid').getDataCount()") == 2, (
         "the grid drew something other than what the host's loader answered")
     tables = [r for r in page.evaluate("() => window.__requests")
               if "/api/table/" in r["path"]]
@@ -214,10 +214,8 @@ def test_a_host_that_names_both_gets_its_loader_for_the_table_and_its_base_for_t
         f"window.ScrapeXGridHost = {{\n  base: {json.dumps(ENGINE)},"))
 
     assert page.evaluate("() => window.__loaded") == ["/api/table/TESTSRC"]
-    page.evaluate("""() => {
-        const table = Tabulator.findTable('#grid')[0];
-        table.selectRow(table.getRows()[0]);
-    }""")
+    page.evaluate("""() => document.querySelector(
+        '#grid .dg-body .dg-row[data-index="0"] .dg-select').click()""")
     page.wait_for_function(
         "() => window.__requests.some(r => r.path.includes('/api/offer/'))")
     paths = [r["path"] for r in page.evaluate("() => window.__requests")]

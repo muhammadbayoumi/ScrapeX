@@ -8,22 +8,20 @@
  */
 /* Dress the grid in THIS project's table, exactly.
  *
- * Tabulator ships a light theme with hardcoded row, stripe, hover, and
- * calculation colours, several of them marked !important —
- * and it exposes no CSS variables to redirect. Inside a dark page that showed
- * as light-grey rows on a dark surface: the table's colours changed because a
- * renderer changed, which is not a thing a renderer is allowed to do.
+ * The grid is drawn by datagrid.js on TanStack Table, which renders nothing
+ * itself (#1342), so this file is the whole of how the grid looks: there is no
+ * library stylesheet underneath to override. Every colour is bound to the same
+ * variables the project's own `table`/`th`/`td` rules use, so a grid table and
+ * a plain table cannot drift apart. Shared table values are design tokens in
+ * table-theme.css; this file owns every grid-specific selector.
  *
- * So every colour it sets is overridden here and bound to the same variables
- * the project's own `table`/`th`/`td` rules use. Shared table values are design
- * tokens in table-theme.css; this file owns every grid-specific selector.
- *
- * Loaded AFTER tabulator.min.css. `!important` is used only where Tabulator
- * used it first — matching its weapon, not escalating.
+ * The grid this replaced (Tabulator) shipped a light theme with hardcoded row,
+ * stripe, hover and calculation colours and no CSS variables, so the theme had
+ * to fight it with !important. Nothing here needs to.
  */
 
 /* ---- the frame: same as `table` ---- */
-.tabulator {
+.dg {
   /* Grid-only header treatment requested for the Data page. A normal row is
    * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
   --grid-row-height: 2.55rem;
@@ -51,6 +49,16 @@
   );
   --grid-header-text: var(--on-surface);
   --grid-header-weight: var(--fw-heavy);
+  /* The cell's own side padding, which a tree's indent is added to. */
+  --dg-cell-padding-inline: var(--sp-3);
+  position: relative;
+  /* Its own stacking context: the sticky header and the pinned columns layer
+   * above the rows inside the grid, and the grid as a whole stays under the
+   * command bar's popover that drops down over it. */
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--table-surface);
   border: var(--table-rule);
   border-radius: var(--table-radius);
@@ -63,13 +71,13 @@
 /* The Data grid is one framed object: header, rows and footer share the same
  * rounded outline instead of ending as three unrelated rectangles. */
 #grid.tablewrap,
-#grid.tabulator {
+#grid.dg {
   width: 100%;
   max-width: 100%;
   border-radius: var(--table-radius);
 }
 
-/* Reserve one stable, bounded surface before Tabulator is constructed. The
+/* Reserve one stable, bounded surface before the grid is constructed. The
  * grid can scroll inside it, but it cannot resize the Data workspace around
  * whichever columns happen to finish measuring first. */
 .data-grid-frame {
@@ -128,74 +136,103 @@
 [data-grid-viewport][aria-busy="true"],
 #grid[aria-busy="true"] { opacity: .6; }
 
+/* ---- the scroller: one box scrolls both ways, and the header rides on top -- */
+.dg-scroller {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--table-surface);
+  /* The vertical scrollbar's gutter is reserved up front, so the width the
+   * columns are fitted to never changes when the rows start to overflow: a
+   * table that scrolls vertically does not grow a phantom horizontal bar. */
+  scrollbar-gutter: stable;
+}
+.dg-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--grid-header-surface);
+  user-select: none;
+}
+.dg-row { display: flex; box-sizing: border-box; }
+.dg-body { position: relative; }
+/* Placed by translateY from the virtualizer; only the rows near the viewport exist.
+ * Each lays itself out alone, so a row scrolling in does not re-lay the others. */
+.dg-body > .dg-row { position: absolute; top: 0; inset-inline-start: 0; contain: layout style; }
+.dg-col,
+.dg-cell {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+}
+
 /* ---- the header: same as `th` ---- */
-.tabulator .tabulator-header,
-.tabulator .tabulator-header .tabulator-col {
-  background: var(--grid-header-surface) !important;
-  border-bottom: var(--table-rule);
+.dg-header-row { border-bottom: var(--table-rule); }
+.dg-col {
+  background: var(--grid-header-surface);
   color: var(--grid-header-text);
+  font-weight: var(--grid-header-weight);
+  font-size: var(--table-header-font-size);
 }
-.tabulator .tabulator-header .tabulator-col {
-  border-right: none;                 /* the project's tables have no vertical rules */
-}
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content {
-  padding: var(--table-cell-padding);
-  min-height: var(--grid-header-height);
-}
-.tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover {
-  background: var(--grid-header-hover) !important;
-  color: var(--grid-header-text);
+.dg-col.dg-sortable { cursor: pointer; }
+.dg-col.dg-sortable:hover { background: var(--grid-header-hover); }
+.dg-col.dg-col-moving { opacity: .55; }
+.dg-move-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 2px;
+  margin-inline-start: -1px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 /* ---- rows: same as `td`, and NO zebra unless asked for ---- */
-.tabulator .tabulator-tableholder { background: var(--table-surface); }
-.tabulator .tabulator-tableholder .tabulator-table {
-  background: var(--table-surface);
-  color: var(--table-text);
-}
-.tabulator-row,
-.tabulator-row.tabulator-row-even,
-.tabulator-row.tabulator-row-odd {
-  background-color: var(--table-surface) !important;
+.dg-body .dg-row {
+  min-height: var(--grid-row-height);
+  background-color: var(--table-surface);
   color: var(--table-text);
   border-bottom: var(--table-rule);
 }
-.tabulator-row .tabulator-cell {
-  border-right: none;
+.dg-cell {
+  display: block;
   padding: var(--table-cell-padding);
+  overflow: hidden;
   color: var(--table-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-/* The ratio above describes the normal renderer only. Compact rows deliberately
-   shrink; wrapped rows must remain free to grow with their content. */
-.tabulator:not(.compact):not(.wrap) .tabulator-row .tabulator-cell {
-  min-height: var(--grid-row-height);
-}
+.dg-align-right { text-align: right; }
+.dg-align-center { text-align: center; }
 /* the project's own hover, value for value */
-.tabulator-row:hover,
-.tabulator-row.tabulator-selectable:hover {
-  background-color: var(--table-hover-bg) !important;
-}
-.tabulator-row.tabulator-selected,
-.tabulator-row.tabulator-selected:hover {
-  background-color: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+.dg-body .dg-row:hover { background-color: var(--table-hover-bg); }
+.dg-body .dg-row.dg-selectable { cursor: pointer; }
+.dg-body .dg-row.dg-selected,
+.dg-body .dg-row.dg-selected:hover {
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+/* ---- pinned columns stay put while the rest scroll under them ---- */
+.dg-pinned {
+  position: sticky;
+  z-index: 1;
+  /* Opaque, or the columns scrolling underneath would show through. */
+  background: inherit;
+}
+.dg-body .dg-row .dg-pinned { background-color: inherit; }
+.dg-header .dg-pinned { background: var(--grid-header-surface); }
+
 /* ---- row selection: one integrated table column -------------------------- */
-/* A frozen column normally gets a heavy vertical divider from Tabulator.
- * Selection is part of the row, not a separate frozen pane, so that divider
- * breaks the table's otherwise rule-free column rhythm. */
-.tabulator .tabulator-header .tabulator-col.grid-select-column.tabulator-frozen.tabulator-frozen-left,
-.tabulator .tabulator-row .tabulator-cell.grid-select-column.tabulator-frozen.tabulator-frozen-left {
-  border-right: 0;
-}
-.tabulator.tabulator-rtl .tabulator-row .tabulator-cell.grid-select-column.tabulator-frozen.tabulator-frozen-left {
-  border-left: 0;
-}
-.tabulator .grid-select-column {
+/* Selection is part of the row, not a separate frozen pane, so it carries no
+ * divider of its own: the table's column rhythm stays rule-free. */
+.dg .grid-select-column {
+  display: flex;
   align-items: center;
   justify-content: center;
 }
-.tabulator .grid-select-column input[type="checkbox"] {
+.dg .grid-select-column input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
   margin: 0;
@@ -204,8 +241,8 @@
 }
 
 /* ---- footer: total rows and the live selection count --------------------- */
-.tabulator > .grid-footer-summary {
-  padding: 0;
+.dg > .grid-footer-summary {
+  flex: none;
   background: var(--table-surface);
   border-top: var(--table-rule);
   border-bottom: 0;
@@ -217,7 +254,7 @@
   align-items: center;
   gap: 1.25rem;
   min-height: 3rem;
-  padding: .7rem 1rem !important;
+  padding: .7rem 1rem;
   font-size: .82rem;
   font-family: inherit;
 }
@@ -231,80 +268,151 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- group headers, totals rows, placeholder ---- */
-.tabulator .tabulator-row.tabulator-group {
-  background: color-mix(in srgb, var(--text) 4%, transparent) !important;
+/* ---- group bands, totals rows, placeholder ---- */
+.dg-body .dg-row.dg-group {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
   border-bottom: var(--table-rule);
   color: var(--text);
   font-weight: var(--fw-bold);
+  cursor: pointer;
 }
-.tabulator .tabulator-row.tabulator-group:hover { background: var(--accent-weak) !important; }
-/* The library paints the group's row count in its own red. Nothing in this
-   project is red except a failure, so a count of 169 diesel rows was reading as
-   an error. It is secondary text, and it is styled as secondary text. */
-.tabulator .tabulator-row.tabulator-group span {
-  color: var(--muted) !important;
+.dg-body .dg-row.dg-group:hover { background: var(--accent-weak); }
+.dg-group-cell {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 100%;
+  padding: var(--table-cell-padding);
+  white-space: nowrap;
+}
+/* A group's row count is secondary text. Nothing in this project is red
+   except a failure, so a count of 169 diesel rows must not read as an error. */
+.dg-group-cell .muted {
+  color: var(--muted);
   font-weight: var(--fw-regular);
 }
-/* The group's expand arrow is drawn as a hardcoded dark triangle, invisible on
-   a dark surface. Bound to the text colour it follows the theme. */
-.tabulator .tabulator-row.tabulator-group .tabulator-arrow {
-  border-left-color: var(--text) !important;
-  border-top-color: var(--text) !important;
-  border-bottom-color: var(--text) !important;
-}
 
-/* ---- the tree: the parent IS a row, so it must not look like a band ------- */
-.tabulator-row .tabulator-data-tree-control {
+/* The two disclosure toggles, the group's and the tree's: a triangle drawn in
+   the text colour, so it follows the theme. It points at what it will open. */
+.dg .dg-group-toggle,
+.dg .dg-tree-toggle {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.25rem;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  min-height: 1.25rem;
+  margin: 0;
+  margin-inline-end: .4rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.dg .dg-tree-toggle { border: 1px solid var(--muted); }
+.dg .dg-group-toggle:hover:not(:disabled),
+.dg .dg-tree-toggle:hover:not(:disabled) {
   border-color: var(--muted);
+  background: var(--accent-weak);
+  color: var(--text);
+  transform: none;
+}
+.dg .dg-group-toggle:active:not(:disabled),
+.dg .dg-tree-toggle:active:not(:disabled) { transform: none; }
+.dg .dg-group-toggle:focus-visible,
+.dg .dg-tree-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.dg-group-toggle::before,
+.dg-tree-toggle::before {
+  content: "";
+  border-block: .3rem solid transparent;
+  border-inline-start: .4rem solid currentColor;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.dg-group-toggle.is-open::before,
+.dg-tree-toggle.is-open::before { transform: rotate(90deg); }
+[dir="rtl"] .dg-group-toggle:not(.is-open)::before,
+[dir="rtl"] .dg-tree-toggle:not(.is-open)::before { transform: rotate(180deg); }
+.dg-tree-spacer {
+  display: inline-block;
+  width: 1.25rem;
   margin-inline-end: .4rem;
 }
-.tabulator-row .tabulator-data-tree-control:hover { background: var(--accent-weak); }
-.tabulator-row .tabulator-data-tree-control-collapse,
-.tabulator-row .tabulator-data-tree-control-expand {
-  background: var(--text);
-}
-.tabulator-row .tabulator-data-tree-control-collapse:after,
-.tabulator-row .tabulator-data-tree-control-expand:after {
-  background: var(--text);
-}
+/* ---- the tree: the parent IS a row, so it must not look like a band ------- */
 /* A parent row carries children, which the reader should see before opening it. */
-.tabulator-row:has(.tabulator-data-tree-control-expand) .tabulator-cell:first-child,
-.tabulator-row:has(.tabulator-data-tree-control-collapse) .tabulator-cell:first-child {
-  font-weight: var(--fw-bold);
-}
-.tabulator .tabulator-header .tabulator-calcs-holder .tabulator-row,
-.tabulator .tabulator-footer .tabulator-calcs-holder .tabulator-row,
-.tabulator .tabulator-tableholder .tabulator-table .tabulator-row.tabulator-calcs {
-  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+.dg-body .dg-row[aria-expanded] .dg-tree-cell { font-weight: var(--fw-bold); }
+.dg-header .dg-calcs {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--text);
+  border-bottom: var(--table-rule);
 }
-.tabulator .tabulator-placeholder,
-.tabulator .tabulator-placeholder-contents {
+.dg-header .dg-calcs .dg-cell { color: var(--text); font-weight: var(--fw-bold); }
+.dg-placeholder {
+  padding: var(--sp-6) var(--sp-4);
   background: var(--surface);
   color: var(--muted);
+  text-align: center;
 }
+.dg-placeholder[hidden] { display: none; }
 
-/* ---- menus and popups: the project's card, not the library's ---- */
-.tabulator-menu,
-.tabulator-popup-container {
-  background: var(--surface) !important;
-  border: var(--table-rule) !important;
+/* ---- menus and popups: the project's card ---- */
+.dg-menu,
+.dg-popup {
+  position: fixed;
+  background: var(--surface);
+  border: var(--table-rule);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   color: var(--text);
+  font-family: var(--font);
+  font-size: var(--table-font-size);
 }
-.tabulator-menu { min-width: 14rem; padding: .3rem 0; }
-.tabulator-menu .tabulator-menu-item {
-  color: var(--text);
+.dg-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 14rem;
+  max-height: calc(100vh - 1rem);
+  overflow: auto;
+  padding: .3rem 0;
+}
+.dg-menu .dg-menu-item {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
   padding: .45rem .8rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
   font-weight: var(--fw-bold);
+  text-align: start;
 }
-.tabulator-menu .tabulator-menu-item:not(.tabulator-menu-item-disabled):hover {
+.dg-menu .dg-menu-item:hover:not(:disabled),
+.dg-menu .dg-menu-item:focus-visible {
   background: var(--accent-weak);
   color: var(--accent-ink);
+  outline: none;
 }
-.tabulator-menu .tabulator-menu-separator { border-top: var(--table-rule); }
+.dg-menu .dg-menu-item:active:not(:disabled) {
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+  transform: none;
+}
+.dg-menu .dg-menu-parent::after {
+  content: "";
+  margin-inline-start: auto;
+  border-block: .28rem solid transparent;
+  border-inline-start: .36rem solid currentColor;
+}
+.dg-menu-separator { margin: .25rem 0; border-top: var(--table-rule); }
 .grid-menu-label {
   display: inline-flex;
   align-items: center;
@@ -317,11 +425,17 @@
   flex: 0 0 1.1rem;
 }
 
+/* The grid's floating surfaces share one layer, above the page and everything on
+   it: the column menus, the filter popup and the Choose Columns panel. Only one
+   is ever open, because each closes the others before it opens. */
+.dg-menu,
+.dg-popup,
+.column-chooser-backdrop { z-index: 10020; }
+
 /* Choose Columns is a working tool panel, not a trip to a second page. */
 .column-chooser-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10020;
   display: flex;
   justify-content: flex-end;
   padding: 1rem;
@@ -453,26 +567,31 @@
   }
 }
 
-/* ---- chrome: scrollers, resize guides, edit inputs ---- */
-.tabulator .tabulator-tableholder:focus-visible {
+/* ---- chrome: the scroller's focus, resize handles, header inputs ---- */
+.dg .dg-scroller:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
-.tabulator-col-resize-handle {
+.dg-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Inside the column's own edge: a handle that hung past it widened the last
+   * column's header by its overhang and gave the table a scrollbar for 4px. */
+  inset-inline-end: 0;
   width: 9px;
-  opacity: 1;
   background: transparent;
   cursor: col-resize;
+  touch-action: none;
 }
-.tabulator .tabulator-header .tabulator-col-resize-handle::after {
+.dg-header .dg-resize-handle::after {
   content: "";
   position: absolute;
-  /* A SHORT centred tick, not a rule down the header. inset-block tied the
-   * line's length to the header's height, so it drew 29px of the 52px header
-   * and read as a vertical border between the columns — the one thing this
-   * project's tables deliberately do not have (see .tabulator-col above). A
-   * fixed length, centred, stays the same modest mark whatever the header
-   * measures, in compact mode or when a title wraps to two lines. */
+  /* A SHORT centred tick, not a rule down the header. A line tied to the
+   * header's height drew 29px of the 52px header and read as a vertical
+   * border between the columns — the one thing this project's tables
+   * deliberately do not have. A fixed length, centred, stays the same modest
+   * mark whatever the header measures, in compact mode or when a title wraps. */
   top: 50%;
   inset-inline-start: 50%;
   width: 1px;
@@ -483,25 +602,29 @@
   transform: translate(-50%, -50%);
   transition: width .12s ease,height .12s ease,background-color .12s ease,opacity .12s ease;
 }
-.tabulator .tabulator-header .tabulator-col-resize-handle:hover::after,
-.tabulator .tabulator-header .tabulator-col-resize-handle:active::after {
+.dg-header .dg-resize-handle:hover::after,
+.dg-header .dg-resize-handle.is-active::after {
   /* Grabbing is worth announcing, so it thickens and grows a little — but from
-   * a short mark, so the confirmation no longer arrives as a full-height bar. */
+   * a short mark, so the confirmation never arrives as a full-height bar. */
   width: 3px;
   height: 1.4rem;
   background: var(--accent);
   opacity: 1;
 }
-.tabulator .tabulator-row-resize-guide,
-.tabulator .tabulator-col-resize-guide { background-color: var(--accent); }
-.tabulator input, .tabulator select {
+.dg .dg-header-filter {
+  display: block;
+  width: calc(100% - 2 * var(--dg-cell-padding-inline));
+  min-height: 0;
+  margin: 0 var(--dg-cell-padding-inline) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
   background: var(--surface);
   color: var(--text);
   border: var(--table-rule);
+  font-weight: var(--fw-regular);
 }
 
 /* ---- grid-owned controls --------------------------------------------------
- * These classes are created by grid.js or occur only beside a Tabulator grid.
+ * These classes are created by grid.js or occur only beside the grid.
  * Keeping them here means base.html has no knowledge of this renderer. */
 #grid-features { position: relative; flex: none; margin: 0; }
 .data-grid-command {
@@ -739,7 +862,7 @@
   .grid-feature-section { grid-column: auto; }
 }
 
-/* Tabulator has no set filter, so grid.js supplies this popup. */
+/* The grid's libraries have no set filter, so grid.js supplies this popup. */
 .setfilter { min-width: 15rem; max-width: 20rem; padding: .5rem; }
 .setfilter input[type=search] { width: 100%; min-width: 0; margin-bottom: .4rem; }
 .setfilter-list {
@@ -780,66 +903,42 @@
 .material-menu-icon { color: var(--grid-header-text); }
 
 /* Optional rendering modes selected from the grid features panel. */
-.tabulator.compact .tabulator-cell { padding-top: .15rem; padding-bottom: .15rem; }
-.tabulator.striped .tabulator-row.tabulator-row-even {
-  background-color: color-mix(in srgb, var(--text) 3%, transparent) !important;
+.dg.compact .dg-cell { padding-top: .15rem; padding-bottom: .15rem; }
+.dg.compact .dg-body .dg-row { min-height: 0; }
+.dg.striped .dg-body .dg-row.dg-row-even {
+  background-color: color-mix(in srgb, var(--text) 3%, transparent);
 }
-.tabulator.wrap .tabulator-cell { white-space: normal; }
+.dg.wrap .dg-cell { white-space: normal; overflow-wrap: anywhere; }
 
 
 /* ---- header layout: label + sort, then filter + menu -----------------------
- * Tabulator nests both popup buttons inside the title but puts the sorter
- * beside it and absolutely parks that sorter at the far edge. `display:
- * contents` flattens the title's wrapped children into this flex row. The real
- * label element comes first, its sorter follows immediately, then auto margin
- * pushes the filter and menu together to the opposite edge.
+ * Four intentional flex items in this order: the label, its sort arrow
+ * immediately beside it, then an auto margin that pushes the filter and the
+ * menu together to the opposite edge.
  */
-.tabulator .tabulator-col .tabulator-col-content {
+.dg-col-content {
   display: flex;
   align-items: center;
   gap: .3rem;
   position: relative;
+  min-height: var(--grid-header-height);
+  padding: var(--table-cell-padding);
+  box-sizing: border-box;
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-title-holder {
-  display: flex;
-  align-items: center;
-  gap: .25rem;
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-}
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-title {
-  display: contents;
-  color: var(--grid-header-text);
-  font-weight: var(--grid-header-weight);
-  font-size: var(--table-header-font-size);
-}
-.tabulator .grid-header-label {
-  order: 0;
+.dg .grid-header-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Match the library selector's specificity so its absolute positioning cannot
-   pull the arrow away from the title again. */
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-sorter {
-  position: static;
-  inset: auto;
-  order: 1;
+.dg-sort {
+  display: grid;
+  place-items: center;
   flex: none;
   width: 1.125rem;
-  padding: 0;
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-header-popup-button {
-  order: 2;
+.dg .dg-header-button {
   flex: none;
-  cursor: pointer;
-  opacity: .55;
   display: grid;
   place-items: center;
   width: 1.5rem;
@@ -847,91 +946,71 @@
   /* A HEIGHT, so the hover below has a square to fill. Without one the box was
    * 24×18 and any background read as a stripe rather than a button. */
   height: 1.5rem;
+  min-height: 1.5rem;
+  margin: 0;
   padding: 0;
+  border: 0;
   border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--grid-header-text);
+  cursor: pointer;
+  opacity: .55;
   transition: background-color .12s ease,opacity .12s ease,color .12s ease;
 }
-/* The resize divider answered the pointer and these two did not, so the header
- * looked like it had one live control and two decorations — the owner's report.
- * A filled target is the same promise the divider's tick makes: this is a thing
- * you can press.
- *
- * THE FULL SELECTOR IS LOAD-BEARING. Tabulator ships
- *   .tabulator .tabulator-header .tabulator-col .tabulator-col-content
- *   .tabulator-header-popup-button:hover { opacity: .6 }
- * at six classes, and the short `.tabulator .tabulator-header-popup-button:hover`
- * this rule used to carry scores three — so the theme's own `opacity: 1` lost
- * the cascade and had never once applied. Hovering moved the icon from .55 to
- * .6 and nothing else: the whole of "the three dots and the filter do not
- * hover". Naming .tabulator-col-title as well scores seven and settles it
- * outright, rather than tying on six and leaning on stylesheet order. */
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-title .tabulator-header-popup-button:hover {
+.dg .dg-header-button:first-of-type { margin-inline-start: auto; }
+/* The resize divider answers the pointer, and so must these two, or the header
+ * looks like it has one live control and two decorations — the owner's report.
+ * A filled target is the same promise the divider's tick makes. */
+.dg .dg-header-button:hover:not(:disabled),
+.dg .dg-header-button[aria-expanded="true"] {
   opacity: 1;
+  border-color: transparent;
   color: var(--accent-ink);
   background: var(--grid-header-control-hover);
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-title .tabulator-header-popup-button:active {
+.dg .dg-header-button:active:not(:disabled) {
   opacity: 1;
+  border-color: transparent;
+  color: var(--accent-ink);
   background: color-mix(in srgb, var(--grid-header-control-hover) 82%, var(--primary));
+  transform: none;
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content
-  .tabulator-col-title .tabulator-header-popup-button:focus-visible {
+.dg .dg-header-button:focus-visible {
   opacity: 1;
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* The same Material arrow points down by rotation. In the no-sort state it
- * stays fully hidden even while the pointer remains over the header; the old
- * hover preview made a successful third-click cancellation look unsuccessful. */
-.tabulator .tabulator-col .material-sort-icon {
+ * stays fully hidden even while the pointer remains over the header; a hover
+ * preview made a successful third-click cancellation look unsuccessful. */
+.dg .dg-col .material-sort-icon {
   opacity: 0;
   transform: rotate(0deg);
 }
-.tabulator .tabulator-col[aria-sort="ascending"] .material-sort-icon {
+.dg .dg-col[aria-sort="ascending"] .material-sort-icon {
   opacity: 1;
 }
-.tabulator .tabulator-col[aria-sort="descending"] .material-sort-icon {
+.dg .dg-col[aria-sort="descending"] .material-sort-icon {
   opacity: 1;
   transform: rotate(180deg);
 }
 
-/* fitColumns divides the FULL width and does not subtract the vertical
- * scrollbar, so a table that scrolls vertically overflows horizontally by
- * exactly the scrollbar's width — about 15px, which is enough to cut the last
- * column and add a scrollbar nobody wants. Reserving the gutter up front costs
- * nothing and removes that phantom scrollbar. */
-.tabulator .tabulator-tableholder { scrollbar-gutter: stable; }
-.tabulator .tabulator-header { padding-inline-end: 0; }
-
-/* ---- scrolling: sideways when it is genuinely needed ----------------------
- * This was set to `hidden` to kill the 15px phantom above, which also removed
- * the scrollbar for the real case: enough columns that they cannot fit at a
- * legible width. With `columnDefaults.minWidth` now giving the columns a floor,
- * overflow is a truthful signal — there IS more table — and hiding it left the
- * remaining columns unreachable. The gutter reservation kills the phantom; this
- * carries the real one. */
-.tabulator .tabulator-tableholder { overflow-x: auto; }
-
 /* The scrollbars themselves. Left alone, both browser engines draw their own
  * light-mode bars, so a dark table came with two bright grey rails down its
  * edges — a colour the theme never chose, on top of the theme. */
-.tabulator .tabulator-tableholder,
-.tabulator .tabulator-header {
+.dg .dg-scroller {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }
-.tabulator .tabulator-tableholder::-webkit-scrollbar { width: 10px; height: 10px; }
-.tabulator .tabulator-tableholder::-webkit-scrollbar-track { background: transparent; }
-.tabulator .tabulator-tableholder::-webkit-scrollbar-thumb {
+.dg .dg-scroller::-webkit-scrollbar { width: 10px; height: 10px; }
+.dg .dg-scroller::-webkit-scrollbar-track { background: transparent; }
+.dg .dg-scroller::-webkit-scrollbar-thumb {
   background: var(--line);
   border-radius: var(--radius-sm);
   border: 2px solid var(--surface);
 }
-.tabulator .tabulator-tableholder::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-.tabulator .tabulator-tableholder::-webkit-scrollbar-corner { background: transparent; }
+.dg .dg-scroller::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.dg .dg-scroller::-webkit-scrollbar-corner { background: transparent; }
 
 
 /* ---- the interaction signature (owner rule, 2026-07-22) -------------------
@@ -941,7 +1020,7 @@
  * real button chrome (borders, backgrounds) keep their own affordance; this
  * signature is for text-level controls living inside content. */
 .grid-action,
-.tabulator .grid-action,
+.dg .grid-action,
 #offer-panel a,
 #offer-panel button.link {
   color: var(--amber);
@@ -967,10 +1046,10 @@
    control that does nothing more alarming than open the product's own page. It
    wears the theme's accent instead, and it is still the only coloured thing in
    its cell. (Owner-reported, 2026-07-25.) */
-.tabulator .grid-action .inline-icon {
+.dg .grid-action .inline-icon {
   color: var(--accent-ink);
 }
-.tabulator .grid-action:hover .inline-icon { color: var(--accent); }
+.dg .grid-action:hover .inline-icon { color: var(--accent); }
 
 /* ---- the record panel ----------------------------------------------------
  * What opens UNDER the table when a row is selected. It used to be a bare

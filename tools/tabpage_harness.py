@@ -28,7 +28,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import posixpath
 import re
+import sys
 import threading
 from collections.abc import Iterator
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -133,10 +135,20 @@ window.chrome = {{
   const json = (value, code) => new Response(JSON.stringify(value), {{
     status: code, headers: {{"Content-Type": "application/json"}},
   }});
+  // THE HARNESS'S OWN ORIGIN IS NOT THE EXTENSION'S. The page is served over http so
+  // its modules load, and appearance.js and timezone.js sync with an http page's own
+  // origin. The shipped page, on chrome-extension:, never makes those two requests,
+  // so they are refused here and kept off the record of what the page asked.
+  const PAGE_ONLY = ["/api/appearance", "/api/timezone"]
+    .map((path) => window.location.origin + path);
   window.fetch = async (input, options) => {{
     const url = String(input && input.url ? input.url : input);
     const method = String((options && options.method) || (input && input.method) || "GET");
     const body = options && typeof options.body === "string" ? options.body : null;
+    if (/^https?:$/.test(window.location.protocol)
+        && PAGE_ONLY.some((prefix) => url.startsWith(prefix))) {{
+      return json({{detail: "Not Found"}}, 404);
+    }}
     window.__ASKED__.push(url);
     window.__REQUESTS__.push({{method, url, body}});
     try {{
@@ -165,6 +177,34 @@ _SHEET = re.compile(r'<link\s+rel="stylesheet"\s+href="([^"]+)"\s*/?>')
 _SCRIPT = re.compile(r'<script\b([^>]*)\bsrc="([^"]+)"([^>]*)>\s*</script>')
 #: A script the page's own code adds to itself at run time: `x.src = "grid.js"`.
 _INJECTED = re.compile(r'\.src\s*=\s*["\']([\w./-]+\.js)["\']')
+#: The module a classic script imports beside itself: grid.js names its renderer so,
+#: `new URL("datagrid.js" + ...)`, because a classic script has no static import.
+_RENDERER = re.compile(r'new URL\(\s*["\']([\w./-]+\.js)["\']')
+#: A module's own relative imports, the rest of the graph the renderer pulls in.
+_RELATIVE_IMPORT = re.compile(r'''(?:\bfrom\s*|\bimport\s*)["\'](\.{1,2}/[^"\']+)["\']''')
+
+
+def _module_graph(root: Path, entries: list[str]) -> list[str]:
+    """Every module `entries` reach through their relative imports, entries included.
+
+    Each is a path relative to `root`. A module that is named and missing raises here,
+    by name, as a missing tag does.
+    """
+    seen: list[str] = []
+    pending = list(entries)
+    while pending:
+        relative = pending.pop(0)
+        if relative in seen:
+            continue
+        source = root / relative
+        if not source.is_file():
+            raise FileNotFoundError(f"a module imports {relative}, which is not in {root}")
+        seen.append(relative)
+        text = source.read_text(encoding="utf-8")
+        for spec in _RELATIVE_IMPORT.findall(text):
+            # Normalised, or "a/../b" and "b" are two modules and a cycle never ends.
+            pending.append(posixpath.normpath(posixpath.join(posixpath.dirname(relative), spec)))
+    return seen
 
 
 def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
@@ -172,11 +212,11 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
     """The real Data page, built from its own tags, beside the files it loads.
 
     WHICH SOURCE IT SHOWS IS NOT SET HERE. Open it with a query string —
-    `page.goto(path.as_uri() + "?source=KEY")` — because a file:// URL carries
-    one perfectly well and `window.location.search` then reads exactly what the
-    shipped page reads. The first version of this redefined `window.location`
-    instead; that property is not configurable, the assignment threw, and the
-    page fell back to "no source" while looking like a harness fault.
+    `page.goto(f"{base}/{path.name}?source=KEY")`, where `base` is `serve(tmp)` —
+    and `window.location.search` then reads exactly what the shipped page reads.
+    The first version of this redefined `window.location` instead; that property
+    is not configurable, the assignment threw, and the page fell back to "no
+    source" while looking like a harness fault.
 
     WHAT IT LOADS IS WHAT data.html LOADS (#711, #1198). This used to read three
     stylesheets and Tabulator off disk and inject them whatever the page linked,
@@ -184,8 +224,10 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
     unstyled with every browser test green. Now every `<link rel="stylesheet">`
     and every classic `<script src>` in data.html is copied beside the built page,
     keeping its relative path, and loads from there as it would in the extension;
-    so is any script the page's modules add to themselves (`x.src = "grid.js"`).
-    A file the page names that does not exist fails HERE, by name. Only three things
+    so is any script the page's modules add to themselves (`x.src = "grid.js"`),
+    and every module such a script imports (grid.js's renderer and the vendored
+    modules it imports). A file the page names that does not exist fails HERE, by name.
+    THE PAGE IS SERVED (`serve(tmp)`), because those modules will not load over file://. Only three things
     are changed: the stub goes first in <head>; the one module tag is replaced by the
     flattened modules, because file:// refuses a module's imports; and the icon
     sprite is inlined, because file:// refuses a <use> into another file too.
@@ -208,6 +250,12 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
         copy = tmp / relative
         copy.parent.mkdir(parents=True, exist_ok=True)
         copy.write_bytes(source.read_bytes())
+    renderers = [spec for relative in dict.fromkeys(loads) if relative.endswith(".js")
+                 for spec in _RENDERER.findall((ext / relative).read_text(encoding="utf-8"))]
+    for relative in _module_graph(ext, renderers):
+        copy = tmp / relative
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes((ext / relative).read_bytes())
 
     # THE ONE REWRITE OF THE PAGE'S OWN MARKUP (#1198). file:// refuses a <use> into
     # another file, and its error would land in __LOAD_FAILURES__, so the sprite the
@@ -251,8 +299,23 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
 class _QuietHandler(SimpleHTTPRequestHandler):
     """`SimpleHTTPRequestHandler`, minus a log line per module fetched."""
 
+    # A module is refused unless it is served as JavaScript, and the platform's own
+    # table (on Windows, the registry) is not trusted to say so.
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".js": "text/javascript"}
+
     def log_message(self, *args, **kwargs):
         pass
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # A test closes its page while a file is still streaming, and the socket goes
+        # away under the handler. Anything else is still reported.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 @contextlib.contextmanager
@@ -265,8 +328,18 @@ def serve_extension() -> Iterator[str]:
     the one that ships, so a module deleted from the repository is a module
     missing from the test.
     """
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(EXT)))
+    with serve(EXT) as base:
+        yield base
+
+
+@contextlib.contextmanager
+def serve(directory: Path) -> Iterator[str]:
+    """`directory` over http on a free loopback port. Yields its base URL.
+
+    The port is chosen by the system, so it is never the owner's engine.
+    """
+    server = _Server(
+        ("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(directory)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

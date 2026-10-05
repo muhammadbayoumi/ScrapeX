@@ -36,9 +36,6 @@ const BROWSER = {
   CSS: "readonly", Node: "readonly", MouseEvent: "readonly",
   AbortSignal: "readonly", DecompressionStream: "readonly",
   TextDecoderStream: "readonly", HTMLElement: "readonly",
-  // Loaded from static/vendor/ by a <script> tag, so it is a global here and
-  // named rather than waved through: a typo'd vendor name must still fail.
-  Tabulator: "readonly",
   // Defined by timezone.js, which app.js's page loads before it as a classic
   // script. Listing it is the only way `no-undef` can tell this apart from a
   // function that does not exist -- which is exactly the defect this gate
@@ -156,6 +153,13 @@ export default [
     files: ["scrapex/webui/static/**/*.js"],
     ignores: ["scrapex/webui/static/vendor/**", "extension/vendor/**"],
     languageOptions: { ecmaVersion: 2023, sourceType: "script", globals: BROWSER },
+    rules: RULES,
+  },
+  {
+    // The grid's renderer is an ES module in both surfaces: it imports the
+    // vendored TanStack modules by path, and grid.js loads it with import().
+    files: ["scrapex/webui/static/datagrid.js"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: BROWSER },
     rules: RULES,
   },
   {

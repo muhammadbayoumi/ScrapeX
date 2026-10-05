@@ -7,10 +7,16 @@ did, once) and cannot catch a single behavioural regression: every defect the
 owner reported was invisible to it.
 
 This is the same trick `panel_harness.py` plays for the extension panel, aimed
-at the other surface. It writes ONE self-contained page from grid.js and its
-vendored library, hands it a payload through a stubbed `fetch`, and lets a real
-browser lay it out — so a test can ask what the table actually did rather than
-what the source code says.
+at the other surface. It writes ONE page from grid.js, its stylesheets and its
+helpers, hands it a payload through a stubbed `fetch`, and lets a real browser
+lay it out — so a test can ask what the table actually did rather than what the
+source code says.
+
+THE PAGE IS SERVED, NOT OPENED FROM DISK. grid.js imports its renderer,
+datagrid.js, and that imports the vendored TanStack modules, and a browser
+refuses every module import on a file:// page. So the renderer and its modules
+are copied beside the page, byte for byte, and `serve()` puts the directory on
+a loopback port nothing else uses.
 
 The payload is a fixture, not a database. That is the point: a test can hand the
 grid a column of numbers with a blank in the first row, or a product name made
@@ -19,9 +25,16 @@ of markup, without a crawl, a migration, or a running server.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import html
 import json
 import re
+import shutil
+import sys
+import threading
+from collections.abc import Iterator
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,15 +159,17 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
                fields: dict | None = None, promotable: dict | None = None,
                offer: dict | None = None, name: str = "grid.html",
                host_js: str | None = None, icon_sprite: str | None = None) -> Path:
-    """Inline the grid's own CSS and JS into one file so file:// can load it.
+    """Write the grid's page into `tmp`, with its renderer's modules beside it.
+
+    The CSS and the classic scripts are inlined; datagrid.js and the vendored
+    TanStack modules are copied, because grid.js imports them by path. Open the
+    page through `serve(tmp)`, never as a file.
 
     `host_js` runs just before grid.js, where a host page such as the
     extension's Data page sets `window.ScrapeXGridHost` (#1198); None is the
     engine's own page, which sets nothing. `icon_sprite`, when not None, goes on
     ui.js's tag as `data-icon-sprite`.
     """
-    vendor_css = (STATIC / "vendor" / "tabulator.min.css").read_text(encoding="utf-8")
-    vendor_js = (STATIC / "vendor" / "tabulator.min.js").read_text(encoding="utf-8")
     tokens_css = (STATIC / "tokens.css").read_text(encoding="utf-8")
     components_css = (STATIC / "components.css").read_text(encoding="utf-8")
     table_css = (STATIC / "table-theme.css").read_text(encoding="utf-8")
@@ -186,6 +201,11 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
     )
 
     tmp.mkdir(parents=True, exist_ok=True)
+    # The modules grid.js imports, copied rather than inlined: an import is
+    # resolved by the browser against this page's address.
+    shutil.copyfile(STATIC / "datagrid.js", tmp / "datagrid.js")
+    shutil.copytree(STATIC / "vendor" / "tanstack", tmp / "vendor" / "tanstack",
+                    dirs_exist_ok=True)
     page = tmp / name
     page.write_text(
         "<!doctype html><meta charset='utf-8'><title>ScrapeX grid</title>"
@@ -195,7 +215,6 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         ".data-grid-frame{height:100%}.data-grid-viewport{height:80vh}</style>"
         f"<style>{tokens_css}</style>"
         f"<style>{components_css}</style>"
-        f"<style>{vendor_css}</style>"
         f"<style>{table_css}</style>"
         f"<style>{grid_css}</style>\n"
         "<svg aria-hidden='true' width='0' height='0' "
@@ -208,14 +227,51 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         "catch(e){}</script>\n"
         f"<script>{timezone_js}</script>\n"
         f"<script>{stub}</script>\n"
-        f"<script>{vendor_js}</script>\n"
         + ("<script>" if icon_sprite is None
            else f'<script data-icon-sprite="{html.escape(icon_sprite)}">')
         + f"{ui_js}</script>\n"
         f"<script>{split_button_js}</script>\n"
         + (f"<script>{host_js}</script>\n" if host_js is not None else "")
-        # grid.js last: it runs its fetch immediately, so the stub above and the
-        # library it constructs against must both already exist.
+        # grid.js last: it runs its fetch immediately, so the stub above must
+        # already exist.
         + f"<script>{grid_js}</script>",
         encoding="utf-8")
     return page
+
+
+class _QuietHandler(SimpleHTTPRequestHandler):
+    """`SimpleHTTPRequestHandler`, minus a log line per file fetched."""
+
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".js": "text/javascript"}
+
+    def log_message(self, *args, **kwargs):
+        pass
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # A test closes its browser context while a file is still streaming, and
+        # the socket goes away under the handler. Anything else is still reported.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
+@contextlib.contextmanager
+def serve(directory: Path) -> Iterator[str]:
+    """`directory` over http on a free loopback port. Yields its base URL.
+
+    The port is chosen by the system, so it is never the owner's engine.
+    """
+    server = _Server(
+        ("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(directory)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

@@ -75,9 +75,11 @@ include = ["scrapex*"]
     "static/pages/*.css",
     "static/material-icons/*.svg",
     "static/material-icons/*.txt",
-    "static/vendor/*.css",
-    "static/vendor/*.js",
-    "static/vendor/*.txt",
+    "static/vendor/*.md",
+    # The grid's TanStack modules nest by package and by feature; a one-level
+    # glob would ship a wheel whose grid cannot load its own imports.
+    "static/vendor/tanstack/**/*.js",
+    "static/vendor/tanstack/*/LICENSE",
 ]
 
 [tool.pytest.ini_options]
