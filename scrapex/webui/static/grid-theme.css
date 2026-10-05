@@ -603,7 +603,7 @@
   font-weight: 750;
   line-height: 1;
   cursor: pointer;
-  transition: color var(--dur-200) var(--ease);
+  transition: color var(--dur) var(--ease-in-out);
 }
 .grid-lang-option:hover {
   background: transparent;
@@ -844,8 +844,8 @@
   height: 1.5rem;
   padding: 0;
   border-radius: var(--radius-sm);
-  transition: background-color var(--dur-fast) var(--ease-in-out),opacity var(--dur-fast) var(--ease-in-out),
-    color var(--dur-fast) var(--ease-in-out);
+  transition: background-color var(--dur-200) var(--ease-out),opacity var(--dur-200) var(--ease-out),
+    color var(--dur-200) var(--ease-out);
 }
 /* The resize divider answered the pointer and these two did not, so the header
  * looked like it had one live control and two decorations — the owner's report.

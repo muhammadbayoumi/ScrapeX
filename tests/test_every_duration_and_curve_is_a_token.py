@@ -75,6 +75,29 @@ EXCEPTIONS = {
         "the reduced-motion reset collapses every transition; a switch, not a step of the scale",
 }
 
+#: Rules whose Supabase atom this change reads, each held to that atom's motion at the pin
+#: rather than to the nearest rung: (sheet, selector, property) -> (comma items, source).
+#: A `transition-*` utility of theirs that names no duration or curve draws Tailwind's
+#: default, 150ms and cubic-bezier(0.4, 0, 0.2, 1) (theme.css@v4.2.4:492-493): --dur and
+#: --ease-in-out.
+ATOMS = {
+    ("extension/app.css", ".install-steps > summary .sx-icon", "transition"): (
+        ["transform var(--dur-200) var(--ease-in-out)"],
+        "the Accordion's chevron, `transition-transform duration-200` (accordion.tsx@86c813ec:47)"),
+    ("design/grid-theme.css", ".grid-lang-option", "transition"): (
+        ["color var(--dur) var(--ease-in-out)"],
+        "a Toggle Group item (#532): toggleVariants (toggle-group.tsx@86c813ec:42), whose base is "
+        "`transition-colors` with no duration or curve (toggle.tsx@86c813ec:10)"),
+    ("design/grid-theme.css",
+     ".tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-header-popup-button",
+     "transition"): (
+        ["background-color var(--dur-200) var(--ease-out)", "opacity var(--dur-200) var(--ease-out)",
+         "color var(--dur-200) var(--ease-out)"],
+        "Studio's column-header trigger is a Button (ColumnMenu.tsx@86c813ec:225-227), `ease-out "
+        "duration-200 transition-colors` (Button.tsx@86c813ec:20-23); its opacity is static there, "
+        "so it takes the same pair"),
+}
+
 
 def _zero(literal: str) -> bool:
     return float(re.match(r"-?\d*\.?\d+", literal).group(0)) == 0
@@ -83,9 +106,11 @@ def _zero(literal: str) -> bool:
 def judge(prop: str, value: str) -> list[str]:
     """What one motion declaration states that is not a motion token. A token is read
     whole, fallback and all, as the #699 scan reads it; a calc() states the literals
-    written beside its tokens."""
+    written beside its tokens. A motion token is one design/tokens.css declares, not any
+    name that starts like one: a sheet-local `--dur-x: 333ms` would carry a literal past."""
     if not MOTION.fullmatch(prop):
         return []
+    motion_tokens = _declared()
     wrong = []
     for _separator, item in _split(value.replace("!important", ""), ","):
         if item.lower() == "none":
@@ -99,7 +124,7 @@ def judge(prop: str, value: str) -> list[str]:
             tokens: list[str] = []
             rest = _without_tokens(part, VAR, removed=tokens)
             wrong += [f"{token} is not a motion token" for token in tokens
-                      if not TOKEN.match(token).group(1).startswith(("--dur", "--ease"))]
+                      if TOKEN.match(token).group(1) not in motion_tokens]
             if MATH.match(part) or TIME.fullmatch(part):
                 wrong += [f"duration {literal}" for literal in INSIDE.findall(rest) if not _zero(literal)]
             elif CURVE.fullmatch(part) and not still:
@@ -128,8 +153,8 @@ def test_every_duration_and_curve_in_a_stylesheet_is_a_token():
     wrong = [f"{name}:{line} {selector} {{ {prop}: {value} }} -- {', '.join(what)}"
              for name, selector, prop, value, line, what in found
              if what and not _left(selector) and (name, selector, prop, value) not in EXCEPTIONS]
-    assert not wrong, ("motion written as a literal; read --dur-fast, --dur, --dur-200 or --dur-slow, "
-                       "and --ease, --ease-travel, --ease-out or --ease-in-out:\n  " + "\n  ".join(wrong))
+    assert not wrong, ("motion written as a literal; read a motion token design/tokens.css declares, "
+                       + ", ".join(sorted(_declared())) + ":\n  " + "\n  ".join(wrong))
 
 
 def test_every_rule_left_to_another_item_still_needs_it():
@@ -140,10 +165,14 @@ def test_every_rule_left_to_another_item_still_needs_it():
 
 
 def _reduced_motion_blocks(css: str) -> str:
-    """The inside of every `@media (prefers-reduced-motion: reduce)` block."""
+    """The inside of every `@media (prefers-reduced-motion: reduce)` block. The prelude is
+    matched whole: `not (...)`, `(...), (prefers-reduced-motion: no-preference)` and
+    `(...) and (max-width: 0)` each name the feature, and each applies to readers who did
+    not ask for reduced motion, or to none of those who did."""
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
     inside = []
-    for found in re.finditer(r"@media[^{]*prefers-reduced-motion\s*:\s*reduce[^{]*\{", css):
+    for found in re.finditer(r"@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{", css,
+                             flags=re.IGNORECASE):
         depth, end = 1, found.end()
         while end < len(css) and depth:
             depth += {"{": 1, "}": -1}.get(css[end], 0)
@@ -157,11 +186,14 @@ def test_every_exception_is_still_there_and_only_under_reduced_motion():
     that; the same literal outside the reduced-motion block would be a duration."""
     for (sheet, selector, prop, value), reason in EXCEPTIONS.items():
         css = (ROOT / sheet).read_text(encoding="utf-8")
-        assert (selector, prop, value) in {(s, p, v) for s, p, v, _l in declarations(css)}, (
+        everywhere = [line for s, p, v, line in declarations(css) if (s, p, v) == (selector, prop, value)]
+        assert everywhere, (
             f"{sheet} no longer has {selector} {{ {prop}: {value} }} ({reason}); drop it from EXCEPTIONS")
-        assert (selector, prop, value) in {(s, p, v) for s, p, v, _l in declarations(_reduced_motion_blocks(css))}, (
-            f"{sheet} {selector} {{ {prop}: {value} }} is excused as {reason!r} and is not under "
-            "@media (prefers-reduced-motion: reduce)")
+        reduced = [(s, p, v) for s, p, v, _l in declarations(_reduced_motion_blocks(css))]
+        assert reduced.count((selector, prop, value)) == len(everywhere), (
+            f"{sheet} {selector} {{ {prop}: {value} }} is excused as {reason!r}, and of its "
+            f"{len(everywhere)} declaration(s) (lines {everywhere}) {reduced.count((selector, prop, value))} "
+            "sit under @media (prefers-reduced-motion: reduce)")
 
 
 def _declared() -> dict[str, list[str]]:
@@ -207,6 +239,29 @@ def test_the_notice_names_every_curve_and_duration_the_tokens_ship():
         assert value in notice, f"{name}: {value} ships in design/tokens.css and the notice does not name it"
 
 
+def test_no_stylesheet_gives_a_motion_token_another_value():
+    """design/tokens.css is the one place a motion token gets its value. A sheet that
+    re-declares one on a scope (`.tabulator { --dur-fast: .12s }`) changes what every read
+    under it draws, and the reads still look like tokens. Read with a regex rather than
+    declarations(), whose property pattern skips a name with a digit in it (--dur-200)."""
+    found = []
+    for sheet in authored():
+        code = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.DOTALL)
+        found += [f"{sheet.relative_to(ROOT).as_posix()} {match.group(0).strip()}"
+                  for match in re.finditer(r"(?<![\w-])--(?:dur|ease)[\w-]*\s*:[^;}]*", code, flags=re.IGNORECASE)]
+    assert not found, f"a motion token declared outside design/tokens.css: {found}"
+
+
+def test_each_rule_on_a_supabase_atom_draws_that_atoms_motion():
+    found: dict[tuple[str, str, str], list[list[str]]] = {}
+    for name, selector, prop, value, _line, _what in _motion():
+        found.setdefault((name, selector, prop), []).append([item for _s, item in _split(value, ",")])
+    wrong = [f"{sheet} {selector} {{ {prop}: {found.get((sheet, selector, prop))} }} should be {items}: {source}"
+             for (sheet, selector, prop), (items, source) in ATOMS.items()
+             if found.get((sheet, selector, prop)) != [items]]
+    assert not wrong, "\n  ".join(["a rule on a Supabase atom draws other motion than the atom:", *wrong])
+
+
 @pytest.mark.parametrize("prop,value,expected", [
     # The issue's own break: the chevron's literal duration and its bare curve.
     ("transition", "transform 200ms ease", ["duration 200ms", "curve ease"]),
@@ -236,6 +291,9 @@ def test_the_notice_names_every_curve_and_duration_the_tokens_ship():
     # A token is read whole, fallback and all, but it must be a motion token.
     ("transition", "opacity var(--dur, 200ms) var(--ease)", []),
     ("transition", "opacity var(--sp-2) var(--ease)", ["var(--sp-2) is not a motion token"]),
+    # A name that starts like a motion token is not one: tokens.css declares neither.
+    ("transition", "opacity var(--dur-probe) var(--ease-probe)",
+     ["var(--dur-probe) is not a motion token", "var(--ease-probe) is not a motion token"]),
     # A calc() states the literals beside its tokens, and the tokens it reads.
     ("transition", "opacity calc(var(--dur) * 2) var(--ease)", []),
     ("transition", "opacity calc(100ms + var(--dur)) var(--ease)", ["duration 100ms"]),
