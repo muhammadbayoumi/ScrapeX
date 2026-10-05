@@ -7,6 +7,11 @@ the ring and a shadow, `--focus-ring-gap`, paints the offset; design/tokens.css 
 the colour, the gap and the two geometry tokens once, and every rule that draws focus
 reads them. Before this, 72 declarations held 24 distinct values: widths of 2px and
 3px, eleven colours, and offsets of 2px, 1px, -2px and -3px.
+
+A focused field also moves its border, and only its colour: Supabase's Input paints
+`focus:border-control-hover`, their neutral control border, beside the ring
+(packages/ui/src/components/shadcn/ui/input.tsx@86c813ec:15). Here that is
+--line-control-hover, and no focus rule paints a border in the brand or the ring (#748).
 """
 from __future__ import annotations
 
@@ -22,13 +27,20 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 FOCUS = re.compile(r":focus(?:-visible|-within)?(?![\w-])")
-PROPERTIES = re.compile(r"outline(?:-(?:width|offset|color|style))?|box-shadow")
+#: Every property that can paint a border's colour, on any side and in either writing
+#: mode, so a focus rule cannot reach the border through a shorthand or one side.
+BORDER = r"border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?"
+PROPERTIES = re.compile(rf"outline(?:-(?:width|offset|color|style))?|box-shadow|{BORDER}")
 
 #: The two recipes, as the tokens spell them.
 RECIPES = {
     "outline": {"var(--focus-ring-width) solid var(--focus-ring-color)"},
     # The ring sits at its offset; the inset at minus its width.
     "outline-offset": {"var(--focus-ring-offset)", "calc(-1 * var(--focus-ring-width))"},
+    # The focused field's border, in colour only and in the neutral control border:
+    # `focus:border-control-hover` (input.tsx@86c813ec:15). Any other border property
+    # in a focus rule, a shorthand or one side, is outside the recipe.
+    "border-color": {"var(--line-control-hover)"},
 }
 
 #: Rules this change leaves to the item that rebuilds or owns them, each named. An entry
@@ -80,6 +92,8 @@ COMPOSED = ('.dataset-items a[aria-current="page"]:focus-visible',
 def test_every_focus_indicator_is_one_of_the_two_recipes():
     found = _focus_declarations()
     assert len(found) > 50, f"only {len(found)} focus declarations were read"
+    borders = [where for where, _selector, prop, _value in found if re.fullmatch(BORDER, prop)]
+    assert len(borders) >= 10, f"only {len(borders)} focused borders were read: {borders}"
     wrappers = _ring_wrappers(found)
     insets = _insets(found)
     wrong = []
@@ -100,7 +114,9 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
             wrong.append(f"{where} {selector} {{ {prop}: {value} }}")
     assert not wrong, ("focus drawn outside the two recipes; draw the outline in --focus-ring-color "
                        "at --focus-ring-offset (with --focus-ring-gap), or at calc(-1 * "
-                       "var(--focus-ring-width)) for the inset:\n  " + "\n  ".join(wrong))
+                       "var(--focus-ring-width)) for the inset, and move a focused field's "
+                       "border-color, and nothing else of its border, to "
+                       "var(--line-control-hover):\n  " + "\n  ".join(wrong))
 
 
 def test_every_rule_that_draws_the_ring_draws_all_of_it():
@@ -150,14 +166,18 @@ def test_a_bare_focus_rule_never_draws():
     """`:focus` matches a mouse click too, so a ring drawn on it shows where Supabase's
     `focus-visible` draws none, and a ring cancelled on it is cancelled for the keyboard
     as well (#745, #747). A bare `:focus` may only drop an inner control's own indicator
-    under a wrapper that draws the ring."""
+    under a wrapper that draws the ring. The border is not a ring: Supabase's Input moves
+    it on `focus:` itself (input.tsx@86c813ec:15), so a bare `:focus` may set the
+    recipe's border-color, which the test above holds to the neutral control border."""
     found = _focus_declarations()
     wrappers = _ring_wrappers(found)
     bare = re.compile(r":focus(?![\w-])")
     wrong = [f"{where} {selector} {{ {prop}: {value} }}" for where, selector, prop, value in found
              if bare.search(selector) and not any(re.search(pattern, selector) for pattern in LEFT_TO)
-             and not (value in ("0", "none") and _suppressed_under_a_ring(selector, wrappers))]
-    assert not wrong, "a bare :focus rule draws or cancels a ring; use :focus-visible:\n  " + "\n  ".join(wrong)
+             and not (value in ("0", "none") and _suppressed_under_a_ring(selector, wrappers))
+             and not (prop == "border-color" and value in RECIPES["border-color"])]
+    assert not wrong, ("a bare :focus rule draws or cancels a ring, or paints a border other than "
+                       "the recipe's; use :focus-visible for a ring:\n  " + "\n  ".join(wrong))
 
 
 def test_every_rule_left_to_another_item_is_still_there():
