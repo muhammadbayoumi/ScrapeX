@@ -54,8 +54,10 @@ WHAT WAS TAKEN, AND FROM WHERE
     * Token NAMES, where this product's semantic role matches theirs.
 
   Some values came from their components rather than these token files: the
-  radius and focus geometry from their component classes, and the overlay from
-  their dialog. No code was copied. No file of theirs is redistributed here.
+  radius and focus geometry from their component classes, the overlay from
+  their dialog, and the four shadows from the shadow-* classes their components
+  render (item 5 says from where). No code was copied. No file of theirs is
+  redistributed here.
 
 
 THE TWO LICENCES, AND WHY BOTH ARE NAMED
@@ -175,9 +177,7 @@ where this summary is brief.
      theme, are Google's published colours, not Supabase's. --red-hover, in both
      themes, is this product's own: Supabase publishes neither #8e332f nor
      #fda49d. The dark --accent-active is their light --brand-500 used in the
-     dark theme, a value of theirs they do not use there. --shadow-color, in both
-     themes, is this product's own, because Supabase declares no shadow token; it
-     belongs with the shadow tokens item 5 names. And --selection and the five
+     dark theme, a value of theirs they do not use there. And --selection and the five
      --diagram-* colours are this product's own color-mix() of their resolved
      values, at proportions Supabase does not publish. This sentence claimed no
      exception until 2026-09-25. The contrast numbers the removed entries carried
@@ -212,14 +212,22 @@ where this summary is brief.
      appeared in their source. It was wrong in the direction a licence notice can
      least afford, crediting this product with their work.
 
-  5. TOKENS AND ACCOMMODATIONS THEY DO NOT HAVE. Shadow tokens, line-height
-     tokens and a prefers-contrast accommodation are in design/tokens.css. A
-     forced-colors block and a bidirectional-text contract -- unicode-bidi
-     isolation plus logical box and alignment properties -- are in
-     design/components.css. Searching their repository for forced-colors,
-     prefers-contrast and unicode-bidi returns nothing at all, so none of the five
-     is theirs. The heading of this section names tokens.css; two of the five live
-     one file over, and saying so costs less than letting a reader discover it.
+  5. TOKENS AND ACCOMMODATIONS THEY DO NOT HAVE. Line-height tokens and a
+     prefers-contrast accommodation are in design/tokens.css. A forced-colors
+     block and a bidirectional-text contract -- unicode-bidi isolation plus
+     logical box and alignment properties -- are in design/components.css.
+     Searching their repository for forced-colors, prefers-contrast and
+     unicode-bidi returns nothing at all, so none of the four is theirs. The
+     heading of this section names tokens.css; two of the four live one file
+     over, and saying so costs less than letting a reader discover it.
+
+     THE SHADOW TOKENS LEFT THIS LIST ON 2026-10-05. Supabase authors no shadow
+     token, but their components write Tailwind's shadow-* classes, so what they
+     render is packages/tailwindcss/theme.css at v4.2.4, the version their
+     pnpm-lock.yaml resolves at the commit above. --shadow-xs, --shadow-sm,
+     --shadow-md and --shadow-lg in design/tokens.css are those four strings
+     exactly, in both themes. Until then they were this product's own: one tint at
+     offsets of its own, re-toned for the dark theme, and no md at all.
 
      REDUCED MOTION IS NOT ON THIS LIST, and it was on an earlier draft of it.
      Supabase does honour prefers-reduced-motion -- fourteen places in their

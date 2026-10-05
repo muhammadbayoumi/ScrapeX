@@ -38,8 +38,8 @@ ROOT = Path(__file__).resolve().parent.parent
 APPEARANCE = ROOT / "design" / "appearance.js"
 TOKENS = ROOT / "design" / "tokens.css"
 
-#: Every key a palette entry may legally carry. The four metadata keys, plus the
-#: 36 colour properties in camelCase. Derived from THEME_PROPERTIES rather than
+#: Every key a palette entry may legally carry. The metadata keys, plus the
+#: colour properties in camelCase. Derived from THEME_PROPERTIES rather than
 #: retyped, so adding a colour property cannot make this list stale.
 METADATA_KEYS = {"id", "label", "description", "colors", "themes"}
 
@@ -52,7 +52,7 @@ FORBIDDEN_FAMILIES = {
     "fw": "font weights are the design system's",
     "lh": "line heights are the design system's",
     "sp": "the spacing scale is the design system's",
-    "shadow": "elevation is the design system's -- EXCEPT shadow-color, see below",
+    "shadow": "elevation is the design system's, colour and all (#1049)",
     "dur": "motion timing is the design system's",
     "ease": "easing curves are the design system's",
     "control-height": "control metrics carry the panel's 48px touch floor",
@@ -61,11 +61,6 @@ FORBIDDEN_FAMILIES = {
     "z": "layering is not an appearance choice",
     "google-btn": "third-party brand values fixed by Google's branding guidelines",
 }
-
-#: The two properties whose NAME starts with a forbidden family but which are
-#: genuinely colours, and are therefore legal. Named explicitly so the check
-#: above can stay a simple prefix match.
-COLOUR_EXCEPTIONS = {"shadow-color"}
 
 
 def _theme_properties() -> list[str]:
@@ -138,8 +133,6 @@ def test_no_palette_sets_a_non_colour_token():
             if key in allowed or key in {"light", "dark"}:
                 continue
             dashed = re.sub(r"([A-Z])", lambda m: "-" + m.group(1).lower(), key)
-            if dashed in COLOUR_EXCEPTIONS:
-                continue
             family = next((f for f in FORBIDDEN_FAMILIES
                            if dashed == f or dashed.startswith(f + "-")), None)
             reason = FORBIDDEN_FAMILIES.get(family, "not a colour property")
@@ -148,6 +141,19 @@ def test_no_palette_sets_a_non_colour_token():
     assert not offenders, (
         "these palette keys are not colours, and R-74 says a palette may change "
         f"nothing but colour: {offenders}")
+
+
+def test_no_theme_property_belongs_to_a_family_a_palette_may_not_set():
+    """The test above trusts THEME_PROPERTIES as its allowlist, so a forbidden name listed
+    there passes it. `shadow-color` was listed there as the one exception, and #1049 retired
+    it: Tailwind's shadow strings carry their own colour, so no part of a shadow is a palette's.
+    Without this, putting it back in THEME_PROPERTIES turned nothing red."""
+    offenders = [name for name in _theme_properties() for family in FORBIDDEN_FAMILIES
+                 if name == family or name.startswith(family + "-")]
+    assert not offenders, (
+        f"THEME_PROPERTIES in design/appearance.js lists {offenders}, which belong to the "
+        f"families FORBIDDEN_FAMILIES withholds from a palette. A palette may change only "
+        f"colour (R-74), and a shadow is the design system's, colour and all (#1049).")
 
 
 def test_supabase_declares_no_colours_because_it_is_the_baseline():

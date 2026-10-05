@@ -213,6 +213,10 @@ def read(pin: str) -> dict:
                 "focus-ring ring offset": re.search(r"ring-offset-(\d+)\b", ring.group(1)).group(1) + "px",
                 "focus-inset outline-width": re.search(r"outline-width:\s*([^;]+);", focus_inset).group(1),
                 "focus-inset outline-offset": re.search(r"outline-offset:\s*([^;]+);", focus_inset).group(1)}},
+            # Their atoms' shadow-* classes render these strings, and they author no
+            # --shadow-* of their own. Read by test_the_shadows_are_what_supabases_atoms_render,
+            # not by allowances(): a shadow is a whole string, not a scale step (#1049).
+            "shadow": {"declared": _one(_declared(tailwind, r"--shadow-(xs|sm|md|lg)"), "Tailwind's shadows")},
         },
         "atoms": {axis: dict(sorted(values.items())) for axis, values in atoms.items()},
     }
