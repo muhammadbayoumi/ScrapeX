@@ -70,8 +70,10 @@ test or workflow change.
 
 Three rules that decide the outcome:
 
-- **The report names each reviewer and its verdict**, and for one that returned no
-  verdict, which of three it was: it died, it timed out, or it was **refused before it
+- **The report names each reviewer and its verdict, as a comment on the PR the moment
+  each pass returns.** A verdict held only in a session's context dies with the session,
+  and the next one runs the gate again. For one that returned no verdict, the report
+  says which of three it was: it died, it timed out, or it was **refused before it
   started**. A report that cannot is a **failed pass, not an empty one** — all three read
   as "this dimension found nothing", and a refusal never reaches the runner at all, so
   the dimensions most likely to be blocked are the ones that touch secrets and identity.
