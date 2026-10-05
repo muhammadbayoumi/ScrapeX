@@ -487,10 +487,17 @@ button.icon-button,
   padding: 0;
 }
 
-/* THE THREE SQUARES ARE ONE SIZE NOW. `compact` and `xs` were the 32px notches
-   under a 40px default; Supabase's Button has no size below its tiny default
-   (constants.ts@86c813ec:61), so all three are that square (#1050). The two
-   rules stay because the markup and the catalogue name both classes.
+/* WITH A MOUSE, THE THREE SQUARES ARE ONE SIZE. `compact` and `xs` were the
+   32px notches under a 40px default; Supabase's Button has no size below its
+   tiny default (constants.ts@86c813ec:61), so on a fine pointer all three are
+   that 26px square (#1050), and the width lines below restate `icon-button`'s.
+   ON A TOUCH SCREEN THEY PART. The `(hover: none), (pointer: coarse)` block at
+   the end of this sheet lifts a plain `icon-button` to its 44px floor, a 26x44
+   box until #1051 moves that reach into a hit area. `compact`, through
+   `button.compact`'s min-height, and `xs`, through its own, outrank that block
+   and stay 26px squares, under the 44px coarse-pointer floor: they are for
+   secondary icon controls, and a primary or destructive action uses a plain
+   `icon-button`. That `min-height` is the one line `xs` adds.
    `padding: 0` keeps `compact`'s padding, which comes later in this sheet, from
    standing a 20px icon 30px tall in a 26px-wide box. */
 button.icon-button.compact,

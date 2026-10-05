@@ -310,9 +310,13 @@
     <h3>Sizes and icon-only</h3>
     <p class="g-why">
       <code class="code">icon-button</code> is a square at Supabase's tiny Button
-      height, 26px, the Button's default size. <code class="code">compact</code> and
-      <code class="code">xs</code> draw the same square, because Supabase's Button has
-      no size below tiny. <code class="code">icon-button</code> and
+      height, 26px, the Button's default size. With a mouse,
+      <code class="code">compact</code> and <code class="code">xs</code> draw the same
+      square, because Supabase's Button has no size below tiny. On a touch screen they
+      part: a plain <code class="code">icon-button</code> takes the 44px coarse-pointer
+      floor and draws 26 by 44 until #1051, while <code class="code">compact</code> and
+      <code class="code">xs</code> stay 26px squares under that floor, so a primary or
+      destructive action never uses them. <code class="code">icon-button</code> and
       <code class="code">compact</code> were never composable until 2026-08-05 —
       together they drew a rectangle.
     </p>

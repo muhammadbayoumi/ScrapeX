@@ -16,6 +16,9 @@ THE READS TABLE IS AN EQUALITY, not a list of cases. A new read of a --control-h
 fails until it is named here with the Supabase component it is, so a control cannot arrive at
 a size because the nearest example had it. KEPT names the reads that left the scale instead:
 elements Supabase gives no control height, kept at the size they rendered (#1040 rule 2).
+HELD names the reads that are a Supabase component but not at its default yet, each with the
+issue that moves it. Where a row's selector matches extension/app.html, the element it matches
+is the element its component is: a Button is a <button>, an Input an <input>.
 """
 from __future__ import annotations
 
@@ -24,8 +27,9 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
-from tools.value_literals import authored, declarations
+from tools.value_literals import _px, authored, declarations
 
 # Reads extension/ stylesheets and the design/ sources copied into extension/;
 # see tests/test_the_extension_gate_is_complete.py.
@@ -33,6 +37,7 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKENS = ROOT / "design" / "tokens.css"
+PANEL = ROOT / "extension" / "app.html"
 
 #: packages/ui/src/lib/constants.ts@86c813ec:61-65, SIZE.height, in px.
 SIZES = {"tiny": 26, "small": 34, "medium": 38, "large": 42, "xlarge": 50}
@@ -48,6 +53,13 @@ INPUT = "input.tsx@86c813ec:31 size = 'small'; select.tsx@86c813ec:37-38 SIZE_VA
 SPLIT = "button-split-dropdown.tsx@86c813ec:14-29: two Buttons at the Button's default size"
 GROUP = "input-group.tsx@86c813ec:43-48 sets no height; its InputGroupInput is an Input (:164-170)"
 GROUP_INSIDE = "input-group.tsx@86c813ec:170 -m-px: the Input fills the group inside its border"
+GROUP_BUTTON = ("input-group.tsx@86c813ec:122-137 InputGroupButton, a Button whose default size is "
+                "tiny, h-6, 24px (:125, :130, :137)")
+
+#: The element each component is drawn as, for the rows whose selector matches the panel's
+#: markup. A Supabase InputGroup is a <div> (input-group.tsx@86c813ec:43).
+ELEMENT = {BUTTON: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
+           GROUP_INSIDE: {"input"}, GROUP_BUTTON: {"button"}}
 
 C = "design/components.css"
 APP = "extension/app.css"
@@ -77,7 +89,6 @@ READS = {
     (APP, ".engine-maintenance-actions .engine-action", "min-height"): (TINY, BUTTON),
     (APP, ".engine-url-field", "min-height"): (SMALL, GROUP),
     (APP, ".engine-url-field input", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
-    (APP, ".engine-url-save", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
     # The third column is the row's menu, an icon Button; the first is the face (KEPT).
     (APP, ".account-row", "grid-template-columns"): (f"2rem minmax(0, 1fr) {TINY}", BUTTON),
     (APP, ".manage-account-heading", "grid-template-columns"): (f"{TINY} minmax(0, 1fr)", BUTTON),
@@ -86,10 +97,24 @@ READS = {
     (APP, ".engine-detail-heading", "grid-template-columns"): (f"{TINY} minmax(0, 1fr)", BUTTON),
     (APP, "button.engine-detail-back", "width"): (TINY, BUTTON),
     (APP, "button.engine-detail-back", "min-width"): (TINY, BUTTON),
+    # The third copy of the same ghost icon Button (extension/app.html `#source-edit-back`).
+    (APP, ".source-edit-back", "width"): (TINY, BUTTON),
+    (APP, ".source-edit-back", "min-width"): (TINY, BUTTON),
     (APP, ".finance-number-field input", "min-height"): (SMALL, INPUT),
     (APP, ".finance-converter-row", "height"): (SMALL, GROUP),
     (APP, ".finance-converter-row input", "line-height"): (SMALL_INSIDE, GROUP_INSIDE),
     ("extension/console.css", ".map-cells", "min-height"): (TINY, BUTTON),
+}
+
+#: The reads that are a Supabase component held off its default, each until the issue that
+#: moves it: (authored sheet, selector, property) -> (the value it declares, the component, the
+#: issue).
+HELD = {
+    # `#save`, the <button> in the engine address group (extension/app.html), is Supabase's
+    # InputGroupButton, not the group's Input. It stays a full-height segment of the group,
+    # 32px, until #1430 brings it to the 24px default; 32px is InputGroupButton's `small`,
+    # h-8 (input-group.tsx@86c813ec:126), which is not its default.
+    (APP, ".engine-url-save", "min-height"): (SMALL_INSIDE, GROUP_BUTTON, "#1430"),
 }
 
 #: The reads that left the control scale, each at the size it rendered before #1050, and why.
@@ -115,13 +140,6 @@ KEPT = {
 NO_HEIGHT = {(C, ".split-button-option"), (APP, ".finance-converter-option")}
 
 TOKEN_READ = re.compile(r"--control-height")
-
-
-def _px(value: str) -> float | None:
-    found = re.fullmatch(r"(\d*\.?\d+)(px|rem)", value.strip())
-    if not found:
-        return None
-    return float(found.group(1)) * (16 if found.group(2) == "rem" else 1)
 
 
 def _declared_heights() -> list[tuple[str, str, str]]:
@@ -183,16 +201,53 @@ def test_each_control_reads_the_size_its_supabase_component_defaults_to(where):
 
 
 def test_every_read_of_a_control_height_is_named_with_its_component():
-    """The equality: every declaration that reads a --control-height-* token is in READS, and
-    nothing in READS has stopped reading one."""
+    """The equality: every declaration that reads a --control-height-* token is in READS or
+    HELD, and nothing in either has stopped reading one."""
+    assert not set(READS) & set(HELD), sorted(set(READS) & set(HELD))
+    named = set(READS) | set(HELD)
     reads = {where for where, values in _authored_declarations().items()
              if any(TOKEN_READ.search(value) for value in values)}
-    assert reads == set(READS), (
-        f"reads of --control-height-* and READS disagree.\n"
-        f"  read, not named: {sorted(reads - set(READS))}\n"
-        f"  named, not read: {sorted(set(READS) - reads)}\n"
+    assert reads == named, (
+        f"reads of --control-height-* and READS | HELD disagree.\n"
+        f"  read, not named: {sorted(reads - named)}\n"
+        f"  named, not read: {sorted(named - reads)}\n"
         f"Name the control with the Supabase component it is, and read that component's "
         f"default size (#1050).")
+
+
+@pytest.mark.parametrize("where", sorted(HELD), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
+def test_a_control_held_off_its_default_names_the_issue_that_moves_it(where):
+    value, component, issue = HELD[where]
+    assert re.fullmatch(r"#\d+", issue), issue
+    found = _authored_declarations().get(where, [])
+    assert found == [value], (
+        f"{where[0]} `{where[1]}` declares {where[2]}: {found or 'nothing'}; it is {component}, "
+        f"held at {value} until {issue}. If {issue} moved it, its row belongs in READS.")
+
+
+def test_each_panel_read_names_the_element_its_selector_matches():
+    """A row names the Supabase component its element is, so the element its selector matches
+    in extension/app.html must be that component's: the engine address Save, a <button>, was
+    cited as the group's Input until #1432's review. A selector that matches nothing there is
+    drawn by app.js, and a grid column names the Button that sits in it, not the element the
+    rule styles, so neither is read here."""
+    markup = BeautifulSoup(PANEL.read_text(encoding="utf-8"), "html.parser")
+    checked, wrong = set(), []
+    rows = {**{where: component for where, (_value, component) in READS.items()},
+            **{where: component for where, (_value, component, _issue) in HELD.items()}}
+    for (sheet, selector, prop), component in sorted(rows.items()):
+        if sheet != APP or prop == "grid-template-columns":
+            continue
+        tags = {element.name for element in markup.select(selector)}
+        if not tags:
+            continue
+        checked.add(selector)
+        if not tags <= ELEMENT.get(component, set()):
+            wrong.append(f"`{selector}` {prop} matches {sorted(tags)}, but its row names "
+                         f"{component}, which is {sorted(ELEMENT.get(component, set()))}")
+    assert not wrong, "\n  ".join(["a row names a component its element is not:", *wrong])
+    # Eleven selectors match the panel's markup today; fewer means one or the parser moved.
+    assert len(checked) >= 11 and ".engine-url-save" in checked, sorted(checked)
 
 
 @pytest.mark.parametrize("where", sorted(KEPT), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
@@ -217,6 +272,6 @@ def test_a_menu_or_select_item_declares_no_height(where):
 
 def test_the_parsers_see_the_three_surfaces():
     """A sheet that moved out of authored() would empty its rows from every test above."""
-    sheets = {where[0] for where in [*READS, *KEPT]}
+    sheets = {where[0] for where in [*READS, *HELD, *KEPT]}
     found = {sheet.relative_to(ROOT).as_posix() for sheet in authored()}
     assert sheets <= found, sorted(sheets - found)

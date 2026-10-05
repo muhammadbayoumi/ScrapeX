@@ -661,8 +661,8 @@
   }
   .source-edit-back {
     display: grid;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: var(--control-height-tiny);
+    min-width: var(--control-height-tiny);
     padding: 0;
     place-items: center;
   }

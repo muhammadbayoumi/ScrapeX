@@ -130,13 +130,16 @@ def open_panel(browser, tmp_path):
     """Open the panel with a given stub and return the live page."""
     pages = []
 
-    def opener(*, view=None, ready="settled", **stub_kwargs):
+    def opener(*, view=None, ready="settled", touch=False, **stub_kwargs):
         """`view` navigates after load. The panel opens on Welcome, and a test
         about Source has to get to Source the way an owner would — by pressing
-        its rail button — rather than by asserting on a page it never entered."""
+        its rail button — rather than by asserting on a page it never entered.
+        `touch` opens it as a phone does, where `(hover: none), (pointer:
+        coarse)` matches."""
         page_file = harness.build_page(tmp_path, harness.stub(**stub_kwargs),
                                        name=f"panel{len(pages)}.html")
-        page = browser.new_page(viewport={"width": 360, "height": 800})
+        page = browser.new_page(viewport={"width": 360, "height": 800},
+                                has_touch=touch, is_mobile=touch)
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
@@ -6690,13 +6693,9 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     # 26 TALL TOO. `button, .button` in components.css carries `min-height:
     # var(--control-height-tiny)` and nothing here overrides it, and with no padding
     # the 20px icon sits inside that floor, so the height is the token's. Measured,
-    # not assumed — and identical to `.manage-account-back`, the control this one is
-    # a copy of.
+    # not assumed. That it is the same box as its two copies is
+    # `test_the_three_back_buttons_draw_one_box`.
     assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
-    twin = page.locator("#manage-account-back").evaluate(
-        "el => getComputedStyle(el).minHeight")
-    assert twin == btn.evaluate("el => getComputedStyle(el).minHeight"), (
-        "the two back buttons in this panel no longer agree on their height")
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
@@ -6705,6 +6704,81 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
     assert style["borderRadius"] == "999px", style["borderRadius"]
     assert btn.get_attribute("aria-label") == "Back to Engine"
+
+
+def test_the_three_back_buttons_draw_one_box(open_panel):
+    """Source, Manage account and one engine each open under the same back button: a
+    `ghost` icon-only <button> with the arrow-back icon and an aria-label
+    (extension/app.html `#source-edit-back`, `#manage-account-back`,
+    `#engine-detail-back`). Each is Supabase's Button at its tiny default, an icon in a
+    26px square (Button.tsx@86c813ec:192, constants.ts@86c813ec:61).
+
+    BOXES, NOT `min-height`. This compared the two computed min-heights until #1432's
+    review showed both come from `button, .button`, so a height declared on either
+    button passed it. `.source-edit-back` declared `height: 2.5rem` and drew 40x40
+    beside two 26x26 copies, and no test read it."""
+    page = open_panel(signed_in=AN_OWNER)
+    boxes = {}
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account", state="visible")
+    settle_view(page, "manage-account")
+    boxes["#manage-account-back"] = page.locator("#manage-account-back").bounding_box()
+
+    page.click("#tab-engines")
+    open_engine(page)
+    settle_view(page, "engine-detail")
+    boxes["#engine-detail-back"] = page.locator("#engine-detail-back").bounding_box()
+
+    page.click(SOURCES_TAB)
+    page.wait_for_selector("#view-sources", state="visible")
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_selector("#view-source-edit", state="visible")
+    settle_view(page, "source-edit")
+    boxes["#source-edit-back"] = page.locator("#source-edit-back").bounding_box()
+
+    sizes = {selector: box and (round(box["width"], 2), round(box["height"], 2))
+             for selector, box in boxes.items()}
+    assert sizes == {"#manage-account-back": (26, 26), "#engine-detail-back": (26, 26),
+                     "#source-edit-back": (26, 26)}, (
+        f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
+
+
+def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
+    """With a mouse the three icon squares are one 26px size (the test below). On a touch
+    screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
+    `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
+    docs/UI-KIT.md say:
+
+    - a plain `icon-button` declares no min-height of its own, so it takes the floor and
+      draws 26x44. #1051 moves that reach into a hit area and changes this number;
+    - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
+      (through its own) outrank the block and stay 26px squares, under the floor.
+
+    The plain one is a probe because the panel draws none outside the workspace; the
+    web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        "the page did not open as a touch screen, so nothing below is about one")
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    # In a block of its own: beside `#signout` in the flex top bar, a 44px probe would
+    # stretch the row and the sign-out with it.
+    page.evaluate("""() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button type="button" id="plain-icon-button-probe" '
+        + 'class="ghost icon-button"><svg class="sx-icon" aria-hidden="true"></svg></button>';
+      document.querySelector('main').prepend(host);
+    }""")
+    sizes = {}
+    for selector in ("#plain-icon-button-probe", "#accounts-card .account-menu-button",
+                     "#signout"):
+        box = page.locator(selector).first.bounding_box()
+        assert box, selector
+        sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
+    assert sizes == {"#plain-icon-button-probe": (26, 44),
+                     "#accounts-card .account-menu-button": (26, 26),
+                     "#signout": (26, 26)}, sizes
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):
