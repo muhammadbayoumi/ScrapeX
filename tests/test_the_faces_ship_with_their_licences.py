@@ -207,16 +207,18 @@ def test_the_sync_tool_carries_each_face_and_its_licence_to_both_surfaces(family
 
 
 def test_no_surface_ships_a_font_without_a_licence_beside_it():
-    """The other direction: a font file added to any surface's fonts/ tomorrow, under any
-    name, is refused until its OFL.txt is beside it -- and the four are all there is."""
-    expected = {f"{directory}/{name}" for directory, name, *_ in FACES.values()}
+    """The other direction: a font file added anywhere on a surface tomorrow, under any
+    name, is refused until its OFL.txt is beside it -- and the four under fonts/ are all
+    there is. The scan reads THE WHOLE SURFACE, not only its fonts/: a file dropped in
+    extension/vendor/ or at the static root ships just the same, and this is the one test
+    that pins the set; test_every_face_is_upright_by_his_choice only bounds it below."""
+    expected = {f"fonts/{directory}/{name}" for directory, name, *_ in FACES.values()}
     for surface in SURFACES:
-        shipped = {path.relative_to(surface / "fonts").as_posix()
-                   for path in (surface / "fonts").rglob("*")
+        shipped = {path.relative_to(surface).as_posix() for path in surface.rglob("*")
                    if path.suffix.lower() in {".ttf", ".otf", ".woff", ".woff2"}}
         assert shipped == expected, (surface.relative_to(ROOT).as_posix(), sorted(shipped))
         for relative in shipped:
-            licence = surface / "fonts" / Path(relative).parent / "OFL.txt"
+            licence = surface / Path(relative).parent / "OFL.txt"
             assert licence.is_file(), f"{relative} ships on {surface.name} without its OFL.txt"
 
 
