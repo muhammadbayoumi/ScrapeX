@@ -438,6 +438,64 @@ def test_both_files_of_a_backup_are_pruned_together(client):
             f"{path.name} survived without its panel pack")
 
 
+
+# ---- the light file beside every bundle (#1199) ------------------------------------
+
+def test_the_reply_describes_the_light_file_on_disk(client):
+    """The panel uploads what this reply describes (PR-5), so it must be the file."""
+    connected, backups = client
+
+    built = connected.post("/api/bundle").json()
+
+    light = built["light"]
+    assert built["light_error"] is None
+    assert light is not None and light["faults"] == []
+    stamp = built["name"][len("scrapex-bundle-"):][:15]
+    parts = backups / f"scrapex-bundle-{stamp}-light.gz"
+    index = backups / f"scrapex-bundle-{stamp}-light.json"
+    assert light["parts_file"] == {"name": parts.name, "bytes": parts.stat().st_size,
+                                   "sha256": bundle.sha256_of(parts)}
+    assert json.loads(index.read_text(encoding="utf-8")) == light
+    assert [p for p in backups.iterdir() if p.name.endswith(".part")] == []
+
+
+def test_the_light_file_is_pruned_with_its_stamp(client):
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+        (backups / f"scrapex-bundle-{stamp}-light.gz").write_bytes(b"old")
+        (backups / f"scrapex-bundle-{stamp}-light.json").write_text("{}")
+
+    connected.post("/api/bundle")
+
+    stamps = {path.name[len("scrapex-bundle-"):][:15]
+              for path in backups.glob("scrapex-bundle-*.zip")}
+    assert len(stamps) == 2
+    for suffix in ("-light.gz", "-light.json"):
+        kept = {path.name[len("scrapex-bundle-"):][:15]
+                for path in backups.glob(f"scrapex-bundle-*{suffix}")}
+        assert kept == stamps, f"{suffix} files outlived or missed their backups"
+
+
+def test_a_light_file_that_cannot_be_written_never_fails_the_backup(client, monkeypatch):
+    """The zip IS the backup. The light file failing is said in the reply, not raised."""
+    connected, backups = client
+    from scrapex import lightfile
+
+    def no_room(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(lightfile, "write", no_room)
+
+    response = connected.post("/api/bundle")
+
+    assert response.status_code == 200
+    built = response.json()
+    assert built["light"] is None
+    assert "No space left on device" in built["light_error"]
+    assert (backups / built["name"]).is_file()
+
+
 def test_a_staging_tree_left_by_a_killed_engine_is_swept(client):
     """WHAT ACTUALLY SURVIVES A CRASH. The build itself cannot — it is a thread
     inside the engine — but the staging directory it was writing does, because

@@ -37,6 +37,7 @@ from .. import (
     datasetjob,
     directories,
     directoryjob,
+    lightfile,
     localinbox,
     nativehost,
     pricehistory,
@@ -3632,6 +3633,7 @@ def create_app(
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         staging = folder / f"{BUNDLE_PREFIX}{stamp}"
         archive = folder / f"{BUNDLE_PREFIX}{stamp}.zip"
+        light, light_error = None, None
         try:
             report = bundle.build(app.state.db_path, staging)
             if not report.ok:
@@ -3670,6 +3672,17 @@ def create_app(
                 except BaseException:
                     building.unlink(missing_ok=True)
                     raise
+            # THE LIGHT FILE (#1199), written from the copy inside this very zip and
+            # before the staging folder goes, so its parts describe exactly the
+            # warehouse.db the archive carries. It never fails the backup: the zip IS
+            # the backup, so a light file that could not be written is reported in
+            # the reply rather than raised. A table that failed is in its `faults`.
+            try:
+                light = lightfile.write(
+                    staging / "warehouse.db", folder / f"{BUNDLE_PREFIX}{stamp}",
+                    price_sources=app.state.manifest.sources)
+            except (OSError, sqlite3.Error) as error:
+                light_error = f"{type(error).__name__}: {error}"
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         finally:
@@ -3695,6 +3708,9 @@ def create_app(
                 "bytes": panel_pack.stat().st_size,
                 "sha256": bundle.sha256_of(panel_pack),
             } if panel_pack.is_file() else None,
+            # The light file's index, or None and the reason it was not written.
+            "light": light.index if light is not None else None,
+            "light_error": light_error,
         }
 
     @app.get("/api/bundle/archive")
