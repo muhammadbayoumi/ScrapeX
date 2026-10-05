@@ -183,17 +183,34 @@ def test_a_bare_focus_rule_never_draws():
                        "the recipe's; use :focus-visible for a ring:\n  " + "\n  ".join(wrong))
 
 
+def _token_declarations() -> list[tuple[str, str, str, str]]:
+    """(design/tokens.css:line, selector, token, value) for every token tokens.css declares."""
+    tokens = ROOT / "design" / "tokens.css"
+    return [(f"design/tokens.css:{line}", selector, prop, value)
+            for selector, prop, value, line in declarations(tokens.read_text(encoding="utf-8"))
+            if prop.startswith("--")]
+
+
+def _at_root(selector: str) -> bool:
+    """A theme's scope: `:root`, `:root[data-theme=…]` or `:root:not(…)`, every part of a list."""
+    return all(part.strip().startswith(":root") for part in selector.split(","))
+
+
 def _recipe_tokens() -> set[str]:
-    """Every token the recipes read, and every token those read in design/tokens.css."""
-    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
-    defined = {name: value for name, value in re.findall(r"^\s*(--[\w-]+)\s*:\s*([^;]+);", tokens, re.M)}
+    """Every token the recipes read, and every token those read where tokens.css defines
+    them for a whole theme. A declaration scoped to one control is not followed: the test
+    below refuses it."""
+    defined: dict[str, set[str]] = {}
+    for _where, selector, token, value in _token_declarations():
+        if _at_root(selector):
+            defined.setdefault(token, set()).update(re.findall(r"var\((--[\w-]+)", value))
     pending = {name for values in RECIPES.values() for value in values
                for name in re.findall(r"var\((--[\w-]+)", value)} | {"--focus-ring-gap"}
     seen: set[str] = set()
     while pending:
         name = pending.pop()
         seen.add(name)
-        pending |= set(re.findall(r"var\((--[\w-]+)", defined.get(name, ""))) - seen
+        pending |= defined.get(name, set()) - seen
     return seen
 
 
@@ -210,6 +227,13 @@ def test_no_stylesheet_redeclares_a_token_the_recipes_read():
              for selector, prop, value, line in declarations(sheet.read_text(encoding="utf-8"))
              if prop in names]
     assert not found, "a stylesheet redeclares a token the focus recipes read:\n  " + "\n  ".join(found)
+    # tokens.css is not one of the authored sheets above, so a rule there could scope a
+    # token to one control (`.schedule-search:focus-within { --line-control-hover: … }`)
+    # and paint the brand the same way. There every one is declared for a whole theme.
+    themes = [(where, selector) for where, selector, token, _value in _token_declarations() if token in names]
+    assert len(themes) >= len(names), themes
+    scoped = [f"{where} {selector}" for where, selector in themes if not _at_root(selector)]
+    assert not scoped, "design/tokens.css scopes a focus-recipe token below a theme:\n  " + "\n  ".join(scoped)
 
 
 def test_every_rule_left_to_another_item_is_still_there():
