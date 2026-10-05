@@ -51,11 +51,16 @@ WHAT WAS TAKEN, AND FROM WHERE
       arithmetic. An earlier version of this sentence said byte-exact, which
       over-credited them with three values that are our own output.
     * The type scale, the weights, the radius scale and the focus geometry.
+    * The three font stacks, in their order, from
+      apps/design-system/styles/globals.css. Noto Sans Arabic, placed in
+      each, is this product's own.
     * Token NAMES, where this product's semantic role matches theirs.
 
   Some values came from their components rather than these token files: the
-  radius and focus geometry from their component classes, and the overlay from
-  their dialog. No code was copied. No file of theirs is redistributed here.
+  radius and focus geometry from their component classes, the overlay from
+  their dialog, and font-display: swap from their font loaders
+  (apps/studio/fonts/index.ts). No code was copied. No file of theirs is
+  redistributed here.
 
 
 THE TWO LICENCES, AND WHY BOTH ARE NAMED
@@ -255,6 +260,19 @@ where this summary is brief.
 
 WHAT IS NOT COVERED BY THIS NOTICE
 
-Supabase's brand marks, their wordmark, and their licensed typeface are not used
-here and are not distributed with this product. design/tokens.css names a font
-STACK of freely available faces; it does not ship theirs.
+Supabase's brand marks, their wordmark, and the proprietary typeface their
+packages/config still names (Circular) are not used here and are not
+distributed with this product.
+
+THE FOUR FACES THIS PRODUCT SHIPS ARE NOT SUPABASE'S WORK, and this notice does
+not cover them. Inter, Manrope and Source Code Pro are the faces Supabase's
+stacks name; Noto Sans Arabic is this product's addition, for Arabic, which none
+of the three covers. Each is the variable TrueType file google/fonts publishes,
+at commit b5efa9c32e8f9b63005f5cdb1ad5527a77d2cd04, distributed unmodified --
+not subset, not converted -- under the SIL Open Font License, Version 1.1. Each
+file travels with its own licence: tools/sync_design_assets.py copies it with
+the OFL.txt beside it in fonts/ next to every copy of design/tokens.css, and
+tests/test_the_faces_ship_with_their_licences.py fails a copy without one. The
+copyright holders are named in each OFL.txt: The Inter Project Authors, The
+Manrope Project Authors, Adobe Systems Incorporated for Source Code Pro (with
+Reserved Font Name 'Source'), and The Noto Project Authors.

@@ -138,7 +138,7 @@ state their consequence, active voice, and specific verbs.
 | Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` (40px) and `--control-height-sm` (32px). **Neither is on Supabase's scale**, which is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`); #1050 moves them. `--touch-target` survives for the places that size for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
 | Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
-| Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
+| Typography | `--font`, `--font-heading` and `--font-mono` are Supabase's stacks in their order (`apps/design-system/styles/globals.css@86c813ec:13-16`), with Noto Sans Arabic before the first generic family. All four faces ship as files in `design/fonts/`, each beside its `OFL.txt`, and load on both surfaces (#1048). `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
 | Motion and layering | duration/easing tokens and `--z-sticky`, `--z-overlay`, `--z-modal` |
 
 If a recurring need cannot be represented by an existing token, add one

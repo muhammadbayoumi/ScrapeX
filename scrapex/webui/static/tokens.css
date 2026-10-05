@@ -41,6 +41,49 @@
  * it called "deprecated ... migration debt" was the fallback a fresh user
  * actually saw, and it is deleted here rather than deprecated again.
  * ======================================================================== */
+/* THE FOUR FACES, SHIPPED (#1048). Supabase's three -- the faces their stacks name
+ * (apps/design-system/styles/globals.css@86c813ec:13-16) -- and Noto Sans Arabic, which
+ * #1040 adopted where Supabase is silent. Each is google/fonts' own variable TTF at
+ * b5efa9c3, unsubset, as he chose (#1040), with its OFL.txt beside it.
+ *
+ * THE url() IS RELATIVE ON PURPOSE. It is read against this sheet, and
+ * tools/sync_design_assets.py puts a fonts/ directory beside every copy of it, so the
+ * one line resolves on the extension and on the engine alike. Nothing is fetched from
+ * a host: an extension page draws itself from its own package, and the engine serves
+ * its own pages with no connection.
+ *
+ * font-weight is each file's own `wght` axis, so every weight here is drawn by the
+ * variable face and none is synthesised. font-display is Supabase's: every face they
+ * load is `display: 'swap'` (apps/studio/fonts/index.ts@86c813ec:6,12,30).
+ * tests/test_the_faces_ship_with_their_licences.py reads both from the files. */
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter/Inter-opsz-wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("fonts/manrope/Manrope-wght.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("fonts/sourcecodepro/SourceCodePro-wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans Arabic";
+  src: url("fonts/notosansarabic/NotoSansArabic-wdth-wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
 
@@ -228,16 +271,25 @@
      their packages/config is a dead self-referential var() fallback, which is
      where third-party token extractors still get the Circular claim from.
 
-     NOTHING IS FETCHED. The faces are named first and the system stack is kept
-     behind them, so a machine that has Inter uses it and one that does not is
-     unchanged -- no web font, no CSP problem in the extension, no offline
-     failure. "Noto Sans Arabic" STAYS in every stack: this product is read and
-     written in Arabic and neither Inter nor Manrope covers it. */
-  --font: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
-    "Noto Sans Arabic", sans-serif;
-  --font-heading: Manrope, Inter, "Segoe UI", system-ui,
-    "Noto Sans Arabic", sans-serif;
-  --font-mono: "Source Code Pro", ui-monospace, "Cascadia Code", Consolas,
+     THE FACES SHIP NOW, from the @font-face blocks above this rule, and THE
+     STACKS ARE THEIRS: globals.css@86c813ec:13-16 in their order. Their
+     var(--font-inter) and var(--font-source-code-pro) are next/font's handles on
+     the face named right after them, so they are dropped -- the @font-face names
+     the face itself. --font-heading is their var(--font-manrope,
+     var(--font-sans)): Manrope, then the sans stack.
+
+     "Noto Sans Arabic" IS OURS, AND IT GOES BEFORE THE FIRST GENERIC FAMILY.
+     This product is read and written in Arabic and none of their three faces
+     covers it. A glyph is drawn by the first family in the list that has it,
+     and system-ui is a generic family -- the platform's own face, DejaVu Sans
+     on Linux and Segoe UI on Windows, both of which carry Arabic. Named after
+     it, the shipped face drew no Arabic glyph at all; named before it, every
+     one (tests/test_the_faces_load_on_both_surfaces.py measures which face
+     draws). Their own entries keep their order. */
+  --font: Inter, "Helvetica Neue", Helvetica, "Noto Sans Arabic", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-heading: Manrope, var(--font);
+  --font-mono: "Source Code Pro", "Noto Sans Arabic", ui-monospace, Menlo,
     monospace;
   /* Their scale is shifted about 2px down from stock Tailwind, under their own
      comment "font sizing and weights optimized for Inter". The VALUES below match
