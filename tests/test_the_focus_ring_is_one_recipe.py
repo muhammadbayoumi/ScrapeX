@@ -177,6 +177,26 @@ def test_the_inset_form_paints_no_gap():
     assert not insets - cleared, f"inset rules that leave the gap painted: {sorted(insets - cleared)}"
 
 
+def test_a_ring_left_to_another_item_clears_the_gap_where_it_sits_inside():
+    """A rule left to another item keeps its own ring, but the shared rule's gap reaches its
+    control all the same. Where that ring sits inside the control, at a negative offset,
+    nothing is drawn around the gap: it paints a --bg band over whatever the control sits
+    flush against, as it did over the split button's border until its trigger cleared it.
+    Only a rule that draws on the focused element itself counts; a ring drawn on a sibling
+    (a switch's track after its hidden input) is not where the shared rule paints."""
+    rules: dict[tuple[str, str], dict[str, str]] = {}
+    for where, selector, prop, value in _focus_declarations():
+        if any(re.search(pattern, selector) for pattern in LEFT_TO):
+            rules.setdefault((where.rsplit(":", 1)[0], selector), {})[prop] = value
+    inside = {(sheet, selector): declared for (sheet, selector), declared in rules.items()
+              if selector.endswith(":focus-visible") and declared.get("outline-offset", "").startswith("-")}
+    assert inside, ("no rule left to another item draws its ring inside any more; this test "
+                    "held the split button's trigger (#1059) and can go")
+    wrong = [f"{sheet} {selector} {declared}" for (sheet, selector), declared in inside.items()
+             if declared.get("box-shadow") != "none"]
+    assert not wrong, "rings left to another item that sit inside and leave the gap painted:\n  " + "\n  ".join(wrong)
+
+
 def test_the_recipe_is_the_tokens_and_supabases_geometry():
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     declared = dict(re.findall(r"^\s*(--focus-ring[\w-]*):\s*([^;]+);", tokens, re.M))
