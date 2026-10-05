@@ -13,7 +13,10 @@ disagrees with the product would be worse than no contract.
 """
 from __future__ import annotations
 
+import functools
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote
 
 
@@ -24,7 +27,15 @@ class WorkspaceDestination:
     path: str
     description: str
     group: str
-    icon: str                      # sprite id — tests pin these exist
+    # LEGACY, FROZEN (#1056). The sprite id that panels released before the glyph
+    # map draw for this destination, sent in /api/ui for them alone. Nothing here
+    # reads it: the sidebar and the panel draw glyph_map() below. It never follows
+    # the map, because an older panel resolves it against its OWN sprite, and a
+    # <use> at an id that sprite lacks draws nothing. Remove it only after a panel
+    # capability entry in scrapex/version.py whose `since` is the release in which
+    # the panel stopped reading it, so that MINIMUM_EXTENSION_VERSION reaches that
+    # release; the removal is a VERSION decision. tests/test_ui_manifest.py pins it.
+    icon: str
     carries_source: bool = False   # append ?source_key=… when one is in view
     source_path: str | None = None  # a per-source page replaces the path outright
 
@@ -51,6 +62,27 @@ class RunModeOption:
     def public(self) -> dict:
         return {"key": self.key, "label": self.label,
                 "detail": self.detail, "warning": self.warning}
+
+
+# THE ONE GLYPH MAP (design/glyph-map.json, #1056): which glyph each destination
+# draws. This is the copy tools/sync_design_assets.py puts beside the engine's
+# sprite; the panel carries its own in extension/app.html. A destination the map
+# does not name draws the map's declared fallback, never an empty <use>.
+GLYPH_MAP_PATH = Path(__file__).parent / "webui" / "static" / "material-icons" / "glyph-map.json"
+
+
+# READ ON FIRST USE, NOT AT IMPORT. A bundle built without scrapex/webui/static
+# must still die where 0.3.0 died, in create_app's StaticFiles and in Starlette's
+# words (tests/test_the_frozen_engine_carries_its_own_files.py); a read at import
+# would raise first, from a different line, for the same missing tree.
+@functools.cache
+def glyph_map() -> dict:
+    glyphs = json.loads(GLYPH_MAP_PATH.read_text(encoding="utf-8"))
+    if not (isinstance(glyphs.get("destinations"), dict)
+            and isinstance(glyphs.get("fallback"), str)):
+        raise ValueError(f"{GLYPH_MAP_PATH} has no destinations table or no fallback "
+                         "glyph; run tools/sync_design_assets.py")
+    return glyphs
 
 
 # The sidebar, as data. Order and grouping ARE the design (owner's layout);
@@ -116,16 +148,19 @@ RUN_MODE_OPTIONS = (
 
 def workspace_navigation_groups(source_key: str | None = None
                                 ) -> list[tuple[str, list[tuple[str, str, str, str]]]]:
-    """The sidebar's grouped (href, label, key, icon) rows, in design order.
+    """The sidebar's grouped (href, label, key, glyph) rows, in design order.
 
     Shaped exactly like the tuple list base.html used to inline, so the
-    template's loop body did not have to change to adopt the contract."""
+    template's loop body did not have to change to adopt the contract. The glyph
+    is the map's, never the legacy `icon` field (#1056)."""
+    glyphs = glyph_map()
     groups: list[tuple[str, list[tuple[str, str, str, str]]]] = []
     for destination in WORKSPACE_DESTINATIONS:
         if not groups or groups[-1][0] != destination.group:
             groups.append((destination.group, []))
+        glyph = glyphs["destinations"].get(destination.key, glyphs["fallback"])
         groups[-1][1].append((destination.href(source_key), destination.label,
-                              destination.key, destination.icon))
+                              destination.key, glyph))
     return groups
 
 

@@ -61,6 +61,17 @@ const iconHref = (name) => `#icon-${name}`; // app.html's inline symbols (issue 
 const icon = (name, className = "") =>
   `<svg class="sx-icon ${className}" aria-hidden="true">` +
   `<use href="${iconHref(name)}"></use></svg>`;
+// THE ONE GLYPH MAP (design/glyph-map.json, #1056): which glyph each Workspace
+// destination and each Engine-page candidate draws. app.html carries it beside
+// its sprite, so it is here before this module runs. The engine still sends an
+// `icon` per destination for panels older than the map; this panel never reads
+// it, because the engine's id would be resolved against THIS panel's sprite, and
+// a use element at an id the sprite lacks draws nothing. A key the map does not know
+// (a destination from a newer engine) draws the map's declared fallback.
+const GLYPH_MAP = JSON.parse($("glyph-map").textContent);
+// Own keys only: a key is engine data, and `constructor` is on every object.
+const glyphFor = (table, key) =>
+  Object.hasOwn(GLYPH_MAP[table], key) ? GLYPH_MAP[table][key] : GLYPH_MAP.fallback;
 
 // These two count the PANEL's own in-flight work — an engine check it is
 // waiting on, an account lookup it is waiting on — so they stayed here when the
@@ -163,32 +174,34 @@ const VIEWS = [
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
+// NO GLYPHS HERE, and none read from /api/ui either: each row draws the map's
+// glyph for its key (glyphFor, #1056).
 const WORKSPACE_NAVIGATION_FALLBACK = [
-  {key: "overview", label: "Overview", path: "/", icon: "dashboard", group: "Browse",
+  {key: "overview", label: "Overview", path: "/", group: "Browse",
     description: "Sources and warehouse totals."},
-  {key: "data", label: "Data", path: "/data", icon: "storage", group: "Browse",
+  {key: "data", label: "Data", path: "/data", group: "Browse",
     description: "Browse, search, and arrange saved records."},
-  {key: "changes", label: "Changes", path: "/changes", icon: "trending-up", group: "Browse",
+  {key: "changes", label: "Changes", path: "/changes", group: "Browse",
     description: "Recent price and availability changes."},
-  {key: "history", label: "Crawl history", path: "/history", icon: "history", group: "Browse",
+  {key: "history", label: "Crawl history", path: "/history", group: "Browse",
     description: "Past runs and their outcomes."},
-  {key: "review", label: "Review queue", path: "/review", icon: "check", group: "Browse",
+  {key: "review", label: "Review queue", path: "/review", group: "Browse",
     description: "Resolve proposed record matches."},
-  {key: "jobs", label: "Jobs", path: "/jobs", icon: "play-circle", group: "Automation",
+  {key: "jobs", label: "Jobs", path: "/jobs", group: "Automation",
     description: "Start and monitor collection jobs."},
-  {key: "schedules", label: "Schedules", path: "/schedules", icon: "schedule", group: "Automation",
+  {key: "schedules", label: "Schedules", path: "/schedules", group: "Automation",
     description: "Review automatic collection times."},
-  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", icon: "sync", group: "Outputs",
+  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", group: "Outputs",
     description: "Synchronize saved data with Google Sheets and Drive."},
-  {key: "exports", label: "Exports", path: "/exports", icon: "file-download", group: "Outputs",
+  {key: "exports", label: "Exports", path: "/exports", group: "Outputs",
     description: "Create and configure Excel exports."},
-  {key: "logs", label: "Logs", path: "/logs", icon: "description", group: "System",
+  {key: "logs", label: "Logs", path: "/logs", group: "System",
     description: "Inspect detailed job activity."},
-  {key: "data-model", label: "Data Model", path: "/data-model", icon: "account-tree",
+  {key: "data-model", label: "Data Model", path: "/data-model",
     group: "System", description: "Tables, relationships, and how data moves."},
-  {key: "schema", label: "Schema", path: "/schema", icon: "view-column", group: "System",
+  {key: "schema", label: "Schema", path: "/schema", group: "System",
     description: "What every column means and who fills it."},
-  {key: "settings", label: "Settings", path: "/settings", icon: "settings", group: "System",
+  {key: "settings", label: "Settings", path: "/settings", group: "System",
     description: "Runtime, storage, and policy."},
 ];
 
@@ -209,7 +222,7 @@ function renderWorkspaceNavigation(navigation) {
       ${items.map((destination) =>
         `<button type="button" class="workspace-destination" data-workspace-key="${
           esc(destination.key)}" data-workspace-path="${esc(destination.path)}">
-          ${icon(destination.icon)}
+          ${icon(glyphFor("destinations", destination.key))}
           <span class="workspace-destination-copy">
             <strong>${esc(destination.label)}</strong>
             <small>${esc(destination.description || "Open in Workspace")}</small>
@@ -4684,7 +4697,7 @@ function renderEngineCandidates() {
   if (list.childElementCount) return;
   list.innerHTML = ENGINE_CANDIDATES.map((engine) => `
     <button class="engine-row" type="button" data-engine-id="${esc(engine.id)}">
-      <span class="icon-tile quiet" aria-hidden="true">${icon(engine.icon)}</span>
+      <span class="icon-tile quiet" aria-hidden="true">${icon(glyphFor("engines", engine.id))}</span>
       <span class="engine-row-copy">
         <span class="engine-row-line">
           <span class="engine-row-name">${esc(engine.name)}</span>

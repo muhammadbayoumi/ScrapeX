@@ -1,0 +1,68 @@
+{
+  "about": "THE ONE GLYPH MAP (#1056). It is the only declaration of which glyph each destination and each Engine-page candidate draws, and of where every glyph comes from. The side panel and the engine's templates both read it; nothing else names a destination's glyph. The engine still sends WorkspaceDestination.icon (scrapex/ui_manifest.py), frozen, for panels released before this map; it never follows the map. Authored here. tools/sync_design_assets.py copies it to scrapex/webui/static/material-icons/glyph-map.json and writes it into extension/app.html; never edit a copy. A key missing from a table draws the fallback, never an empty <use>.",
+  "rule": "A glyph's id is its source's published name, lowercased, with every _ written as -. Material publishes trending_up, so the id is trending-up; Tabler publishes x-mark, so the id is x-mark. Adding a source adds one entry under sources. Changing a source renames its glyphs by this same rule, in the change that swaps their geometry. If two sources ever publish the same name, the proposal, not yet confirmed by the owner, is to prefix the later source's id with its key here (tabler-x-mark).",
+  "sources": {
+    "material-icons": {
+      "title": "Google Material Icons",
+      "licence": "Apache-2.0",
+      "repository": "https://github.com/google/material-design-icons",
+      "commit": "737e3324305806514d7909874fa1818ae1808232",
+      "published_names": "https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/font/MaterialIcons-Regular.codepoints",
+      "file": "material-icons.svg",
+      "glyphs": [
+        "menu", "menu_open", "dashboard", "storage", "trending_up", "history",
+        "play_circle", "schedule", "sync", "file_download", "description",
+        "language", "link", "insert_drive_file", "shopping_cart", "file_upload",
+        "photo_camera", "open_in_new", "arrow_back", "info", "tune",
+        "account_circle", "security", "dns", "chevron_right", "filter_list",
+        "more_vert", "arrow_upward", "arrow_downward", "check", "push_pin",
+        "fit_screen", "unfold_more", "unfold_less", "view_stream", "account_tree",
+        "view_column", "restart_alt", "close", "search", "drag_indicator",
+        "settings", "palette", "light_mode", "dark_mode", "add", "expand_more",
+        "logout"
+      ]
+    },
+    "material-symbols": {
+      "title": "Google Material Symbols, Outlined",
+      "licence": "Apache-2.0",
+      "repository": "https://github.com/google/material-design-icons",
+      "commit": "737e3324305806514d7909874fa1818ae1808232",
+      "published_names": "https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.codepoints",
+      "file": "material-icons.svg",
+      "glyphs": ["folder_code"]
+    },
+    "tabler": {
+      "title": "Tabler Icons, outline",
+      "licence": "MIT",
+      "repository": "https://github.com/tabler/tabler-icons",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "published_names": "https://github.com/tabler/tabler-icons/tree/a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d/icons/outline",
+      "file": "x-mark.svg",
+      "glyphs": ["x-mark"]
+    }
+  },
+  "fallback": "link",
+  "destinations": {
+    "overview": "dashboard",
+    "data": "storage",
+    "changes": "trending-up",
+    "history": "history",
+    "review": "check",
+    "jobs": "play-circle",
+    "schedules": "schedule",
+    "sync": "sync",
+    "exports": "file-download",
+    "logs": "description",
+    "data-model": "account-tree",
+    "schema": "view-column",
+    "settings": "settings"
+  },
+  "engines": {
+    "scrapy": "dns",
+    "crawlee": "account-tree",
+    "crawl4ai": "description",
+    "firecrawl": "language",
+    "katana": "search",
+    "heritrix": "storage"
+  }
+}
