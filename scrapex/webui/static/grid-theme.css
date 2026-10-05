@@ -481,7 +481,8 @@
   background: var(--muted);
   opacity: .48;
   transform: translate(-50%, -50%);
-  transition: width .12s ease,height .12s ease,background-color .12s ease,opacity .12s ease;
+  transition: width var(--dur-fast) var(--ease-in-out),height var(--dur-fast) var(--ease-in-out),
+    background-color var(--dur-fast) var(--ease-in-out),opacity var(--dur-fast) var(--ease-in-out);
 }
 .tabulator .tabulator-header .tabulator-col-resize-handle:hover::after,
 .tabulator .tabulator-header .tabulator-col-resize-handle:active::after {
@@ -577,7 +578,7 @@
   background: var(--accent);
   box-shadow: var(--shadow-xs);
   transform: translateX(0);
-  transition: transform .2s var(--ease);
+  transition: transform var(--dur-200) var(--ease);
 }
 .grid-lang-segments[data-active-lang="ar"]::before,
 .grid-fold-segments[data-active-fold="on"]::before {
@@ -602,7 +603,7 @@
   font-weight: 750;
   line-height: 1;
   cursor: pointer;
-  transition: color .18s var(--ease);
+  transition: color var(--dur) var(--ease-in-out);
 }
 .grid-lang-option:hover {
   background: transparent;
@@ -843,7 +844,8 @@
   height: 1.5rem;
   padding: 0;
   border-radius: var(--radius-sm);
-  transition: background-color .12s ease,opacity .12s ease,color .12s ease;
+  transition: background-color var(--dur-200) var(--ease-out),opacity var(--dur-200) var(--ease-out),
+    color var(--dur-200) var(--ease-out);
 }
 /* The resize divider answered the pointer and these two did not, so the header
  * looked like it had one live control and two decorations — the owner's report.

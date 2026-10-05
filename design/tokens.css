@@ -302,15 +302,24 @@
      utility ramp across packages/ui and packages/ui-patterns is
      75/100/150/200/300/400/500/700/1000ms, dominated by 200 (14 uses) and 100 (6),
      and the `duration-250` utility is used ZERO times. Their animations.css uses
-     the literals 100ms, 200ms, 250ms and 300ms directly. So all three tokens below
-     match a duration they use, AND their most-used control transition, 200ms, has
-     no token here. Both sentences are about different objects; neither replaces
-     the other. */
+     the literals 100ms, 200ms, 250ms and 300ms directly. So every duration token
+     below matches a duration they use, AND --dur-200 is their most-used control
+     transition, the Button's `duration-200` (Button.tsx@86c813ec:21). Both
+     sentences are about different objects; neither replaces the other. */
   --dur-fast: 0.1s;
   --dur: 0.15s;
+  --dur-200: 200ms;
   --dur-slow: 0.25s;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);
+  /* TWO MORE CURVES ARE TAILWIND'S, under Tailwind's names, and Supabase's
+     components draw both. --ease-out is the Button's `ease-out`
+     (Button.tsx@86c813ec:20; tailwindcss theme.css@v4.2.4:435). --ease-in-out is
+     the curve every `transition-*` utility of theirs draws when it names none
+     (theme.css@v4.2.4:436 and :493), so a transition here that would say `ease`
+     reads it instead. */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Focus ring geometry — theirs is 2px at a 2px offset (`ring-2
      ring-offset-2`). Tokens rather than literals because a design system sets
