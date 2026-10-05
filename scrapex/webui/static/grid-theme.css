@@ -295,6 +295,12 @@
   color: var(--text);
 }
 .tabulator-menu { min-width: 14rem; padding: .3rem 0; }
+/* A sub-menu (Pin Column's) casts lg where its menu casts md, as Supabase's
+   DropdownMenuSubContent does (dropdown-menu.tsx@86c813ec:70). Tabulator gives
+   it the menu's own classes and appends it after its parent in the same
+   container, so its place is what tells it apart. Only a sub-menu can follow
+   another menu there: grid.js closes one header popup before opening the next. */
+.tabulator-menu ~ .tabulator-menu { box-shadow: var(--shadow-lg); }
 .tabulator-menu .tabulator-menu-item {
   color: var(--text);
   padding: .45rem .8rem;

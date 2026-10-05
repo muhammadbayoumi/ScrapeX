@@ -6,7 +6,9 @@ pin under apps/design-system, packages/config, packages/ui and packages/ui-patte
 Their atoms write Tailwind's `shadow-*` classes, so what they render is Tailwind's theme at the
 version their lockfile resolves for packages/ui -- tailwindcss 4.2.4, pnpm-lock.yaml@86c813ec:
 2618-2620. That is the value Supabase renders, not a second source
-(docs/DESIGN-SYSTEM-SOURCES.md, "Tailwind's values, stated once").
+(docs/DESIGN-SYSTEM-SOURCES.md, "Tailwind's values, stated once"). tools/read_supabase_values.py
+reads the four strings from that theme into tests/fixtures/supabase-value-axes.json, beside the
+spacing, leading, radius and easings it reads from the same file, so a re-pin reads them again.
 
 WHAT WAS TRUE BEFORE. The four were this product's own: one tint, rgb(3 3 3 / 0.06), at offsets
 of its own, re-declared darker in both dark blocks. There was no --shadow-md, so every menu,
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -34,23 +37,23 @@ from tools.value_literals import SUPABASE, authored, declarations
 pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
+TOKENS = ROOT / "design" / "tokens.css"
 NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
 GALLERY = ROOT / "design" / "gallery.html"
 APP_CSS = ROOT / "extension" / "app.css"
 
-#: The tailwindcss the pin's lockfile resolves, which is the theme the strings below are from.
-TAILWIND = "4.2.4"
+READING = json.loads(SUPABASE.read_text(encoding="utf-8"))
 
-#: packages/tailwindcss/theme.css@v4.2.4:407-410, verbatim.
-SHADOWS = {
-    "--shadow-xs": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
-    "--shadow-sm": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
-    "--shadow-md": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
-    "--shadow-lg": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
-}
+#: packages/tailwindcss/theme.css at the version the pin resolves, as the reader read it.
+SHADOWS = READING["axes"]["shadow"]["declared"]
+
+#: The one other shadow declaration: the bare alias eight surfaces read. It is xs, which is
+#: what Supabase's Card casts (card.tsx@86c813ec:10 shadow-xs).
+ALIAS = ("--shadow", "var(--shadow-xs)")
 
 # Supabase's atoms at the pin, packages/ui/src/components/shadcn/ui/, and the class each casts.
 MENU = "dropdown-menu.tsx@86c813ec:87 shadow-md"
+SUBMENU = "dropdown-menu.tsx@86c813ec:70 shadow-lg"  # DropdownMenuSubContent
 POPOVER = "popover.tsx@86c813ec:49 shadow-md"
 SELECT = "select.tsx@86c813ec:110 shadow-md"
 DIALOG = "dialog.tsx@86c813ec:67 shadow-md dark:shadow-xs"
@@ -63,6 +66,7 @@ OVERLAYS = {
     ("design/data-workspace.css", ".dataset-menu-popover"): ("--shadow-md", MENU),
     ("design/data-workspace.css", ".dataset-popover"): ("--shadow-md", POPOVER),
     ("design/grid-theme.css", ".tabulator-menu, .tabulator-popup-container"): ("--shadow-md", MENU),
+    ("design/grid-theme.css", ".tabulator-menu ~ .tabulator-menu"): ("--shadow-lg", SUBMENU),
     ("design/grid-theme.css", ".grid-feature-popover"): ("--shadow-md", POPOVER),
     ("design/grid-theme.css", ".column-chooser"): ("--shadow-lg", SHEET),
     ("extension/app.css", ".sx-select-list"): ("--shadow-md", SELECT),
@@ -76,6 +80,12 @@ OVERLAYS = {
 
 #: The Dialog's dark half, in both of the ways a dark scheme is reached.
 DIALOG_IN_DARK = (':root[data-theme="dark"] .modal-card', ':root:not([data-theme="light"]) .modal-card')
+
+#: The at-rules around each half. The explicit choice is dark on any device, so it sits in
+#: none; `:root:not([data-theme="light"])` matches a light device too, so only the dark
+#: media query around it makes it dark.
+DIALOG_DARK_AT_RULES = {DIALOG_IN_DARK[0]: [()],
+                        DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)",)]}
 
 SHADOW_READ = re.compile(r"var\((--shadow(?:-[a-z0-9]+)?)\)")
 
@@ -94,6 +104,33 @@ def _declared() -> dict[tuple[str, str], str]:
     return found
 
 
+def _box_shadow_at_rules(css: str) -> list[tuple[tuple[str, ...], str]]:
+    """(the at-rules around it, selector) for each box-shadow in `css`.
+
+    declarations() reads the same rules and drops the at-rules, which is why a dark rule
+    moved into a media query that is not dark still passed the test that reads it."""
+    css = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)), css, flags=re.S)
+    stack: list[str] = []
+    found = []
+    start = 0
+    for index, char in enumerate(css):
+        if char not in "{};":
+            continue
+        chunk = css[start:index]
+        if char == "{":
+            stack.append(" ".join(chunk.split()))
+        else:
+            if re.fullmatch(r"\s*box-shadow\s*:.+", chunk, flags=re.S | re.I) and stack:
+                found.append((tuple(s for s in stack if s.startswith("@")),
+                              next((s for s in reversed(stack) if not s.startswith("@")), "")))
+            if char == "}":
+                assert stack, "a `}` closes nothing: a brace inside a string, or a broken sheet"
+                stack.pop()
+        start = index + 1
+    assert not stack, f"{len(stack)} rule(s) never close: {stack[-1]!r}"
+    return found
+
+
 def _box_shadows() -> list[tuple[str, str, str]]:
     """(sheet, selector, value) for every box-shadow in a sheet this repository authors."""
     return [(sheet.relative_to(ROOT).as_posix(), selector, value)
@@ -102,22 +139,13 @@ def _box_shadows() -> list[tuple[str, str, str]]:
             if prop == "box-shadow"]
 
 
-def test_the_pin_still_resolves_the_tailwind_these_strings_are_from():
-    """A re-pin that moves Tailwind moves what Supabase's atoms render, and these with it."""
-    reading = json.loads(SUPABASE.read_text(encoding="utf-8"))
-    assert reading["tailwind"] == TAILWIND, (
-        f"the pin now resolves tailwindcss {reading['tailwind']}, and SHADOWS are "
-        f"theme.css@v{TAILWIND}:407-410. Read the four strings at the new version and "
-        f"put them in design/tokens.css and here in the same change.")
-
-
 @pytest.mark.parametrize("token", sorted(SHADOWS))
 def test_each_shadow_token_is_the_string_tailwinds_theme_declares(token):
     light = _declared().get((LIGHT, token))
     assert light == SHADOWS[token], (
         f"design/tokens.css's :root declares {token} as {light!r}. Supabase's atoms render "
-        f"{SHADOWS[token]!r}: tailwindcss/theme.css@v{TAILWIND}, the version their lockfile "
-        f"resolves at the pin (#1049).")
+        f"{SHADOWS[token]!r}: tailwindcss/theme.css@v{READING['tailwind']}, the version their "
+        f"lockfile resolves at the pin, as tools/read_supabase_values.py read it (#1049).")
 
 
 def test_no_dark_block_re_declares_a_shadow():
@@ -128,6 +156,26 @@ def test_no_dark_block_re_declares_a_shadow():
     assert not redeclared, (
         f"a dark block re-declares {redeclared}. Supabase's shadow-* classes resolve to "
         f"Tailwind's theme in both schemes, so dark re-toning is this product's own (#1049).")
+
+
+def test_the_shadow_tokens_are_declared_once_and_nowhere_else():
+    """The tests above read tokens.css's three blocks, and only the first of each; the
+    cascade obeys the last declaration anywhere. A trailing `:root`, the prefers-contrast block, a
+    dark block in another sheet, or the alias re-pointed to lg each changed what every
+    reader cast while it passed. So every --shadow* declaration in tokens.css and every
+    sheet this repository authors is listed here, duplicates included."""
+    found = sorted((sheet.relative_to(ROOT).as_posix(), selector, prop, value)
+                   for sheet in [TOKENS, *authored()]
+                   for selector, prop, value, _line in declarations(sheet.read_text(encoding="utf-8"))
+                   if prop.startswith("--shadow"))
+    expected = sorted(("design/tokens.css", ":root", token, value)
+                      for token, value in [*SHADOWS.items(), ALIAS])
+    assert found == expected, (
+        f"the --shadow* declarations are not the {len(expected)} in tokens.css's :root.\n"
+        f"  declared, not expected: {sorted((Counter(found) - Counter(expected)).elements())}\n"
+        f"  expected, not declared: {sorted((Counter(expected) - Counter(found)).elements())}\n"
+        f"Supabase's shadow-* classes render Tailwind's strings in every scheme and mode, and "
+        f"the one atom that swaps does it in its own rule (#1049).")
 
 
 @pytest.mark.parametrize("where", sorted(OVERLAYS), ids=lambda key: f"{key[0]} {key[1]}")
@@ -164,25 +212,18 @@ def test_the_dialog_drops_to_xs_in_dark(selector):
         f"extension/app.css `{selector}` casts {cast or 'nothing'}; {DIALOG}.")
 
 
-def test_the_dialogs_device_dark_drop_is_inside_the_dark_media_query():
-    """`:root:not([data-theme="light"])` matches a light device too: only the media query
-    around it makes it dark. The test above reads the selector and not its @media, so moving
-    the rule under `prefers-color-scheme: light` passed it and dropped the light Dialog to xs."""
-    css = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)),
-                 APP_CSS.read_text(encoding="utf-8"), flags=re.S)
-    bodies = []
-    for match in re.finditer(r"@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{", css):
-        depth, end = 1, match.end()
-        while depth:
-            depth += {"{": 1, "}": -1}.get(css[end], 0)
-            end += 1
-        bodies.append(css[match.end():end - 1])
-    device_dark = DIALOG_IN_DARK[1]
-    cast = [value for body in bodies for selector, prop, value, _line in declarations(body)
-            if selector == device_dark and prop == "box-shadow"]
-    assert cast == ["var(--shadow-xs)"], (
-        f"inside extension/app.css's @media (prefers-color-scheme: dark), `{device_dark}` "
-        f"casts {cast or 'nothing'}; {DIALOG}.")
+def test_each_dark_drop_sits_where_its_scheme_is_dark():
+    """The test above reads each selector and not the at-rules around it. Moved under
+    `prefers-color-scheme: light`, the device-dark rule dropped the light Dialog to xs; moved
+    into the dark media query, the explicit-dark rule left a reader who picks Dark on a light
+    device (design/appearance.js sets data-theme only then) with md. Both passed it."""
+    placed = {}
+    for at_rules, selector in _box_shadow_at_rules(APP_CSS.read_text(encoding="utf-8")):
+        if selector in DIALOG_DARK_AT_RULES:
+            placed.setdefault(selector, []).append(at_rules)
+    assert placed == DIALOG_DARK_AT_RULES, (
+        f"extension/app.css places the Dialog's dark drop at {placed}; {DIALOG} needs "
+        f"{DIALOG_DARK_AT_RULES}.")
 
 
 def test_the_gallery_shows_the_four_shadows_and_quotes_no_retired_one():
@@ -212,5 +253,5 @@ def test_the_notice_says_where_the_shadows_come_from():
         "design/supabase.NOTICE.txt still names --shadow-color, which no longer ships")
     assert "Shadow tokens, line-height tokens" not in notice, (
         "item 5 still lists the shadow tokens among the tokens Supabase does not have")
-    assert f"packages/tailwindcss/theme.css at v{TAILWIND}" in notice, (
+    assert f"packages/tailwindcss/theme.css at v{READING['tailwind']}" in notice, (
         "the notice does not say the shadows are Tailwind's theme at the version the pin resolves")

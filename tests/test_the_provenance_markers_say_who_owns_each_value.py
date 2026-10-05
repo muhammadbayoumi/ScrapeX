@@ -51,6 +51,8 @@ from pathlib import Path
 
 import pytest
 
+from tools.value_literals import SUPABASE
+
 # Guards a design asset copied into the extension by tools/sync_design_assets.py;
 # see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -621,10 +623,12 @@ GOOGLES_COLOURS = frozenset({"--google-btn-bg", "--google-btn-stroke", "--google
 
 # The four shadow tokens carry an rgb() each, and no marker can speak for them: Supabase
 # declares no --shadow-* for one to name. What their atoms render is Tailwind's theme at
-# the version their lockfile resolves, and test_the_shadows_are_what_supabases_atoms_render
-# pins each string to theme.css@v4.2.4 (#1049). So a shadow token says whose its colour is
-# by BEING that string: it is passed over only while its value is exactly Tailwind's, and
-# any other rgb() in it is an unmarked colour like the rest.
+# the version their lockfile resolves. tools/read_supabase_values.py reads those strings at
+# the pin into tests/fixtures/supabase-value-axes.json, and
+# test_the_shadows_are_what_supabases_atoms_render holds tokens.css to them (#1049). So a
+# shadow token says whose its colour is by BEING that string: it is passed over only while
+# its value is exactly Tailwind's, and any other rgb() in it is an unmarked colour like the rest.
+TAILWINDS_SHADOWS = json.loads(SUPABASE.read_text(encoding="utf-8"))["axes"]["shadow"]["declared"]
 
 COLOUR_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(", re.I)
 DECLARATION = re.compile(r"^[ \t]*(--[a-z0-9-]+)[ \t]*:[ \t]*([^;]+);", re.M)
@@ -638,9 +642,6 @@ def _colours_saying_nothing() -> set[tuple[str, str]]:
     dark block, so a colour arriving there arrives in both. Declarations are read with the
     comment bodies blanked, so a declaration quoted inside a comment is never counted.
     """
-    # Imported here, not at the top: that module imports this one's block parser.
-    from tests.test_the_shadows_are_what_supabases_atoms_render import SHADOWS
-
     marked = {(m[0], m[1]) for m in ALL}
     found = set()
     for (theme, pattern), (_, block) in zip(BLOCKS, _blocks()):
@@ -650,7 +651,7 @@ def _colours_saying_nothing() -> set[tuple[str, str]]:
             token, value = match.group(1), match.group(2)
             if token in GOOGLES_COLOURS or not COLOUR_LITERAL.search(value):
                 continue
-            if SHADOWS.get(token) == " ".join(value.split()):
+            if TAILWINDS_SHADOWS.get(token) == " ".join(value.split()):
                 continue
             if (theme, token) not in marked:
                 found.add((theme, token))
