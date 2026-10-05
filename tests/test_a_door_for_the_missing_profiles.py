@@ -1450,12 +1450,13 @@ def test_a_cancelled_crawl_still_owes_an_interpretation(served):
     Neither half filters status for the same reason the other does. A CANCELLED CRAWL
     still bought pages: measured twice in three days, one held 3,138 stored readings over
     802 distinct URLs. They are on disk, nothing has read them, and this badge is the
-    only thing on the screen that says so. A CANCELLED INTERPRETATION read nothing, so it
-    must not count as a reading -- which is what
-    `test_an_interpretation_that_never_read_the_pages_does_not_count_as_one` holds.
+    only thing on the screen that says so. A CANCELLED INTERPRETATION may have stopped
+    part-way, with runs it planned still unread, so it must not count as a reading --
+    which is what `test_an_interpretation_that_never_read_the_pages_does_not_count_as_one`
+    holds.
 
     Same column, opposite answers, because "did it leave pages behind" and "did it read
-    them" are two facts.
+    them all" are two facts.
     """
     client, path = served
     conn = dbmod.connect(path)
