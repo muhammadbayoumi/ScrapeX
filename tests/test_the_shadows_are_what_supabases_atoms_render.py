@@ -81,14 +81,21 @@ OVERLAYS = {
 #: The Dialog's dark half, in both of the ways a dark scheme is reached.
 DIALOG_IN_DARK = (':root[data-theme="dark"] .modal-card', ':root:not([data-theme="light"]) .modal-card')
 
-#: The rules around each of the Dialog's three box-shadows, outermost first. The base, md,
-#: stands alone: under any condition it would leave some theme and device with no shadow.
-#: The explicit choice is dark on any device, so its rule stands alone too;
+#: EVERY box-shadow the Dialog takes, each with the rules around it, outermost first. The
+#: base, md, stands alone: under any condition it would leave some theme and device with no
+#: shadow. The explicit choice is dark on any device, so its rule stands alone too;
 #: `:root:not([data-theme="light"])` matches a light device as well, so only the dark media
-#: query around it makes it dark.
+#: query around it makes it dark. A fourth rule is a fourth key, so it fails.
 DIALOG_RULES = {".modal-card": [(".modal-card",)],
                 DIALOG_IN_DARK[0]: [(DIALOG_IN_DARK[0],)],
                 DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)", DIALOG_IN_DARK[1])]}
+
+
+def _names_the_dialog(selector: str) -> bool:
+    """Some comma part's subject compound carries the class `.modal-card` -- the Dialog
+    itself, not a descendant (`.modal-card button`) or a longer class (`.modal-card-wide`)."""
+    return any(re.search(r"\.modal-card(?![\w-])", re.split(r"[\s>+~]+", part.strip())[-1])
+               for part in selector.split(","))
 
 SHADOW_READ = re.compile(r"var\((--shadow(?:-[a-z0-9]+)?)\)")
 
@@ -245,11 +252,17 @@ def test_each_dialog_shadow_sits_where_its_scheme_is():
     device (design/appearance.js sets data-theme only then) with md. Nested in another style
     rule, either one matched nothing. And the base: moved into `prefers-color-scheme: light`
     or a width query, a reader who picks Light on a dark device, or a narrow panel, got no
-    shadow at all (#1357's gate). Each passed it."""
+    shadow at all (#1357's gate). Each passed it. So did a fourth rule under a selector the
+    table did not name, `:root[data-theme="light"] .modal-card { box-shadow: none }` among
+    them, because only the three known selectors were collected; every rule that styles the
+    Dialog is collected now, keyed by its innermost style rule."""
     placed = {}
     for rules, _prop, _value in _rules_around(APP_CSS.read_text(encoding="utf-8"), "box-shadow"):
-        if rules[-1] in DIALOG_RULES:
-            placed.setdefault(rules[-1], []).append(rules)
+        assert not any("&" in rule for rule in rules), (
+            f"{rules}: a nested `&` selector is not resolved here; write the rule out in full")
+        selector = next((rule for rule in reversed(rules) if not rule.startswith("@")), "")
+        if _names_the_dialog(selector):
+            placed.setdefault(selector, []).append(rules)
     assert placed == DIALOG_RULES, (
         f"extension/app.css places the Dialog's shadows at {placed}; {DIALOG} needs "
         f"{DIALOG_RULES}.")
