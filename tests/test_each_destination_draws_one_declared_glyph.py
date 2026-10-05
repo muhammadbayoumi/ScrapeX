@@ -286,8 +286,9 @@ def _sync_tool(monkeypatch, tmp_path, *, glyph_map: str | None = None,
 def test_the_sync_refuses_a_map_that_would_end_the_panels_block_early(monkeypatch, tmp_path):
     """The block carries the map's text verbatim, so `</` in it would close the
     <script> data element inside app.html and the panel would parse half a map."""
-    text = MAP.read_text(encoding="utf-8").replace('"fallback": "link"',
-                                                   '"fallback": "link</script>"')
+    # The map's own fallback, whichever glyph he picks for it, not a copy of it here.
+    fallback = f'"fallback": "{_the_map()["fallback"]}'
+    text = MAP.read_text(encoding="utf-8").replace(fallback, f"{fallback}</script>")
     assert "</script>" in text
     sync_tool = _sync_tool(monkeypatch, tmp_path, glyph_map=text)
     with pytest.raises(ValueError, match="contains '</'"):
