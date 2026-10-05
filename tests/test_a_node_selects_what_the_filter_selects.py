@@ -15,7 +15,12 @@ from itertools import combinations
 from scrapex import taxonomy
 from scrapex.extract import service
 from tests.test_an_activity_filter_reads_what_is_stored import (
-    DATASET, _dataset, _hold, _record, _tree, warehouse,  # noqa: F401  (fixture)
+    DATASET,
+    _dataset,
+    _hold,
+    _record,
+    _tree,
+    warehouse,
 )
 
 OTHER_DATASET = "contractors"
