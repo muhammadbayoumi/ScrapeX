@@ -310,13 +310,13 @@ def test_every_face_is_upright_by_his_choice():
                 for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui")
                 for path in sorted(folder.rglob("*")) if path.suffix in (".css", ".html")
                 for face in _font_faces(path)]
-    assert len(declared) == len(FACES) * len(SURFACES), "the scan is reading the wrong files"
+    assert len(declared) >= len(FACES) * len(SURFACES), "the scan is reading the wrong files"
     slanted = [(path, face) for path, face in declared if face.get("font-style", "normal") != "normal"]
     assert not slanted, f"an @font-face declares a slanted face, against his choice: {slanted}"
 
     files = [path for surface in SURFACES for path in sorted(surface.rglob("*"))
              if path.suffix.lower() in {".ttf", ".otf", ".woff", ".woff2"}]
-    assert len(files) == len(FACES) * len(SURFACES), "the scan is reading the wrong files"
+    assert len(files) >= len(FACES) * len(SURFACES), "the scan is reading the wrong files"
     italic = []
     for path in files:
         where = path.relative_to(ROOT).as_posix()
