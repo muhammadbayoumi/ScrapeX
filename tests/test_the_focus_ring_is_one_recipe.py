@@ -27,9 +27,12 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 FOCUS = re.compile(r":focus(?:-visible|-within)?(?![\w-])")
-#: Every property that can paint a border's colour, on any side and in either writing
-#: mode, so a focus rule cannot reach the border through a shorthand or one side.
-BORDER = r"border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?"
+#: Every property that can change how a border looks, on any side and in either writing
+#: mode: its colour, width and style, and a border image, so a focus rule cannot reach
+#: the border through a shorthand, a longhand or one side. The radius is not read:
+#: Supabase's focus-inset sets one (utilities.css@86c813ec:206).
+BORDER = (r"border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:color|width|style))?"
+          r"|border-image(?:-(?:source|slice|width|outset|repeat))?")
 PROPERTIES = re.compile(rf"outline(?:-(?:width|offset|color|style))?|box-shadow|{BORDER}")
 
 #: The two recipes, as the tokens spell them.
