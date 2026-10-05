@@ -114,7 +114,9 @@ def test_another_sources_offer_is_no_card_and_a_404(client, db_path):
 
 @pytest.fixture()
 def directory(tmp_path):
-    """muqawil's profile dataset, with the interests tree held by one record."""
+    """muqawil's profile dataset: one record holding the interests tree, and a
+    `licensed_activities` membership, a group his warehouse stores (8,451 rows) and
+    the source declares as a table, not a tree."""
     path = tmp_path / "directory.db"
     conn = dbmod.connect(path)
     dbmod.migrate(conn)
@@ -122,6 +124,7 @@ def directory(tmp_path):
     nodes = _tree(conn)
     record = _record(conn, definition, version, "6001")
     _hold(conn, record, nodes["leaf"])
+    _hold(conn, record, nodes["other"], group_key="licensed_activities")
     conn.close()
     return path
 
@@ -134,6 +137,7 @@ def test_the_taxonomy_route_serves_the_function_byte_for_byte(directory, tmp_pat
     try:
         answer = taxonomy.dataset_taxonomy(conn, "contractor_profiles")
         tree = taxonomy.group_tree(conn, "interests")
+        table_group = taxonomy.group_tree(conn, "licensed_activities")
     finally:
         conn.close()
 
@@ -141,9 +145,12 @@ def test_the_taxonomy_route_serves_the_function_byte_for_byte(directory, tmp_pat
 
     assert response.status_code == 200
     assert response.content == _as_served(answer)
-    # Only the group declared as a tree, and it is the stored one.
+    # Only the group declared as a tree. `licensed_activities` stores a scheme too,
+    # and it is a table, so it never reaches the filter control.
     assert answer == {"dataset_key": "contractor_profiles", "groups": [tree]}
     assert tree["scheme"] is not None
+    assert table_group["scheme"] is not None, (
+        "the fixture no longer stores the table group, so this proves nothing")
 
 
 def test_a_declared_tree_that_stores_nothing_is_left_out(tmp_path):
