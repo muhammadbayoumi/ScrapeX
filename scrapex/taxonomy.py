@@ -330,6 +330,40 @@ def subtree_ids(conn: sqlite3.Connection, node_ids) -> frozenset[int]:
     return frozenset(int(row[0]) for row in rows)
 
 
+def selected_by_node(conn: sqlite3.Connection, dataset_id: int,
+                     node_ids) -> dict[int, list[int]]:
+    """Per node: the records of one dataset the table's filter keeps for that node alone.
+
+    THE FILTER, ANSWERED AHEAD OF TIME, for a reader with no engine (#1199). The table
+    keeps a record when it holds a membership anywhere in the chosen node's subtree:
+    one EXISTS per chosen node over `subtree_ids` (`extract.service.dataset_table_payload`).
+    So a reader holding these lists answers *any* as their union and *all* as their
+    intersection, and never needs the descent rule, which differs by group
+    (`held_counts`) and stays here rather than gaining a JavaScript copy.
+
+    ONE QUERY FOR THE MEMBERSHIPS, then one `subtree_ids` per node over a tree of about
+    214 nodes. Every record of the dataset is a candidate, whatever its status,
+    because the table filters on none (`R-27`).
+
+    Sorted, so two writes of one warehouse produce the same bytes.
+    """
+    held: dict[int, set[int]] = {}
+    for node_id, record_id in conn.execute(
+            "SELECT gn.node_id, gn.generic_record_id "
+            "  FROM generic_record_node AS gn "
+            "  JOIN generic_record AS r "
+            "    ON r.generic_record_id = gn.generic_record_id "
+            " WHERE r.dataset_definition_id = ?", (int(dataset_id),)):
+        held.setdefault(int(node_id), set()).add(int(record_id))
+    selected: dict[int, list[int]] = {}
+    for node in sorted({int(one) for one in node_ids}):
+        records: set[int] = set()
+        for member in subtree_ids(conn, (node,)):
+            records |= held.get(member, set())
+        selected[node] = sorted(records)
+    return selected
+
+
 def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
     """One group's vocabulary, with what holds it, ready for a filter control.
 
