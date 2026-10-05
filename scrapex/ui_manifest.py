@@ -13,7 +13,6 @@ disagrees with the product would be worse than no contract.
 """
 from __future__ import annotations
 
-import functools
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,11 +70,14 @@ class RunModeOption:
 GLYPH_MAP_PATH = Path(__file__).parent / "webui" / "static" / "material-icons" / "glyph-map.json"
 
 
-# READ ON FIRST USE, NOT AT IMPORT. A bundle built without scrapex/webui/static
-# must still die where 0.3.0 died, in create_app's StaticFiles and in Starlette's
-# words (tests/test_the_frozen_engine_carries_its_own_files.py); a read at import
-# would raise first, from a different line, for the same missing tree.
-@functools.cache
+# READ ON EVERY CALL: NOT AT IMPORT, AND NOT CACHED. A bundle built without
+# scrapex/webui/static must still die where 0.3.0 died, in create_app's StaticFiles
+# and in Starlette's words (tests/test_the_frozen_engine_carries_its_own_files.py);
+# a read at import would raise first, from a different line, for the same missing
+# tree. A cached map would outlive a sync: the sprite beside it and the templates
+# are read from disk live, while "Restart needed" (scrapex/provenance.py) sees only
+# loaded modules, so a renamed glyph would draw nothing with no badge to say why.
+# A read and parse measured 15 to 18 microseconds a render.
 def glyph_map() -> dict:
     glyphs = json.loads(GLYPH_MAP_PATH.read_text(encoding="utf-8"))
     if not (isinstance(glyphs.get("destinations"), dict)

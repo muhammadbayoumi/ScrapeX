@@ -67,7 +67,8 @@ const icon = (name, className = "") =>
 // `icon` per destination for panels older than the map; this panel never reads
 // it, because the engine's id would be resolved against THIS panel's sprite, and
 // a use element at an id the sprite lacks draws nothing. A key the map does not know
-// (a destination from a newer engine) draws the map's declared fallback.
+// (a destination from a newer engine) draws the map's declared fallback. A glyph
+// is text read out of the DOM, so it goes through esc() where it meets markup.
 const GLYPH_MAP = JSON.parse($("glyph-map").textContent);
 // Own keys only: a key is engine data, and `constructor` is on every object.
 const glyphFor = (table, key) =>
@@ -171,6 +172,10 @@ const VIEWS = [
   // above: no rail button, and showView maps it back to the Engine rail entry.
   "engine-detail",
 ];
+// The panel's own pages, left out of the Workspace menu because the rail carries
+// them. Their rail tab draws the map's glyph for the destination: its use element
+// in app.html carries data-glyph-destination, and tools/sync_design_assets.py
+// writes its href from design/glyph-map.json (#1056).
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
@@ -222,7 +227,7 @@ function renderWorkspaceNavigation(navigation) {
       ${items.map((destination) =>
         `<button type="button" class="workspace-destination" data-workspace-key="${
           esc(destination.key)}" data-workspace-path="${esc(destination.path)}">
-          ${icon(glyphFor("destinations", destination.key))}
+          ${icon(esc(glyphFor("destinations", destination.key)))}
           <span class="workspace-destination-copy">
             <strong>${esc(destination.label)}</strong>
             <small>${esc(destination.description || "Open in Workspace")}</small>
@@ -4697,7 +4702,7 @@ function renderEngineCandidates() {
   if (list.childElementCount) return;
   list.innerHTML = ENGINE_CANDIDATES.map((engine) => `
     <button class="engine-row" type="button" data-engine-id="${esc(engine.id)}">
-      <span class="icon-tile quiet" aria-hidden="true">${icon(glyphFor("engines", engine.id))}</span>
+      <span class="icon-tile quiet" aria-hidden="true">${icon(esc(glyphFor("engines", engine.id)))}</span>
       <span class="engine-row-copy">
         <span class="engine-row-line">
           <span class="engine-row-name">${esc(engine.name)}</span>

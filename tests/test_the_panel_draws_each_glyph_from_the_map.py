@@ -57,9 +57,19 @@ def browser():
 def open_panel(browser, tmp_path):
     pages = []
 
-    def opener(*, view=None, **stub_kwargs):
+    def opener(*, view=None, glyphs=None, **stub_kwargs):
         page_file = harness.build_page(tmp_path, harness.stub(**stub_kwargs),
                                        name=f"glyphs{len(pages)}.html")
+        if glyphs is not None:
+            # A map other than the one synced into app.html. Every `<` is written
+            # as JSON's \u003c, so the data block cannot end early whatever the map
+            # holds; JSON.parse gives the panel the characters back.
+            text = page_file.read_text(encoding="utf-8")
+            block = '<script type="application/json" id="glyph-map">\n'
+            start = text.index(block) + len(block)
+            end = text.index("</script>", start)
+            text = text[:start] + json.dumps(glyphs).replace("<", "\\u003c") + text[end:]
+            page_file.write_text(text, encoding="utf-8")
         page = browser.new_page(viewport={"width": 360, "height": 800})
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
@@ -137,3 +147,33 @@ def test_each_candidate_engine_draws_the_maps_glyph(open_panel):
     assert {key: use["href"] for key, use in rows.items()} == {
         key: f"#icon-{glyph}" for key, glyph in GLYPHS["engines"].items()}
     assert all(use["draws"] for use in rows.values())
+
+
+def test_the_rail_tab_of_each_panel_destination_draws_the_maps_glyph(open_panel):
+    """Data and Settings are left out of the menu because the rail carries them;
+    their rail tab draws the map's glyph for the destination, and it draws."""
+    page = open_panel()
+    drawn = {key: page.eval_on_selector(f"#tab-{key}", DRAWN) for key in PANEL_DESTINATIONS}
+    assert drawn == {key: [{"href": f"#icon-{GLYPHS['destinations'][key]}", "draws": True}]
+                     for key in PANEL_DESTINATIONS}
+
+
+#: Markup a glyph would become if it reached innerHTML unescaped: it closes the
+#: <use> and the <svg> around it and opens an element of its own.
+INJECTED = '"></use></svg><b id="glyph-injected"></b><svg><use href="#icon-'
+
+
+def test_a_glyph_is_text_and_never_becomes_markup(open_panel):
+    """The map is read out of the DOM (app.html's data block), so the panel escapes
+    each glyph where it meets markup, like every value it interpolates (app.js
+    esc()). A glyph carrying markup stays one attribute value, on both lists."""
+    hostile = json.loads(json.dumps(GLYPHS))
+    hostile["destinations"]["overview"] = "dashboard" + INJECTED
+    hostile["engines"]["scrapy"] = "dns" + INJECTED
+    page = open_panel(view="engines", glyphs=hostile)
+    assert page.evaluate("document.getElementById('glyph-injected') === null"), (
+        "a glyph from the map became an element of the panel")
+    assert _menu_glyphs(page)["overview"]["href"] == "#icon-dashboard" + INJECTED
+    engine = page.eval_on_selector('#engine-candidates [data-engine-id="scrapy"]', DRAWN)
+    assert engine[0]["href"] == "#icon-dns" + INJECTED
+    assert page.js_errors == []
