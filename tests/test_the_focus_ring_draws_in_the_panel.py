@@ -17,7 +17,8 @@ READ = """() => {
   const colour = (v) => { probe.style.color = ''; probe.style.color = v; return getComputedStyle(probe).color; };
   const read = {id: el.id, visible: el.matches(':focus-visible'), shadow: s.boxShadow,
                 outline: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.outlineOffset],
-                bg: colour('var(--bg)'), ring: colour('var(--focus-ring-color)')};
+                bg: colour('var(--bg)'), ring: colour('var(--focus-ring-color)'),
+                border: s.borderTopColor, fieldBorder: colour('var(--line-control-hover)')};
   probe.remove();
   return read;
 }"""
@@ -57,7 +58,8 @@ def test_the_enrichment_page_keeps_the_ring_on_every_field(browser, control):
     """#745: extension/enrichment.css cancelled the shared ring on all six fields of the
     panel's enrichment page, loaded after components.css at the same specificity. Each
     now draws it. (Chromium matches `:focus-visible` on a select or text field focused by
-    the mouse too, so a click shows it there as well; that is the browser's rule.)"""
+    the mouse too, so a click shows it there as well; that is the browser's rule.) And its
+    border takes Supabase's neutral control border, not the brand (#748)."""
     page = browser.new_page(viewport={"width": 900, "height": 900})
     try:
         page.goto((ROOT / "extension" / "enrichment.html").as_uri())
@@ -68,6 +70,7 @@ def test_the_enrichment_page_keeps_the_ring_on_every_field(browser, control):
         assert read["id"] == control[1:] and read["visible"], read
         assert read["outline"] == ["solid", "2px", read["ring"], "2px"], read
         assert read["shadow"] == f"{read['bg']} 0px 0px 0px 2px", read
+        assert read["border"] == read["fieldBorder"] != read["ring"], read
     finally:
         page.close()
 

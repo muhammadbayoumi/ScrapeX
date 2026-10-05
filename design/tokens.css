@@ -64,6 +64,16 @@
      النظام». The floor is one of the decisions that conflicts, and it yielded.
      The number is written here so that nobody rediscovers it as a defect. */
   --line-strong: #d0d0d0;
+  /* A FOCUSED FIELD'S BORDER (#748). Their Input paints `focus:border-control-hover`
+     (packages/ui/src/components/shadcn/ui/input.tsx@86c813ec:15), a neutral, not the
+     brand and not the ring. Their --border-control-hover is
+     oklch(from --foreground l calc(c * 0.5) h / calc(12% + 58% * --contrast-border))
+     (packages/ui/build/css/source/semantic.css@86c813ec:263-265), an alpha overlay
+     like --border-stronger above, so this ships the --card composite for the same
+     reason: alpha 0.298 at light's --contrast 0.53. Over --background it is #b3b3b3.
+     MEASURED: 2.073:1 on --surface. The ring beside it is the focus indicator; this
+     only marks which field holds it. */
+  --line-control-hover: #b4b4b4; /* --border-control-hover light derived */
   --text: #030303;            /* --foreground */
   --muted: #464646;           /* --muted-foreground */
   --text-subtle: #696969;     /* --tertiary-foreground */
@@ -305,9 +315,8 @@
   /* Focus ring geometry — theirs is 2px at a 2px offset (`ring-2
      ring-offset-2`). Tokens rather than literals because a design system sets
      the ring's width and offset and not only its colour.
-     Two INSET rings keep their own 2px -- the split-button trigger and the
-     source row -- because an inset ring is sized against the control it sits
-     inside, not against the page. */
+     Every INSET ring reads them too, at minus the width (`focus-inset` below), but
+     one: the split-button trigger keeps its own 2px until #1059 rebuilds it. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   /* ONE FOCUS RECIPE (#721), Supabase's two utilities (packages/config/css/
@@ -387,6 +396,9 @@
      the same choice the light block makes and records as the honest transcription;
      the one-unit gap is compositing rounding. DERIVED, not published. */
   --line-strong: #3d3f3e;
+  /* Their --border-control-hover over --card, as in light: alpha 0.280 at dark's
+     --contrast 0.5. Over --background it is #505151. MEASURED: 2.338:1 on --surface. */
+  --line-control-hover: #545555; /* --border-control-hover dark derived */
   --text: #edefee;            /* --foreground */
   --muted: #bcbdbc;           /* --muted-foreground */
   --text-subtle: #989a99;     /* --tertiary-foreground */
@@ -456,6 +468,7 @@
     --surface-raised: #1b1d1c;
     --line: #232423;
     --line-strong: #3d3f3e;
+    --line-control-hover: #545555;
     --text: #edefee;
     --muted: #bcbdbc;
     --text-subtle: #989a99;

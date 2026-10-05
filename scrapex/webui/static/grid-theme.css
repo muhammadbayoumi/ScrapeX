@@ -506,7 +506,7 @@
   background: var(--bg);
 }
 .column-chooser-search:focus-within {
-  border-color: var(--accent);
+  border-color: var(--line-control-hover);
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
   box-shadow: var(--focus-ring-gap);

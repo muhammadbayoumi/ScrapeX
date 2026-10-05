@@ -88,7 +88,7 @@ input, select {
 }
 
 /* The ring is the shared rule's (#745); this only marks the field's border. */
-input:focus, select:focus { border-color: var(--accent); }
+input:focus, select:focus { border-color: var(--line-control-hover); }
 input:disabled, select:disabled { opacity: .62; }
 
 .provider-option {
