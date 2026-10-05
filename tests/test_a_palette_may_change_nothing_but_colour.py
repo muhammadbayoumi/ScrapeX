@@ -143,6 +143,19 @@ def test_no_palette_sets_a_non_colour_token():
         f"nothing but colour: {offenders}")
 
 
+def test_no_theme_property_belongs_to_a_family_a_palette_may_not_set():
+    """The test above trusts THEME_PROPERTIES as its allowlist, so a forbidden name listed
+    there passes it. `shadow-color` was listed there as the one exception, and #1049 retired
+    it: Tailwind's shadow strings carry their own colour, so no part of a shadow is a palette's.
+    Without this, putting it back in THEME_PROPERTIES turned nothing red."""
+    offenders = [name for name in _theme_properties() for family in FORBIDDEN_FAMILIES
+                 if name == family or name.startswith(family + "-")]
+    assert not offenders, (
+        f"THEME_PROPERTIES in design/appearance.js lists {offenders}, which belong to the "
+        f"families FORBIDDEN_FAMILIES withholds from a palette. A palette may change only "
+        f"colour (R-74), and a shadow is the design system's, colour and all (#1049).")
+
+
 def test_supabase_declares_no_colours_because_it_is_the_baseline():
     """It is not one option among three -- it is what tokens.css declares.
 

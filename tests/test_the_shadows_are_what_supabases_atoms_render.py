@@ -26,6 +26,7 @@ import pytest
 
 from tests.test_the_provenance_markers_say_who_owns_each_value import (
     BLOCKS, _blocks, _without_comment_bodies)
+from tests.test_ui_kit import _live_markup
 from tools.value_literals import SUPABASE, authored, declarations
 
 # Reads extension/app.css and the design/ sources copied into extension/;
@@ -34,6 +35,8 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
+GALLERY = ROOT / "design" / "gallery.html"
+APP_CSS = ROOT / "extension" / "app.css"
 
 #: The tailwindcss the pin's lockfile resolves, which is the theme the strings below are from.
 TAILWIND = "4.2.4"
@@ -159,6 +162,46 @@ def test_the_dialog_drops_to_xs_in_dark(selector):
             if name == "extension/app.css" and sel == selector]
     assert cast == ["var(--shadow-xs)"], (
         f"extension/app.css `{selector}` casts {cast or 'nothing'}; {DIALOG}.")
+
+
+def test_the_dialogs_device_dark_drop_is_inside_the_dark_media_query():
+    """`:root:not([data-theme="light"])` matches a light device too: only the media query
+    around it makes it dark. The test above reads the selector and not its @media, so moving
+    the rule under `prefers-color-scheme: light` passed it and dropped the light Dialog to xs."""
+    css = re.sub(r"/\*.*?\*/", lambda m: " " * len(m.group(0)),
+                 APP_CSS.read_text(encoding="utf-8"), flags=re.S)
+    bodies = []
+    for match in re.finditer(r"@media\s*\(\s*prefers-color-scheme\s*:\s*dark\s*\)\s*\{", css):
+        depth, end = 1, match.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(css[end], 0)
+            end += 1
+        bodies.append(css[match.end():end - 1])
+    device_dark = DIALOG_IN_DARK[1]
+    cast = [value for body in bodies for selector, prop, value, _line in declarations(body)
+            if selector == device_dark and prop == "box-shadow"]
+    assert cast == ["var(--shadow-xs)"], (
+        f"inside extension/app.css's @media (prefers-color-scheme: dark), `{device_dark}` "
+        f"casts {cast or 'nothing'}; {DIALOG}.")
+
+
+def test_the_gallery_shows_the_four_shadows_and_quotes_no_retired_one():
+    """The catalogue is where the four are seen side by side. Before #1049 it showed three,
+    and its code sample quoted `--shadow-sm: 0 1px 3px var(--shadow-color)`."""
+    gallery = GALLERY.read_text(encoding="utf-8")
+    shown = {f"--{name}" for name in re.findall(r'class="[^"]*\bg-(shadow-[a-z0-9]+)\b',
+                                                 _live_markup(gallery))}
+    assert shown == set(SHADOWS), (
+        f"design/gallery.html shows specimens for {sorted(shown)}; "
+        f"the tokens are {sorted(SHADOWS)}")
+    chrome = re.search(r"<style>(.*?)</style>", gallery, re.S)
+    assert chrome, "design/gallery.html has no <style> block for its specimen classes"
+    reads = {selector: value for selector, prop, value, _line in declarations(chrome.group(1))
+             if prop == "box-shadow" and selector.startswith(".g-shadow-")}
+    assert reads == {f".g-{token[2:]}": f"var({token})" for token in SHADOWS}, (
+        f"design/gallery.html's specimen classes cast {reads}: each must read its own token")
+    assert "--shadow-color" not in gallery, (
+        "design/gallery.html still quotes --shadow-color, which no longer ships (#1049)")
 
 
 def test_the_notice_says_where_the_shadows_come_from():
