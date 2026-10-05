@@ -394,7 +394,9 @@
 }
 .column-chooser-search:focus-within {
   border-color: var(--accent);
-  outline: 2px solid var(--accent-weak);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: var(--focus-ring-gap);
 }
 .column-chooser-search input {
   min-width: 0;
@@ -405,6 +407,7 @@
   background: transparent;
   color: var(--text);
 }
+.column-chooser-search input:focus { outline: 0; box-shadow: none; }
 .column-chooser-list {
   min-height: 0;
   overflow: auto;
@@ -454,10 +457,7 @@
 }
 
 /* ---- chrome: scrollers, resize guides, edit inputs ---- */
-.tabulator .tabulator-tableholder:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
+.tabulator .tabulator-tableholder:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
 .tabulator-col-resize-handle {
   width: 9px;
   opacity: 1;
@@ -522,10 +522,7 @@
 #grid-features > summary::-webkit-details-marker { display: none; }
 .data-grid-command:hover,
 .data-grid-command.is-active { border-color: var(--accent); filter: none; }
-.data-grid-command:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
+.data-grid-command:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 .data-grid-command svg { width: 1.05rem; height: 1.05rem; fill: currentColor; }
 
 .data-grid-commandbar {
@@ -616,10 +613,7 @@
   background: transparent;
   color: var(--accent-contrast, var(--bg));
 }
-.grid-lang-option:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
+.grid-lang-option:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 @media (prefers-reduced-motion: reduce) {
   .grid-lang-segments::before,
   .grid-lang-option { transition: none; }
@@ -879,8 +873,7 @@
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content
   .tabulator-col-title .tabulator-header-popup-button:focus-visible {
   opacity: 1;
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none;
 }
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* The same Material arrow points down by rotation. In the no-sort state it
@@ -992,7 +985,7 @@
      top bar would otherwise land exactly on the record's name and controls. */
   scroll-margin-top: 5rem;
 }
-.record-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.record-panel:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 .record-panel.is-loading {
   min-height: 8rem;
   display: grid;
@@ -1197,8 +1190,7 @@
   transform: translateY(-50%);
 }
 #offer-panel button.selected-product-image-nav:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--focus) 78%, transparent);
-  outline-offset: -3px;
+  outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none;
   transform: translateY(-50%);
 }
 .selected-product-image-nav.is-previous { inset-inline-start: var(--sp-3); }

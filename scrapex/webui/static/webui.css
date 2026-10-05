@@ -159,8 +159,7 @@ h3 {
       border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);
       color:var(--text);box-shadow:var(--shadow-xs);cursor:pointer}
     .source-filter-trigger:hover{border-color:var(--accent);background:var(--surface-subtle)}
-    .source-filter-trigger:focus-visible{outline:3px solid color-mix(in srgb,var(--focus) 65%,transparent);
-      outline-offset:2px}
+    .source-filter-trigger:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
     .source-filter-caption{color:var(--muted);font-size:var(--fs-2xs);font-weight:var(--fw-heavy);
       letter-spacing:.07em;text-transform:uppercase}
     .source-filter-current{display:grid;gap:.1rem;min-width:0}

@@ -113,6 +113,13 @@
   transition: background-color var(--dur-fast), color var(--dur-fast);
 }
 
+/* Inset (#721): the snapshot strip clips, so a ring outside an item would not show. */
+.overview-snapshot-item:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+  box-shadow: none;
+}
+
 .overview-snapshot-item + .overview-snapshot-item {
   border-inline-start: 1px solid var(--line);
 }

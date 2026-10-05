@@ -392,8 +392,7 @@
     border-color: var(--accent);
     background: var(--surface-subtle);
   }
-  .dataset-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 65%, transparent);
-                                outline-offset: 2px; }
+  .dataset-card:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
   .dataset-card-open { position: absolute; inset-block-start: var(--sp-3);
                        inset-inline-end: var(--sp-3); color: var(--muted); }
   .dataset-card:hover .dataset-card-open { color: var(--accent-ink); }
@@ -576,7 +575,9 @@
   }
   .source-manager-search:focus-within {
     border-color: var(--focus);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 25%, transparent);
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+    box-shadow: var(--focus-ring-gap);
   }
   .source-manager-search input {
     width: 100%;
@@ -586,7 +587,7 @@
     background: transparent;
     box-shadow: none;
   }
-  .source-manager-search input:focus { box-shadow: none; }
+  .source-manager-search input:focus { outline: 0; box-shadow: none; }
   .source-manager-list {
     display: flex;
     flex: 1;
@@ -926,7 +927,9 @@
   .engine-url-field input:focus { outline: 0; box-shadow: none; }
   .engine-url-field:focus-within {
     border-color: var(--focus);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 20%, transparent);
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+    box-shadow: var(--focus-ring-gap);
   }
   .engine-url-save {
     min-height: var(--control-height-sm);
@@ -992,6 +995,8 @@
   .settings-item { overflow: hidden; border: 1px solid var(--line);
                    border-radius: var(--radius-lg); background: var(--surface); }
   .settings-item + .settings-item { border-top: 1px solid var(--line); }
+  /* Inset (#721): .settings-item clips, so a ring outside the toggle would not show. */
+  #view-settings .settings-toggle:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   #view-settings .settings-toggle { display: grid; grid-template-columns: 1.5rem minmax(0,1fr) auto;
                                     align-items: center; gap: var(--sp-3); width: 100%;
                                     min-height: 3.75rem; padding: var(--sp-3) var(--sp-4); }
@@ -1047,8 +1052,7 @@
     min-height: 2.875rem; padding-block: var(--sp-2);
   }
   .source-choice:hover { border-color: var(--accent); }
-  .source-choice:has(.source-radio:focus-visible) { outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-                                                    outline-offset: 2px; }
+  .source-choice:has(.source-radio:focus-visible) { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
   .source-choice-icon, .source-choice-check { width: 1.0625rem; height: 1.0625rem; flex: none;
                                               grid-column: 1; grid-row: 1;
                                               display: grid; place-items: center;
@@ -1327,6 +1331,8 @@
      tall child grows the view instead of handing the overflow to the scroller
      inside it — which is the page-scrolls-instead-of-rows behaviour the chain
      exists to remove. */
+  /* Inset (#721): a focusable tabpanel fills `main`, which clips a ring drawn outside it. */
+  section[role="tabpanel"]:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   #view-profile {
     display: flex;
     flex-direction: column;
@@ -1525,10 +1531,7 @@
     cursor: pointer;
     transition: box-shadow var(--dur) var(--ease);
   }
-  .profile-signin:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
-  }
+  .profile-signin:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
   .profile-signin-img {
     display: block;
     width: 180px;
@@ -1606,10 +1609,7 @@
     gap: var(--sp-2);
     outline: none;
   }
-  .profile-summary:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
-  }
+  .profile-summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 
   /* Profile page — Extension only. The signed-in state is the one state with
      chrome at both edges. `flex: 1` is what the auto margins below push
@@ -2243,6 +2243,8 @@
     border-radius: var(--radius-xl);
     overflow: hidden;
   }
+  /* Inset (#721): the row list clips, so a ring outside a row would not show. */
+  button.manage-account-row-button:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   .manage-account-rows > * + * {
     border-top: 1px solid var(--line);
   }
@@ -2555,8 +2557,7 @@
   .finance-source-link:hover { text-decoration: underline; }
   .finance-source-link:focus-visible {
     border-radius: var(--radius-sm);
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap);
   }
   .finance-card {
     display: grid;
@@ -2588,6 +2589,8 @@
     font-size: var(--fs-xs);
     line-height: 1.45;
   }
+  /* Inset (#721): .finance-card clips, so a ring outside the summary would not show. */
+  .finance-preferences-card > summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   .finance-preferences-card > summary {
     cursor: pointer;
     list-style: none;
@@ -2955,7 +2958,9 @@
   .finance-converter-row select { text-align: start; }
   .finance-converter-row:focus-within {
     border-color: var(--focus);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 22%, transparent);
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+    box-shadow: var(--focus-ring-gap);
   }
   .finance-converter-row input:focus,
   .finance-converter-row select:focus,
@@ -3406,10 +3411,7 @@
     border-radius: var(--radius);
     color: var(--text);
   }
-  .install-steps > summary:focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-    outline-offset: 2px;
-  }
+  .install-steps > summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
   .install-steps-content { padding-bottom: var(--sp-2); }
   .install-steps ol {
     margin: 0;
@@ -3490,6 +3492,8 @@
     background: var(--surface);
     overflow: hidden;
   }
+  /* Inset (#721): .engine-list clips, so a ring outside the row would not show. */
+  button.engine-row:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   /* One engine. A real <button>, because the whole row is the target and a row
      that reacts to a click while looking like nothing is a control nobody
      discovers — the same reasoning .account-switch carries on Profile.
