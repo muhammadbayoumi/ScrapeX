@@ -1257,7 +1257,7 @@ _TEXT_PAIRS = (
     ("dangerContrast", "red"),
     # Added 2026-08-30 (OD-03). Four of the five are text on a surface that carries
     # secondary text and was never measured; the fifth is accent text on the accent
-    # tint. All five use tokens that already exist, so THEME_PROPERTIES stays at 36.
+    # tint. All five use tokens that already exist, so THEME_PROPERTIES did not grow.
     ("muted", "chip"),
     ("text", "chip"),
     ("text", "surfaceSubtle"),

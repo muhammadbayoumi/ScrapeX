@@ -171,7 +171,7 @@ h3 {
     .source-filter-menu[open] .source-filter-chevron{transform:rotate(180deg)}
     .source-filter-popover{position:absolute;z-index:1;inset-inline:0;top:calc(100% + .4rem);
       overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg);
-      background:var(--surface);box-shadow:var(--shadow-lg)}
+      background:var(--surface);box-shadow:var(--shadow-md)}
     .source-filter-head{display:grid;gap:.12rem;padding:var(--sp-3) var(--sp-4);
       border-bottom:1px solid var(--line)}
     .source-filter-head small{color:var(--muted);font-size:var(--fs-xs)}

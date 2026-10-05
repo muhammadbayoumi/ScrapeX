@@ -184,7 +184,8 @@ def _literal(theme: str, token: str) -> str | None:
 #
 # 22 of the 40 colour declarations carrying an inline note are marked. The other 18 name
 # a Supabase token their sources COMPUTE -- so each is a `derived` nobody wrote down --
-# and that gap is recorded in its own issue rather than closed here.
+# and #1040 ruled that none gains a marker now. #1016, which asked, closed on his ruling
+# of 2026-10-05: answered by #1040, and guarded by UNMARKED_COLOURS below (#1098).
 MARKED_VALUES = frozenset({
     ("dark", "--accent"),
     ("dark", "--accent-contrast"),
@@ -573,10 +574,11 @@ def test_no_value_quietly_starts_being_checked_either():
     passes, which is what the test above claimed to prevent and did not: writing
     `/* --accent light derived */` onto `--chip` took the suite from 77 green to 78 green.
 
-    That direction is the live one. #1040 answered #1016: no marker is added now, so the 18
-    declarations that name a Supabase token and carry no word stay unmarked, and are
-    listed in UNMARKED_COLOURS below. This equality is what forces a marker added later
-    through a review rather than letting it arrive.
+    That direction is the live one. #1040 ruled that no marker is added now, and #1016
+    closed on that ruling on 2026-10-05, so the 18 declarations that name a Supabase token
+    and carry no word stay unmarked, and are listed in UNMARKED_COLOURS below. This
+    equality is what forces a marker added later through a review rather than letting it
+    arrive.
     """
     marked = {(m[0], m[1]) for m in ALL}
     assert marked == MARKED_VALUES, (
@@ -593,7 +595,7 @@ def test_no_value_quietly_starts_being_checked_either():
 # HERE (#698). #1040 kept the Apache 4(b) record as it stands, so none of these gains a
 # marker now, and ruled that the next colour cannot arrive without one. So the list only
 # shrinks: #702 retires --red-hover and the dark --accent-active, and #1053 the dark
-# --control-hover.
+# --control-hover. #1049 retired --shadow-color in both themes.
 #
 # A colour literal is a hex or a colour function (`rgb()`, `oklch()` and the rest), not a
 # `color-mix()` or `var()` of other tokens, which carry their own statement. A CSS colour
@@ -605,18 +607,24 @@ UNMARKED_COLOURS = frozenset({
     ("light", "--surface-raised"), ("light", "--line"), ("light", "--line-strong"),
     ("light", "--text"), ("light", "--muted"), ("light", "--text-subtle"), ("light", "--chip"),
     ("light", "--accent-contrast"), ("light", "--amber"), ("light", "--amber-ink"),
-    ("light", "--red-hover"), ("light", "--shadow-color"), ("light", "--overlay"),
+    ("light", "--red-hover"), ("light", "--overlay"),
     ("dark", "--bg"), ("dark", "--surface"), ("dark", "--surface-subtle"),
     ("dark", "--surface-raised"), ("dark", "--line"), ("dark", "--line-strong"),
     ("dark", "--text"), ("dark", "--muted"), ("dark", "--text-subtle"), ("dark", "--chip"),
     ("dark", "--accent-active"), ("dark", "--red-hover"), ("dark", "--control-hover"),
-    ("dark", "--shadow-color"),
 })
 
 # Google publishes these, test_the_google_button_follows_googles_rules.py pins all six
 # values, and Google's guidelines govern the button (docs/DESIGN-SYSTEM-SOURCES.md, the gap
 # table). They are Google's statement, not a gap in Supabase's.
 GOOGLES_COLOURS = frozenset({"--google-btn-bg", "--google-btn-stroke", "--google-btn-text"})
+
+# The four shadow tokens carry an rgb() each, and no marker can speak for them: Supabase
+# declares no --shadow-* for one to name. What their atoms render is Tailwind's theme at
+# the version their lockfile resolves, and test_the_shadows_are_what_supabases_atoms_render
+# pins each string to theme.css@v4.2.4 (#1049). So a shadow token says whose its colour is
+# by BEING that string: it is passed over only while its value is exactly Tailwind's, and
+# any other rgb() in it is an unmarked colour like the rest.
 
 COLOUR_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(", re.I)
 DECLARATION = re.compile(r"^[ \t]*(--[a-z0-9-]+)[ \t]*:[ \t]*([^;]+);", re.M)
@@ -630,6 +638,9 @@ def _colours_saying_nothing() -> set[tuple[str, str]]:
     dark block, so a colour arriving there arrives in both. Declarations are read with the
     comment bodies blanked, so a declaration quoted inside a comment is never counted.
     """
+    # Imported here, not at the top: that module imports this one's block parser.
+    from tests.test_the_shadows_are_what_supabases_atoms_render import SHADOWS
+
     marked = {(m[0], m[1]) for m in ALL}
     found = set()
     for (theme, pattern), (_, block) in zip(BLOCKS, _blocks()):
@@ -638,6 +649,8 @@ def _colours_saying_nothing() -> set[tuple[str, str]]:
         for match in DECLARATION.finditer(_without_comment_bodies(block)):
             token, value = match.group(1), match.group(2)
             if token in GOOGLES_COLOURS or not COLOUR_LITERAL.search(value):
+                continue
+            if SHADOWS.get(token) == " ".join(value.split()):
                 continue
             if (theme, token) not in marked:
                 found.add((theme, token))
