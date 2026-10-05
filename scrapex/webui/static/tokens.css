@@ -276,7 +276,7 @@
   --fw-heavy: 600;
   --lh-tight: 1.25;
   --lh: 1.5;
-  --lh-relaxed: 1.65;
+  --lh-relaxed: 1.625;
 
   /* Motion and layering. BOTH CURVES BELOW ARE SUPABASE'S OWN, and this comment
      said the opposite twice before it said this. They are in
