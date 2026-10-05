@@ -119,7 +119,7 @@
     border: 1px solid var(--outline-variant);
     border-radius: var(--radius-lg);
     background: var(--surface-container-high);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     transform-origin: top center;
     animation: select-menu-in var(--dur) var(--ease);
   }
@@ -2057,7 +2057,7 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
   }
   .account-menu > * + * {
     border-top: 1px solid var(--line);
@@ -2367,7 +2367,14 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-xl);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
+  }
+  /* Their Dialog is `border shadow-md dark:shadow-xs` (dialog.tsx@86c813ec:67): the
+     border is unconditional and the shadow is the part that goes, because dark plates
+     sit ~0.025 L apart and a blur cannot separate them -- the 1px line can. */
+  :root[data-theme="dark"] .modal-card { box-shadow: var(--shadow-xs); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .modal-card { box-shadow: var(--shadow-xs); }
   }
   /* `text-transform` and `color` are RESETS, not decoration. A global `h2` rule
      near the top of this file paints every h2 in the panel as a small uppercase
@@ -3041,7 +3048,7 @@
     border: 1px solid var(--outline-variant);
     border-radius: var(--radius-lg);
     background: var(--surface-container-high);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     scrollbar-color: var(--outline) transparent;
     scrollbar-width: thin;
   }

@@ -105,12 +105,11 @@
     "button-text", "button-hover-text", "amber", "amber-weak", "red",
     "red-hover", "red-weak",
     "danger-contrast", "switch-track", "switch-track-hover",
-    "switch-track-off", "switch-thumb", "switch-thumb-off", "shadow-color",
-    "overlay",
+    "switch-track-off", "switch-thumb", "switch-thumb-off", "overlay",
   ]);
   // R-74 · THERE IS NO SECOND AXIS, AND THAT IS THE RULING.
   //
-  // The 36 properties above are colours, and under R-74 a palette may set
+  // The properties above are colours, and under R-74 a palette may set
   // NOTHING ELSE: «whatsapp, github الوان theme يمكن اختيارها بواسطة المستخدم
   // فتعدل على الالوان فقط لا تعدل على design system».
   //
@@ -234,7 +233,7 @@
     const palette = paletteFor(value.palette);
     const theme = themeFor(palette, effectiveScheme(value));
     // Removal is meaningful, not a no-op: `supabase` declares no colours at all
-    // because its colours ARE tokens.css's, so this loop removes all 36 and the
+    // because its colours ARE tokens.css's, so this loop removes every one and the
     // baseline shows through. A palette added to the registry would set the ones
     // it overrides and leave the rest to fall through the same way.
     THEME_PROPERTIES.forEach((property) => {

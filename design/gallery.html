@@ -82,6 +82,7 @@
     .g-font-mono { font-family: var(--font-mono); }
     .g-shadow-xs { box-shadow: var(--shadow-xs); }
     .g-shadow-sm { box-shadow: var(--shadow-sm); }
+    .g-shadow-md { box-shadow: var(--shadow-md); }
     .g-shadow-lg { box-shadow: var(--shadow-lg); }
     .g-swatch-accent { --palette-swatch: var(--accent); }
     .g-swatch-accent-weak { --palette-swatch: var(--accent-weak); }
@@ -985,6 +986,7 @@
       <div class="cluster">
         <span class="card g-shadow-xs">shadow-xs</span>
         <span class="card g-shadow-sm">shadow-sm</span>
+        <span class="card g-shadow-md">shadow-md</span>
         <span class="card g-shadow-lg">shadow-lg</span>
       </div>
     </div>
@@ -996,7 +998,7 @@
   --font: Inter, ...;  --font-heading: Manrope, ...;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);       /* things that appear */
   --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);  /* things that travel */
-  --shadow-sm: 0 1px 3px var(--shadow-color);  /* they define no shadows */
+  --shadow-md: 0 4px 6px -1px ...;             /* Tailwind's, as their menus render it */
 }
 
 /* design/appearance.js — a palette carries COLOUR and nothing else. The one
