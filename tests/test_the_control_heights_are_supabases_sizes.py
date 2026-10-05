@@ -17,8 +17,10 @@ fails until it is named here with the Supabase component it is, so a control can
 a size because the nearest example had it. KEPT names the reads that left the scale instead:
 elements Supabase gives no control height, kept at the size they rendered (#1040 rule 2).
 HELD names the reads that are a Supabase component but not at its default yet, each with the
-issue that moves it. Where a row's selector matches extension/app.html, the element it matches
-is the element its component is: a Button is a <button>, an Input an <input>.
+issue that moves it. DEFAULT is what each component's default reads here: a READS row reads it,
+and a HELD row does not, so a row cannot cite a component whose default it is not. Where a
+row's selector matches extension/app.html, the element it matches is the element its component
+is: a Button is a <button>, an Input an <input>.
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from tools.value_literals import _px, authored, declarations
+from tools.value_literals import _px, _split, authored, declarations
 
 # Reads extension/ stylesheets and the design/ sources copied into extension/;
 # see tests/test_the_extension_gate_is_complete.py.
@@ -60,6 +62,10 @@ GROUP_BUTTON = ("input-group.tsx@86c813ec:122-137 InputGroupButton, a Button who
 #: markup. A Supabase InputGroup is a <div> (input-group.tsx@86c813ec:43).
 ELEMENT = {BUTTON: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
            GROUP_INSIDE: {"input"}, GROUP_BUTTON: {"button"}}
+
+#: The value each component's default size reads here. GROUP_BUTTON has none: its default, h-6,
+#: 24px, is no SIZE height, so no token holds it and a row that cites it is HELD.
+DEFAULT = {BUTTON: TINY, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL, GROUP_INSIDE: SMALL_INSIDE}
 
 C = "design/components.css"
 APP = "extension/app.css"
@@ -142,6 +148,14 @@ NO_HEIGHT = {(C, ".split-button-option"), (APP, ".finance-converter-option")}
 TOKEN_READ = re.compile(r"--control-height")
 
 
+def _reads_default(where: tuple[str, str, str], value: str, component: str) -> bool:
+    """Whether `value` is `component`'s default here. A grid-template-columns value reads it
+    when one of its tracks is it: the column a Button sits in."""
+    tracks = ([track for _before, track in _split(value, " \t\n")]
+              if where[2] == "grid-template-columns" else [value])
+    return component in DEFAULT and DEFAULT[component] in tracks
+
+
 def _declared_heights() -> list[tuple[str, str, str]]:
     """(file, token, value) for every --control-height* declaration, in tokens.css and in
     every sheet this repository authors, duplicates included."""
@@ -194,6 +208,10 @@ def test_each_size_is_declared_once_in_tokens_css():
 @pytest.mark.parametrize("where", sorted(READS), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
 def test_each_control_reads_the_size_its_supabase_component_defaults_to(where):
     value, component = READS[where]
+    assert _reads_default(where, value, component), (
+        f"{where[0]} `{where[1]}` {where[2]}: its row reads {value}, but it names {component}, "
+        f"whose default reads {DEFAULT.get(component, 'no token')} here. Name the component it "
+        f"is, or hold it in HELD with the issue that moves it.")
     found = _authored_declarations().get(where, [])
     assert found == [value], (
         f"{where[0]} `{where[1]}` declares {where[2]}: {found or 'nothing'}; it is {component}, "
@@ -219,6 +237,9 @@ def test_every_read_of_a_control_height_is_named_with_its_component():
 def test_a_control_held_off_its_default_names_the_issue_that_moves_it(where):
     value, component, issue = HELD[where]
     assert re.fullmatch(r"#\d+", issue), issue
+    assert not _reads_default(where, value, component), (
+        f"{where[0]} `{where[1]}` {where[2]}: its row reads {value}, which is {component}'s "
+        f"default here, so it is not held: its row belongs in READS.")
     found = _authored_declarations().get(where, [])
     assert found == [value], (
         f"{where[0]} `{where[1]}` declares {where[2]}: {found or 'nothing'}; it is {component}, "
