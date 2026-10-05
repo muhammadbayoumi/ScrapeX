@@ -81,11 +81,14 @@ OVERLAYS = {
 #: The Dialog's dark half, in both of the ways a dark scheme is reached.
 DIALOG_IN_DARK = (':root[data-theme="dark"] .modal-card', ':root:not([data-theme="light"]) .modal-card')
 
-#: The rules around each half's box-shadow, outermost first. The explicit choice is dark on
-#: any device, so its rule stands alone; `:root:not([data-theme="light"])` matches a light
-#: device too, so only the dark media query around it makes it dark.
-DIALOG_DARK_RULES = {DIALOG_IN_DARK[0]: [(DIALOG_IN_DARK[0],)],
-                     DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)", DIALOG_IN_DARK[1])]}
+#: The rules around each of the Dialog's three box-shadows, outermost first. The base, md,
+#: stands alone: under any condition it would leave some theme and device with no shadow.
+#: The explicit choice is dark on any device, so its rule stands alone too;
+#: `:root:not([data-theme="light"])` matches a light device as well, so only the dark media
+#: query around it makes it dark.
+DIALOG_RULES = {".modal-card": [(".modal-card",)],
+                DIALOG_IN_DARK[0]: [(DIALOG_IN_DARK[0],)],
+                DIALOG_IN_DARK[1]: [("@media (prefers-color-scheme: dark)", DIALOG_IN_DARK[1])]}
 
 SHADOW_READ = re.compile(r"var\((--shadow(?:-[a-z0-9]+)?)\)")
 
@@ -235,19 +238,21 @@ def test_the_dialog_drops_to_xs_in_dark(selector):
         f"extension/app.css `{selector}` casts {cast or 'nothing'}; {DIALOG}.")
 
 
-def test_each_dark_drop_sits_where_its_scheme_is_dark():
+def test_each_dialog_shadow_sits_where_its_scheme_is():
     """The test above reads each selector and not the rules around it. Moved under
     `prefers-color-scheme: light`, the device-dark rule dropped the light Dialog to xs; moved
     into the dark media query, the explicit-dark rule left a reader who picks Dark on a light
     device (design/appearance.js sets data-theme only then) with md. Nested in another style
-    rule, either one matched nothing. Each passed it."""
+    rule, either one matched nothing. And the base: moved into `prefers-color-scheme: light`
+    or a width query, a reader who picks Light on a dark device, or a narrow panel, got no
+    shadow at all (#1357's gate). Each passed it."""
     placed = {}
     for rules, _prop, _value in _rules_around(APP_CSS.read_text(encoding="utf-8"), "box-shadow"):
-        if rules[-1] in DIALOG_DARK_RULES:
+        if rules[-1] in DIALOG_RULES:
             placed.setdefault(rules[-1], []).append(rules)
-    assert placed == DIALOG_DARK_RULES, (
-        f"extension/app.css places the Dialog's dark drop at {placed}; {DIALOG} needs "
-        f"{DIALOG_DARK_RULES}.")
+    assert placed == DIALOG_RULES, (
+        f"extension/app.css places the Dialog's shadows at {placed}; {DIALOG} needs "
+        f"{DIALOG_RULES}.")
 
 
 def test_the_gallery_shows_the_four_shadows_and_quotes_no_retired_one():
