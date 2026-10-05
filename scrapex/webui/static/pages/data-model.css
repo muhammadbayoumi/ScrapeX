@@ -252,7 +252,9 @@
 
 .model-search:focus-within {
   border-color: var(--focus);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 25%, transparent);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: var(--focus-ring-gap);
 }
 
 .model-search input {
@@ -265,7 +267,7 @@
   text-transform: none;
 }
 
-.model-search input:focus { box-shadow: none; }
+.model-search input:focus { outline: 0; box-shadow: none; }
 
 .model-zoom {
   display: flex;
@@ -313,6 +315,8 @@
 }
 
 .model-viewport.is-panning { cursor: grabbing; user-select: none; }
+/* Inset (#721): the canvas fills a container that clips a ring drawn outside it. */
+.model-viewport:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
 
 .model-plane {
   position: relative;
@@ -396,10 +400,7 @@
   box-shadow: var(--shadow-sm);
 }
 
-.model-table:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--focus) 65%, transparent);
-  outline-offset: 2px;
-}
+.model-table:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 
 .model-table.is-selected {
   border-color: var(--accent);

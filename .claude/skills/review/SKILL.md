@@ -70,8 +70,10 @@ test or workflow change.
 
 Three rules that decide the outcome:
 
-- **The report names each reviewer and its verdict**, and for one that returned no
-  verdict, which of three it was: it died, it timed out, or it was **refused before it
+- **The report names each reviewer and its verdict, as a comment on the PR the moment
+  each pass returns.** A verdict held only in a session's context dies with the session,
+  and the next one runs the gate again. For one that returned no verdict, the report
+  says which of three it was: it died, it timed out, or it was **refused before it
   started**. A report that cannot is a **failed pass, not an empty one** — all three read
   as "this dimension found nothing", and a refusal never reaches the runner at all, so
   the dimensions most likely to be blocked are the ones that touch secrets and identity.
@@ -83,10 +85,36 @@ Three rules that decide the outcome:
 - **A split leaves a stack, and a squash merge breaks it.** Merging the parent collapses
   its commits into one, so the child's `git rebase` fails outright — *"Could not apply"* —
   because its commits correspond to nothing in `main`'s history. Do not force it past
-  that. Rebuild the child on `main` and carry its files over:
-  `git switch -c child-v2 origin/main`, then `git checkout <old-child> -- <its files>`.
-  That stages them, so read the result with `git diff HEAD` and confirm it is the addition
-  you expect — a plain `git diff` shows nothing and looks like an empty change.
+  that. Rebuild the child on `main` from its own commits, in this order:
+  1. **Find them: `git cherry -v <parent-branch> <old-child>`.** A parent rebased after
+     the child branched leaves the child holding stale copies of its commits, and both
+     `git log <parent-branch>..<old-child>` and `git diff <parent-branch>...<old-child>`
+     include them. `git cherry` marks each unchanged copy `-` and every other commit `+`.
+     A `+` is still a copy, one the rebase changed, when
+     `git log --format='%ad %s' <parent-branch>...<old-child> | sort | uniq -d` (Git Bash)
+     prints its author date and subject. Do not decide it from `git range-diff`: it pairs
+     by likeness, and calls a small own commit a copy. A merged parent's deleted branch
+     is still on the remote:
+     `git fetch origin pull/<parent>/head:refs/remotes/origin/pr/<parent>`, then use
+     `origin/pr/<parent>`; a bare fetch lands only in `FETCH_HEAD`, which the next fetch
+     overwrites.
+  2. **`git switch -c child-v2 origin/main`, then `git cherry-pick` the child's own
+     commits in the order `git cherry` prints them.** Never
+     `git checkout <old-child> -- <files>`: a file the parent changed again after the
+     child branched comes back in its old version, silently. The cherry-pick stops on
+     that file instead; keep `main`'s side and re-apply the child's change to it, and a
+     resolution that picks a behaviour goes back to the author.
+  3. **Read it: `git range-diff --creation-factor=100 <parent-branch>..<old-child>
+     origin/main..HEAD`.** Each `<` must be a copy step 1 found. Each own commit shows
+     `=`, or `!` where every changed patch line (`-` or `+` in the second column) is a
+     conflict you resolved; a changed context line (blank second column) is `main`
+     moving beside it, and a `Commit message` hunk is your own edit.
+  4. **Retarget, then push**: `gh pr edit <n> --base main`, then
+     `git push --force-with-lease=<branch>:<old-child> origin HEAD:<branch>`, the lease
+     pinned to the SHA it replaces. Pushed first, the head is tested against the parent's
+     branch, or not at all when it conflicts with it; and the retarget starts no `ci.yml`
+     run, because a base change arrives as `edited`, which `ci.yml`'s default event types
+     leave out.
 
 ## What a pass may spend
 

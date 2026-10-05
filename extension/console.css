@@ -614,10 +614,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 }
 
 .field input:focus-visible,
-.field select:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
+.field select:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: var(--focus-ring-offset); box-shadow: var(--focus-ring-gap); }
 
 /* The note sits UNDER its own control, not in a summary at the bottom. A list
    of faults away from the fields they belong to is a list you read once and

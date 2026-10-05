@@ -588,8 +588,17 @@ export async function metadata(token, fileId, {fetchImpl = fetch} = {}) {
  * The format number exists so that a machine running last month's engine says
  * "update me" instead of opening an archive it does not understand and
  * reporting whatever it manages to read as the warehouse.
+ *
+ * `remedy` NAMES WHO READS IT. The archive is read by the engine, so a restore
+ * says to update the engine. The panel pack is read by this extension on a
+ * machine that may have no engine at all, where that sentence would send him
+ * to update something he does not have.
  */
-async function readableLatest(token, {reads, tail = "", fetchImpl}) {
+async function readableLatest(token, {
+  reads, tail = "",
+  remedy = "Update the ScrapeX engine on this machine, then try again.",
+  fetchImpl,
+}) {
   const parent = await folderId(token, {fetchImpl});
   const pointer = await readLatest(token, parent, {fetchImpl});
   if (!pointer) {
@@ -600,8 +609,7 @@ async function readableLatest(token, {reads, tail = "", fetchImpl}) {
   if (format !== undefined && format !== null && format !== reads) {
     throw new DriveError(
       `That backup was written in bundle format ${format} and this device ` +
-      `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
-      `again.${tail}`, null, "wrong-format");
+      `reads ${reads}. ${remedy}${tail}`, null, "wrong-format");
   }
   return pointer;
 }
@@ -817,14 +825,15 @@ export async function readLatestInPieces(token, {
  * a complete one, which is the same reason nothing else here trusts a filename.
  */
 export async function fetchPanelPack(token, {
-  onProgress = null, fetchImpl = fetch,
+  reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
 } = {}) {
-  const parent = await folderId(token, {fetchImpl});
-  const pointer = await readLatest(token, parent, {fetchImpl});
-  if (!pointer) {
-    throw new DriveError(
-      "No backup has been uploaded from any device yet.", null, "no-backup");
-  }
+  // THROUGH THE ONE GATE, so a pack from a format this panel does not read is
+  // refused before a byte of it is downloaded, the same as a restore (#599,
+  // #619). This path read `bundle_format` zero times.
+  const pointer = await readableLatest(token, {
+    reads, tail: " Nothing is shown.",
+    remedy: "Update the extension, then reopen this panel.", fetchImpl,
+  });
   if (!pointer.panel_pack || !pointer.panel_pack.file_id) {
     // An OLD backup, made before the pack was carried separately. Saying that
     // is better than "no data": the owner's warehouse is safe, it is this one
@@ -838,10 +847,24 @@ export async function fetchPanelPack(token, {
   const pack = await download(token, pointer.panel_pack.file_id,
                               {onProgress, fetchImpl});
   const promised = pointer.panel_pack.bytes;
-  if (promised && pack.size !== promised) {
+  // `typeof`, NOT `promised &&`, for the reason recorded on `fetchLatest`: a
+  // pointer saying `bytes: 0` switched the comparison off, and an empty pack
+  // reached the screen as "That backup carries no datasets" -- a failed
+  // download presented as an empty warehouse.
+  // Worded to be true in both directions: a pointer saying 0 that delivers 5
+  // did not "stop at 5 of 0".
+  if (typeof promised === "number" && pack.size !== promised) {
     throw new DriveError(
-      `The download stopped at ${pack.size} of ${promised} bytes, so the rows ` +
-      "would be incomplete. Nothing is shown.", null, "truncated");
+      `The download holds ${pack.size} bytes and the backup recorded ` +
+      `${promised}, so the rows cannot be trusted. Nothing is shown.`,
+      null, "truncated");
+  }
+  // Reached when the sizes agree at zero, or the pointer recorded none. An
+  // empty pack holds no rows whatever the pointer says.
+  if (pack.size === 0) {
+    throw new DriveError(
+      "The data in that backup is empty, so there is nothing to show. Back up " +
+      "once more from a machine that has the engine.", null, "empty");
   }
   return {pack, pointer};
 }
