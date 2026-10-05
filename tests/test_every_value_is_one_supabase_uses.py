@@ -71,6 +71,19 @@ def test_the_scan_reads_the_authored_sheets_and_not_the_copies():
     assert not any("vendor" in name for name in names), names
 
 
+def test_every_line_height_rung_the_tokens_declare_is_one_supabase_uses():
+    """design/tokens.css is left out of the scan above because it defines the tokens, so a
+    rung written there was judged by nothing: --lh-relaxed sat at 1.65 where Tailwind's
+    relaxed, the leading Supabase inherits, is 1.625 (#1052)."""
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+    rungs = re.findall(r"^\s*(--lh[\w-]*)\s*:\s*([^;]+);", tokens, re.M)
+    assert {"--lh-tight", "--lh", "--lh-relaxed"} <= {name for name, _ in rungs}, rungs
+    off = [f"{name}: {value.strip()}" for name, value in rungs
+           if not allowed("line-height", ":root", "line-height", value.strip(), RULES)]
+    assert not off, ("line-height rungs Supabase does not use at the pin:\n  " + "\n  ".join(off)
+                     + "\nUse a value tests/fixtures/supabase-value-axes.json holds.")
+
+
 def _judge(css: str) -> list[tuple[str, str, bool]]:
     """(axis, literal, allowed) for every literal in a snippet of CSS."""
     return [(axis, literal, allowed(axis, selector, prop, literal, RULES))

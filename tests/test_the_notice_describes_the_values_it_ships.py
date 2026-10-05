@@ -52,6 +52,9 @@ NOTICE = ROOT / "design" / "supabase.NOTICE.txt"
 THEIRS = {
     "light": {
         "--line-strong": "#d0d0d0",
+        # Their --border-control-hover over --card, alpha 12% + 58% * --contrast-border
+        # at light's --contrast 0.53 (#748).
+        "--line-control-hover": "#b4b4b4",
         "--focus": "#98e3c0",
         "--amber": "#ca8a10",
         "--amber-ink": "#080503",
@@ -61,6 +64,8 @@ THEIRS = {
     },
     "dark": {
         "--focus": "#2f7a57",
+        # The same over dark's --card, at --contrast 0.5.
+        "--line-control-hover": "#545555",
         # oklch(0.19 0.00225 159) from dark's surface 0.19 / 0.95 / chroma 0.005.
         # This one is what validates the arithmetic: two independent scalars sets
         # reproducing two shipped values byte-for-byte is not a coincidence.

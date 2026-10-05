@@ -251,7 +251,7 @@
 }
 
 .model-search:focus-within {
-  border-color: var(--focus);
+  border-color: var(--line-control-hover);
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
   box-shadow: var(--focus-ring-gap);
@@ -384,9 +384,9 @@
   box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition:
-    border-color var(--dur-fast) ease,
-    box-shadow var(--dur-fast) ease,
-    opacity var(--dur-fast) ease;
+    border-color var(--dur-fast) var(--ease-in-out),
+    box-shadow var(--dur-fast) var(--ease-in-out),
+    opacity var(--dur-fast) var(--ease-in-out);
 }
 
 .model-stage.is-ready .model-table {

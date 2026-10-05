@@ -184,10 +184,11 @@ def _literal(theme: str, token: str) -> str | None:
 # test still passes because the total is nowhere near its floor, and nothing anywhere
 # says a value lost its statement.
 #
-# 22 of the 40 colour declarations carrying an inline note are marked. The other 18 name
+# 24 of the 42 colour declarations carrying an inline note are marked. The other 18 name
 # a Supabase token their sources COMPUTE -- so each is a `derived` nobody wrote down --
 # and #1040 ruled that none gains a marker now. #1016, which asked, closed on his ruling
-# of 2026-10-05: answered by #1040, and guarded by UNMARKED_COLOURS below (#1098).
+# of 2026-10-05: answered by #1040, and guarded by UNMARKED_COLOURS below (#1098). The
+# two --line-control-hover markers arrived with the token, a focused field's border (#748).
 MARKED_VALUES = frozenset({
     ("dark", "--accent"),
     ("dark", "--accent-contrast"),
@@ -199,6 +200,7 @@ MARKED_VALUES = frozenset({
     ("dark", "--amber-weak"),
     ("dark", "--danger-contrast"),
     ("dark", "--focus"),
+    ("dark", "--line-control-hover"),
     ("dark", "--red"),
     ("dark", "--red-weak"),
     ("light", "--accent"),
@@ -209,6 +211,7 @@ MARKED_VALUES = frozenset({
     ("light", "--amber-weak"),
     ("light", "--danger-contrast"),
     ("light", "--focus"),
+    ("light", "--line-control-hover"),
     ("light", "--red"),
     ("light", "--red-weak"),
 })

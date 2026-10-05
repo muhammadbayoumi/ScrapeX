@@ -386,8 +386,8 @@
   }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
                   color: var(--text); cursor: pointer;
-                  transition: border-color var(--dur-fast) ease,
-                              background var(--dur-fast) ease; }
+                  transition: border-color var(--dur-fast) var(--ease-in-out),
+                              background var(--dur-fast) var(--ease-in-out); }
   .dataset-card:hover {
     border-color: var(--accent);
     background: var(--surface-subtle);
@@ -574,7 +574,7 @@
     color: var(--muted);
   }
   .source-manager-search:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
@@ -622,8 +622,8 @@
     border-radius: var(--radius-md);
     background: var(--surface);
     transition:
-      border-color var(--dur-fast) ease,
-      background var(--dur-fast) ease;
+      border-color var(--dur-fast) var(--ease-in-out),
+      background var(--dur-fast) var(--ease-in-out);
   }
   .source-manager-card:hover {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
@@ -926,7 +926,7 @@
   }
   .engine-url-field input:focus { outline: 0; box-shadow: none; }
   .engine-url-field:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
@@ -1074,12 +1074,12 @@
   .source-choice-panel { display: grid; grid-template-rows: 0fr; opacity: 0;
                          visibility: hidden; margin: 0 var(--sp-4); padding-bottom: 0;
                          transition: grid-template-rows var(--dur-slow) var(--ease),
-                                     opacity var(--dur) ease, padding-bottom var(--dur-slow) var(--ease),
+                                     opacity var(--dur) var(--ease-in-out), padding-bottom var(--dur-slow) var(--ease),
                                      visibility 0s linear var(--dur-slow); }
   .source-choice-panel-inner { min-height: 0; overflow: hidden; padding-top: 0;
                                border-top: 1px solid transparent;
                                transition: padding-top var(--dur-slow) var(--ease),
-                                           border-color var(--dur) ease; }
+                                           border-color var(--dur) var(--ease-in-out); }
   .source-choice:has(.source-radio:checked) .source-choice-panel {
     grid-template-rows: 1fr; opacity: 1; visibility: visible;
     padding-bottom: var(--sp-3); transition-delay: 0s;
@@ -2964,7 +2964,7 @@
   }
   .finance-converter-row select { text-align: start; }
   .finance-converter-row:focus-within {
-    border-color: var(--focus);
+    border-color: var(--line-control-hover);
     outline: var(--focus-ring-width) solid var(--focus-ring-color);
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
@@ -3410,7 +3410,7 @@
   .install-steps > summary::-webkit-details-marker { display: none; }
   .install-steps > summary .sx-icon {
     flex: none;
-    transition: transform 200ms ease;
+    transition: transform var(--dur-200) var(--ease-in-out);
   }
   .install-steps[open] > summary .sx-icon { transform: rotate(180deg); }
   .install-steps > summary:hover {
