@@ -342,6 +342,22 @@ def test_header_filter_and_menu_are_keyboard_controls(page):
         "() => document.activeElement.classList.contains('dg-header-menu')")
 
 
+def test_escape_closes_a_menu_the_instant_it_opens(page):
+    """CI pressed Escape faster than the menu armed its Escape listener, and the menu
+    stayed open: the listener waited a turn, as only the outside-click one has to (the
+    click that opened the menu is still travelling to the document). Pressed in the
+    same turn as the menu opens, Escape must still close it."""
+    still_open = page.evaluate("""() => {
+        document.querySelector('.dg-col[data-field="price"] .dg-header-menu').click();
+        const opened = !!document.querySelector('.dg-menu');
+        document.activeElement.dispatchEvent(new KeyboardEvent(
+          'keydown', {key: 'Escape', bubbles: true, cancelable: true}));
+        return [opened, !!document.querySelector('.dg-menu')];
+    }""")
+    assert still_open == [True, False], (
+        f"opened, then still open after Escape: {still_open}")
+
+
 # ---- the footer must describe the table in front of you ----------------------
 
 def test_the_footer_counts_the_rows_actually_shown(page):

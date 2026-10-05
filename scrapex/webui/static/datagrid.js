@@ -1214,12 +1214,14 @@ export class DataGrid {
       },
     };
     this._popup = popup;
-    // Next turn: the click that opened it is still travelling to document.
+    // Escape at once: a key pressed the instant it opened must still close it.
+    document.addEventListener("keydown", onKey, true);
+    // The outside click next turn: the click that opened it is still travelling
+    // to document, and would close it on the way.
     setTimeout(() => {
       if (this._popup !== popup) return;
       document.addEventListener("pointerdown", onPointer, true);
       document.addEventListener("click", onPointer, true);
-      document.addEventListener("keydown", onKey, true);
     }, 0);
   }
 
