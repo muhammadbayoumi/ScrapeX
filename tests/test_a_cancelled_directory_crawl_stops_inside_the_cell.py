@@ -519,7 +519,7 @@ def test_a_finished_crawl_queues_its_own_interpretation(conn, monkeypatch):
     A price source is one pass — `capture.py` fetches and ingests straight into the
     warehouse. A directory source was two, with a button between them for a stage that is
     ours, not his. And the engine already knew the second was due: `_work_waiting`
-    computes exactly that and drew a line on the card.
+    computes that and drew a line on the card.
 
     ES-1 in `docs/ENGINEERING-SOURCES.md` is what this rests on.
     """
@@ -588,6 +588,67 @@ def test_a_stopped_crawl_queues_nothing(conn, monkeypatch):
         f"a cancelled crawl queued {len(interprets)} interpretation(s). He pressed stop."
     )
     assert seen["job"]["status"] == JobStatus.CANCELLED.value
+
+
+@pytest.mark.parametrize("pages", [3, 0], ids=["after-three-pages", "before-any-page"])
+def test_a_failed_crawl_queues_nothing(conn, monkeypatch, pages):
+    """THE THIRD WAY OUT OF THE RUNNER, AND THE ONE NOTHING HELD. Issue 1347.
+
+    `_queue_the_interpretation` runs ONLY ON THE SUCCESS PATH. The two stops are held by
+    the test above and the one at the foot of this file; a crawl that RAISES leaves
+    through `except Exception`, which writes FAILED and re-raises. Calling the chain
+    after that `_finish` passed every test of the chain -- measured, a crawl that stored
+    3 pages and then raised went from no interpretation queued to one.
+
+    THREE PAGES IS THE CASE THAT MATTERS: a failed crawl still bought them, so "interpret
+    what it got" reads as helpful. Nothing is lost by refusing. `_finish` stamps
+    `finished_at` on a FAILED crawl too, and `_work_waiting` reads the crawl half with no
+    status filter, so the card still says the pages are unread and offers the press.
+    """
+    fetcher = _Fetcher()
+
+    def fetch(url: str) -> str:
+        fetcher.requests_count += 1
+        return "<html></html>"
+
+    monkeypatch.setattr(directoryjob.contractors, "make_fetch",
+                        lambda pace_s: (fetcher, fetch))
+    monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
+
+    def crawl_then_raise(*args, **kwargs):
+        beating = kwargs.get("beating") or args[2]
+        for page in range(pages):
+            beating(f"https://muqawil.org/en/contractors?page={page}")
+        raise RuntimeError("the site answered with something the parse refused")
+
+    monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_then_raise)
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    conn.commit()
+    # RE-RAISED, NOT SWALLOWED: the worker records what the runner hands it.
+    with pytest.raises(RuntimeError, match="the parse refused"):
+        directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    assert fetcher.requests_count == pages, (
+        f"the crawl spent {fetcher.requests_count} request(s), not the {pages} this "
+        f"test drives, so it is not measuring the failure it names"
+    )
+    job = jobs.get_job(conn, ref)
+    assert job["status"] == JobStatus.FAILED.value, (
+        f"the crawl reads {job['status']!r} after raising; the failure path did not run"
+    )
+    interprets = [row for row in conn.execute(
+        "SELECT job_ref, status FROM crawl_job WHERE job_kind = ?",
+        (datasetjob.JOB_KIND,))]
+    assert not interprets, (
+        f"a FAILED crawl queued {len(interprets)} interpretation(s): "
+        f"{[dict(row) for row in interprets]!r}. The chain runs only on the success path."
+    )
+    log = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id = ? ORDER BY job_log_id",
+        (job["job_id"],))]
+    assert not any("queued the interpretation" in line for line in log), (
+        f"the crawl's log announces an interpretation it should not have queued: {log!r}"
+    )
 
 
 def test_a_crawl_that_cannot_queue_its_interpretation_still_finished(conn, monkeypatch):
