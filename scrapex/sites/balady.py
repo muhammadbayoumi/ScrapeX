@@ -425,6 +425,6 @@ def detail_url(office: Office, *, base_url: str = BASE_URL) -> str:
     # rest of the row does -- CLAUDE.md: "scraped content is untrusted input". Raw, an
     # `&` in it appends a second query parameter to a request ScrapeX will make, and a
     # `#` truncates the query so a DIFFERENT office's page is fetched and attributed to
-    # this one. `scrapex/ui_manifest.py:35` is the same call for the same reason.
+    # this one. `scrapex/ui_manifest.py:45` is the same call for the same reason.
     return (f"{base_url}{DETAIL_PATH}"
             f"?OfficeId={quote(office.hashed_office_id, safe='')}")

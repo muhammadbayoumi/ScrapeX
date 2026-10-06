@@ -146,7 +146,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
-         worker_alive=True, engine_build=None, engine_sqlite=None, bundle=None) -> str:
+         worker_alive=True, engine_build=None, engine_sqlite=None, bundle=None,
+         ui=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -342,6 +343,12 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             report = dict(report, capabilities=[
                 c for c in report["capabilities"] if c["key"] not in omit_capabilities])
         routes["/api/version"] = report
+    if ui is not None:
+        # /api/ui, the shared UI contract the panel adopts in its deferred phase.
+        # None keeps the default every other test runs on: no route, a 404, and the
+        # panel's own offline navigation. A dict is an engine's manifest, which is
+        # how a test meets an engine older or newer than the panel (#1056).
+        routes["/api/ui"] = ui
     # A write answers differently from a read on the same path: POST /api/jobs
     # returns the new job's ref, and the panel stores it to start polling. The
     # read table would hand back the job LIST, so anything that checked what a

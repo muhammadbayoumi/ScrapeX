@@ -54,8 +54,9 @@ def test_every_generated_copy_says_it_is_one() -> None:
     from tools.sync_design_assets import ASSETS
 
     # Text only. A PNG cannot carry a comment, and nobody hand-edits a binary
-    # into a divergent state without noticing.
-    readable = {".js", ".css"}
+    # into a divergent state without noticing. JSON has no comment either, so
+    # design/glyph-map.json says it in its "about" field (#1056).
+    readable = {".js", ".css", ".json"}
     checked = 0
     for source, destinations in ASSETS.items():
         if source.suffix not in readable:
@@ -339,12 +340,14 @@ def test_a_missing_catalogue_fails_the_check(tmp_path, monkeypatch) -> None:
         sync_tool.sync(check=True)
 
 
-@pytest.mark.parametrize("marker", ["SPRITE_OPEN", "SPRITE_CLOSE"])
+@pytest.mark.parametrize(
+    "marker", ["SPRITE_OPEN", "SPRITE_CLOSE", "GLYPHS_OPEN", "GLYPHS_CLOSE"])
 def test_a_lost_panel_marker_fails_the_check(tmp_path, monkeypatch, marker) -> None:
     """The Side Panel carries a generated sprite too (issue 1110), and its every icon
     points into it, so a renamed marker must fail the check -- naming the page as well
     as the marker, since two pages now share the markers -- rather than leave the
-    panel's icons unchecked."""
+    panel's icons unchecked. The glyph map's block (#1056) is held the same way: its
+    every Workspace row and Engine row draws what that block names."""
     import tools.sync_design_assets as sync_tool
 
     text = sync_tool.PANEL.read_text(encoding="utf-8")

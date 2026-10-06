@@ -31,6 +31,8 @@ sync_playwright = playwright_api.sync_playwright
 
 import grid_harness as harness  # noqa: E402
 
+from tests.test_vendor import SPRITE_TOKEN  # noqa: E402
+
 GRID = ROOT / "scrapex" / "webui" / "static" / "grid.js"
 
 #: An engine address nothing listens on. Every fetch is answered by the harness's stub,
@@ -260,13 +262,13 @@ def test_a_host_that_names_nothing_usable_is_the_engines_page(open_grid, host_js
 
 
 @pytest.mark.parametrize("sprite,href", [
-    (None, "/static/material-icons/material-icons.svg?v=design-system-3#close"),
-    ("icons/material-icons.svg", "icons/material-icons.svg#close"),
-    ("", "#close"),
+    (None, f"/static/material-icons/material-icons.svg?v={SPRITE_TOKEN}#material-close"),
+    ("icons/material-icons.svg", "icons/material-icons.svg#material-close"),
+    ("", "#material-close"),
 ], ids=["the-engine-page", "a-host-sprite", "inline-symbols"])
 def test_ui_takes_its_sprite_from_its_own_tag(open_grid, sprite, href):
     page = open_grid(icon_sprite=sprite)
-    assert f'href="{href}"' in page.evaluate("() => window.ScrapeXUI.icon('close')")
+    assert f'href="{href}"' in page.evaluate("() => window.ScrapeXUI.icon('material-close')")
 
 
 def test_no_engine_address_in_the_grid_is_written_without_the_base():
