@@ -9,7 +9,7 @@
   .state.success{border-inline-start:4px solid var(--accent)}
   .state.loading{border-inline-start:4px solid var(--amber)}
   .snapshot-form textarea{min-height:12rem;width:100%;direction:ltr;
-    font-family:ui-monospace,monospace;resize:vertical}
+    font-family:var(--font-mono);resize:vertical}
   .candidate-list,.dataset-list{display:grid;gap:.75rem}
   .candidate{border:1px solid var(--line);border-radius:10px;padding:.85rem}
   .candidate h3{margin:0;font-size:1rem}

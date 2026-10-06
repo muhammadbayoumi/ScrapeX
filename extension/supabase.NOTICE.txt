@@ -51,12 +51,20 @@ WHAT WAS TAKEN, AND FROM WHERE
       arithmetic. An earlier version of this sentence said byte-exact, which
       over-credited them with three values that are our own output.
     * The type scale, the weights, the radius scale and the focus geometry.
+    * The three font stacks, in their order, from
+      apps/design-system/styles/globals.css. Noto Sans Arabic, placed in
+      each, is this product's own, and it goes directly after the first
+      shipped Latin face, so no face this product does not ship stands ahead
+      of it. A glyph is drawn by the first family that has it, and Chromium
+      aliases a missing Helvetica to Arial, which on Windows carries Arabic:
+      placed behind Helvetica, the shipped face would draw no Arabic there.
     * Token NAMES, where this product's semantic role matches theirs.
 
   Some values came from their components rather than these token files: the
   radius and focus geometry from their component classes, the overlay from
-  their dialog, and the four shadows from the shadow-* classes their components
-  render (item 5 says from where). No code was copied. No file of theirs is
+  their dialog, the four shadows from the shadow-* classes their components
+  render (item 5 says from where), and font-display: swap from their font
+  loaders (apps/studio/fonts/index.ts). No code was copied. No file of theirs is
   redistributed here.
 
 
@@ -263,6 +271,29 @@ where this summary is brief.
 
 WHAT IS NOT COVERED BY THIS NOTICE
 
-Supabase's brand marks, their wordmark, and their licensed typeface are not used
-here and are not distributed with this product. design/tokens.css names a font
-STACK of freely available faces; it does not ship theirs.
+Supabase's brand marks, their wordmark, and the proprietary typeface their
+packages/config still names (Circular) are not used here and are not
+distributed with this product.
+
+THE FOUR FACES THIS PRODUCT SHIPS ARE NOT SUPABASE'S WORK, and this notice does
+not cover them. Inter, Manrope and Source Code Pro are the faces Supabase's
+stacks name; Noto Sans Arabic is this product's addition, for Arabic, which none
+of the three covers. Each is the variable TrueType file google/fonts publishes,
+at commit b5efa9c32e8f9b63005f5cdb1ad5527a77d2cd04, distributed unmodified --
+not subset, not converted -- under the SIL Open Font License, Version 1.1. Each
+file travels with its own licence: tools/sync_design_assets.py copies it with
+the OFL.txt beside it in fonts/ next to every copy of design/tokens.css, and
+tests/test_the_faces_ship_with_their_licences.py fails a copy without one. The
+copyright holders are named in each OFL.txt: The Inter Project Authors, The
+Manrope Project Authors, Adobe Systems Incorporated for Source Code Pro (with
+Reserved Font Name 'Source'), and The Noto Project Authors.
+
+ONLY THE UPRIGHT FILES SHIP, BY HIS CHOICE (2026-10-05, #1431). Supabase's
+sources disagree on italic faces. The design system's own loader loads upright
+faces only (apps/design-system/lib/fonts.ts@86c813ec:10-23); studio's loader
+ships an italic Inter and an italic Source Code Pro
+(apps/studio/fonts/index.ts@86c813ec:20-24 and :38-42); and their docs say "No
+italics for emphasis"
+(apps/design-system/content/docs/copywriting.mdx@86c813ec:241). So no italic
+file is distributed, and the browser slants the upright file for the few italic
+runs there are: .unverified, and the web UI's <em>, whose emphasis #1436 takes.
