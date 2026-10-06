@@ -802,7 +802,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
 #: its pair to UI_SCRIPT_FOR_SPRITE under a ui.js token no earlier sprite was served with.
 SPRITE_TOKEN = "design-system-4"
 
-#: The ui.js token each sprite token was last served with. A ui.js bump for any other
+#: The ui.js token each sprite token was last served with: one pair for every sprite
+#: token from design-system-3 to SPRITE_TOKEN, in order. A sprite bump keeps every
+#: earlier pair and adds its own, so a find-and-replace of the token, which renames the
+#: current pair instead, leaves a gap the test refuses. A ui.js bump for any other
 #: reason replaces the current sprite's entry.
 UI_SCRIPT_FOR_SPRITE = {"design-system-3": "layout-8", "design-system-4": "layout-9"}
 
@@ -842,11 +845,19 @@ def test_the_engines_pages_load_the_ui_script_that_asks_for_that_token():
     glyph with its source's key. A browser still running a cached layout-8 ui.js asks for
     design-system-3, which it may answer from its cached unprefixed sprite, so every glyph
     ui.js and grid.js draw would be an empty <use>. So the ui.js token is read from the
-    sprite token's pair, not written here: a sprite bump with no new pair, or a pair that
-    reuses an earlier ui.js token, fails before base.html can keep the cached script."""
-    assert SPRITE_TOKEN in UI_SCRIPT_FOR_SPRITE, (
-        f"the sprite moved to {SPRITE_TOKEN}, so ui.js moves too: add its pair to "
-        f"UI_SCRIPT_FOR_SPRITE {UI_SCRIPT_FOR_SPRITE}")
+    sprite token's pair, not written here, and every sprite token keeps its pair: a
+    sprite bump with no new pair, one that renames the current pair instead of adding
+    one, or a pair that reuses an earlier ui.js token, fails before base.html can keep
+    the cached script."""
+    generation = re.fullmatch(r"design-system-([1-9]\d*)", SPRITE_TOKEN)
+    assert generation, (
+        f"UI_SCRIPT_FOR_SPRITE is keyed by design-system-N, and the sprite is at "
+        f"{SPRITE_TOKEN!r}: a new token scheme re-keys the table")
+    sprites = [f"design-system-{n}" for n in range(3, int(generation[1]) + 1)]
+    assert list(UI_SCRIPT_FOR_SPRITE) == sprites, (
+        f"the sprite is at {SPRITE_TOKEN}, so UI_SCRIPT_FOR_SPRITE pairs each of {sprites} "
+        f"with its ui.js token, in order, and it has {list(UI_SCRIPT_FOR_SPRITE)}: a sprite "
+        f"bump keeps every earlier pair and adds its own, so ui.js moves too")
     assert len(set(UI_SCRIPT_FOR_SPRITE.values())) == len(UI_SCRIPT_FOR_SPRITE), (
         f"each sprite token is served with its own ui.js token: {UI_SCRIPT_FOR_SPRITE}")
     ui_token = UI_SCRIPT_FOR_SPRITE[SPRITE_TOKEN]
