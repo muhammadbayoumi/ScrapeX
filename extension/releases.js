@@ -167,12 +167,14 @@ export async function latestEngineRelease(fetchImpl = fetch) {
  *
  * When an engine register does exist, this table is what it replaces — one
  * export, one shape, six rows.
+ *
+ * No glyph column: each row draws the glyph design/glyph-map.json names for its
+ * `id` under `engines`, the one declaration of every glyph a row draws (#1056).
  */
 export const ENGINE_CANDIDATES = [
   {
     id: "scrapy",
     name: "Scrapy",
-    icon: "dns",
     role: "Structured spiders and large static crawls",
     shape: "Isolated Python worker",
     licence: "BSD-3-Clause",
@@ -180,7 +182,6 @@ export const ENGINE_CANDIDATES = [
   {
     id: "crawlee",
     name: "Crawlee",
-    icon: "account-tree",
     role: "Persistent queues, sessions and proxies",
     shape: "Python implementation first; a Node sidecar remains possible",
     licence: "Apache-2.0",
@@ -188,7 +189,6 @@ export const ENGINE_CANDIDATES = [
   {
     id: "crawl4ai",
     name: "Crawl4AI",
-    icon: "description",
     role: "Clean Markdown and document extraction",
     shape: "Isolated Python worker or local service",
     licence: "Apache-2.0 · attribution and dependencies still to review",
@@ -196,7 +196,6 @@ export const ENGINE_CANDIDATES = [
   {
     id: "firecrawl",
     name: "Firecrawl",
-    icon: "language",
     role: "Self-hosted or hosted scraping and crawling API",
     shape: "Separate HTTP provider, never copied into core",
     licence: "AGPL-3.0 · legal review before distribution",
@@ -204,7 +203,6 @@ export const ENGINE_CANDIDATES = [
   {
     id: "katana",
     name: "Katana",
-    icon: "search",
     role: "URL, route and endpoint discovery",
     shape: "Versioned Go binary or container adapter",
     licence: "MIT",
@@ -212,7 +210,6 @@ export const ENGINE_CANDIDATES = [
   {
     id: "heritrix",
     name: "Heritrix",
-    icon: "storage",
     role: "Web-scale archival crawling, WARC output",
     shape: "Separate Java or container archival pack",
     licence: "Apache-2.0 · some files under other licences",

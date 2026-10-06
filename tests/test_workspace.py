@@ -59,7 +59,7 @@ def test_workspace_starts_without_a_top_header_bar(client):
     assert "runtime-status" not in page
     assert 'class="sidebar-toggle workspace-menu-button icon-button"' in page
     assert 'class="workspace-sidebar-status"' in page
-    assert "#menu" in page
+    assert "#material-menu" in page
     assert "--workspace-sidebar-width" in css
     assert ".workspace-shell{min-height:100vh" in css
     assert ".workspace-sidebar{grid-column:1" in css
@@ -248,7 +248,9 @@ def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client)
     assert metric < sync.index(
         '<span class="source-identity-meta-value">2</span>', metric
     )
-    assert 'font-family: Consolas, "Courier New", monospace;' in styles
+    # The metric reads in the mono face through the token (#1048), not a stack of its own.
+    meta = styles.split("\n.source-identity-meta {", 1)[1].split("}", 1)[0]
+    assert "font-family: var(--font-mono);" in meta
     assert "margin-inline-end: 0.45em;" in styles
     assert ".source-identity-meta-value {\n  color: inherit;" in styles
 

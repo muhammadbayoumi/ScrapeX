@@ -7,6 +7,11 @@ the ring and a shadow, `--focus-ring-gap`, paints the offset; design/tokens.css 
 the colour, the gap and the two geometry tokens once, and every rule that draws focus
 reads them. Before this, 72 declarations held 24 distinct values: widths of 2px and
 3px, eleven colours, and offsets of 2px, 1px, -2px and -3px.
+
+A focused field also moves its border, and only its colour: Supabase's Input paints
+`focus:border-control-hover`, their neutral control border, beside the ring
+(packages/ui/src/components/shadcn/ui/input.tsx@86c813ec:15). Here that is
+--line-control-hover, and no focus rule paints a border in the brand or the ring (#748).
 """
 from __future__ import annotations
 
@@ -22,13 +27,23 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 FOCUS = re.compile(r":focus(?:-visible|-within)?(?![\w-])")
-PROPERTIES = re.compile(r"outline(?:-(?:width|offset|color|style))?|box-shadow")
+#: Every property that can change how a border looks, on any side and in either writing
+#: mode: its colour, width and style, and a border image, so a focus rule cannot reach
+#: the border through a shorthand, a longhand or one side. The radius is not read:
+#: Supabase's focus-inset sets one (utilities.css@86c813ec:206).
+BORDER = (r"border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-(?:color|width|style))?"
+          r"|border-image(?:-(?:source|slice|width|outset|repeat))?")
+PROPERTIES = re.compile(rf"outline(?:-(?:width|offset|color|style))?|box-shadow|{BORDER}")
 
 #: The two recipes, as the tokens spell them.
 RECIPES = {
     "outline": {"var(--focus-ring-width) solid var(--focus-ring-color)"},
     # The ring sits at its offset; the inset at minus its width.
     "outline-offset": {"var(--focus-ring-offset)", "calc(-1 * var(--focus-ring-width))"},
+    # The focused field's border, in colour only and in the neutral control border:
+    # `focus:border-control-hover` (input.tsx@86c813ec:15). Any other border property
+    # in a focus rule, a shorthand or one side, is outside the recipe.
+    "border-color": {"var(--line-control-hover)"},
 }
 
 #: Rules this change leaves to the item that rebuilds or owns them, each named. An entry
@@ -80,6 +95,8 @@ COMPOSED = ('.dataset-items a[aria-current="page"]:focus-visible',
 def test_every_focus_indicator_is_one_of_the_two_recipes():
     found = _focus_declarations()
     assert len(found) > 50, f"only {len(found)} focus declarations were read"
+    borders = [where for where, _selector, prop, _value in found if re.fullmatch(BORDER, prop)]
+    assert len(borders) >= 10, f"only {len(borders)} focused borders were read: {borders}"
     wrappers = _ring_wrappers(found)
     insets = _insets(found)
     wrong = []
@@ -100,7 +117,9 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
             wrong.append(f"{where} {selector} {{ {prop}: {value} }}")
     assert not wrong, ("focus drawn outside the two recipes; draw the outline in --focus-ring-color "
                        "at --focus-ring-offset (with --focus-ring-gap), or at calc(-1 * "
-                       "var(--focus-ring-width)) for the inset:\n  " + "\n  ".join(wrong))
+                       "var(--focus-ring-width)) for the inset, and move a focused field's "
+                       "border-color, and nothing else of its border, to "
+                       "var(--line-control-hover):\n  " + "\n  ".join(wrong))
 
 
 def test_every_rule_that_draws_the_ring_draws_all_of_it():
@@ -150,14 +169,77 @@ def test_a_bare_focus_rule_never_draws():
     """`:focus` matches a mouse click too, so a ring drawn on it shows where Supabase's
     `focus-visible` draws none, and a ring cancelled on it is cancelled for the keyboard
     as well (#745, #747). A bare `:focus` may only drop an inner control's own indicator
-    under a wrapper that draws the ring."""
+    under a wrapper that draws the ring. The border is not a ring: Supabase's Input moves
+    it on `focus:` itself (input.tsx@86c813ec:15), so a bare `:focus` may set the
+    recipe's border-color, which the test above holds to the neutral control border."""
     found = _focus_declarations()
     wrappers = _ring_wrappers(found)
     bare = re.compile(r":focus(?![\w-])")
     wrong = [f"{where} {selector} {{ {prop}: {value} }}" for where, selector, prop, value in found
              if bare.search(selector) and not any(re.search(pattern, selector) for pattern in LEFT_TO)
-             and not (value in ("0", "none") and _suppressed_under_a_ring(selector, wrappers))]
-    assert not wrong, "a bare :focus rule draws or cancels a ring; use :focus-visible:\n  " + "\n  ".join(wrong)
+             and not (value in ("0", "none") and _suppressed_under_a_ring(selector, wrappers))
+             and not (prop == "border-color" and value in RECIPES["border-color"])]
+    assert not wrong, ("a bare :focus rule draws or cancels a ring, or paints a border other than "
+                       "the recipe's; use :focus-visible for a ring:\n  " + "\n  ".join(wrong))
+
+
+def _token_declarations() -> list[tuple[str, str, str, str]]:
+    """(design/tokens.css:line, selector, token, value) for every token tokens.css declares."""
+    tokens = ROOT / "design" / "tokens.css"
+    return [(f"design/tokens.css:{line}", selector, prop, value)
+            for selector, prop, value, line in declarations(tokens.read_text(encoding="utf-8"))
+            if prop.startswith("--")]
+
+
+#: A theme's whole scope and nothing below it: `:root`, `:root[data-theme="dark"]`,
+#: `:root:not([data-theme="light"])`. A prefix test let `:root .field:focus-within` and
+#: `:root:has(.field:focus-within)` through, and each painted the brand (#1354's gate).
+THEME_SCOPE = re.compile(r":root(?:\[[^\]]*\]|:not\(\[[^\]]*\]\))*")
+
+
+def _at_root(selector: str) -> bool:
+    """A theme's scope, every part of a list: the selector is the root and its attributes."""
+    return all(THEME_SCOPE.fullmatch(part.strip()) for part in selector.split(","))
+
+
+def _recipe_tokens() -> set[str]:
+    """Every token the recipes read, and every token those read where tokens.css defines
+    them for a whole theme. A declaration scoped to one control is not followed: the test
+    below refuses it."""
+    defined: dict[str, set[str]] = {}
+    for _where, selector, token, value in _token_declarations():
+        if _at_root(selector):
+            defined.setdefault(token, set()).update(re.findall(r"var\((--[\w-]+)", value))
+    pending = {name for values in RECIPES.values() for value in values
+               for name in re.findall(r"var\((--[\w-]+)", value)} | {"--focus-ring-gap"}
+    seen: set[str] = set()
+    while pending:
+        name = pending.pop()
+        seen.add(name)
+        pending |= defined.get(name, set()) - seen
+    return seen
+
+
+def test_no_stylesheet_redeclares_a_token_the_recipes_read():
+    """The recipe guard reads the declarations, so `border-color: var(--line-control-hover)`
+    passes wherever it is written. A rule that also sets --line-control-hover to the brand,
+    on the field or on any ancestor, would paint the brand through a declaration the guard
+    accepts: rendered, the focused #schedule-search border went rgb(63,207,142) and every
+    test stayed green (#1354's tests pass). These tokens are design/tokens.css's alone."""
+    names = _recipe_tokens()
+    assert {"--line-control-hover", "--focus", "--focus-ring-gap", "--bg"} <= names, names
+    found = [f"{sheet.relative_to(ROOT).as_posix()}:{line} {selector} {{ {prop}: {value} }}"
+             for sheet in authored()
+             for selector, prop, value, line in declarations(sheet.read_text(encoding="utf-8"))
+             if prop in names]
+    assert not found, "a stylesheet redeclares a token the focus recipes read:\n  " + "\n  ".join(found)
+    # tokens.css is not one of the authored sheets above, so a rule there could scope a
+    # token to one control (`.schedule-search:focus-within { --line-control-hover: … }`)
+    # and paint the brand the same way. There every one is declared for a whole theme.
+    themes = [(where, selector) for where, selector, token, _value in _token_declarations() if token in names]
+    assert len(themes) >= len(names), themes
+    scoped = [f"{where} {selector}" for where, selector in themes if not _at_root(selector)]
+    assert not scoped, "design/tokens.css scopes a focus-recipe token below a theme:\n  " + "\n  ".join(scoped)
 
 
 def test_every_rule_left_to_another_item_is_still_there():

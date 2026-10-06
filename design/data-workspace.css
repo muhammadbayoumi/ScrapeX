@@ -25,7 +25,7 @@
 .dataset-menu-popover{position:absolute;z-index:120;inset-inline-start:0;top:calc(100% + .45rem);
   display:flex;width:min(22rem,calc(100vw - 3rem));max-height:min(34rem,calc(100vh - 8rem));
   flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--surface);
-  box-shadow:var(--shadow-lg);overflow:hidden}
+  box-shadow:var(--shadow-md);overflow:hidden}
 .dataset-browser-head{padding:.85rem;border-bottom:1px solid var(--line)}
 .dataset-browser-title{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
 .dataset-browser-title h2{margin:0;font-size:.9rem}
@@ -40,7 +40,7 @@
   fill:var(--muted);transform:translateY(-50%);pointer-events:none}
 .dataset-search{display:block;width:100%;min-width:0!important;padding:.48rem .6rem .48rem 1.85rem;
   border:1px solid var(--line);border-radius:var(--radius);background:var(--bg)}
-.dataset-search:focus-visible{border-color:var(--accent);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
+.dataset-search:focus-visible{border-color:var(--line-control-hover);outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
 .dataset-result-count{display:block;margin-top:.45rem;color:var(--muted);font-size:.64rem}
 .dataset-list{min-height:0;padding:.38rem;overflow-y:auto;scrollbar-width:thin;
   scrollbar-color:var(--line) transparent}
@@ -190,7 +190,7 @@ a.data-source-status:hover{border-color:var(--accent);background:var(--accent-we
 .dataset-popover{position:absolute;z-index:130;inset-inline-start:0;top:calc(100% + .45rem);
   width:min(29rem,calc(100vw - 3rem));max-height:min(32rem,calc(100vh - 8rem));
   overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);
-  box-shadow:var(--shadow-lg)}
+  box-shadow:var(--shadow-md)}
 .dataset-popover>header{display:grid;gap:.12rem;padding:.85rem 1rem;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--surface) 94%,var(--bg))}
 .dataset-popover>header strong{font-size:.86rem}

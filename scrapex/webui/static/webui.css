@@ -141,7 +141,7 @@ h3 {
         padding-top:calc(var(--sp-6) + 2.75rem)}
       .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
         inset:0;background:var(--overlay);opacity:0;
-        pointer-events:none;transition:opacity var(--dur) ease;z-index:8}
+        pointer-events:none;transition:opacity var(--dur) var(--ease-in-out);z-index:8}
       .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
       .sidebar-ready.sidebar-open{overflow:hidden}
       .workspace-footer{grid-template-columns:1fr;align-items:flex-start}
@@ -171,7 +171,7 @@ h3 {
     .source-filter-menu[open] .source-filter-chevron{transform:rotate(180deg)}
     .source-filter-popover{position:absolute;z-index:1;inset-inline:0;top:calc(100% + .4rem);
       overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-lg);
-      background:var(--surface);box-shadow:var(--shadow-lg)}
+      background:var(--surface);box-shadow:var(--shadow-md)}
     .source-filter-head{display:grid;gap:.12rem;padding:var(--sp-3) var(--sp-4);
       border-bottom:1px solid var(--line)}
     .source-filter-head small{color:var(--muted);font-size:var(--fs-xs)}

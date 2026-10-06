@@ -130,13 +130,16 @@ def open_panel(browser, tmp_path):
     """Open the panel with a given stub and return the live page."""
     pages = []
 
-    def opener(*, view=None, ready="settled", **stub_kwargs):
+    def opener(*, view=None, ready="settled", touch=False, **stub_kwargs):
         """`view` navigates after load. The panel opens on Welcome, and a test
         about Source has to get to Source the way an owner would — by pressing
-        its rail button — rather than by asserting on a page it never entered."""
+        its rail button — rather than by asserting on a page it never entered.
+        `touch` opens it as a phone does, where `(hover: none), (pointer:
+        coarse)` matches."""
         page_file = harness.build_page(tmp_path, harness.stub(**stub_kwargs),
                                        name=f"panel{len(pages)}.html")
-        page = browser.new_page(viewport={"width": 360, "height": 800})
+        page = browser.new_page(viewport={"width": 360, "height": 800},
+                                has_touch=touch, is_mobile=touch)
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
@@ -965,8 +968,8 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
         assert "ScrapeX" in said and "Supabase" not in said, said
     scheme_icons = view.locator(".appearance-scheme-picker svg use")
     assert scheme_icons.count() == 2
-    assert scheme_icons.nth(0).get_attribute("href") == "#icon-light-mode"
-    assert scheme_icons.nth(1).get_attribute("href") == "#icon-dark-mode"
+    assert scheme_icons.nth(0).get_attribute("href") == "#material-light-mode"
+    assert scheme_icons.nth(1).get_attribute("href") == "#material-dark-mode"
     assert view.locator(
         '[data-appearance-scheme-mode="device"] svg'
     ).count() == 0
@@ -1257,7 +1260,7 @@ _TEXT_PAIRS = (
     ("dangerContrast", "red"),
     # Added 2026-08-30 (OD-03). Four of the five are text on a surface that carries
     # secondary text and was never measured; the fifth is accent text on the accent
-    # tint. All five use tokens that already exist, so THEME_PROPERTIES stays at 36.
+    # tint. All five use tokens that already exist, so THEME_PROPERTIES did not grow.
     ("muted", "chip"),
     ("text", "chip"),
     ("text", "surfaceSubtle"),
@@ -2754,7 +2757,7 @@ def test_dataset_hover_does_not_move_the_card_out_of_its_scrollport(open_panel):
 
 def test_finance_tab_sits_immediately_above_workspace(open_panel):
     page = open_panel()
-    assert page.locator("#tab-sources use").get_attribute("href") == "#icon-add"
+    assert page.locator("#tab-sources use").get_attribute("href") == "#material-add"
     data_y, finance_y, workspace_y, sources_y = page.evaluate("""() => [
         document.querySelector('[data-view="data"]').offsetTop,
         document.querySelector('[data-view="finance"]').offsetTop,
@@ -2808,7 +2811,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert finance_source_link.get_attribute("href") == "https://www.google.com/finance/"
     assert finance_source_link.get_attribute("target") == "_blank"
     assert finance_source_link.locator("use").get_attribute("href") == \
-        "#icon-open-in-new"
+        "#material-open-in-new"
     assert page.locator("#view-finance .finance-card").count() == 3
     assert page.locator("details.finance-preferences-card[open]").count() == 0
     assert page.locator("#view-finance .finance-card").evaluate_all("""elements =>
@@ -3085,14 +3088,14 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
         separatorHeight: getComputedStyle(element, '::after').height,
       }))
     """)
-    # 40 UNTIL R-85/OD-09 DELETED THE PANEL'S 48px FLOOR. These rows are sized by
-    # `--control-height-sm`, which the panel raised to 2.5rem over the baseline's
-    # 2rem; with the override gone they follow the baseline at 32. The assertion's
-    # SUBJECT is that both rows agree and carry a 24px separator, and that is
-    # unchanged — what moved is the value the baseline supplies.
+    # 34 SINCE #1050, 32 BEFORE IT AND 40 UNTIL R-85/OD-09. Each row is an Input and
+    # a Select sharing one border, Supabase's InputGroup, whose height is its Input's:
+    # small, 34px (input-group.tsx@86c813ec:164-170, input.tsx@86c813ec:31). The
+    # assertion's SUBJECT is that both rows agree and carry a 24px separator, and
+    # that is unchanged; what moved is the size the token supplies.
     assert converter_rows == [
-        {"height": 32, "separatorHeight": "24px"},
-        {"height": 32, "separatorHeight": "24px"},
+        {"height": 34, "separatorHeight": "24px"},
+        {"height": 34, "separatorHeight": "24px"},
     ]
     assert "Google Finance" in text_of(page, "#finance-converter-as-of")
     page.evaluate("() => window.ScrapeXTime.set('UTC')")
@@ -3259,8 +3262,8 @@ def test_settings_cards_use_the_canonical_icon_sprite_instead_of_numbers(open_pa
     icons = page.locator("#view-settings .settings-icon use")
     assert icons.count() == 7
     assert icons.evaluate_all("elements => elements.map(element => element.getAttribute('href'))") == [
-        "#icon-dns", "#icon-storage", "#icon-schedule", "#icon-file-download",
-        "#icon-restart-alt", "#icon-language", "#icon-info",
+        "#material-dns", "#material-storage", "#material-schedule", "#material-file-download",
+        "#material-restart-alt", "#material-language", "#material-info",
     ]
     assert page.locator("#view-settings .settings-index").count() == 0
 
@@ -4031,7 +4034,7 @@ def test_engine_actions_are_consistent_and_the_next_card_is_separate(open_panel)
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "diagnostics"
     assert smart.text_content().strip() == "Run diagnostics"
-    assert smart.locator("use").get_attribute("href") == "#icon-tune"
+    assert smart.locator("use").get_attribute("href") == "#material-tune"
     smart.click()
     assert "Engine reachable" in page.text_content("#diag-out")
     assert not page.evaluate(
@@ -4046,7 +4049,7 @@ def test_the_engine_check_action_becomes_recheck_while_the_engine_is_down(open_p
     smart = page.locator("#runtime-check-action")
     assert smart.get_attribute("data-action") == "recheck"
     assert smart.text_content().strip() == "Recheck status"
-    assert smart.locator("use").get_attribute("href") == "#icon-sync"
+    assert smart.locator("use").get_attribute("href") == "#material-sync"
 
 
 # ---- adding a site: which SYSTEM it goes to ----------------------------------
@@ -4063,8 +4066,8 @@ def _open_add_form(page):
     # A REAL CLICK, which this could not be while the harness injected the
     # unprefixed icon sprite ahead of the body: `getElementById("check")` then
     # returned the sprite's `check` symbol, the Test site handler was bound to
-    # it, and the button reached no listener. The panel's own inline sprite
-    # prefixes its ids (`icon-check`, issue 1110), and
+    # it, and the button reached no listener. Each id in the panel's own inline
+    # sprite carries its source's key (`material-check`, issue 1110, #1056), and
     # test_no_id_names_two_elements_in_the_panel in tests/test_panel_wiring.py
     # fails if that ever stops.
     page.click("#check")
@@ -5223,7 +5226,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     again are labelled actions that wrap on narrow panels."""
     page = open_panel()
 
-    assert page.locator("#tab-engines use").get_attribute("href") == "#icon-folder-code"
+    assert page.locator("#tab-engines use").get_attribute("href") == "#material-symbols-folder-code"
 
     page.click("#tab-engines")
 
@@ -5243,7 +5246,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     # own storage or start a program, so the button hands over the file and the
     # owner decides.
     assert "Download engine" in (download.text_content() or "")
-    assert download.locator("use").get_attribute("href") == "#icon-file-download"
+    assert download.locator("use").get_attribute("href") == "#material-file-download"
     # The control must be wide enough to be a labelled action, not a square icon.
     box = download.bounding_box()
     assert box and box["width"] > box["height"], (
@@ -5251,7 +5254,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
 
     recheck = card.locator("#engine-recheck")
     assert "Check again" in (recheck.text_content() or "")
-    assert recheck.locator("use").get_attribute("href") == "#icon-sync"
+    assert recheck.locator("use").get_attribute("href") == "#material-sync"
 
 
 def test_no_two_rail_buttons_wear_the_same_icon(open_panel):
@@ -5289,7 +5292,7 @@ def test_the_profile_button_wears_the_account_and_not_a_shield(open_panel):
     """
     page = open_panel()
 
-    assert page.locator("#tab-profile use").get_attribute("href") == "#icon-account-circle"
+    assert page.locator("#tab-profile use").get_attribute("href") == "#material-account-circle"
     assert page.is_visible("#profile-avatar-fallback")
     assert not page.is_visible("#profile-avatar"), (
         "an empty photo slot is drawn where the account mark should be")
@@ -6981,20 +6984,20 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 32px-wide pill with no resting border or background, muted until hovered.
+    a 26px pill with no resting border or background, muted until hovered.
 
-    32 AND 40 SINCE R-85/OD-09, WAS 40 AND 48. The panel raised `--control-height`
-    to 48px and `--control-height-sm` to 40px over the baseline; «احذفها» removed
-    that override, because Supabase's control scale is 26/34/38/42/50 and has no
-    48px floor. THE ASYMMETRY THIS TEST IS ABOUT SURVIVES INTACT — the declared
-    width still reaches the width and the global `min-height` still clamps the
-    height — and only the two numbers the baseline supplies have moved.
+    26 SQUARE SINCE #1050, WAS 32 WIDE AND 40 TALL, AND 40 AND 48 BEFORE R-85/OD-09.
+    It is an icon-only Button, and Supabase's Button defaults to tiny, 26px
+    (Button.tsx@86c813ec:192, constants.ts@86c813ec:61), so the declared width and
+    the global `min-height` now read the same token and the box is square. The
+    asymmetry this test was written about, a 32px width under a 40px floor, went
+    with the two notches that made it.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
-    than a remembered one: `button, .button { min-height: var(--control-height) }`
-    in `design/components.css:369-371` applies to every bare `<button>`, so it
-    clamps the rendered height back up and a rendered box alone cannot catch a
-    height regression at all.
+    than a remembered one: `button, .button { min-height: var(--control-height-tiny) }`
+    in `design/components.css` applies to every bare `<button>`, so it clamps the
+    rendered height back up and a rendered box alone cannot catch a height
+    regression at all.
 
     The technique was established by
     `test_the_engine_overflow_trigger_has_no_visible_resting_container`, which is
@@ -7009,24 +7012,18 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
     declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "var(--control-height-sm)", declared
+    assert declared["width"] == "var(--control-height-tiny)", declared
 
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(32, abs=0.01), box["width"]
-    # 32 WIDE, 40 TALL, and the asymmetry is still the point. `button, .button` in
-    # components.css carries `min-height: var(--control-height)` and nothing here
-    # overrides it, so the declared `--control-height-sm` reaches the WIDTH while
-    # the global floor sets the HEIGHT from `--control-height`. Both now come from
-    # the baseline rather than the panel's deleted override, so the pair moved 40/48
-    # -> 32/40 together. Measured, not assumed — and identical to
-    # `.manage-account-back`, the control this one is a copy of.
-    assert box["height"] == pytest.approx(40, abs=0.01), box["height"]
-    twin = page.locator("#manage-account-back").evaluate(
-        "el => getComputedStyle(el).minHeight")
-    assert twin == btn.evaluate("el => getComputedStyle(el).minHeight"), (
-        "the two back buttons in this panel no longer agree on their height")
+    assert box["width"] == pytest.approx(26, abs=0.01), box["width"]
+    # 26 TALL TOO. `button, .button` in components.css carries `min-height:
+    # var(--control-height-tiny)` and nothing here overrides it, and with no padding
+    # the 20px icon sits inside that floor, so the height is the token's. Measured,
+    # not assumed. That it is the same box as its two copies is
+    # `test_the_three_back_buttons_draw_one_box`.
+    assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
@@ -7035,6 +7032,111 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
     assert style["borderRadius"] == "999px", style["borderRadius"]
     assert btn.get_attribute("aria-label") == "Back to Engine"
+
+
+def test_the_three_back_buttons_draw_one_box(open_panel):
+    """Source, Manage account and one engine each open under the same back button: a
+    `ghost` icon-only <button> with the arrow-back icon and an aria-label
+    (extension/app.html `#source-edit-back`, `#manage-account-back`,
+    `#engine-detail-back`). Each is Supabase's Button at its tiny default, an icon in a
+    26px square (Button.tsx@86c813ec:192, constants.ts@86c813ec:61).
+
+    BOXES, NOT `min-height`. This compared the two computed min-heights until #1432's
+    review showed both come from `button, .button`, so a height declared on either
+    button passed it. `.source-edit-back` declared `height: 2.5rem` and drew 40x40
+    beside two 26x26 copies, and no test read it."""
+    page = open_panel(signed_in=AN_OWNER)
+    boxes = {}
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account", state="visible")
+    settle_view(page, "manage-account")
+    boxes["#manage-account-back"] = page.locator("#manage-account-back").bounding_box()
+
+    page.click("#tab-engines")
+    open_engine(page)
+    settle_view(page, "engine-detail")
+    boxes["#engine-detail-back"] = page.locator("#engine-detail-back").bounding_box()
+
+    page.click(SOURCES_TAB)
+    page.wait_for_selector("#view-sources", state="visible")
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_selector("#view-source-edit", state="visible")
+    settle_view(page, "source-edit")
+    boxes["#source-edit-back"] = page.locator("#source-edit-back").bounding_box()
+
+    sizes = {selector: box and (round(box["width"], 2), round(box["height"], 2))
+             for selector, box in boxes.items()}
+    assert sizes == {"#manage-account-back": (26, 26), "#engine-detail-back": (26, 26),
+                     "#source-edit-back": (26, 26)}, (
+        f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
+
+
+def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
+    """With a mouse the three icon squares are one 26px size (the test below). On a touch
+    screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
+    `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
+    docs/UI-KIT.md say:
+
+    - a plain `icon-button` declares no min-height of its own, so it takes the floor and
+      draws 26x44. #1051 moves that reach into a hit area and changes this number;
+    - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
+      (through its own) outrank the block and stay 26px squares, under the floor.
+
+    The plain one is a probe because the panel draws none outside the workspace; the
+    web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        "the page did not open as a touch screen, so nothing below is about one")
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    # In a block of its own: beside `#signout` in the flex top bar, a 44px probe would
+    # stretch the row and the sign-out with it.
+    page.evaluate("""() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button type="button" id="plain-icon-button-probe" '
+        + 'class="ghost icon-button"><svg class="sx-icon" aria-hidden="true"></svg></button>';
+      document.querySelector('main').prepend(host);
+    }""")
+    sizes = {}
+    for selector in ("#plain-icon-button-probe", "#accounts-card .account-menu-button",
+                     "#signout"):
+        box = page.locator(selector).first.bounding_box()
+        assert box, selector
+        sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
+    assert sizes == {"#plain-icon-button-probe": (26, 44),
+                     "#accounts-card .account-menu-button": (26, 26),
+                     "#signout": (26, 26)}, sizes
+
+
+def test_each_control_takes_its_supabase_components_default_size(open_panel):
+    """A Button's floor is Supabase's tiny, 26px (Button.tsx@86c813ec:192), an Input's is
+    small, 34px (input.tsx@86c813ec:31), and the `xs` and `compact` icon buttons are both the
+    tiny square, because Supabase's Button has no size below it (#1050).
+
+    Read from the cascade, not the sheet: tests/test_the_control_heights_are_supabases_sizes.py
+    holds each declaration, and a later rule that overrides one, in a surface's own sheet or a
+    media block, is seen only here. The squares are measured as boxes because `compact` brings
+    its own padding, which stood the 20px icon 30px tall in a 26px-wide box until
+    `.icon-button.compact` zeroed it."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    floors = page.evaluate("""() => Object.fromEntries(
+      ['#manage-account', '#signout', '#accounts-card .account-menu-button'].map(selector =>
+        [selector, getComputedStyle(document.querySelector(selector)).minHeight]))""")
+    assert floors == {"#manage-account": "26px", "#signout": "26px",
+                      "#accounts-card .account-menu-button": "26px"}, floors
+    for selector in ("#signout", "#accounts-card .account-menu-button"):
+        box = page.locator(selector).first.bounding_box()
+        assert box, selector
+        assert (box["width"], box["height"]) == (pytest.approx(26, abs=0.01),
+                                                 pytest.approx(26, abs=0.01)), (selector, box)
+
+    page.click(SOURCE_TAB)
+    page.wait_for_selector("#view-source", state="visible")
+    assert page.evaluate(
+        "() => getComputedStyle(document.getElementById('url')).minHeight") == "34px"
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):

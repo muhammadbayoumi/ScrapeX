@@ -19,7 +19,7 @@
         </div>
         <details class="dataset-menu">
           <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
-            {{ icon("storage") }}<span>Datasets</span>{{ icon("expand-more", "dataset-menu-chevron") }}
+            {{ icon("material-storage") }}<span>Datasets</span>{{ icon("material-expand-more", "dataset-menu-chevron") }}
           </summary>
           {% include "_source_list.html" %}
         </details>
@@ -57,7 +57,7 @@
                 <td class="tech">{{ row.as_of }}</td>
                 <td class="tech">{{ stamp(row.recorded_at) }}</td>
                 <td><a href="https://www.google.com/finance/quote/USD-{{ row.currency }}"
-                       target="_blank" rel="noopener noreferrer">Google Finance {{ icon("open-in-new", "inline-icon") }}</a></td>
+                       target="_blank" rel="noopener noreferrer">Google Finance {{ icon("material-open-in-new", "inline-icon") }}</a></td>
               </tr>
             {% endfor %}
             </tbody>
