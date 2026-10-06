@@ -68,14 +68,15 @@ const icon = (name, className = "") =>
 // it, because the engine's id would be resolved against THIS panel's sprite, and
 // a use element at an id the sprite lacks draws nothing. A key the map does not know
 // (a destination from a newer engine) draws the map's declared fallback, which is
-// null: no glyph and no use element at all, and the row keeps its label. A glyph
-// is text read out of the DOM, so it goes through esc() where it meets markup.
+// null: no glyph and no use element at all, only the empty slot the glyph would
+// fill, so the row's label stays in its column. A glyph is text read out of the
+// DOM, so it goes through esc() where it meets markup.
 const GLYPH_MAP = JSON.parse($("glyph-map").textContent);
 // Own keys only: a key is engine data, and `constructor` is on every object.
 const glyphFor = (table, key) => {
   const glyph = Object.hasOwn(GLYPH_MAP[table], key) ? GLYPH_MAP[table][key]
     : GLYPH_MAP.fallback;
-  return glyph ? icon(esc(glyph)) : "";
+  return glyph ? icon(esc(glyph)) : '<span aria-hidden="true"></span>';
 };
 
 // These two count the PANEL's own in-flight work — an engine check it is

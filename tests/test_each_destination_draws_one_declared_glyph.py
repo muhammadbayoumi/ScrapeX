@@ -387,7 +387,11 @@ def _sidebar(templates) -> dict[str, str | None]:
     symbols = set(_symbol_ids(ENGINE_SPRITE.read_text(encoding="utf-8")))
     drawn: dict[str, str | None] = {}
     for label, inner in links:
-        assert f"<span>{label}</span>" in inner, f"the sidebar link {label!r} lost its label"
+        # Two children: the glyph's slot, then the label. With no glyph the slot
+        # is an empty span, so the label stays in its column (webui.css .wstabs a).
+        assert re.fullmatch(r'\s*(?:<svg\b.*?</svg>|<span aria-hidden="true"></span>)'
+                            rf'\s*<span>{re.escape(label)}</span>\s*', inner, re.S), (
+            f"the sidebar link {label!r} is not its glyph's slot and its label")
         uses = re.findall(r'<use\b[^>]*\shref="[^"#]*#([^"]*)"', inner)
         assert len(uses) <= 1 and inner.count("<use") == len(uses), (
             f"the sidebar link {label!r} draws {inner.count('<use')} <use>")

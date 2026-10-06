@@ -26,14 +26,15 @@
            this loop and /api/ui, so the workspace and the panel cannot drift.
            The tuple shape is the same one this template used to inline. A key
            the glyph map does not name has no glyph (its fallback is null): the
-           link keeps its label and draws no icon at all (#1056). #}
+           link draws no icon, only the empty slot that keeps its label in the
+           label's column (#1056). #}
         {% for group, items in workspace_navigation_groups(source_key) %}
           <div class="wsnav-group">
             <span class="wsnav-label">{{ group }}</span>
             <div class="wsnav-links">
               {% for href, label, key, icon_name in items %}
                 <a href="{{ href }}" title="{{ label }}"{% if tab == key %} aria-current="page"{% endif %}>
-                  {% if icon_name %}{{ icon(icon_name, "wsnav-icon") }}{% endif %}
+                  {% if icon_name %}{{ icon(icon_name, "wsnav-icon") }}{% else %}<span aria-hidden="true"></span>{% endif %}
                   <span>{{ label }}</span>
                 </a>
               {% endfor %}

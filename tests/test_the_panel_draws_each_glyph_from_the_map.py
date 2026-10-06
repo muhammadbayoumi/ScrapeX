@@ -148,6 +148,20 @@ def _hrefs(drawn: dict) -> dict:
     return {key: (use["href"] if use else None) for key, use in drawn.items()}
 
 
+def _labels_share_one_column(page, rows: str, copy: str) -> None:
+    """A row with no glyph keeps its label IN the label's column: the empty slot
+    holds the glyph's place. Without it the label slides into the glyph's narrow
+    column and wraps a word a line. Measured, so the menu is opened first."""
+    if rows.startswith("#workspace-links"):
+        page.click("#workspace-toggle")
+        page.wait_for_selector("#workspace-menu.is-open")
+        page.wait_for_timeout(400)  # the open transition moves every row
+    lefts = dict(page.eval_on_selector_all(rows, f"""rows => rows.map((row) => [
+        row.dataset.workspaceKey || row.dataset.engineId,
+        Math.round(row.querySelector('{copy}').getBoundingClientRect().left)])"""))
+    assert len(set(lefts.values())) == 1, f"labels start in different columns: {lefts}"
+
+
 def test_each_destination_draws_the_maps_glyph_whatever_the_engine_sends(open_panel):
     """And a key the map has never heard of draws no glyph at all: the map's
     fallback is empty, so the row is its label and nothing points anywhere."""
@@ -160,6 +174,8 @@ def test_each_destination_draws_the_maps_glyph_whatever_the_engine_sends(open_pa
     expected["constructor"] = None
     assert _hrefs(drawn) == expected
     assert all(use["draws"] for use in drawn.values() if use)
+    _labels_share_one_column(page, "#workspace-links [data-workspace-key]",
+                             ".workspace-destination-copy")
     assert page.js_errors == []
 
 
@@ -179,11 +195,14 @@ def test_the_offline_menu_draws_no_glyph_for_a_key_the_map_lost(open_panel):
     that row draws no glyph and keeps its label; every other row is unchanged."""
     lost = json.loads(json.dumps(GLYPHS))
     del lost["destinations"]["logs"]
-    drawn = _menu_glyphs(open_panel(glyphs=lost))
+    page = open_panel(glyphs=lost)
+    drawn = _menu_glyphs(page)
     assert drawn["logs"] is None
     assert _hrefs(drawn) == {
         key: (None if key == "logs" else f"#{glyph}")
         for key, glyph in GLYPHS["destinations"].items() if key not in PANEL_DESTINATIONS}
+    _labels_share_one_column(page, "#workspace-links [data-workspace-key]",
+                             ".workspace-destination-copy")
 
 
 def _candidates(page) -> dict[str, list[str]]:
@@ -204,9 +223,11 @@ def test_a_candidate_the_map_does_not_name_draws_no_glyph(open_panel):
     """Its tile stays, empty, and the row keeps its name."""
     lost = json.loads(json.dumps(GLYPHS))
     del lost["engines"]["katana"]
-    assert _candidates(open_panel(view="engines", glyphs=lost)) == {
+    page = open_panel(view="engines", glyphs=lost)
+    assert _candidates(page) == {
         key: ([] if key == "katana" else [f"#{glyph}"])
         for key, glyph in GLYPHS["engines"].items()}
+    _labels_share_one_column(page, "#engine-candidates [data-engine-id]", ".engine-row-copy")
 
 
 def test_the_rail_tab_of_each_panel_destination_draws_the_maps_glyph(open_panel):
