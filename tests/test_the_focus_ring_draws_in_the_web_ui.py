@@ -55,10 +55,14 @@ def webui(browser, tmp_path):  # noqa: F811
         page.close()
 
 
-def test_every_control_on_every_page_draws_the_ring(webui):
+@pytest.mark.parametrize("width", [1280, 900, 640])
+def test_every_control_on_every_page_draws_the_ring(webui, width):
     """#721 names both surfaces. Each page is opened, and every control on it checked the
     way the panel's are; the data page's column chooser is opened and checked too, because
-    its search field is a wrapper that only exists once it opens."""
+    its search field is a wrapper that only exists once it opens. The web UI lays out
+    differently at 900px and at 640px, and a ring that shows at one width can be cut at
+    another, so each is swept (#1471)."""
+    webui.set_viewport_size({"width": width, "height": 900})
     seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": [], "faded": []}
     for path in PAGES:
         response = webui.goto(ORIGIN + path)
