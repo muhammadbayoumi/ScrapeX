@@ -88,9 +88,7 @@ ATOMS = {
         ["color var(--dur) var(--ease-in-out)"],
         "a Toggle Group item (#532): toggleVariants (toggle-group.tsx@86c813ec:42), whose base is "
         "`transition-colors` with no duration or curve (toggle.tsx@86c813ec:10)"),
-    ("design/grid-theme.css",
-     ".tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-header-popup-button",
-     "transition"): (
+    ("design/grid-theme.css", ".dg .dg-header-button", "transition"): (
         ["background-color var(--dur-200) var(--ease-out)", "opacity var(--dur-200) var(--ease-out)",
          "color var(--dur-200) var(--ease-out)"],
         "Studio's column-header trigger is a Button (ColumnMenu.tsx@86c813ec:225-227), `ease-out "
@@ -241,7 +239,7 @@ def test_the_notice_names_every_curve_and_duration_the_tokens_ship():
 
 def test_no_stylesheet_gives_a_motion_token_another_value():
     """design/tokens.css is the one place a motion token gets its value. A sheet that
-    re-declares one on a scope (`.tabulator { --dur-fast: .12s }`) changes what every read
+    re-declares one on a scope (`.dg { --dur-fast: .12s }`) changes what every read
     under it draws, and the reads still look like tokens. Read with a regex rather than
     declarations(), whose property pattern skips a name with a digit in it (--dur-200)."""
     found = []

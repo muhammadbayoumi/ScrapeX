@@ -195,83 +195,6 @@ def test_the_extension_carries_the_same_vendored_bytes():
         "through two different libraries")
 
 
-# TABULATOR, UNTIL THE GRID DRAWS THROUGH TANSTACK (#1342). These go with the
-# files, in the change that deletes them; nothing here is updated again.
-# name -> (minimum plausible size, a string that must appear in it)
-EXPECTED = {
-    "tabulator.min.js": (300_000, "Tabulator"),
-    "tabulator.min.css": (15_000, "tabulator"),
-    "tabulator.LICENSE.txt": (500, "MIT"),
-}
-
-
-@pytest.mark.parametrize("name", sorted(EXPECTED))
-def test_the_vendored_file_is_present_and_whole(name):
-    """A truncated file is worse than a missing one: the page loads, the grid
-    silently does not, and nothing says why."""
-    path = VENDOR / name
-    assert path.is_file(), f"{name} is not vendored — the Datasets grid cannot load offline"
-    minimum, marker = EXPECTED[name]
-    data = path.read_bytes()
-    assert len(data) >= minimum, f"{name} is {len(data)} bytes — truncated?"
-    assert marker.encode() in data or marker.lower().encode() in data.lower()
-
-
-def test_tabulators_licence_travels_with_the_code():
-    """MIT requires the notice to be distributed with the software. Shipping the
-    minified file and dropping its licence is a licence violation, not an
-    oversight."""
-    licence = (VENDOR / "tabulator.LICENSE.txt").read_text(encoding="utf-8")
-    assert "MIT" in licence
-    assert "Copyright" in licence
-
-
-def _normalised(path: Path) -> bytes:
-    """The file's bytes with line endings settled.
-
-    This repository stores LF and Windows checks out CRLF, so comparing raw
-    bytes across two copies reports a difference that is not one — and would
-    make the guard below cry wolf on every Windows machine.
-    """
-    return path.read_bytes().replace(b"\r\n", b"\n")
-
-
-@pytest.mark.parametrize("name", sorted(EXPECTED))
-def test_the_extension_carries_the_same_tabulator_bytes(name):
-    """TWO COPIES NOW, and this is what stops them becoming two libraries.
-
-    The Data page moved out of the engine (plan B2) and MV3 forbids loading a
-    script from anywhere but the extension, so the grid had to be vendored a
-    second time under extension/vendor/. Two copies that drift are worse than
-    one: the engine's page and the panel's would render the same table through
-    different code, and the difference would show up as a bug in the data.
-
-    Upgrading Tabulator therefore means copying BOTH, and this fails until it
-    is done.
-    """
-    ours = EXTENSION_VENDOR / name
-    assert ours.is_file(), (
-        f"{name} is not vendored for the extension — the Data page cannot load "
-        "its grid, and MV3 will not let it fall back to a CDN")
-    minimum, marker = EXPECTED[name]
-    data = ours.read_bytes()
-    assert len(data) >= minimum, f"{name} is {len(data)} bytes — truncated?"
-    assert marker.encode() in data or marker.lower().encode() in data.lower()
-    assert _normalised(ours) == _normalised(VENDOR / name), (
-        f"the engine's {name} and the extension's have diverged. One of them "
-        "was upgraded and the other was not, so the same table now renders "
-        "through two different libraries")
-
-
-def test_the_extensions_copy_keeps_its_licence_too():
-    """MIT requires the notice to travel with the software — with EVERY copy of
-    it. Shipping the extension without it is the same violation as shipping the
-    engine without it, and it is easier to forget on the second copy."""
-    licence = (EXTENSION_VENDOR / "tabulator.LICENSE.txt").read_text(encoding="utf-8")
-    assert "MIT" in licence
-    assert "Copyright" in licence
-
-
 def test_no_extension_page_loads_code_from_the_internet():
     """The same promise as the test below, for the pages that had no guard.
 
@@ -518,7 +441,7 @@ def _colour_pattern() -> re.Pattern[str]:
     #
     # MEASURED BEFORE ACCEPTING IT. Scanning the three policed folders for
     # `#nnn` with all-decimal digits: 98 occurrences, 6 distinct values -- and EVERY ONE
-    # of them is inside `vendor/tabulator.min.css`, which this guard already exempts as
+    # of them was inside the vendored grid's stylesheet, which this guard exempts as
     # vendor code. In the first-party code it actually polices there are ZERO. The six-
     # and eight-digit branches are untouched, so `#333333` is still caught, and the
     # design-system milestones audit the token layer far more thoroughly than this

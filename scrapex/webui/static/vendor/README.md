@@ -18,10 +18,11 @@ reviewable change.
 | `@tanstack/virtual-core` | 3.17.11 | `sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==` |
 
 - Licence: MIT for all three — each package's `LICENSE` travels in its directory.
-- **Nothing loads them yet.** They are for `datagrid.js`, the grid's renderer,
-  which replaces Tabulator below (#1342). The extension carries the **second
-  copy** in `extension/vendor/tanstack/`; the two copies are held byte-identical
-  by `tests/test_vendor.py`.
+- Used by `datagrid.js`, the grid's renderer, which `grid.js` imports. That is
+  the engine's Data page (`templates/source.html`), the Datasets page
+  (`templates/datasets.html`), and the extension's Data page, which carries the
+  **second copy** in `extension/vendor/tanstack/`. The two copies are held
+  byte-identical by `tests/test_vendor.py`.
 - Chosen over Tabulator, AG Grid and react-data-grid in #1342: Supabase's
   design system builds its Data Table on TanStack and says its tables are
   converging there, and the owner will not pay for AG Grid's Enterprise licence.
@@ -38,37 +39,10 @@ published files as they are:
    `process` does not exist in a page.
 3. The trailing `//# sourceMappingURL=` line goes, because the maps are not vendored.
 
-## tabulator-tables 6.5.2 — being replaced (#1342)
-
-- Source: <https://unpkg.com/tabulator-tables@6.5.2/dist/>
-- Licence: MIT — full text in `tabulator.LICENSE.txt`
-- Dependencies: **none**
-- Vendored: 2026-07-21
-- `tabulator.min.js` 435.5 KB, sha256 `04802e757fa41893…`
-- `tabulator.min.css` 27.8 KB, sha256 `b55e204b2f968cec…`
-
-Used by **the Datasets page only** (`templates/datasets.html`), which browses the
-General database's runtime-discovered schemas. It is deliberately NOT used by the
-MarketLens Data page (`templates/source.html`): that page's value is that its URL
-is the question — filters, sort and paging live in the query string, so a link
-can be shared and still means the same thing a week later, and the whole page
-works with scripting off. A grid that holds its state in memory would trade that
-away for column resizing.
-
-AG Grid Community was measured against it on 2026-07-21 and rejected: 2,072 KB
-against 463 KB, two transitive dependencies against none, and — decisively — its
-set filter, master/detail row expansion, row grouping, Excel export and range
-clipboard are all Enterprise-gated. Those are precisely the features that would
-have justified taking a library at all.
-
 ## Updating
-
-**TanStack:**
 
 1. Change the pinned versions and integrities in `tools/vendor_tanstack.py`.
 2. Run `python tools/vendor_tanstack.py`. It writes **both** copies.
 3. Update the table above and run the test suite, browser tests included:
    `tests/test_vendor.py` fails if a module is missing, the copies diverge, a bare
    import or a `process` read survives, or a licence is lost.
-
-**Tabulator** is not updated again; it leaves once the grid draws through TanStack.

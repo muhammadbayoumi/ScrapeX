@@ -30,7 +30,7 @@ EXT = ROOT / "extension"
 
 #: The Data page's sheets, in extension/data.html's order.
 SHEETS = ["tokens.css", "components.css", "data.css", "table-theme.css",
-          "vendor/tabulator.min.css", "grid-theme.css", "data-workspace.css"]
+          "grid-theme.css", "data-workspace.css"]
 
 PAGE = (
     "<!doctype html><meta charset='utf-8'><title>grid theme</title>"
