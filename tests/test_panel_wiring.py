@@ -552,8 +552,9 @@ def test_no_id_names_two_elements_in_the_panel():
     exactly that while it injected the unprefixed sprite, and `_open_add_form`
     in tests/test_panel_dom.py had to dispatch the click by id — and behind it
     every `#check` icon points at the button and draws nothing.
-    The generator prefixes the panel's symbol ids, and this is what fails if it
-    stops.
+    Every symbol id now carries its source's key (`material-check`,
+    design/glyph-map.json's rule, #1056), and this is what fails if a panel
+    element ever takes a glyph's id.
     """
     # Either quote or none: all three are one id to the browser.
     ids = [next(value for value in found if value)

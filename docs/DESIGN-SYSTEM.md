@@ -203,24 +203,26 @@ panel's `load`, and the panel stays blank until a click somewhere else (issue #1
 
 ```html
 {# web workspace: the macro carries the cache-buster #}
-{{ icon('settings') }}
+{{ icon('material-settings') }}
 
 <!-- the Side Panel, extension/app.html: a symbol the page carries itself -->
 <svg class="sx-icon" aria-hidden="true">
-  <use href="#icon-settings"></use>
+  <use href="#material-settings"></use>
 </svg>
 
 <!-- extension pages that open as tabs: relative, and the class is sx-icon -->
 <svg class="sx-icon" aria-hidden="true">
-  <use href="icons/material-icons.svg#settings"></use>
+  <use href="icons/material-icons.svg#material-settings"></use>
 </svg>
 ```
 
-In the panel's JavaScript, `icon("settings")` and `iconHref("settings")` in
-`extension/app.js` build that reference; never write it by hand. The panel's symbols are
-generated from `design/material-icons.svg` by `tools/sync_design_assets.py`, with an
-`icon-` prefix, because the panel's own ids share its document: its Test site button's id
-is `check`.
+In the panel's JavaScript, `icon("material-settings")` and `iconHref("material-settings")`
+in `extension/app.js` build that reference; never write it by hand. Every id is its
+source's key and the name that source publishes (`design/glyph-map.json`'s rule, #1056),
+so one id names one glyph on every surface. The panel's symbols are generated from
+`design/material-icons.svg` by `tools/sync_design_assets.py` with those same ids: the
+panel's own ids share its document, and none of them is a source's key and a glyph's
+name (its Test site button's id is `check`).
 
 **The authoring class is `sx-icon`, not `material-icon`.** This block previously showed
 `class="material-icon"` on an absolute path — a form neither surface uses. Corrected

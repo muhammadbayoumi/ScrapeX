@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/static/pages/manage.css">
 {% endblock %}
 {% block content %}
-<p class="muted back-link"><a class="icon-label" href="/data">{{ icon("arrow-back", "sm") }} All datasets</a></p>
+<p class="muted back-link"><a class="icon-label" href="/data">{{ icon("material-arrow-back", "sm") }} All datasets</a></p>
 <header class="page-header">
   <div class="page-heading">
     <span class="page-eyebrow">Data setup</span>
@@ -115,10 +115,10 @@ $("#add-form").addEventListener("submit", async () => {
   try{
     const res = await fetch("/api/sources", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
     const r = await res.json();
-    if(!res.ok){ out.innerHTML = `<span class="err">${statusIcon("close")} ${r.detail||"Failed"}</span>`; return; }
-    out.innerHTML = `<span class="ok">${statusIcon("check")} Added ${r.source_key}${r.implemented?" — ready to crawl":""}</span>`;
+    if(!res.ok){ out.innerHTML = `<span class="err">${statusIcon("material-close")} ${r.detail||"Failed"}</span>`; return; }
+    out.innerHTML = `<span class="ok">${statusIcon("material-check")} Added ${r.source_key}${r.implemented?" — ready to crawl":""}</span>`;
     setTimeout(() => location.reload(), 900);
-  }catch(e){ out.innerHTML = `<span class="err">${statusIcon("close")} Couldn't reach the engine</span>`; }
+  }catch(e){ out.innerHTML = `<span class="err">${statusIcon("material-close")} Couldn't reach the engine</span>`; }
 });
 </script>
 {% endblock %}
