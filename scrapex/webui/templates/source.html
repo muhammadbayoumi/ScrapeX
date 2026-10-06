@@ -19,7 +19,7 @@
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-46" defer></script>
+  <script src="/static/grid.js?v=design-system-48" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
@@ -39,15 +39,15 @@
       {{ source_identity(identity_source) }}
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
-           rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
+           rel="noopener noreferrer">Visit website {{ icon("material-open-in-new", "inline-icon") }}</a>
       {% endif %}
     </div>
   </div>
   <details class="dataset-menu data-empty-dataset-menu">
     <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
-      {{ icon("storage") }}
+      {{ icon("material-storage") }}
       <span>Datasets</span>
-      {{ icon("expand-more", "dataset-menu-chevron") }}
+      {{ icon("material-expand-more", "dataset-menu-chevron") }}
     </summary>
     {% include "_source_list.html" %}
   </details>
@@ -68,9 +68,9 @@
       </div>
       <details class="dataset-menu">
         <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
-          {{ icon("storage") }}
+          {{ icon("material-storage") }}
           <span>Datasets</span>
-          {{ icon("expand-more", "dataset-menu-chevron") }}
+          {{ icon("material-expand-more", "dataset-menu-chevron") }}
         </summary>
         {% include "_source_list.html" %}
       </details>
@@ -81,7 +81,7 @@
        new (merge-review leftover, restored). #}
     <div class="dataset-run-footer" aria-label="Dataset freshness">
       <div class="dataset-run-status">
-        {{ icon("history") }}
+        {{ icon("material-history") }}
         {% if not summary.last_run %}
           <span class="chip amber">Never run</span>
         {% elif summary.last_status == "success" %}
@@ -93,7 +93,7 @@
         {% endif %}
       </div>
       <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
-        Crawl history {{ icon("chevron-right", "inline-icon") }}
+        Crawl history {{ icon("material-chevron-right", "inline-icon") }}
       </a>
     </div>
   {% else %}
@@ -123,7 +123,7 @@
     {% macro sortlink(key, label) %}
       {% set nextdir = "desc" if (sort == key and direction == "asc") else "asc" %}
       <a href="{{ query(sort=key, direction=nextdir) }}">{{ label }}{%
-        if sort == key %} {{ icon("arrow-upward" if direction == "asc" else "arrow-downward", "inline-icon") }}{% endif %}</a>
+        if sort == key %} {{ icon("material-arrow-upward" if direction == "asc" else "material-arrow-downward", "inline-icon") }}{% endif %}</a>
     {% endmacro %}
     {# The grid. Tabulator, served from our own origin — see static/vendor.
 
@@ -169,7 +169,7 @@
             <a class="chip pill" href="{{ query(**{('f.' ~ key): ''}) }}"
                title="Remove filter: {{ key }} {{ spec[0] }} {{ spec[1] }}"
                >{{ key }} {{ spec[0] }} <span dir="auto">{{ spec[1] }}</span>
-               {{ icon("close", "inline-icon") }}</a>
+               {{ icon("material-close", "inline-icon") }}</a>
           {% endfor %}
           <a href="/source/{{ source_key }}">Clear all</a>
         </p>
@@ -179,9 +179,9 @@
         <details class="dataset-menu">
           <summary class="data-grid-command dataset-menu-trigger"
                    aria-controls="dataset-list" aria-expanded="false">
-            {{ icon("storage") }}
+            {{ icon("material-storage") }}
             <span>Datasets</span>
-            {{ icon("expand-more", "dataset-menu-chevron") }}
+            {{ icon("material-expand-more", "dataset-menu-chevron") }}
           </summary>
           {% include "_source_list.html" %}
         </details>
@@ -191,9 +191,9 @@
         <details class="dataset-menu saved-views-menu" id="saved-views">
           <summary class="data-grid-command"
                    aria-controls="saved-views-list" aria-expanded="false">
-            {{ icon("tune") }}
+            {{ icon("material-tune") }}
             <span>Views</span>
-            {{ icon("expand-more", "dataset-menu-chevron") }}
+            {{ icon("material-expand-more", "dataset-menu-chevron") }}
           </summary>
           <div class="dataset-popover" id="saved-views-list">
             <header><strong>Saved views</strong>
@@ -221,7 +221,7 @@
         {# Native details keeps the popup keyboard-operable without a custom menu widget. #}
         <details id="grid-features">
           <summary class="data-grid-command">
-            {{ icon("settings") }}
+            {{ icon("material-settings") }}
             <span>Grid Features</span>
           </summary>
           <div class="grid-feature-popover">
@@ -263,7 +263,7 @@
            only be recovered through the API or by clearing browser storage. A
            control that can remove itself needs a door that is not inside it. #}
         <button type="button" id="grid-columns-button" class="data-grid-command">
-          {{ icon("view-column") }}
+          {{ icon("material-view-column") }}
           <span>Columns</span>
         </button>
       </div>
@@ -292,20 +292,20 @@
             <button type="button" class="split-button-primary" data-split-action="xlsx"
                     aria-label="Export complete record as an Excel workbook"
                     title="Export complete record as an Excel workbook">
-              {{ icon("file-download") }}
+              {{ icon("material-file-download") }}
               <span>Excel workbook</span>
             </button>
             <details class="split-button-menu">
               <summary class="split-button-trigger" aria-haspopup="menu"
                        aria-expanded="false" aria-label="Other export formats"
                        title="Other export formats">
-                {{ icon("expand-more", "split-button-chevron") }}
+                {{ icon("material-expand-more", "split-button-chevron") }}
               </summary>
               <div class="split-button-options" role="menu" aria-label="Export format">
                 <button type="button" class="split-button-option" data-split-action="csv"
                         role="menuitem">
                   <span class="split-button-option-icon">
-                    {{ icon("description") }}
+                    {{ icon("material-description") }}
                   </span>
                   <span class="split-button-option-copy">
                     <strong>CSV table</strong>
@@ -315,7 +315,7 @@
                 <button type="button" class="split-button-option" data-split-action="json"
                         role="menuitem">
                   <span class="split-button-option-icon">
-                    {{ icon("insert-drive-file") }}
+                    {{ icon("material-insert-drive-file") }}
                   </span>
                   <span class="split-button-option-copy">
                     <strong>JSON data</strong>
@@ -329,7 +329,7 @@
       </footer>
       <div class="dataset-run-footer" aria-label="Dataset freshness">
         <div class="dataset-run-status">
-          {{ icon("history") }}
+          {{ icon("material-history") }}
           {% if not summary.last_run %}
             <span class="chip amber">Never run</span>
           {% elif summary.last_status == "success" %}
@@ -341,7 +341,7 @@
           {% endif %}
         </div>
         <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
-          Crawl history {{ icon("chevron-right", "inline-icon") }}
+          Crawl history {{ icon("material-chevron-right", "inline-icon") }}
         </a>
       </div>
     </section>

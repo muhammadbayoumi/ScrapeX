@@ -336,7 +336,7 @@ test("a refused warehouse paints the red tile, in the markup the panel writes", 
   const painted = tile(panel.grid.html, "Databases");
   assert.ok(painted.includes('data-tone="warning"'), painted);
   assert.ok(painted.includes("<small>Temporary database</small>"), painted);
-  assert.ok(painted.includes('href="#icon-storage"'), painted);
+  assert.ok(painted.includes('href="#material-storage"'), painted);
 
   // And the ordinary case is the green one, so the assertion above is about the
   // path and not about the renderer always saying warning.

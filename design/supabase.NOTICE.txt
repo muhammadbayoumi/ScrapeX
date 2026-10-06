@@ -258,7 +258,7 @@ where this summary is brief.
      icons, for glyphs Lucide lacks, default to strokeWidth 1.5 where Lucide
      defaults to 2; both default to size 24. This product ships a Material Design
      sprite, design/material-icons.svg -- Google's classic filled Material Icons
-     plus one Material Symbols Outlined glyph, folder-code -- with Google's own
+     plus one Material Symbols Outlined glyph, folder_code -- with Google's own
      Apache-2.0 licence file beside each copy. Its counts are not
      restated here, for the reason WHAT CAME ACROSS gives: a count is a
      restatement.

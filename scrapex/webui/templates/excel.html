@@ -16,10 +16,10 @@
         columns and tabs are written, then export a workbook that is ready to share.</p>
       <div class="exports-hero-actions">
         <a class="button icon-label" href="#export-workspace">
-          {{ icon("file-download", "sm") }} Create export
+          {{ icon("material-file-download", "sm") }} Create export
         </a>
         <button id="open-folder" class="button ghost icon-label" type="button">
-          {{ icon("insert-drive-file", "sm") }} Open output folder
+          {{ icon("material-insert-drive-file", "sm") }} Open output folder
         </button>
       </div>
       <span id="folder-out" class="hint exports-action-output"
@@ -29,7 +29,7 @@
     <div class="exports-hero-summary" aria-label="Excel export status">
       <div class="exports-summary-card">
         <span class="exports-summary-icon {{ 'is-ready' if status.ready else 'is-warning' }} icon-tile">
-          {{ icon("check" if status.ready else "info") }}
+          {{ icon("material-check" if status.ready else "material-info") }}
         </span>
         <span>
           <small>Exporter</small>
@@ -40,14 +40,14 @@
         </span>
       </div>
       <div class="exports-summary-card">
-        <span class="exports-summary-icon icon-tile">{{ icon("view-stream") }}</span>
+        <span class="exports-summary-icon icon-tile">{{ icon("material-view-stream") }}</span>
         <span>
           <small>Workbook structure</small>
           <strong>{{ "One workbook" if status.structure_key == "combined" else "One per source" }}</strong>
         </span>
       </div>
       <div class="exports-summary-card">
-        <span class="exports-summary-icon icon-tile">{{ icon("history") }}</span>
+        <span class="exports-summary-icon icon-tile">{{ icon("material-history") }}</span>
         <span>
           <small>Next export</small>
           <strong>{{ "Replace current tabs" if status.update_key == "replace" else "Keep dated snapshots" }}</strong>
@@ -58,7 +58,7 @@
 
   {% if status.blocker %}
     <aside class="exports-blocker" role="alert">
-      {{ icon("info") }}
+      {{ icon("material-info") }}
       <div>
         <strong>Excel export needs one setup step.</strong>
         <p>{{ status.blocker }}</p>
@@ -85,7 +85,7 @@
 
         {% if not sources %}
           <div class="exports-empty">
-            <span class="exports-empty-icon icon-tile">{{ icon("storage") }}</span>
+            <span class="exports-empty-icon icon-tile">{{ icon("material-storage") }}</span>
             <div>
               <strong>No collected sources yet</strong>
               <p>Crawl a source first. It will appear here as soon as data is saved.</p>
@@ -96,7 +96,7 @@
           <form id="pick" onsubmit="return false">
             <div class="exports-source-tools">
               <label class="exports-search" for="source-search">
-                {{ icon("search", "sm") }}
+                {{ icon("material-search", "sm") }}
                 <input id="source-search" type="search"
                        placeholder="Search by domain, name, or source key"
                        autocomplete="off">
@@ -119,7 +119,7 @@
                   <input type="checkbox" name="src" value="{{ s.source_key }}"
                          {{ "checked" if source_key and s.source_key == source_key }}>
                   {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
-                  <span class="exports-source-check" aria-hidden="true">{{ icon("check", "sm") }}</span>
+                  <span class="exports-source-check" aria-hidden="true">{{ icon("material-check", "sm") }}</span>
                 </label>
               {% endfor %}
             </fieldset>
@@ -142,7 +142,7 @@
         <form id="loc" class="exports-settings-form" onsubmit="return false">
           <fieldset class="exports-settings-group">
             <legend>
-              <span class="exports-group-icon icon-tile">{{ icon("insert-drive-file") }}</span>
+              <span class="exports-group-icon icon-tile">{{ icon("material-insert-drive-file") }}</span>
               <span><strong>File destination</strong><small>Where the workbook is written.</small></span>
             </legend>
             <div class="exports-field-grid">
@@ -166,7 +166,7 @@
 
           <fieldset class="exports-settings-group">
             <legend>
-              <span class="exports-group-icon icon-tile">{{ icon("view-column") }}</span>
+              <span class="exports-group-icon icon-tile">{{ icon("material-view-column") }}</span>
               <span><strong>Data and tabs</strong><small>How the workbook is organised.</small></span>
             </legend>
             <div class="exports-field-grid">
@@ -205,7 +205,7 @@
 
           <div class="exports-settings-actions">
             <button id="save-loc" class="icon-label" type="button">
-              {{ icon("check", "sm") }} Save workbook settings
+              {{ icon("material-check", "sm") }} Save workbook settings
             </button>
             <span id="save-out" class="hint" role="status" aria-live="polite"></span>
           </div>
@@ -214,8 +214,8 @@
 
       <details class="exports-advanced">
         <summary>
-          <span>{{ icon("description") }} Command-line export</span>
-          {{ icon("expand-more") }}
+          <span>{{ icon("material-description") }} Command-line export</span>
+          {{ icon("material-expand-more") }}
         </summary>
         <div class="exports-command-list">
           <div>
@@ -276,7 +276,7 @@
         {% if sources %}
           <button id="run" class="exports-run-button icon-label" type="button"
                   {{ "disabled" if not status.ready }}>
-            {{ icon("file-download", "sm") }} Export to Excel
+            {{ icon("material-file-download", "sm") }} Export to Excel
           </button>
           <span id="run-out" class="hint exports-run-output"
                 role="status" aria-live="polite"></span>
@@ -285,7 +285,7 @@
 
       <section class="exports-last-card" aria-labelledby="exports-last-title">
         <header>
-          <span class="exports-last-icon icon-tile">{{ icon("history") }}</span>
+          <span class="exports-last-icon icon-tile">{{ icon("material-history") }}</span>
           <div>
             <span class="page-eyebrow">Activity</span>
             <h2 id="exports-last-title">Last export</h2>

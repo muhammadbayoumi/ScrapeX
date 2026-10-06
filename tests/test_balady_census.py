@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -567,6 +568,21 @@ def test_a_hash_the_site_re_mints_cannot_carry_a_query_parameter():
         "https://apps.balady.gov.sa/Eservices/Inquiries/InquiryEngOffices/Details"
         "?OfficeId=bldyPrm0A1B"
     ), detail_url(office("bldyPrm0A1B"))
+
+
+def test_the_call_detail_url_cites_as_its_twin_is_on_the_line_it_names():
+    """`detail_url`'s comment cites a line of scrapex/ui_manifest.py as the same
+    `quote(..., safe='')` call. That file moves under other changes (#1056 moved the
+    call twice), and a citation that drifted points a reader at the wrong line."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    balady = (root / "scrapex" / "sites" / "balady.py").read_text(encoding="utf-8")
+    cited = [int(line) for line in re.findall(r"`scrapex/ui_manifest\.py:(\d+)`", balady)]
+    assert cited, "scrapex/sites/balady.py no longer cites scrapex/ui_manifest.py"
+    manifest = (root / "scrapex" / "ui_manifest.py").read_text(encoding="utf-8").splitlines()
+    for line in cited:
+        assert re.search(r"""quote\(.*\bsafe=(''|"")""", manifest[line - 1]), (
+            f"scrapex/ui_manifest.py:{line} is not the quote(..., safe='') call "
+            f"balady.py cites there: {manifest[line - 1].strip()!r}")
 
 
 def test_the_two_volatile_sets_name_the_same_two_fields():
