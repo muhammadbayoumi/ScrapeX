@@ -10,8 +10,9 @@ capabilities being oversold, which makes an inert flag the worst kind of entry i
 
 WHERE THE TWO CALLERS BELONG, and it is not symmetrical:
 
-    GENERIC_DATASET_CATALOG   `_dataset_rows` — what puts a dataset in the source
-                              listing the panel draws. That IS the advertisement.
+    GENERIC_DATASET_CATALOG   `extract_service.listed_datasets` — what puts a dataset
+                              in the source listing the panel draws. That IS the
+                              advertisement.
     GENERIC_EXTRACTION        `scrapex contractors --approve` — the SHIPPED command,
                               which `REQ-24` made a user-facing surface.
 
