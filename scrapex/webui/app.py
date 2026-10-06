@@ -3811,6 +3811,31 @@ def create_app(
         return FileResponse(
             pack, media_type="application/gzip", filename=pack.name)
 
+    @app.get("/api/bundle/light")
+    def api_bundle_light():
+        """Stream the newest light file's parts (#1199), for the panel to carry to Drive.
+
+        Fixed, with no parameters, for the reason the two routes above give: a route
+        that takes no argument cannot be pointed at another file. Its index is not
+        served here; it travels in the reply of `POST /api/bundle`, so the panel holds
+        what the engine described and can compare it with what this sends.
+
+        `application/gzip` and no Content-Encoding, as the panel pack: it is a gzip
+        FILE of independent members, and the browser must not inflate it in transit.
+        """
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+
+        parts = _newest(folder, lightfile.PARTS_SUFFIX)
+        if parts is None:
+            raise HTTPException(status_code=404, detail=(
+                "no light file has been built yet — POST /api/bundle first"))
+        return FileResponse(
+            parts, media_type="application/gzip", filename=parts.name)
+
     @app.post("/api/storage/restore")
     def api_storage_restore(body: dict):
         """Put a backup in place.
