@@ -542,14 +542,24 @@
      LOCAL TO THIS CARD, like everything else in this block: `components.css` is
      generated from `design/components.css`, and the Activity log's split button —
      which has a primary half and is not broken — must not move. */
+  /* AN ICON-ONLY BUTTON, 36x26, the profile row's menu Button's box (#1430; his ruling on
+     #1457): tiny's px-2.5 py-1 around its 14px icon, in the Button's 1px border, here
+     transparent as their `text` variant's is (constants.ts@86c813ec:54,
+     Button.tsx@86c813ec:127, :25, :78). The shared trigger's 26px width is the split
+     chevron's, beside a primary half, which #1059 holds. */
   .dataset-card .split-button-trigger {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
+    width: auto;
+    min-width: auto;
     min-height: var(--control-height-tiny);
+    padding: var(--sp-1) calc(var(--sp-1) * 2.5);
     /* The shared rule draws a divider against the primary half. There is none. */
-    border-inline-start: 0;
+    border: 1px solid transparent;
     border-radius: var(--radius-pill);
     color: var(--muted);
+  }
+  .dataset-card .split-button-trigger .sx-icon {
+    width: calc(var(--sp-1) * 3.5);
+    height: calc(var(--sp-1) * 3.5);
   }
   /* One treatment for hover and for open, which is the profile row's behaviour:
      the accent fill it used to take while open is what read as a blue box. */
@@ -668,9 +678,6 @@
   }
   .source-edit-back {
     display: grid;
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     place-items: center;
   }
   .source-edit-summary {
@@ -1937,7 +1944,7 @@
   .account-row {
     position: relative;
     display: grid;
-    grid-template-columns: var(--sp-7) minmax(0, 1fr) var(--control-height-tiny);
+    grid-template-columns: var(--sp-7) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -2157,7 +2164,7 @@
   .manage-account-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -2165,9 +2172,6 @@
     background: var(--surface);
   }
   button.manage-account-back {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);
     background: transparent;
@@ -3642,7 +3646,7 @@
   .engine-detail-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -3650,9 +3654,6 @@
     background: var(--surface);
   }
   button.engine-detail-back {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);
     background: transparent;

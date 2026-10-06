@@ -15,7 +15,8 @@ import pytest
 pytest.importorskip("playwright")
 pytest.importorskip("fastapi")
 
-from tests.test_panel_dom import _READ_SIZES, _SIZE, browser  # noqa: E402,F401  (the fixture)
+from tests.test_panel_dom import (  # noqa: E402,F401  (the fixture)
+    _ICON_ONLY, _READ_SIZES, _SIZE, browser)
 from tests.test_the_focus_ring_draws_in_the_web_ui import (  # noqa: E402,F401  (the fixture)
     ORIGIN, PAGES, webui)
 
@@ -77,6 +78,14 @@ def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
         "named in OFF_SIZE and matching no control off its size, so take it out: "
         f"{sorted(set(OFF_SIZE) - off)}")
 
+    # Every icon-only Button is Supabase's 36x26 around its 14px icon (#1430; his ruling on
+    # #1457): the source list's icon link at this width.
+    icon_only = [c for c in controls if c["iconOnly"] and c["known"] is None]
+    assert "a.dataset-icon-button" in {c["name"] for c in icon_only}, icon_only
+    boxes = sorted({f"{c['page']} {c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
+                    for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})
+    assert not boxes, "icon-only Buttons not 36x26 around a 14px icon:\n  " + "\n  ".join(boxes)
+
     # Past md a field's text is text-sm, 13px, on leading-4's 16px line (constants.ts@86c813ec:48).
     response = webui.goto(ORIGIN + "/manage")
     assert response is not None and response.status == 200
@@ -85,3 +94,12 @@ def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
       return [s.fontSize, s.lineHeight];
     }""")
     assert text == ["13px", "16px"], text
+
+    # On a phone the navigation is behind its toggle, an icon-only Button too.
+    webui.set_viewport_size({"width": 360, "height": 800})
+    response = webui.goto(ORIGIN + "/")
+    assert response is not None and response.status == 200
+    toggle = [c for c in webui.evaluate(_READ_SIZES, ["body", [], []])
+              if c["name"] == "button.sidebar-toggle.workspace-menu-button.icon-button"]
+    assert [(c["width"], c["height"], c["icon"], c["iconOnly"]) for c in toggle] == [
+        (*_ICON_ONLY, True)], toggle

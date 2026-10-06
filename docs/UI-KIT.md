@@ -109,9 +109,9 @@ Compose, do not invent.
 |---|---|
 | *(none)* | filled primary |
 | `ghost` | outlined, regular weight |
-| `icon-button` | square, at Supabase's tiny Button height (26px), with a mouse; on a touch screen the 44px coarse-pointer floor draws it 26×44 until #1051 |
+| `icon-button` | Supabase's icon-only Button, 36×26: tiny's padding around a 14px icon, with a mouse; on a touch screen the 44px coarse-pointer floor draws it 36×44 until #1051 (#1430) |
 | `compact` | Supabase's tiny size by name, which a bare button draws by default too: 12px type, 26px tall (#1430) |
-| `icon-button compact` | the same 26px square — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny. It stays square on a touch screen, under the 44px coarse-pointer floor, so it is for secondary icon controls |
+| `icon-button compact` | the same 36×26 box — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny. It stays 26px tall on a touch screen, under the 44px coarse-pointer floor, so it is for secondary icon controls |
 | `split-button` + `split-button-primary` / `-trigger` / `-menu` / `-option` | an action with a menu beside it |
 
 **Surfaces** `card` · `card hi` · `card warn` · `banner` · `grid` · `row` ·

@@ -492,37 +492,32 @@ button.link:hover:not(:disabled),
   text-underline-offset: 0.16em;
 }
 
-button.icon-button,
-.button.icon-button {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
-  padding: 0;
+/* AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26, NOT A SQUARE (#1430; his ruling on #1457). Their
+   icon-only Button is the Button with an icon and no label (button-icon.tsx@86c813ec:5), at
+   its tiny default: tiny's px-2.5 py-1 (constants.ts@86c813ec:54), the Button rule's padding
+   above, around the icon, which tiny draws at 14px (`[&_svg]:h-[14px] [&_svg]:w-[14px]`,
+   Button.tsx@86c813ec:127), inside the Button's 1px border (`border`, :25). So 10 + 14 + 10
+   and the border are its 36px width, from that padding, and its height is the 26px floor; it
+   declares no width of its own. 14px is 3.5 steps of their 0.25rem --spacing. */
+button.icon-button .sx-icon,
+.button.icon-button .sx-icon {
+  width: calc(var(--sp-1) * 3.5);
+  height: calc(var(--sp-1) * 3.5);
 }
 
-/* WITH A MOUSE, THE THREE SQUARES ARE ONE SIZE. `compact` and `xs` were the
-   32px notches under a 40px default; Supabase's Button has no size below its
-   tiny default (constants.ts@86c813ec:61), so on a fine pointer all three are
-   that 26px square (#1050), and the width lines below restate `icon-button`'s.
+/* WITH A MOUSE, THE THREE ARE ONE SIZE. `compact` and `xs` were the 32px notches
+   under a 40px default; Supabase's Button has no size below its tiny default
+   (constants.ts@86c813ec:61), so on a fine pointer all three are that 36x26 box,
+   and `compact`'s padding is tiny's too.
    ON A TOUCH SCREEN THEY PART. The `(hover: none), (pointer: coarse)` block at
-   the end of this sheet lifts a plain `icon-button` to its 44px floor, a 26x44
+   the end of this sheet lifts a plain `icon-button` to its 44px floor, a 36x44
    box until #1051 moves that reach into a hit area. `compact`, through
    `button.compact`'s min-height, and `xs`, through its own, outrank that block
-   and stay 26px squares, under the 44px coarse-pointer floor: they are for
+   and stay 26px tall, under the 44px coarse-pointer floor: they are for
    secondary icon controls, and a primary or destructive action uses a plain
-   `icon-button`. That `min-height` is the one line `xs` adds.
-   `padding: 0` keeps `compact`'s padding, which comes later in this sheet, from
-   standing a 20px icon 30px tall in a 26px-wide box. */
-button.icon-button.compact,
-.button.icon-button.compact {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
-  padding: 0;
-}
-
+   `icon-button`. That `min-height` is the one line `xs` adds. */
 button.icon-button.xs,
 .button.icon-button.xs {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
   min-height: var(--control-height-tiny);
 }
 

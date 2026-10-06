@@ -34,13 +34,16 @@
 .dataset-browser-title{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
 .dataset-browser-title h2{margin:0;font-size:.9rem}
 .dataset-browser-title p{margin:.12rem 0 .7rem;color:var(--muted);font-size:.67rem}
-/* An icon-only Button at its tiny default, the panel's 26px square (#1430). */
-.dataset-icon-button{display:grid;width:var(--control-height-tiny);
-  height:var(--control-height-tiny);padding:0;place-items:center;
+/* An icon-only Button at its tiny default, 36x26 (#1430; his ruling on #1457): tiny's px-2.5
+   py-1 around its 14px icon, in a 1px border (constants.ts@86c813ec:54, :61,
+   Button.tsx@86c813ec:127, :25), so its width is its padding's. */
+.dataset-icon-button{display:grid;height:var(--control-height-tiny);
+  padding:var(--sp-1) calc(var(--sp-1) * 2.5);place-items:center;
   border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--muted)}
 .dataset-icon-button:hover{border-color:var(--accent);background:var(--accent-weak);
   color:var(--accent-ink);filter:none}
-.dataset-icon-button svg{width:16px;height:16px;fill:currentColor}
+.dataset-icon-button svg{width:calc(var(--sp-1) * 3.5);height:calc(var(--sp-1) * 3.5);
+  fill:currentColor}
 .dataset-search-wrap{position:relative;display:block}
 .dataset-search-wrap svg{position:absolute;inset-inline-start:.58rem;top:50%;width:16px;height:16px;
   fill:var(--muted);transform:translateY(-50%);pointer-events:none}

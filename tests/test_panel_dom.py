@@ -6657,14 +6657,15 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 26px pill with no resting border or background, muted until hovered.
+    a 36x26 pill with no resting border or background, muted until hovered.
 
-    26 SQUARE SINCE #1050, WAS 32 WIDE AND 40 TALL, AND 40 AND 48 BEFORE R-85/OD-09.
-    It is an icon-only Button, and Supabase's Button defaults to tiny, 26px
-    (Button.tsx@86c813ec:192, constants.ts@86c813ec:61), so the declared width and
-    the global `min-height` now read the same token and the box is square. The
-    asymmetry this test was written about, a 32px width under a 40px floor, went
-    with the two notches that made it.
+    36x26 SINCE #1430, BY HIS RULING ON #1457; A 26 SQUARE SINCE #1050, WAS 32 WIDE AND
+    40 TALL, AND 40 AND 48 BEFORE R-85/OD-09. It is an icon-only Button, Supabase's at
+    its tiny default (Button.tsx@86c813ec:192): tiny's px-2.5 py-1 around its 14px icon,
+    in the Button's 1px border (constants.ts@86c813ec:54, Button.tsx@86c813ec:127, :25).
+    So it declares no width, and that padding is its 36px; its height is the global
+    `min-height`'s 26px. The asymmetry this test was written about, a 32px width under a
+    40px floor, went with the two notches that made it.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
     than a remembered one: `button, .button { min-height: var(--control-height-tiny) }`
@@ -6685,18 +6686,20 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
     declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "var(--control-height-tiny)", declared
+    assert declared["width"] is None, declared
 
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(26, abs=0.01), box["width"]
-    # 26 TALL TOO. `button, .button` in components.css carries `min-height:
-    # var(--control-height-tiny)` and nothing here overrides it, and with no padding
-    # the 20px icon sits inside that floor, so the height is the token's. Measured,
-    # not assumed. That it is the same box as its two copies is
-    # `test_the_three_back_buttons_draw_one_box`.
+    assert box["width"] == pytest.approx(36, abs=0.01), box["width"]
+    # 26 TALL. `button, .button` in components.css carries `min-height:
+    # var(--control-height-tiny)` and nothing here overrides it, and tiny's 4px padding
+    # around the 14px icon, 24px with the border, sits inside that floor, so the height
+    # is the token's. Measured, not assumed. That it is the same box as its two copies
+    # is `test_the_three_back_buttons_draw_one_box`.
     assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
+    icon = btn.locator("svg").bounding_box()
+    assert icon and (icon["width"], icon["height"]) == (14, 14), icon
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
@@ -6709,10 +6712,11 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
 def test_the_three_back_buttons_draw_one_box(open_panel):
     """Source, Manage account and one engine each open under the same back button: a
-    `ghost` icon-only <button> with the arrow-back icon and an aria-label
+    `ghost icon-button` <button> with the arrow-back icon and an aria-label
     (extension/app.html `#source-edit-back`, `#manage-account-back`,
-    `#engine-detail-back`). Each is Supabase's Button at its tiny default, an icon in a
-    26px square (Button.tsx@86c813ec:192, constants.ts@86c813ec:61).
+    `#engine-detail-back`). Each is Supabase's icon-only Button at its tiny default,
+    36x26: tiny's px-2.5 around a 14px icon, 26px tall (Button.tsx@86c813ec:192, :127,
+    constants.ts@86c813ec:54, :61), by his ruling on #1457.
 
     BOXES, NOT `min-height`. This compared the two computed min-heights until #1432's
     review showed both come from `button, .button`, so a height declared on either
@@ -6740,21 +6744,21 @@ def test_the_three_back_buttons_draw_one_box(open_panel):
 
     sizes = {selector: box and (round(box["width"], 2), round(box["height"], 2))
              for selector, box in boxes.items()}
-    assert sizes == {"#manage-account-back": (26, 26), "#engine-detail-back": (26, 26),
-                     "#source-edit-back": (26, 26)}, (
-        f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
+    assert sizes == {"#manage-account-back": (36, 26), "#engine-detail-back": (36, 26),
+                     "#source-edit-back": (36, 26)}, (
+        f"the three back buttons in this panel no longer draw one 36x26 box: {sizes}")
 
 
 def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
-    """With a mouse the three icon squares are one 26px size (the test below). On a touch
-    screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
+    """With a mouse the three icon-only Buttons are one 36x26 box (the test below). On a
+    touch screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
     `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
     docs/UI-KIT.md say:
 
     - a plain `icon-button` declares no min-height of its own, so it takes the floor and
-      draws 26x44. #1051 moves that reach into a hit area and changes this number;
+      draws 36x44. #1051 moves that reach into a hit area and changes this number;
     - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
-      (through its own) outrank the block and stay 26px squares, under the floor.
+      (through its own) outrank the block and stay 36x26, under the floor.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -6777,21 +6781,21 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (26, 44),
-                     "#accounts-card .account-menu-button": (26, 26),
-                     "#signout": (26, 26)}, sizes
+    assert sizes == {"#plain-icon-button-probe": (36, 44),
+                     "#accounts-card .account-menu-button": (36, 26),
+                     "#signout": (36, 26)}, sizes
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):
     """A Button's floor is Supabase's tiny, 26px (Button.tsx@86c813ec:192), an Input's is
     small, 34px (input.tsx@86c813ec:31), and the `xs` and `compact` icon buttons are both the
-    tiny square, because Supabase's Button has no size below it (#1050).
+    tiny icon-only Button, 36x26, because Supabase's Button has no size below it (#1050, #1430).
 
     Read from the cascade, not the sheet: tests/test_the_control_heights_are_supabases_sizes.py
     holds each declaration, and a later rule that overrides one, in a surface's own sheet or a
-    media block, is seen only here. The squares are measured as boxes because `compact` brings
-    its own padding, which stood the 20px icon 30px tall in a 26px-wide box until
-    `.icon-button.compact` zeroed it."""
+    media block, is seen only here. The boxes are measured because `compact` brings its own
+    padding, which stood a 20px icon 30px tall in a 26px-wide box until `.icon-button.compact`
+    zeroed it; it is tiny's padding now, around tiny's 14px icon."""
     page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
@@ -6803,7 +6807,7 @@ def test_each_control_takes_its_supabase_components_default_size(open_panel):
     for selector in ("#signout", "#accounts-card .account-menu-button"):
         box = page.locator(selector).first.bounding_box()
         assert box, selector
-        assert (box["width"], box["height"]) == (pytest.approx(26, abs=0.01),
+        assert (box["width"], box["height"]) == (pytest.approx(36, abs=0.01),
                                                  pytest.approx(26, abs=0.01)), (selector, box)
 
     page.click(SOURCE_TAB)
@@ -6847,28 +6851,52 @@ _SIZE_SCREENS = (
     ("#workspace-menu", ["#workspace-toggle"]),
 )
 
-#: Reads every Button and text field on one screen, as a name and a rendered height; `also`
+#: Reads every Button and text field on one screen, as a name and a rendered box; `also`
 #: names Buttons drawn as another element. A name is the id, else the tag and its classes
 #: (state classes `is-*` left out). A visually hidden native <select>, 1px behind its own
 #: trigger, is not drawn and is not read; a <textarea> is Supabase's Textarea, which has no
-#: SIZE height (textarea.tsx@86c813ec:12).
+#: SIZE height (textarea.tsx@86c813ec:12). A Button that draws an icon and no text is an
+#: icon-only Button, `icon` its icon's width: a visually hidden label, in a box under 2px,
+#: draws none.
 _READ_SIZES = """([scopeSelector, known, also = []]) => {
   const FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
     + ':not([type=range]):not([type=color]):not([type=file]), select, .sx-select-trigger';
   const BUTTON = ['button', '.button', ...also].join(', ');
   const name = (el) => el.id ? '#' + el.id : el.tagName.toLowerCase()
     + [...el.classList].filter((c) => !c.startsWith('is-')).map((c) => '.' + c).join('');
+  const drawn = (box) => box.width >= 2 && box.height >= 2;
+  const drawsText = (el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent.trim() && drawn(node.parentElement.getBoundingClientRect())) return true;
+    }
+    return false;
+  };
   const out = [];
   for (const el of document.querySelector(scopeSelector).querySelectorAll(`${BUTTON}, ${FIELD}`)) {
     const r = el.getBoundingClientRect();
-    if (!el.checkVisibility({visibilityProperty: true}) || r.width < 2 || r.height < 2) continue;
-    out.push({name: name(el), kind: el.matches(FIELD) ? 'field' : 'button',
-              height: Math.round(r.height * 100) / 100,
+    if (!el.checkVisibility({visibilityProperty: true}) || !drawn(r)) continue;
+    const icons = [...el.querySelectorAll('svg')].map((svg) => svg.getBoundingClientRect())
+      .filter(drawn);
+    const field = el.matches(FIELD);
+    out.push({name: name(el), kind: field ? 'field' : 'button',
+              height: Math.round(r.height * 100) / 100, width: Math.round(r.width * 100) / 100,
+              iconOnly: !field && icons.length > 0 && !drawsText(el),
+              icon: icons.length ? Math.max(...icons.map((box) => Math.round(box.width * 100) / 100)) : null,
               select: el.tagName === 'SELECT', padTop: parseFloat(getComputedStyle(el).paddingTop),
               known: known.find((selector) => el.matches(selector)) || null});
   }
   return out;
 }"""
+
+#: AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26 (#1430; his ruling on #1457): their "Only an icon"
+#: Button (button-icon.tsx@86c813ec:5) at tiny, px-2.5 py-1 around a 14px icon in a 1px border
+#: (constants.ts@86c813ec:54, :61, Button.tsx@86c813ec:127, :25), as (width, height, icon).
+_ICON_ONLY = (36, 26, 14)
+
+#: The panel's Buttons drawn as another element: the Data card's menu trigger is a <summary>,
+#: an icon-only Button with no primary half beside it. The split chevron beside one is #1059's.
+_ALSO = [".dataset-card .split-button-trigger"]
 
 #: Controls that are a Supabase component other than the plain Button or Input, each at that
 #: component's height.
@@ -6944,7 +6972,7 @@ def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
             """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
                  (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
             arg=scope, timeout=5_000)
-        for control in page.evaluate(_READ_SIZES, [scope, known]):
+        for control in page.evaluate(_READ_SIZES, [scope, known, _ALSO]):
             controls.setdefault(control["name"], []).append(control)
 
     assert {"a bare <button>": probe and round(probe["height"], 2),
@@ -6978,6 +7006,18 @@ def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
     assert off == set(_OFF_SIZE), (
         "named in _OFF_SIZE and matching no control off its size, so take it out: "
         f"{sorted(set(_OFF_SIZE) - off)}")
+
+    # Every icon-only Button is Supabase's 36x26 around its 14px icon, not a 26px square: the
+    # three back buttons, Sign out, each account's menu, the Workspace sheet's close and the
+    # Data card's menu, when #1430 measured.
+    icon_only = [c for c in seen if c["iconOnly"] and c["known"] is None]
+    assert len({c["name"] for c in icon_only}) >= 7, (
+        f"the sweep read {sorted({c['name'] for c in icon_only})} as icon-only Buttons; a "
+        f"screen did not open")
+    boxes = sorted({f"{c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
+                    for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})
+    assert not boxes, (f"icon-only Buttons not {_ICON_ONLY[0]}x{_ICON_ONLY[1]} around a "
+                       f"{_ICON_ONLY[2]}px icon:\n  " + "\n  ".join(boxes))
 
 
 #: (font-size, line-height, padding-top, padding-inline-start) of each control, read from the
