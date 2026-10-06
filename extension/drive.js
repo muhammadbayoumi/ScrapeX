@@ -60,6 +60,11 @@ export const LATEST = "latest.json";
  */
 export const PANEL_PACK = "panel.jsonl.gz";
 
+/** The light file's parts (#1199), named `scrapex-bundle-<stamp>-light.gz` like the
+ * archive beside it. Its twin is `PARTS_SUFFIX` in scrapex/lightfile.py, held equal
+ * by a test that reads that line from Python. */
+export const LIGHT_SUFFIX = "-light.gz";
+
 /** How many bundles survive a prune. Three is a fortnight of daily backups
  * without asking the owner to think about it, and Drive quota is the owner's. */
 export const KEEP = 3;
@@ -433,7 +438,7 @@ export function expectSize(what, blob, described) {
 }
 
 export async function backUp(token, {
-  archive, name, panelPack = null, manifest = {}, bundleFormat = 1,
+  archive, name, panelPack = null, light = null, manifest = {}, bundleFormat = 1,
   onProgress = null, fetchImpl = fetch,
 } = {}) {
   // NOTHING COMPARED THE BYTES TO THE DESCRIPTION UNTIL 2026-08-30, and the
@@ -450,6 +455,9 @@ export async function backUp(token, {
   // it holds for a caller that passes no manifest at all.
   expectSize("archive", archive, manifest.bytes);
   expectSize("panel pack", panelPack, manifest.panel_pack?.bytes);
+  // THE LIGHT FILE (#1199), checked the same way and before anything leaves: its
+  // index arrived in the build reply, its bytes in a second request.
+  expectSize("offline copy", light, manifest.light?.parts_file?.bytes);
   if (!archive || archive.size === 0) {
     throw new DriveError(
       "The archive was empty, so nothing was uploaded. The backup already in " +
@@ -459,6 +467,11 @@ export async function backUp(token, {
     throw new DriveError(
       "The panel pack was empty, so nothing was uploaded. The backup already " +
       "in Drive is untouched.", null, "empty");
+  }
+  if (light && (light.size === 0 || !manifest.light?.parts_file?.name)) {
+    throw new DriveError(
+      "The offline copy of the Data page was empty or unnamed, so nothing was " +
+      "uploaded. The backup already in Drive is untouched.", null, "empty");
   }
   const parent = await folderId(token, {fetchImpl});
 
@@ -488,6 +501,16 @@ export async function backUp(token, {
     });
   }
 
+  // THE LIGHT FILE, UNDER ITS OWN STAMPED NAME, BEFORE THE POINTER. A name no older
+  // file holds, so nothing is deleted to make room for it: the old one is removed
+  // only after the new pointer names this one (#1360 asks the same of the pack).
+  const lit = light
+    ? await upload(token, {
+      blob: light, name: manifest.light.parts_file.name, parent,
+      mime: "application/gzip", fetchImpl,
+    })
+    : null;
+
   const pointer = {
     file_id: stored.id,
     name: stored.name || name,
@@ -499,6 +522,9 @@ export async function backUp(token, {
     panel_pack: packed
       ? {file_id: packed.id, name: PANEL_PACK, bytes: panelPack.size}
       : null,
+    // The whole index, inline, so it can never describe a different parts file from
+    // the one this pointer names, and a reader needs one object fewer.
+    light: lit ? {file_id: lit.id, index: manifest.light} : null,
   };
 
   // Replace, never append. The old pointer is deleted before the new one is
@@ -516,9 +542,17 @@ export async function backUp(token, {
   });
 
   const pruned = [];
-  for (const old of prunable(await listing(token, parent, {fetchImpl}))) {
+  const after = await listing(token, parent, {fetchImpl});
+  for (const old of prunable(after)) {
     await remove(token, old.id, {fetchImpl});
     pruned.push(old.name);
+  }
+  // EVERY LIGHT FILE THE NEW POINTER DOES NOT NAME, now that it names its own. A
+  // pointer is the only thing that says which file belongs to a complete backup, so
+  // a file it does not name is never read, and it is 14 MB of his Drive quota.
+  for (const old of after.filter((f) => (f.name || "").endsWith(LIGHT_SUFFIX)
+                                     && f.id !== lit?.id)) {
+    await remove(token, old.id, {fetchImpl});
   }
 
   return {...pointer, parent, pruned};

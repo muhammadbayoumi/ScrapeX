@@ -8753,6 +8753,11 @@ async function backUpToDrive(token, report = "drive-msg") {
   const panelPack = built.panel_pack
     ? await bytes("/api/bundle/panel-pack")
     : null;
+  // THE LIGHT FILE (#1199), asked for only when the reply names one, so an engine
+  // that never wrote it is never asked a route it may not have.
+  const light = built.light
+    ? await bytes("/api/bundle/light")
+    : null;
 
   // `manifest: built` is not decoration. WHAT THE ENGINE DESCRIBED AND WHAT
   // ARRIVED ARE TWO DIFFERENT FACTS -- the manifest comes from the POST above,
@@ -8761,7 +8766,7 @@ async function backUpToDrive(token, report = "drive-msg") {
   // to Drive under a pointer carrying the real one's digest. `backUp` compares
   // them now, because it is handed both.
   const stored = await backUp(token, {
-    archive, name: built.name, panelPack,
+    archive, name: built.name, panelPack, light,
     manifest: built, bundleFormat: built.bundle_format,
     // Both bars, because only the visible one exists on any given screen and
     // `driveProgress` is a no-op for the other. Cheaper and plainer than
@@ -8779,13 +8784,13 @@ async function backUpToDrive(token, report = "drive-msg") {
   // THE LIGHT FILE (#1199) never fails a backup, so what it could not write is
   // said here, where he reads the result, rather than left in the reply.
   const faults = built.light?.faults || [];
-  const light = built.light_error
+  const lightNote = built.light_error
     ? ` The offline copy of the Data page was not written: ${built.light_error}.`
     : faults.length
       ? ` The offline copy of the Data page left out ${faults.length} ` +
         `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
       : "";
-  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${light}`;
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${lightNote}`;
 }
 
 async function fetchFromDrive(token) {

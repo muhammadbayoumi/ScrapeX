@@ -759,6 +759,13 @@ window.fetch = async (url, options = {{}}) => {{
       return {{ ok: true, status: 200, headers: {{get: () => null}},
                 blob: async () => filler(size), json: async () => ({{}}) }};
     }}
+    if (path.startsWith("/api/bundle/light")) {{
+      // The light file's parts (#1199), as long as the build reply said they are.
+      window.__sx_light_reads = (window.__sx_light_reads || 0) + 1;
+      const size = Number(((BUNDLE.light || {{}}).parts_file || {{}}).bytes || 0);
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                blob: async () => filler(size), json: async () => ({{}}) }};
+    }}
     if (path.startsWith("/api/bundle/archive")) {{
       // RECORDED, because "was the archive read as a range" is the question the
       // 2026-09-03 failure turned on and a test cannot see it any other way:

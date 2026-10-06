@@ -565,6 +565,43 @@ def test_the_light_file_describes_the_zip_and_not_the_live_warehouse(client, mon
     assert carried["rows"] == 0, "the light file read the live warehouse, not the copy"
 
 
+def test_the_light_route_serves_the_newest_light_file_as_a_gzip_file(client):
+    """The panel carries these bytes to Drive (#1199), so they must be the file the
+    build reply described, sent as a file rather than inflated in transit."""
+    connected, backups = client
+    built = connected.post("/api/bundle").json()
+    on_disk = backups / built["light"]["parts_file"]["name"]
+
+    response = connected.get("/api/bundle/light")
+
+    assert response.status_code == 200
+    assert response.content == on_disk.read_bytes()
+    assert response.headers["content-type"] == "application/gzip"
+    assert "content-encoding" not in response.headers
+
+
+def test_the_light_route_answers_404_before_any_build(client):
+    connected, _backups = client
+
+    assert connected.get("/api/bundle/light").status_code == 404
+
+
+def test_the_light_route_never_serves_a_file_still_being_written(client):
+    """`_newest` relies on the `.part` name, as it does for the archive."""
+    import os
+    import time
+
+    connected, backups = client
+    built = connected.post("/api/bundle").json()
+    whole = backups / built["light"]["parts_file"]["name"]
+    writing = backups / "scrapex-bundle-29991231-235959-light.gz.part"
+    writing.write_bytes(b"half")
+    later = time.time() + 60
+    os.utime(writing, (later, later))
+
+    assert connected.get("/api/bundle/light").content == whole.read_bytes()
+
+
 def test_a_staging_tree_left_by_a_killed_engine_is_swept(client):
     """WHAT ACTUALLY SURVIVES A CRASH. The build itself cannot — it is a thread
     inside the engine — but the staging directory it was writing does, because

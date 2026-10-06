@@ -10153,8 +10153,23 @@ HARNESS_BUNDLE = {
 }
 
 
+#: A light file's index as the build reply carries it (#1199): the parts file the
+#: panel fetches next, and no faults.
+HARNESS_LIGHT = {
+    "light_format": 1,
+    "parts_file": {"name": "scrapex-bundle-20260906-000000-light.gz",
+                   "bytes": 512, "sha256": "b" * 64},
+    "tables": [], "faults": [],
+}
+
+
 def _backed_up_with(open_panel, **reply) -> str:
     """Press Back up on Manage account with this build reply; return what it said."""
+    return _press_back_up(open_panel, **reply).inner_text("#manage-backup-msg").strip()
+
+
+def _press_back_up(open_panel, **reply):
+    """Press Back up on Manage account with this build reply; the page once it is done."""
     page = open_panel(
         signed_in=ACCOUNT,
         bundle={**HARNESS_BUNDLE, **reply},
@@ -10168,13 +10183,32 @@ def _backed_up_with(open_panel, **reply) -> str:
         "() => /Backed up/.test("
         "document.querySelector('#manage-backup-msg').innerText)",
         timeout=30000)
-    return page.inner_text("#manage-backup-msg").strip()
+    return page
+
+
+def test_the_light_file_reaches_drive_before_the_pointer_that_names_it(open_panel):
+    """#1199: the pointer is written last, so it can only name files already there."""
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None)
+
+    uploads = page.evaluate("() => window.__sx_uploads")
+    assert page.evaluate("() => window.__sx_light_reads") == 1
+    assert HARNESS_LIGHT["parts_file"]["name"] in uploads, uploads
+    assert uploads.index(HARNESS_LIGHT["parts_file"]["name"]) < uploads.index("latest.json")
+
+
+def test_a_build_with_no_light_file_never_asks_for_one(open_panel):
+    """An engine that wrote none, or an older engine, is never asked a route it lacks."""
+    page = _press_back_up(open_panel, light=None, light_error="OSError: disk full")
+
+    assert page.evaluate("() => window.__sx_light_reads || 0") == 0
+    assert not any(name.endswith("-light.gz")
+                   for name in page.evaluate("() => window.__sx_uploads"))
 
 
 def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
     """#1199: the light file never fails a backup, so a table it could not write is
     said where he reads the result, or it is a silent failure."""
-    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+    said = _backed_up_with(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
         {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
          "problem": "RuntimeError: the second card"}]})
 
@@ -10204,7 +10238,7 @@ def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):
 
 
 def test_a_whole_offline_copy_adds_nothing_to_the_sentence(open_panel):
-    said = _backed_up_with(open_panel, light={"faults": []}, light_error=None)
+    said = _backed_up_with(open_panel, light=HARNESS_LIGHT, light_error=None)
 
     assert "offline copy" not in said, said
 
