@@ -21,7 +21,7 @@ bold run back down.
 HOW IT IS PORTED. --fw-regular is their --font-weight-normal, and --fw-regular-mono holds
 the 400 their mono context re-declares it to. Their mono family arrives through one class,
 `.font-mono`, so every mono run of theirs is inside the context. Here the family arrives
-through `font-family: var(--font-mono)` in 34 rules across 11 sheets. design/components.css
+through `font-family: var(--font-mono)` in 34 rules across 10 sheets. design/components.css
 carries their selector with this product's classes in it -- tools/value_literals.py's MONO
 says which classes those are, for this guard and for the value guard alike -- and every other
 rule that sets the mono family re-declares the token itself. A rule that does neither fails
