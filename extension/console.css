@@ -602,15 +602,16 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   font-weight: var(--fw-medium);
 }
 
+/* An Input or a Select at small, Supabase's default (input.tsx@86c813ec:31): its text, its
+   padding and its 34px are the shared rule's in components.css, so this sets none of them
+   (#1430). A padding here would undo the <select>'s centred line there, and `font: inherit`
+   gave every field the Console's 1.55 line. */
 .field input,
 .field select {
-  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--control-bg);
   color: var(--text);
-  font: inherit;
-  font-size: var(--fs-sm);
 }
 
 .field input:focus-visible,

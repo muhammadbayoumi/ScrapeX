@@ -181,11 +181,16 @@ KEPT = {
 NO_HEIGHT = {(C, ".split-button-option"), (APP, ".finance-converter-option")}
 
 #: A screen's rule for a Button or an Input that declares none of these, so the shared rule's
-#: size is the control's (#1430): the enrichment page's fields were 40px on their own floor,
+#: size is the control's (#1430): the enrichment page's fields were 40px on their own floor, the
+#: Console's selects 34px with their own padding and its text fields 38.14px,
 #: and the data model's zoom buttons a 40px square of their own, then a 26px one with no
 #: padding. They take tiny's padding around their glyph now, as an icon-only Button does.
 SHARED_SIZE = {
     ("extension/enrichment.css", "input, select"): {
+        "height", "min-height", "padding", "padding-block", "font", "font-size", "line-height"},
+    # The Console's editor fields: their own padding inside the <select>'s 34px cut its
+    # descenders, and `font: inherit` stood every text field on the Console's 1.55 line.
+    ("extension/console.css", ".field input, .field select"): {
         "height", "min-height", "padding", "padding-block", "font", "font-size", "line-height"},
     ("scrapex/webui/static/pages/data-model.css", ".model-zoom .icon-button"): {
         "height", "min-height", "width", "min-width", "padding", "padding-inline"},
