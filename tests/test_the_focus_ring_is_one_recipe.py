@@ -86,8 +86,9 @@ def _suppressed_under_a_ring(selector: str, wrappers: set[str]) -> bool:
                and m.group(1) in wrappers for part in parts)
 
 
-#: The two rules that compose the gap with the 3px bar marking the current or checked
-#: item; the outline they sit beside is the shared rule's or the card's.
+#: The two rules that put back the 3px bar marking the current or checked item, beside the
+#: gap of an outside ring or alone beside an inset one; the outline they sit beside is the
+#: shared rule's or the card's.
 COMPOSED = ('.dataset-items a[aria-current="page"]:focus-visible',
             ".exports-source-card:has(input:checked):has(input:focus-visible)")
 
@@ -105,9 +106,11 @@ def test_every_focus_indicator_is_one_of_the_two_recipes():
             continue
         if prop == "box-shadow":
             # The gap, and after it only the inset bar a composition adds: a glow or a
-            # second ring after the gap is not the recipe.
+            # second ring after the gap is not the recipe. Beside an inset ring a
+            # composition is the bar alone.
             parts = [part.strip() for part in value.split(",")]
             ok = ((parts[0] == "var(--focus-ring-gap)" and all(part.startswith("inset ") for part in parts[1:]))
+                  or (selector in COMPOSED and all(part.startswith("inset ") for part in parts))
                   or (value == "none" and (selector in insets or _suppressed_under_a_ring(selector, wrappers))))
         elif prop == "outline" and value in ("0", "none"):
             ok = _suppressed_under_a_ring(selector, wrappers)
@@ -254,7 +257,7 @@ def test_the_inset_form_paints_no_gap():
     spread outside a control that sits flush in a container, so each inset rule clears it."""
     found = _focus_declarations()
     insets = _insets(found)
-    assert len(insets) >= 16, sorted(insets)
+    assert len(insets) >= 20, sorted(insets)
     cleared = {selector for _where, selector, prop, value in found if prop == "box-shadow" and value == "none"}
     assert not insets - cleared, f"inset rules that leave the gap painted: {sorted(insets - cleared)}"
 
@@ -300,12 +303,14 @@ def test_an_inner_control_drops_its_ring_only_under_a_wrapper_that_draws_one(sel
     assert _suppressed_under_a_ring(selector, wrappers) is expected
 
 
-@pytest.mark.parametrize("selector", [
-    '.dataset-items a[aria-current="page"]:focus-visible',
-    ".exports-source-card:has(input:checked):has(input:focus-visible)",
+@pytest.mark.parametrize("selector,expected", [
+    ('.dataset-items a[aria-current="page"]:focus-visible', "var(--focus-ring-gap),inset 3px 0 var(--accent)"),
+    # Inset since #1471: the ring is inside the card, so there is no gap to keep, only the bar.
+    (".exports-source-card:has(input:checked):has(input:focus-visible)", "inset 3px 0 var(--accent)"),
 ])
-def test_a_ring_keeps_the_bar_that_marks_the_current_item(selector):
-    """The gap is a shadow, so on an element whose resting shadow is the 3px bar that
-    marks it current or checked, focus would erase the bar. These two compose it back."""
+def test_a_ring_keeps_the_bar_that_marks_the_current_item(selector, expected):
+    """A focus rule sets the box-shadow, so on an element whose resting shadow is the 3px
+    bar that marks it current or checked, these two keep the bar: beside the gap of an
+    outside ring, or alone beside an inset one."""
     composed = {sel: value for _where, sel, prop, value in _focus_declarations() if prop == "box-shadow"}
-    assert composed.get(selector) == "var(--focus-ring-gap),inset 3px 0 var(--accent)", composed.get(selector)
+    assert composed.get(selector) == expected, composed.get(selector)
