@@ -17,8 +17,9 @@
      Input or Select small, 34px. A 48px floor stood here until R-85/OD-09 deleted
      it («احذفها», 2026-09-02), because Supabase's scale has no 48px step.
      `--touch-target` is not a control height: it keeps its explicit reads in this
-     file, where an element is sized for touch on purpose, and #1051 moves that
-     reach into an invisible hit area. */
+     file, where an element is sized for touch on purpose. On a touch screen the
+     Select trigger's 48px is the reach of its invisible hit area (#1051); the other
+     reads still size a box, and which of them become a hit area is his (#1051). */
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
@@ -76,7 +77,7 @@
   }
   .sx-select-trigger {
     width: 100%;
-    min-height: var(--touch-target);
+    min-height: var(--control-height-small);
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -101,6 +102,16 @@
   }
   .sx-select.is-open .sx-select-trigger .sx-icon {
     transform: rotate(180deg);
+  }
+  /* Supabase's SelectTrigger is small, 34px (select.tsx@86c813ec:37-38 at
+     SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:111), on every pointer. --touch-target,
+     48px, was its box until #1051; on a touch screen it is its reach, through its hit
+     area (design/components.css), and with a mouse the box is the reach, as Supabase's. */
+  @media (hover: none), (pointer: coarse) {
+    .sx-select-trigger {
+      --hit-area-t: min(0px, (100% - var(--touch-target)) / 2);
+      --hit-area-b: min(0px, (100% - var(--touch-target)) / 2);
+    }
   }
   .sx-select-list {
     position: absolute;
@@ -665,6 +676,15 @@
     min-width: var(--control-height-tiny);
     padding: 0;
     place-items: center;
+  }
+  /* The sticky heading holds this button at its view's scroll edge, which clips a hit
+     area reaching up, so on a touch screen it reaches down the whole of what its box
+     lacks of the 44px floor, as the floor's own box did (#1051). Centred, it kept 35. */
+  @media (hover: none), (pointer: coarse) {
+    .source-edit-back {
+      --hit-area-t: 0px;
+      --hit-area-b: min(0px, 100% - var(--touch-floor));
+    }
   }
   .source-edit-summary {
     display: flex;
