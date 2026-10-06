@@ -291,10 +291,16 @@
   background: var(--surface) !important;
   border: var(--table-rule) !important;
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
   color: var(--text);
 }
 .tabulator-menu { min-width: 14rem; padding: .3rem 0; }
+/* A sub-menu (Pin Column's) casts lg where its menu casts md, as Supabase's
+   DropdownMenuSubContent does (dropdown-menu.tsx@86c813ec:70). Tabulator gives
+   it the menu's own classes and appends it after its parent in the same
+   container, so its place is what tells it apart. Only a sub-menu can follow
+   another menu there: grid.js closes one header popup before opening the next. */
+.tabulator-menu ~ .tabulator-menu { box-shadow: var(--shadow-lg); }
 .tabulator-menu .tabulator-menu-item {
   color: var(--text);
   padding: .45rem .8rem;
@@ -337,7 +343,7 @@
   border-radius: var(--radius-xl);
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lg);
 }
 .column-chooser-header {
   display: flex;
@@ -393,7 +399,7 @@
   background: var(--bg);
 }
 .column-chooser-search:focus-within {
-  border-color: var(--accent);
+  border-color: var(--line-control-hover);
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: var(--focus-ring-offset);
   box-shadow: var(--focus-ring-gap);
@@ -481,7 +487,8 @@
   background: var(--muted);
   opacity: .48;
   transform: translate(-50%, -50%);
-  transition: width .12s ease,height .12s ease,background-color .12s ease,opacity .12s ease;
+  transition: width var(--dur-fast) var(--ease-in-out),height var(--dur-fast) var(--ease-in-out),
+    background-color var(--dur-fast) var(--ease-in-out),opacity var(--dur-fast) var(--ease-in-out);
 }
 .tabulator .tabulator-header .tabulator-col-resize-handle:hover::after,
 .tabulator .tabulator-header .tabulator-col-resize-handle:active::after {
@@ -577,7 +584,7 @@
   background: var(--accent);
   box-shadow: var(--shadow-xs);
   transform: translateX(0);
-  transition: transform .2s var(--ease);
+  transition: transform var(--dur-200) var(--ease);
 }
 .grid-lang-segments[data-active-lang="ar"]::before,
 .grid-fold-segments[data-active-fold="on"]::before {
@@ -602,7 +609,7 @@
   font-weight: 750;
   line-height: 1;
   cursor: pointer;
-  transition: color .18s var(--ease);
+  transition: color var(--dur) var(--ease-in-out);
 }
 .grid-lang-option:hover {
   background: transparent;
@@ -676,7 +683,7 @@
   border: var(--table-rule);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
 }
 .grid-feature-popover > header {
   position: sticky;
@@ -843,7 +850,8 @@
   height: 1.5rem;
   padding: 0;
   border-radius: var(--radius-sm);
-  transition: background-color .12s ease,opacity .12s ease,color .12s ease;
+  transition: background-color var(--dur-200) var(--ease-out),opacity var(--dur-200) var(--ease-out),
+    color var(--dur-200) var(--ease-out);
 }
 /* The resize divider answered the pointer and these two did not, so the header
  * looked like it had one live control and two decorations — the owner's report.
@@ -1007,7 +1015,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-tiny);
   padding: .45rem .75rem;
   color: var(--text);
   background: var(--control-bg);
