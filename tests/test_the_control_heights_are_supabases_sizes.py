@@ -146,6 +146,10 @@ STEPS = {
     (C, ".appearance-scheme-picker button", "min-height"): ("var(--sp-7)", TOGGLE),
 }
 
+#: The record inspector's rail, kept by his ruling on #1457 (#1040 rule 2).
+INSPECTOR = ("the record inspector's icon rail, kept until the grid rebuild (#1367) rewrites it, "
+             "so it is not decided twice: #1040 rule 2, his ruling on #1457")
+
 #: The reads that left the control scale, each at the size it rendered before #1050, and why.
 KEPT = {
     (APP, ".engine-component", "min-height"): (
@@ -165,14 +169,11 @@ KEPT = {
         "3.35rem", "a card's disclosure header (a <summary>); their AccordionTrigger declares "
                    "no height, only py-4 (accordion.tsx@86c813ec:32)"),
     ("scrapex/webui/static/webui.css", ".source-filter-trigger", "min-height"): (
-        "3.4rem", "a source picker whose label is two lines, the name over its domain; their "
-                  "trigger is a one-line Button, so taking its 26px drops a line: his call"),
-    ("design/grid-theme.css", ".record-inspector-nav button", "width"): (
-        "2.75rem", "the record inspector's icon rail; which Supabase component it is, a Button, "
-                   "a Toggle or a sidebar item, is his call"),
-    ("design/grid-theme.css", ".record-inspector-nav button", "min-height"): (
-        "2.75rem", "the record inspector's icon rail; which Supabase component it is, a Button, "
-                   "a Toggle or a sidebar item, is his call"),
+        "3.4rem", "a source picker whose label is two lines, the name over its domain: no "
+                  "Supabase trigger shows two, and dropping the domain would lose what tells "
+                  "similar sources apart, so it keeps both: #1040 rule 2, his ruling on #1457"),
+    ("design/grid-theme.css", ".record-inspector-nav button", "width"): ("2.75rem", INSPECTOR),
+    ("design/grid-theme.css", ".record-inspector-nav button", "min-height"): ("2.75rem", INSPECTOR),
 }
 
 #: Supabase's menu and select items declare no height, only padding and text
