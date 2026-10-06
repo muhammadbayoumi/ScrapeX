@@ -8,9 +8,10 @@
 // The grid's renderer: Supabase's Data Grid pattern, built on TanStack.
 //
 // TanStack Table owns the table's STATE and its row models: sorting, filtering,
-// selection, visibility and pinning. TanStack Virtual decides which rows are on
-// screen. Neither draws anything, so this file draws: the header, the visible
-// rows, pinned columns and the footer. What a cell MEANS (a price
+// grouping, the tree, selection, column order, visibility and pinning. TanStack
+// Virtual decides which rows are on screen. Neither draws anything, so this file
+// draws: the header and its menus, the visible rows, resize handles, pinned
+// columns, group bands, tree toggles and the footer. What a cell MEANS (a price
 // with its unit, a tax verdict with its source) stays in grid.js, which hands
 // this file a formatter per column and never touches the DOM it builds.
 //
@@ -18,11 +19,16 @@
 // engine both serve vendor/ beside this file and neither has a bundler.
 import {
   columnFilteringFeature,
+  columnGroupingFeature,
+  columnOrderingFeature,
   columnPinningFeature,
   columnVisibilityFeature,
   constructTable,
+  createExpandedRowModel,
   createFilteredRowModel,
+  createGroupedRowModel,
   createSortedRowModel,
+  rowExpandingFeature,
   rowSelectionFeature,
   rowSortingFeature,
   tableFeatures,
@@ -41,10 +47,11 @@ import {
 // checker nor a development build. So the pieces are checked here, once, and a
 // missing one stops the grid with its name instead of sorting nothing quietly.
 const PIECES = {
-  columnFilteringFeature, columnPinningFeature, columnVisibilityFeature,
-  constructTable, createFilteredRowModel, createSortedRowModel,
-  rowSelectionFeature, rowSortingFeature, tableFeatures,
-  storeReactivityBindings, Virtualizer,
+  columnFilteringFeature, columnGroupingFeature, columnOrderingFeature,
+  columnPinningFeature, columnVisibilityFeature, constructTable,
+  createExpandedRowModel, createFilteredRowModel, createGroupedRowModel,
+  createSortedRowModel, rowExpandingFeature, rowSelectionFeature,
+  rowSortingFeature, tableFeatures, storeReactivityBindings, Virtualizer,
   elementScroll, measureElement, observeElementOffset, observeElementRect,
 };
 const missingPieces = Object.entries(PIECES)
@@ -58,14 +65,20 @@ const FEATURES = tableFeatures({
   coreReactivityFeature: storeReactivityBindings(),
   columnFilteringFeature,
   filteredRowModel: createFilteredRowModel(),
+  columnGroupingFeature,
+  groupedRowModel: createGroupedRowModel(),
   rowSortingFeature,
   sortedRowModel: createSortedRowModel(),
+  rowExpandingFeature,
+  expandedRowModel: createExpandedRowModel(),
   rowSelectionFeature,
   columnVisibilityFeature,
+  columnOrderingFeature,
   columnPinningFeature,
 });
 
 const DEFAULT_MIN_WIDTH = 40;
+const DRAG_THRESHOLD = 5;
 const SELECT_FORMATTER = "rowSelection";
 const ROWNUM_FORMATTER = "rownum";
 const text = (v) => (v === null || v === undefined) ? "" : String(v);
@@ -79,6 +92,14 @@ function iconFrom(spec) {
   const node = typeof spec === "function" ? spec() : spec;
   if (!(node instanceof Node)) return document.createTextNode("");
   return typeof spec === "function" ? node : node.cloneNode(true);
+}
+
+/** A value for a CSV cell, exactly as the previous renderer wrote one. */
+function csvField(value) {
+  let v = value;
+  if (v === undefined) v = "";
+  else if (typeof v === "object") v = v === null ? "" : JSON.stringify(v);
+  return '"' + String(v).split('"').join('""') + '"';
 }
 
 function px(value) {
@@ -117,6 +138,8 @@ class ColumnHandle {
   getWidth() { return this._grid._widths.get(this._id) || 0; }
   /** Fix this column at `width` pixels (never below its minimum). */
   setWidth(width) { this._grid._setFixedWidth(this._id, width); }
+  /** The width its header and its rows on screen need, in pixels. */
+  measureContentWidth() { return this._grid._measureColumn(this._id); }
   getElement() {
     return this._grid._header &&
       this._grid._header.querySelector(`.dg-col[data-field="${CSS.escape(this._id)}"]`);
@@ -147,6 +170,19 @@ class CellHandle {
   getElement() { return this._element; }
 }
 
+class GroupHandle {
+  constructor(grid, row) {
+    this._grid = grid;
+    this._row = row;
+  }
+
+  getKey() { return this._row.groupingValue; }
+  getCount() { return this._row.leafRows.length; }
+  /** The data rows the band holds, at every level beneath it. */
+  getRows() { return this._row.leafRows.map((row) => new RowHandle(this._grid, row)); }
+  isOpen() { return this._row.getIsExpanded(); }
+}
+
 // ---- the grid ----------------------------------------------------------------
 
 /**
@@ -155,12 +191,19 @@ class CellHandle {
  * Column definition keys: title, field, formatter(cell) -> Node|string|
  * "rowSelection"|"rownum", titleFormatter(cell) -> Node|"rowSelection",
  * sorter {value(rowData), compare(a, b)} (a value of undefined is EMPTY and
- * sorts last in both directions), headerSort, width, minWidth, widthGrow,
- * hozAlign, frozen ("left"|"right"), cssClass, visible.
+ * sorts last in both directions), headerSort, headerMenu(event, column) ->
+ * items, headerMenuIcon, headerPopup(event, column) -> Node, headerPopupIcon
+ * (an icon is a Node or a function that returns one),
+ * headerFilter ("input"), resizable, width, minWidth, widthGrow, hozAlign,
+ * frozen ("left"|"right"), cssClass, visible, download, topCalc
+ * ("avg"|"count"), topCalcParams {precision}.
  *
  * Table options: data, columns, columnDefaults, height, placeholder,
- * headerSortElement (an icon: a Node or a function that returns one),
- * selectableRows, footerElement, initialSort [{column, dir}].
+ * headerSortElement (an icon, as above), movableColumns,
+ * selectableRows, footerElement, initialSort [{column, dir}], groupBy (an
+ * array of field names or functions of the row), groupHeader (an array of
+ * functions (value, count) -> Node), dataTree, dataTreeChildField,
+ * dataTreeElementColumn, dataTreeChildIndent.
  */
 export class DataGrid {
   constructor(mount, options) {
@@ -168,14 +211,20 @@ export class DataGrid {
     this.element = mount;
     this.options = Object.assign({
       placeholder: "No rows.",
+      movableColumns: false,
       selectableRows: false,
+      dataTreeChildField: "_children",
+      dataTreeChildIndent: 14,
     }, options || {});
     this._listeners = new Map();
     this._destroyed = false;
+    this._popup = null;
     this._renderQueued = false;
     this._fixedWidths = new Map();
     this._widths = new Map();
     this._rowElements = new Map();
+    this._suppressNextHeaderClick = false;
+    this._resizing = null;
     this._lastSelection = null;
     this._lastFilters = null;
     this._renderedState = null;
@@ -206,12 +255,13 @@ export class DataGrid {
   destroy() {
     if (this._destroyed) return;
     this._destroyed = true;
+    this.closePopups();
     if (this._unsubscribe) this._unsubscribe();
     if (this._unmountVirtualizer) this._unmountVirtualizer();
     if (this._resizeObserver) this._resizeObserver.disconnect();
     this._rowElements.clear();
     this.element.replaceChildren();
-    this.element.classList.remove("dg");
+    this.element.classList.remove("dg", "dg-grouped", "dg-tree");
     for (const attr of ["role", "aria-rowcount", "aria-colcount", "aria-multiselectable"]) {
       this.element.removeAttribute(attr);
     }
@@ -244,7 +294,15 @@ export class DataGrid {
   /** The rows' data: all of it in payload order, or ("active") as displayed. */
   getData(mode) {
     if (mode !== "active") return this.options.data.slice();
-    return this._table.getSortedRowModel().rows.map((row) => row.original);
+    const sorted = this._table.getSortedRowModel().rows;
+    if (!this._grouping().length) return sorted.map((row) => row.original);
+    const out = [];
+    const visit = (rows) => rows.forEach((row) => {
+      if (row.getIsGrouped()) visit(row.subRows);
+      else out.push(row.original);
+    });
+    visit(sorted);
+    return out;
   }
 
   getSorters() {
@@ -262,7 +320,11 @@ export class DataGrid {
     this._afterStateChange();
   }
 
-  /** Narrow the rows: [{field, test(rowData) -> bool}] or [{field, type: "like", value}]. */
+  /**
+   * Narrow the rows: [{field, test(rowData) -> bool}] or
+   * [{field, type: "like", value}]. A row with children stays while any child
+   * passes, and its children are narrowed to those that pass.
+   */
   setFilter(filters) {
     const next = (filters || []).filter((f) => f && this._defs.has(f.field)).map((f) => {
       if (typeof f.test === "function") return {id: f.field, value: {test: f.test}};
@@ -274,7 +336,69 @@ export class DataGrid {
   }
 
   getSelectedRows() {
-    return this._table.getSelectedRowModel().flatRows.map((row) => new RowHandle(this, row));
+    return this._table.getSelectedRowModel().flatRows
+      .filter((row) => !row.getIsGrouped())
+      .map((row) => new RowHandle(this, row));
+  }
+
+  getGroups() {
+    return this._table.getGroupedRowModel().rows
+      .filter((row) => row.getIsGrouped())
+      .map((row) => new GroupHandle(this, row));
+  }
+
+  /** Open or close every group band, at every level. */
+  setAllGroupsOpen(open) {
+    if (!this._grouping().length) return;
+    if (!open) { this._table.setExpanded({}); this._afterStateChange(); return; }
+    const expanded = {};
+    const visit = (rows) => rows.forEach((row) => {
+      if (row.getIsGrouped()) { expanded[row.id] = true; visit(row.subRows); }
+    });
+    visit(this._table.getGroupedRowModel().rows);
+    this._table.setExpanded(expanded);
+    this._afterStateChange();
+  }
+
+  /** The rows on screen as a file: "csv" or "json", named `filename`. */
+  download(kind, filename) {
+    const columns = this._displayColumnIds()
+      .filter((id) => this._isVisible(id))
+      .map((id) => this._defs.get(id))
+      .filter((def) => def.download !== false && !this._isBuiltIn(def));
+    const rows = this._exportRows();
+    let body;
+    let type;
+    if (kind === "json") {
+      body = JSON.stringify(rows.map((data) => {
+        const out = {};
+        columns.forEach((def) => { out[def.title || def.field] = data[def.field]; });
+        return out;
+      }), null, "\t");
+      type = "application/json";
+    } else {
+      const lines = rows.map((data) => columns.map((def) => csvField(data[def.field])).join(","));
+      lines.unshift(columns.map((def) => csvField(text(def.title))).join(","));
+      body = lines.join("\n");
+      type = "text/csv";
+    }
+    const url = URL.createObjectURL(new Blob([body], {type}));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return body;
+  }
+
+  closePopups() {
+    if (!this._popup) return;
+    const popup = this._popup;
+    this._popup = null;
+    popup.close();
   }
 
   // ---- columns --------------------------------------------------------------
@@ -322,7 +446,8 @@ export class DataGrid {
 
   /** Every column, in the order drawn: pinned at the start, then the middle, then the end. */
   _displayColumnIds() {
-    const ids = this._order;
+    const order = this._table.atoms.columnOrder.get();
+    const ids = order && order.length ? order : this._order;
     const pinning = this._table.atoms.columnPinning.get() || {};
     const start = (pinning.start || []).filter((id) => this._defs.has(id));
     const end = (pinning.end || []).filter((id) => this._defs.has(id));
@@ -350,6 +475,8 @@ export class DataGrid {
   // ---- the TanStack table -----------------------------------------------------
 
   _prepareTable() {
+    const childField = this.options.dataTreeChildField;
+    const tree = !!this.options.dataTree;
     const columns = this._order.map((id) => {
       const def = this._defs.get(id);
       const sorter = def.sorter || {};
@@ -371,8 +498,30 @@ export class DataGrid {
         sortDescFirst: false,
         enableSorting: this._canSort(id),
         filterFn: (row, columnId, filter) => !filter || filter.test(row.original),
+        enableGrouping: true,
+        // A band holds the rows whose FIELD is this value, as stored: grouping by
+        // the sort value would fold every empty and every padded variant into
+        // one band nobody asked for. A caller that wants a reading other than the
+        // field passes a function in groupBy instead.
+        getGroupingValue: (data) => data[id],
       };
     });
+
+    const groupBy = Array.isArray(this.options.groupBy) ? this.options.groupBy : [];
+    // A grouping that is a FUNCTION of the row gets a column of its own, which is
+    // never drawn: it exists so TanStack can group by what the function reads.
+    const grouping = [];
+    groupBy.forEach((spec, index) => {
+      if (typeof spec === "function") {
+        const id = "__group" + index;
+        columns.push({id, accessorFn: (data) => text(spec(data)), enableSorting: false,
+                      filterFn: () => true});
+        grouping.push(id);
+      } else if (this._defs.has(spec)) {
+        grouping.push(spec);
+      }
+    });
+    this._groupIds = grouping;
 
     const initialSort = (this.options.initialSort || [])
       .filter((entry) => entry && this._defs.has(entry.column) && this._canSort(entry.column))
@@ -380,6 +529,7 @@ export class DataGrid {
       .map((entry) => ({id: entry.column, desc: entry.dir === "desc"}));
     const visibility = {};
     this._order.forEach((id) => { if (this._defs.get(id).visible === false) visibility[id] = false; });
+    grouping.filter((id) => id.startsWith("__group")).forEach((id) => { visibility[id] = false; });
     const pinning = {start: [], end: []};
     this._order.forEach((id) => {
       const side = this._defs.get(id).frozen;
@@ -391,21 +541,35 @@ export class DataGrid {
       features: FEATURES,
       data: this.options.data,
       columns,
-      getRowId: (data, index) => String(index),
+      getRowId: (data, index, parent) => (parent ? parent.id + "." : "") + index,
+      getSubRows: tree ? (data) => (Array.isArray(data[childField]) ? data[childField] : undefined)
+                       : undefined,
+      filterFromLeafRows: true,
+      paginateExpandedRows: true,
       enableMultiSort: false,
       enableSortingRemoval: true,
-      enableRowSelection: () => !!this.options.selectableRows,
+      enableRowSelection: (row) => !row.getIsGrouped() && !!this.options.selectableRows,
       enableMultiRowSelection: true,
+      enableSubRowSelection: false,
+      groupedColumnMode: false,
+      autoResetExpanded: false,
       initialState: {
         sorting: initialSort,
+        grouping,
         columnVisibility: visibility,
         columnPinning: pinning,
+        columnOrder: [],
+        expanded: {},
       },
     });
     // The baselines change events are measured from: the state as built.
     this._lastSelection = this._table.atoms.rowSelection.get();
     this._lastFilters = this._table.atoms.columnFilters.get();
     this._unsubscribe = this._table.store.subscribe(() => this._queueRender()).unsubscribe;
+  }
+
+  _grouping() {
+    return this._table.atoms.grouping.get() || [];
   }
 
   _afterStateChange() {
@@ -489,6 +653,7 @@ export class DataGrid {
       this.options.footerElement.classList.add("dg-footer");
       mount.append(this.options.footerElement);
     }
+    this._scroller.addEventListener("scroll", () => this.closePopups(), {passive: true});
     this._body.addEventListener("click", (event) => this._onBodyClick(event));
   }
 
@@ -597,6 +762,14 @@ export class DataGrid {
     if (this._destroyed) return;
     const ids = this._visibleColumnIds();
     const header = this._header;
+    // Typing in a header filter redraws the header; the reader keeps typing.
+    const focused = header.contains(document.activeElement) ? document.activeElement : null;
+    const keep = focused && focused.closest(".dg-col") ? {
+      field: focused.closest(".dg-col").dataset.field,
+      className: focused.className,
+      start: focused.selectionStart,
+      end: focused.selectionEnd,
+    } : null;
     header.replaceChildren();
     header.style.width = px(this._totalWidth);
     const row = document.createElement("div");
@@ -606,10 +779,26 @@ export class DataGrid {
     const sorting = this._table.atoms.sorting.get() || [];
     for (const id of ids) row.append(this._headerCell(id, sorting));
     header.append(row);
-    this.element.setAttribute("role", "grid");
+    if (ids.some((id) => this._defs.get(id).topCalc)) header.append(this._calcRow(ids));
+    const grouped = this._grouping().length > 0;
+    const tree = !!this.options.dataTree;
+    this.element.setAttribute("role", grouped || tree ? "treegrid" : "grid");
+    this.element.classList.toggle("dg-grouped", grouped);
+    this.element.classList.toggle("dg-tree", tree);
     this.element.setAttribute("aria-colcount", String(ids.length));
     if (this.options.selectableRows) this.element.setAttribute("aria-multiselectable", "true");
     this._headerRows = header.children.length;
+    if (keep) {
+      const cell = header.querySelector(`.dg-col[data-field="${CSS.escape(keep.field)}"]`);
+      const again = cell && Array.from(cell.querySelectorAll("button, input"))
+        .find((node) => node.className === keep.className);
+      if (again) {
+        again.focus({preventScroll: true});
+        if (typeof keep.start === "number" && again.setSelectionRange) {
+          try { again.setSelectionRange(keep.start, keep.end); } catch (err) { /* not a text box */ }
+        }
+      }
+    }
     if (this._virtualizer) this._syncVirtualizer();
   }
 
@@ -641,16 +830,28 @@ export class DataGrid {
         sort.append(iconFrom(this.options.headerSortElement));
         content.append(sort);
       }
+      const label = text(def.title) || "column";
+      if (typeof def.headerPopup === "function") {
+        content.append(this._headerButton("filter", label, def.headerPopupIcon, (button, event) =>
+          this._openPopup(button, def.headerPopup(event, new ColumnHandle(this, id)))));
+      }
+      if (typeof def.headerMenu === "function") {
+        content.append(this._headerButton("menu", label, def.headerMenuIcon, (button, event) =>
+          this._openMenu(button, def.headerMenu(event, new ColumnHandle(this, id)))));
+      }
     }
     cell.append(content);
+    if (def.headerFilter === "input") cell.append(this._headerFilterInput(id, def));
+    if (def.resizable !== false && !this._isBuiltIn(def)) cell.append(this._resizeHandle(id, cell));
 
     if (sortable) {
       cell.addEventListener("click", (event) => {
-        // A control a title carries is its own, not a sort.
-        if (event.target.closest("button, input")) return;
+        if (this._suppressNextHeaderClick) { this._suppressNextHeaderClick = false; return; }
+        if (event.target.closest("button, input, .dg-resize-handle")) return;
         this._cycleSort(id);
       });
     }
+    if (this.options.movableColumns && !this._isBuiltIn(def)) this._armColumnMove(cell, id);
     return cell;
   }
 
@@ -660,6 +861,46 @@ export class DataGrid {
     if (!current) this.setSort(id, "asc");
     else if (!current.desc) this.setSort(id, "desc");
     else this.setSort();
+  }
+
+  _headerButton(kind, label, icon, open) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "dg-header-button dg-header-" + kind;
+    button.setAttribute("aria-label", "Open " + kind + " for " + label);
+    button.setAttribute("aria-haspopup", kind === "menu" ? "menu" : "dialog");
+    button.setAttribute("aria-expanded", "false");
+    button.append(iconFrom(icon));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const already = this._popup && this._popup.anchor === button;
+      this.closePopups();
+      if (!already) open(button, event);
+    });
+    return button;
+  }
+
+  _headerFilterInput(id, def) {
+    const input = document.createElement("input");
+    input.type = "search";
+    input.className = "dg-header-input";
+    input.setAttribute("aria-label", "Filter " + (text(def.title) || id));
+    const current = (this._table.atoms.columnFilters.get() || []).find((f) => f.id === id);
+    if (current && current.value && current.value.text) input.value = current.value.text;
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("input", () => {
+      const needle = input.value.trim().toLowerCase();
+      this._table.setColumnFilters((old) => {
+        const rest = (old || []).filter((f) => f.id !== id);
+        if (!needle) return rest;
+        return rest.concat({id, value: {text: input.value,
+          test: (data) => text(data[id]).toLowerCase().includes(needle)}});
+      });
+      this._invalidateRows();
+      this._renderBody();
+      this._emitChanges();
+    });
+    return input;
   }
 
   _selectAllBox() {
@@ -676,6 +917,343 @@ export class DataGrid {
       this._afterStateChange();
     });
     return box;
+  }
+
+  _calcRow(ids) {
+    const row = document.createElement("div");
+    row.className = "dg-row dg-calcs";
+    row.setAttribute("role", "row");
+    row.setAttribute("aria-rowindex", "2");
+    const values = this._table.getFilteredRowModel().rows.map((r) => r.original);
+    for (const id of ids) {
+      const def = this._defs.get(id);
+      const cell = document.createElement("div");
+      cell.className = "dg-cell";
+      cell.setAttribute("role", "gridcell");
+      this._placeCell(cell, id);
+      cell.textContent = def.topCalc ? this._calc(def, values) : "";
+      row.append(cell);
+    }
+    return row;
+  }
+
+  _calc(def, rows) {
+    const values = rows.map((data) => data[def.field]);
+    if (def.topCalc === "count") return String(values.filter((v) => v !== "" && v !== null && v !== undefined).length);
+    if (def.topCalc === "avg") {
+      const numbers = values.map((v) => (v === "" || v === null || v === undefined ? NaN : Number(v)))
+        .filter((n) => !isNaN(n));
+      if (!numbers.length) return "";
+      const precision = def.topCalcParams && def.topCalcParams.precision !== undefined
+        ? def.topCalcParams.precision : 2;
+      const mean = numbers.reduce((sum, n) => sum + n, 0) / numbers.length;
+      return String(parseFloat(precision === false ? mean : mean.toFixed(precision)));
+    }
+    return "";
+  }
+
+  // ---- resizing and moving columns --------------------------------------------
+
+  _resizeHandle(id, cell) {
+    const handle = document.createElement("div");
+    // Every move of a drag redraws the header, so the handle that started it is
+    // gone after the first: the one drawn in its place stays lit until the end.
+    handle.className = "dg-resize-handle" + (this._resizing === id ? " is-active" : "");
+    handle.setAttribute("aria-hidden", "true");
+    handle.addEventListener("click", (event) => event.stopPropagation());
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = this._widths.get(id) || cell.getBoundingClientRect().width;
+      const rtl = getComputedStyle(this.element).direction === "rtl";
+      this._resizing = id;
+      handle.classList.add("is-active");
+      // FOLLOWED ON THE DOCUMENT, NOT THE HANDLE. A listener on the handle heard
+      // the first move and lost the rest when the redraw removed it, so a 60px
+      // drag widened the column by 10.
+      const move = (moveEvent) => {
+        const delta = (moveEvent.clientX - startX) * (rtl ? -1 : 1);
+        this._fixedWidths.set(id, Math.max(this._minWidth(id), Math.round(startWidth + delta)));
+        this.redraw();
+      };
+      const end = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", end);
+        document.removeEventListener("pointercancel", end);
+        this._resizing = null;
+        this._renderHeader();
+        this._emit("columnResized", new ColumnHandle(this, id));
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", end);
+      document.addEventListener("pointercancel", end);
+    });
+    return handle;
+  }
+
+  /** Drag a header sideways to move its column, within its own pinned band. */
+  _armColumnMove(cell, id) {
+    cell.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      if (event.target.closest("button, input, .dg-resize-handle")) return;
+      const startX = event.clientX;
+      let dragging = false;
+      let marker = null;
+      let target = null;
+      const band = () => this._visibleColumnIds().filter((other) =>
+        this._pinSide(other) === this._pinSide(id) && !this._isBuiltIn(this._defs.get(other)));
+      const move = (moveEvent) => {
+        if (!dragging && Math.abs(moveEvent.clientX - startX) < DRAG_THRESHOLD) return;
+        if (!dragging) {
+          dragging = true;
+          cell.classList.add("dg-col-moving");
+          marker = document.createElement("div");
+          marker.className = "dg-move-marker";
+          this._header.append(marker);
+        }
+        target = null;
+        const headerBox = this._header.getBoundingClientRect();
+        for (const other of band()) {
+          const otherCell = this._header.querySelector(`.dg-col[data-field="${CSS.escape(other)}"]`);
+          if (!otherCell) continue;
+          const box = otherCell.getBoundingClientRect();
+          if (moveEvent.clientX < box.left + box.width / 2) { target = {id: other, after: false, x: box.left}; break; }
+          target = {id: other, after: true, x: box.right};
+        }
+        if (target && marker) marker.style.insetInlineStart = px(target.x - headerBox.left);
+      };
+      const end = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", end);
+        document.removeEventListener("pointercancel", end);
+        cell.classList.remove("dg-col-moving");
+        if (marker) marker.remove();
+        if (!dragging) return;
+        this._suppressNextHeaderClick = true;
+        setTimeout(() => { this._suppressNextHeaderClick = false; }, 0);
+        if (target && target.id !== id) this._moveColumn(id, target.id, target.after);
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", end);
+      document.addEventListener("pointercancel", end);
+    });
+  }
+
+  _moveColumn(id, targetId, after) {
+    const order = this._displayColumnIds().filter((other) => other !== id);
+    let index = order.indexOf(targetId);
+    if (index < 0) return;
+    if (after) index += 1;
+    order.splice(index, 0, id);
+    this._table.setColumnOrder(order);
+    this.redraw();
+    this._emit("columnMoved", new ColumnHandle(this, id));
+  }
+
+  _measureColumn(id) {
+    const def = this._defs.get(id) || {};
+    let widest = this._minWidth(id);
+    const headerCell = this._header.querySelector(`.dg-col[data-field="${CSS.escape(id)}"]`);
+    if (headerCell) {
+      const content = headerCell.querySelector(".dg-col-content");
+      const style = getComputedStyle(content);
+      const padding = (parseFloat(style.paddingInlineStart) || 0) + (parseFloat(style.paddingInlineEnd) || 0);
+      const gap = parseFloat(style.columnGap || style.gap) || 0;
+      const items = Array.from(content.children);
+      const itemsWidth = items.reduce((sum, item) =>
+        sum + Math.max(item.scrollWidth, item.getBoundingClientRect().width), 0);
+      widest = Math.max(widest, Math.ceil(padding + itemsWidth + gap * Math.max(0, items.length - 1)));
+    }
+    if (!this._isBuiltIn(def)) {
+      this._body.querySelectorAll(`.dg-cell[data-field="${CSS.escape(id)}"]`).forEach((cell) => {
+        const style = getComputedStyle(cell);
+        const padding = (parseFloat(style.paddingInlineStart) || 0) + (parseFloat(style.paddingInlineEnd) || 0);
+        let inner = 0;
+        for (const child of cell.childNodes) {
+          if (child.nodeType === Node.TEXT_NODE) {
+            const range = document.createRange();
+            range.selectNodeContents(child);
+            inner += range.getBoundingClientRect().width;
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            inner += Math.max(child.scrollWidth, child.getBoundingClientRect().width);
+          }
+        }
+        widest = Math.max(widest, Math.ceil(inner + padding + 1));
+      });
+    }
+    return widest;
+  }
+
+  // ---- popups and menus -------------------------------------------------------
+  //
+  // One at a time, closed by Escape, by a click anywhere outside, by scrolling
+  // the table and by the table going away -- so nothing a column opened can
+  // outlive the column, and opening a second one closes the first.
+
+  _openPopup(anchor, content) {
+    if (!(content instanceof Node)) return;
+    const box = document.createElement("div");
+    box.className = "dg-popup";
+    box.setAttribute("role", "dialog");
+    box.append(content);
+    this._showFloating(anchor, box);
+    const focusable = box.querySelector("input, button, select, textarea, [tabindex]");
+    if (focusable) focusable.focus({preventScroll: true});
+  }
+
+  _openMenu(anchor, items, parent) {
+    const menu = this._buildMenu(items || [], anchor);
+    this._showFloating(anchor, menu, parent);
+    const first = menu.querySelector(".dg-menu-item:not([disabled])");
+    if (first) first.focus({preventScroll: true});
+    return menu;
+  }
+
+  _buildMenu(items, anchor) {
+    const menu = document.createElement("div");
+    menu.className = "dg-menu";
+    menu.setAttribute("role", "menu");
+    for (const item of items) {
+      if (!item) continue;
+      if (item.separator) {
+        const rule = document.createElement("div");
+        rule.className = "dg-menu-separator";
+        rule.setAttribute("role", "separator");
+        menu.append(rule);
+        continue;
+      }
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dg-menu-item";
+      button.setAttribute("role", "menuitem");
+      const label = typeof item.label === "function" ? item.label() : item.label;
+      button.append(label instanceof Node ? label : document.createTextNode(text(label)));
+      if (item.disabled) {
+        button.disabled = true;
+        button.classList.add("dg-menu-item-disabled");
+      }
+      if (Array.isArray(item.menu)) {
+        button.setAttribute("aria-haspopup", "menu");
+        button.classList.add("dg-menu-parent");
+        const openChild = () => this._openSubmenu(button, item.menu, menu);
+        button.addEventListener("click", (event) => { event.stopPropagation(); openChild(); });
+        button.addEventListener("pointerenter", openChild);
+      } else {
+        button.addEventListener("pointerenter", () => this._closeSubmenu(menu));
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (item.disabled) return;
+          this.closePopups();
+          if (anchor && anchor.isConnected) anchor.focus({preventScroll: true});
+          if (typeof item.action === "function") item.action(event);
+        });
+      }
+      menu.append(button);
+    }
+    menu.addEventListener("keydown", (event) => this._menuKeys(event, menu));
+    return menu;
+  }
+
+  _openSubmenu(parentItem, items, parentMenu) {
+    if (parentMenu._child && parentMenu._child.parentItem === parentItem) return;
+    this._closeSubmenu(parentMenu);
+    const child = this._buildMenu(items, parentItem);
+    child.classList.add("dg-submenu");
+    document.body.append(child);
+    const box = parentItem.getBoundingClientRect();
+    this._position(child, box.right, box.top, box.left);
+    parentMenu._child = {element: child, parentItem};
+    parentItem.setAttribute("aria-expanded", "true");
+    if (this._popup) this._popup.children.push(child);
+  }
+
+  _closeSubmenu(menu) {
+    if (!menu._child) return;
+    menu._child.parentItem.setAttribute("aria-expanded", "false");
+    this._closeSubmenu(menu._child.element);
+    menu._child.element.remove();
+    menu._child = null;
+  }
+
+  _menuKeys(event, menu) {
+    const items = Array.from(menu.querySelectorAll(":scope > .dg-menu-item:not([disabled])"));
+    const index = items.indexOf(document.activeElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next = items[(index + step + items.length) % items.length];
+      if (next) next.focus();
+    } else if (event.key === "ArrowRight" && document.activeElement &&
+               document.activeElement.classList.contains("dg-menu-parent")) {
+      event.preventDefault();
+      document.activeElement.click();
+      const child = menu._child && menu._child.element.querySelector(".dg-menu-item:not([disabled])");
+      if (child) child.focus();
+    } else if (event.key === "ArrowLeft" && menu.classList.contains("dg-submenu")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const owner = this._popup && this._popup.element;
+      const parentItem = owner && owner._child && owner._child.parentItem;
+      if (owner) this._closeSubmenu(owner);
+      if (parentItem) parentItem.focus();
+    }
+  }
+
+  _showFloating(anchor, element) {
+    document.body.append(element);
+    const box = anchor.getBoundingClientRect();
+    this._position(element, box.left, box.bottom + 4, null);
+    anchor.setAttribute("aria-expanded", "true");
+    const onPointer = (event) => {
+      const inside = [element, ...popup.children].some((node) => node.contains(event.target));
+      if (!inside && !anchor.contains(event.target)) this.closePopups();
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.closePopups();
+      if (anchor.isConnected) anchor.focus({preventScroll: true});
+    };
+    const popup = {
+      anchor,
+      element,
+      children: [],
+      close: () => {
+        document.removeEventListener("pointerdown", onPointer, true);
+        document.removeEventListener("click", onPointer, true);
+        document.removeEventListener("keydown", onKey, true);
+        anchor.setAttribute("aria-expanded", "false");
+        popup.children.forEach((child) => child.remove());
+        element.remove();
+      },
+    };
+    this._popup = popup;
+    // Escape at once: a key pressed the instant it opened must still close it.
+    document.addEventListener("keydown", onKey, true);
+    // The outside click next turn: the click that opened it is still travelling
+    // to document, and would close it on the way.
+    setTimeout(() => {
+      if (this._popup !== popup) return;
+      document.addEventListener("pointerdown", onPointer, true);
+      document.addEventListener("click", onPointer, true);
+    }, 0);
+  }
+
+  /** Place a floating element at (x, y), kept inside the viewport. */
+  _position(element, x, y, flipX) {
+    element.style.position = "fixed";
+    element.style.left = "0px";
+    element.style.top = "0px";
+    const box = element.getBoundingClientRect();
+    const maxX = window.innerWidth - box.width - 8;
+    const maxY = window.innerHeight - box.height - 8;
+    let left = x;
+    if (left > maxX) left = flipX !== null && flipX !== undefined ? flipX - box.width : maxX;
+    element.style.left = px(Math.max(8, left));
+    element.style.top = px(Math.max(8, Math.min(y, maxY)));
   }
 
   // ---- the rows ------------------------------------------------------------------
@@ -750,7 +1328,11 @@ export class DataGrid {
     if (!this._rowCache || this._rowCache.rows !== rows) {
       this._invalidateRows();
       this._syncVirtualizer();
-      this._rowCache = {rows};
+      // The ordinal a row number shows: data rows only, in display order.
+      const ordinals = new Map();
+      let n = 0;
+      rows.forEach((row) => { if (!row.getIsGrouped()) ordinals.set(row.id, ++n); });
+      this._rowCache = {rows, ordinals};
     }
     const items = this._virtualizer.getVirtualItems();
     const margin = this._virtualizer.options.scrollMargin || 0;
@@ -777,7 +1359,7 @@ export class DataGrid {
       // the rest are placed by it. Measuring each new row as it scrolled in forced
       // a layout per row and cost a frame in twenty (#1342's measurement).
       if (fresh && this._wraps) this._virtualizer.measureElement(element);
-      else if (fresh && !this._measuredRowHeight) {
+      else if (fresh && !this._measuredRowHeight && !row.getIsGrouped()) {
         const height = element.getBoundingClientRect().height;
         if (height > 0) {
           this._measuredRowHeight = height;
@@ -796,13 +1378,23 @@ export class DataGrid {
     element.setAttribute("role", "row");
     element.style.width = px(this._totalWidth);
     element.dataset.rowId = row.id;
-    // The ordinal a row number shows, in display order.
-    const ordinal = index + 1;
+    if (row.getIsGrouped()) {
+      element.className = "dg-row dg-group";
+      element.setAttribute("aria-expanded", String(row.getIsExpanded()));
+      element.setAttribute("aria-level", String(row.depth + 1));
+      element.append(this._groupBand(row));
+      return element;
+    }
+    const ordinal = this._rowCache ? this._rowCache.ordinals.get(row.id) : index + 1;
     element.className = "dg-row" + (ordinal % 2 === 0 ? " dg-row-even" : " dg-row-odd");
     if (this.options.selectableRows) element.classList.add("dg-selectable");
     const selected = row.getIsSelected();
     element.classList.toggle("dg-selected", selected);
     if (this.options.selectableRows) element.setAttribute("aria-selected", String(selected));
+    if (this.options.dataTree || this._grouping().length) {
+      element.setAttribute("aria-level", String(row.depth + 1));
+      if (row.subRows.length) element.setAttribute("aria-expanded", String(row.getIsExpanded()));
+    }
     for (const id of this._visibleColumnIds()) element.append(this._drawCell(row, id, ordinal));
     return element;
   }
@@ -833,6 +1425,32 @@ export class DataGrid {
       cell.textContent = String(ordinal);
       return cell;
     }
+    const treeColumn = this.options.dataTree &&
+      (this.options.dataTreeElementColumn || this._visibleColumnIds().find((c) =>
+        !this._isBuiltIn(this._defs.get(c)))) === id;
+    if (treeColumn) {
+      cell.classList.add("dg-tree-cell");
+      cell.style.paddingInlineStart = "calc(var(--dg-cell-padding-inline, 0.75rem) + " +
+        px(row.depth * this.options.dataTreeChildIndent) + ")";
+      if (row.subRows.length) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        const open = row.getIsExpanded();
+        toggle.className = "dg-tree-toggle" + (open ? " is-open" : "");
+        toggle.setAttribute("aria-expanded", String(open));
+        toggle.setAttribute("aria-label", open ? "Collapse" : "Expand");
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          row.toggleExpanded();
+          this._afterStateChange();
+        });
+        cell.append(toggle);
+      } else if (row.depth > 0) {
+        const spacer = document.createElement("span");
+        spacer.className = "dg-tree-spacer";
+        cell.append(spacer);
+      }
+    }
     let content;
     if (typeof def.formatter === "function") {
       content = def.formatter(new CellHandle(this, row, id, cell));
@@ -848,6 +1466,29 @@ export class DataGrid {
     return cell;
   }
 
+  _groupBand(row) {
+    const cell = document.createElement("div");
+    cell.className = "dg-group-cell";
+    cell.setAttribute("role", "gridcell");
+    cell.style.paddingInlineStart = "calc(var(--dg-cell-padding-inline, 0.75rem) + " +
+      px(row.depth * this.options.dataTreeChildIndent) + ")";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    const open = row.getIsExpanded();
+    toggle.className = "dg-group-toggle" + (open ? " is-open" : "");
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.setAttribute("aria-label", open ? "Collapse group" : "Expand group");
+    cell.append(toggle);
+    const level = this._groupIds.indexOf(row.groupingColumnId);
+    const headers = Array.isArray(this.options.groupHeader) ? this.options.groupHeader : [];
+    const make = headers[level] || headers[0];
+    const label = typeof make === "function"
+      ? make(row.groupingValue, row.leafRows.length)
+      : text(row.groupingValue) + " (" + row.leafRows.length + ")";
+    cell.append(label instanceof Node ? label : document.createTextNode(text(label)));
+    return cell;
+  }
+
   _onBodyClick(event) {
     // The row is the body's own child that holds the click. A node a formatter
     // returns may carry any class, so a class does not find it.
@@ -857,11 +1498,28 @@ export class DataGrid {
     // Every row drawn carries its own id, so one TanStack cannot find is a
     // defect, and its throw is left to be seen.
     const row = this._table.getRow(rowElement.dataset.rowId, true);
+    if (row.getIsGrouped()) {
+      row.toggleExpanded();
+      this._afterStateChange();
+      return;
+    }
     if (!this.options.selectableRows) return;
     // A link, a button or a box in a cell is its own control, not a row click.
     if (event.target.closest("a, button, input, label, select, textarea")) return;
     row.toggleSelected(undefined, {selectChildren: false});
     this._afterStateChange();
+  }
+
+  /** The rows a download writes: what the filters keep, in display order, groups unrolled. */
+  _exportRows() {
+    const out = [];
+    const visit = (rows) => rows.forEach((row) => {
+      if (row.getIsGrouped()) { visit(row.subRows); return; }
+      out.push(row.original);
+      if (row.subRows.length) visit(row.subRows);
+    });
+    visit(this._table.getSortedRowModel().rows);
+    return out;
   }
 }
 

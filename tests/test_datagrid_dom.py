@@ -40,7 +40,7 @@ html, body { margin: 0; font: 14px/1.4 sans-serif; }
 .dg { display: flex; flex-direction: column; }
 .dg-scroller { position: relative; flex: 1 1 auto; min-height: 0; overflow: auto;
   scrollbar-gutter: stable; }
-.dg-header { position: sticky; top: 0; z-index: 2; background: #fff; }
+.dg-header { position: sticky; top: 0; z-index: 2; background: #fff; user-select: none; }
 .dg-row { display: flex; box-sizing: border-box; }
 .dg-body { position: relative; }
 .dg-body > .dg-row { position: absolute; top: 0; inset-inline-start: 0; }
@@ -50,6 +50,14 @@ html, body { margin: 0; font: 14px/1.4 sans-serif; }
 .dg-pinned { position: sticky; z-index: 1; background: #fff; }
 .dg-placeholder[hidden] { display: none; }
 .dg.wrap .dg-cell { white-space: normal; overflow-wrap: anywhere; }
+.dg-col-content { display: flex; align-items: center; gap: 4px; }
+.dg-resize-handle { position: absolute; top: 0; bottom: 0; inset-inline-end: 0; width: 8px; }
+.dg-header-button { width: 20px; height: 20px; padding: 0; }
+.dg-header-input { display: block; width: 90%; }
+.dg-menu, .dg-popup { position: fixed; z-index: 10; background: #fff; border: 1px solid #888; }
+.dg-menu-item { display: block; width: 100%; text-align: start; }
+.dg-group-cell { display: flex; align-items: center; gap: 4px; padding: 4px 8px; }
+.dg-group-toggle, .dg-tree-toggle { width: 16px; height: 16px; padding: 0; }
 """
 
 PAGE = (
@@ -771,3 +779,459 @@ def test_a_grid_with_nowhere_to_draw_says_so(page):
       catch (error) { return error.message; }
     }""")
     assert message == "DataGrid needs an element to draw into"
+
+
+# ---- grouping -----------------------------------------------------------------
+
+BRANDS = """[
+  {name: "a", brand: "A", unit: "kg", size: 1},
+  {name: "b", brand: "A", unit: "m", size: 2},
+  {name: "c", brand: " ", unit: "kg", size: 3},
+  {name: "d", brand: "", unit: "kg", size: 4},
+  {name: "e", brand: "B", unit: "m", size: 5},
+]"""
+
+
+def bands(page) -> list[str]:
+    return page.evaluate("""() => Array.from(document.querySelectorAll(".dg-body .dg-row.dg-group"))
+      .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+      .map((row) => row.textContent)""")
+
+
+def data_rows(page) -> list[str]:
+    """The `name` of every data row on screen, top to bottom: bands left out."""
+    return page.evaluate("""() => Array.from(document.querySelectorAll(".dg-body .dg-row:not(.dg-group)"))
+      .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+      .map((row) => row.querySelector('[data-field="name"]').textContent)""")
+
+
+def test_rows_band_by_the_field_as_stored_and_each_band_counts_its_rows(page):
+    """A band holds the rows whose FIELD is its value: a blank and a single space
+    are two values, and folding them into one band nobody asked for is the
+    defect the stored-field grouping fixed."""
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}, {{title: "Brand", field: "brand"}}],
+      data: {BRANDS}, groupBy: ["brand"],
+    }}""")
+    assert page.evaluate("grid.getGroups().map((g) => [g.getKey(), g.getCount(), g.isOpen()])") == [
+        ["A", 2, False], [" ", 1, False], ["", 1, False], ["B", 1, False]]
+    assert bands(page) == ["A (2)", "  (1)", " (1)", "B (1)"]
+    mount = page.locator("#mount")
+    assert mount.get_attribute("role") == "treegrid"
+    assert "dg-grouped" in mount.get_attribute("class")
+    band = page.locator(".dg-body .dg-row.dg-group").first
+    assert band.get_attribute("aria-expanded") == "false"
+    assert band.get_attribute("aria-level") == "1"
+
+
+def test_a_band_click_opens_one_level_and_open_all_reaches_every_level(page):
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}, {{title: "Brand", field: "brand"}},
+                {{title: "Unit", field: "unit"}}],
+      data: {BRANDS}, groupBy: ["brand", "unit"],
+    }}""")
+    page.locator(".dg-body .dg-row.dg-group").first.click()
+    assert bands(page)[:3] == ["A (2)", "kg (1)", "m (1)"]
+    assert page.locator(".dg-body .dg-row.dg-group").first.get_attribute("aria-expanded") == "true"
+    assert data_rows(page) == []
+    page.evaluate("() => grid.setAllGroupsOpen(true)")
+    assert data_rows(page) == ["a", "b", "c", "d", "e"]
+    inner = page.locator(".dg-body .dg-row.dg-group", has_text="kg (1)").first
+    assert inner.get_attribute("aria-level") == "2"
+    leaf = page.locator('.dg-body .dg-row:not(.dg-group)').first
+    assert leaf.get_attribute("aria-level") == "3"
+    page.evaluate("() => grid.setAllGroupsOpen(false)")
+    assert bands(page) == ["A (2)", "  (1)", " (1)", "B (1)"]
+    assert data_rows(page) == []
+
+
+def test_a_function_groups_by_what_it_reads_and_its_column_is_never_drawn(page):
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}],
+      data: {BRANDS},
+      groupBy: [(row) => (row.size > 2 ? "big" : "small")],
+      groupHeader: [(value, count) => Object.assign(document.createElement("strong"),
+                                                    {{textContent: value + ": " + count}})],
+    }}""")
+    assert page.evaluate("grid.getGroups().map((g) => g.getKey())") == ["small", "big"]
+    assert page.locator(".dg-group-cell strong").all_inner_texts() == ["small: 2", "big: 3"]
+    assert page.locator('[data-field^="__group"]').count() == 0
+    assert page.get_attribute("#mount", "aria-colcount") == "1"
+
+
+def test_bands_are_never_selected_and_row_numbers_count_data_rows_only(page):
+    build(page, f"""{{
+      columns: [{{formatter: "rownum", headerSort: false}}, {{title: "Name", field: "name"}},
+                {{title: "Brand", field: "brand"}}],
+      data: {BRANDS}, groupBy: ["brand"], selectableRows: true,
+    }}""")
+    page.evaluate("() => grid.setAllGroupsOpen(true)")
+    numbers = page.evaluate("""() => Array.from(document.querySelectorAll(".dg-body .dg-row:not(.dg-group)"))
+      .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+      .map((row) => row.querySelector('[data-field="__rownum"]').textContent)""")
+    assert numbers == ["1", "2", "3", "4", "5"], "a band takes no number"
+    page.locator(".dg-body .dg-row.dg-group").first.click()
+    assert page.evaluate("grid.getSelectedRows().length") == 0
+    assert page.evaluate("grid.getGroups()[0].isOpen()") is False
+    assert page.evaluate("grid.getGroups()[0].getRows().map((r) => r.getData().name)") == ["a", "b"]
+    page.locator(".dg-body .dg-row:not(.dg-group)", has_text="c").first.click()
+    assert page.evaluate("grid.getSelectedRows().map((r) => r.getData().name)") == ["c"]
+    assert page.evaluate("grid.getData('active').map((d) => d.name)") == ["a", "b", "c", "d", "e"]
+
+
+# ---- the tree -------------------------------------------------------------------
+
+FAMILY = """[
+  {name: "parent", kids: [{name: "kid one"}, {name: "kid two", kids: [{name: "grandkid"}]}]},
+  {name: "single"},
+]"""
+
+
+def test_a_tree_opens_under_its_toggle_and_indents_each_level(page):
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}],
+      data: {FAMILY}, dataTree: true, dataTreeChildField: "kids", selectableRows: true,
+    }}""")
+    assert data_rows(page) == ["parent", "single"]
+    mount = page.locator("#mount")
+    assert mount.get_attribute("role") == "treegrid"
+    assert "dg-tree" in mount.get_attribute("class")
+    toggle = page.locator(".dg-tree-toggle").first
+    assert toggle.get_attribute("aria-expanded") == "false"
+    assert toggle.get_attribute("aria-label") == "Expand"
+    toggle.click()
+    assert data_rows(page) == ["parent", "kid one", "kid two", "single"]
+    assert page.evaluate("grid.getSelectedRows().length") == 0, "a toggle is not a row click"
+    kid = page.locator(".dg-body .dg-row", has_text="kid one")
+    assert kid.get_attribute("aria-level") == "2"
+    indent = page.evaluate("""() => Array.from(document.querySelectorAll(".dg-tree-cell"))
+      .map((cell) => parseFloat(getComputedStyle(cell).paddingInlineStart))""")
+    assert indent[1] > indent[0], indent
+    assert page.locator(".dg-tree-toggle").first.get_attribute("aria-label") == "Collapse"
+
+
+def test_a_filter_keeps_a_parent_while_a_descendant_passes(page):
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}],
+      data: {FAMILY}, dataTree: true, dataTreeChildField: "kids",
+    }}""")
+    page.evaluate("() => grid.setFilter([{field: 'name', type: 'like', value: 'grand'}])")
+    assert data_rows(page) == ["parent"]
+    page.locator(".dg-tree-toggle").first.click()
+    assert data_rows(page) == ["parent", "kid two"]
+    page.locator(".dg-body .dg-row", has_text="kid two").locator(".dg-tree-toggle").click()
+    assert data_rows(page) == ["parent", "kid two", "grandkid"]
+
+
+# ---- the header's tools -----------------------------------------------------------
+
+def test_the_header_text_filter_narrows_as_one_types_and_keeps_the_cursor(page):
+    """Typing redraws the header; the reader keeps typing where they were."""
+    build(page, NAMES.replace('{title: "Name", field: "name"}',
+                              '{title: "Name", field: "name", headerFilter: "input"}'))
+    box = page.locator(".dg-header-input")
+    assert box.get_attribute("aria-label") == "Filter Name"
+    box.click()
+    page.keyboard.type("al")
+    assert column_texts(page, "name") == ["alpha"]
+    state = page.evaluate("""() => [document.activeElement.className,
+                                    document.activeElement.value,
+                                    document.activeElement.selectionStart]""")
+    assert state == ["dg-header-input", "al", 2]
+    page.keyboard.press("Backspace")
+    page.keyboard.press("Backspace")
+    assert column_texts(page, "name") == ["beta", "gamma", "alpha"]
+
+
+def test_each_header_control_answers_to_one_class(page):
+    """The column's filter BUTTON and the text filter under a header once shared a
+    class, so the theme's rule for one dressed the other too."""
+    build(page, """{
+      columns: [{title: "Name", field: "name", headerFilter: "input",
+                 headerPopup: () => document.createElement("div"),
+                 headerMenu: () => [{label: "x", action: () => {}}]}],
+      data: [{name: "a"}],
+    }""")
+    tags = page.evaluate("""() => Object.fromEntries(
+      ["dg-header-input", "dg-header-filter", "dg-header-menu"].map((name) =>
+        [name, Array.from(document.getElementsByClassName(name)).map((el) => el.tagName)]))""")
+    assert tags == {"dg-header-input": ["INPUT"], "dg-header-filter": ["BUTTON"],
+                    "dg-header-menu": ["BUTTON"]}
+
+
+MENU = """{
+  columns: [
+    {title: "Name", field: "name",
+     headerMenuIcon: () => Object.assign(document.createElement("span"), {className: "menu-icon"}),
+     headerMenu: () => [
+       {label: "First", action: () => { window.__ran = "first"; }},
+       {separator: true},
+       {label: "Off", disabled: true, action: () => { window.__ran = "off"; }},
+       {label: "Pin", menu: [{label: "Left", action: () => { window.__ran = "left"; }},
+                             {label: "Right", action: () => { window.__ran = "right"; }}]},
+     ]},
+    {title: "Size", field: "size",
+     headerMenu: () => [{label: "Other", action: () => {}}],
+     headerPopup: () => {
+       const box = document.createElement("div");
+       box.append(Object.assign(document.createElement("input"), {className: "inside"}));
+       return box;
+     }},
+  ],
+  data: [{name: "a", size: 1}, {name: "b", size: 2}],
+}"""
+
+
+def test_a_header_menu_opens_runs_an_item_and_gives_the_focus_back(page):
+    build(page, MENU)
+    button = page.locator(f'{header(page, "name")} .dg-header-menu')
+    assert button.get_attribute("aria-haspopup") == "menu"
+    assert button.get_attribute("aria-label") == "Open menu for Name"
+    assert button.locator(".menu-icon").count() == 1
+    button.click()
+    menu = page.locator(".dg-menu")
+    assert menu.get_attribute("role") == "menu"
+    assert menu.locator(".dg-menu-item").all_inner_texts() == ["First", "Off", "Pin"]
+    assert menu.locator(".dg-menu-separator").count() == 1
+    assert menu.locator(".dg-menu-item", has_text="Off").is_disabled()
+    assert button.get_attribute("aria-expanded") == "true"
+    assert page.evaluate("document.activeElement.textContent") == "First"
+    assert page.locator(header(page, "name")).get_attribute("aria-sort") == "none", \
+        "opening a menu is not a sort"
+    menu.locator(".dg-menu-item", has_text="First").click()
+    assert page.evaluate("window.__ran") == "first"
+    assert page.locator(".dg-menu").count() == 0
+    assert button.get_attribute("aria-expanded") == "false"
+    assert page.evaluate("document.activeElement.classList.contains('dg-header-menu')")
+
+
+def test_escape_closes_a_menu_the_instant_it_opens(page):
+    build(page, MENU)
+    state = page.evaluate("""() => {
+      const button = document.querySelector('.dg-col[data-field="name"] .dg-header-menu');
+      button.click();
+      const opened = document.querySelectorAll(".dg-menu").length;
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      return [opened, document.querySelectorAll(".dg-menu").length,
+              button.getAttribute("aria-expanded"), document.activeElement === button];
+    }""")
+    assert state == [1, 0, "false", True]
+
+
+def test_a_popup_takes_the_focus_and_only_a_click_outside_closes_it(page):
+    build(page, MENU)
+    button = page.locator(f'{header(page, "size")} .dg-header-filter')
+    assert button.get_attribute("aria-haspopup") == "dialog"
+    button.click()
+    popup = page.locator(".dg-popup")
+    assert popup.get_attribute("role") == "dialog"
+    assert page.evaluate("document.activeElement.className") == "inside"
+    popup.locator(".inside").click()
+    assert page.locator(".dg-popup").count() == 1
+    page.mouse.click(900, 700)
+    assert page.locator(".dg-popup").count() == 0
+    assert button.get_attribute("aria-expanded") == "false"
+
+
+def test_one_surface_opens_at_a_time_and_its_button_closes_it_again(page):
+    build(page, MENU)
+    first = page.locator(f'{header(page, "name")} .dg-header-menu')
+    second = page.locator(f'{header(page, "size")} .dg-header-menu')
+    first.click()
+    second.click()
+    assert page.locator(".dg-menu").count() == 1
+    assert page.locator(".dg-menu .dg-menu-item").all_inner_texts() == ["Other"]
+    assert first.get_attribute("aria-expanded") == "false"
+    second.click()
+    assert page.locator(".dg-menu").count() == 0
+    # Before the first has armed its outside click, which waits a turn.
+    assert page.evaluate("""() => {
+      document.querySelector('.dg-col[data-field="name"] .dg-header-menu').click();
+      document.querySelector('.dg-col[data-field="size"] .dg-header-menu').click();
+      return document.querySelectorAll(".dg-menu").length;
+    }""") == 1
+
+
+def test_the_arrow_keys_walk_a_menu_and_open_and_close_its_submenu(page):
+    build(page, MENU)
+    page.locator(f'{header(page, "name")} .dg-header-menu').click()
+    focused = "document.activeElement.textContent"
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(focused) == "Pin", "a disabled item is passed over"
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(focused) == "First", "the walk wraps"
+    page.keyboard.press("ArrowUp")
+    assert page.evaluate(focused) == "Pin"
+    page.keyboard.press("ArrowRight")
+    sub = page.locator(".dg-submenu")
+    assert sub.locator(".dg-menu-item").all_inner_texts() == ["Left", "Right"]
+    assert page.evaluate(focused) == "Left"
+    assert page.locator(".dg-menu-parent").get_attribute("aria-expanded") == "true"
+    page.keyboard.press("ArrowLeft")
+    assert page.locator(".dg-submenu").count() == 0
+    assert page.evaluate(focused) == "Pin"
+    assert page.locator(".dg-menu").count() == 1, "only the submenu closed"
+    page.locator(".dg-menu-parent").hover()
+    page.locator(".dg-submenu .dg-menu-item", has_text="Right").click()
+    assert page.evaluate("window.__ran") == "right"
+    assert page.locator(".dg-menu").count() == 0
+
+
+def test_scrolling_or_destroying_the_grid_closes_what_a_column_opened(page):
+    build(page, MENU.replace('data: [{name: "a", size: 1}, {name: "b", size: 2}]',
+                             'data: Array.from({length: 200}, (_, i) => ({name: "n" + i, size: i}))'))
+    page.locator(f'{header(page, "name")} .dg-header-menu').click()
+    assert page.locator(".dg-menu").count() == 1
+    page.evaluate("document.querySelector('.dg-scroller').scrollTop = 400")
+    page.wait_for_function("document.querySelectorAll('.dg-menu').length === 0")
+    page.locator(f'{header(page, "name")} .dg-header-menu').click()
+    page.evaluate("() => grid.destroy()")
+    assert page.locator(".dg-menu").count() == 0
+
+
+# ---- resizing, moving, measuring ------------------------------------------------
+
+def drag(page, selector: str, dx: float, *, check_midway=None) -> None:
+    box = page.locator(selector).bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + dx / 2, y, steps=4)
+    if check_midway:
+        check_midway()
+    page.mouse.move(x + dx, y, steps=4)
+    page.mouse.up()
+
+
+RESIZE = """{
+  columns: [{title: "A", field: "a", minWidth: 60}, {title: "B", field: "b"}, {title: "C", field: "c"}],
+  data: [{a: 1, b: 2, c: 3}],
+}"""
+
+
+def test_dragging_a_resize_handle_sets_the_width_and_says_so(page):
+    build(page, RESIZE)
+    page.evaluate("""() => { window.__resized = [];
+      grid.on("columnResized", (column) => window.__resized.push(column.getField())); }""")
+    before = page.evaluate("grid.getColumn('a').getWidth()")
+    handle = f'{header(page, "a")} .dg-resize-handle'
+
+    def lit():
+        assert "is-active" in page.locator(handle).get_attribute("class")
+
+    drag(page, handle, 60, check_midway=lit)
+    assert page.evaluate("grid.getColumn('a').getWidth()") == pytest.approx(before + 60, abs=1)
+    assert page.evaluate("window.__resized") == ["a"]
+    assert "is-active" not in page.locator(handle).get_attribute("class")
+    assert page.locator(header(page, "a")).get_attribute("aria-sort") == "none", \
+        "letting go of a handle is not a sort"
+    drag(page, handle, -500)
+    assert page.evaluate("grid.getColumn('a').getWidth()") == 60, "never below the minimum"
+
+
+def test_in_a_right_to_left_page_dragging_towards_the_start_widens(page):
+    page.evaluate("document.getElementById('mount').dir = 'rtl'")
+    build(page, RESIZE)
+    before = page.evaluate("grid.getColumn('a').getWidth()")
+    drag(page, f'{header(page, "a")} .dg-resize-handle', -40)
+    assert page.evaluate("grid.getColumn('a').getWidth()") == pytest.approx(before + 40, abs=1)
+
+
+def test_dragging_a_header_moves_its_column_and_the_drop_is_not_a_sort(page):
+    build(page, """{
+      columns: [{title: "P", field: "p", width: 80, frozen: "left"},
+                {title: "A", field: "a", width: 120}, {title: "B", field: "b", width: 120},
+                {title: "C", field: "c", width: 120}],
+      data: [{p: 0, a: 1, b: 2, c: 3}],
+      movableColumns: true,
+    }""")
+    page.evaluate("""() => { window.__moved = [];
+      grid.on("columnMoved", (column) => window.__moved.push(column.getField())); }""")
+    order = "grid.getColumns().map((c) => c.getField())"
+    drag(page, header(page, "a"), 250)
+    assert page.evaluate(order) == ["p", "b", "c", "a"]
+    assert page.evaluate("window.__moved") == ["a"]
+    assert page.locator(header(page, "a")).get_attribute("aria-sort") == "none"
+    drag(page, header(page, "p"), 250)
+    assert page.evaluate(order) == ["p", "b", "c", "a"], "a column moves within its own pinned band"
+    assert page.evaluate("window.__moved") == ["a"], "and nothing that did not move says it did"
+    # A drag that comes back to where it began moves nothing, redraws nothing,
+    # and so is released on the very header it started on: still not a sort.
+    box = page.locator(header(page, "b")).bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 30, y, steps=3)
+    # Short of its own middle, so the drop target is itself (at the middle exactly
+    # it would be the next column, and that is a move).
+    page.mouse.move(x - 10, y, steps=3)
+    page.mouse.up()
+    assert page.evaluate(order) == ["p", "b", "c", "a"]
+    assert page.locator(header(page, "b")).get_attribute("aria-sort") == "none"
+
+
+def test_a_column_measures_the_widest_of_its_header_and_its_cells(page):
+    build(page, """{
+      columns: [{title: "A", field: "a"}, {title: "B", field: "b"}, {title: "C", field: "c"}],
+      data: [{a: "x".repeat(80), b: "y", c: "z"}],
+    }""")
+    measured = page.evaluate("grid.getColumn('a').measureContentWidth()")
+    text = page.evaluate("""() => {
+      const probe = document.createElement("span");
+      probe.style.font = "14px/1.4 sans-serif"; probe.textContent = "x".repeat(80);
+      document.body.append(probe); const w = probe.getBoundingClientRect().width; probe.remove();
+      return w; }""")
+    assert measured >= text
+    assert measured > page.evaluate("grid.getColumn('a').getWidth()")
+    assert page.evaluate("grid.getColumn('b').measureContentWidth()") >= 40
+
+
+# ---- totals and export ------------------------------------------------------------
+
+def test_the_totals_row_averages_without_blanks_and_counts_what_is_there(page):
+    """Tabulator counted a blank as 0 in an average; the renderer leaves it out."""
+    build(page, """{
+      columns: [{title: "Price", field: "price", topCalc: "avg", topCalcParams: {precision: 1}},
+                {title: "Name", field: "name", topCalc: "count"}],
+      data: [{price: 1, name: "a"}, {price: "", name: ""}, {price: 4, name: "c"}, {price: null}],
+    }""")
+    calc = page.locator(".dg-header .dg-calcs")
+    assert calc.get_attribute("aria-rowindex") == "2"
+    assert calc.locator(".dg-cell").all_inner_texts() == ["2.5", "2"]
+    assert page.get_attribute("#mount", "aria-rowcount") == "6"
+    assert page.locator('.dg-body .dg-row[data-index="0"]').get_attribute("aria-rowindex") == "3"
+    page.evaluate("() => grid.setFilter([{field: 'price', test: (row) => row.price >= 4}])")
+    assert page.locator(".dg-calcs .dg-cell").all_inner_texts() == ["4", "1"]
+
+
+def test_a_download_writes_the_rows_shown_in_order_and_leaves_built_ins_out(page):
+    build(page, """{
+      columns: [{formatter: "rowSelection", titleFormatter: "rowSelection", headerSort: false},
+                {formatter: "rownum", headerSort: false},
+                {title: "Name", field: "name"}, {title: "Note", field: "note"},
+                {title: "Hidden", field: "h", visible: false},
+                {title: "Internal", field: "i", download: false}],
+      data: [{name: "b", note: {k: 1}, h: 1, i: 2}, {name: 'say "hi"', note: "x", h: 1, i: 2},
+             {name: "gone", note: "", h: 1, i: 2}],
+      selectableRows: true,
+    }""")
+    page.evaluate("""() => { grid.setSort("name", "desc");
+      grid.setFilter([{field: "name", test: (row) => row.name !== "gone"}]); }""")
+    csv = page.evaluate("grid.download('csv', 'rows.csv')")
+    assert csv.split("\n") == ['"Name","Note"', '"say ""hi""","x"', '"b","{""k"":1}"']
+    rows = page.evaluate("JSON.parse(grid.download('json', 'rows.json'))")
+    assert rows == [{"Name": 'say "hi"', "Note": "x"}, {"Name": "b", "Note": {"k": 1}}]
+
+
+def test_a_download_unrolls_bands_and_carries_a_trees_closed_children(page):
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}], data: {BRANDS}, groupBy: ["brand"],
+    }}""")
+    assert page.evaluate("grid.download('csv', 'g.csv')").split("\n") == [
+        '"Name"', '"a"', '"b"', '"c"', '"d"', '"e"']
+    build(page, f"""{{
+      columns: [{{title: "Name", field: "name"}}], data: {FAMILY},
+      dataTree: true, dataTreeChildField: "kids",
+    }}""")
+    assert page.evaluate("grid.download('csv', 't.csv')").split("\n") == [
+        '"Name"', '"parent"', '"kid one"', '"kid two"', '"grandkid"', '"single"']
