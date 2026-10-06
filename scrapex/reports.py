@@ -10,7 +10,8 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import fields, rates, tax
+from . import fields, pricehistory, rates, tax
+from .changes import changes_for_offer
 from .fields import AXIS_PREFIX
 from .normalize import option_axes_from
 from .vocab import BLOCK_ORDER, DETAIL_GROUP_ORDER, Block
@@ -1753,6 +1754,30 @@ def offer_observations(conn: sqlite3.Connection, offer_id: int,
     return [{"business_date": r[0], "price": r[1], "price_before": r[2],
              "price_sale": r[3], "currency": r[4], "observed_at": r[5],
              "provenance": r[6]} for r in rows]
+
+
+def offer_card(conn: sqlite3.Connection, source_key: str,
+               offer_id: int) -> dict | None:
+    """One offer's story, as the Data page's record card shows it.
+
+    ONE FUNCTION, SO A SECOND READER CAN CALL IT. `GET /api/offer/{source_key}/{offer_id}`
+    answers it, and the light file (#1199, not yet built) is to store it for a reader
+    with no engine. Inside the route, that copy could only have been a second copy of
+    five keys and their order.
+
+    None when the offer is not this source's, without saying whether the id exists
+    at all: the ownership rule the HTML page has, which the route turns into 404.
+    """
+    offer = offer_identity(conn, source_key, offer_id)
+    if offer is None:
+        return None
+    return {
+        "offer": offer,
+        "periods": pricehistory.timeline(conn, offer_id),
+        "observations": offer_observations(conn, offer_id),
+        "changes": changes_for_offer(conn, offer_id),
+        "details": product_attributes(conn, offer_id),
+    }
 
 
 def facet_options(conn: sqlite3.Connection, source_key: str, key: str,

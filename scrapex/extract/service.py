@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from .. import catalog, runs, taxonomy
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
+from ..features import FeatureKey, is_enabled
 from ..fields import arranged, fields_as_seeded
 from ..sightings import STATE_MEANING, row_state
 from ..snapshotbody import decode, encode
@@ -947,6 +948,79 @@ def browse_records(
             int(page[-1]["generic_record_id"]) if has_more else None
         ),
     }
+
+
+def listed_datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Every dataset the Data page lists: its key, its site, its names and its rows.
+
+    ONE QUERY, EVERY READER. `/api/sources` learned about datasets in #212 and the
+    PAGE did not, so `/source/contractors` answered 404 while `/api/table/contractors`
+    served 11,059 rows to nobody at all. The panel's listing and the engine's own page
+    read this one list, so a dataset reaches both or neither; the light file (#1199,
+    not yet built) is to be its third reader.
+
+    GATED HERE, on `GENERIC_DATASET_CATALOG`. This list is the advertisement: what tells
+    a user the capability exists, which is the claim `is_enabled`'s docstring forbids
+    inflating. The ROUTES stay mounted whatever the flag says, so the slice can be
+    exercised on a server bound to 127.0.0.1; gating the list makes the flag a switch
+    over what is announced, not a kill switch for development.
+
+    READ WHOLE. A caller asks a second query per dataset (its freshness), and running
+    that inside the walk of this one would nest a read in the middle of a GROUP BY scan.
+    """
+    if not is_enabled(FeatureKey.GENERIC_DATASET_CATALOG):
+        return []
+    found = conn.execute(
+        "SELECT d.dataset_definition_id, d.dataset_key, d.display_name, "
+        "s.source_key AS site_key, "
+        "d.original_name, s.base_url, count(r.generic_record_id) AS rows "
+        "FROM dataset_definition AS d "
+        "JOIN source_site AS s "
+        "ON s.source_id = d.source_id "
+        "LEFT JOIN generic_record AS r "
+        "ON r.dataset_definition_id = d.dataset_definition_id "
+        "AND r.status = 'active' "
+        "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id"
+    ).fetchall()
+    # BY POSITION, so the answer does not depend on the caller's row factory.
+    return [{"dataset_definition_id": int(row[0]), "dataset_key": row[1],
+             "display_name": row[2], "site_key": row[3], "original_name": row[4],
+             "base_url": row[5], "rows": int(row[6])} for row in found]
+
+
+def dataset_folds(conn: sqlite3.Connection, listed_keys) -> dict[str, str]:
+    """Which listed dataset folds into which one's card: child key -> parent key. `R-47`.
+
+    ONLY THE PRESENTATION COLLAPSES. The two `dataset_definition` rows stay two; this
+    says which one card shows both, for the panel's listing (and, once it is built, for
+    the light file of #1199).
+
+    CONFIRMED AND ONE-TO-ONE, both load-bearing. `review_status` is the human gate — a
+    proposed relationship is a guess, and collapsing two cards on a guess would hide a
+    population behind a percentage. And `one_to_one` is what makes "704 of 17,304" a
+    sentence: under `one_to_many` a parent row can carry several children, so the
+    child count is not a fraction of the parent count at all.
+
+    A CHILD THAT IS ITSELF A PARENT KEEPS ITS OWN CARD. Folding it away would take its
+    own children off the listing with it, and a dataset that reaches no card is worse
+    than one that reaches a redundant card. One level, and the limit is stated rather
+    than discovered: nothing in the warehouse is two deep today, and the day something
+    is, its middle row stays visible.
+    """
+    links = conn.execute(
+        "SELECT p.dataset_key AS parent, c.dataset_key AS child "
+        "FROM dataset_relationship AS r "
+        "JOIN dataset_definition AS p "
+        "ON p.dataset_definition_id = r.parent_dataset_id "
+        "JOIN dataset_definition AS c "
+        "ON c.dataset_definition_id = r.child_dataset_id "
+        "WHERE r.valid_to IS NULL AND r.review_status = 'confirmed' "
+        "AND r.cardinality = 'one_to_one'"
+    ).fetchall()
+    listed = set(listed_keys)
+    parents = {link[0] for link in links}
+    return {child: parent for parent, child in links
+            if parent in listed and child in listed and child not in parents}
 
 
 def dataset_schema_fields(
