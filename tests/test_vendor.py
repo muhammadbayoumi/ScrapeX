@@ -794,6 +794,59 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # selection.
 
 
+#: The one cache token every URL of the engine's sprite carries. design-system-4
+#: (#1056): every glyph id took its source's key, and no sprite served under 2 or 3
+#: carries one. A sprite bump changes it here, and the test below names each holder
+#: still on the old one. `test_ui_takes_its_sprite_from_its_own_tag` reads it too.
+SPRITE_TOKEN = "design-system-4"
+
+
+def test_every_url_of_the_engines_sprite_carries_the_one_token():
+    """Starlette serves /static with an ETag and Last-Modified but no Cache-Control, so a
+    browser may answer an unchanged URL from its cached copy without asking. The sprite
+    under design-system-3 has unprefixed ids, so a URL still naming it can be answered
+    with that sprite, and every glyph drawn through it is an empty <use>. The token is
+    written in the icon() macro (every `{{ icon(...) }}`, the sidebar's included), in
+    ui.js (every glyph ui.js and grid.js build), and in literal hrefs; any one left
+    behind is a surface drawing blanks that no other test notices.
+
+    The extension needs no token: Chromium serves an extension's files with
+    `Cache-Control: no-cache`, and the panel draws from its inline sprite."""
+    url = re.compile(r"material-icons/material-icons\.svg(?:\?v=([^\"'#\s`]*))?")
+    found = {}
+    for root in (ROOT / "design", ROOT / "scrapex", ROOT / "extension"):
+        for path in sorted(root.rglob("*")):
+            if path.suffix not in {".html", ".js", ".css", ".py"} or "vendor" in path.parts:
+                continue
+            tokens = url.findall(path.read_text(encoding="utf-8"))
+            if tokens:
+                found[path.relative_to(ROOT).as_posix()] = tokens
+    stale = {path: tokens for path, tokens in found.items() if set(tokens) != {SPRITE_TOKEN}}
+    assert not stale, (
+        f"every URL of the engine's sprite carries ?v={SPRITE_TOKEN}; these carry "
+        f"another token, or none (''): {stale}")
+    # The macro and ui.js build every computed glyph. Without them the scan read nothing.
+    for holder in ("scrapex/webui/templates/_icons.html", "design/ui.js",
+                   "scrapex/webui/static/ui.js", "extension/ui.js"):
+        assert holder in found, f"{holder} no longer writes the sprite's URL: {sorted(found)}"
+
+
+def test_the_engines_pages_load_the_ui_script_that_asks_for_that_token():
+    """layout-9 (#1056): ui.js asks for the sprite under the token above and builds every
+    glyph with its source's key. A browser still running a cached layout-8 ui.js asks for
+    design-system-3, which it may answer from its cached unprefixed sprite, so every glyph
+    ui.js and grid.js draw would be an empty <use>."""
+    loads = {}
+    for path in sorted(TEMPLATES.rglob("*.html")):
+        tokens = re.findall(r"/static/ui\.js(?:\?v=([^\"'\s]*))?",
+                            path.read_text(encoding="utf-8"))
+        if tokens:
+            loads[path.relative_to(TEMPLATES).as_posix()] = tokens
+    assert "base.html" in loads, f"base.html no longer loads ui.js: {loads}"
+    stale = {path: tokens for path, tokens in loads.items() if set(tokens) != {"layout-9"}}
+    assert not stale, f"every page loads /static/ui.js?v=layout-9; these do not: {stale}"
+
+
 def test_material_header_icons_are_local_and_dry():
     """The three shapes come from Google's Material Icons, but one local SVG
     sprite is enough; separate copies add files without adding behaviour."""
