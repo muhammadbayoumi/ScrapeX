@@ -798,7 +798,13 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
 #: (#1056): every glyph id took its source's key, and no sprite served under 2 or 3
 #: carries one. A sprite bump changes it here, and the test below names each holder
 #: still on the old one. `test_ui_takes_its_sprite_from_its_own_tag` reads it too.
+#: A sprite bump is a ui.js bump as well (ui.js writes the sprite's URL), so it adds
+#: its pair to UI_SCRIPT_FOR_SPRITE under a ui.js token no earlier sprite was served with.
 SPRITE_TOKEN = "design-system-4"
+
+#: The ui.js token each sprite token was last served with. A ui.js bump for any other
+#: reason replaces the current sprite's entry.
+UI_SCRIPT_FOR_SPRITE = {"design-system-3": "layout-8", "design-system-4": "layout-9"}
 
 
 def test_every_url_of_the_engines_sprite_carries_the_one_token():
@@ -835,7 +841,15 @@ def test_the_engines_pages_load_the_ui_script_that_asks_for_that_token():
     """layout-9 (#1056): ui.js asks for the sprite under the token above and builds every
     glyph with its source's key. A browser still running a cached layout-8 ui.js asks for
     design-system-3, which it may answer from its cached unprefixed sprite, so every glyph
-    ui.js and grid.js draw would be an empty <use>."""
+    ui.js and grid.js draw would be an empty <use>. So the ui.js token is read from the
+    sprite token's pair, not written here: a sprite bump with no new pair, or a pair that
+    reuses an earlier ui.js token, fails before base.html can keep the cached script."""
+    assert SPRITE_TOKEN in UI_SCRIPT_FOR_SPRITE, (
+        f"the sprite moved to {SPRITE_TOKEN}, so ui.js moves too: add its pair to "
+        f"UI_SCRIPT_FOR_SPRITE {UI_SCRIPT_FOR_SPRITE}")
+    assert len(set(UI_SCRIPT_FOR_SPRITE.values())) == len(UI_SCRIPT_FOR_SPRITE), (
+        f"each sprite token is served with its own ui.js token: {UI_SCRIPT_FOR_SPRITE}")
+    ui_token = UI_SCRIPT_FOR_SPRITE[SPRITE_TOKEN]
     loads = {}
     for path in sorted(TEMPLATES.rglob("*.html")):
         tokens = re.findall(r"/static/ui\.js(?:\?v=([^\"'\s]*))?",
@@ -843,8 +857,8 @@ def test_the_engines_pages_load_the_ui_script_that_asks_for_that_token():
         if tokens:
             loads[path.relative_to(TEMPLATES).as_posix()] = tokens
     assert "base.html" in loads, f"base.html no longer loads ui.js: {loads}"
-    stale = {path: tokens for path, tokens in loads.items() if set(tokens) != {"layout-9"}}
-    assert not stale, f"every page loads /static/ui.js?v=layout-9; these do not: {stale}"
+    stale = {path: tokens for path, tokens in loads.items() if set(tokens) != {ui_token}}
+    assert not stale, f"every page loads /static/ui.js?v={ui_token}; these do not: {stale}"
 
 
 def test_material_header_icons_are_local_and_dry():
