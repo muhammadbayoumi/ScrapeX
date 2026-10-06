@@ -107,7 +107,12 @@ def browser():
 @pytest.fixture(scope="module")
 def page_factory(tmp_path_factory, browser):
     tmp = tmp_path_factory.mktemp("grid")
+    # SERVED, because the grid's renderer is a module and file:// refuses modules.
+    with harness.serve(tmp) as base:
+        yield _opener(tmp, base, browser)
 
+
+def _opener(tmp, base, browser):
     def open_grid(payload=None, *, expect_table=True, **kw):
         kw.setdefault("fields", _fields())
         # expect_table=False for a source with no rows: grid.js deliberately
@@ -118,17 +123,16 @@ def page_factory(tmp_path_factory, browser):
         # page with no shared storage; the process it runs in can be shared.
         context = browser.new_context(viewport={"width": 1280, "height": 800})
         page = context.new_page()
-        page.goto(target.as_uri())
+        page.goto(f"{base}/{target.name}")
         if expect_table:
-            # WAIT FOR ROWS, NOT FOR THE INSTANCE. `findTable(...).length > 0`
-            # resolves as soon as the Tabulator object exists, which is BEFORE the
-            # first render -- so the bare `wait_for_timeout(400)` that used to sit
-            # below was the barrier actually doing this job, and a machine slower
-            # than 400ms ran every assertion against an empty table.
+            # WAIT FOR ROWS, NOT FOR THE INSTANCE. An instance exists before its
+            # first render, so a bare sleep was once the barrier actually doing
+            # this job, and a machine slower than it ran every assertion against
+            # an empty table.
             page.wait_for_function(
-                "() => !!window.Tabulator"
-                "  && Tabulator.findTable('#grid').length > 0"
-                "  && document.querySelectorAll('#grid .tabulator-row').length > 0")
+                "() => !!window.ScrapeXDataGrid"
+                "  && !!ScrapeXDataGrid.find('#grid')"
+                "  && document.querySelectorAll('#grid .dg-body .dg-row').length > 0")
         else:
             # Left as it was: for a source with no rows grid.js deliberately never
             # builds a table, so a row count is the wrong question here. This branch
@@ -151,7 +155,7 @@ def page(page_factory):
 def _sorted_names(page, field, direction):
     return page.evaluate(
         """([field, dir]) => {
-            const t = Tabulator.findTable('#grid')[0];
+            const t = ScrapeXDataGrid.find('#grid');
             t.setSort(field, dir);
             return t.getData('active').map(r => r[field]);
         }""",
@@ -164,10 +168,10 @@ def _sorted_names(page, field, direction):
 def test_the_padded_name_is_delivered_and_kept_verbatim(page):
     """The grid must not tidy what the site published."""
     names = page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getData().map(r => r.product_name)")
+        "() => ScrapeXDataGrid.find('#grid').getData().map(r => r.product_name)")
     assert PADDED_NAME in names, "the captured value was altered before it arrived"
     brands = page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getData().map(r => r.brand)")
+        "() => ScrapeXDataGrid.find('#grid').getData().map(r => r.brand)")
     assert " " in brands, "a brand published as a single space became something else"
 
 
@@ -183,8 +187,7 @@ def test_padding_decides_nothing_about_the_order(page):
 def test_a_brand_of_one_space_is_offered_as_blank_not_as_a_value(page):
     """It is not a brand, so the filter must not list it as one."""
     values = page.evaluate("""() => {
-        const col = [...document.querySelectorAll('.tabulator-col')]
-          .find(c => c.getAttribute('tabulator-field') === 'brand');
+        const col = document.querySelector('.dg-col[data-field="brand"]');
         col.querySelector('.material-filter-icon').parentElement.click();
         return [...document.querySelectorAll('.setfilter-row')].map(r => r.textContent);
     }""")
@@ -224,7 +227,7 @@ def test_arabic_sorts_by_arabic_collation(page):
 def test_country_sorts_by_the_name_on_screen_not_the_hidden_code(page):
     """The cell reads "United Arab Emirates"; sorting on "AE" would put it second."""
     order = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
+        const t = ScrapeXDataGrid.find('#grid');
         t.setSort('country_code_alpha2', 'asc');
         return t.getData('active').map(r => r.country);
     }""")
@@ -234,14 +237,13 @@ def test_country_sorts_by_the_name_on_screen_not_the_hidden_code(page):
 def test_the_sort_survives_a_rebuild(page):
     """Grouping rebuilds the table; it must not discard the chosen order."""
     before = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
+        const t = ScrapeXDataGrid.find('#grid');
         t.setSort('price', 'asc');
         return t.getSorters().map(s => s.field + ':' + s.dir);
     }""")
     assert before == ["price:asc"]
     page.evaluate("""() => {
-        const col = [...document.querySelectorAll('.tabulator-col')]
-          .find(c => c.getAttribute('tabulator-field') === 'brand');
+        const col = document.querySelector('.dg-col[data-field="brand"]');
         const b = col.querySelector('.material-menu-icon').parentElement;
         const r = b.getBoundingClientRect();
         const o = {bubbles:true, cancelable:true, button:0, buttons:1,
@@ -249,26 +251,25 @@ def test_the_sort_survives_a_rebuild(page):
         b.dispatchEvent(new MouseEvent('mousedown', o));
         b.dispatchEvent(new MouseEvent('mouseup', o));
         b.dispatchEvent(new MouseEvent('click', o));
-        [...document.querySelector('.tabulator-menu').children]
+        [...document.querySelector('.dg-menu').children]
           .find(x => /^Group by/.test(x.textContent)).click();
     }""")
     page.wait_for_timeout(700)
     after = page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSorters().map(s => s.field+':'+s.dir)")
+        "() => ScrapeXDataGrid.find('#grid').getSorters().map(s => s.field+':'+s.dir)")
     assert after == ["price:asc"], "grouping threw the sort away"
 
 
 # ---- markup is data, never code ---------------------------------------------
 
 def test_a_group_header_renders_markup_as_text(page_factory):
-    """Tabulator writes a STRING group header through innerHTML."""
+    """A renderer that wrote a STRING group header through innerHTML ran it."""
     payload = _payload()
     payload["rows"][0]["product_name"] = MARKUP_NAME
     page, context = page_factory(payload)
     try:
         page.evaluate("""() => {
-            const col = [...document.querySelectorAll('.tabulator-col')]
-              .find(c => c.getAttribute('tabulator-field') === 'product_name');
+            const col = document.querySelector('.dg-col[data-field="product_name"]');
             const b = col.querySelector('.material-menu-icon').parentElement;
             const r = b.getBoundingClientRect();
             const o = {bubbles:true, cancelable:true, button:0, buttons:1,
@@ -276,15 +277,15 @@ def test_a_group_header_renders_markup_as_text(page_factory):
             b.dispatchEvent(new MouseEvent('mousedown', o));
             b.dispatchEvent(new MouseEvent('mouseup', o));
             b.dispatchEvent(new MouseEvent('click', o));
-            [...document.querySelector('.tabulator-menu').children]
+            [...document.querySelector('.dg-menu').children]
               .find(x => /^Group by/.test(x.textContent)).click();
         }""")
         page.wait_for_timeout(700)
         assert page.evaluate("() => window.__pwned") is None, "scraped markup ran"
         assert page.evaluate(
-            "() => document.querySelectorAll('.tabulator-group img').length") == 0
+            "() => document.querySelectorAll('.dg-group img').length") == 0
         bands = page.evaluate(
-            "() => [...document.querySelectorAll('.tabulator-group')].map(g => g.textContent)")
+            "() => [...document.querySelectorAll('.dg-group')].map(g => g.textContent)")
         assert any(MARKUP_NAME in b for b in bands), "the value should show as text"
     finally:
         context.close()
@@ -314,57 +315,59 @@ def test_the_columns_button_still_works_with_no_rows(page_factory):
 
 
 def test_header_filter_and_menu_are_keyboard_controls(page):
+    """Real buttons: they tab, Enter presses them, and each says what it opens."""
     controls = page.evaluate("""() => {
-        const column = [...document.querySelectorAll('.tabulator-col')]
-          .find(c => c.getAttribute('tabulator-field') === 'price');
-        return [...column.querySelectorAll('.tabulator-header-popup-button')]
+        const column = document.querySelector('.dg-col[data-field="price"]');
+        return [...column.querySelectorAll('.dg-header-button')]
           .map(control => ({
-            role: control.getAttribute('role'),
-            tabindex: control.getAttribute('tabindex'),
+            tag: control.tagName,
+            type: control.getAttribute('type'),
             label: control.getAttribute('aria-label'),
             menu: !!control.querySelector('.material-menu-icon'),
           }));
     }""")
     assert len(controls) == 2
-    assert all(c["role"] == "button" and c["tabindex"] == "0"
-               for c in controls)
+    assert all(c["tag"] == "BUTTON" and c["type"] == "button" for c in controls)
     assert {c["label"] for c in controls} == {
         "Open filter for Price", "Open menu for Price"}
 
-    page.evaluate("""() => {
-        const column = [...document.querySelectorAll('.tabulator-col')]
-          .find(c => c.getAttribute('tabulator-field') === 'price');
-        const control = [...column.querySelectorAll(
-          '.tabulator-header-popup-button')]
-          .find(c => c.querySelector('.material-menu-icon'));
-        control.focus();
-        control.dispatchEvent(new KeyboardEvent(
-          'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+    page.focus('.dg-col[data-field="price"] .dg-header-menu')
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".dg-menu", state="visible", timeout=3000)
+    assert page.locator(".dg-menu").is_visible()
+    # Escape closes it and hands the focus back to the button that opened it.
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".dg-menu", state="detached", timeout=3000)
+    assert page.evaluate(
+        "() => document.activeElement.classList.contains('dg-header-menu')")
+
+
+def test_escape_closes_a_menu_the_instant_it_opens(page):
+    """CI pressed Escape faster than the menu armed its Escape listener, and the menu
+    stayed open: the listener waited a turn, as only the outside-click one has to (the
+    click that opened the menu is still travelling to the document). Pressed in the
+    same turn as the menu opens, Escape must still close it."""
+    still_open = page.evaluate("""() => {
+        document.querySelector('.dg-col[data-field="price"] .dg-header-menu').click();
+        const opened = !!document.querySelector('.dg-menu');
+        document.activeElement.dispatchEvent(new KeyboardEvent(
+          'keydown', {key: 'Escape', bubbles: true, cancelable: true}));
+        return [opened, !!document.querySelector('.dg-menu')];
     }""")
-    page.wait_for_selector(".tabulator-menu", state="visible", timeout=3000)
-    assert page.locator(".tabulator-menu").is_visible()
+    assert still_open == [True, False], (
+        f"opened, then still open after Escape: {still_open}")
 
 
 def test_the_pin_sub_menu_casts_a_sub_menus_shadow_over_its_menus(page):
     """Supabase's menu casts shadow-md and its sub-menu shadow-lg (dropdown-menu.tsx@86c813ec:87
-    and :70). Tabulator gives the two the same classes, so grid-theme.css tells the sub-menu
-    apart by its place: Popup.show appends it after its parent in the same container. This
-    reads what each open menu computes, so a Tabulator that inserted it anywhere else, or a
-    first menu left open behind a second, turns it red (#1049)."""
-    page.evaluate("""() => {
-        const col = [...document.querySelectorAll('.tabulator-col')]
-          .find(c => c.getAttribute('tabulator-field') === 'brand');
-        const b = col.querySelector('.material-menu-icon').parentElement;
-        const r = b.getBoundingClientRect();
-        const o = {bubbles:true, cancelable:true, button:0, buttons:1,
-                   clientX:r.left+3, clientY:r.top+3, view:window};
-        b.dispatchEvent(new MouseEvent('mousedown', o));
-        b.dispatchEvent(new MouseEvent('mouseup', o));
-        b.dispatchEvent(new MouseEvent('click', o));
-        [...document.querySelector('.tabulator-menu').children]
-          .find(x => x.textContent.trim() === 'Pin Column').click();
-    }""")
-    page.wait_for_function("() => document.querySelectorAll('.tabulator-menu').length === 2",
+    and :70). The renderer marks the sub-menu `dg-submenu`. This reads what each open menu
+    computes, so a sub-menu drawn without its mark, or a first menu left open behind a
+    second, turns it red (#1049)."""
+    page.click('.dg-col[data-field="brand"] .dg-header-menu')
+    page.wait_for_selector(".dg-menu", state="visible", timeout=3000)
+    page.evaluate("""() => [...document.querySelector('.dg-menu').children]
+        .find(x => x.textContent.trim() === 'Pin Column').click()""")
+    page.wait_for_function("() => document.querySelectorAll('.dg-menu').length === 2",
                            timeout=3000)
     cast = page.evaluate("""() => {
         const token = (name) => {
@@ -377,8 +380,8 @@ def test_the_pin_sub_menu_casts_a_sub_menus_shadow_over_its_menus(page):
         return {
           md: token('--shadow-md'),
           lg: token('--shadow-lg'),
-          menus: [...document.querySelectorAll('.tabulator-menu')].map((menu) => ({
-            items: [...menu.querySelectorAll('.tabulator-menu-item')]
+          menus: [...document.querySelectorAll('.dg-menu')].map((menu) => ({
+            items: [...menu.querySelectorAll('.dg-menu-item')]
               .map((item) => item.textContent.trim()),
             shadow: getComputedStyle(menu).boxShadow,
           })),
@@ -399,13 +402,13 @@ def test_the_pin_sub_menu_casts_a_sub_menus_shadow_over_its_menus(page):
 def test_the_footer_counts_the_rows_actually_shown(page):
     """dataFiltered fires before the filtered rows become the active set."""
     footer = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        t.setFilter([{field: (row) => row.price > 100}]);   // one row of four
+        const t = ScrapeXDataGrid.find('#grid');
+        t.setFilter([{field: 'price', test: (row) => row.price > 100}]);   // one row of four
         return null;
     }""")
     page.wait_for_timeout(300)
     shown, text = page.evaluate("""() => [
-        Tabulator.findTable('#grid')[0].getDataCount('active'),
+        ScrapeXDataGrid.find('#grid').getDataCount('active'),
         document.querySelector('.grid-footer-summary').textContent,
     ]""")
     assert shown == 1
@@ -413,17 +416,31 @@ def test_the_footer_counts_the_rows_actually_shown(page):
         f"footer reported the previous state: {text!r}")
 
 
+def _menu_item(page, field, pattern):
+    """Open a column's three-dot menu and press the item whose text matches."""
+    page.click(f'.dg-col[data-field="{field}"] .dg-header-menu')
+    page.wait_for_selector(".dg-menu", state="visible", timeout=3000)
+    page.evaluate(
+        """(pattern) => [...document.querySelector('.dg-menu').children]
+             .find(x => new RegExp(pattern).test(x.textContent)).click()""",
+        pattern)
+
+
 # ---- nesting must not take matching rows down with the branch ---------------
 
 def test_filtering_while_nested_keeps_branches_that_hold_a_match(page):
-    """A parent carries only the nested column, so it fails every other filter."""
+    """A parent carries only the nested column, so it fails every other filter.
+
+    Nested by Brand, the padded " " and the empty brand are one branch of two
+    rows (Putty, Beta rebar); Alpha and Zinc stay flat. Filtering Observations
+    to 2 must keep Alpha AND the branch, because Beta rebar inside it matches.
+    """
+    _menu_item(page, "brand", "^Nest rows by this column")
+    page.wait_for_function(
+        "() => document.querySelector('#grid .dg-tree-toggle') !== null", timeout=5000)
     kept = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        // nest by a column two rows share, then filter on a DIFFERENT column
-        t.setFilter([{field: (row) => {
-            const hit = (r) => String(r.observations) === '2';
-            return hit(row) || (Array.isArray(row._children) && row._children.some(hit));
-        }}]);
+        const t = ScrapeXDataGrid.find('#grid');
+        t.setFilter([{field: 'observations', test: (row) => String(row.observations) === '2'}]);
         return t.getDataCount('active');
     }""")
     assert kept == 2, "the filter dropped rows that match"
@@ -433,18 +450,95 @@ def test_filtering_while_nested_keeps_branches_that_hold_a_match(page):
 
 def test_grouping_by_a_derived_column_uses_what_the_cell_shows(page):
     """Country's field holds "AD"; the cell reads "Andorra"."""
-    bands = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        return t.getGroups ? t.getGroups().length : -1;
-    }""")
+    _menu_item(page, "country_code_alpha2", "^Group by")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-group').length > 0", timeout=5000)
     # four distinct countries in the fixture, so a correct grouping is four bands
-    groups = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        t.setGroupBy((data) => data.country || data.country_code_alpha2 || '');
-        return t.getGroups().map(g => g.getKey());
-    }""")
+    groups = page.evaluate(
+        "() => ScrapeXDataGrid.find('#grid').getGroups().map(g => g.getKey())")
     assert sorted(groups) == ["Andorra", "Egypt", "Saudi Arabia",
                               "United Arab Emirates"]
+
+
+def test_expand_and_collapse_all_reach_every_group_level(page):
+    """Two levels of bands: Expand All opens the inner bands too, and Collapse All
+    closes them, so no level is left in the state the other one asked to leave."""
+    _menu_item(page, "brand", "^Group by Brand")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-group').length > 0", timeout=5000)
+    _menu_item(page, "country_code_alpha2", "^Add Country code as Group Level 2")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-group').length > 0", timeout=5000)
+    drawn = """() => ({
+        outer: document.querySelectorAll('#grid .dg-group[aria-level="1"]').length,
+        inner: document.querySelectorAll('#grid .dg-group[aria-level="2"]').length,
+        rows: document.querySelectorAll('#grid .dg-body .dg-row:not(.dg-group)').length,
+    })"""
+    # Four brands, as stored: " " and "" are two values to a band.
+    assert page.evaluate(drawn) == {"outer": 4, "inner": 0, "rows": 0}
+
+    _menu_item(page, "brand", "^Expand All Row Groups")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-body .dg-row:not(.dg-group)').length === 4",
+        timeout=5000)
+    assert page.evaluate(drawn) == {"outer": 4, "inner": 4, "rows": 4}
+
+    _menu_item(page, "brand", "^Collapse All Row Groups")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-group[aria-level=\"2\"]').length === 0",
+        timeout=5000)
+    assert page.evaluate(drawn) == {"outer": 4, "inner": 0, "rows": 0}
+
+
+def test_a_header_filter_narrows_the_rows_as_he_types_and_keeps_his_cursor(page):
+    """The Datasets page puts a text filter under every column header. Typing narrows
+    the rows at once, and the header redraws under the box he is typing in, so the
+    box must keep the focus and the caret or every letter after the first is lost."""
+    page.evaluate("""() => {
+        const holder = document.createElement('div');
+        holder.id = 'records';
+        document.body.append(holder);
+        new ScrapeXDataGrid(holder, {
+          data: [{name: 'Alpha cement'}, {name: 'Beta rebar'}, {name: 'Alpine sand'}],
+          columns: [{title: 'Name', field: 'name', headerFilter: 'input'}],
+          height: '20rem',
+        });
+    }""")
+    box = page.locator("#records .dg-header-input")
+    box.click()
+    page.keyboard.type("alp")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#records .dg-body .dg-row').length === 2",
+        timeout=5000)
+    assert page.evaluate("""() => [document.activeElement.classList.contains('dg-header-input'),
+                                    document.activeElement.value,
+                                    document.activeElement.selectionStart]""") == [
+        True, "alp", 3], "the box lost his place while the rows narrowed"
+    assert sorted(page.locator("#records .dg-body .dg-row").all_inner_texts()) == [
+        "Alpha cement", "Alpine sand"]
+
+
+def test_wrapped_rows_are_placed_by_their_own_height(page_factory):
+    """With Wrap Long Text on, a row is as tall as its text. Rows are placed one under
+    the next by measured height, so a tall row must push the rest down rather than
+    have them drawn over it."""
+    payload = _payload()
+    payload["rows"][1]["product_name"] = "A very long product name " * 12
+    page, context = page_factory(
+        payload,
+        host_js="localStorage.setItem('scrapex-features-v2-TESTSRC', '{\"wrap\": true}');")
+    try:
+        page.wait_for_timeout(300)
+        rows = page.evaluate("""() => [...document.querySelectorAll('#grid .dg-body .dg-row')]
+            .sort((a, b) => a.dataset.index - b.dataset.index)
+            .map((row) => { const box = row.getBoundingClientRect();
+                            return [Math.round(box.top), Math.round(box.height)]; })""")
+        assert len({height for _top, height in rows}) > 1, (
+            f"the long name did not wrap, so this measures nothing: {rows}")
+        for (top, height), (next_top, _next_height) in zip(rows, rows[1:]):
+            assert abs(next_top - (top + height)) <= 1, f"a row overlaps or floats: {rows}"
+    finally:
+        context.close()
 
 
 # ---- a dialog must always be closable ---------------------------------------
@@ -490,7 +584,7 @@ def test_outbound_links_carry_target_and_rel_together(page_factory):
     page, context = page_factory(payload)
     try:
         links = page.evaluate("""() => [...document.querySelectorAll(
-            '.tabulator-cell[tabulator-field=product_link] a')].map(a => ({
+            '.dg-cell[data-field=product_link] a')].map(a => ({
                 href: a.getAttribute('href'),
                 target: a.getAttribute('target'),
                 rel: a.getAttribute('rel'),
@@ -534,11 +628,15 @@ def test_only_an_http_address_is_drawn_as_a_product_link(page_factory):
     payload["columns"].append({"key": "product_link", "label": ""})
     page, context = page_factory(payload)
     try:
-        drawn = page.evaluate("""() => Object.fromEntries(
-            Tabulator.findTable('#grid')[0].getRows().map(row => {
-                const a = row.getCell('product_link').getElement().querySelector('a');
-                return [row.getData().offer_id, a ? a.getAttribute('href') : null];
-            }))""")
+        drawn = page.evaluate("""() => {
+            const ids = ScrapeXDataGrid.find('#grid').getData('active').map(r => r.offer_id);
+            const rows = [...document.querySelectorAll('#grid .dg-body .dg-row')]
+              .sort((a, b) => a.dataset.index - b.dataset.index);
+            return Object.fromEntries(rows.map((row, i) => {
+                const a = row.querySelector('.dg-cell[data-field=product_link] a');
+                return [ids[i], a ? a.getAttribute('href') : null];
+            }));
+        }""")
         assert drawn == {"1": None, "2": None, "3": None, "4": None, "5": None,
                          "6": "https://example.test/p/6"}
         schemes = page.evaluate(
@@ -585,10 +683,8 @@ def test_the_record_panels_timestamps_follow_the_display_zone(page_factory):
     try:
         page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
         opened = page.evaluate("""() => {
-            const table = Tabulator.findTable('#grid')[0];
-            const row = table.getRows()[0];
-            table.selectRow(row);
-            return table.getSelectedRows().length;
+            document.querySelector('#grid .dg-body .dg-row .dg-select').click();
+            return ScrapeXDataGrid.find('#grid').getSelectedRows().length;
         }""")
         assert opened == 1, "the row could not be selected, so no record opened"
         # Selecting a row opens the record card; the price timeline and the
@@ -658,9 +754,8 @@ def test_a_column_moved_out_of_the_table_is_drawn_in_the_record_card(page_factor
         # `moved.length && openOfferRow`, so a non-empty list on its own draws
         # nothing and asserting on the payload could never have caught that.
         opened = page.evaluate("""() => {
-            const table = Tabulator.findTable('#grid')[0];
-            table.selectRow(table.getRows()[0]);
-            return table.getSelectedRows().length;
+            document.querySelector('#grid .dg-body .dg-row .dg-select').click();
+            return ScrapeXDataGrid.find('#grid').getSelectedRows().length;
         }""")
         assert opened == 1, "the row could not be selected, so no record opened"
 
@@ -698,10 +793,8 @@ def test_an_empty_moved_list_draws_no_card_at_all(page_factory):
     """
     page, context = page_factory(offer=OFFER_WITH_HISTORY)
     try:
-        page.evaluate("""() => {
-            const table = Tabulator.findTable('#grid')[0];
-            table.selectRow(table.getRows()[0]);
-        }""")
+        page.evaluate(
+            "() => document.querySelector('#grid .dg-body .dg-row .dg-select').click()")
         page.wait_for_selector("#offer-panel", state="visible", timeout=5000)
         # The SAME view the positive test reads, or this passes for the wrong
         # reason -- an absent card and an unopened section are indistinguishable
@@ -725,13 +818,13 @@ def test_the_language_toggle_swaps_which_name_column_is_visible(page):
     """
     def visible():
         return page.evaluate("""() => {
-            const t = Tabulator.findTable('#grid')[0];
+            const t = ScrapeXDataGrid.find('#grid');
             return t.getColumns().filter(c => c.isVisible()).map(c => c.getField());
         }""")
 
     def order():
         return page.evaluate(
-            "() => Tabulator.findTable('#grid')[0].getData('active')"
+            "() => ScrapeXDataGrid.find('#grid').getData('active')"
             "  .map(r => r.offer_id)")
 
     page.wait_for_selector("#grid-lang-toggle", timeout=5000)
@@ -741,7 +834,7 @@ def test_the_language_toggle_swaps_which_name_column_is_visible(page):
     page.click('#grid-lang-toggle .grid-lang-option[aria-label="Show Arabic fields"]')
     page.wait_for_function(
         """() => {
-            const t = Tabulator.findTable('#grid')[0];
+            const t = ScrapeXDataGrid.find('#grid');
             const c = t.getColumn('product_name_ar');
             return c && c.isVisible();
         }""", timeout=5000)
@@ -757,7 +850,7 @@ def test_the_language_toggle_swaps_which_name_column_is_visible(page):
     page.click('#grid-lang-toggle .grid-lang-option[aria-label="Show English fields"]')
     page.wait_for_function(
         """() => {
-            const t = Tabulator.findTable('#grid')[0];
+            const t = ScrapeXDataGrid.find('#grid');
             const c = t.getColumn('product_name');
             return c && c.isVisible();
         }""", timeout=5000)

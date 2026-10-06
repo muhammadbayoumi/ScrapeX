@@ -9,7 +9,7 @@
 // them: `taxonomy.memberships` has no caller in `scrapex/` outside its tests, so
 // a contractor's own activities were invisible on every screen he has.
 //
-// WHY THE FILTER IS NOT THE GRID'S. Tabulator filters what it holds, and it
+// WHY THE FILTER IS NOT THE GRID'S. The grid filters what it holds, and it
 // cannot hold this: putting each row's memberships in the payload is 407,384
 // strings beside a 17,811-row table — several times the table itself. So the
 // selection goes back to the engine as node ids and SQL narrows the rows.

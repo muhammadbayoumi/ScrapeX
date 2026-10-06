@@ -36,9 +36,6 @@ const BROWSER = {
   CSS: "readonly", Node: "readonly", MouseEvent: "readonly",
   AbortSignal: "readonly", DecompressionStream: "readonly",
   TextDecoderStream: "readonly", HTMLElement: "readonly",
-  // Loaded from static/vendor/ by a <script> tag, so it is a global here and
-  // named rather than waved through: a typo'd vendor name must still fail.
-  Tabulator: "readonly",
   // Defined by timezone.js, which app.js's page loads before it as a classic
   // script. Listing it is the only way `no-undef` can tell this apart from a
   // function that does not exist -- which is exactly the defect this gate

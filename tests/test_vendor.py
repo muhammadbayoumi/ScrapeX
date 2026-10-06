@@ -846,8 +846,9 @@ def test_original_logo_is_shared_and_chrome_has_every_required_raster_size():
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():
     page = (TEMPLATES / "datasets.html").read_text(encoding="utf-8")
-    assert '/static/vendor/tabulator.min.js' in page
-    assert '/static/vendor/tabulator.min.css' in page
+    assert 'import("/static/datagrid.js' in page
+    renderer = (VENDOR.parent / "datagrid.js").read_text(encoding="utf-8")
+    assert 'from "./vendor/tanstack/table-core/index.js"' in renderer
 
 
 def test_the_data_page_uses_the_grid_from_our_own_origin():
@@ -860,13 +861,15 @@ def test_the_data_page_uses_the_grid_from_our_own_origin():
     still plain links — while the table itself is now a grid.
     """
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert "/static/vendor/tabulator.min.js" in page
     assert "/static/grid.js" in page
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert 'new URL("datagrid.js"' in script, "grid.js imports its renderer beside itself"
 
 
-def test_the_grid_script_is_served_from_our_origin_too():
-    script = (VENDOR.parent / "grid.js")
-    assert script.is_file(), "the Data page loads /static/grid.js"
+@pytest.mark.parametrize("name", ["grid.js", "datagrid.js"])
+def test_the_grid_script_is_served_from_our_origin_too(name):
+    script = (VENDOR.parent / name)
+    assert script.is_file(), f"the Data page loads /static/{name}"
     body = script.read_text(encoding="utf-8")
     assert "http://" not in body and "https://" not in body, (
         "the grid must not reach the internet at runtime")
@@ -949,10 +952,17 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-48 (grid.js only): every glyph it names carries its source's
     # key (#1056), and a cached script would draw ids the sprite no longer has.
     # Not 47: the TanStack branch (#1367) already serves grid.js under it.
-    assert '/static/grid.js?v=design-system-48' in page
-    assert '/static/grid-theme.css?v=design-system-46' in page
-    assert '/static/grid-theme.css?v=design-system-46' in (
-        TEMPLATES / "datasets.html").read_text(encoding="utf-8")
+    # design-system-49: the grid draws through datagrid.js on TanStack (#1342).
+    # A cached grid.js would keep constructing a Tabulator that is no longer
+    # served, and a cached theme would style class names nothing draws. grid.js
+    # passes its own query string to the renderer it imports, so the one bump
+    # reaches datagrid.js too. Not 47 either: #1367's branch served that with the
+    # old glyph ids and a renderer whose column resize took one move of a drag.
+    assert '/static/grid.js?v=design-system-49' in page
+    assert '/static/grid-theme.css?v=design-system-49' in page
+    datasets = (TEMPLATES / "datasets.html").read_text(encoding="utf-8")
+    assert '/static/grid-theme.css?v=design-system-49' in datasets
+    assert '/static/datagrid.js?v=design-system-49' in datasets
     # design-system-45: opening a card no longer rearranges the others — the
     # column count is unchanged on focus and nothing is pinned to a row.
     # design-system-44: two selected cards keep the established card width and
@@ -1180,7 +1190,8 @@ def test_row_selection_is_an_explicit_feature_and_zero_is_not_noise():
     assert 'cssClass: "grid-select-column"' in script
     assert "(features.statusbar || features.select) ? footer : undefined" in script
     assert "footerSelected.stat.hidden = selected === 0" in script
-    assert ".grid-select-column.tabulator-frozen.tabulator-frozen-left" in css
+    assert ".dg .grid-select-column" in css
+    assert 'frozen: "left"' in script, "the selection column stays at the start"
     assert '.grid-select-column input[type="checkbox"]' in css
     assert "font-family: var(--font)" in css
     assert ".grid-footer-stat[hidden]" in css
@@ -1204,9 +1215,10 @@ def test_a_total_is_only_offered_where_a_total_means_something():
 
 # ---- the grid must not change how the table LOOKS ---------------------------
 #
-# Tabulator ships a light theme with every colour hardcoded — #fff rows, #efefef
-# stripes, #bbb hover — and exposes no CSS variables to redirect. Inside a dark
-# page that rendered as light-grey rows on a dark surface: the table's colours
+# The grid's renderer draws nothing of its own colour: every colour it shows is
+# grid-theme.css binding the project's variables. The grid this replaced
+# (Tabulator) shipped a light theme with every colour hardcoded, and inside a
+# dark page rendered light-grey rows on a dark surface — the table's colours
 # changed because its renderer changed, which is not a thing a renderer may do.
 
 THEME = VENDOR.parent / "grid-theme.css"
@@ -1214,12 +1226,16 @@ TABLE_THEME = VENDOR.parent / "table-theme.css"
 BASE = TEMPLATES / "base.html"
 
 
-def test_the_grid_theme_is_loaded_after_the_library():
-    """Order is the whole mechanism. Loaded first, every rule loses."""
+def test_no_page_loads_a_grid_stylesheet_but_the_theme():
+    """TanStack draws nothing, so there is no library stylesheet for the theme to
+    load after and fight: grid-theme.css is the whole of how the grid looks."""
     for page in ("source.html", "datasets.html"):
         markup = (TEMPLATES / page).read_text(encoding="utf-8")
-        assert markup.index("grid-theme.css") > markup.index("tabulator.min.css"), (
-            f"{page} loads the theme before the library it overrides")
+        assert "grid-theme.css" in markup, f"{page} does not load the grid's theme"
+        assert "/static/vendor/" not in re.sub(r"\{#[\s\S]*?#\}", "", markup), (
+            f"{page} loads a vendored file by tag; the renderer imports them itself")
+    data = (EXTENSION_VENDOR.parent / "data.html").read_text(encoding="utf-8")
+    assert 'href="vendor/' not in data and 'src="vendor/' not in data
 
 
 def test_the_grid_binds_to_the_projects_variables_not_its_own_colours():
@@ -1236,13 +1252,13 @@ def test_the_grid_binds_to_the_projects_variables_not_its_own_colours():
 
 
 def test_grid_styling_is_fully_separated_from_the_base_template():
-    """The application shell must not know Tabulator's selectors or the names
-    of controls created by grid.js. Otherwise changing the grid requires edits
-    in two stylesheets and the two copies can silently drift apart."""
+    """The application shell must not know the grid renderer's selectors or the
+    names of controls created by grid.js. Otherwise changing the grid requires
+    edits in two stylesheets and the two copies can silently drift apart."""
     base = BASE.read_text(encoding="utf-8")
     css = THEME.read_text(encoding="utf-8")
 
-    grid_only = (".tabulator", ".setfilter", ".featuregrid", ".material-icon",
+    grid_only = (".dg-", ".setfilter", ".featuregrid", ".material-icon",
                  "#grid-features")
     assert all(selector not in base for selector in grid_only)
     assert all(selector in css for selector in grid_only)
@@ -1316,25 +1332,29 @@ def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     assert "var(--primary)" in css
     assert "--grid-header-text: var(--on-surface)" in css
     assert "@media (prefers-color-scheme: dark)" not in css
-    assert ".tabulator:not(.compact):not(.wrap)" in css
+    assert ".dg.compact .dg-body .dg-row { min-height: 0; }" in css, (
+        "compact rows must be free to shrink below the normal row")
+    assert ".dg.wrap .dg-cell { white-space: normal;" in css, "wrapped rows must grow"
+    assert "min-height: var(--grid-row-height)" in css
     assert "min-height: var(--grid-header-height)" in css
 
 
 def test_header_sort_cycles_back_to_the_original_row_order():
     """One column click means ascending, two descending, three no sorter. The
-    no-sort state is Tabulator's original input order, not a third invented
-    ordering."""
+    no-sort state is the payload's own order, not a third invented ordering —
+    and only the WIDTHS are remembered, never a sort, so a saved sorter cannot
+    make the next click cycle start in an old state."""
+    renderer = (VENDOR.parent / "datagrid.js").read_text(encoding="utf-8")
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    vendor = (VENDOR / "tabulator.min.js").read_text(encoding="utf-8")
 
-    assert "headerSortTristate: true" in script
-    assert "headerSortTristate" in vendor, "the pinned Tabulator lacks tri-state sorting"
-    assert "columnHeaderSortMulti: false" in script
-    assert 'persistence: pinned.size ? false : {columns: ["width"]}' in script, (
-        "a saved sorter can make the next click cycle start in an old state")
-    # v3: the vocabulary sweep renamed the columns whose widths this key
-    # remembers, so the stored layout is about columns that no longer exist.
-    assert 'PERSISTENCE_ID = "scrapex-grid-v3-"' in script
+    cycle = renderer.split("_cycleSort(id) {")[1].split("\n  }")[0]
+    assert 'if (!current) this.setSort(id, "asc")' in cycle
+    assert 'else if (!current.desc) this.setSort(id, "desc")' in cycle
+    assert "else this.setSort();" in cycle
+    assert "enableMultiSort: false" in renderer
+    assert "sortDescFirst: false" in renderer, "a number column must start ascending too"
+    assert 'WIDTHS_KEY = "scrapex-grid-widths-v1-"' in script
+    assert "sort" not in script.split("function saveWidths()")[1].split("\n  }")[0]
 
 
 def test_no_sort_state_does_not_preview_an_arrow_on_hover():
@@ -1342,21 +1362,24 @@ def test_no_sort_state_does_not_preview_an_arrow_on_hover():
     A hover-only arrow made the cleared state look as though it had not cleared."""
     css = THEME.read_text(encoding="utf-8")
 
-    assert ".tabulator .tabulator-col .material-sort-icon" in css
-    assert ".tabulator .tabulator-col:hover .material-sort-icon" not in css
+    assert ".dg .dg-col .material-sort-icon" in css
+    assert ".dg-col:hover .material-sort-icon" not in css
 
 
 def test_header_parts_follow_label_sort_filter_menu_order():
     """The sorter belongs to the label; filter and menu form the far-edge
-    control cluster shown in the reference image."""
+    control cluster shown in the reference image. The renderer draws them in
+    that order, so no CSS reorders them."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    renderer = (VENDOR.parent / "datagrid.js").read_text(encoding="utf-8")
     css = THEME.read_text(encoding="utf-8")
 
     assert 'className = "grid-header-label"' in script
-    assert ".grid-header-label" in css and "order: 0" in css
-    assert ".tabulator-col-sorter" in css and "order: 1" in css
-    assert ".tabulator-header-popup-button" in css and "order: 2" in css
-    assert "margin-inline-start: auto" in css
+    header = renderer.split("_headerCell(id, sorting) {")[1]
+    assert (header.index('sort.className = "dg-sort"')
+            < header.index('this._headerButton("filter"')
+            < header.index('this._headerButton("menu"')), "label, sort, filter, menu"
+    assert ".dg .dg-header-button:first-of-type { margin-inline-start: auto; }" in css
     assert "material-filter-icon" in css and "material-menu-icon" in css
     assert "material-sort-icon" in css
 
@@ -1377,7 +1400,7 @@ def test_minimum_column_width_always_keeps_filter_and_menu_visible():
 def test_data_grid_edges_are_rounded_without_changing_other_tables():
     css = THEME.read_text(encoding="utf-8")
 
-    assert "#grid.tablewrap" in css and "#grid.tabulator" in css
+    assert "#grid.tablewrap" in css and "#grid.dg" in css
     assert "border-radius: var(--table-radius)" in css
     assert "overflow: hidden" in css
 
@@ -1385,25 +1408,26 @@ def test_data_grid_edges_are_rounded_without_changing_other_tables():
 def test_column_resize_boundary_is_visible_and_highlights_while_dragging():
     css = THEME.read_text(encoding="utf-8")
 
-    header_handle = ".tabulator .tabulator-header .tabulator-col-resize-handle"
+    header_handle = ".dg-header .dg-resize-handle"
     assert f"{header_handle}::after" in css
-    assert "\n.tabulator-col-resize-handle::after" not in css
+    assert "\n.dg-resize-handle::after" not in css
     assert "background: var(--muted)" in css
     assert f"{header_handle}:hover::after" in css
-    assert f"{header_handle}:active::after" in css
+    assert f"{header_handle}.is-active::after" in css, "it stays lit while dragging"
     assert "background: var(--accent)" in css
     assert "cursor: col-resize" in css
 
 
-def test_every_hardcoded_row_colour_the_library_sets_is_overridden():
-    """Named explicitly, because a library update that adds one more will show
-    through, and the failure is silent — it just looks wrong."""
+def test_every_row_state_the_grid_draws_has_a_colour_from_the_theme():
+    """Named explicitly, because the renderer draws these states and nothing else
+    colours them: a state the theme forgot shows in the browser's defaults."""
     css = THEME.read_text(encoding="utf-8")
 
-    assert ".tabulator-row.tabulator-row-even" in css, "the library's zebra"
-    assert "tabulator-selectable:hover" in css, "the library's #bbb hover"
-    assert "tabulator-calcs" in css, "the library's totals row"
-    assert "tabulator-placeholder" in css
+    assert ":where(.dg.striped .dg-body) .dg-row.dg-row-even" in css, "the zebra, when asked for"
+    assert ".dg-body .dg-row:hover" in css, "the hover"
+    assert ".dg-body .dg-row.dg-selected" in css, "a selected row"
+    assert ".dg-header .dg-calcs" in css, "the totals row"
+    assert ".dg-placeholder" in css
 
 
 def test_striping_is_off_unless_the_owner_asks_for_it():
@@ -1462,7 +1486,9 @@ def test_row_grouping_supports_ordered_multiple_levels_and_group_controls():
     for label in ("Remove ", "Un-Group All", "Expand All Row Groups",
                   "Collapse All Row Groups"):
         assert label in script
-    assert "getSubGroups" in script and "table.getGroups().forEach(visit)" in script
+    # Every level opens and closes, not only the outermost: driven for real in
+    # tests/test_grid_dom.py::test_expand_and_collapse_all_reach_every_group_level.
+    assert "table.setAllGroupsOpen(open)" in script
 
 
 def test_choose_columns_is_an_inline_searchable_reorderable_tool_panel():
@@ -1497,25 +1523,22 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
     assert 'menuLabel("material-fit-screen", "Auto-fit column width")' in script
     assert 'menuLabel("material-view-column", "Choose Columns")' in script
     assert 'menuLabel("material-restart-alt", "Reset Columns")' in script
-    assert "column.setWidth(true)" in script
-    # A TIMER, not rAF: requestAnimationFrame never fires while the tab is
-    # hidden or the window is throttled, so the measurement was parked
-    # indefinitely and Autosize did nothing at all — one of the owner's
-    # three "sometimes it does not work" causes. And the deferred pass now
-    # ends in build(), because only a width in the column DEFINITIONS
-    # (width + widthGrow 0) survives every later fitColumns pass.
+    # NO FRAME AND NO TIMER: a measurement parked on requestAnimationFrame never
+    # ran while the tab was hidden or throttled, one of the owner's three
+    # "sometimes it does not work" causes. The renderer measures what is drawn,
+    # header and rows, at once; and the pass ends in build(), because only a
+    # width in the column DEFINITIONS (width + widthGrow 0) survives every later
+    # layout pass.
     autosize_body = script.split("function autosizeColumns")[1].split("function autosize(")[0]
     assert "requestAnimationFrame(" not in autosize_body, \
-        "the deferred measure went back to a frame that hidden tabs never paint"
-    assert "setTimeout(() => {" in script
+        "the measure went back to a frame that hidden tabs never paint"
+    assert "measureContentWidth()" in autosize_body
+    assert "build();" in autosize_body
     assert "widths.has(col.key) ? 0" in script
-    assert "column.setWidth(measured)" in script
-    assert "function measureHeaderWidth(column)" in script
-    assert "label.scrollWidth" in script
-    assert 'titleHolder.querySelectorAll(' in script
-    assert "measureHeaderWidth(column)" in script
-    assert 'layout: "fitColumns"' in script
-    assert "persistence: pinned.size ? false" in script
+    renderer = (VENDOR.parent / "datagrid.js").read_text(encoding="utf-8")
+    measure = renderer.split("_measureColumn(id) {")[1].split("\n  }\n")[0]
+    assert "item.scrollWidth" in measure, "the header's label is measured at full length"
+    assert ".dg-col-content" in measure and ".dg-cell[data-field=" in measure
 
 
 def test_the_two_hierarchies_cannot_be_on_at_once():
@@ -1531,7 +1554,8 @@ def test_no_colour_the_library_chose_survives_into_the_table():
     means failure in this project, and the scrollbars were the one part of the
     dark table still drawn in light mode."""
     css = THEME.read_text(encoding="utf-8")
-    assert ".tabulator-row.tabulator-group span" in css, "the library's red count"
+    assert ".dg-group-cell .muted" in css and "color: var(--muted)" in css, (
+        "a group's count is secondary text, never a red the library chose")
     assert "scrollbar-color" in css and "::-webkit-scrollbar-thumb" in css
     import re
     literals = re.findall(r":\s*(#[0-9a-fA-F]{3,8})\b", css)
@@ -1545,7 +1569,8 @@ def test_a_table_too_wide_for_its_column_can_still_be_scrolled_to():
     css = THEME.read_text(encoding="utf-8")
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     assert "overflow-x: hidden" not in css, "columns past the edge are unreachable again"
-    assert "overflow-x: auto" in css
+    scroller = css.split(".dg-scroller {")[1].split("}")[0]
+    assert "overflow: auto" in scroller
     assert "scrollbar-gutter: stable" in css, "without this the phantom bar returns"
     # fitColumns shrinks without limit unless the columns have a floor, and then
     # nothing ever overflows — the scrollbar above would be dead code.
