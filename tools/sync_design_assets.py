@@ -154,16 +154,14 @@ MARK_CLOSE = "    /* MARK:END */"
 # somewhere else (issue 1110; the measurement is beside the guard, in
 # extension/tests/side-panel-startup.test.mjs).
 #
-# THE PANEL'S COPY PREFIXES EVERY ID, because the panel's own ids share its
-# document. The sprite has a `check` symbol and the Test site button's id is
-# `check`: `getElementById` and `<use href="#…">` both answer with the first
-# element carrying an id. Unprefixed, one of the two loses: ahead of the button
-# the symbol takes its click handler (the DOM harness did exactly that while it
-# injected the unprefixed sprite), behind it every `#check` icon points at the
-# button and draws nothing. `iconHref` in extension/app.js builds the same
-# prefix, and extension/tests/side-panel-startup.test.mjs holds the two equal.
+# THE PANEL'S COPY KEEPS THE SPRITE'S IDS, because every id already carries its
+# source's key (design/glyph-map.json's rule, #1056), and the panel's own ids share
+# its document. `getElementById` and `<use href="#…">` both answer with the first
+# element carrying an id: when the sprite's `check` met the Test site button's id
+# `check`, one of the two lost, so the panel's copy prefixed every id with `icon-`.
+# `material-check` is no word a panel element is named by, and
+# tests/test_panel_wiring.py fails on any id two elements carry.
 PANEL = ROOT / "extension" / "app.html"
-PANEL_ICON_PREFIX = "icon-"
 
 # THE PANEL CARRIES THE GLYPH MAP TOO (#1056), as a JSON data block beside its
 # sprite, and app.js reads it from there synchronously at startup. A JSON module
@@ -195,14 +193,10 @@ def _replace_between(page: Path, text: str, opener: str, closer: str, block: str
     return text[:start] + block + text[end + len(closer):]
 
 
-def _sprite_block(id_prefix: str = "") -> str:
+def _sprite_block() -> str:
     """The canonical sprite's symbols as one hidden inline <svg>, markers included."""
     sprite = (ROOT / "design" / "material-icons.svg").read_text(encoding="utf-8")
     body = sprite[sprite.index(">") + 1:sprite.rindex("</svg>")].strip("\n")
-    if id_prefix:
-        # Whitespace before `id`, so an attribute that merely ENDS in "id" (a
-        # `data-id`, say) is never taken for the symbol's own.
-        body = re.sub(r'(<symbol\b[^>]*?\sid=")', rf"\g<1>{id_prefix}", body)
     return (f'{SPRITE_OPEN}  <svg hidden aria-hidden="true">\n{body}\n  </svg>\n'
             f'{SPRITE_CLOSE}')
 
@@ -249,7 +243,7 @@ def _rail_glyphs(text: str) -> str:
         if key not in destinations:
             raise ValueError(f"{PANEL.name} draws the glyph of destination {key!r}, "
                              "which design/glyph-map.json does not name")
-        return (f'<use href="#{PANEL_ICON_PREFIX}{destinations[key]}" '
+        return (f'<use href="#{destinations[key]}" '
                 f'data-glyph-destination="{key}">')
 
     text, drawn = RAIL_GLYPH.subn(written, text)
@@ -266,7 +260,7 @@ def _panel_generated() -> str:
     destination glyphs matching the canon."""
     text = PANEL.read_text(encoding="utf-8")
     text = _replace_between(
-        PANEL, text, SPRITE_OPEN, SPRITE_CLOSE, _sprite_block(PANEL_ICON_PREFIX))
+        PANEL, text, SPRITE_OPEN, SPRITE_CLOSE, _sprite_block())
     text = _replace_between(PANEL, text, GLYPHS_OPEN, GLYPHS_CLOSE, _glyph_map_block())
     return _rail_glyphs(text)
 

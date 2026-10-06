@@ -548,32 +548,118 @@ def test_every_masked_mark_survives_forced_colours():
         f"Windows High Contrast: {missing}")
 
 
+#: EVERY WAY A PAGE NAMES A GLYPH, each read where it is written (#1056). A glyph id
+#: is its source's key and name (design/glyph-map.json), and a reference left at
+#: any other name draws an empty box while its control keeps working. A shape that
+#: stops matching anything fails, so moving glyphs into a shape this list does not
+#: read cannot leave them unchecked. The map's own tables are held by
+#: tests/test_each_destination_draws_one_declared_glyph.py, and a reference app.js
+#: sets by hand (`setAttribute("href", "#…")`) by extension/tests/side-panel-startup.test.mjs.
+GLYPH_REFERENCES = {
+    # <use href="#id">, href="icons/material-icons.svg#id", "/static/...svg?v=…#id"
+    "use": re.compile(r"""<use\b[^>]*?\shref=["']([^"'#]*#[^"']*)["']"""),
+    # icon("id"), iconHref("id"), the Jinja macro, ScrapeXUI's helpers and their
+    # aliases: every string literal in the FIRST argument, ternaries included.
+    "call": re.compile(r"\b(?:icon|iconHref|iconNode|materialIcon|materialIconElement"
+                       r"|statusIcon|menuLabel)\("),
+    # accountsAction("label", "id", …): the glyph is the second argument.
+    "accountsAction": re.compile(r'\baccountsAction\(\s*"[^"]*"\s*,\s*"([^"]*)"'),
+    # manageRow's {lead: "id"} and {symbol: "id"}; grid.js's {icon: "id"} groups.
+    "field": re.compile(r"""\b(?:icon|lead|symbol):\s*["']([^"']*)["']"""),
+    # app.js COMPONENTS: ["Label", "id", (engine) => …]
+    "component": re.compile(r"""^\s*\[\s*"[^"]*",\s*"([^"]*)",\s*\(""", re.M),
+    # app.js ENGINE_TONE_ICON = {ok: "id", …}
+    "tone": re.compile(r"const ENGINE_TONE_ICON = \{([^}]*)\}"),
+}
+
+
+def _first_argument_literals(text: str, start: int) -> list[str]:
+    """The string literals in the first argument of the call whose `(` ends at
+    `start`, read to the first top-level `,` or `)`, quotes and brackets honoured.
+    A literal compared with something (`side === "left" ? …`, Jinja's
+    `… if direction == "asc" else …`) is a condition, not a glyph."""
+    depth, quote, i = 0, "", start
+    while i < len(text):
+        char = text[i]
+        if quote:
+            if char == "\\":
+                i += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}" and depth:
+            depth -= 1
+        elif char in ",)" and not depth:
+            argument = text[start:i]
+            return [found.group(1) if found.group(1) is not None else found.group(2)
+                    for found in re.finditer(r""""([^"]*)"|'([^']*)'""", argument)
+                    if not argument[:found.start()].rstrip().endswith(("==", "!="))
+                    and not argument[found.end():].lstrip().startswith(("==", "!="))]
+        i += 1
+    raise AssertionError(f"a call at offset {start} never closes")
+
+
+def _glyph_references(text: str) -> dict[str, list[str]]:
+    """{shape: [glyph id, …]} for one file. A computed reference (`${…}`, `{{ … }}`)
+    names no glyph here and is skipped."""
+    found: dict[str, list[str]] = {}
+    found["use"] = [href.split("#", 1)[1] for href in GLYPH_REFERENCES["use"].findall(text)
+                    if "${" not in href and "{{" not in href]
+    found["call"] = [name for call in GLYPH_REFERENCES["call"].finditer(text)
+                     for name in _first_argument_literals(text, call.end())]
+    for shape in ("accountsAction", "field", "component"):
+        found[shape] = GLYPH_REFERENCES[shape].findall(text)
+    found["tone"] = [name for block in GLYPH_REFERENCES["tone"].findall(text)
+                     for name in re.findall(r':\s*"([^"]*)"', block)]
+    return found
+
+
+def _symbols(text: str) -> set[str]:
+    return set(re.findall(r'<symbol\b[^>]*?\sid="([^"]+)"', text))
+
+
 def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     """An icon is a component, not decoration: missing IDs leave an invisible
     control while the button remains clickable. Keep the two distributed
     copies byte-for-byte equal to the reviewed canonical sprite, then verify
-    each static reference to the file (the Side Panel names none, issue 1110)."""
+    every reference each surface writes, in every shape GLYPH_REFERENCES reads,
+    against the sprite that surface ships (the Side Panel's is inline, issue 1110)."""
     canonical = CANONICAL_ICON_SPRITE.read_bytes()
     assert (ROOT / "extension" / "icons" / "material-icons.svg").read_bytes() == canonical
     assert (
         ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.svg"
     ).read_bytes() == canonical
 
-    symbols = set(re.findall(
-        r'<symbol\b[^>]*\bid="([A-Za-z0-9_-]+)"',
-        canonical.decode("utf-8"),
-    ))
-    referenced: set[str] = set()
-    for folder in (ROOT / "extension", ROOT / "scrapex" / "webui"):
-        for path in folder.rglob("*"):
-            if path.suffix not in {".html", ".js"}:
+    surfaces = {
+        # The extension's pages draw its sprite file, and the Side Panel its inline
+        # copy; a name must be in both, since grid.js and ui.js serve either.
+        ROOT / "extension": _symbols(canonical.decode("utf-8"))
+        & _symbols((ROOT / "extension" / "app.html").read_text(encoding="utf-8")),
+        ROOT / "scrapex" / "webui": _symbols(
+            (MATERIAL_ICONS / "material-icons.svg").read_text(encoding="utf-8")),
+        # The catalogue, which carries the canonical sprite inline.
+        ROOT / "design" / "gallery.html": _symbols(
+            (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")),
+    }
+    shapes_seen: set[str] = set()
+    missing: list[str] = []
+    for folder, symbols in surfaces.items():
+        assert symbols, f"{folder.relative_to(ROOT)} ships no symbols"
+        paths = [folder] if folder.is_file() else sorted(folder.rglob("*"))
+        for path in paths:
+            if path.suffix not in {".html", ".js"} or "vendor" in path.parts:
                 continue
-            referenced.update(re.findall(
-                r"material-icons\.svg#([A-Za-z0-9_-]+)",
-                path.read_text(encoding="utf-8"),
-            ))
-    assert referenced
-    assert referenced <= symbols, f"missing material icon symbols: {sorted(referenced - symbols)}"
+            for shape, names in _glyph_references(path.read_text(encoding="utf-8")).items():
+                shapes_seen.update([shape] if names else [])
+                # "" is menuLabel's "no icon" (grid.js), never a glyph.
+                missing += [f"{path.relative_to(ROOT)} ({shape}): {name!r}"
+                            for name in names if name and name not in symbols]
+    assert shapes_seen == set(GLYPH_REFERENCES), (
+        f"these shapes matched nothing: {sorted(set(GLYPH_REFERENCES) - shapes_seen)}")
+    assert missing == [], "references to glyphs the surface's sprite lacks:\n" + "\n".join(missing)
 
 
 def test_original_logo_is_shared_and_chrome_has_every_required_raster_size():
@@ -693,7 +779,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # and a structured, descriptive menu without changing export behaviour.
     # design-system-46: a refresh the host asks for dims the grid until the
     # newest rows are drawn, and the AR|EN choice survives every rebuild.
-    assert '/static/grid.js?v=design-system-46' in page
+    # design-system-48 (grid.js only): every glyph it names carries its source's
+    # key (#1056), and a cached script would draw ids the sprite no longer has.
+    # Not 47: the TanStack branch (#1367) already serves grid.js under it.
+    assert '/static/grid.js?v=design-system-48' in page
     assert '/static/grid-theme.css?v=design-system-46' in page
     assert '/static/grid-theme.css?v=design-system-46' in (
         TEMPLATES / "datasets.html").read_text(encoding="utf-8")
@@ -713,13 +802,13 @@ def test_material_header_icons_are_local_and_dry():
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     ui = (VENDOR.parent / "ui.js").read_text(encoding="utf-8")
     expected_symbols = {
-        'id="filter-list"', 'id="more-vert"', 'id="arrow-upward"',
-        'id="arrow-downward"', 'id="check"', 'id="push-pin"',
-        'id="fit-screen"', 'id="unfold-more"', 'id="view-stream"',
-        'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
-        'id="unfold-less"', 'id="close"', 'id="search"',
-        'id="drag-indicator"', 'id="settings"',
-        'id="palette"', 'id="light-mode"', 'id="dark-mode"',
+        'id="material-filter-list"', 'id="material-more-vert"', 'id="material-arrow-upward"',
+        'id="material-arrow-downward"', 'id="material-check"', 'id="material-push-pin"',
+        'id="material-fit-screen"', 'id="material-unfold-more"', 'id="material-view-stream"',
+        'id="material-account-tree"', 'id="material-view-column"', 'id="material-restart-alt"',
+        'id="material-unfold-less"', 'id="material-close"', 'id="material-search"',
+        'id="material-drag-indicator"', 'id="material-settings"',
+        'id="material-palette"', 'id="material-light-mode"', 'id="material-dark-mode"',
     }
 
     assert all(token in sprite for token in expected_symbols)
@@ -1159,10 +1248,10 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
                   "Auto-fit all column widths", "Choose Columns", "Reset Columns"):
         assert label in script
     assert "menu: pinMenu(field)" in script
-    assert 'menuLabel("push-pin", "Pin Column")' in script
-    assert 'menuLabel("fit-screen", "Auto-fit column width")' in script
-    assert 'menuLabel("view-column", "Choose Columns")' in script
-    assert 'menuLabel("restart-alt", "Reset Columns")' in script
+    assert 'menuLabel("material-push-pin", "Pin Column")' in script
+    assert 'menuLabel("material-fit-screen", "Auto-fit column width")' in script
+    assert 'menuLabel("material-view-column", "Choose Columns")' in script
+    assert 'menuLabel("material-restart-alt", "Reset Columns")' in script
     assert "column.setWidth(true)" in script
     # A TIMER, not rAF: requestAnimationFrame never fires while the tab is
     # hidden or the window is throttled, so the measurement was parked
@@ -1282,7 +1371,7 @@ def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
     assert ": row.effective_price" in script
     assert '"Compare selected"' not in script and '"Side by side"' not in script
     assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
-    assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
+    assert 'materialIconElement("material-open-in-new", "selected-product-site-icon")' in script
     assert "shortDescription" in script and "deepestCategoryLevel" in script
     assert "displayProductName" in script
     assert "toggleInspector" in script and "openInspector" not in script

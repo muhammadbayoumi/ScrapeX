@@ -44,38 +44,38 @@
 
     <div class="overview-hero-actions">
       <a class="button icon-label" href="/jobs">
-        {{ icon("play-circle", "sm") }} Start or monitor a run
+        {{ icon("material-play-circle", "sm") }} Start or monitor a run
       </a>
       <a class="button ghost icon-label" href="/manage">
-        {{ icon("language", "sm") }} Manage sources
+        {{ icon("material-language", "sm") }} Manage sources
       </a>
     </div>
   </header>
 
   <section class="overview-snapshot" aria-label="Workspace totals">
     <a class="overview-snapshot-item" href="/data">
-      <span class="overview-snapshot-icon icon-tile">{{ icon("storage") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("material-storage") }}</span>
       <span>
         <strong>{{ "{:,}".format(totals.observations) }}</strong>
         <small>Data rows</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/data">
-      <span class="overview-snapshot-icon icon-tile">{{ icon("view-stream") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("material-view-stream") }}</span>
       <span>
         <strong>{{ "{:,}".format(totals.products) }}</strong>
         <small>Products collected</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/review">
-      <span class="overview-snapshot-icon icon-tile">{{ icon("check") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("material-check") }}</span>
       <span>
         <strong>{{ totals.reviews }}{% if totals.reviews_capped %}+{% endif %}</strong>
         <small>Awaiting review</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/schedules">
-      <span class="overview-snapshot-icon icon-tile">{{ icon("schedule") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("material-schedule") }}</span>
       <span>
         <strong>{{ totals.scheduled }}</strong>
         <small>Active automations</small>
@@ -98,7 +98,7 @@
            href="/manage" data-overview-stage="sources">
           <span class="overview-stage-top">
             <span class="overview-stage-number">1</span>
-            {{ icon("language") }}
+            {{ icon("material-language") }}
           </span>
           <strong>Sources</strong>
           <small>Register and maintain the sites you collect from.</small>
@@ -110,7 +110,7 @@
            href="/jobs" data-overview-stage="run">
           <span class="overview-stage-top">
             <span class="overview-stage-number">2</span>
-            {{ icon("play-circle") }}
+            {{ icon("material-play-circle") }}
           </span>
           <strong>Run</strong>
           <small>Collect current records and keep the warehouse fresh.</small>
@@ -128,7 +128,7 @@
            href="/data" data-overview-stage="data">
           <span class="overview-stage-top">
             <span class="overview-stage-number">3</span>
-            {{ icon("storage") }}
+            {{ icon("material-storage") }}
           </span>
           <strong>Data</strong>
           <small>Browse the products, variants, and observations collected.</small>
@@ -140,7 +140,7 @@
            href="/changes" data-overview-stage="changes">
           <span class="overview-stage-top">
             <span class="overview-stage-number">4</span>
-            {{ icon("trending-up") }}
+            {{ icon("material-trending-up") }}
           </span>
           <strong>Changes</strong>
           <small>Compare new values and review the evidence behind them.</small>
@@ -157,7 +157,7 @@
         <a class="overview-stage" href="/sync" data-overview-stage="deliver">
           <span class="overview-stage-top">
             <span class="overview-stage-number">5</span>
-            {{ icon("sync") }}
+            {{ icon("material-sync") }}
           </span>
           <strong>Deliver</strong>
           <small>Send approved data to Google Sheets or an Excel workbook.</small>
@@ -186,41 +186,41 @@
         <div class="overview-action-list">
           {% if totals.attention %}
             <a class="overview-action-row" href="/data">
-              <span class="overview-action-icon is-warning icon-tile">{{ icon("info") }}</span>
+              <span class="overview-action-icon is-warning icon-tile">{{ icon("material-info") }}</span>
               <span>
                 <strong>{{ totals.attention }} source{{ "" if totals.attention == 1 else "s" }}
                   need a successful run</strong>
                 <small>Inspect sources that have never run or whose latest run needs attention.</small>
               </span>
-              <span class="overview-action-link">Open data {{ icon("chevron-right", "sm") }}</span>
+              <span class="overview-action-link">Open data {{ icon("material-chevron-right", "sm") }}</span>
             </a>
           {% endif %}
           {% if totals.reviews %}
             <a class="overview-action-row" href="/review">
-              <span class="overview-action-icon icon-tile">{{ icon("check") }}</span>
+              <span class="overview-action-icon icon-tile">{{ icon("material-check") }}</span>
               <span>
                 <strong>{{ totals.reviews }}{% if totals.reviews_capped %}+{% endif %}
                   match{{ "" if totals.reviews == 1 else "es" }} awaiting review</strong>
                 <small>Approve or reject suggested matches before delivering unified data.</small>
               </span>
-              <span class="overview-action-link">Review now {{ icon("chevron-right", "sm") }}</span>
+              <span class="overview-action-link">Review now {{ icon("material-chevron-right", "sm") }}</span>
             </a>
           {% endif %}
           {% if latest_job_failed %}
             <a class="overview-action-row" href="/jobs">
-              <span class="overview-action-icon is-danger icon-tile">{{ icon("play-circle") }}</span>
+              <span class="overview-action-icon is-danger icon-tile">{{ icon("material-play-circle") }}</span>
               <span>
                 <strong>The latest collection did not finish cleanly</strong>
                 <small>{{ latest_job.source_keys|join(", ") }} ·
                   {{ latest_job.status.replace("_", " ") }}</small>
               </span>
-              <span class="overview-action-link">View job {{ icon("chevron-right", "sm") }}</span>
+              <span class="overview-action-link">View job {{ icon("material-chevron-right", "sm") }}</span>
             </a>
           {% endif %}
         </div>
       {% else %}
         <div class="overview-all-clear">
-          <span class="overview-all-clear-icon icon-tile">{{ icon("check") }}</span>
+          <span class="overview-all-clear-icon icon-tile">{{ icon("material-check") }}</span>
           <div>
             <strong>Everything is ready.</strong>
             <p>Your sources are healthy, there is no review backlog, and the latest job
@@ -237,7 +237,7 @@
           <span class="page-eyebrow">Live workspace</span>
           <h2 id="overview-activity-title">Recent activity</h2>
         </div>
-        <a class="icon-label" href="/history">Full history {{ icon("chevron-right", "sm") }}</a>
+        <a class="icon-label" href="/history">Full history {{ icon("material-chevron-right", "sm") }}</a>
       </header>
 
       {% if not recent_changes and not recent_jobs %}
@@ -246,7 +246,7 @@
         <div class="overview-activity-list">
           {% for job in recent_jobs[:3] %}
             <a class="overview-activity-row" href="/jobs">
-              <span class="overview-activity-icon icon-tile">{{ icon("play-circle") }}</span>
+              <span class="overview-activity-icon icon-tile">{{ icon("material-play-circle") }}</span>
               <span>
                 <strong>{{ job.source_keys|join(", ") }}</strong>
                 <small>{{ job.run_mode.replace("_", " ") }} ·
@@ -257,7 +257,7 @@
           {% endfor %}
           {% for change in recent_changes[:3] %}
             <a class="overview-activity-row" href="/changes">
-              <span class="overview-activity-icon icon-tile">{{ icon("trending-up") }}</span>
+              <span class="overview-activity-icon icon-tile">{{ icon("material-trending-up") }}</span>
               <span>
                 <strong dir="auto">{{ change.product_name or change.product_name_ar or "Unnamed record" }}</strong>
                 <small>{{ change.change_type.replace("_", " ") }}
@@ -277,7 +277,7 @@
         <span class="page-eyebrow">Source health</span>
         <h2 id="overview-coverage-title">Coverage</h2>
       </div>
-      <a class="icon-label" href="/data">Browse all data {{ icon("chevron-right", "sm") }}</a>
+      <a class="icon-label" href="/data">Browse all data {{ icon("material-chevron-right", "sm") }}</a>
     </header>
 
     {% if not sources and not pending %}
@@ -294,7 +294,7 @@
               <small class="overview-source-state">
                 {{ "Healthy" if source.last_status == "success" else "Needs attention" }}
               </small>
-              {{ icon("chevron-right", "sm") }}
+              {{ icon("material-chevron-right", "sm") }}
             </span>
           </a>
         {% endfor %}
@@ -305,7 +305,7 @@
             {{ source_identity(source, metric_value="0") }}
             <span class="overview-source-detail">
               <small class="overview-source-state">Never run</small>
-              {{ icon("chevron-right", "sm") }}
+              {{ icon("material-chevron-right", "sm") }}
             </span>
           </a>
         {% endfor %}
@@ -313,7 +313,7 @@
       {% if remaining_datasets %}
         <a class="overview-source-more" href="/data">
           View {{ remaining_datasets }} more dataset{{ "" if remaining_datasets == 1 else "s" }}
-          {{ icon("chevron-right", "sm") }}
+          {{ icon("material-chevron-right", "sm") }}
         </a>
       {% endif %}
     {% endif %}

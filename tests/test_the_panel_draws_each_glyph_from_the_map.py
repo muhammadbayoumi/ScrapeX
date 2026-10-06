@@ -7,6 +7,9 @@ nothing and throws nothing: a renamed glyph on either side was a blank row on
 the other. The engine still sends that field, frozen, for panels released before
 the map (scrapex/ui_manifest.py). This panel must not read it.
 
+A key the map does not name draws NO glyph (the owner's ruling on #1435): no <use>
+at all, so nothing points at an id the sprite lacks, and the row keeps its label.
+
 The static half of the guard is tests/test_each_destination_draws_one_declared_glyph.py.
 """
 from __future__ import annotations
@@ -90,12 +93,39 @@ def open_panel(browser, tmp_path):
             page.close()
 
 
-def _menu_glyphs(page) -> dict[str, dict]:
-    """{destination key: its leading glyph} for every row of the Workspace menu."""
-    rows = page.eval_on_selector_all(
-        "#workspace-links [data-workspace-key]",
-        f"rows => rows.map((row) => [row.dataset.workspaceKey, ({DRAWN})(row)[0]])")
-    return dict(rows)
+#: The glyph ahead of a row's copy: what the map draws for the row, or nothing.
+LEADING = f"""(row) => {{
+  const before = row.querySelector('{{copy}}').previousElementSibling;
+  return before ? ({DRAWN})(before) : [];
+}}"""
+
+
+def _rows(page, rows: str, key: str, copy: str) -> dict[str, dict]:
+    """{key: {leading: the <use>s ahead of the row's copy, label, every <use>}}."""
+    found = page.eval_on_selector_all(rows, f"""rows => rows.map((row) => [
+        row.dataset.{key},
+        {{leading: ({LEADING.replace('{copy}', copy)})(row),
+          label: row.querySelector('{copy}').textContent,
+          every: ({DRAWN})(row)}}])""")
+    return dict(found)
+
+
+def _menu_glyphs(page) -> dict[str, dict | None]:
+    """{destination key: its leading glyph, or None} for every Workspace menu row.
+    Every row keeps its label, and no <use> anywhere in a row draws nothing."""
+    rows = _rows(page, "#workspace-links [data-workspace-key]", "workspaceKey",
+                 ".workspace-destination-copy")
+    _every_row_keeps_its_label_and_draws_every_use(rows)
+    return {key: (row["leading"][0] if row["leading"] else None) for key, row in rows.items()}
+
+
+def _every_row_keeps_its_label_and_draws_every_use(rows: dict) -> None:
+    assert sorted(key for key, row in rows.items() if not row["label"].strip()) == [], (
+        "these rows lost their label")
+    assert sorted(key for key, row in rows.items() if len(row["leading"]) > 1) == []
+    assert sorted(key for key, row in rows.items()
+                  if not all(use["draws"] for use in row["every"])) == [], (
+        "these rows carry a <use> at an id the sprite lacks")
 
 
 def _an_engine_whose_icons_are_all_wrong() -> dict:
@@ -114,17 +144,22 @@ def _an_engine_whose_icons_are_all_wrong() -> dict:
     return manifest
 
 
+def _hrefs(drawn: dict) -> dict:
+    return {key: (use["href"] if use else None) for key, use in drawn.items()}
+
+
 def test_each_destination_draws_the_maps_glyph_whatever_the_engine_sends(open_panel):
+    """And a key the map has never heard of draws no glyph at all: the map's
+    fallback is empty, so the row is its label and nothing points anywhere."""
     page = open_panel(ui=_an_engine_whose_icons_are_all_wrong())
     drawn = _menu_glyphs(page)
     assert "added-by-a-newer-engine" in drawn, "the panel did not adopt the engine's navigation"
-    expected = {key: f"#icon-{glyph}" for key, glyph in GLYPHS["destinations"].items()
+    expected = {key: f"#{glyph}" for key, glyph in GLYPHS["destinations"].items()
                 if key not in PANEL_DESTINATIONS}
-    expected["added-by-a-newer-engine"] = f"#icon-{GLYPHS['fallback']}"
-    expected["constructor"] = f"#icon-{GLYPHS['fallback']}"
-    assert {key: use["href"] for key, use in drawn.items()} == expected
-    assert [key for key, use in drawn.items() if not use["draws"]] == [], (
-        "these rows draw an empty <use>")
+    expected["added-by-a-newer-engine"] = None
+    expected["constructor"] = None
+    assert _hrefs(drawn) == expected
+    assert all(use["draws"] for use in drawn.values() if use)
     assert page.js_errors == []
 
 
@@ -133,20 +168,45 @@ def test_the_offline_menu_draws_the_maps_glyphs(open_panel):
     and it names no glyph of its own."""
     page = open_panel()
     drawn = _menu_glyphs(page)
-    assert {key: use["href"] for key, use in drawn.items()} == {
-        key: f"#icon-{glyph}" for key, glyph in GLYPHS["destinations"].items()
+    assert _hrefs(drawn) == {
+        key: f"#{glyph}" for key, glyph in GLYPHS["destinations"].items()
         if key not in PANEL_DESTINATIONS}
-    assert all(use["draws"] for use in drawn.values())
+    assert all(use and use["draws"] for use in drawn.values())
+
+
+def test_the_offline_menu_draws_no_glyph_for_a_key_the_map_lost(open_panel):
+    """The panel's own list against a map that does not name one of its keys:
+    that row draws no glyph and keeps its label; every other row is unchanged."""
+    lost = json.loads(json.dumps(GLYPHS))
+    del lost["destinations"]["logs"]
+    drawn = _menu_glyphs(open_panel(glyphs=lost))
+    assert drawn["logs"] is None
+    assert _hrefs(drawn) == {
+        key: (None if key == "logs" else f"#{glyph}")
+        for key, glyph in GLYPHS["destinations"].items() if key not in PANEL_DESTINATIONS}
+
+
+def _candidates(page) -> dict[str, list[str]]:
+    """{candidate id: the hrefs in its icon tile}, the tile being what sits ahead
+    of the row's copy. Every row keeps its name and draws every <use>."""
+    rows = _rows(page, "#engine-candidates [data-engine-id]", "engineId", ".engine-row-copy")
+    _every_row_keeps_its_label_and_draws_every_use(rows)
+    assert page.js_errors == []
+    return {key: [use["href"] for use in row["leading"]] for key, row in rows.items()}
 
 
 def test_each_candidate_engine_draws_the_maps_glyph(open_panel):
-    page = open_panel(view="engines")
-    rows = dict(page.eval_on_selector_all(
-        "#engine-candidates [data-engine-id]",
-        f"rows => rows.map((row) => [row.dataset.engineId, ({DRAWN})(row)[0]])"))
-    assert {key: use["href"] for key, use in rows.items()} == {
-        key: f"#icon-{glyph}" for key, glyph in GLYPHS["engines"].items()}
-    assert all(use["draws"] for use in rows.values())
+    assert _candidates(open_panel(view="engines")) == {
+        key: [f"#{glyph}"] for key, glyph in GLYPHS["engines"].items()}
+
+
+def test_a_candidate_the_map_does_not_name_draws_no_glyph(open_panel):
+    """Its tile stays, empty, and the row keeps its name."""
+    lost = json.loads(json.dumps(GLYPHS))
+    del lost["engines"]["katana"]
+    assert _candidates(open_panel(view="engines", glyphs=lost)) == {
+        key: ([] if key == "katana" else [f"#{glyph}"])
+        for key, glyph in GLYPHS["engines"].items()}
 
 
 def test_the_rail_tab_of_each_panel_destination_draws_the_maps_glyph(open_panel):
@@ -154,13 +214,13 @@ def test_the_rail_tab_of_each_panel_destination_draws_the_maps_glyph(open_panel)
     their rail tab draws the map's glyph for the destination, and it draws."""
     page = open_panel()
     drawn = {key: page.eval_on_selector(f"#tab-{key}", DRAWN) for key in PANEL_DESTINATIONS}
-    assert drawn == {key: [{"href": f"#icon-{GLYPHS['destinations'][key]}", "draws": True}]
+    assert drawn == {key: [{"href": f"#{GLYPHS['destinations'][key]}", "draws": True}]
                      for key in PANEL_DESTINATIONS}
 
 
 #: Markup a glyph would become if it reached innerHTML unescaped: it closes the
 #: <use> and the <svg> around it and opens an element of its own.
-INJECTED = '"></use></svg><b id="glyph-injected"></b><svg><use href="#icon-'
+INJECTED = '"></use></svg><b id="glyph-injected"></b><svg><use href="#'
 
 
 def test_a_glyph_is_text_and_never_becomes_markup(open_panel):
@@ -168,12 +228,13 @@ def test_a_glyph_is_text_and_never_becomes_markup(open_panel):
     each glyph where it meets markup, like every value it interpolates (app.js
     esc()). A glyph carrying markup stays one attribute value, on both lists."""
     hostile = json.loads(json.dumps(GLYPHS))
-    hostile["destinations"]["overview"] = "dashboard" + INJECTED
-    hostile["engines"]["scrapy"] = "dns" + INJECTED
+    hostile["destinations"]["overview"] = "material-dashboard" + INJECTED
+    hostile["engines"]["scrapy"] = "material-dns" + INJECTED
     page = open_panel(view="engines", glyphs=hostile)
     assert page.evaluate("document.getElementById('glyph-injected') === null"), (
         "a glyph from the map became an element of the panel")
-    assert _menu_glyphs(page)["overview"]["href"] == "#icon-dashboard" + INJECTED
+    menu = page.eval_on_selector('#workspace-links [data-workspace-key="overview"]', DRAWN)
+    assert menu[0]["href"] == "#material-dashboard" + INJECTED
     engine = page.eval_on_selector('#engine-candidates [data-engine-id="scrapy"]', DRAWN)
-    assert engine[0]["href"] == "#icon-dns" + INJECTED
+    assert engine[0]["href"] == "#material-dns" + INJECTED
     assert page.js_errors == []

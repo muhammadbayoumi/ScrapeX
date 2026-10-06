@@ -66,7 +66,8 @@ class RunModeOption:
 # THE ONE GLYPH MAP (design/glyph-map.json, #1056): which glyph each destination
 # draws. This is the copy tools/sync_design_assets.py puts beside the engine's
 # sprite; the panel carries its own in extension/app.html. A destination the map
-# does not name draws the map's declared fallback, never an empty <use>.
+# does not name draws the map's declared fallback, which is null: no glyph at all,
+# so base.html writes no <use> for it and the link keeps its label.
 GLYPH_MAP_PATH = Path(__file__).parent / "webui" / "static" / "material-icons" / "glyph-map.json"
 
 
@@ -80,8 +81,10 @@ GLYPH_MAP_PATH = Path(__file__).parent / "webui" / "static" / "material-icons" /
 # A read and parse measured 15 to 18 microseconds a render.
 def glyph_map() -> dict:
     glyphs = json.loads(GLYPH_MAP_PATH.read_text(encoding="utf-8"))
-    if not (isinstance(glyphs.get("destinations"), dict)
-            and isinstance(glyphs.get("fallback"), str)):
+    # The fallback is DECLARED, null included: a map with no fallback key is not
+    # a map that chose no glyph, it is a map that lost a line.
+    if not (isinstance(glyphs.get("destinations"), dict) and "fallback" in glyphs
+            and (glyphs["fallback"] is None or isinstance(glyphs["fallback"], str))):
         raise ValueError(f"{GLYPH_MAP_PATH} has no destinations table or no fallback "
                          "glyph; run tools/sync_design_assets.py")
     return glyphs
@@ -149,14 +152,15 @@ RUN_MODE_OPTIONS = (
 
 
 def workspace_navigation_groups(source_key: str | None = None
-                                ) -> list[tuple[str, list[tuple[str, str, str, str]]]]:
+                                ) -> list[tuple[str, list[tuple[str, str, str, str | None]]]]:
     """The sidebar's grouped (href, label, key, glyph) rows, in design order.
 
     Shaped exactly like the tuple list base.html used to inline, so the
     template's loop body did not have to change to adopt the contract. The glyph
-    is the map's, never the legacy `icon` field (#1056)."""
+    is the map's, never the legacy `icon` field (#1056), and None for a key the
+    map does not name: base.html then draws no glyph."""
     glyphs = glyph_map()
-    groups: list[tuple[str, list[tuple[str, str, str, str]]]] = []
+    groups: list[tuple[str, list[tuple[str, str, str, str | None]]]] = []
     for destination in WORKSPACE_DESTINATIONS:
         if not groups or groups[-1][0] != destination.group:
             groups.append((destination.group, []))

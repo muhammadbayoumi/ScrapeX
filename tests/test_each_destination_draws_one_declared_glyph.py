@@ -15,6 +15,11 @@ ruling of 2026-10-05 (issue 1056) adds the second half: every glyph id is its
 source's own published name by one stated rule, and the map records each glyph's
 source, so adding or changing a source has a known rule.
 
+HIS TWO RULINGS ON THE PR (#1435, 2026-10-05). Every source's ids carry the source's
+key as a prefix (material-storage, material-symbols-folder-code, tabler-x-mark), so
+two sources can never publish one id. And the fallback is EMPTY: a key the map does
+not name draws no glyph at all, a declared absence, never a <use> at a missing id.
+
 The browser half of the guard is tests/test_the_panel_draws_each_glyph_from_the_map.py.
 """
 from __future__ import annotations
@@ -39,7 +44,16 @@ SPRITE = DESIGN / "material-icons.svg"
 ENGINE_SPRITE = ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.svg"
 ENGINE_MAP = ROOT / "scrapex" / "webui" / "static" / "material-icons" / "glyph-map.json"
 PANEL = ROOT / "extension" / "app.html"
-PANEL_ICON_PREFIX = "icon-"   # tools/sync_design_assets.py's PANEL_ICON_PREFIX
+#: Every sprite a surface ships, and the two pages that carry it inline. The panel
+#: draws the map's ids as they are: the source key is the namespace its own
+#: element ids cannot meet (tests/test_panel_wiring.py holds the ids apart).
+SPRITES = {
+    "design/material-icons.svg": SPRITE,
+    "extension/icons/material-icons.svg": ROOT / "extension" / "icons" / "material-icons.svg",
+    "scrapex/webui/static/material-icons/material-icons.svg": ENGINE_SPRITE,
+    "extension/app.html": PANEL,
+    "design/gallery.html": DESIGN / "gallery.html",
+}
 #: Each source's published name list, frozen at the commit the map records.
 NAMES = ROOT / "tests" / "fixtures" / "glyph-source-names"
 
@@ -61,9 +75,16 @@ def _the_map() -> dict:
     return _read_map(MAP.read_text(encoding="utf-8"))
 
 
-def _rule(published: str) -> str:
-    """The one naming rule the map's `rule` states: lowercased, `_` written as `-`."""
-    return published.lower().replace("_", "-")
+def _rule(key: str, published: str) -> str:
+    """The one naming rule the map's `rule` states: the source's key, a `-`, and
+    the published name lowercased with `_` written as `-`."""
+    return f"{key}-{published.lower().replace('_', '-')}"
+
+
+def _recorded_in_the_sprite(sources: dict) -> dict[str, str]:
+    """{glyph id: the key of the source that records it}, for the sprite's glyphs."""
+    return {_rule(key, name): key for key, source in sources.items()
+            if source["file"] == SPRITE.name for name in source["glyphs"]}
 
 
 def _symbol_ids(text: str) -> list[str]:
@@ -114,7 +135,8 @@ def _fallback_navigation_block() -> str:
 def test_the_map_states_its_rule_and_every_table_it_is_read_for():
     glyphs = _the_map()
     assert set(glyphs) == {"about", "rule", "sources", "fallback", "destinations", "engines"}
-    assert "lowercased" in glyphs["rule"] and "_ written as -" in glyphs["rule"], (
+    assert ("source's key" in glyphs["rule"] and "lowercased" in glyphs["rule"]
+            and "_ written as -" in glyphs["rule"]), (
         "the map's header no longer states the naming rule its ids follow")
     for key, source in glyphs["sources"].items():
         assert {"title", "licence", "repository", "commit", "published_names", "file",
@@ -125,13 +147,24 @@ def test_the_map_states_its_rule_and_every_table_it_is_read_for():
             f"source {key!r}'s name list is not read at the commit it records")
 
 
+def test_the_declared_fallback_is_the_empty_one():
+    """His ruling: a key the map does not name draws NO glyph. The map says so as
+    data, so both readers act on a declaration rather than on a missing key."""
+    glyphs = _the_map()
+    assert "fallback" in glyphs, "design/glyph-map.json no longer declares its fallback"
+    assert glyphs["fallback"] is None, (
+        f"the fallback is {glyphs['fallback']!r}; the owner ruled it empty (null): a "
+        "key the map does not name draws no glyph, never a stand-in")
+
+
 def test_every_glyph_id_is_its_sources_published_name_by_the_one_rule():
-    """The owner's ruling: an id is its source's own name, so a new or changed
-    source has a known rule. The map records the name as the source publishes it
-    and the id is DERIVED, never typed, so the rule cannot be bent per glyph. Each
-    recorded name is looked up in the list its source publishes at the recorded
-    commit (tests/fixtures/glyph-source-names/), so a glyph credited to a source
-    that does not publish it fails here, whatever its spelling."""
+    """The owner's ruling: an id is its source's key and its source's own name, so
+    a new or changed source has a known rule and no two sources share an id. The
+    map records the name as the source publishes it and the id is DERIVED, never
+    typed, so the rule cannot be bent per glyph. Each recorded name is looked up in
+    the list its source publishes at the recorded commit
+    (tests/fixtures/glyph-source-names/), so a glyph credited to a source that
+    does not publish it fails here, whatever its spelling."""
     sources = _the_map()["sources"]
     owner: dict[str, str] = {}
     for key, source in sources.items():
@@ -143,32 +176,40 @@ def test_every_glyph_id_is_its_sources_published_name_by_the_one_rule():
             # publishes a capital, a space or anything the rule would mangle.
             assert re.fullmatch(r"[a-z0-9]+([_-][a-z0-9]+)*", published), (
                 f"{key} glyph {published!r} is not a name the rule can carry")
-            glyph_id = _rule(published)
+            glyph_id = _rule(key, published)
+            # Unique ACROSS sources: one key can run into another with a name
+            # (`material` + `symbols_x` is `material-symbols` + `x`).
             assert glyph_id not in owner, (
-                f"{glyph_id!r} is claimed by {owner[glyph_id]} and {key}: two glyphs "
-                "share an id. The map's rule proposes prefixing the later source's key.")
+                f"{glyph_id!r} is derived for both {owner[glyph_id]} and {key}: two "
+                "glyphs share an id, so one key and name run into another's")
             owner[glyph_id] = key
     assert len(owner) == sum(len(s["glyphs"]) for s in sources.values())
 
 
-def test_the_sprite_carries_exactly_the_glyphs_the_map_records():
-    """Every symbol has a recorded source, and every recorded glyph is drawn."""
-    sources = _the_map()["sources"]
-    in_sprite = [_rule(name) for source in sources.values()
-                 if source["file"] == SPRITE.name for name in source["glyphs"]]
-    symbols = _symbol_ids(SPRITE.read_text(encoding="utf-8"))
+@pytest.mark.parametrize("shipped", sorted(SPRITES))
+def test_every_shipped_sprite_carries_exactly_the_glyphs_the_map_records(shipped):
+    """Every symbol has a recorded source and starts with that source's key, and
+    every recorded glyph is drawn, in each sprite a surface ships."""
+    recorded = _recorded_in_the_sprite(_the_map()["sources"])
+    symbols = _symbol_ids((ROOT / shipped).read_text(encoding="utf-8"))
     assert len(symbols) == len(set(symbols)), (
-        f"{SPRITE.name} carries an id twice; <use> draws the first and hides the other")
-    assert sorted(symbols) == sorted(in_sprite), (
-        "the sprite and the map disagree; symbols with no recorded source: "
-        f"{sorted(set(symbols) - set(in_sprite))}, recorded but not drawn: "
-        f"{sorted(set(in_sprite) - set(symbols))}")
-    # A source that is not in the sprite is a file of its own, named by its id.
-    for key, source in sources.items():
+        f"{shipped} carries an id twice; <use> draws the first and hides the other")
+    unprefixed = sorted(s for s in symbols if not s.startswith(f"{recorded.get(s)}-"))
+    assert unprefixed == [], (
+        f"{shipped}: these ids do not start with the key of a source that records them")
+    assert sorted(symbols) == sorted(recorded), (
+        f"{shipped} and the map disagree; recorded but not drawn: "
+        f"{sorted(set(recorded) - set(symbols))}")
+
+
+def test_a_source_outside_the_sprite_keeps_its_own_file_name():
+    """His ruling renames sprite ids only: Tabler's mark files and the favicon keep
+    the name their source publishes them under (design/x-mark.svg)."""
+    for key, source in _the_map()["sources"].items():
         if source["file"] == SPRITE.name:
             continue
-        assert [f"{_rule(name)}.svg" for name in source["glyphs"]] == [source["file"]], (
-            f"source {key!r}'s file is not named by its glyph's id")
+        assert [f"{name}.svg" for name in source["glyphs"]] == [source["file"]], (
+            f"source {key!r}'s file is not the file its source publishes")
         assert (DESIGN / source["file"]).is_file(), f"design/{source['file']} is missing"
 
 
@@ -181,6 +222,10 @@ def test_every_destination_and_every_candidate_engine_has_an_entry():
     Engine page's in releases.js, and reordering either needs no edit here. The
     map's own keys cannot repeat (_refuse_duplicate_keys); the lists' can."""
     glyphs = _the_map()
+    # An entry is a glyph: null is the fallback's absence, never a known key's.
+    named = {**glyphs["destinations"], **glyphs["engines"]}
+    assert sorted(k for k, v in named.items() if not (isinstance(v, str) and v)) == [], (
+        "these keys are in the map with no glyph")
     destinations = [d.key for d in WORKSPACE_DESTINATIONS]
     assert len(destinations) == len(set(destinations)), (
         "scrapex/ui_manifest.py lists a destination twice")
@@ -202,10 +247,10 @@ def test_every_destination_and_every_candidate_engine_has_an_entry():
 def test_every_mapped_glyph_is_in_the_sprite_each_surface_ships():
     """A mapped id the sprite lacks would draw nothing on that surface."""
     glyphs = _the_map()
-    mapped = {glyphs["fallback"], *glyphs["destinations"].values(), *glyphs["engines"].values()}
+    mapped = {*glyphs["destinations"].values(), *glyphs["engines"].values()}
     panel = set(_symbol_ids(PANEL.read_text(encoding="utf-8")))
     engine = set(_symbol_ids(ENGINE_SPRITE.read_text(encoding="utf-8")))
-    assert sorted(g for g in mapped if PANEL_ICON_PREFIX + g not in panel) == [], (
+    assert sorted(g for g in mapped if g not in panel) == [], (
         "extension/app.html's sprite lacks these mapped glyphs")
     assert sorted(g for g in mapped if g not in engine) == [], (
         "the engine's sprite lacks these mapped glyphs")
@@ -256,7 +301,7 @@ def test_the_rail_tab_of_each_panel_destination_draws_the_maps_glyph():
                         panel, re.S)
         assert tab, f"extension/app.html has no rail tab for the panel's own page {key!r}"
         assert re.findall(r"<use\b[^>]*>", tab.group(1)) == [
-            f'<use href="#{PANEL_ICON_PREFIX}{glyphs[key]}" data-glyph-destination="{key}">'
+            f'<use href="#{glyphs[key]}" data-glyph-destination="{key}">'
         ], f"the rail tab for {key!r} does not draw the map's glyph from the map"
     assert sorted(re.findall(r'data-glyph-destination="([^"]*)"', panel)) == sorted(keys), (
         "data-glyph-destination is carried by something other than the rail tabs of "
@@ -286,9 +331,8 @@ def _sync_tool(monkeypatch, tmp_path, *, glyph_map: str | None = None,
 def test_the_sync_refuses_a_map_that_would_end_the_panels_block_early(monkeypatch, tmp_path):
     """The block carries the map's text verbatim, so `</` in it would close the
     <script> data element inside app.html and the panel would parse half a map."""
-    # The map's own fallback, whichever glyph he picks for it, not a copy of it here.
-    fallback = f'"fallback": "{_the_map()["fallback"]}'
-    text = MAP.read_text(encoding="utf-8").replace(fallback, f"{fallback}</script>")
+    # Inside the map's `about` text, which every map has, whatever its glyphs.
+    text = MAP.read_text(encoding="utf-8").replace('"about": "', '"about": "</script>', 1)
     assert "</script>" in text
     sync_tool = _sync_tool(monkeypatch, tmp_path, glyph_map=text)
     with pytest.raises(ValueError, match="contains '</'"):
@@ -317,10 +361,10 @@ def test_the_sync_moves_the_rail_when_the_map_renames_a_destinations_glyph(
         monkeypatch, tmp_path):
     """The rail tab is written from the map, not held equal to it by hand."""
     glyphs = _the_map()
-    glyphs["destinations"]["data"] = "view-stream"
+    glyphs["destinations"]["data"] = "material-view-stream"
     sync_tool = _sync_tool(monkeypatch, tmp_path, glyph_map=json.dumps(glyphs))
     written = sync_tool._rail_glyphs(PANEL.read_text(encoding="utf-8"))
-    assert f'<use href="#{PANEL_ICON_PREFIX}view-stream" data-glyph-destination="data">' in written
+    assert '<use href="#material-view-stream" data-glyph-destination="data">' in written
 
 
 # ---- the engine's templates --------------------------------------------------
@@ -331,16 +375,26 @@ def _environments():
     return [pytest.param(workspace, id="webui"), pytest.param(extraction, id="extract")]
 
 
-def _sidebar(templates) -> dict[str, str]:
-    """{label: the sprite id its sidebar link draws}, from base.html as rendered."""
+def _sidebar(templates) -> dict[str, str | None]:
+    """{label: the sprite id its sidebar link draws, or None for no glyph at all},
+    from base.html as rendered. Every link keeps its label, and every <use> in the
+    sidebar lands on a symbol the engine's sprite carries."""
     html = templates.get_template("base.html").render(source_key=None, tab="overview")
     nav = re.search(r'<nav class="wstabs".*?</nav>', html, re.S)
     assert nav, "base.html no longer renders the sidebar as nav.wstabs"
-    links = re.findall(
-        r'<a href="[^"]*" title="([^"]+)"[^>]*>\s*<svg[^>]*>\s*<use href="[^"#]*#([^"]*)"',
-        nav.group(0))
-    assert links, "base.html's sidebar draws no glyph at all"
-    return dict(links)
+    links = re.findall(r'<a href="[^"]*" title="([^"]+)"[^>]*>(.*?)</a>', nav.group(0), re.S)
+    assert links, "base.html's sidebar draws no link at all"
+    symbols = set(_symbol_ids(ENGINE_SPRITE.read_text(encoding="utf-8")))
+    drawn: dict[str, str | None] = {}
+    for label, inner in links:
+        assert f"<span>{label}</span>" in inner, f"the sidebar link {label!r} lost its label"
+        uses = re.findall(r'<use\b[^>]*\shref="[^"#]*#([^"]*)"', inner)
+        assert len(uses) <= 1 and inner.count("<use") == len(uses), (
+            f"the sidebar link {label!r} draws {inner.count('<use')} <use>")
+        drawn[label] = uses[0] if uses else None
+    assert sorted(g for g in drawn.values() if g is not None and g not in symbols) == [], (
+        "the sidebar draws these ids, which the engine's sprite does not carry")
+    return drawn
 
 
 def _engine_reads(monkeypatch, tmp_path, glyphs: dict) -> Path:
@@ -357,7 +411,8 @@ def test_the_sidebar_draws_the_maps_glyph_and_not_the_legacy_field(templates, mo
     """Point every destination at a glyph its legacy field does not name, and the
     sidebar must follow the map. While the two agree, a sidebar reading the field
     would pass any check that compared it with the map."""
-    moved = {d.key: ("check" if d.icon != "check" else "add") for d in WORKSPACE_DESTINATIONS}
+    moved = {d.key: ("material-check" if d.icon != "material-check" else "material-add")
+             for d in WORKSPACE_DESTINATIONS}
     _engine_reads(monkeypatch, tmp_path, {**_the_map(), "destinations": moved})
     drawn = _sidebar(templates)
     assert drawn == {d.label: moved[d.key] for d in WORKSPACE_DESTINATIONS}
@@ -372,9 +427,9 @@ def test_a_running_engine_draws_the_map_on_disk_now(templates, monkeypatch, tmp_
     glyphs = _the_map()
     copy = _engine_reads(monkeypatch, tmp_path, glyphs)
     assert _sidebar(templates)["Data"] == glyphs["destinations"]["data"]
-    glyphs["destinations"]["data"] = "view-stream"
+    glyphs["destinations"]["data"] = "material-view-stream"
     copy.write_text(json.dumps(glyphs), encoding="utf-8")
-    assert _sidebar(templates)["Data"] == "view-stream"
+    assert _sidebar(templates)["Data"] == "material-view-stream"
 
 
 @pytest.mark.parametrize("missing", ["destinations", "fallback"])
@@ -391,9 +446,11 @@ def test_the_engine_refuses_a_map_with_no_table_or_no_fallback(missing, monkeypa
 
 
 @pytest.mark.parametrize("templates", _environments())
-def test_a_destination_the_map_does_not_know_draws_the_declared_fallback(templates, monkeypatch):
-    """A newer engine can add a destination before the map names it. It draws the
-    map's declared fallback, never its legacy field and never an empty <use>."""
+def test_a_destination_the_map_does_not_know_draws_no_glyph_and_keeps_its_label(
+        templates, monkeypatch):
+    """A newer engine can add a destination before the map names it. His ruling:
+    it draws NO glyph, written as no <use> at all, and keeps its label. Never its
+    legacy field, never a stand-in, and never a <use> at an id no sprite has."""
     # `constructor` too: a key every object answers to, which the map must not.
     added = tuple(WorkspaceDestination(key, f"Added later: {key}", f"/{key}",
                                        "Not in the map yet.", "System", "storage")
@@ -401,6 +458,7 @@ def test_a_destination_the_map_does_not_know_draws_the_declared_fallback(templat
     monkeypatch.setattr(ui_manifest, "WORKSPACE_DESTINATIONS",
                         (*WORKSPACE_DESTINATIONS, *added))
     drawn = _sidebar(templates)
-    fallback = _the_map()["fallback"]
-    assert {d.label: drawn[d.label] for d in added} == {d.label: fallback for d in added}
-    assert fallback in _symbol_ids(ENGINE_SPRITE.read_text(encoding="utf-8"))
+    assert {d.label: drawn[d.label] for d in added} == {d.label: None for d in added}
+    known = {d.label: drawn[d.label] for d in WORKSPACE_DESTINATIONS}
+    assert sorted(label for label, glyph in known.items() if glyph is None) == [], (
+        "a destination the map names lost its glyph")

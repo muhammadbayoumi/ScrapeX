@@ -529,7 +529,7 @@ test("app.js draws its icons from the same symbols, never from the file", () => 
   assert.deepEqual([...new Set(literal)].filter((name) => !symbols.has(prefix + name)), [],
     "app.js draws icons the panel's sprite does not have");
   // And no reference is written by hand, where the check above cannot read its
-  // name: a bare `#check` finds the Test site button, and `#icon-chek` finds
+  // name: a bare `#check` finds the Test site button, and `#material-chek` finds
   // nothing. Main's scan of app.js read every hand-written reference into the
   // sprite file, so this keeps what that scan held.
   const handWritten = [...app.matchAll(/<use\b[^>]*>/g)].map((found) => found[0])

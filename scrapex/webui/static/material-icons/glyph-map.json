@@ -1,8 +1,8 @@
 {
-  "about": "THE ONE GLYPH MAP (#1056). It is the only declaration of which glyph each destination and each Engine-page candidate draws, and of where every glyph comes from. The side panel and the engine's templates both read it, and the panel's rail tabs for its own destinations (each <use> carrying data-glyph-destination in extension/app.html) are written from it; nothing else names a destination's glyph. The engine still sends WorkspaceDestination.icon (scrapex/ui_manifest.py), frozen, for panels released before this map; it never follows the map. AUTHORED IN design/glyph-map.json. Every other copy is a GENERATED COPY that tools/sync_design_assets.py writes, beside the engine's sprite and into extension/app.html; never edit one. A key missing from a table draws the fallback, never an empty <use>.",
-  "rule": "A glyph's id is its source's published name, lowercased, with every _ written as -. Material publishes trending_up, so the id is trending-up; Tabler publishes x-mark, so the id is x-mark. Adding a source adds one entry under sources. Changing a source renames its glyphs by this same rule, in the change that swaps their geometry. If two sources ever publish the same name, the proposal, not yet confirmed by the owner, is to prefix the later source's id with its key here (tabler-x-mark).",
+  "about": "THE ONE GLYPH MAP (#1056). It is the only declaration of which glyph each destination and each Engine-page candidate draws, and of where every glyph comes from. The side panel and the engine's templates both read it, and the panel's rail tabs for its own destinations (each <use> carrying data-glyph-destination in extension/app.html) are written from it; nothing else names a destination's glyph. The engine still sends WorkspaceDestination.icon (scrapex/ui_manifest.py), frozen, for panels released before this map; it never follows the map. AUTHORED IN design/glyph-map.json. Every other copy is a GENERATED COPY that tools/sync_design_assets.py writes, beside the engine's sprite and into extension/app.html; never edit one. A key missing from a table draws the fallback, which is null: no glyph at all, a declared absence, so the row keeps its label and no <use> is written for it.",
+  "rule": "A glyph's id is its source's key under sources, a -, and the name that source publishes, lowercased, with every _ written as -. Material publishes trending_up, so the id is material-trending-up; Material Symbols publishes folder_code, so the id is material-symbols-folder-code; Tabler publishes x-mark, so the id is tabler-x-mark. Every source's ids carry its key, so two sources never share an id. Only sprite ids carry the key: a source's own file keeps the name the source publishes it under (x-mark.svg). Adding a source adds one entry under sources. Changing a source renames its glyphs by this same rule, in the change that swaps their geometry.",
   "sources": {
-    "material-icons": {
+    "material": {
       "title": "Google Material Icons",
       "licence": "Apache-2.0",
       "repository": "https://github.com/google/material-design-icons",
@@ -41,28 +41,28 @@
       "glyphs": ["x-mark"]
     }
   },
-  "fallback": "link",
+  "fallback": null,
   "destinations": {
-    "overview": "dashboard",
-    "data": "storage",
-    "changes": "trending-up",
-    "history": "history",
-    "review": "check",
-    "jobs": "play-circle",
-    "schedules": "schedule",
-    "sync": "sync",
-    "exports": "file-download",
-    "logs": "description",
-    "data-model": "account-tree",
-    "schema": "view-column",
-    "settings": "settings"
+    "overview": "material-dashboard",
+    "data": "material-storage",
+    "changes": "material-trending-up",
+    "history": "material-history",
+    "review": "material-check",
+    "jobs": "material-play-circle",
+    "schedules": "material-schedule",
+    "sync": "material-sync",
+    "exports": "material-file-download",
+    "logs": "material-description",
+    "data-model": "material-account-tree",
+    "schema": "material-view-column",
+    "settings": "material-settings"
   },
   "engines": {
-    "scrapy": "dns",
-    "crawlee": "account-tree",
-    "crawl4ai": "description",
-    "firecrawl": "language",
-    "katana": "search",
-    "heritrix": "storage"
+    "scrapy": "material-dns",
+    "crawlee": "material-account-tree",
+    "crawl4ai": "material-description",
+    "firecrawl": "material-language",
+    "katana": "material-search",
+    "heritrix": "material-storage"
   }
 }

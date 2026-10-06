@@ -4,7 +4,7 @@
 <details class="data-source-overview">
   <summary class="data-source-overview-trigger" aria-controls="dataset-overview-panel">
     <span class="data-source-overview-trigger-main">
-      {{ icon("dns") }}
+      {{ icon("material-dns") }}
       <span>
         <strong>Source overview</strong>
         <small dir="auto">{{ overview_domain or summary.source_name or summary.source_key }}</small>
@@ -12,7 +12,7 @@
     </span>
     <span class="data-source-overview-trigger-meta">
       <span>{{ "{:,}".format(summary.observations) }} data rows</span>
-      {{ icon("expand-more", "data-source-overview-chevron") }}
+      {{ icon("material-expand-more", "data-source-overview-chevron") }}
     </span>
   </summary>
 
@@ -24,9 +24,9 @@
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
            rel="noopener noreferrer">
-          {{ icon("language") }}
+          {{ icon("material-language") }}
           <span>Visit website</span>
-          {{ icon("open-in-new", "inline-icon") }}
+          {{ icon("material-open-in-new", "inline-icon") }}
         </a>
       {% endif %}
     </div>
@@ -50,7 +50,7 @@
             <span class="data-source-status {{ status_class }}">
           {% endif %}
               <span class="data-source-status-indicator" aria-hidden="true">
-                {{ icon("info" if unknown or count else "check") }}
+                {{ icon("material-info" if unknown or count else "material-check") }}
               </span>
               <span class="data-source-status-copy">
                 <strong>{{ label }}</strong>
@@ -58,7 +58,7 @@
               </span>
               <span class="data-source-status-value">
                 {{ "—" if unknown else "{:,}".format(count) }}
-                {% if href and count and elsewhere %}{{ icon("chevron-right", "inline-icon") }}{% endif %}
+                {% if href and count and elsewhere %}{{ icon("material-chevron-right", "inline-icon") }}{% endif %}
               </span>
           {% if href and count %}
             </a>

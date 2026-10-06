@@ -10,14 +10,16 @@
   "use strict";
 
   // The version is intentional: the sprite is expanded centrally and browsers
-  // otherwise keep an older symbol set, leaving newly added icons blank.
+  // otherwise keep an older symbol set, leaving newly added icons blank. It moved
+  // to design-system-4 when every id took its source's key (#1056): no sprite
+  // served under 2 or 3 carries one.
   //
   // A HOST PAGE MAY NAME ITS OWN SPRITE with `data-icon-sprite` on this script's
   // tag (#1198): the extension's Data page carries the sprite at its own path.
   // The engine's pages name none, so they keep this one. `??`, not `||`, so an
   // empty attribute means the page's own inline `#symbols`.
   const ICON_SPRITE = document.currentScript?.dataset.iconSprite
-    ?? "/static/material-icons/material-icons.svg?v=design-system-3";
+    ?? "/static/material-icons/material-icons.svg?v=design-system-4";
 
   function escapeAttribute(value) {
     return String(value)

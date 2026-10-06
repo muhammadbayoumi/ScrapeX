@@ -59,7 +59,7 @@ def test_workspace_starts_without_a_top_header_bar(client):
     assert "runtime-status" not in page
     assert 'class="sidebar-toggle workspace-menu-button icon-button"' in page
     assert 'class="workspace-sidebar-status"' in page
-    assert "#menu" in page
+    assert "#material-menu" in page
     assert "--workspace-sidebar-width" in css
     assert ".workspace-shell{min-height:100vh" in css
     assert ".workspace-sidebar{grid-column:1" in css

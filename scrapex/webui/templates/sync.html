@@ -22,17 +22,17 @@
         Sheets are set up in the ScrapeX side panel instead.</p>
       <nav class="sync-hero-actions" aria-label="Synchronization methods">
         <a class="button icon-label" href="#apps-script">
-          {{ icon("sync", "sm") }} Set up Apps Script
+          {{ icon("material-sync", "sm") }} Set up Apps Script
         </a>
         <a class="button ghost icon-label" href="#automation">
-          {{ icon("schedule", "sm") }} View automation
+          {{ icon("material-schedule", "sm") }} View automation
         </a>
       </nav>
     </div>
 
     <div class="sync-overview" aria-label="Connection overview">
       <a class="sync-overview-card" href="#apps-script">
-        <span class="icon-tile">{{ icon("sync") }}</span>
+        <span class="icon-tile">{{ icon("material-sync") }}</span>
         <span class="sync-overview-copy">
           <small>Apps Script</small>
           <strong>{{ "Ready to send" if funnel.ready else "Setup required" }}</strong>
@@ -42,7 +42,7 @@
         </span>
       </a>
       <a class="sync-overview-card" href="#automation">
-        <span class="icon-tile">{{ icon("schedule") }}</span>
+        <span class="icon-tile">{{ icon("material-schedule") }}</span>
         <span class="sync-overview-copy">
           <small>Automation</small>
           <strong id="automation-overview-value">Loading schedules</strong>
@@ -61,7 +61,7 @@
   <!-- ==================== Apps Script funnel (spec 22) ==================== -->
   <section class="sync-route" id="apps-script" aria-labelledby="apps-script-title">
     <header class="sync-route-header">
-      <span class="sync-route-icon icon-tile">{{ icon("sync") }}</span>
+      <span class="sync-route-icon icon-tile">{{ icon("material-sync") }}</span>
       <div class="sync-route-heading">
         <span class="page-eyebrow">Method 1 · Web app endpoint</span>
         <h2 id="apps-script-title">Apps Script synchronization</h2>
@@ -74,7 +74,7 @@
 
     {% if funnel.blocker %}
       <div class="sync-blocker" role="status">
-        {{ icon("info") }}
+        {{ icon("material-info") }}
         <div>
           <strong>Finish setup to start sending</strong>
           <p>{{ funnel.blocker }}</p>
@@ -83,7 +83,7 @@
     {% endif %}
 
     <div class="sync-method-note">
-      {{ icon("security") }}
+      {{ icon("material-security") }}
       <div>
         <strong>Designed for reliable batch delivery</strong>
         <p>Shared-token authentication, a durable outbox, and adaptive batch retries
@@ -218,8 +218,8 @@
 
     <details class="sync-details">
       <summary>
-        <span>{{ icon("security", "sm") }} Delivery safeguards and technical limits</span>
-        {{ icon("expand-more", "sm") }}
+        <span>{{ icon("material-security", "sm") }} Delivery safeguards and technical limits</span>
+        {{ icon("material-expand-more", "sm") }}
       </summary>
       <dl class="sync-detail-list">
         <div>
@@ -270,7 +270,7 @@
 
   <section class="sync-route" id="automation" aria-labelledby="automation-title">
     <header class="sync-route-header">
-      <span class="sync-route-icon icon-tile">{{ icon("schedule") }}</span>
+      <span class="sync-route-icon icon-tile">{{ icon("material-schedule") }}</span>
       <div class="sync-route-heading">
         <span class="page-eyebrow">Automation · Source collection</span>
         <h2 id="automation-title">Keep synchronized sources up to date</h2>
@@ -280,7 +280,7 @@
     </header>
 
     <div class="sync-method-note">
-      {{ icon("info") }}
+      {{ icon("material-info") }}
       <div>
         <strong>Collection can run automatically; delivery stays deliberate</strong>
         <p>Schedules refresh the data stored in ScrapeX while the engine is running. Sending to Apps Script or Google Drive remains a manual action from this page.</p>
@@ -298,7 +298,7 @@
           <div><dt>Paused</dt><dd id="automation-count-paused">—</dd></div>
         </dl>
         <a class="button icon-label" href="/schedules">
-          {{ icon("schedule", "sm") }} Manage schedules
+          {{ icon("material-schedule", "sm") }} Manage schedules
         </a>
       </aside>
 
