@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/components.css?v=appearance-6">
   <link rel="stylesheet" href="/static/webui.css?v=layout-9">
   <link rel="stylesheet" href="/static/table-theme.css">
-  <script src="/static/ui.js?v=layout-8"></script>
+  <script src="/static/ui.js?v=layout-9"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -24,14 +24,17 @@
       <nav class="wstabs" aria-label="Workspace">
         {# The sidebar is DATA (scrapex/ui_manifest.py): one contract feeds
            this loop and /api/ui, so the workspace and the panel cannot drift.
-           The tuple shape is the same one this template used to inline. #}
+           The tuple shape is the same one this template used to inline. A key
+           the glyph map does not name has no glyph (its fallback is null): the
+           link draws no icon, only the empty slot that keeps its label in the
+           label's column (#1056). #}
         {% for group, items in workspace_navigation_groups(source_key) %}
           <div class="wsnav-group">
             <span class="wsnav-label">{{ group }}</span>
             <div class="wsnav-links">
               {% for href, label, key, icon_name in items %}
                 <a href="{{ href }}" title="{{ label }}"{% if tab == key %} aria-current="page"{% endif %}>
-                  {{ icon(icon_name, "wsnav-icon") }}
+                  {% if icon_name %}{{ icon(icon_name, "wsnav-icon") }}{% else %}<span aria-hidden="true"></span>{% endif %}
                   <span>{{ label }}</span>
                 </a>
               {% endfor %}
@@ -42,13 +45,13 @@
       <div class="workspace-sidebar-status" aria-label="Runtime status">
         {% if engine_state %}
           <a class="{{ 'ok-text' if engine_state.connected else 'muted' }}" href="/jobs">
-            {{ icon("play-circle", "sm") }}
+            {{ icon("material-play-circle", "sm") }}
             {{ "Engine connected" if engine_state.connected else "Engine stopped" }}
           </a>
         {% endif %}
         {% if db_state %}
           <a class="{{ 'ok-text' if db_state.ok else 'err' }}" href="/settings#s-storage">
-            {{ icon("storage", "sm") }}
+            {{ icon("material-storage", "sm") }}
             {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
           </a>
         {% endif %}
@@ -58,7 +61,7 @@
       <button type="button" class="sidebar-toggle workspace-menu-button icon-button"
               aria-label="Show navigation" aria-controls="workspace-sidebar"
               aria-expanded="false">
-        {{ icon("menu") }}
+        {{ icon("material-menu") }}
       </button>
       <main class="wrap{% if wide_page %} wrap-wide{% endif %}">
     {# Stating the exact database, its status and the command that fixes it beats

@@ -66,7 +66,7 @@ BUILD_RECIPE = ROOT / "packaging" / "build_engine.py"
 #: too, and the report carries `scrapex.__file__` for the assertion that catches
 #: any remaining leak.
 PROBE = r'''
-import json, os, sys
+import json, os, re, sys
 
 stage = os.environ["SCRAPEX_STAGE"]
 sys.path.insert(0, stage)
@@ -90,6 +90,13 @@ from scrapex.webui import app as webui
 # The line that crashed on the owner's machine. Nothing above it touches static.
 application = webui.create_app(None, start_worker=False, databases=registry)
 
+# THE FIRST PAGE, RENDERED, because compiling base.html never runs its sidebar. The
+# sidebar draws each destination's glyph from the map scrapex/ui_manifest.py reads
+# when a page is drawn (#1056), so a map the bundle lacks passes create_app and
+# fails only here.
+sidebar = re.search(r'<nav class="wstabs".*?</nav>', webui.TEMPLATES.get_template(
+    "base.html").render(source_key=None, tab="overview"), re.S)
+
 report = {
     "package": scrapex.__file__,
     "sources": len(load_manifest(None).sources),
@@ -98,6 +105,7 @@ report = {
     "templates": sorted(webui.TEMPLATES.env.list_templates()),
     "extract_templates": sorted(extract_api.TEMPLATES.env.list_templates()),
     "base_html_compiles": bool(webui.TEMPLATES.get_template("base.html")),
+    "sidebar_glyphs": sidebar and re.findall(r'<use href="[^"#]*#([^"]*)"', sidebar.group(0)),
     "apps_script_chars": len(apps_script_script_text()),
 }
 print("REPORT " + json.dumps(report))
@@ -232,6 +240,19 @@ def test_every_page_the_engine_serves_is_in_the_bundle(bundle):
     # directory. It is asked separately because it resolves the path its own way.
     assert bundle["extract_templates"] == expected
     assert bundle["base_html_compiles"]
+
+
+def test_the_sidebar_draws_the_glyph_map_the_bundle_carries(bundle):
+    """THE GLYPH MAP IS A FILE THE ENGINE OPENS (#1056), and it opens it only when
+    a page is drawn, so create_app returning proves nothing about it. A map path
+    that resolves in a checkout and not in a bundle (design/, say) raises at the
+    probe's render instead, and every row must draw the map's glyph."""
+    from scrapex.ui_manifest import WORKSPACE_DESTINATIONS
+
+    glyphs = json.loads((ROOT / "design" / "glyph-map.json").read_text(encoding="utf-8"))
+    assert bundle["sidebar_glyphs"] == [
+        glyphs["destinations"][destination.key] for destination in WORKSPACE_DESTINATIONS
+    ], "the bundled engine's sidebar does not draw the map's glyph for every destination"
 
 
 def test_the_contracts_and_the_schema_came_along(bundle):

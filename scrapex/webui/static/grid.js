@@ -228,9 +228,9 @@
   const materialIcon = window.ScrapeXUI.icon;
   const materialIconElement = window.ScrapeXUI.iconNode;
 
-  const FILTER_ICON = materialIcon("filter-list", "material-filter-icon");
-  const MENU_ICON = materialIcon("more-vert", "material-menu-icon");
-  const SORT_ICON = materialIcon("arrow-upward", "material-sort-icon");
+  const FILTER_ICON = materialIcon("material-filter-list", "material-filter-icon");
+  const MENU_ICON = materialIcon("material-more-vert", "material-menu-icon");
+  const SORT_ICON = materialIcon("material-arrow-upward", "material-sort-icon");
 
   // ---- active filters, and the line that reports them ----------------------
   // Kept here rather than inside Tabulator so the page can SAY what is being
@@ -464,7 +464,7 @@
           : f.values.length.toLocaleString() + " selected";
       label.textContent = column + ": " + what;
       chip.append(label);
-      chip.insertAdjacentHTML("beforeend", materialIcon("close", "inline-icon"));
+      chip.insertAdjacentHTML("beforeend", materialIcon("material-close", "inline-icon"));
       chip.title = "Remove this filter";
       chip.addEventListener("click", () => { active.delete(field); applyFilters(); });
       bar.append(chip);
@@ -672,10 +672,10 @@
   function pinMenu(field) {
     const side = pinned.get(field) || "";
     return [
-      {label: menuLabel(side ? "" : "check", "No Pin"), action: () => setPinned(field, "")},
-      {label: menuLabel(side === "left" ? "check" : "", "Pin Left"),
+      {label: menuLabel(side ? "" : "material-check", "No Pin"), action: () => setPinned(field, "")},
+      {label: menuLabel(side === "left" ? "material-check" : "", "Pin Left"),
        action: () => setPinned(field, "left")},
-      {label: menuLabel(side === "right" ? "check" : "", "Pin Right"),
+      {label: menuLabel(side === "right" ? "material-check" : "", "Pin Right"),
        action: () => setPinned(field, "right")},
     ];
   }
@@ -690,36 +690,36 @@
         ? "Add " + title + " as Group Level " + (groupedBy.length + 1)
         : "Group by " + title;
     const menu = [
-      {label: menuLabel("arrow-upward", "Sort Ascending"),
+      {label: menuLabel("material-arrow-upward", "Sort Ascending"),
        action: () => column.getTable().setSort(field, "asc")},
-      {label: menuLabel("arrow-downward", "Sort Descending"),
+      {label: menuLabel("material-arrow-downward", "Sort Descending"),
        action: () => column.getTable().setSort(field, "desc")},
       {separator: true},
-      {label: menuLabel("push-pin", "Pin Column"), menu: pinMenu(field)},
+      {label: menuLabel("material-push-pin", "Pin Column"), menu: pinMenu(field)},
       {separator: true},
       // The owner's wording.
-      {label: menuLabel("fit-screen", "Auto-fit column width"), action: () => autosize(field)},
-      {label: menuLabel("unfold-more", "Auto-fit all column widths"), action: autosizeAll},
+      {label: menuLabel("material-fit-screen", "Auto-fit column width"), action: () => autosize(field)},
+      {label: menuLabel("material-unfold-more", "Auto-fit all column widths"), action: autosizeAll},
       {separator: true},
-      {label: menuLabel(groupLevel >= 0 ? "check" : "view-stream", groupLabel),
+      {label: menuLabel(groupLevel >= 0 ? "material-check" : "material-view-stream", groupLabel),
        action: () => setGroup(field), disabled: !features.tree},
     ];
     if (groupedBy.length) {
-      menu.push({label: menuLabel("view-stream", "Un-Group All"),
+      menu.push({label: menuLabel("material-view-stream", "Un-Group All"),
                  action: () => setGroup("")});
     }
     menu.push(
-      {label: menuLabel(treeBy === field ? "check" : "account-tree", "Nest rows by this column"),
+      {label: menuLabel(treeBy === field ? "material-check" : "material-account-tree", "Nest rows by this column"),
        action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
       {separator: true},
-      {label: menuLabel("view-column", "Choose Columns"), action: openColumnChooser},
-      {label: menuLabel("restart-alt", "Reset Columns"), action: resetColumns}
+      {label: menuLabel("material-view-column", "Choose Columns"), action: openColumnChooser},
+      {label: menuLabel("material-restart-alt", "Reset Columns"), action: resetColumns}
     );
     if (groupedBy.length) {
       menu.push(
-        {label: menuLabel("unfold-more", "Expand All Row Groups"),
+        {label: menuLabel("material-unfold-more", "Expand All Row Groups"),
          action: () => setAllGroupsOpen(true)},
-        {label: menuLabel("unfold-less", "Collapse All Row Groups"),
+        {label: menuLabel("material-unfold-less", "Collapse All Row Groups"),
          action: () => setAllGroupsOpen(false)}
       );
     }
@@ -889,7 +889,7 @@
     closeButton.type = "button";
     closeButton.className = "column-chooser-close";
     closeButton.setAttribute("aria-label", "Close column chooser");
-    closeButton.append(materialIconElement("close", "column-chooser-icon"));
+    closeButton.append(materialIconElement("material-close", "column-chooser-icon"));
     header.append(heading, closeButton);
 
     const controls = document.createElement("div");
@@ -899,7 +899,7 @@
     selectAll.setAttribute("aria-label", "Show all columns");
     const searchBox = document.createElement("label");
     searchBox.className = "column-chooser-search";
-    searchBox.append(materialIconElement("search", "column-chooser-icon"));
+    searchBox.append(materialIconElement("material-search", "column-chooser-icon"));
     const search = document.createElement("input");
     search.type = "search";
     search.placeholder = "Search columns";
@@ -1099,7 +1099,7 @@
         handle.setAttribute("aria-label", "Move " + fieldLabel(field));
         handle.title = "Drag to reorder, or between the two lists to move this "
           + "field. Keyboard: Arrow Up/Down to reorder, Arrow Left/Right to move.";
-        handle.append(materialIconElement("drag-indicator", "column-chooser-icon"));
+        handle.append(materialIconElement("material-drag-indicator", "column-chooser-icon"));
         handle.addEventListener("keydown", (event) => {
           // Across the zones with Left/Right — the same move the drag makes,
           // for a keyboard. A control only a mouse can reach is not a control.
@@ -1534,7 +1534,7 @@
         if (!href) return "";
         const link = externalLink(href, "grid-action");
         link.title = "Open this record on the site";
-        link.insertAdjacentHTML("beforeend", materialIcon("open-in-new", "inline-icon"));
+        link.insertAdjacentHTML("beforeend", materialIcon("material-open-in-new", "inline-icon"));
         return link;
       };
     }
@@ -1966,7 +1966,7 @@
     wrap.className = "grid-lang-toggle";
     wrap.setAttribute("role", "group");
     wrap.setAttribute("aria-label", "Display language");
-    wrap.appendChild(materialIconElement("language", "grid-lang-icon"));
+    wrap.appendChild(materialIconElement("material-language", "grid-lang-icon"));
     const note = document.createElement("span");
     note.className = "visually-hidden";
     note.textContent = "Display language";
@@ -2067,7 +2067,7 @@
     wrap.className = "grid-lang-toggle grid-fold-toggle";
     wrap.setAttribute("role", "group");
     wrap.setAttribute("aria-label", "Rows per product");
-    wrap.appendChild(materialIconElement("unfold-less", "grid-lang-icon"));
+    wrap.appendChild(materialIconElement("material-unfold-less", "grid-lang-icon"));
     const note = document.createElement("span");
     note.className = "visually-hidden";
     note.textContent = "Rows per product";
@@ -2656,7 +2656,7 @@
       visit.rel = "noopener noreferrer";
       visit.title = "Open on site";
       visit.setAttribute("aria-label", "Open product on site");
-      visit.appendChild(materialIconElement("open-in-new", "selected-product-site-icon"));
+      visit.appendChild(materialIconElement("material-open-in-new", "selected-product-site-icon"));
       titleRow.appendChild(visit);
     }
     body.appendChild(titleRow);
@@ -2738,26 +2738,26 @@
     // rather than growing a card of its own.) Media is absent on purpose: the
     // product card already owns the gallery.
     const DETAIL_SECTIONS = [
-      {key: "description", label: "Description", icon: "description",
+      {key: "description", label: "Description", icon: "material-description",
        groups: ["Description"]},
-      {key: "specifications", label: "Specifications", icon: "tune",
+      {key: "specifications", label: "Specifications", icon: "material-tune",
        groups: ["Specifications", "Specs", "Details"]},
-      {key: "more-information", label: "More information", icon: "info",
+      {key: "more-information", label: "More information", icon: "material-info",
        groups: ["More information"]},
-      // shopping-cart, not storage: this is the shop's handling of the product.
-      {key: "store", label: "Store", icon: "shopping-cart",
+      // material-shopping-cart, not material-storage: the shop's handling of the product.
+      {key: "store", label: "Store", icon: "material-shopping-cart",
        groups: ["Store"]},
-      // dns is the sprite's site/domain glyph. NOT "language" -- that is the
+      // material-dns is the sprite's site/domain glyph. NOT material-language -- that is the
       // AR/EN toggle a few centimetres away in this same panel.
-      {key: "site-metadata", label: "Site metadata", icon: "dns",
+      {key: "site-metadata", label: "Site metadata", icon: "material-dns",
        groups: ["Site metadata"]},
-      {key: "attachments", label: "Attachments", icon: "insert-drive-file",
+      {key: "attachments", label: "Attachments", icon: "material-insert-drive-file",
        groups: ["Attachments"]},
     ];
     const HISTORY_SECTIONS = [
-      {key: "price", label: "Price history", icon: "trending-up"},
-      {key: "changes", label: "Changes", icon: "history"},
-      {key: "observations", label: "Observations", icon: "schedule"},
+      {key: "price", label: "Price history", icon: "material-trending-up"},
+      {key: "changes", label: "Changes", icon: "material-history"},
+      {key: "observations", label: "Observations", icon: "material-schedule"},
     ];
     const sectionForGroup = (name) =>
       (DETAIL_SECTIONS.find((s) => s.groups.includes(name)) || {}).key
@@ -2768,9 +2768,9 @@
     // both primary views. Only populated groups reach the rail, without
     // duplicating Details and History branches.
     const INSPECTOR_VIEWS = [
-      {key: "details", label: "Details", icon: "view-stream",
+      {key: "details", label: "Details", icon: "material-view-stream",
        definitions: DETAIL_SECTIONS, sections: detailSections},
-      {key: "history", label: "History", icon: "history",
+      {key: "history", label: "History", icon: "material-history",
        definitions: HISTORY_SECTIONS, sections: historySections},
     ];
 
