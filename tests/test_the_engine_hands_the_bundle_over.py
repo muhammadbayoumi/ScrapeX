@@ -438,7 +438,6 @@ def test_both_files_of_a_backup_are_pruned_together(client):
             f"{path.name} survived without its panel pack")
 
 
-
 # ---- the light file beside every bundle (#1199) ------------------------------------
 
 def test_the_reply_describes_the_light_file_on_disk(client):
@@ -494,6 +493,37 @@ def test_a_light_file_that_cannot_be_written_never_fails_the_backup(client, monk
     assert built["light"] is None
     assert "No space left on device" in built["light_error"]
     assert (backups / built["name"]).is_file()
+
+
+def test_the_light_file_describes_the_zip_and_not_the_live_warehouse(client, monkeypatch):
+    """A crawl may store a row while Back up runs. The light file is read from the copy
+    the zip carries, so a row stored after that copy is in neither of them."""
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from tests.test_ingest import make_entry, make_payload, one_row
+
+    connected, _backups = client
+    real_pack = bundle.pack
+
+    def pack_while_a_crawl_stores_a_row(*args, **kwargs):
+        described = real_pack(*args, **kwargs)
+        conn = dbmod.connect(connected.app.state.db_path)
+        try:
+            ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
+            conn.commit()
+        finally:
+            conn.close()
+        return described
+
+    monkeypatch.setattr(bundle, "pack", pack_while_a_crawl_stores_a_row)
+
+    built = connected.post("/api/bundle").json()
+
+    assert connected.get("/api/table/ELSEWEDYSHOP?fold=0").json()["total"] == 1, (
+        "the row was never stored, so this proves nothing")
+    [carried] = [table for table in built["light"]["tables"]
+                 if table["key"] == "ELSEWEDYSHOP"]
+    assert carried["rows"] == 0, "the light file read the live warehouse, not the copy"
 
 
 def test_a_staging_tree_left_by_a_killed_engine_is_swept(client):

@@ -8506,7 +8506,6 @@ HARNESS_BUNDLE = {
 }
 
 
-
 def _backed_up_with(open_panel, **reply) -> str:
     """Press Back up on Manage account with this build reply; return what it said."""
     page = open_panel(
@@ -8534,6 +8533,19 @@ def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
 
     assert said.endswith(
         "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+
+
+def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
+    """Each by its key, a dataset's as well as a price source's, and counted."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"},
+        {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
+         "problem": "LookupError: muqawil_org/contractor_profiles: listed, and its "
+                    "table resolves to nothing"}]})
+
+    assert said.endswith("The offline copy of the Data page left out 2 tables: "
+                         "ELSEWEDYSHOP, contractor_profiles."), said
 
 
 def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):

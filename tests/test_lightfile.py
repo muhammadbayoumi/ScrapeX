@@ -19,6 +19,7 @@ import shutil
 import sqlite3
 import subprocess
 import textwrap
+import zlib
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,13 @@ def db_path(tmp_path) -> Path:
     dbmod.migrate(conn)
     ingest_payloads(conn, make_entry(), [_variants("1,200.00", "2026-07-16T10:00:00Z")])
     ingest_payloads(conn, make_entry(), [_variants("1,100.00", "2026-07-20T10:00:00Z")])
+    # As tests/test_api_fields.py stores one: the table a card's details read, so each
+    # card is compared with a detail in it rather than an empty list.
+    conn.execute(
+        "INSERT INTO source_product_attribute (source_product_id, attribute_code, "
+        " attribute_label, raw_value, attribute_group, lang, is_site_filter) "
+        "SELECT source_product_id, 'cable_gauge', 'Cable gauge', '2.5 mm', "
+        "'Specifications', 'en', 0 FROM source_product")
     conn.commit()
     definition, version = _dataset(conn)
     nodes = _tree(conn)
@@ -154,6 +162,8 @@ def test_every_part_is_the_body_its_route_answers(client, db_path, tmp_path):
     for row, line in zip(rows, cards, strict=True):
         assert line == client.get(f"/api/offer/{SOURCE}/{row['offer_id']}").content
     assert json.loads(cards[0])["changes"], "the cards carry no change to compare"
+    assert all(json.loads(line)["details"] for line in cards), (
+        "a card carries no detail to compare")
     assert "السويدي".encode() in _part(report, price["parts"]["table"])
 
     for site in ("muqawil_org", "other_org"):
@@ -185,6 +195,15 @@ def test_a_nodes_records_are_what_the_filter_keeps(client, db_path, tmp_path):
         conn.close()
     assert any(len(records) == 2 for records in selected.values()), (
         "no node reaches both records, so descent is untested")
+    # EVERY NODE THE TREE OFFERS, the undeclared one included: a node the copy does
+    # not answer is a filter the offline page offers and cannot apply.
+    tree = json.loads(_part(report, muqawil["parts"]["taxonomy"]))
+    offered = {node["node_id"] for group in tree["groups"] for node in group["nodes"]}
+    offered |= {group["undeclared"]["node_id"] for group in tree["groups"]
+                if group["undeclared"]}
+    assert {int(node) for node in selected} == offered
+    assert any(group["undeclared"] for group in tree["groups"]), (
+        "the fixture has no undeclared node, so its answer is untested")
 
 
 def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_path):
@@ -258,6 +277,54 @@ def test_two_writes_of_one_copy_are_the_same_bytes(client, db_path, tmp_path):
     second = _write(client, db_path, tmp_path / "two", copy=copy)
 
     assert first.parts_path.read_bytes() == second.parts_path.read_bytes()
+
+
+def test_no_member_carries_a_time_or_a_name(client, db_path, tmp_path):
+    """Two writes inside one second agree whatever a header says, so the test above
+    cannot see a clock in one. RFC 1952: byte 3 is FLG, which names no file when 0,
+    and bytes 4-7 are MTIME."""
+    report = _write(client, db_path, tmp_path / "out")
+    data = report.parts_path.read_bytes()
+
+    for table in report.index["tables"]:
+        for name, described in table["parts"].items():
+            header = data[described["offset"]:described["offset"] + 8]
+            assert header == b"\x1f\x8b\x08\x00\x00\x00\x00\x00", (
+                table["key"], name, header.hex())
+
+
+def test_each_card_is_compressed_before_the_next_is_built(
+        client, db_path, tmp_path, monkeypatch):
+    """STREAMED: 19,218 cards on his warehouse, so the writer never holds a source's
+    cards. Collecting them before compressing passes every other test here."""
+    fed: list[bytes] = []
+    real_compressobj = zlib.compressobj
+
+    class Watched:
+        def __init__(self, *args):
+            self._real = real_compressobj(*args)
+
+        def compress(self, data):
+            fed.append(data)
+            return self._real.compress(data)
+
+        def flush(self, *args):
+            return self._real.flush(*args)
+
+    real_card = reports.offer_card
+    compressed_before: list[int] = []
+
+    def card(conn, source_key, offer_id):
+        compressed_before.append(sum(1 for chunk in fed if chunk.endswith(b"\n")))
+        return real_card(conn, source_key, offer_id)
+
+    monkeypatch.setattr(zlib, "compressobj", Watched)
+    monkeypatch.setattr(reports, "offer_card", card)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert report.faults == []
+    assert compressed_before == [0, 1], (
+        "a card was built before the previous one was compressed")
 
 
 def test_the_copy_is_never_written(client, db_path, tmp_path, monkeypatch):
