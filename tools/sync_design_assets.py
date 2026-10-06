@@ -119,6 +119,24 @@ ASSETS = {
         ROOT / "scrapex" / "webui" / "static" / "pages" / "data-workspace.css",
         ROOT / "extension" / "data-workspace.css",
     ),
+    # THE FOUR FACES (#1048), each beside its own OFL.txt, which the licence asks to
+    # travel with every copy. They land in a fonts/ directory beside each surface's
+    # tokens.css, so the one relative url() its @font-face blocks write resolves on both.
+    # Binary, and copied as bytes like google-g.png: `*.ttf binary` in .gitattributes is
+    # what keeps git from normalising them, and tests/test_the_faces_ship_with_their_licences.py
+    # holds each to google/fonts' own digest.
+    **{
+        ROOT / "design" / "fonts" / face: (
+            ROOT / "extension" / "fonts" / face,
+            ROOT / "scrapex" / "webui" / "static" / "fonts" / face,
+        )
+        for face in (
+            "inter/Inter-opsz-wght.ttf", "inter/OFL.txt",
+            "manrope/Manrope-wght.ttf", "manrope/OFL.txt",
+            "sourcecodepro/SourceCodePro-wght.ttf", "sourcecodepro/OFL.txt",
+            "notosansarabic/NotoSansArabic-wdth-wght.ttf", "notosansarabic/OFL.txt",
+        )
+    },
 }
 
 

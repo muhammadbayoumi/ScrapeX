@@ -257,6 +257,23 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
         copy.parent.mkdir(parents=True, exist_ok=True)
         copy.write_bytes((ext / relative).read_bytes())
 
+    # WHAT A COPIED SHEET NAMES COMES WITH IT (#1048). A url() is read against the
+    # sheet that holds it, so tokens.css's faces must sit beside its copy. Without
+    # them every face fails to load, the page draws in the platform's face, and every
+    # test still passes. A data: URI and a bare fragment name no file. A file that is
+    # missing, or outside the extension, fails HERE, by name, like a missing tag.
+    for sheet in dict.fromkeys(_SHEET.findall(html)):
+        css = re.sub(r"/\*.*?\*/", "", (ext / sheet).read_text(encoding="utf-8"), flags=re.S)
+        for named in re.findall(r"""url\(\s*["']?([^"')]+?)["']?\s*\)""", css):
+            if named.startswith(("data:", "#")):
+                continue
+            source = ((ext / sheet).parent / named.split("#")[0].split("?")[0]).resolve()
+            if not source.is_file() or not source.is_relative_to(ext.resolve()):
+                raise FileNotFoundError(f"{sheet} names {named}, which is not in {ext}")
+            copy = tmp / source.relative_to(ext.resolve())
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_bytes(source.read_bytes())
+
     # THE ONE REWRITE OF THE PAGE'S OWN MARKUP (#1198). file:// refuses a <use> into
     # another file, and its error would land in __LOAD_FAILURES__, so the sprite the
     # page names is inlined, hidden, and every <use> points at its symbols: ui.js is

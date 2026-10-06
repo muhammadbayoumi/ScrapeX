@@ -12,18 +12,13 @@
      places, the 340px query moved only `main`'s and both of them pulled
      4px too far. */
   --panel-pad: var(--sp-4);
-  /* THE 48px FLOOR STOOD HERE AND R-85/OD-09 DELETED IT — «احذفها», 2026-09-02.
-     It read `--control-height: var(--touch-target)` and `--control-height-sm:
-     2.5rem`, raising the panel's controls to 48px and 40px above the baseline's
-     40px and 32px, on the ground that the extension "behaves like a compact
-     Android app".
-     IT IS A DELETION FOR THE SAME REASON R-85 EXISTS: Supabase's own control
-     scale is 26/34/38/42/50 with a default of 34, and it has no 48px floor
-     anywhere. An override that raises two tokens above the baseline is a
-     divergence from them, so «مطابق تماما» removes it.
-     `--touch-target` IS NOT DELETED and this is the distinction that matters:
-     it keeps 24 explicit reads in this file, where a specific element is sized
-     for touch on purpose. What went is the blanket raise of every control. */
+  /* NO CONTROL HEIGHT IS RE-DECLARED HERE. The panel's controls take Supabase's
+     SIZE heights from design/tokens.css (#1050): a Button is tiny, 26px, and an
+     Input or Select small, 34px. A 48px floor stood here until R-85/OD-09 deleted
+     it («احذفها», 2026-09-02), because Supabase's scale has no 48px step.
+     `--touch-target` is not a control height: it keeps its explicit reads in this
+     file, where an element is sized for touch on purpose, and #1051 moves that
+     reach into an invisible hit area. */
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
@@ -119,7 +114,7 @@
     border: 1px solid var(--outline-variant);
     border-radius: var(--radius-lg);
     background: var(--surface-container-high);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     transform-origin: top center;
     animation: select-menu-in var(--dur) var(--ease);
   }
@@ -386,8 +381,8 @@
   }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
                   color: var(--text); cursor: pointer;
-                  transition: border-color var(--dur-fast) ease,
-                              background var(--dur-fast) ease; }
+                  transition: border-color var(--dur-fast) var(--ease-in-out),
+                              background var(--dur-fast) var(--ease-in-out); }
   .dataset-card:hover {
     border-color: var(--accent);
     background: var(--surface-subtle);
@@ -532,7 +527,7 @@
      "inside a box, above the card".
 
      So the card's trigger is brought to `.account-menu-button`'s treatment: a bare
-     40px circle, `--muted`, tinted on hover and while open. Nothing here is a new
+     circle, `--muted`, tinted on hover and while open. Nothing here is a new
      value — every one is the token the profile row already uses, which is why this
      needs no palette work and cannot ignore his palette (a new colour would have
      needed four homes; see docs/LESSONS.md §5).
@@ -541,9 +536,9 @@
      generated from `design/components.css`, and the Activity log's split button —
      which has a primary half and is not broken — must not move. */
   .dataset-card .split-button-trigger {
-    width: var(--control-height-sm);
-    min-width: var(--control-height-sm);
-    min-height: var(--control-height-sm);
+    width: var(--control-height-tiny);
+    min-width: var(--control-height-tiny);
+    min-height: var(--control-height-tiny);
     /* The shared rule draws a divider against the primary half. There is none. */
     border-inline-start: 0;
     border-radius: var(--radius-pill);
@@ -622,8 +617,8 @@
     border-radius: var(--radius-md);
     background: var(--surface);
     transition:
-      border-color var(--dur-fast) ease,
-      background var(--dur-fast) ease;
+      border-color var(--dur-fast) var(--ease-in-out),
+      background var(--dur-fast) var(--ease-in-out);
   }
   .source-manager-card:hover {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
@@ -666,8 +661,8 @@
   }
   .source-edit-back {
     display: grid;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: var(--control-height-tiny);
+    min-width: var(--control-height-tiny);
     padding: 0;
     place-items: center;
   }
@@ -795,7 +790,7 @@
   .engine-smart-action {
     display: inline-flex;
     min-width: max-content;
-    height: var(--control-height-sm);
+    height: var(--control-height-tiny);
     min-height: 0;
     flex: none;
     align-items: center;
@@ -818,7 +813,7 @@
   .engine-component {
     display: grid;
     grid-template-columns: 1.75rem minmax(0, 1fr);
-    min-height: var(--control-height-sm);
+    min-height: 2rem;
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-1) var(--sp-2);
@@ -858,7 +853,7 @@
   }
   .engine-maintenance-actions .engine-action {
     width: 100%;
-    min-height: var(--control-height-sm);
+    min-height: var(--control-height-tiny);
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
     border-radius: var(--radius-pill);
@@ -905,7 +900,7 @@
   .engine-url-field {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    min-height: var(--control-height-sm);
+    min-height: var(--control-height-small);
     align-items: center;
     gap: var(--sp-2);
     padding-inline-start: var(--sp-3);
@@ -917,7 +912,7 @@
   .engine-url-field > .sx-icon { color: var(--muted); }
   .engine-url-field input {
     min-width: 0;
-    min-height: var(--control-height-sm);
+    min-height: calc(var(--control-height-small) - 2px);
     padding: 0;
     border: 0;
     border-radius: 0;
@@ -932,7 +927,7 @@
     box-shadow: var(--focus-ring-gap);
   }
   .engine-url-save {
-    min-height: var(--control-height-sm);
+    min-height: calc(var(--control-height-small) - 2px);
     padding: 0 var(--sp-3);
     border: 0;
     border-inline-start: 1px solid var(--outline-variant);
@@ -1074,12 +1069,12 @@
   .source-choice-panel { display: grid; grid-template-rows: 0fr; opacity: 0;
                          visibility: hidden; margin: 0 var(--sp-4); padding-bottom: 0;
                          transition: grid-template-rows var(--dur-slow) var(--ease),
-                                     opacity var(--dur) ease, padding-bottom var(--dur-slow) var(--ease),
+                                     opacity var(--dur) var(--ease-in-out), padding-bottom var(--dur-slow) var(--ease),
                                      visibility 0s linear var(--dur-slow); }
   .source-choice-panel-inner { min-height: 0; overflow: hidden; padding-top: 0;
                                border-top: 1px solid transparent;
                                transition: padding-top var(--dur-slow) var(--ease),
-                                           border-color var(--dur) ease; }
+                                           border-color var(--dur) var(--ease-in-out); }
   .source-choice:has(.source-radio:checked) .source-choice-panel {
     grid-template-rows: 1fr; opacity: 1; visibility: visible;
     padding-bottom: var(--sp-3); transition-delay: 0s;
@@ -1828,7 +1823,7 @@
   /* Collapsed: one pill that says how many others there are by showing them. */
   .accounts-pill {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto var(--control-height-xs);
+    grid-template-columns: minmax(0, 1fr) auto 2rem;
     align-items: center;
     gap: var(--sp-3);
     width: 100%;
@@ -1873,8 +1868,8 @@
   .accounts-pill-chevron {
     display: grid;
     place-items: center;
-    width: var(--control-height-xs);
-    height: var(--control-height-xs);
+    width: 2rem;
+    height: 2rem;
     border-radius: var(--radius-pill);
     background: var(--chip);
     color: var(--muted);
@@ -1921,7 +1916,7 @@
   .account-row {
     position: relative;
     display: grid;
-    grid-template-columns: var(--control-height-sm) minmax(0, 1fr) var(--control-height-sm);
+    grid-template-columns: 2rem minmax(0, 1fr) var(--control-height-tiny);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -1929,8 +1924,8 @@
   .account-face {
     display: grid;
     place-items: center;
-    width: var(--control-height-sm);
-    height: var(--control-height-sm);
+    width: 2rem;
+    height: 2rem;
     border-radius: 50%;
     object-fit: cover;
     background: var(--chip);
@@ -2057,7 +2052,7 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
   }
   .account-menu > * + * {
     border-top: 1px solid var(--line);
@@ -2136,7 +2131,7 @@
   .manage-account-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-sm) minmax(0, 1fr);
+    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -2144,8 +2139,8 @@
     background: var(--surface);
   }
   button.manage-account-back {
-    width: var(--control-height-sm);
-    min-width: var(--control-height-sm);
+    width: var(--control-height-tiny);
+    min-width: var(--control-height-tiny);
     padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);
@@ -2367,7 +2362,14 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-xl);
     background: var(--surface-raised);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
+  }
+  /* Their Dialog is `border shadow-md dark:shadow-xs` (dialog.tsx@86c813ec:67): the
+     border is unconditional and the shadow is the part that goes, because dark plates
+     sit ~0.025 L apart and a blur cannot separate them -- the 1px line can. */
+  :root[data-theme="dark"] .modal-card { box-shadow: var(--shadow-xs); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .modal-card { box-shadow: var(--shadow-xs); }
   }
   /* `text-transform` and `color` are RESETS, not decoration. A global `h2` rule
      near the top of this file paints every h2 in the panel as a small uppercase
@@ -2732,7 +2734,7 @@
   .finance-number-field { position: relative; flex: none; width: 10rem; }
   .finance-number-field input {
     width: 100%;
-    min-height: var(--control-height-sm);
+    min-height: var(--control-height-small);
     padding-inline-end: 4rem;
   }
   .finance-number-field span {
@@ -2901,7 +2903,7 @@
     position: relative;
     display: grid;
     grid-template-columns: minmax(5rem, .62fr) minmax(0, 1.38fr);
-    height: var(--control-height-sm);
+    height: var(--control-height-small);
     overflow: hidden;
     border: 1px solid var(--line-strong);
     border-radius: var(--radius-md);
@@ -2942,7 +2944,7 @@
     inset-block-start: -1px;
   }
   .finance-converter-row input {
-    line-height: calc(var(--control-height-sm) - 2px);
+    line-height: calc(var(--control-height-small) - 2px);
   }
   .finance-converter-row::after {
     position: absolute;
@@ -3041,7 +3043,7 @@
     border: 1px solid var(--outline-variant);
     border-radius: var(--radius-lg);
     background: var(--surface-container-high);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     scrollbar-color: var(--outline) transparent;
     scrollbar-width: thin;
   }
@@ -3054,7 +3056,6 @@
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    min-height: var(--control-height-sm);
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
     border: 0;
@@ -3403,7 +3404,7 @@
   .install-steps > summary::-webkit-details-marker { display: none; }
   .install-steps > summary .sx-icon {
     flex: none;
-    transition: transform 200ms ease;
+    transition: transform var(--dur-200) var(--ease-in-out);
   }
   .install-steps[open] > summary .sx-icon { transform: rotate(180deg); }
   .install-steps > summary:hover {
@@ -3606,7 +3607,7 @@
   .engine-detail-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-sm) minmax(0, 1fr);
+    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -3614,8 +3615,8 @@
     background: var(--surface);
   }
   button.engine-detail-back {
-    width: var(--control-height-sm);
-    min-width: var(--control-height-sm);
+    width: var(--control-height-tiny);
+    min-width: var(--control-height-tiny);
     padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);

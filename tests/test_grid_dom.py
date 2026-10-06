@@ -358,6 +358,45 @@ def test_escape_closes_a_menu_the_instant_it_opens(page):
         f"opened, then still open after Escape: {still_open}")
 
 
+def test_the_pin_sub_menu_casts_a_sub_menus_shadow_over_its_menus(page):
+    """Supabase's menu casts shadow-md and its sub-menu shadow-lg (dropdown-menu.tsx@86c813ec:87
+    and :70). The renderer marks the sub-menu `dg-submenu`. This reads what each open menu
+    computes, so a sub-menu drawn without its mark, or a first menu left open behind a
+    second, turns it red (#1049)."""
+    page.click('.dg-col[data-field="brand"] .dg-header-menu')
+    page.wait_for_selector(".dg-menu", state="visible", timeout=3000)
+    page.evaluate("""() => [...document.querySelector('.dg-menu').children]
+        .find(x => x.textContent.trim() === 'Pin Column').click()""")
+    page.wait_for_function("() => document.querySelectorAll('.dg-menu').length === 2",
+                           timeout=3000)
+    cast = page.evaluate("""() => {
+        const token = (name) => {
+          const probe = document.body.appendChild(document.createElement('div'));
+          probe.style.boxShadow = `var(${name})`;
+          const value = getComputedStyle(probe).boxShadow;
+          probe.remove();
+          return value;
+        };
+        return {
+          md: token('--shadow-md'),
+          lg: token('--shadow-lg'),
+          menus: [...document.querySelectorAll('.dg-menu')].map((menu) => ({
+            items: [...menu.querySelectorAll('.dg-menu-item')]
+              .map((item) => item.textContent.trim()),
+            shadow: getComputedStyle(menu).boxShadow,
+          })),
+        };
+    }""")
+    assert cast["md"] != cast["lg"], f"--shadow-md and --shadow-lg compute alike: {cast}"
+    parent, child = cast["menus"]
+    assert "Pin Column" in parent["items"] and "Pin Left" in child["items"], (
+        f"expected the column menu, then its Pin sub-menu: {cast['menus']}")
+    assert (parent["shadow"], child["shadow"]) == (cast["md"], cast["lg"]), (
+        f"the column menu casts {parent['shadow']!r} and its Pin sub-menu "
+        f"{child['shadow']!r}; Supabase's DropdownMenuContent casts shadow-md "
+        f"({cast['md']!r}) and its DropdownMenuSubContent shadow-lg ({cast['lg']!r}).")
+
+
 # ---- the footer must describe the table in front of you ----------------------
 
 def test_the_footer_counts_the_rows_actually_shown(page):

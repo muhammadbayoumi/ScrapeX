@@ -300,7 +300,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .map-cells {
   width: 100%;
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-tiny);
   padding: var(--sp-2) var(--sp-3);
   border: 0;
   background: transparent;

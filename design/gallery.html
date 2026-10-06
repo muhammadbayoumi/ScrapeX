@@ -82,6 +82,7 @@
     .g-font-mono { font-family: var(--font-mono); }
     .g-shadow-xs { box-shadow: var(--shadow-xs); }
     .g-shadow-sm { box-shadow: var(--shadow-sm); }
+    .g-shadow-md { box-shadow: var(--shadow-md); }
     .g-shadow-lg { box-shadow: var(--shadow-lg); }
     .g-swatch-accent { --palette-swatch: var(--accent); }
     .g-swatch-accent-weak { --palette-swatch: var(--accent-weak); }
@@ -309,13 +310,16 @@
   <div class="g-item">
     <h3>Sizes and icon-only</h3>
     <p class="g-why">
-      <code class="code">icon-button</code> is square at the full touch-target size;
-      add <code class="code">compact</code> for a <em>small</em> square. The two were
-      never composable until 2026-08-05 — together they drew a rectangle.
-      <code class="code">xs</code> is the third notch, 32px, added 2026-08-11 for
-      <em>secondary</em> icon controls — a quiet action that must not out-shout the
-      page it sits on. It is under the 44px coarse-pointer floor, so a primary or
-      destructive action never uses it.
+      <code class="code">icon-button</code> is a square at Supabase's tiny Button
+      height, 26px, the Button's default size. With a mouse,
+      <code class="code">compact</code> and <code class="code">xs</code> draw the same
+      square, because Supabase's Button has no size below tiny. On a touch screen they
+      part: a plain <code class="code">icon-button</code> takes the 44px coarse-pointer
+      floor and draws 26 by 44 until #1051, while <code class="code">compact</code> and
+      <code class="code">xs</code> stay 26px squares under that floor, so a primary or
+      destructive action never uses them. <code class="code">icon-button</code> and
+      <code class="code">compact</code> were never composable until 2026-08-05 —
+      together they drew a rectangle.
     </p>
     <div class="g-demo cluster">
       <button type="button" class="compact">Compact</button>
@@ -985,6 +989,7 @@
       <div class="cluster">
         <span class="card g-shadow-xs">shadow-xs</span>
         <span class="card g-shadow-sm">shadow-sm</span>
+        <span class="card g-shadow-md">shadow-md</span>
         <span class="card g-shadow-lg">shadow-lg</span>
       </div>
     </div>
@@ -996,7 +1001,7 @@
   --font: Inter, ...;  --font-heading: Manrope, ...;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);       /* things that appear */
   --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);  /* things that travel */
-  --shadow-sm: 0 1px 3px var(--shadow-color);  /* they define no shadows */
+  --shadow-md: 0 4px 6px -1px ...;             /* Tailwind's, as their menus render it */
 }
 
 /* design/appearance.js — a palette carries COLOUR and nothing else. The one
