@@ -48,6 +48,9 @@ pytest.importorskip("fastapi")
 from scrapex import contractors, datasetjob, directoryjob, jobs  # noqa: E402
 from scrapex import db as dbmod
 from scrapex.crawlscope import CrawlScope  # noqa: E402
+from scrapex.extract import service
+from scrapex.extract.models import SnapshotCreate
+from scrapex.pagesource import WHOLE
 from scrapex.pagewalk import PageWalker  # noqa: E402
 from scrapex.vocab import JobControl, JobStatus, LogLevel, RunMode  # noqa: E402
 from scrapex.webui.app import _fetch_progress  # noqa: E402
@@ -577,8 +580,8 @@ def test_a_stopped_crawl_queues_nothing(conn, monkeypatch):
     line is only ever reached with `stopped` empty -- every `stopped.append` is followed
     by a return that leaves the `try`. So that mutation is equivalent, not a gap. What is
     NOT equivalent is moving it into the `except CrawlStopped` handler, which is the
-    ordinary cancel-at-a-cell-boundary path, and the test at the foot of this file is
-    what holds that.
+    ordinary cancel-at-a-cell-boundary path, and
+    `test_a_stop_at_a_cell_boundary_queues_nothing` is what holds that.
     """
     seen = _drive(conn, monkeypatch, pages=40, at_page=2, press=_cancel)
 
@@ -595,15 +598,21 @@ def test_a_failed_crawl_queues_nothing(conn, monkeypatch, pages):
     """THE THIRD WAY OUT OF THE RUNNER, AND THE ONE NOTHING HELD. Issue 1347.
 
     `_queue_the_interpretation` runs ONLY ON THE SUCCESS PATH. The two stops are held by
-    the test above and the one at the foot of this file; a crawl that RAISES leaves
-    through `except Exception`, which writes FAILED and re-raises. Calling the chain
-    after that `_finish` passed every test of the chain -- measured, a crawl that stored
-    3 pages and then raised went from no interpretation queued to one.
+    `test_a_stopped_crawl_queues_nothing` and
+    `test_a_stop_at_a_cell_boundary_queues_nothing`; a crawl that RAISES leaves through
+    `except Exception`, which writes FAILED and re-raises. Calling the chain after that
+    `_finish` passed every test of the chain -- measured, a crawl that stored 3 pages and
+    then raised went from no interpretation queued to one.
 
     THREE PAGES IS THE CASE THAT MATTERS: a failed crawl still bought them, so "interpret
     what it got" reads as helpful. Nothing is lost by refusing. `_finish` stamps
     `finished_at` on a FAILED crawl too, and `_work_waiting` reads the crawl half with no
     status filter, so the card still says the pages are unread and offers the press.
+
+    SO THE THREE PAGES ARE STORED, NOT ONLY FETCHED. A stub that only beat spent three
+    requests and wrote no snapshot, and then the "helpful" chain -- queue after the
+    FAILED `_finish` only when `runs_holding_pages` finds something -- passed all 171
+    tests of the chain. Issue 1445.
     """
     fetcher = _Fetcher()
 
@@ -616,9 +625,19 @@ def test_a_failed_crawl_queues_nothing(conn, monkeypatch, pages):
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
 
     def crawl_then_raise(*args, **kwargs):
-        beating = kwargs.get("beating") or args[2]
+        # POSITIONAL, as in `_drive`:
+        # `contractors.crawl(conn, directory, beating, fetcher, run_ref, ...)`.
+        own, beating, run_ref = args[0], kwargs.get("beating") or args[2], args[4]
         for page in range(pages):
-            beating(f"https://muqawil.org/en/contractors?page={page}")
+            url = f"https://muqawil.org/en/contractors?page={page}"
+            beating(url)
+            # THROUGH THE PRODUCTION WRITER, under the ref a one-cell partition's first
+            # attempt derives (`partitioncrawl`: `{run_ref}-{cell.label}-a{n}`), and
+            # committed at once, as `snapshotcrawl.store` commits each page.
+            service.save_snapshot(own, SnapshotCreate(
+                source_url=url, html_content="<html></html>",
+                crawl_run_ref=f"{run_ref}-{WHOLE.label}-a1"))
+            own.commit()
         raise RuntimeError("the site answered with something the parse refused")
 
     monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_then_raise)
@@ -635,6 +654,11 @@ def test_a_failed_crawl_queues_nothing(conn, monkeypatch, pages):
     job = jobs.get_job(conn, ref)
     assert job["status"] == JobStatus.FAILED.value, (
         f"the crawl reads {job['status']!r} after raising; the failure path did not run"
+    )
+    held = datasetjob.runs_holding_pages(conn, SITE)
+    assert held == ([(f"job-{ref}", pages)] if pages else []), (
+        f"the stored runs read {held!r}, not this crawl's {pages} page(s), so a chain "
+        f"that queues only when a failed crawl stored something is not being asked"
     )
     interprets = [row for row in conn.execute(
         "SELECT job_ref, status FROM crawl_job WHERE job_kind = ?",
