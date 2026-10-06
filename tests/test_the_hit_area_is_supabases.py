@@ -67,7 +67,9 @@ REACH = {
                                                  "(select.tsx@86c813ec:31-38), on a touch screen",
     (APP, ".sx-select-trigger", "--hit-area-b"): "the same",
 }
-ROW = "a row or a heading, not a control: no hit area, and its 48px is layout (#1040 rule 2)"
+ROW = "a heading or a status row, not a control: no hit area, and its 48px is layout (#1040 rule 2)"
+WHOLE_ROW = ("a whole row a tap toggles or opens, a <label> or a <summary>, which Supabase gives no "
+             "control height: its 48px box is its reach (#1040 rule 2)")
 HIS = ("#1051, his to decide: a control whose Supabase component cannot be computed, so its "
        "48px box is not moved into a reach")
 BOX = {
@@ -80,7 +82,7 @@ BOX = {
     (APP, ".data-view-heading, .source-manager-heading", "min-height"): ROW,
     (APP, ".source-manager-section-head", "min-height"): ROW,
     (APP, ".source-edit-summary", "min-height"): ROW,
-    (APP, ".source-edit-switch", "min-height"): ROW,
+    (APP, ".source-edit-switch", "min-height"): WHOLE_ROW,
     (APP, ".engine-runtime-status", "min-height"): ROW,
     (APP, ".engine-connection-heading", "min-height"): ROW,
     (APP, ".settings-group-head", "min-height"): ROW,
@@ -89,10 +91,11 @@ BOX = {
     (APP, ".side-rail .rail-item", "height"): HIS,
     (APP, ".side-rail .rail-item", "min-height"): HIS,
     (APP, ".appearance-page .appearance-scheme-picker button", "min-height"): HIS,
-    (APP, ".finance-section-heading", "min-height"): ROW,
-    (APP, ".finance-setting-row", "min-height"): ROW,
+    # Two headings and one <summary> (extension/app.html, Finance's preferences disclosure).
+    (APP, ".finance-section-heading", "min-height"): WHOLE_ROW,
+    (APP, ".finance-setting-row", "min-height"): WHOLE_ROW,
     (APP, ".finance-rate-state", "min-height"): ROW,
-    (APP, ".finance-currency-details summary", "min-height"): ROW,
+    (APP, ".finance-currency-details summary", "min-height"): WHOLE_ROW,
     (APP, ".finance-saved-state", "min-height"): ROW,
     (APP, ".workspace-menu-head", "min-height"): ROW,
     (APP, ".engine-row", "min-height"): HIS,
