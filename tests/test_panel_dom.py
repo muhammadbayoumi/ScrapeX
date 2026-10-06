@@ -6907,6 +6907,8 @@ _ANOTHER_COMPONENT = {
     ".finance-converter-row input": (32, "an InputGroupInput, inside its group's border"),
     ".finance-converter-select-trigger": (32, "a Select inside the converter's group, inside "
                                               "its border"),
+    "#check": (34, "a Button at size small, h-[34px] (constants.ts@86c813ec:62), beside its "
+                   "34px field, by his ruling on #1457"),
 }
 
 _TOUCH_TARGET = "#1051: --touch-target sizes it, 48px, on every pointer"
@@ -6933,7 +6935,6 @@ _OFF_SIZE = {
                              "(dropdown-menu.tsx@86c813ec:104)"),
     "button.link": "a text link drawn as a <button>, at the height of its line",
     ".coverage-open": "a line of a Data card's text that opens its coverage, drawn as text",
-    "#check": "stretched by its `.field` row to the 34px Input beside it",
 }
 
 
@@ -7043,6 +7044,9 @@ _TEXT_AT_360 = {
     "#p-select": ("15px", "normal", "0px", "12px"),
     "#p-textarea": ("15px", "22.5px", "8px", "12px"),
     "#run-mode-trigger": ("15px", "16px", "8px", "12px"),
+    # Test site is a Button at size small, SIZE_VARIANTS.small's text and padding (his ruling on
+    # #1457), not tiny's.
+    "#check": ("15px", "16px", "8px", "12px"),
     # Rows drawn as <button>s are not Buttons: each keeps the text around it on a 1.2 line.
     "button.accounts-action": ("15px", "18px", "12px", "16px"),
     "button.accounts-disclosure": ("15px", "18px", "12px", "16px"),
@@ -7081,7 +7085,8 @@ def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
     small = {"#p-input": ("13px", "16px", "8px", "12px"),
              "#p-select": ("13px", "normal", "0px", "12px"),
              "#p-textarea": ("13px", "18.5718px", "8px", "12px"),
-             "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY}
+             "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY,
+             "#check": ("13px", "16px", "8px", "12px")}
     assert _text(page, small) == small
 
 

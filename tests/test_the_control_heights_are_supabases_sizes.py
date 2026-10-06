@@ -60,6 +60,8 @@ SMALL_INSIDE = "calc(var(--control-height-small) - 2px)"
 
 # The Supabase component each read is, at the pin.
 BUTTON = "Button.tsx@86c813ec:192 size = 'tiny'"
+# "Test site" beside its field is a Button at size small, h-[34px], by his ruling on #1457.
+BUTTON_SMALL = "Button size = 'small', constants.ts@86c813ec:62 h-[34px] (his ruling on #1457)"
 INPUT = "input.tsx@86c813ec:31 size = 'small'; select.tsx@86c813ec:37-38 SIZE_VARIANTS_DEFAULT"
 SPLIT = "button-split-dropdown.tsx@86c813ec:14-29: two Buttons at the Button's default size"
 GROUP = "input-group.tsx@86c813ec:43-48 sets no height; its InputGroupInput is an Input (:164-170)"
@@ -69,12 +71,13 @@ GROUP_BUTTON = ("input-group.tsx@86c813ec:122-137 InputGroupButton, a Button who
 
 #: The element each component is drawn as, for the rows whose selector matches the panel's
 #: markup. A Supabase InputGroup is a <div> (input-group.tsx@86c813ec:43).
-ELEMENT = {BUTTON: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
+ELEMENT = {BUTTON: {"button"}, BUTTON_SMALL: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
            GROUP_INSIDE: {"input"}, GROUP_BUTTON: {"button"}}
 
 #: The value each component's default size reads here. GROUP_BUTTON has none: its default, h-6,
 #: 24px, is no SIZE height but a step of their --spacing, so a row that cites it is in STEPS.
-DEFAULT = {BUTTON: TINY, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL, GROUP_INSIDE: SMALL_INSIDE}
+DEFAULT = {BUTTON: TINY, BUTTON_SMALL: SMALL, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL,
+           GROUP_INSIDE: SMALL_INSIDE}
 
 C = "design/components.css"
 APP = "extension/app.css"
@@ -100,6 +103,9 @@ READS = {
     (APP, ".dataset-card .split-button-trigger", "min-height"): (TINY, SPLIT),
     (APP, ".engine-smart-action", "height"): (TINY, BUTTON),
     (APP, ".engine-maintenance-actions .engine-action", "min-height"): (TINY, BUTTON),
+    # Test site, beside the Site URL field (extension/app.html `#check`): its own size, not its
+    # row's stretch.
+    (APP, "#check", "min-height"): (SMALL, BUTTON_SMALL),
     (APP, ".engine-url-field", "min-height"): (SMALL, GROUP),
     (APP, ".engine-url-field input", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
     (APP, ".finance-number-field input", "min-height"): (SMALL, INPUT),
@@ -375,9 +381,10 @@ def test_each_panel_read_names_the_element_its_selector_matches():
             wrong.append(f"`{selector}` {prop} names {component}, but matches an element "
                          f"outside every GROUP row's element")
     assert not wrong, "\n  ".join(["a row names a component its element is not:", *wrong])
-    # Eight selectors match the panel's markup today; fewer means one or the parser moved. The
-    # three back buttons' width rows left when their width became their padding's (#1430).
-    assert len(checked) >= 8 and ".engine-url-save" in checked, sorted(checked)
+    # Nine selectors match the panel's markup today; fewer means one or the parser moved. The
+    # three back buttons' width rows left when their width became their padding's, and Test
+    # site's row arrived as a Button at size small (#1430).
+    assert len(checked) >= 9 and {".engine-url-save", "#check"} <= checked, sorted(checked)
     # Three sit inside a group: the two groups' inputs and the Save. Fewer means a group's
     # selector stopped matching, and the check above stopped reading it.
     assert len(grouped) >= 3 and ".engine-url-save" in grouped, sorted(grouped)

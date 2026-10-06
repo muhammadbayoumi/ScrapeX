@@ -58,6 +58,18 @@
   .field { display: flex; gap: var(--sp-2); }
   .field input, .field select { flex: 1; }
   .field .sx-select { flex: 1; }
+  /* "TEST SITE" IS SUPABASE'S BUTTON AT SIZE SMALL (his ruling on #1457): SIZE_VARIANTS.small,
+     `text-base md:text-sm leading-4 px-3 py-2 h-[34px]` (constants.ts@86c813ec:48, :55, :62,
+     :97), on the Button's 16px line. So it stands at the 34px of the field beside it by its
+     own size, not because its row stretches it. */
+  #check {
+    min-height: var(--control-height-small);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs);
+  }
+  @media (min-width: 48rem) {
+    #check { font-size: var(--fs-sm); }
+  }
   .sx-select {
     position: relative;
     width: 100%;
