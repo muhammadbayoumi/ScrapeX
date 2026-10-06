@@ -188,7 +188,8 @@ def test_a_nodes_records_are_what_the_filter_keeps(client, db_path, tmp_path):
 
 
 def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_path):
-    report = _write(client, db_path, tmp_path / "out")
+    copy = archive.backup_database(db_path, tag="light")
+    report = _write(client, db_path, tmp_path / "out", copy=copy)
     index = json.loads(report.index_path.read_text(encoding="utf-8"))
 
     assert index == report.index
@@ -200,8 +201,13 @@ def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_p
         for described in table["parts"].values():
             inflated = _part(report, described)
             assert len(inflated) == described["raw_bytes"]
-    assert str(tmp_path) not in report.index_path.read_text(encoding="utf-8"), (
-        "the index travels to Drive and must carry names, never paths")
+    # ASKED OF THE PARSED INDEX, by name. JSON doubles every backslash in a Windows
+    # path, so searching the raw text for `str(path)` can never match one.
+    said = json.dumps(index, ensure_ascii=False)
+    for name in (copy.name, copy.parent.name):
+        assert name not in said, (
+            f"{name!r} is in the index; it travels to Drive and must carry names, "
+            "never paths")
 
 
 def test_the_members_tile_the_file_with_nothing_between_them(client, db_path, tmp_path):
