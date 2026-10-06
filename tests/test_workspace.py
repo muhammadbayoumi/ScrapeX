@@ -248,7 +248,9 @@ def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client)
     assert metric < sync.index(
         '<span class="source-identity-meta-value">2</span>', metric
     )
-    assert 'font-family: Consolas, "Courier New", monospace;' in styles
+    # The metric reads in the mono face through the token (#1048), not a stack of its own.
+    meta = styles.split("\n.source-identity-meta {", 1)[1].split("}", 1)[0]
+    assert "font-family: var(--font-mono);" in meta
     assert "margin-inline-end: 0.45em;" in styles
     assert ".source-identity-meta-value {\n  color: inherit;" in styles
 

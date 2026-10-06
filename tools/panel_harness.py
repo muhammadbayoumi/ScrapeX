@@ -850,6 +850,34 @@ def _embed_icons(css: str) -> str:
     return _ICON_URL.sub(sub, css)
 
 
+_FONT_URL = re.compile(r'url\("(fonts/[^"]+)"\)')
+
+
+def _point_fonts_at_the_extension(css: str) -> str:
+    """Point each @font-face url() at the extension's own copy of the face (#1048).
+
+    tokens.css is inlined into a page that lives in a temporary directory, so its
+    relative `fonts/...` would be read against that directory and find nothing -- and a
+    face that fails to load falls back without a word, so every screenshot would show
+    the platform's face while every assertion passed. Each url() is resolved against
+    extension/, where the real tokens.css sits, which is exactly what the shipped panel
+    does. Chromium loads a face over file:// (measured), so no bytes are inlined.
+
+    RAISES on a missing file, for the reason the Google mark below does: a harness that
+    skipped it would test a panel drawn in a face the extension does not ship.
+    """
+    def sub(match: re.Match) -> str:
+        face = EXT / match.group(1)
+        if not face.is_file():
+            raise FileNotFoundError(
+                f"{face} is missing, so the panel would fall back to the platform's face "
+                "and every assertion about it would still pass. Run "
+                "tools/sync_design_assets.py.")
+        return f'url("{face.as_uri()}")'
+
+    return _FONT_URL.sub(sub, css)
+
+
 def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     """Inline the panel's own HTML/CSS/JS into one file so file:// can load it."""
     html = (EXT / "app.html").read_text(encoding="utf-8")
@@ -858,7 +886,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # real app.js is inlined below anyway.
     body = re.sub(r'<script type="module".*?</script>', "", body, flags=re.S)
     style = _embed_icons((EXT / "app.css").read_text(encoding="utf-8"))
-    tokens_css = (EXT / "tokens.css").read_text(encoding="utf-8")
+    tokens_css = _point_fonts_at_the_extension((EXT / "tokens.css").read_text(encoding="utf-8"))
     components_css = _embed_icons((EXT / "components.css").read_text(encoding="utf-8"))
     # NO ICON WORK HERE, ON PURPOSE. app.html carries its sprite inline and every
     # icon in the panel, markup and app.js alike, points at those symbols

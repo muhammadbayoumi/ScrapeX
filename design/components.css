@@ -799,7 +799,7 @@ button.chip {
   gap: 0;
   flex: none;
   color: var(--muted);
-  font-family: Consolas, "Courier New", monospace;
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
   line-height: inherit;
