@@ -165,9 +165,11 @@ td code { white-space: pre-wrap; overflow-wrap: anywhere; }
    meet in the gap and neither covers the other's box. ONE LINE, as their cell's
    `flex items-center gap-x-2` is: wrapped, three actions stacked with no gap between
    them and the one below took the bottom of the one above, measured at 360px. The
-   cell's own padding holds the outer reach. */
+   cell's own padding holds the outer reach. An action is `button, .button`, as
+   design/components.css names a Button, so the catalogue's snippet, whose actions carry
+   no `button` class, keeps the gap too: without it they stood 4px apart. */
 td.action-cell { white-space: nowrap; }
-td.action-cell > .button + .button { margin-inline-start: var(--sp-2); }
+td.action-cell > :is(button, .button) + :is(button, .button) { margin-inline-start: var(--sp-2); }
 
 .hidden { display: none !important; }
 

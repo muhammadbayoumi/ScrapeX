@@ -178,7 +178,7 @@ def test_the_select_triggers_48px_is_a_reach_only_on_a_touch_screen():
     assert _declared(".sx-select-trigger", coarse) == {
         "--hit-area-t": [reach], "--hit-area-b": [reach]}
     unconditional = _declared(".sx-select-trigger", unconditional_css)
-    assert unconditional.get("min-height") == ["var(--control-height-small)"], unconditional
+    assert unconditional.get("height") == ["var(--control-height-small)"], unconditional
     assert not {"--hit-area-t", "--hit-area-b"} & set(unconditional), (
         "with a mouse the trigger's box is its reach, as Supabase's is")
 

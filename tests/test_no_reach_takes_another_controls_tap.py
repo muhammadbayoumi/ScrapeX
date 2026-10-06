@@ -1,7 +1,8 @@
 """A hit area reaches past its control's box, and it must not reach into another control's box
-(#1051). The panel's half is tests/test_panel_dom.py; this is the other two places a hit area
-is drawn: every web UI page on a touch screen, where every button reaches the 44px floor, and
-the enrichment page's action cells, where each action carries Supabase's hit-area-2.
+(#1051). The panel's half is tests/test_panel_dom.py; this is the other places a hit area is
+drawn: every web UI page and the extension's Console on a touch screen, where every button
+reaches the 44px floor, and the enrichment page's action cells, where each action carries
+Supabase's hit-area-2, with the catalogue's markup for one.
 
 WHY IT CAN. A hit area is a ::before that paints over what is under it, so where a reach is
 longer than the gap to a neighbour, the later control takes the edge of the earlier one's box.
@@ -17,76 +18,153 @@ import sys
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 pytest.importorskip("playwright", reason="needs the browser extra")
 pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient  # noqa: E402
 
-from scrapex import db as dbmod  # noqa: E402
-from scrapex.ingest import ingest_payloads  # noqa: E402
-from scrapex.webui.app import create_app  # noqa: E402
-from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
-from tests.test_panel_dom import _SWEEP, browser  # noqa: E402,F401  (the fixture)
+from tests.test_console_dom import WORKBOOK  # noqa: E402
+from tests.test_panel_dom import (  # noqa: E402,F401  (browser is the fixture)
+    _A_ROW,
+    _NO_BEFORE,
+    _PADDING,
+    assert_no_box_grows_and_no_reach_shrinks,
+    browser,
+    read_the_sweep,
+)
+from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, PAGES, webui_page  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
 import tabpage_harness  # noqa: E402
 
-# Reads extension/ sources (the enrichment page, and the shared sheets copied into it); see
-# tests/test_the_extension_gate_is_complete.py.
+# Reads extension/ sources (the enrichment page and the Console, and the shared sheets copied
+# into them); see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
-
-ORIGIN = "http://webui.test"
-PAGES = ["/", "/data", "/data-model", "/schema", "/changes", "/history", "/review", "/jobs",
-         "/schedules", "/logs", "/exports", "/settings", "/sync", "/manage", "/source/ELSEWEDYSHOP"]
 
 
 @pytest.fixture()
 def webui_on_a_phone(browser, tmp_path):  # noqa: F811
-    """The engine's own pages through its TestClient, as
-    tests/test_the_focus_ring_draws_in_the_web_ui.py serves them, on a 360px touch screen."""
-    db_path = tmp_path / "harvest.db"
-    conn = dbmod.connect(db_path)
-    dbmod.migrate(conn)
-    ingest_payloads(conn, make_entry(), [make_payload([
-        one_row(external_product_id="1", external_variant_id="v1", product_name="LED Floodlight 400W"),
-        one_row(external_product_id="2", external_variant_id="v2", product_name="Copper Wire",
-                price="50.00", availability="out_of_stock"),
-    ])])
-    conn.commit()
-    conn.close()
-    client = TestClient(create_app(db_path))
-    page = browser.new_page(viewport={"width": 360, "height": 800}, has_touch=True, is_mobile=True)
-
-    def serve(route):
-        request = route.request
-        answer = client.request(request.method, request.url[len(ORIGIN):],
-                                content=request.post_data_buffer,
-                                headers={"content-type": request.headers.get("content-type", "")})
-        route.fulfill(status=answer.status_code, body=answer.content,
-                      headers={"content-type": answer.headers.get("content-type", "text/plain")})
-
-    page.route("**/*", lambda route: route.abort())  # nothing leaves the machine
-    page.route(f"{ORIGIN}/**", serve)
-    try:
+    """The engine's own pages, served as tests/test_the_focus_ring_draws_in_the_web_ui.py
+    serves them, on a 360px touch screen."""
+    with webui_page(browser, tmp_path, viewport={"width": 360, "height": 800},
+                    has_touch=True, is_mobile=True) as page:
         yield page
-    finally:
-        page.close()
 
 
-def test_on_a_phone_no_web_ui_reach_takes_another_controls_tap(webui_on_a_phone):
+#: Why a control keeps the floor on its box and draws no hit area, as the schedule filters and the
+#: Console's three lists do: it stands nearer its neighbours than its reach would run.
+_KEEPS_THE_FLOOR = ("#1051: it keeps the 44px floor on its box and draws no hit area, because its "
+                    "neighbours stand nearer than its reach would run, and Supabase keeps adjacent "
+                    "reaches a gap apart (components/table.mdx@86c813ec:197)")
+_OFF_THE_SCALE = ("a literal min-height off Supabase's scale in design/grid-theme.css, the kind "
+                  "#1430 lists, though its census of ten does not name this one")
+
+#: Web UI controls whose box is taller than their Supabase component's on a touch screen, each
+#: with why it is still. It may only shrink (assert_no_box_grows_and_no_reach_shrinks).
+_WEB_TALLER_THAN_SUPABASE = {
+    **dict.fromkeys([
+        "#add-btn", "#copy-script", "#gen-token", "#model-fit", "#model-zoom-in", "#model-zoom-out",
+        "#open-folder", "#ph-rebuild", "#probe-btn", "#revoke-token", "#run", "#save-funnel",
+        "#save-loc", "#send-funnel", "#show-script", "#test-funnel", "a.button.ghost.icon-label",
+        "a.button.icon-label", "button.schedule-save", "button.split-button-primary"], _PADDING),
+    **dict.fromkeys(["#grid-columns-button", "button.grid-lang-option"], _OFF_THE_SCALE),
+    **dict.fromkeys([
+        "#excel_folder", "#excel_schema", "#excel_structure", "#excel_update", "#excel_workbook",
+        "#funnel_token", "#funnel_url", "#model-database", "#model-layer", "#model-search",
+        "#probe-url", "#schedule-search", "#source-search", ".field > input[type=text]",
+        ".field > input[type=url]", ".field > select", ".filters > select",
+        ".schedule-field > input[type=text]", ".schedule-field > input[type=time]",
+        ".schedule-field > select"], _NO_BEFORE),
+    **dict.fromkeys([f"#schedule-source-{i}" for i in range(13)] + [
+        "#settings-collection-tab", "#settings-connections-tab", "#settings-governance-tab",
+        "#settings-workspace-tab"], _A_ROW),
+    "button.schedule-filter": _KEEPS_THE_FLOOR,
+}
+
+#: Web UI controls a tap reaches less than 44px of on a touch screen: (the least, why).
+_WEB_SHORT_OF_THE_FLOOR: dict[str, tuple[float, str]] = {}
+
+
+def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
+    """The panel's sweep, over every page the engine serves (#1051): no reach takes another
+    control's tap or widens a scroller, every box is its Supabase component's size, and every
+    reach is the 44px the coarse-pointer floor gave it, but for the controls named above. The
+    menu button, `.sidebar-toggle`, is the web UI's plain icon button: #1051 named it a 26x44
+    slab, and it is a 26px square that reaches 44."""
     page = webui_on_a_phone
     assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches")
-    read, stolen = 0, []
+    read = {"controls": {}, "stolen": [], "widened": []}
     for path in PAGES:
         response = page.goto(ORIGIN + path)
         assert response is not None and response.status == 200, (path, response and response.status)
         page.wait_for_load_state("networkidle")
-        found = page.evaluate(_SWEEP, "body")
-        read += len(found["controls"])
-        stolen += [f"{path}: {theft}" for theft in found["stolen"]]
-    assert read >= 90, f"the sweep read {read} buttons and fields; a page did not draw"
-    assert not stolen, (
-        "a hit area takes taps inside another control's box:\n  " + "\n  ".join(sorted(set(stolen))))
+        read_the_sweep(page, "body", path, read)
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 90, f"the sweep read {count} buttons and fields; a page did not draw"
+    menu = read["controls"].get("button.sidebar-toggle.workspace-menu-button.icon-button", [])
+    assert len(menu) == len(PAGES) and {(c["height"], c["reach"]) for c in menu} == {(26, 44)}, (
+        f"the menu button is not a 26px square that reaches exactly 44px on every page: {menu}")
+    assert_no_box_grows_and_no_reach_shrinks(read, _WEB_TALLER_THAN_SUPABASE, _WEB_SHORT_OF_THE_FLOOR)
+
+
+#: The Console's screens, each with the click that opens it from the one before, over
+#: tests/test_console_dom.py's WORKBOOK: its two tables, the first one's inspect screen, and its
+#: two sources. Each is the section the rail shows.
+_CONSOLE_SCREENS = (("#cv-overview", None), ("#cv-tables", "#cv-tab-tables"),
+                    ("#cv-inspect", "#tables-list button.pair-row >> nth=0"),
+                    ("#cv-sources", "#cv-tab-sources"))
+
+#: Console controls whose box is taller than their Supabase component's on a touch screen.
+_CONSOLE_TALLER_THAN_SUPABASE = {
+    **dict.fromkeys([
+        "#column-add", "#inspect-edit", "#source-add", "#workbook-choose", "#workbook-recheck",
+        "button.button.ghost.sheet-open"], _PADDING),
+    **dict.fromkeys([
+        "#cv-tab-build", "#cv-tab-overview", "#cv-tab-problems", "#cv-tab-scrapex",
+        "#cv-tab-sources", "#cv-tab-tables", "button.pair-row", "button.source-row.source-noted"],
+        _KEEPS_THE_FLOOR),
+    "button.map-cells.map-grid": _A_ROW,
+}
+
+#: Console controls a tap reaches less than 44px of on a touch screen: (the least, why).
+_CONSOLE_SHORT_OF_THE_FLOOR: dict[str, tuple[float, str]] = {}
+
+
+def test_on_a_phone_no_console_box_grows_and_no_reach_shrinks(browser):  # noqa: F811
+    """The panel's sweep, over the Console (extension/console.html), which loads
+    design/components.css and so draws every button's hit area on a touch screen (#1051).
+
+    Its rail's tabs stand 2px apart and a list's rows 1px apart, under the 3-4px a 36px row's
+    centred reach runs, so on every screen the tab or row below took the bottom of the one
+    above, and "Add a source" the bottom of the last source, until extension/console.css kept
+    the three lists' floor on their box and sent that button's reach down, measured at 360px."""
+    read = {"controls": {}, "stolen": [], "widened": []}
+    with tabpage_harness.serve_extension() as base:
+        page = browser.new_page(viewport={"width": 360, "height": 800}, has_touch=True, is_mobile=True)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.add_init_script(tabpage_harness.console_stub(WORKBOOK))
+        try:
+            page.goto(f"{base}/console.html")
+            page.wait_for_selector("#tables-list button.pair-row", state="attached", timeout=10_000)
+            assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches")
+            for screen, click in _CONSOLE_SCREENS:
+                if click:
+                    page.click(click)
+                page.wait_for_selector(screen, state="visible")
+                page.wait_for_function("""() => document.getAnimations().every(
+                     (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+                                       timeout=5_000)
+                read_the_sweep(page, "body", screen, read)
+        finally:
+            page.close()
+    assert not errors, errors
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 40 and {f"#cv-tab-{tab}" for tab in ("overview", "tables", "sources")} <= set(
+        read["controls"]), f"the sweep read {count} controls; a screen did not open: {sorted(read['controls'])}"
+    assert_no_box_grows_and_no_reach_shrinks(read, _CONSOLE_TALLER_THAN_SUPABASE,
+                                             _CONSOLE_SHORT_OF_THE_FLOOR)
 
 
 def test_the_schedule_filters_keep_the_floor_on_their_box(webui_on_a_phone):
@@ -146,9 +224,9 @@ window.fetch = async (input) => {
 };
 """
 
-#: Each action in an action cell: its box, its neighbour in the cell, and which control takes a
-#: tap at each distance past each side. `self` is the action itself.
-_ACTIONS = """() => [...document.querySelectorAll('td.action-cell > button')].map((button) => {
+#: Each action in an action cell under `root`: its box, its neighbour in the cell, and which
+#: control takes a tap at each distance past each side. `self` is the action itself.
+_ACTIONS = """(root) => [...document.querySelector(root).querySelectorAll('td.action-cell > button')].map((button) => {
   button.scrollIntoView({block: 'center', inline: 'center'});
   const r = button.getBoundingClientRect();
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
@@ -195,12 +273,17 @@ def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
         try:
             page.goto(f"{base}/enrichment.html?source=D&site=S")
             page.wait_for_selector("#merge-rows td.action-cell > button", timeout=10_000)
-            actions = page.evaluate(_ACTIONS)
+            actions = page.evaluate(_ACTIONS, "body")
         finally:
             page.close()
     assert not errors, errors
     assert [a["text"] for a in actions] == [
         "Approve", "Reject", "Override", "Approve", "Reject", "Override", "Merge", "Reverse"], actions
+    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions)
+
+
+def _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions):
+    """The rules of Supabase's action cell, held for each action _ACTIONS read."""
     for action in actions:
         assert "hit-area-2" in action["classes"].split(), action
         assert action["edges"] == ["self"], (
@@ -215,3 +298,43 @@ def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
             assert action["sameLine"], f"{action['text']}: the actions wrapped: {actions}"
             assert action["gap"] >= 8 - 0.01, (
                 f"{action['text']}: {action['gap']}px to the next action, under Supabase's gap-x-2")
+
+
+def _the_catalogues_action_cell() -> str:
+    """The markup design/gallery.html's "Hit area" entry gives to copy: its <pre>, unescaped."""
+    gallery = BeautifulSoup((ROOT / "design" / "gallery.html").read_text(encoding="utf-8"),
+                            "html.parser")
+    items = [h3.find_parent(class_="g-item") for h3 in gallery.find_all("h3")
+             if h3.get_text(strip=True) == "Hit area"]
+    assert len(items) == 1 and items[0].find("pre"), "the catalogue has no one Hit area entry"
+    snippet = items[0].find("pre").get_text()
+    assert snippet.startswith('<td class="action-cell">'), snippet
+    return snippet
+
+
+@pytest.mark.parametrize("touch, width", [(False, 1280), (True, 360)], ids=["mouse-1280", "touch-360"])
+def test_the_catalogues_action_cell_keeps_its_actions_apart(browser, touch, width):  # noqa: F811
+    """The catalogue shows the action cell as markup to copy, and the cell is the enrichment
+    page's, so the markup is drawn there, in a row of its own, and held to every rule above.
+    Its actions are bare <button>s, with no `button` class, and the gap rule read only `.button`
+    until it read `button, .button`: they stood 4px apart, the whitespace between them, and
+    Edit took the taps inside Inspect's right edge, with a mouse and on a touch screen."""
+    snippet = _the_catalogues_action_cell()
+    with tabpage_harness.serve_extension() as base:
+        page = browser.new_page(viewport={"width": width, "height": 900},
+                                has_touch=touch, is_mobile=touch)
+        page.add_init_script(ENRICHMENT_STUB)
+        try:
+            page.goto(f"{base}/enrichment.html?source=D&site=S")
+            page.wait_for_selector("#merge-rows td.action-cell > button", timeout=10_000)
+            page.evaluate("""(snippet) => {
+              const row = document.createElement('tr');
+              row.id = 'catalogue-row';
+              row.innerHTML = snippet;
+              document.getElementById('merge-rows').append(row);
+            }""", snippet)
+            actions = page.evaluate(_ACTIONS, "#catalogue-row")
+        finally:
+            page.close()
+    assert [a["text"] for a in actions] == ["Inspect", "Edit"], actions
+    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions)

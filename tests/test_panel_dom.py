@@ -114,6 +114,16 @@ ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
 from scrapex.vocab import RunMode  # noqa: E402
 
+# Which Supabase component a control is, and the size its default reads: #1050's guard holds
+# both, and the touch sweep below reads them there (#1051).
+from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
+    BUTTON,
+    DEFAULT,
+    GROUP_INSIDE,
+    INPUT,
+    SELECT_TRIGGER,
+)
+
 
 @pytest.fixture(scope="module")
 def browser():
@@ -6812,10 +6822,17 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
         f"the reach grew past the 44px it was: {beyond}")
 
 
-#: Supabase's SIZE height of the component each control is (constants.ts@86c813ec:61-65): a
-#: Button is tiny (Button.tsx@86c813ec:192), an Input and a Select small (input.tsx@86c813ec:31,
-#: select.tsx@86c813ec:31-38).
-_SUPABASE_HEIGHT = {"button": 26, "input": 34, "select": 34}
+#: The Supabase component each control the sweeps read is, by the first selector it matches, and
+#: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
+#: it is written down. The sweep resolves the value against the page's own tokens. The listbox
+#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. What stands
+#: in the converter's InputGroup fills it inside the group's border, as its READS row for the
+#: amount says, and the two currency triggers beside the amount do the same.
+_SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
+    (".sx-select-trigger", SELECT_TRIGGER),
+    (".finance-converter-row :is(button, input)", GROUP_INSIDE),
+    ("input, select", INPUT),
+    ("button, .button", BUTTON))]
 
 #: What every button and input reached on a touch screen before #1051: the coarse-pointer
 #: block's `min-height: 2.75rem`, which is --touch-floor now.
@@ -6841,9 +6858,46 @@ _SWEEP_SCREENS = (
 #: and down from its centre, and every point inside a control-like element's box that
 #: another control's reach takes. A name is the id, else the classes (state classes `is-*`
 #: left out), else the parent's first class.
-_SWEEP = """(scopeSelector) => {
+#:
+#: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
+#: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
+#: `pointer-events: none` on the three ::before selectors design/components.css draws a hit
+#: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
+#: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
+#: second read would be of another layout. A point the control never held is not counted:
+#: its own rounded corner, a corner its list clips off (#db-bundles' first row under
+#: #db-open-backups: CI's Chromium clips a relative row's corner for hit-testing, and 141
+#: does not), or a label laid over its radio. A point it held is counted however close the
+#: two boxes stand, so a reach into a box that touches its own is caught as surely as one
+#: across a gap. EACH EDGE IS READ AT THREE DEPTHS, 0.75, 2.5 and 4.5px in: where two boxes
+#: meet at a fractional height, hit-testing gives the outermost row to the neighbour with
+#: every hit area off too, so that row alone saw one of the Console rail's five thefts
+#: with its tabs touching.
+#:
+#: AND NO HIT AREA WIDENS WHAT A SCROLLER SCROLLS. A ::before past the end of a scroller's
+#: content is scrollable overflow, so every scroller is read with each hit area drawn and with
+#: none (`content: none`), and the two must agree. It is read last, with every scroll position
+#: put back, because a widened scroller scrolls back once its hit areas go.
+#:
+#: Takes [the scope's selector, _SUPABASE_SIZES].
+_SWEEP = """([scopeSelector, sizes]) => {
   const LIKE = 'button, .button, input, select, textarea, summary, a[href], label';
   const taker = (x, y) => { const hit = document.elementFromPoint(x, y); return hit && hit.closest(LIKE); };
+  // Reads with `declaration` set on every hit area: design/components.css draws one with these.
+  const withEveryHitArea = (declaration, read) => {
+    const style = document.createElement('style');
+    style.textContent = `button::before, .button::before, .hit-area-2::before { ${declaration} !important; }`;
+    document.head.append(style);
+    try { return read(); } finally { style.remove(); }
+  };
+  const probe = document.body.appendChild(document.createElement('div'));
+  probe.style.cssText = 'position: absolute; visibility: hidden;';
+  const heights = sizes.map(([selector, value]) => {
+    probe.style.height = value;
+    return [selector, parseFloat(getComputedStyle(probe).height)];
+  });
+  probe.remove();
+  if (!heights.every(([, height]) => height > 0)) throw new Error(`a Supabase size did not resolve: ${JSON.stringify([sizes, heights])}`);
   const name = (el) => {
     if (el.id) return '#' + el.id;
     const classes = [...el.classList].filter((c) => !c.startsWith('is-'));
@@ -6855,42 +6909,97 @@ _SWEEP = """(scopeSelector) => {
   const shown = (el) => el.checkVisibility({visibilityProperty: true})
     && el.getBoundingClientRect().width >= 2 && el.getBoundingClientRect().height >= 2;
   const scope = document.querySelector(scopeSelector);
-  const out = {controls: [], stolen: []};
+  const out = {controls: [], stolen: [], widened: []};
   for (const el of scope.querySelectorAll(LIKE)) {
     if (!shown(el)) continue;
     el.scrollIntoView({block: 'center', inline: 'nearest'});
     const r = el.getBoundingClientRect();
     const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, r.height / 2, r.width / 2);
     const points = [];
-    for (let x = r.left + radius + 1; x <= r.right - radius - 1; x += 2) points.push([x, r.top + 0.75], [x, r.bottom - 0.75]);
-    for (let y = r.top + radius + 1; y <= r.bottom - radius - 1; y += 2) points.push([r.left + 0.75, y], [r.right - 0.75, y]);
-    for (const fx of [0.25, 0.5, 0.75]) for (const fy of [0.25, 0.5, 0.75]) points.push([r.left + r.width * fx, r.top + r.height * fy]);
-    for (const [x, y] of points) {
-      const other = taker(x, y);
-      if (!other || other === el || el.contains(other)) continue;
-      // Taken more than a pixel OUTSIDE the taker's own box is taken by its reach. Boxes
-      // that meet or overlap -- rows flush at a fractional height, which hit-testing snaps,
-      // or a label laid over its radio -- are on main too, and are not this test's.
-      const o = other.getBoundingClientRect();
-      if (x < o.left - 1 || x > o.right + 1 || y < o.top - 1 || y > o.bottom + 1) {
-        out.stolen.push(`${name(el)} by ${name(other)}`);
-      }
+    for (const depth of [0.75, 2.5, 4.5]) {
+      if (2 * depth < r.height) for (let x = r.left + radius + 1; x <= r.right - radius - 1; x += 2) points.push([x, r.top + depth], [x, r.bottom - depth]);
+      if (2 * depth < r.width) for (let y = r.top + radius + 1; y <= r.bottom - radius - 1; y += 2) points.push([r.left + depth, y], [r.right - depth, y]);
     }
+    for (const fx of [0.25, 0.5, 0.75]) for (const fy of [0.25, 0.5, 0.75]) points.push([r.left + r.width * fx, r.top + r.height * fy]);
+    const owns = (hit) => Boolean(hit) && (hit === el || el.contains(hit));
+    const held = withEveryHitArea('pointer-events: none', () => points.map(([x, y]) => owns(taker(x, y))));
+    points.forEach(([x, y], i) => {
+      const other = taker(x, y);
+      if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
+    });
     if (!el.matches('button, .button, input:not([type=checkbox]):not([type=radio]), select')) continue;
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 30; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
-    const kind = el.tagName === 'INPUT' ? 'input' : el.tagName === 'SELECT' ? 'select' : 'button';
-    out.controls.push({name: name(el), kind, height: r.height, reach: reach(-1) + reach(1)});
+    // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
+    // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
+    const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 48; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
+    const supabase = heights.find(([selector]) => el.matches(selector))[1];
+    out.controls.push({name: name(el), height: r.height, supabase, reach: reach(-1) + reach(1)});
   }
+  const scrollers = [document.scrollingElement, ...document.querySelectorAll('*')].filter((s) =>
+    s === document.scrollingElement || /auto|scroll|hidden/.test(getComputedStyle(s).overflow));
+  const at = scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
+  const extent = () => scrollers.map((s) => `${s.scrollWidth - s.clientWidth}x${s.scrollHeight - s.clientHeight}`);
+  const drawn = extent();
+  const bare = withEveryHitArea('content: none', extent);
+  scrollers.forEach((s, i) => { [s.scrollLeft, s.scrollTop] = at[i]; });
+  drawn.forEach((scrolls, i) => {
+    if (scrolls !== bare[i]) out.widened.push(`${name(scrollers[i])} scrolls ${scrolls}, and ${bare[i]} without its hit areas`);
+  });
   return out;
 }"""
+
+
+def read_the_sweep(page, scope: str, label: str, read: dict) -> None:
+    """Runs _SWEEP over `scope` on `page` and adds what it found to `read`, the
+    {"controls": {name: [control, ...]}, "stolen": [...], "widened": [...]} a sweep collects
+    over one surface, each finding under `label`, the screen it was read on."""
+    found = page.evaluate(_SWEEP, [scope, _SUPABASE_SIZES])
+    read["stolen"] += [f"{label}: {theft}" for theft in found["stolen"]]
+    read["widened"] += [f"{label}: {scroller}" for scroller in found["widened"]]
+    for control in found["controls"]:
+        read["controls"].setdefault(control["name"], []).append(control)
+
+
+def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: dict,
+                                             short_of_the_floor: dict) -> None:
+    """What every touch sweep holds over what read_the_sweep read on one surface (#1051): no
+    reach takes a tap inside another control's box, no hit area widens what a scroller scrolls,
+    and every control's box is no taller than its Supabase component's and its reach at least
+    the 44px floor, but for the controls named, each with its reason.
+
+    BOTH LISTS MAY ONLY SHRINK: a named control that comes down to its size, or up to the floor,
+    fails until its name goes, and a new one fails until it is named with its reason. A short
+    reach may not fall below the least named for it."""
+    assert not read["stolen"], (
+        "a hit area takes taps inside another control's box:\n  "
+        + "\n  ".join(sorted(set(read["stolen"]))))
+    assert not read["widened"], (
+        "a hit area widens what a scroller scrolls:\n  " + "\n  ".join(sorted(set(read["widened"]))))
+    controls = read["controls"]
+    taller = {name: max(c["height"] for c in seen) for name, seen in controls.items()
+              if any(c["height"] > c["supabase"] + 0.01 for c in seen)}
+    assert set(taller) == set(taller_than_supabase), (
+        f"taller than Supabase's size, not named: {sorted(set(taller) - set(taller_than_supabase))}\n"
+        f"named, and not taller any more (take the name out): "
+        f"{sorted(set(taller_than_supabase) - set(taller))}\n"
+        f"all: {dict(sorted(taller.items()))}")
+    short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
+             if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
+    assert set(short) == set(short_of_the_floor), (
+        f"reached across less than {_TOUCH_FLOOR}px, not named: "
+        f"{sorted(set(short) - set(short_of_the_floor))}\n"
+        f"named, and not short any more (take the name out): "
+        f"{sorted(set(short_of_the_floor) - set(short))}\n"
+        f"all: {dict(sorted(short.items()))}")
+    fell = {name: (reach, short_of_the_floor[name][0]) for name, reach in short.items()
+            if reach < short_of_the_floor[name][0] - 0.5}
+    assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
+
 
 _PADDING = ("#1430: its padding and type, or a literal height off Supabase's scale, stand it "
             "taller than its SIZE height")
 _NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
               "44px floor on its box")
-_INSIDE_A_GROUP = ("Supabase's size: it fills its InputGroup's 34px inside the group's border "
-                   "(input-group.tsx@86c813ec:170, -m-px)")
 _TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
                  "Supabase component it is cannot be computed")
 _A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
@@ -6903,7 +7012,7 @@ _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
         "#add-cur", "#clear-sel", "#console-open", "#cur-use", "#db-integrity-check",
         "#db-open-backups", "#engine-download", "#engine-recheck", "#jobs-reload", "#manage-backup",
-        "#open-workbook", "#run", "#run-mode-trigger", "#runtime-upgrade", "#select-all",
+        "#open-workbook", "#run", "#runtime-upgrade", "#select-all",
         "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
         "#source-edit-save", "#source-edit-wipe", "#source-manager-add", "button.accounts-action",
         "button.ghost.source-manager-edit", "button.split-button-primary"], _PADDING),
@@ -6911,9 +7020,6 @@ _TALLER_THAN_SUPABASE = {
         "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
         "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
         "#source-edit-vat", "#source-manager-filter"], _NO_BEFORE),
-    **dict.fromkeys([
-        "#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
-        _INSIDE_A_GROUP),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
@@ -6952,13 +7058,14 @@ def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
     reach longer than the gap to a neighbour takes the edge of the neighbour's box: Supabase
     keeps adjacent reaches a gap apart for that reason
     (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Every point along
-    the inside edge of every control-like box on these screens is read, and each must be
-    taken by that control. Measured in the web UI, a 2x2 grid of filters 4px apart failed it
-    until scrapex/webui/static/pages/schedules.css kept their floor on the box."""
+    the inside edges of every control-like box on these screens is read, and a point the
+    control holds with every hit area off must still be its with them on (_SWEEP says why).
+    Measured in the web UI, a 2x2 grid of filters 4px apart failed it until
+    scrapex/webui/static/pages/schedules.css kept their floor on the box."""
     page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
     assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
         "the page did not open as a touch screen, so nothing below is about one")
-    controls, stolen = {}, []
+    read = {"controls": {}, "stolen": [], "widened": []}
     for scope, steps in _SWEEP_SCREENS:
         for kind, target in steps:
             if kind == "press":
@@ -6974,45 +7081,24 @@ def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
             """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
                  (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
             arg=scope, timeout=5_000)
-        found = page.evaluate(_SWEEP, scope)
-        stolen += [f"{scope}: {theft}" for theft in found["stolen"]]
-        for control in found["controls"]:
-            controls.setdefault(control["name"], []).append(control)
-    read = sum(map(len, controls.values()))
-    assert read >= 100 and len(controls) >= 70, (
-        f"the sweep read {read} controls under {len(controls)} names; a screen did not open")
-
-    assert not stolen, (
-        "a hit area takes taps inside another control's box:\n  " + "\n  ".join(sorted(set(stolen))))
-
-    taller = {name: max(c["height"] for c in seen) for name, seen in controls.items()
-              if any(c["height"] > _SUPABASE_HEIGHT[c["kind"]] + 0.01 for c in seen)}
-    assert set(taller) == set(_TALLER_THAN_SUPABASE), (
-        f"taller than Supabase's size, not named: {sorted(set(taller) - set(_TALLER_THAN_SUPABASE))}\n"
-        f"named, and not taller any more (take the name out): "
-        f"{sorted(set(_TALLER_THAN_SUPABASE) - set(taller))}\n"
-        f"all: {dict(sorted(taller.items()))}")
-
-    short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
-             if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
-    assert set(short) == set(_SHORT_OF_THE_FLOOR), (
-        f"reached across less than {_TOUCH_FLOOR}px, not named: "
-        f"{sorted(set(short) - set(_SHORT_OF_THE_FLOOR))}\n"
-        f"named, and not short any more (take the name out): "
-        f"{sorted(set(_SHORT_OF_THE_FLOOR) - set(short))}\n"
-        f"all: {dict(sorted(short.items()))}")
-    fell = {name: (reach, _SHORT_OF_THE_FLOOR[name][0]) for name, reach in short.items()
-            if reach < _SHORT_OF_THE_FLOOR[name][0] - 0.5}
-    assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
+        read_the_sweep(page, scope, scope, read)
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 100 and len(read["controls"]) >= 70, (
+        f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
+    assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
 
 
 @pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
 def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach(
         open_panel, touch):
     """The panel's listbox trigger is Supabase's SelectTrigger, small, 34px
-    (select.tsx@86c813ec:31-38 at SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:111). Until
-    #1051 it read --touch-target, a 48px box on every pointer. Its floor is the small height
-    now, and its padding stands it 38px, which is #1430's.
+    (select.tsx@86c813ec:31-38 at SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:62, :111).
+    Until #1051 it read --touch-target, a 48px box on every pointer.
+
+    34 IS A HEIGHT, NOT A FLOOR, and the value is one line, truncated, as Supabase's
+    `[&>span]:truncate` (select.tsx@86c813ec:53). As a floor, the 20px chevron stood the
+    trigger 38px, and on a 320px panel with a mouse the default mode's label wrapped and
+    stood it 54px.
 
     On a touch screen the 48px is its reach, through its hit area: a tap 23px from its centre
     lands on it and one 25px away does not. With a mouse the box is the reach, as Supabase's
@@ -7021,9 +7107,8 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
     settle_view(page, "run")
     trigger = page.locator("#run-mode-trigger")
     trigger.scroll_into_view_if_needed()
-    assert trigger.evaluate("el => getComputedStyle(el).minHeight") == "34px"
     box = trigger.bounding_box()
-    assert box and 34 <= box["height"] < 48, box
+    assert box and box["height"] == 34, box
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     reach = 23 if touch else box["height"] / 2 - 1
     beyond = 25 if touch else box["height"] / 2 + 2
@@ -7033,6 +7118,23 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
     assert "run-mode-trigger" not in missed, (
         f"{'touch' if touch else 'mouse'}: a tap {beyond}px from the trigger's centre landed on "
         f"it, so its reach is more than {'48px' if touch else 'its box'}: {missed}")
+
+    # The narrowest panel, with a value wider than the trigger: one line, inside a 34px box.
+    page.set_viewport_size({"width": 320, "height": 800})
+    narrow = trigger.evaluate("""(el) => {
+      const label = el.querySelector('[data-select-label]');
+      label.textContent = 'Update existing data from every source this panel reads';
+      // A line per distinct top: a truncated line is two rects, its text and its ellipsis.
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      const lines = new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const r = el.getBoundingClientRect(), l = label.getBoundingClientRect();
+      return {box: r.height, lines,
+              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth};
+    }""")
+    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True}, (
+        f"{'touch' if touch else 'mouse'}, 320px: a long value no longer stays one truncated "
+        f"line in the trigger's 34px: {narrow}")
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):

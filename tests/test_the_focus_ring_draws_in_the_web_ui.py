@@ -7,6 +7,8 @@ or thread. The warehouse is the small one tests/test_webui.py ingests.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
 pytest.importorskip("playwright")
@@ -25,8 +27,11 @@ PAGES = ["/", "/data", "/data-model", "/schema", "/changes", "/history", "/revie
          "/schedules", "/logs", "/exports", "/settings", "/sync", "/manage", "/source/ELSEWEDYSHOP"]
 
 
-@pytest.fixture()
-def webui(browser, tmp_path):  # noqa: F811
+@contextmanager
+def webui_page(browser, tmp_path, **page_options):
+    """A page of `browser`, opened with `page_options` (Playwright's new_page keywords), whose
+    requests to ORIGIN the engine's own app answers over the warehouse it builds in `tmp_path`.
+    tests/test_no_reach_takes_another_controls_tap.py opens one as a phone."""
     db_path = tmp_path / "harvest.db"
     conn = dbmod.connect(db_path)
     dbmod.migrate(conn)
@@ -38,7 +43,7 @@ def webui(browser, tmp_path):  # noqa: F811
     conn.commit()
     conn.close()
     client = TestClient(create_app(db_path))
-    page = browser.new_page(viewport={"width": 1280, "height": 900})
+    page = browser.new_page(**page_options)
 
     def serve(route):
         request = route.request
@@ -53,6 +58,12 @@ def webui(browser, tmp_path):  # noqa: F811
         yield page
     finally:
         page.close()
+
+
+@pytest.fixture()
+def webui(browser, tmp_path):  # noqa: F811
+    with webui_page(browser, tmp_path, viewport={"width": 1280, "height": 900}) as page:
+        yield page
 
 
 def test_every_control_on_every_page_draws_the_ring(webui):

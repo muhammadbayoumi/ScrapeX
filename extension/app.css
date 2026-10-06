@@ -77,7 +77,7 @@
   }
   .sx-select-trigger {
     width: 100%;
-    min-height: var(--control-height-small);
+    height: var(--control-height-small);
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -102,6 +102,15 @@
   }
   .sx-select.is-open .sx-select-trigger .sx-icon {
     transform: rotate(180deg);
+  }
+  /* Its height is SelectTrigger's h-[34px], a height and not a floor, and its value is one
+     line, truncated, as Supabase's `[&>span]:truncate` (select.tsx@86c813ec:53,
+     constants.ts@86c813ec:62). As a floor, the 20px chevron stood it 38px, and the default
+     mode's label, wrapping on a 320px panel with a mouse, 54px (#1051). */
+  .sx-select-trigger > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   /* Supabase's SelectTrigger is small, 34px (select.tsx@86c813ec:37-38 at
      SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:111), on every pointer. --touch-target,
@@ -1105,6 +1114,16 @@
   /* The Add Site panel holds the full settings form. Capping it keeps the other
      choices reachable without scrolling past every field. */
   .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
+  /* "Use this page" is the last thing in its panel, which clips so that it can open, so a hit
+     area reaching down lost its last 4px to the clip and gave the panel 4px to scroll on a
+     touch screen. It reaches up the whole of what its box lacks of the 44px floor instead,
+     Supabase's one-sided hit-area-t (hit-area.css@86c813ec:82-95), into the gap above (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    #cur-use {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
+  }
   .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .source-preview-icon { width: 1.0625rem; height: 1.0625rem; flex: none; margin-top: .125rem; }
   .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
@@ -1797,6 +1816,17 @@
   .profile-legal-sep {
     color: var(--muted);
     font-size: var(--fs-xs);
+  }
+  /* Signed in, the legal row sits on the bottom edge of the stage, the page's one scroller, so
+     a hit area reaching down past it made the page scroll by 10px on a touch screen. The row's
+     button reaches up the whole of what its box lacks of the 44px floor instead, Supabase's
+     one-sided hit-area-t (hit-area.css@86c813ec:82-95), over the row's top padding and the
+     page's free space above it, where no control stands (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    .profile-legal button {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
   }
 
   /* ---- the accounts card ------------------------------------------------

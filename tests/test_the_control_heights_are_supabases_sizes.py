@@ -58,8 +58,9 @@ GROUP_INSIDE = "input-group.tsx@86c813ec:170 -m-px: the Input fills the group in
 GROUP_BUTTON = ("input-group.tsx@86c813ec:122-137 InputGroupButton, a Button whose default size is "
                 "tiny, h-6, 24px (:125, :130, :137)")
 # The panel's own listbox trigger (app.js builds it beside a hidden native <select>): Supabase's
-# SelectTrigger, a <button> under Radix, sized by its cva default. It read --touch-target until
-# #1051, which moved that 48px into its hit area on a touch screen.
+# SelectTrigger, a <button> under Radix, sized by its cva default, h-[34px], a height and not a
+# floor. It read --touch-target until #1051, which moved that 48px into its hit area on a touch
+# screen.
 SELECT_TRIGGER = ("select.tsx@86c813ec:31-38 SelectTrigger, whose cva default is "
                   "SIZE_VARIANTS_DEFAULT, small (constants.ts@86c813ec:111)")
 
@@ -113,7 +114,7 @@ READS = {
     (APP, ".source-edit-back", "width"): (TINY, BUTTON),
     (APP, ".source-edit-back", "min-width"): (TINY, BUTTON),
     (APP, ".finance-number-field input", "min-height"): (SMALL, INPUT),
-    (APP, ".sx-select-trigger", "min-height"): (SMALL, SELECT_TRIGGER),
+    (APP, ".sx-select-trigger", "height"): (SMALL, SELECT_TRIGGER),
     (APP, ".finance-converter-row", "height"): (SMALL, GROUP),
     (APP, ".finance-converter-row input", "line-height"): (SMALL_INSIDE, GROUP_INSIDE),
     ("extension/console.css", ".map-cells", "min-height"): (TINY, BUTTON),
