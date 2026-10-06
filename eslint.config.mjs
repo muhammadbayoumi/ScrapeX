@@ -159,6 +159,13 @@ export default [
     rules: RULES,
   },
   {
+    // The grid's renderer is an ES module in both surfaces: it imports the
+    // vendored TanStack modules by path, and grid.js loads it with import().
+    files: ["scrapex/webui/static/datagrid.js"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: BROWSER },
+    rules: RULES,
+  },
+  {
     // The extension's own node:test files run on node, not in a page.
     files: ["extension/tests/**/*.mjs", "extension/tests/**/*.js"],
     languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: NODE },
