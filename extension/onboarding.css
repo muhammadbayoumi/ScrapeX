@@ -21,7 +21,7 @@ body { line-height: var(--lh-relaxed); }
   .step p { margin: .1rem 0; color: var(--muted); font-size: var(--fs); }
   .cmd-row { display: flex; gap: var(--sp-2); align-items: center; margin: var(--sp-1) 0; }
   .cmd-row .cmd { flex: 1; padding: var(--sp-2) var(--sp-3); overflow-x: auto; white-space: nowrap;
-    font-family: var(--font-mono); font-weight: var(--fw-regular-mono); background: var(--chip); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+    font-family: var(--font-mono); --fw-regular: var(--fw-regular-mono); background: var(--chip); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
   .actions { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-4); }
   .note { font-size: var(--fs-sm); color: var(--muted); margin-top: var(--sp-5); }
   .inline-note { margin: 0; }

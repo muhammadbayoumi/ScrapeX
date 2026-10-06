@@ -344,11 +344,13 @@
      font-extrabold. The claim holds for the library these components come from,
      which is what this ramp copies, and it holds nowhere wider. */
   --fw-regular: 450;
-  /* Their mono context's normal weight: globals.css@86c813ec:89 resets
-     --font-weight-normal to 400 inside code, .code-content, pre, kbd, samp and
-     .font-mono (:70-75). They re-declare the one token there; no selector of ours
-     reaches every mono run, so the value is a token of its own, and each rule that
-     sets --font-mono reads it (design/components.css says where). */
+  /* Their mono context's normal weight: globals.css@86c813ec:89 re-declares
+     --font-weight-normal as 400 inside code, .code-content, pre, kbd, samp and
+     .font-mono (:70-75). Here --fw-regular is re-declared as this inside the mono
+     context and nothing reads it as a weight, so a bare mono run inherits 450 and
+     only one that asks for the normal weight draws 400. No selector of ours reaches
+     every mono run, so each rule that sets --font-mono re-declares it too
+     (design/components.css says where). */
   --fw-regular-mono: 400;
   --fw-medium: 500;
   --fw-bold: 600;

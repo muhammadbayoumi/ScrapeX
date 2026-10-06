@@ -804,8 +804,9 @@ button.chip {
   flex: none;
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-regular-mono);
+  font-weight: var(--fw-regular);
   line-height: inherit;
   white-space: nowrap;
 }
@@ -901,22 +902,22 @@ code {
   font-size: 0.9em;
 }
 
-/* THE MONO CONTEXT DRAWS AT 400 (#752). Supabase names it in
+/* THEIR MONO CONTEXT (#752). Supabase names it in
    apps/design-system/styles/globals.css@86c813ec:70-75 -- `code, .code-content, pre,
-   kbd, samp, .font-mono` -- and resets --font-weight-normal to 400 inside it (:89).
-   This is that selector, with .tech and .code where they write .font-mono and
-   .code-content. A rule in another sheet that sets var(--font-mono) is reached by
-   none of it, so it states var(--fw-regular-mono) itself;
-   tests/test_the_body_reads_supabases_normal_weight.py names one that does not.
-   strong and b are left out: their reset moves the NORMAL weight only, so an
-   emphasised technical value stays emphasised. */
+   kbd, samp, .font-mono` -- and re-declares --font-weight-normal as 400 inside it
+   (:89). This is that selector, with .tech and .code where they write .font-mono and
+   .code-content. It sets no weight: a bare mono run inherits body's 450, and only a
+   run that asks for the normal weight, var(--fw-regular), draws 400. A rule in
+   another sheet that sets var(--font-mono) is reached by none of it, so it
+   re-declares the token itself; tests/test_the_body_reads_supabases_normal_weight.py
+   names one that does not. */
 code,
 pre,
 kbd,
 samp,
-.tech:not(strong, b),
-.code:not(strong, b) {
-  font-weight: var(--fw-regular-mono);
+.tech,
+.code {
+  --fw-regular: var(--fw-regular-mono);
 }
 
 .page-header {
@@ -1555,8 +1556,8 @@ samp,
 .split-button-option-tag {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-regular-mono);
 }
 
 /* The destructive split button.

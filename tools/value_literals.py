@@ -62,7 +62,10 @@ TIME = re.compile(r"(?<![\w.#-])(-?\d*\.?\d+)(ms|s)(?![\w-])")
 CURVE = re.compile(r"cubic-bezier\(([^)]*)\)")
 # The elements and classes their mono ramp is defined on (globals.css@86c813ec:70-75), as a
 # compound selector names them: a type selector leads its compound, a class is anywhere in it.
-MONO = re.compile(r"^(?:code|pre|kbd|samp)(?![\w-])|\.font-mono(?![\w-])|\.code-content(?![\w-])")
+# .tech and .code are this product's names for their .font-mono and .code-content, and
+# design/components.css re-declares the normal weight on them (#752).
+MONO = re.compile(r"^(?:code|pre|kbd|samp)(?![\w-])"
+                  r"|\.(?:font-mono|code-content|tech|code)(?![\w-])")
 
 
 def authored() -> list[Path]:
