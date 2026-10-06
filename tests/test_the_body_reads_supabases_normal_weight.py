@@ -28,9 +28,10 @@ rule that sets the mono family re-declares the token itself. A rule that does ne
 here, by file and line. So does a mono rule that sets the normal weight without reading the
 token, and anything that reads --fw-regular-mono as a weight: each draws the same number
 whether its run asks for the normal weight or not. So does any other declaration of either
-token outside design/tokens.css: the cascade keeps a rule's last declaration and every run
-inside the rule inherits it, so a second value in a mono rule takes its runs back out of the
-context, and the mono value in a sans rule puts sans runs into it.
+token than :root's one each in design/tokens.css: the cascade keeps a rule's last declaration
+and every run inside the rule inherits it, so a second value in a mono rule takes its runs
+back out of the context, the mono value in a sans rule puts sans runs into it, and a dark
+block moves every run in that theme alone.
 
 That the weights COMPUTE, and that 450 is drawn by the variable face rather than rounded to
 400, is measured in a browser by tests/test_the_normal_weight_draws_on_both_surfaces.py.
@@ -58,16 +59,14 @@ COMPONENTS = ROOT / "design" / "components.css"
 RESET = "code, pre, kbd, samp, .tech, .code"
 #: What their :89 is here: the normal weight, re-declared to the mono context's.
 RE_DECLARED = ("--fw-regular", "var(--fw-regular-mono)")
+#: The two normal weights: their --font-weight-normal, and the value their :89 re-declares it to.
+NORMAL_WEIGHTS = ("--fw-regular", "--fw-regular-mono")
 
 #: The values that leave the weight to the parent rather than set one.
 INHERITING = {"inherit", "unset", "revert", "revert-layer"}
 #: The normal weight written without the token: the sans normal, the mono normal, and the
 #: keywords that compute 400: `normal`, and `initial`, the property's initial value.
 LITERAL_NORMAL = {"450", "400", "normal", "initial"}
-
-
-def _root(css: str) -> str:
-    return css.split(":root {", 1)[1].split("\n}", 1)[0]
 
 
 def _rules(path: Path) -> dict[str, list[tuple[str, str, int]]]:
@@ -131,8 +130,7 @@ def re_declared_otherwise(path: Path) -> list[str]:
         mono = is_mono(selector) or any(_sets_mono(prop, value) for prop, value, _line in props)
         found += [f"{path.relative_to(ROOT).as_posix()}:{line} {selector} {{ {prop}: {value} }}"
                   for prop, value, line in props
-                  if prop in ("--fw-regular", "--fw-regular-mono")
-                  and not (mono and (prop, value) == RE_DECLARED)]
+                  if prop in NORMAL_WEIGHTS and not (mono and (prop, value) == RE_DECLARED)]
     return found
 
 
@@ -148,10 +146,16 @@ def test_the_body_draws_at_their_normal_weight():
 
 
 def test_the_tokens_hold_both_normal_weights():
-    root = _root(TOKENS.read_text(encoding="utf-8"))
-    assert re.search(r"^\s*--fw-regular:\s*450;", root, re.M), "their --font-weight-normal (:35)"
-    assert re.search(r"^\s*--fw-regular-mono:\s*400;", root, re.M), (
-        "their --font-weight-normal inside the mono context (globals.css@86c813ec:89)")
+    """Every declaration of either in design/tokens.css, not whether :root holds one: the
+    cascade keeps the last, so a second :root line would decide what every run reads, and a
+    dark block would decide it in that theme alone, which no probe opens."""
+    found = [(selector, prop, value)
+             for selector, prop, value, _line in declarations(TOKENS.read_text(encoding="utf-8"))
+             if prop in NORMAL_WEIGHTS]
+    assert found == [(":root", "--fw-regular", "450"), (":root", "--fw-regular-mono", "400")], (
+        f"design/tokens.css declares {found}. Its :root alone declares each, once: their "
+        "--font-weight-normal, 450 (globals.css@86c813ec:35), and the 400 their mono context "
+        "re-declares it to (:89).")
 
 
 def test_the_reset_is_their_mono_selector():
