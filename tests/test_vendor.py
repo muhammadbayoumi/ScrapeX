@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import re
 import struct
+import sys
 
 import pytest
 
@@ -30,6 +31,158 @@ TEMPLATES = ROOT / "scrapex" / "webui" / "templates"
 MATERIAL_ICONS = VENDOR.parent / "material-icons"
 CANONICAL_ICON_SPRITE = ROOT / "design" / "material-icons.svg"
 
+TANSTACK = VENDOR / "tanstack"
+EXTENSION_TANSTACK = EXTENSION_VENDOR / "tanstack"
+#: The modules datagrid.js imports, which every other vendored module hangs from.
+ENTRIES = ("table-core/index.js", "table-core/store-reactivity-bindings.js",
+           "virtual-core/index.js")
+PACKAGES = ("table-core", "store", "virtual-core")
+_SPECIFIER = re.compile(r"""(?:\bfrom\s*|\bimport\s*)(["'])([^"']+)\1""")
+_COMMENT = re.compile(r"/\*[\s\S]*?\*/|^\s*//[^\n]*$", re.M)
+
+
+def _vendored(root: Path) -> dict[str, bytes]:
+    return {path.relative_to(root).as_posix(): path.read_bytes().replace(b"\r\n", b"\n")
+            for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def _imports(source: str) -> list[str]:
+    """What a module imports, read from its code: its JSDoc carries prose examples."""
+    return [match.group(2) for match in _SPECIFIER.finditer(_COMMENT.sub("", source))]
+
+
+@pytest.mark.parametrize("entry", ENTRIES)
+def test_the_modules_the_grid_imports_are_vendored(entry):
+    """A missing module is worse than a missing file: the page loads, the grid
+    silently does not, and only the table's note says why."""
+    assert (TANSTACK / entry).is_file(), (
+        f"{entry} is not vendored — the grid's renderer cannot load offline")
+
+
+@pytest.mark.parametrize("package", PACKAGES)
+def test_the_licence_travels_with_the_code(package):
+    """MIT requires the notice to be distributed with the software. Shipping the
+    modules and dropping a licence is a licence violation, not an oversight."""
+    for root in (TANSTACK, EXTENSION_TANSTACK):
+        licence = (root / package / "LICENSE").read_text(encoding="utf-8")
+        assert "MIT" in licence and "Copyright" in licence, root / package
+
+
+def test_every_vendored_module_loads_in_a_page_as_it_is():
+    """THE THREE REWRITES tools/vendor_tanstack.py makes, held here. A bare import
+    resolves only through an import map, which the extension's MV3 policy refuses;
+    a `process` read throws in a page; a source-map line names a file that is not
+    vendored. And every relative import must land on a module that is."""
+    modules = {path.relative_to(TANSTACK).as_posix(): path.read_text(encoding="utf-8")
+               for path in TANSTACK.rglob("*.js")}
+    assert len(modules) > 80, f"only {len(modules)} modules are vendored"
+    for name, source in modules.items():
+        code = _COMMENT.sub("", source)
+        for spec in _imports(source):
+            assert spec.startswith("."), f"{name} imports the bare name {spec!r}"
+            target = (Path(name).parent / spec).as_posix()
+            target = "/".join(_normalise(target.split("/")))
+            assert target in modules, f"{name} imports {spec}, which is not vendored"
+        assert "process.env" not in code, f"{name} still reads process.env"
+        assert "sourceMappingURL" not in source, f"{name} names a source map"
+        assert "import(" not in code, f"{name} imports dynamically"
+
+
+def _normalise(parts: list[str]) -> list[str]:
+    out: list[str] = []
+    for part in parts:
+        if part == "..":
+            out.pop()
+        elif part not in (".", ""):
+            out.append(part)
+    return out
+
+
+@pytest.fixture(scope="module")
+def chromium():
+    """ONE Chromium for the file, launched only if a test asks for it, as every
+    browser file does (tests/test_a_browser_is_launched_once_per_file.py)."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
+def test_the_vendored_modules_build_a_table_in_a_real_page(chromium):
+    """THE GUARD ABOVE, PROVED IN CHROMIUM. Reading the text cannot show that the
+    rewritten store path resolves, or that nothing else reads `process` at import
+    time; a page importing the shipped files can. A sorted table and a Virtualizer
+    out of the vendored bytes, served as the extension and the engine serve them."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import tabpage_harness
+
+    build = """async (base) => {
+      try {
+        const t = await import(base + "/tanstack/table-core/index.js");
+        const bindings = await import(base + "/tanstack/table-core/store-reactivity-bindings.js");
+        const v = await import(base + "/tanstack/virtual-core/index.js");
+        const features = t.tableFeatures({
+          coreReactivityFeature: bindings.storeReactivityBindings(),
+          rowSortingFeature: t.rowSortingFeature,
+          sortedRowModel: t.createSortedRowModel(),
+        });
+        const table = t.constructTable({
+          features,
+          data: [{n: 2}, {n: 1}, {n: 3}],
+          columns: [{id: "n", accessorFn: (row) => row.n,
+                     sortFn: (a, b, id) => a.getValue(id) - b.getValue(id)}],
+          initialState: {sorting: [{id: "n", desc: true}]},
+        });
+        return {sorted: table.getSortedRowModel().rows.map((row) => row.original.n),
+                virtualizer: typeof v.Virtualizer};
+      } catch (error) {
+        return {error: String(error && error.stack || error)};
+      }
+    }"""
+    errors: list[str] = []
+    with tabpage_harness.serve(VENDOR) as base:
+        context = chromium.new_context()
+        try:
+            page = context.new_page()
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            # Any page of that origin will do: what is under test is what it imports.
+            page.goto(f"{base}/README.md")
+            result = page.evaluate(build, base)
+        finally:
+            context.close()
+    assert "error" not in result, result["error"]
+    assert result == {"sorted": [3, 2, 1], "virtualizer": "function"}
+    assert errors == []
+
+
+def test_the_extension_carries_the_same_vendored_bytes():
+    """TWO COPIES, and this is what stops them becoming two libraries.
+
+    The Data page moved out of the engine (plan B2) and MV3 forbids loading a
+    script from anywhere but the extension, so the grid's libraries are vendored
+    a second time under extension/vendor/. Two copies that drift are worse than
+    one: the engine's page and the panel's would render the same table through
+    different code, and the difference would show up as a bug in the data.
+
+    tools/vendor_tanstack.py writes BOTH; this fails until both are written.
+    """
+    ours = _vendored(EXTENSION_TANSTACK)
+    theirs = _vendored(TANSTACK)
+    assert sorted(ours) == sorted(theirs), (
+        "the engine's and the extension's vendored files differ: "
+        f"{sorted(set(ours) ^ set(theirs))}")
+    changed = [name for name in ours if ours[name] != theirs[name]]
+    assert not changed, (
+        f"the engine's and the extension's copies of {changed} have diverged. One of "
+        "them was upgraded and the other was not, so the same table now renders "
+        "through two different libraries")
+
+
+# TABULATOR, UNTIL THE GRID DRAWS THROUGH TANSTACK (#1342). These go with the
+# files, in the change that deletes them; nothing here is updated again.
 # name -> (minimum plausible size, a string that must appear in it)
 EXPECTED = {
     "tabulator.min.js": (300_000, "Tabulator"),
@@ -50,7 +203,7 @@ def test_the_vendored_file_is_present_and_whole(name):
     assert marker.encode() in data or marker.lower().encode() in data.lower()
 
 
-def test_the_licence_travels_with_the_code():
+def test_tabulators_licence_travels_with_the_code():
     """MIT requires the notice to be distributed with the software. Shipping the
     minified file and dropping its licence is a licence violation, not an
     oversight."""
@@ -70,7 +223,7 @@ def _normalised(path: Path) -> bytes:
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
-def test_the_extension_carries_the_same_vendored_bytes(name):
+def test_the_extension_carries_the_same_tabulator_bytes(name):
     """TWO COPIES NOW, and this is what stops them becoming two libraries.
 
     The Data page moved out of the engine (plan B2) and MV3 forbids loading a
