@@ -1015,7 +1015,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: var(--control-height-sm);
+  min-height: var(--control-height-tiny);
   padding: .45rem .75rem;
   color: var(--text);
   background: var(--control-bg);
