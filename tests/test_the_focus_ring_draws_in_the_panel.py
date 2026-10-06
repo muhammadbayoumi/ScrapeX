@@ -7,6 +7,7 @@ import pytest
 
 pytest.importorskip("playwright")
 from tests.test_panel_dom import ROOT, _contrast, _over, browser, open_panel  # noqa: E402,F401  (the fixtures)
+from tests.test_tab_page_dom import open_data  # noqa: E402,F401  (the fixture)
 
 # Guards the extension's panel; see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -17,7 +18,8 @@ READ = """() => {
   const colour = (v) => { probe.style.color = ''; probe.style.color = v; return getComputedStyle(probe).color; };
   const read = {id: el.id, visible: el.matches(':focus-visible'), shadow: s.boxShadow,
                 outline: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.outlineOffset],
-                bg: colour('var(--bg)'), ring: colour('var(--focus-ring-color)')};
+                bg: colour('var(--bg)'), ring: colour('var(--focus-ring-color)'),
+                border: s.borderTopColor, fieldBorder: colour('var(--line-control-hover)')};
   probe.remove();
   return read;
 }"""
@@ -57,7 +59,8 @@ def test_the_enrichment_page_keeps_the_ring_on_every_field(browser, control):
     """#745: extension/enrichment.css cancelled the shared ring on all six fields of the
     panel's enrichment page, loaded after components.css at the same specificity. Each
     now draws it. (Chromium matches `:focus-visible` on a select or text field focused by
-    the mouse too, so a click shows it there as well; that is the browser's rule.)"""
+    the mouse too, so a click shows it there as well; that is the browser's rule.) And its
+    border takes Supabase's neutral control border, not the brand (#748)."""
     page = browser.new_page(viewport={"width": 900, "height": 900})
     try:
         page.goto((ROOT / "extension" / "enrichment.html").as_uri())
@@ -68,6 +71,7 @@ def test_the_enrichment_page_keeps_the_ring_on_every_field(browser, control):
         assert read["id"] == control[1:] and read["visible"], read
         assert read["outline"] == ["solid", "2px", read["ring"], "2px"], read
         assert read["shadow"] == f"{read['bg']} 0px 0px 0px 2px", read
+        assert read["border"] == read["fieldBorder"] != read["ring"], read
     finally:
         page.close()
 
@@ -90,14 +94,15 @@ CHECK = r"""async ({where, leftTo, skip}) => {
   // count: the gap every control paints is a shadow, in the background's colour.
   const visible = (el) => { const s = getComputedStyle(el);
     return outlined(s) && s.outlineColor !== 'rgba(0, 0, 0, 0)'; };
-  // An element nobody can see draws nothing, however its outline computes: the Source
-  // view's radios are opacity 0, and the card around them is what draws the ring.
-  const paintable = (el) => {
-    if (getComputedStyle(el).visibility === 'hidden') return false;
+  // The opacity an element is painted at: its own times every ancestor's.
+  const strength = (el) => {
     let opacity = 1;
     for (let at = el; at; at = at.parentElement) opacity *= parseFloat(getComputedStyle(at).opacity);
-    return opacity > 0.05;
+    return opacity;
   };
+  // An element nobody can see draws nothing, however its outline computes: the Source
+  // view's radios are opacity 0, and the card around them is what draws the ring.
+  const paintable = (el) => getComputedStyle(el).visibility !== 'hidden' && strength(el) > 0.05;
   // Whether at least two sides of the outline survive every ancestor that clips, and the
   // viewport. A ring cut on all four is computed and never seen, and one left with a
   // single edge is a line that a font's metrics can take too: the finance summary kept
@@ -134,7 +139,7 @@ CHECK = r"""async ({where, leftTo, skip}) => {
       ? done() : requestAnimationFrame(tick); tick(); });
   const name = (el) => `${where}: ${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`
     + [...el.classList].map(c => '.' + c).join('');
-  const seen = {controls: 0, opened: 0, ringless: [], clipped: [], doubled: []};
+  const seen = {controls: 0, opened: 0, ringless: [], clipped: [], doubled: [], faded: []};
   // A control inside a closed disclosure cannot take focus, so each one is opened first;
   // otherwise the switches in the finance preferences are never measured.
   document.querySelectorAll('details:not([open])').forEach(d => { d.open = true; seen.opened++; });
@@ -158,6 +163,10 @@ CHECK = r"""async ({where, leftTo, skip}) => {
       drawers.push(track);
     if (!drawers.length) { seen.ringless.push(name(el)); continue; }
     if (!shown(drawers[0])) seen.clipped.push(name(el));
+    // The probe's 3:1 is the ring colour at full strength, and opacity fades a ring with
+    // its element: the grid's popup button rests at .55, which takes its ring to 1.8:1
+    // in dark mode once its own focus rule is gone (#1453).
+    if (strength(drawers[0]) < 1) seen.faded.push(`${name(el)} at ${strength(drawers[0]).toFixed(3)}`);
     // A text field under a wrapper that draws the ring drops its own ring and its gap. A
     // checkbox or radio inside a card keeps its own, as it did before #721.
     if (el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea') && paintable(el)) {
@@ -184,7 +193,7 @@ def test_every_control_in_every_view_draws_the_ring(open_panel):
     page = open_panel()
     page.keyboard.press("Tab")  # keyboard modality; the views are switched by script, not a click
     views = page.eval_on_selector_all("nav.side-rail button[data-view]", "buttons => buttons.map(b => b.dataset.view)")
-    seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": []}
+    seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": [], "faded": []}
     for view in views:
         page.evaluate("""(view) => new Promise(done => {
           document.querySelector(`nav.side-rail button[data-view="${view}"]`).click();
@@ -196,3 +205,18 @@ def test_every_control_in_every_view_draws_the_ring(open_panel):
     assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
     assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
+    assert not seen["faded"], f"controls whose ring is painted below full opacity: {seen['faded']}"
+
+
+def test_every_control_on_the_data_page_draws_the_ring(open_data):
+    """The grid has two homes, and the web UI's was the only one swept: the same check,
+    over the extension's Data page (extension/data.html) with its grid drawn."""
+    page = open_data()
+    page.keyboard.press("Tab")  # keyboard modality, so programmatic focus is :focus-visible
+    seen = sweep(page, "data")
+    # 28 when written, six of them the popup buttons in the grid's header.
+    assert seen["controls"] >= 25, seen
+    assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
+    assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
+    assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
+    assert not seen["faded"], f"controls whose ring is painted below full opacity: {seen['faded']}"

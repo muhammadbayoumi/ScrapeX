@@ -41,6 +41,61 @@
  * it called "deprecated ... migration debt" was the fallback a fresh user
  * actually saw, and it is deleted here rather than deprecated again.
  * ======================================================================== */
+/* THE FOUR FACES, SHIPPED (#1048). Supabase's three -- the faces their stacks name
+ * (apps/design-system/styles/globals.css@86c813ec:13-16) -- and Noto Sans Arabic, which
+ * #1040 adopted where Supabase is silent. Each is google/fonts' own variable TTF at
+ * b5efa9c3, unsubset, as he chose (#1040), with its OFL.txt beside it.
+ *
+ * THE url() IS RELATIVE ON PURPOSE. It is read against this sheet, and
+ * tools/sync_design_assets.py puts a fonts/ directory beside every copy of it, so the
+ * one line resolves on the extension and on the engine alike. Nothing is fetched from
+ * a host: an extension page draws itself from its own package, and the engine serves
+ * its own pages with no connection.
+ *
+ * font-weight is each file's own `wght` axis, so every weight here is drawn by the
+ * variable face and none is synthesised. font-display is Supabase's: every face they
+ * load is `display: 'swap'` (apps/studio/fonts/index.ts@86c813ec:6,12,30).
+ * tests/test_the_faces_ship_with_their_licences.py reads both from the files.
+ *
+ * UPRIGHT FACES ONLY, BY HIS CHOICE (#1431, issuecomment-6000869384). Supabase's
+ * sources disagree, so this is recorded rather than picked silently. The design
+ * system's own loader loads upright faces only
+ * (apps/design-system/lib/fonts.ts@86c813ec:10-23); studio's ships an italic Inter
+ * and an italic Source Code Pro (apps/studio/fonts/index.ts@86c813ec:20-24 and
+ * :38-42); and their docs say "No italics for emphasis"
+ * (apps/design-system/content/docs/copywriting.mdx@86c813ec:241). So no italic file
+ * ships, and the browser slants the upright file for the few italic runs there are
+ * -- `.unverified` in table-theme.css, and the web UI's <em>, whose emphasis #1436
+ * takes. test_every_face_is_upright_by_his_choice fails on an italic @font-face or
+ * an italic file, so adding one is a decision, not drift. */
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter/Inter-opsz-wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Manrope";
+  src: url("fonts/manrope/Manrope-wght.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Code Pro";
+  src: url("fonts/sourcecodepro/SourceCodePro-wght.ttf") format("truetype");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans Arabic";
+  src: url("fonts/notosansarabic/NotoSansArabic-wdth-wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   color-scheme: light;
 
@@ -64,6 +119,16 @@
      النظام». The floor is one of the decisions that conflicts, and it yielded.
      The number is written here so that nobody rediscovers it as a defect. */
   --line-strong: #d0d0d0;
+  /* A FOCUSED FIELD'S BORDER (#748). Their Input paints `focus:border-control-hover`
+     (packages/ui/src/components/shadcn/ui/input.tsx@86c813ec:15), a neutral, not the
+     brand and not the ring. Their --border-control-hover is
+     oklch(from --foreground l calc(c * 0.5) h / calc(12% + 58% * --contrast-border))
+     (packages/ui/build/css/source/semantic.css@86c813ec:263-265), an alpha overlay
+     like --border-stronger above, so this ships the --card composite for the same
+     reason: alpha 0.298 at light's --contrast 0.53. Over --background it is #b3b3b3.
+     MEASURED: 2.073:1 on --surface. The ring beside it is the focus indicator; this
+     only marks which field holds it. */
+  --line-control-hover: #b4b4b4; /* --border-control-hover light derived */
   --text: #030303;            /* --foreground */
   --muted: #464646;           /* --muted-foreground */
   --text-subtle: #696969;     /* --tertiary-foreground */
@@ -140,26 +205,22 @@
      computed to `unset` -- transparent -- and a pressed split-button option showed
      the container behind it while only its border darkened: a press that
      half-registered.
-     AN ALIAS, NOT A 37th THEME PROPERTY. The ladder is already
+     AN ALIAS, NOT ANOTHER THEME PROPERTY. The ladder is already
      --control-bg (--surface) -> --control-hover (--surface-subtle) -> and --chip is
      the next step down in both schemes. Deriving from it means the pressed state
-     follows the palette for free, and `THEME_PROPERTIES` stays
-     at 36 with no palette gaining a cell -- which is what R-59 decision 4 argues
+     follows the palette for free, and `THEME_PROPERTIES` does not
+     grow, with no palette gaining a cell -- which is what R-59 decision 4 argues
      for: components consume semantic roles. OP-103, and the fix docs/LESSONS.md
      proposed. */
   --control-active: var(--chip);
-  --control-height: 2.5rem;
-  --control-height-sm: 2rem;
-  /* The third notch, added 2026-08-11 by the owner's ruling on the Profile
-     top bar: «وضيف فى القاعدة العامة الاختيارين» — carry BOTH sizes in the
-     general rule rather than let one screen override it locally.
-     It is deliberately NOT re-declared in extension/app.css. The extension
-     shifts the other two notches up (see the :root block at the top of that
-     file) because a side panel is a pointer surface with a 48px floor; this
-     one exists for the quiet, secondary icon control the Profile design asks
-     for, and it is the same 32px on both surfaces. Anything a finger must hit
-     reliably still uses --control-height or --touch-target. */
-  --control-height-xs: 2rem;
+  /* Supabase's SIZE.height, named by its size: tiny is their Button's default
+     (Button.tsx@86c813ec:192), small their Input's and Select's
+     (input.tsx@86c813ec:31, SIZE_VARIANTS_DEFAULT at constants.ts@86c813ec:111).
+     Their scale is 26/34/38/42/50 (constants.ts@86c813ec:61-65) and nothing here
+     maps to a larger size yet. tests/test_the_control_heights_are_supabases_sizes.py
+     names every read with the component it is (#1050). */
+  --control-height-tiny: 26px;
+  --control-height-small: 34px;
   --touch-target: 3rem;
 
   /* Spacing — 4px base */
@@ -188,24 +249,23 @@
   --radius-xl: 0.75rem;
   --radius-sheet: 1rem;
   --radius-pill: 999px;
-  /* Elevation — and Supabase's position on it is "almost none". They define ZERO
-     shadow tokens: depth is a surface-colour ladder plus a 1px border, their
-     Dialog is `border shadow-md dark:shadow-xs` so the border is unconditional
-     and the shadow is what gets dropped. (An earlier line here claimed
-     `shadow-none` appears in more of their files than `shadow-md`. Measured over
-     packages/ui and packages/ui-patterns it is the other way round: shadow-none
-     in 7 files / 13 uses, shadow-md in 11 files / 13 uses. The position is still
-     "almost none" -- they author ZERO shadow tokens, which is the part that
-     matters -- but the count said something untrue.) Even their box-shadow
-     utilities draw a 1px line
-     at zero blur. So these are deliberately flat, and flatter again in the dark
-     blocks below. OP-95: --shadow-lg's colour was a literal while its two
-     siblings derived from --shadow-color, so no appearance could re-tone it;
-     all three derive now. */
-  --shadow-color: rgb(3 3 3 / 0.06);
-  --shadow-xs: 0 1px 2px var(--shadow-color);
-  --shadow-sm: 0 1px 3px var(--shadow-color);
-  --shadow-lg: 0 8px 24px var(--shadow-color);
+  /* Elevation is what Supabase's atoms render (#1049). They author ZERO shadow
+     tokens -- none of their CSS at the pin declares --shadow-* -- and their atoms
+     write Tailwind's shadow-* classes, so these four are
+     packages/tailwindcss/theme.css@v4.2.4:407-410 verbatim, the version their
+     pnpm-lock.yaml@86c813ec:2618-2620 resolves (docs/DESIGN-SYSTEM-SOURCES.md,
+     "Tailwind's values, stated once"). Menus, popovers and selects cast md, a
+     Sheet casts lg, and the Dialog casts md and drops to xs in dark AT THE ATOM,
+     so no dark block re-declares any of them.
+     tests/test_the_shadows_are_what_supabases_atoms_render.py pins the strings
+     and which surface casts which. Until then they were this product's own: one
+     tint, rgb(3 3 3 / 0.06), at offsets of its own, darkened again in both dark
+     blocks, with no md at all. --shadow-color went with them, because Tailwind's
+     strings carry their own colour and nothing read it any more. */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow: var(--shadow-xs);
   /* Published exactly: their dialog overlay is `bg-black/40`, identical in both
      schemes, so this one value is not re-declared in the dark blocks. */
@@ -218,16 +278,38 @@
      their packages/config is a dead self-referential var() fallback, which is
      where third-party token extractors still get the Circular claim from.
 
-     NOTHING IS FETCHED. The faces are named first and the system stack is kept
-     behind them, so a machine that has Inter uses it and one that does not is
-     unchanged -- no web font, no CSP problem in the extension, no offline
-     failure. "Noto Sans Arabic" STAYS in every stack: this product is read and
-     written in Arabic and neither Inter nor Manrope covers it. */
-  --font: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
-    "Noto Sans Arabic", sans-serif;
-  --font-heading: Manrope, Inter, "Segoe UI", system-ui,
-    "Noto Sans Arabic", sans-serif;
-  --font-mono: "Source Code Pro", ui-monospace, "Cascadia Code", Consolas,
+     THE FACES SHIP NOW, from the @font-face blocks above this rule, and THE
+     STACKS ARE THEIRS: globals.css@86c813ec:13-16 in their order. Their
+     var(--font-inter) and var(--font-source-code-pro) are next/font's handles on
+     the face named right after them, so they are dropped -- the @font-face names
+     the face itself. --font-heading is their var(--font-manrope,
+     var(--font-sans)): Manrope, then the sans stack.
+
+     "Noto Sans Arabic" IS OURS, AND IT GOES DIRECTLY AFTER THE FIRST SHIPPED
+     LATIN FACE, so no face this product does not ship stands ahead of it. This
+     product is read and written in Arabic and none of their three faces covers
+     it. A glyph is drawn by the first family in the list that has it, and any
+     platform face ahead of Noto may have Arabic: system-ui is DejaVu Sans on
+     Linux and Segoe UI on Windows, and both do. Before the first generic
+     family was not enough either. Chromium aliases a missing Helvetica to Arial
+     (third_party/blink/renderer/platform/fonts/alternate_font_family.h:96-102),
+     Windows has no Helvetica, and Windows' Arial carries Arabic -- so behind
+     Helvetica, Noto would draw no Arabic on Windows while every Linux run
+     passed. His ruling (a') on #1431 puts it here.
+     Inter, Manrope and Source Code Pro hold no Arabic letter, so Noto draws
+     every one; each still leads its stack, so Latin is theirs. What moves is 9
+     code points Noto has and Inter lacks -- format characters, two combining
+     marks, the dotted circle and U+2E41 -- which Noto now draws ahead of
+     Helvetica. Their own entries keep their order. --font-heading writes no
+     list of its own: Manrope, then this one, so only Manrope and Inter stand
+     ahead of Noto. tests/test_the_faces_load_on_both_surfaces.py measures which
+     face draws, on this platform and under
+     tests/fixtures/fontconfig-windows/fonts.conf, which gives Helvetica a face
+     with Arabic as Windows does. */
+  --font: Inter, "Noto Sans Arabic", "Helvetica Neue", Helvetica, ui-sans-serif,
+    system-ui, sans-serif;
+  --font-heading: Manrope, var(--font);
+  --font-mono: "Source Code Pro", "Noto Sans Arabic", ui-monospace, Menlo,
     monospace;
   /* Their scale is shifted about 2px down from stock Tailwind, under their own
      comment "font sizing and weights optimized for Inter". The VALUES below match
@@ -292,22 +374,30 @@
      utility ramp across packages/ui and packages/ui-patterns is
      75/100/150/200/300/400/500/700/1000ms, dominated by 200 (14 uses) and 100 (6),
      and the `duration-250` utility is used ZERO times. Their animations.css uses
-     the literals 100ms, 200ms, 250ms and 300ms directly. So all three tokens below
-     match a duration they use, AND their most-used control transition, 200ms, has
-     no token here. Both sentences are about different objects; neither replaces
-     the other. */
+     the literals 100ms, 200ms, 250ms and 300ms directly. So every duration token
+     below matches a duration they use, AND --dur-200 is their most-used control
+     transition, the Button's `duration-200` (Button.tsx@86c813ec:21). Both
+     sentences are about different objects; neither replaces the other. */
   --dur-fast: 0.1s;
   --dur: 0.15s;
+  --dur-200: 200ms;
   --dur-slow: 0.25s;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-travel: cubic-bezier(0.87, 0, 0.13, 1);
+  /* TWO MORE CURVES ARE TAILWIND'S, under Tailwind's names, and Supabase's
+     components draw both. --ease-out is the Button's `ease-out`
+     (Button.tsx@86c813ec:20; tailwindcss theme.css@v4.2.4:435). --ease-in-out is
+     the curve every `transition-*` utility of theirs draws when it names none
+     (theme.css@v4.2.4:436 and :493), so a transition here that would say `ease`
+     reads it instead. */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Focus ring geometry — theirs is 2px at a 2px offset (`ring-2
      ring-offset-2`). Tokens rather than literals because a design system sets
      the ring's width and offset and not only its colour.
-     Two INSET rings keep their own 2px -- the split-button trigger and the
-     source row -- because an inset ring is sized against the control it sits
-     inside, not against the page. */
+     Every INSET ring reads them too, at minus the width (`focus-inset` below), but
+     one: the split-button trigger keeps its own 2px until #1059 rebuilds it. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   /* ONE FOCUS RECIPE (#721), Supabase's two utilities (packages/config/css/
@@ -387,6 +477,9 @@
      the same choice the light block makes and records as the honest transcription;
      the one-unit gap is compositing rounding. DERIVED, not published. */
   --line-strong: #3d3f3e;
+  /* Their --border-control-hover over --card, as in light: alpha 0.280 at dark's
+     --contrast 0.5. Over --background it is #505151. MEASURED: 2.338:1 on --surface. */
+  --line-control-hover: #545555; /* --border-control-hover dark derived */
   --text: #edefee;            /* --foreground */
   --muted: #bcbdbc;           /* --muted-foreground */
   --text-subtle: #989a99;     /* --tertiary-foreground */
@@ -423,14 +516,6 @@
      surface the palette sets. */
   --control-bg: var(--surface);
   --control-hover: #1e1f1e;
-  /* Dropped a further three steps from light, which is what their Dialog does:
-     `border shadow-md dark:shadow-xs`. The border is unconditional and the
-     shadow is the part that goes, because dark plates sit ~0.025 L apart and a
-     blur cannot separate them -- the 1px line can. */
-  --shadow-color: rgb(0 0 0 / 0.40);
-  --shadow-xs: 0 1px 1px var(--shadow-color);
-  --shadow-sm: 0 1px 2px var(--shadow-color);
-  --shadow-lg: 0 4px 16px var(--shadow-color);
   /* --overlay is NOT re-declared: their scrim is `bg-black/40` in both schemes,
      so repeating it here would be two declarations of one published value. */
 }
@@ -456,6 +541,7 @@
     --surface-raised: #1b1d1c;
     --line: #232423;
     --line-strong: #3d3f3e;
+    --line-control-hover: #545555;
     --text: #edefee;
     --muted: #bcbdbc;
     --text-subtle: #989a99;
@@ -480,10 +566,6 @@
     /* OP-94, the prefers-color-scheme copy of the same defect. */
     --control-bg: var(--surface);
     --control-hover: #1e1f1e;
-    --shadow-color: rgb(0 0 0 / 0.40);
-    --shadow-xs: 0 1px 1px var(--shadow-color);
-    --shadow-sm: 0 1px 2px var(--shadow-color);
-    --shadow-lg: 0 4px 16px var(--shadow-color);
   }
 }
 

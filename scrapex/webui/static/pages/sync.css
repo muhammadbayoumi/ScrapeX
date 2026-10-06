@@ -123,7 +123,7 @@
 }
 
 .sync-section-nav a {
-  min-height: var(--control-height-sm);
+  min-height: 2rem;
   padding: var(--sp-1) var(--sp-3);
   border-radius: var(--radius-pill);
   color: var(--text);

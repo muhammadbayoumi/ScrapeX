@@ -1,0 +1,68 @@
+{
+  "about": "THE ONE GLYPH MAP (#1056). It is the only declaration of which glyph each destination and each Engine-page candidate draws, and of where every glyph comes from. The side panel and the engine's templates both read it, and the panel's rail tabs for its own destinations (each <use> carrying data-glyph-destination in extension/app.html) are written from it; nothing else names a destination's glyph. The engine still sends WorkspaceDestination.icon (scrapex/ui_manifest.py), frozen, for panels released before this map; it never follows the map. AUTHORED IN design/glyph-map.json. Every other copy is a GENERATED COPY that tools/sync_design_assets.py writes, beside the engine's sprite and into extension/app.html; never edit one. A key missing from a table draws the fallback, which is null: no glyph at all, a declared absence, so the row keeps its label and no <use> is written for it.",
+  "rule": "A glyph's id is its source's key under sources, a -, and the name that source publishes, lowercased, with every _ written as -. Material publishes trending_up, so the id is material-trending-up; Material Symbols publishes folder_code, so the id is material-symbols-folder-code; Tabler publishes x-mark, so the id is tabler-x-mark. Every source's ids carry its key, so two sources never share an id. Only sprite ids carry the key: a source's own file keeps the name the source publishes it under (x-mark.svg). Adding a source adds one entry under sources. Changing a source renames its glyphs by this same rule, in the change that swaps their geometry.",
+  "sources": {
+    "material": {
+      "title": "Google Material Icons",
+      "licence": "Apache-2.0",
+      "repository": "https://github.com/google/material-design-icons",
+      "commit": "737e3324305806514d7909874fa1818ae1808232",
+      "published_names": "https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/font/MaterialIcons-Regular.codepoints",
+      "file": "material-icons.svg",
+      "glyphs": [
+        "menu", "menu_open", "dashboard", "storage", "trending_up", "history",
+        "play_circle", "schedule", "sync", "file_download", "description",
+        "language", "link", "insert_drive_file", "shopping_cart", "file_upload",
+        "photo_camera", "open_in_new", "arrow_back", "info", "tune",
+        "account_circle", "security", "dns", "chevron_right", "filter_list",
+        "more_vert", "arrow_upward", "arrow_downward", "check", "push_pin",
+        "fit_screen", "unfold_more", "unfold_less", "view_stream", "account_tree",
+        "view_column", "restart_alt", "close", "search", "drag_indicator",
+        "settings", "palette", "light_mode", "dark_mode", "add", "expand_more",
+        "logout"
+      ]
+    },
+    "material-symbols": {
+      "title": "Google Material Symbols, Outlined",
+      "licence": "Apache-2.0",
+      "repository": "https://github.com/google/material-design-icons",
+      "commit": "737e3324305806514d7909874fa1818ae1808232",
+      "published_names": "https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.codepoints",
+      "file": "material-icons.svg",
+      "glyphs": ["folder_code"]
+    },
+    "tabler": {
+      "title": "Tabler Icons, outline",
+      "licence": "MIT",
+      "repository": "https://github.com/tabler/tabler-icons",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "published_names": "https://github.com/tabler/tabler-icons/tree/a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d/icons/outline",
+      "file": "x-mark.svg",
+      "glyphs": ["x-mark"]
+    }
+  },
+  "fallback": null,
+  "destinations": {
+    "overview": "material-dashboard",
+    "data": "material-storage",
+    "changes": "material-trending-up",
+    "history": "material-history",
+    "review": "material-check",
+    "jobs": "material-play-circle",
+    "schedules": "material-schedule",
+    "sync": "material-sync",
+    "exports": "material-file-download",
+    "logs": "material-description",
+    "data-model": "material-account-tree",
+    "schema": "material-view-column",
+    "settings": "material-settings"
+  },
+  "engines": {
+    "scrapy": "material-dns",
+    "crawlee": "material-account-tree",
+    "crawl4ai": "material-description",
+    "firecrawl": "material-language",
+    "katana": "material-search",
+    "heritrix": "material-storage"
+  }
+}

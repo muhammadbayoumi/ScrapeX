@@ -238,6 +238,9 @@
     const normal = styles.getPropertyValue("--line").trim();
     const accent = styles.getPropertyValue("--accent").trim();
     const label = styles.getPropertyValue("--muted").trim();
+    // The labels are text like any other, so they take --font-mono rather than a
+    // stack of their own, which would miss Source Code Pro and the Arabic face (#1048).
+    const mono = styles.getPropertyValue("--font-mono").trim();
     const selected = state.selected ? tableById.get(state.selected) : null;
 
     activeDatabase().relationships.forEach((relation) => {
@@ -275,7 +278,7 @@
       context.globalAlpha = 1;
 
       context.fillStyle = highlighted ? accent : label;
-      context.font = "600 12px ui-monospace, Consolas, monospace";
+      context.font = `600 12px ${mono}`;
       context.fillText(one.label, one.x + (one.side > 0 ? 7 : -14), one.y - 5);
       context.fillText(many.label, many.x + (many.side > 0 ? 7 : -14), many.y - 5);
     });

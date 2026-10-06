@@ -26,6 +26,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from . import directories
+
 
 class CannotPairLocales(ValueError):
     """Two locales' readings of one group do not line up, so nothing is written.
@@ -328,6 +330,40 @@ def subtree_ids(conn: sqlite3.Connection, node_ids) -> frozenset[int]:
     return frozenset(int(row[0]) for row in rows)
 
 
+def selected_by_node(conn: sqlite3.Connection, dataset_id: int,
+                     node_ids) -> dict[int, list[int]]:
+    """Per node: the records of one dataset the table's filter keeps for that node alone.
+
+    THE FILTER, ANSWERED AHEAD OF TIME, for a reader with no engine (#1199). The table
+    keeps a record when it holds a membership anywhere in the chosen node's subtree:
+    one EXISTS per chosen node over `subtree_ids` (`extract.service.dataset_table_payload`).
+    So a reader holding these lists answers *any* as their union and *all* as their
+    intersection, and never needs the descent rule, which differs by group
+    (`held_counts`) and stays here rather than gaining a JavaScript copy.
+
+    ONE QUERY FOR THE MEMBERSHIPS, then one `subtree_ids` per node over a tree of about
+    214 nodes. Every record of the dataset is a candidate, whatever its status,
+    because the table filters on none (`R-27`).
+
+    Sorted, so two writes of one warehouse produce the same bytes.
+    """
+    held: dict[int, set[int]] = {}
+    for node_id, record_id in conn.execute(
+            "SELECT gn.node_id, gn.generic_record_id "
+            "  FROM generic_record_node AS gn "
+            "  JOIN generic_record AS r "
+            "    ON r.generic_record_id = gn.generic_record_id "
+            " WHERE r.dataset_definition_id = ?", (int(dataset_id),)):
+        held.setdefault(int(node_id), set()).add(int(record_id))
+    selected: dict[int, list[int]] = {}
+    for node in sorted({int(one) for one in node_ids}):
+        records: set[int] = set()
+        for member in subtree_ids(conn, (node,)):
+            records |= held.get(member, set())
+        selected[node] = sorted(records)
+    return selected
+
+
 def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
     """One group's vocabulary, with what holds it, ready for a filter control.
 
@@ -376,3 +412,38 @@ def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
                        "name": scheme["scheme_name"],
                        "name_ar": scheme["scheme_name_ar"]},
             "nodes": nodes, "undeclared": undeclared}
+
+
+def dataset_taxonomy(conn: sqlite3.Connection, dataset_key: str) -> dict:
+    """The vocabularies a dataset's rows point at, with what holds each node.
+
+    ONE FUNCTION, SO A SECOND READER CAN CALL IT: `GET /api/taxonomy/{dataset_key}`
+    answers it, and the light file (#1199, not yet built) is to store it for a reader
+    with no engine.
+
+    GROUPS THE SOURCE DECLARES AS TREES, AND THAT IS NOT A LITERAL LIST. muqawil
+    declares five multi-valued groups and two are wired; `kind="tree"` is the
+    declaration that says a group is a hierarchy, and it is `interests` alone today.
+    His ruling of 2026-09-08 defers `licensed_activities` to issue 800 -- it declares
+    `kind="table"` and stores leaves where interests stores whole paths -- and this
+    predicate expresses that without a second place to state it.
+
+    NO GROUPS, NOT AN ERROR, for a dataset with no vocabulary. Every generic dataset
+    can be asked this and most have none; an error would make the panel branch on the
+    source instead of on the answer. A declared group that stores nothing is left out.
+    """
+    # `BUILDERS` AND NOT `keys()`: the registry is the one list of directories this
+    # build can crawl, and `directoryjob` already refuses a source that is not in
+    # it -- so the lookup and the refusal read the same dict.
+    directory = next(
+        (one for one in (directories.get(key) for key in directories.BUILDERS)
+         if one.profiles is not None
+         and one.profiles.dataset_key == dataset_key),
+        None)
+    if directory is None or directory.profiles is None:
+        return {"dataset_key": dataset_key, "groups": []}
+    groups = [group_tree(conn, group.key)
+              for group in directory.profiles.groups
+              if getattr(group, "kind", "") == "tree"]
+    return {"dataset_key": dataset_key,
+            "groups": [one for one in groups if one["scheme"] is not None]}

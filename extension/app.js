@@ -57,10 +57,27 @@ const el = (tag, className = "", text = "") => {
 };
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const iconHref = (name) => `#icon-${name}`; // app.html's inline symbols (issue 1110)
+const iconHref = (name) => `#${name}`; // app.html's inline symbols (issue 1110, #1056)
 const icon = (name, className = "") =>
   `<svg class="sx-icon ${className}" aria-hidden="true">` +
   `<use href="${iconHref(name)}"></use></svg>`;
+// THE ONE GLYPH MAP (design/glyph-map.json, #1056): which glyph each Workspace
+// destination and each Engine-page candidate draws. app.html carries it beside
+// its sprite, so it is here before this module runs. The engine still sends an
+// `icon` per destination for panels older than the map; this panel never reads
+// it, because the engine's id would be resolved against THIS panel's sprite, and
+// a use element at an id the sprite lacks draws nothing. A key the map does not know
+// (a destination from a newer engine) draws the map's declared fallback, which is
+// null: no glyph and no use element at all, only the empty slot the glyph would
+// fill, so the row's label stays in its column. A glyph is text read out of the
+// DOM, so it goes through esc() where it meets markup.
+const GLYPH_MAP = JSON.parse($("glyph-map").textContent);
+// Own keys only: a key is engine data, and `constructor` is on every object.
+const glyphFor = (table, key) => {
+  const glyph = Object.hasOwn(GLYPH_MAP[table], key) ? GLYPH_MAP[table][key]
+    : GLYPH_MAP.fallback;
+  return glyph ? icon(esc(glyph)) : '<span aria-hidden="true"></span>';
+};
 
 // These two count the PANEL's own in-flight work — an engine check it is
 // waiting on, an account lookup it is waiting on — so they stayed here when the
@@ -160,35 +177,41 @@ const VIEWS = [
   // above: no rail button, and showView maps it back to the Engine rail entry.
   "engine-detail",
 ];
+// The panel's own pages, left out of the Workspace menu because the rail carries
+// them. Their rail tab draws the map's glyph for the destination: its use element
+// in app.html carries data-glyph-destination, and tools/sync_design_assets.py
+// writes its href from design/glyph-map.json (#1056).
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
+// NO GLYPHS HERE, and none read from /api/ui either: each row draws the map's
+// glyph for its key (glyphFor, #1056).
 const WORKSPACE_NAVIGATION_FALLBACK = [
-  {key: "overview", label: "Overview", path: "/", icon: "dashboard", group: "Browse",
+  {key: "overview", label: "Overview", path: "/", group: "Browse",
     description: "Sources and warehouse totals."},
-  {key: "data", label: "Data", path: "/data", icon: "storage", group: "Browse",
+  {key: "data", label: "Data", path: "/data", group: "Browse",
     description: "Browse, search, and arrange saved records."},
-  {key: "changes", label: "Changes", path: "/changes", icon: "trending-up", group: "Browse",
+  {key: "changes", label: "Changes", path: "/changes", group: "Browse",
     description: "Recent price and availability changes."},
-  {key: "history", label: "Crawl history", path: "/history", icon: "history", group: "Browse",
+  {key: "history", label: "Crawl history", path: "/history", group: "Browse",
     description: "Past runs and their outcomes."},
-  {key: "review", label: "Review queue", path: "/review", icon: "check", group: "Browse",
+  {key: "review", label: "Review queue", path: "/review", group: "Browse",
     description: "Resolve proposed record matches."},
-  {key: "jobs", label: "Jobs", path: "/jobs", icon: "play-circle", group: "Automation",
+  {key: "jobs", label: "Jobs", path: "/jobs", group: "Automation",
     description: "Start and monitor collection jobs."},
-  {key: "schedules", label: "Schedules", path: "/schedules", icon: "schedule", group: "Automation",
+  {key: "schedules", label: "Schedules", path: "/schedules", group: "Automation",
     description: "Review automatic collection times."},
-  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", icon: "sync", group: "Outputs",
+  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", group: "Outputs",
     description: "Synchronize saved data with Google Sheets and Drive."},
-  {key: "exports", label: "Exports", path: "/exports", icon: "file-download", group: "Outputs",
+  {key: "exports", label: "Exports", path: "/exports", group: "Outputs",
     description: "Create and configure Excel exports."},
-  {key: "logs", label: "Logs", path: "/logs", icon: "description", group: "System",
+  {key: "logs", label: "Logs", path: "/logs", group: "System",
     description: "Inspect detailed job activity."},
-  {key: "data-model", label: "Data Model", path: "/data-model", icon: "account-tree",
+  {key: "data-model", label: "Data Model", path: "/data-model",
     group: "System", description: "Tables, relationships, and how data moves."},
-  {key: "schema", label: "Schema", path: "/schema", icon: "view-column", group: "System",
+  {key: "schema", label: "Schema", path: "/schema", group: "System",
     description: "What every column means and who fills it."},
-  {key: "settings", label: "Settings", path: "/settings", icon: "settings", group: "System",
+  {key: "settings", label: "Settings", path: "/settings", group: "System",
     description: "Runtime, storage, and policy."},
 ];
 
@@ -209,12 +232,12 @@ function renderWorkspaceNavigation(navigation) {
       ${items.map((destination) =>
         `<button type="button" class="workspace-destination" data-workspace-key="${
           esc(destination.key)}" data-workspace-path="${esc(destination.path)}">
-          ${icon(destination.icon)}
+          ${glyphFor("destinations", destination.key)}
           <span class="workspace-destination-copy">
             <strong>${esc(destination.label)}</strong>
             <small>${esc(destination.description || "Open in Workspace")}</small>
           </span>
-          ${icon("open-in-new", "sm")}
+          ${icon("material-open-in-new", "sm")}
         </button>`).join("")}
     </section>`).join("");
   box.querySelectorAll("[data-workspace-path]").forEach((button) =>
@@ -397,11 +420,11 @@ const schemaIsBehind = (lag) => Boolean(lag && lag.pending && lag.pending.length
 // `.engine-component[data-tone="ready"|"warning"]`); anything else, `neutral`
 // included, gets the plain grey tile, which is what "no claim" looks like here.
 const COMPONENTS = [
-  ["Core service", "dns", (e) => (e.running
+  ["Core service", "material-dns", (e) => (e.running
     ? {text: "Running", tone: "ready"} : {text: "Stopped", tone: "warning"})],
-  ["Python runtime", "settings", (e) => (e.running
+  ["Python runtime", "material-settings", (e) => (e.running
     ? {text: "Ready", tone: "ready"} : {text: "Unknown", tone: "warning"})],
-  ["HTTP fetcher", "link", (e) => (e.running
+  ["HTTP fetcher", "material-link", (e) => (e.running
     ? {text: "Ready", tone: "ready"} : {text: "Unknown", tone: "warning"})],
   // The engine creates and owns both databases; the panel only reports them. A
   // reachable engine sitting on an unusable database read as healthy from here.
@@ -434,7 +457,7 @@ const COMPONENTS = [
   // real text fit, 20 capital Ms do not. Every verdict below is inside that
   // except the engine's own failure detail, which is the payload and is left
   // whole.
-  ["Databases", "storage", (e) => {
+  ["Databases", "material-storage", (e) => {
     // NOT RUNNING IS NOT A VERDICT ABOUT THE DATABASES, it is the absence of
     // one: `/api/health` is what carries `databases`, and a worker that is not
     // alive has said nothing about them. First, because everything below reads
@@ -483,7 +506,7 @@ const COMPONENTS = [
     if (!state.warehousePath) return {text: "Open — path unknown", tone: "neutral"};
     return {text: "Healthy", tone: "ready"};
   }],
-  ["Browser automation", "language", () => ({text: "Optional", tone: "neutral"})],
+  ["Browser automation", "material-language", () => ({text: "Optional", tone: "neutral"})],
 ];
 
 // THE LAST HEALTH ANSWER, HELD. This row stopped being a pure function of the
@@ -526,7 +549,7 @@ function renderRuntimeCheckAction(engine) {
   button.title = label;
   $("runtime-check-label").textContent = label;
   $("runtime-check-icon").setAttribute(
-    "href", iconHref(diagnostics ? "tune" : "sync"));
+    "href", iconHref(diagnostics ? "material-tune" : "material-sync"));
 }
 
 function issueCopy(error) {
@@ -1209,7 +1232,7 @@ function setupFinanceConverterSelect({selectId, triggerId, listId, labelPrefix})
       button.tabIndex = -1;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(option.selected));
-      button.innerHTML = `<span>${esc(option.textContent)}</span>${icon("check", "sm")}`;
+      button.innerHTML = `<span>${esc(option.textContent)}</span>${icon("material-check", "sm")}`;
       button.addEventListener("click", () => choose(option.value));
       return button;
     }));
@@ -1739,7 +1762,7 @@ function renderSourceManager() {
               aria-label="Edit ${esc(sourceDomain(source.base_url) ||
                 source.source_name || source.source_key)}">
         Edit
-        ${icon("open-in-new", "sm")}
+        ${icon("material-open-in-new", "sm")}
       </button>
     </article>`;
   }).join("");
@@ -2010,10 +2033,10 @@ async function saveSourceEditor() {
       renderSourceManager();
     }
     renderSourceEditor(source);
-    out("source-edit-result", `${icon("check", "sm")} Changes saved.`, "ok icon-label");
+    out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`, "ok icon-label");
   } catch (error) {
     button.disabled = false;
-    out("source-edit-result", `${icon("close", "sm")} ${esc(error.message)}`,
+    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
         "err icon-label");
   }
 }
@@ -2050,10 +2073,10 @@ async function renameSourceKey() {
     const renamed = state.sources.find((i) => i.source_key === wanted);
     if (renamed) renderSourceEditor(renamed);
     out("source-edit-rename-result",
-        `${icon("check", "sm")} Renamed. ${moved ? "Moved " + moved + "." : "No stored rows to move."}`,
+        `${icon("material-check", "sm")} Renamed. ${moved ? "Moved " + moved + "." : "No stored rows to move."}`,
         "ok icon-label");
   } catch (error) {
-    out("source-edit-rename-result", `${icon("close", "sm")} ${esc(error.message)}`,
+    out("source-edit-rename-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
         "err icon-label");
   }
 }
@@ -2073,7 +2096,7 @@ async function stopTrackingSource() {
     await loadSources();
     showView("sources");
   } catch (error) {
-    out("source-edit-danger-result", `${icon("close", "sm")} ${esc(error.message)}`,
+    out("source-edit-danger-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
         "err icon-label");
   }
 }
@@ -2101,10 +2124,10 @@ async function wipeSourceData() {
     const same = state.sources.find((i) => i.source_key === source.source_key);
     if (same) renderSourceEditor(same);
     out("source-edit-danger-result",
-        `${icon("check", "sm")} ${esc(result.detail || "Erased.")} The source is still registered.`,
+        `${icon("material-check", "sm")} ${esc(result.detail || "Erased.")} The source is still registered.`,
         "ok icon-label");
   } catch (error) {
-    out("source-edit-danger-result", `${icon("close", "sm")} ${esc(error.message)}`,
+    out("source-edit-danger-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
         "err icon-label");
   }
 }
@@ -2234,7 +2257,7 @@ function setupRunModeSelect() {
       item.disabled = option.disabled;
       item.innerHTML = `<span>${esc(option.textContent)}</span>
         <svg class="sx-icon sm" aria-hidden="true">
-          <use href="${iconHref("check")}"></use>
+          <use href="${iconHref("material-check")}"></use>
         </svg>`;
       item.addEventListener("click", () => choose(option.value));
       return item;
@@ -2763,7 +2786,7 @@ function accountRow(account, { signedIn }) {
   menuButton.setAttribute("aria-label", `Actions for ${accountLabel(account)}`);
   menuButton.setAttribute("aria-haspopup", "menu");
   menuButton.setAttribute("aria-expanded", String(state.openAccountMenu === account.id));
-  menuButton.innerHTML = icon("more-vert");
+  menuButton.innerHTML = icon("material-more-vert");
   menuButton.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleAccountMenu(account.id);
@@ -2873,7 +2896,7 @@ function accountsCollapsedPill(others) {
 
   const chevron = el("span", "accounts-pill-chevron icon-button xs");
   chevron.setAttribute("aria-hidden", "true");
-  chevron.innerHTML = icon("expand-more");
+  chevron.innerHTML = icon("material-expand-more");
   pill.append(chevron);
   pill.addEventListener("click", () => toggleAccountsList());
   return pill;
@@ -2901,7 +2924,7 @@ function renderAccountsCard() {
   // Nobody else is listed yet, so there is nothing to disclose and nothing to
   // sign out of "as well". One row, and it is the one that changes that.
   if (!others.length) {
-    card.append(accountsAction("Add another account", "add", { onClick: addAnotherAccount }));
+    card.append(accountsAction("Add another account", "material-add", { onClick: addAnotherAccount }));
     return;
   }
 
@@ -2916,7 +2939,7 @@ function renderAccountsCard() {
   disclosure.setAttribute("aria-expanded", "true");
   disclosure.setAttribute("aria-controls", "accounts-list");
   disclosure.append(el("span", "", "Hide more accounts"));
-  disclosure.insertAdjacentHTML("beforeend", icon("expand-more", "accounts-chevron"));
+  disclosure.insertAdjacentHTML("beforeend", icon("material-expand-more", "accounts-chevron"));
   disclosure.addEventListener("click", () => toggleAccountsList());
   card.append(disclosure);
 
@@ -2934,8 +2957,8 @@ function renderAccountsCard() {
   }
   card.append(list);
 
-  card.append(accountsAction("Add another account", "add", { onClick: addAnotherAccount }));
-  card.append(accountsAction("Sign out of all accounts", "logout",
+  card.append(accountsAction("Add another account", "material-add", { onClick: addAnotherAccount }));
+  card.append(accountsAction("Sign out of all accounts", "material-logout",
                              { quiet: true, onClick: signOutOfAllAccounts }));
 
   // Put the scroller back before deciding where the menu goes: where it can fit
@@ -3306,7 +3329,7 @@ function renderDriveFacts(
     card.append(manageRow("Latest backup", {
       sub: financeDateTime(pointer.created_at, "Time not recorded"),
       figure: fmtMegabytes(pointer.bytes),
-      lead: "history",
+      lead: "material-history",
     }));
     // The REAL count, not the policy. Pruning happens on the next backup, so a
     // folder can briefly hold more than KEEP; `Math.min(count, KEEP)` was tried
@@ -3315,7 +3338,7 @@ function renderDriveFacts(
     card.append(manageRow("Backups kept", {
       sub: `In the folder ScrapeX created, ${FOLDER_NAME}. The newest ${KEEP} are kept.`,
       figure: String(count),
-      lead: "storage",
+      lead: "material-storage",
     }));
   } else {
     // The card STAYS. Hiding it would leave the person with no way to learn
@@ -3327,7 +3350,7 @@ function renderDriveFacts(
 
   if (folder) {
     card.append(manageRow("Open the folder in Drive", {
-      symbol: "open-in-new",
+      symbol: "material-open-in-new",
       onClick: () => window.open(driveFolderUrl(folder), "_blank", "noopener,noreferrer"),
     }));
   }
@@ -3782,11 +3805,11 @@ function engineStatusFromState() {
   };
 }
 
-// The glyph the banner wears, one per tone. `play-circle` on a running engine
+// The glyph the banner wears, one per tone. `material-play-circle` on a running engine
 // reads as "press to start" — the tone carries the colour, and the glyph has to
 // carry the same claim rather than a second, contradictory one.
 const ENGINE_TONE_ICON = {
-  ok: "check", warn: "play-circle", danger: "close", neutral: "dns",
+  ok: "material-check", warn: "material-play-circle", danger: "material-close", neutral: "material-dns",
 };
 
 // ONE summary, TWO screens. The catalogue row keeps the badge-and-dot pair and
@@ -3825,7 +3848,7 @@ function updateEngineStatus() {
   if (summary.tone === "neutral") banner.removeAttribute("data-tone");
   else banner.setAttribute("data-tone", summary.tone);
   $("engine-state-icon").setAttribute(
-    "href", iconHref(ENGINE_TONE_ICON[summary.tone] || "dns"));
+    "href", iconHref(ENGINE_TONE_ICON[summary.tone] || "material-dns"));
   $("engine-state-text").textContent = summary.text;
   $("engine-state-detail").textContent = summary.detail;
 }
@@ -4684,7 +4707,7 @@ function renderEngineCandidates() {
   if (list.childElementCount) return;
   list.innerHTML = ENGINE_CANDIDATES.map((engine) => `
     <button class="engine-row" type="button" data-engine-id="${esc(engine.id)}">
-      <span class="icon-tile quiet" aria-hidden="true">${icon(engine.icon)}</span>
+      <span class="icon-tile quiet" aria-hidden="true">${glyphFor("engines", engine.id)}</span>
       <span class="engine-row-copy">
         <span class="engine-row-line">
           <span class="engine-row-name">${esc(engine.name)}</span>
@@ -4692,7 +4715,7 @@ function renderEngineCandidates() {
         </span>
         <span class="engine-row-sub">${esc(engine.role)}</span>
       </span>
-      ${icon("chevron-right", "engine-row-chevron")}
+      ${icon("material-chevron-right", "engine-row-chevron")}
     </button>`).join("");
 }
 
@@ -4786,7 +4809,7 @@ function renderEngineDetail(id) {
   } else {
     banner.removeAttribute("data-tone");
     banner.setAttribute("aria-busy", "false");
-    $("engine-state-icon").setAttribute("href", iconHref("dns"));
+    $("engine-state-icon").setAttribute("href", iconHref("material-dns"));
     $("engine-state-text").textContent = "Not installed";
     $("engine-state-detail").textContent =
       "A candidate in the plan. Nothing installs it yet.";
@@ -4905,7 +4928,7 @@ async function runEngineDiagnostics() {
 }
 
 // The three actions are rows on the detail screen now, and the overflow menu
-// that used to hold them is gone rather than kept empty: a `more-vert` button
+// that used to hold them is gone rather than kept empty: a `material-more-vert` button
 // with `aria-haspopup="menu"` and nothing to open is a control that lies.
 // `#engine-detail-title` is focusable so the back-and-forth between the two
 // screens lands the reader on the heading of the one they asked for.
@@ -6188,7 +6211,7 @@ function sourceMenu(source) {
       <details class="split-button-menu">
         <summary class="split-button-trigger" aria-haspopup="menu"
                  aria-expanded="false" title="Actions for this source">
-          ${icon("more-vert", "sm")}</summary>
+          ${icon("material-more-vert", "sm")}</summary>
         <div class="split-button-options" role="menu">${options}</div>
       </details>
     </div>`;
@@ -6817,7 +6840,7 @@ function renderBundles(bundles, { detail = '' } = {}) {
     card.append(manageRow(found.name, {
       sub: financeDateTime(found.modified_at, "Time not recorded"),
       figure: fmtMegabytes(found.bytes || 0),
-      lead: "storage",
+      lead: "material-storage",
       onClick: () => adoptBundle(found),
     }));
   }
@@ -6886,7 +6909,7 @@ function renderSnapshots(backups, { detail = '' } = {}) {
       // a second format for either.
       sub: financeDateTime(snapshot.taken_at, "Time not recorded"),
       figure: fmtMegabytes(snapshot.bytes || 0),
-      lead: "history",
+      lead: "material-history",
       onClick: () => openRestoreDialog(snapshot),
     }));
   }
@@ -7743,12 +7766,12 @@ async function addGeneralSite(key) {
   const btn = $("add-btn"); btn.disabled = true; btn.textContent = "Adding…";
   try {
     const r = await post("/api/general/catalog/sites", payload);
-    out("add-out", `${icon("check", "sm")} Added ${esc(r.site_key)} to General. ` +
+    out("add-out", `${icon("material-check", "sm")} Added ${esc(r.site_key)} to General. ` +
       `Describe its datasets in the General workspace — the price list here ` +
       `does not track it.`, "ok icon-label");
     $("url").value = ""; $("add-form").classList.add("hidden");
   } catch (e) {
-    out("add-out", `${icon("close", "sm")} ${esc(e.message)}`, "err icon-label");
+    out("add-out", `${icon("material-close", "sm")} ${esc(e.message)}`, "err icon-label");
   } finally { btn.disabled = false; btn.textContent = SYSTEMS[addSystem()].label; }
 }
 
@@ -7782,10 +7805,10 @@ async function addSite() {
     const r = await post("/api/sources", payload);
     await loadSources();
     showView("run");
-    out("add-out", `${icon("check", "sm")} Added ${esc(r.source_key)}`, "ok icon-label");
+    out("add-out", `${icon("material-check", "sm")} Added ${esc(r.source_key)}`, "ok icon-label");
     $("url").value = ""; $("add-form").classList.add("hidden");
   } catch (e) {
-    out("add-out", `${icon("close", "sm")} ${esc(e.message)}`, "err icon-label");
+    out("add-out", `${icon("material-close", "sm")} ${esc(e.message)}`, "err icon-label");
   } finally { btn.disabled = false; btn.textContent = SYSTEMS[addSystem()].label; }
 }
 

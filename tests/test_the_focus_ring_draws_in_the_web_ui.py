@@ -59,7 +59,7 @@ def test_every_control_on_every_page_draws_the_ring(webui):
     """#721 names both surfaces. Each page is opened, and every control on it checked the
     way the panel's are; the data page's column chooser is opened and checked too, because
     its search field is a wrapper that only exists once it opens."""
-    seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": []}
+    seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": [], "faded": []}
     for path in PAGES:
         response = webui.goto(ORIGIN + path)
         assert response is not None and response.status == 200, (path, response and response.status)
@@ -77,3 +77,4 @@ def test_every_control_on_every_page_draws_the_ring(webui):
     assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
     assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
+    assert not seen["faded"], f"controls whose ring is painted below full opacity: {seen['faded']}"

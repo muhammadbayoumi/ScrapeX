@@ -345,6 +345,55 @@ def test_header_filter_and_menu_are_keyboard_controls(page):
     assert page.locator(".tabulator-menu").is_visible()
 
 
+def test_the_pin_sub_menu_casts_a_sub_menus_shadow_over_its_menus(page):
+    """Supabase's menu casts shadow-md and its sub-menu shadow-lg (dropdown-menu.tsx@86c813ec:87
+    and :70). Tabulator gives the two the same classes, so grid-theme.css tells the sub-menu
+    apart by its place: Popup.show appends it after its parent in the same container. This
+    reads what each open menu computes, so a Tabulator that inserted it anywhere else, or a
+    first menu left open behind a second, turns it red (#1049)."""
+    page.evaluate("""() => {
+        const col = [...document.querySelectorAll('.tabulator-col')]
+          .find(c => c.getAttribute('tabulator-field') === 'brand');
+        const b = col.querySelector('.material-menu-icon').parentElement;
+        const r = b.getBoundingClientRect();
+        const o = {bubbles:true, cancelable:true, button:0, buttons:1,
+                   clientX:r.left+3, clientY:r.top+3, view:window};
+        b.dispatchEvent(new MouseEvent('mousedown', o));
+        b.dispatchEvent(new MouseEvent('mouseup', o));
+        b.dispatchEvent(new MouseEvent('click', o));
+        [...document.querySelector('.tabulator-menu').children]
+          .find(x => x.textContent.trim() === 'Pin Column').click();
+    }""")
+    page.wait_for_function("() => document.querySelectorAll('.tabulator-menu').length === 2",
+                           timeout=3000)
+    cast = page.evaluate("""() => {
+        const token = (name) => {
+          const probe = document.body.appendChild(document.createElement('div'));
+          probe.style.boxShadow = `var(${name})`;
+          const value = getComputedStyle(probe).boxShadow;
+          probe.remove();
+          return value;
+        };
+        return {
+          md: token('--shadow-md'),
+          lg: token('--shadow-lg'),
+          menus: [...document.querySelectorAll('.tabulator-menu')].map((menu) => ({
+            items: [...menu.querySelectorAll('.tabulator-menu-item')]
+              .map((item) => item.textContent.trim()),
+            shadow: getComputedStyle(menu).boxShadow,
+          })),
+        };
+    }""")
+    assert cast["md"] != cast["lg"], f"--shadow-md and --shadow-lg compute alike: {cast}"
+    parent, child = cast["menus"]
+    assert "Pin Column" in parent["items"] and "Pin Left" in child["items"], (
+        f"expected the column menu, then its Pin sub-menu: {cast['menus']}")
+    assert (parent["shadow"], child["shadow"]) == (cast["md"], cast["lg"]), (
+        f"the column menu casts {parent['shadow']!r} and its Pin sub-menu "
+        f"{child['shadow']!r}; Supabase's DropdownMenuContent casts shadow-md "
+        f"({cast['md']!r}) and its DropdownMenuSubContent shadow-lg ({cast['lg']!r}).")
+
+
 # ---- the footer must describe the table in front of you ----------------------
 
 def test_the_footer_counts_the_rows_actually_shown(page):

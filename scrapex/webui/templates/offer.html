@@ -6,7 +6,7 @@
 {# One offer's price story. A real page at a real URL rather than a dialog, so
    it can be linked, bookmarked and read with scripting off. #}
 <p class="muted back-link">
-  <a class="icon-label" href="/source/{{ source_key }}">{{ icon("arrow-back", "sm") }} Back to {{ source_key }}</a></p>
+  <a class="icon-label" href="/source/{{ source_key }}">{{ icon("material-arrow-back", "sm") }} Back to {{ source_key }}</a></p>
 
 <h1 dir="auto">{{ offer.product_name or offer.product_name_ar }}</h1>
 {% if offer.product_name and offer.product_name_ar %}<p dir="auto" class="muted">{{ offer.product_name_ar }}</p>{% endif %}
@@ -16,7 +16,7 @@
   {% if offer.sku %}<span class="tech">{{ offer.sku }}</span> · {% endif %}
   prices in {{ offer.currency }}{% if offer.unit %} per {{ offer.unit }}{% endif %}
   {% if offer.product_link %}
-    · <a href="{{ offer.product_link }}" target="_blank" rel="noopener">Open on the site {{ icon("open-in-new", "inline-icon") }}</a>
+    · <a href="{{ offer.product_link }}" target="_blank" rel="noopener">Open on the site {{ icon("material-open-in-new", "inline-icon") }}</a>
   {% endif %}
 </p>
 

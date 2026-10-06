@@ -22,6 +22,7 @@ import dataclasses
 import shutil
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,8 @@ DATASET_READS = [
     "/api/fields/contractors",
     "/source/contractors",
     "/api/table/contractors",
+    # The activity tree the Data page's filter draws (#1199 stores this body).
+    "/api/taxonomy/contractor_profiles",
 ]
 
 # What `main` offered in Choose-Columns on this fixture before the fix, captured
@@ -134,6 +137,19 @@ def test_a_price_source_read_commits_nothing(client, db_path, path):
     assert status["code"] == 200, f"GET {path} answered {status['code']}"
     assert not wrote, f"GET {path} committed a write to the warehouse"
     assert registered(db_path, SOURCE) == [], f"GET {path} registered columns"
+
+
+def test_the_record_card_commits_nothing(client, db_path):
+    """`/api/offer`, the card a price row opens, which this file did not ask (#1199)."""
+    with closing(sqlite3.connect(db_path)) as conn:
+        offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
+    path = f"/api/offer/{SOURCE}/{offer_id}"
+    status = {}
+    wrote = committed_by_others(
+        db_path, lambda: status.update(code=client.get(path).status_code))
+
+    assert status["code"] == 200, f"GET {path} answered {status['code']}"
+    assert not wrote, f"GET {path} committed a write to the warehouse"
 
 
 @pytest.mark.parametrize("path", DATASET_READS)

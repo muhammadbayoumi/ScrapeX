@@ -75,7 +75,7 @@ python tools/sync_design_assets.py --check
 ## Principles
 
 1. **Semantic tokens first.** Components consume `--surface`, `--text`,
-   `--accent`, `--control-height`, and similar intent-based values rather than
+   `--accent`, `--control-height-tiny`, and similar intent-based values rather than
    page-specific colour literals.
 2. **Shared behavior is a component concern.** Hover, active, focus-visible,
    invalid, and disabled states live in `components.css`. A page stylesheet
@@ -135,10 +135,10 @@ state their consequence, active voice, and specific verbs.
 |---|---|
 | Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
-| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` (40px) and `--control-height-sm` (32px). **Neither is on Supabase's scale**, which is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`); #1050 moves them. `--touch-target` survives for the places that size for touch deliberately |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height-tiny` (26px) and `--control-height-small` (34px): Supabase's SIZE heights, whose scale is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`). A Button reads tiny, its default (`Button.tsx@86c813ec:192`); an Input or Select reads small (`input.tsx@86c813ec:31`, `SIZE_VARIANTS_DEFAULT` at `constants.ts@86c813ec:111`). `--touch-target` survives for the places that size for touch deliberately |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
-| Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
-| Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
+| Shape and elevation | `--radius-xs` through `--radius-pill`. `--shadow-xs`, `--shadow-sm`, `--shadow-md` and `--shadow-lg` are what Supabase's atoms render (Tailwind 4.2.4's theme, #1049): a menu, popover or select casts `md`, a Sheet `lg`, and a Dialog `md` dropping to `xs` in dark |
+| Typography | `--font`, `--font-heading` and `--font-mono` are Supabase's stacks in their order (`apps/design-system/styles/globals.css@86c813ec:13-16`), with Noto Sans Arabic directly after the first shipped Latin face, so no face the product does not ship stands ahead of it: Chromium aliases a missing Helvetica to Arial, which carries Arabic on Windows (his ruling (a′), #1431). All four faces ship as files in `design/fonts/`, each beside its `OFL.txt`, and load on both surfaces (#1048). Upright faces only, by his choice: the browser slants `.unverified` and `<em>` (#1431). `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
 | Motion and layering | duration/easing tokens and `--z-sticky`, `--z-overlay`, `--z-modal` |
 
 If a recurring need cannot be represented by an existing token, add one
@@ -203,24 +203,26 @@ panel's `load`, and the panel stays blank until a click somewhere else (issue #1
 
 ```html
 {# web workspace: the macro carries the cache-buster #}
-{{ icon('settings') }}
+{{ icon('material-settings') }}
 
 <!-- the Side Panel, extension/app.html: a symbol the page carries itself -->
 <svg class="sx-icon" aria-hidden="true">
-  <use href="#icon-settings"></use>
+  <use href="#material-settings"></use>
 </svg>
 
 <!-- extension pages that open as tabs: relative, and the class is sx-icon -->
 <svg class="sx-icon" aria-hidden="true">
-  <use href="icons/material-icons.svg#settings"></use>
+  <use href="icons/material-icons.svg#material-settings"></use>
 </svg>
 ```
 
-In the panel's JavaScript, `icon("settings")` and `iconHref("settings")` in
-`extension/app.js` build that reference; never write it by hand. The panel's symbols are
-generated from `design/material-icons.svg` by `tools/sync_design_assets.py`, with an
-`icon-` prefix, because the panel's own ids share its document: its Test site button's id
-is `check`.
+In the panel's JavaScript, `icon("material-settings")` and `iconHref("material-settings")`
+in `extension/app.js` build that reference; never write it by hand. Every id is its
+source's key and the name that source publishes (`design/glyph-map.json`'s rule, #1056),
+so one id names one glyph on every surface. The panel's symbols are generated from
+`design/material-icons.svg` by `tools/sync_design_assets.py` with those same ids: the
+panel's own ids share its document, and none of them is a source's key and a glyph's
+name (its Test site button's id is `check`).
 
 **The authoring class is `sx-icon`, not `material-icon`.** This block previously showed
 `class="material-icon"` on an absolute path — a form neither surface uses. Corrected
