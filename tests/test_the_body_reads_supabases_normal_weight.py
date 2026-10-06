@@ -27,7 +27,10 @@ says which classes those are, for this guard and for the value guard alike -- an
 rule that sets the mono family re-declares the token itself. A rule that does neither fails
 here, by file and line. So does a mono rule that sets the normal weight without reading the
 token, and anything that reads --fw-regular-mono as a weight: each draws the same number
-whether its run asks for the normal weight or not.
+whether its run asks for the normal weight or not. So does any other declaration of either
+token outside design/tokens.css: the cascade keeps a rule's last declaration and every run
+inside the rule inherits it, so a second value in a mono rule takes its runs back out of the
+context, and the mono value in a sans rule puts sans runs into it.
 
 That the weights COMPUTE, and that 450 is drawn by the variable face rather than rounded to
 400, is measured in a browser by tests/test_the_normal_weight_draws_on_both_surfaces.py.
@@ -59,8 +62,8 @@ RE_DECLARED = ("--fw-regular", "var(--fw-regular-mono)")
 #: The values that leave the weight to the parent rather than set one.
 INHERITING = {"inherit", "unset", "revert", "revert-layer"}
 #: The normal weight written without the token: the sans normal, the mono normal, and the
-#: keyword, which is 400.
-LITERAL_NORMAL = {"450", "400", "normal"}
+#: keywords that compute 400: `normal`, and `initial`, the property's initial value.
+LITERAL_NORMAL = {"450", "400", "normal", "initial"}
 
 
 def _root(css: str) -> str:
@@ -118,6 +121,21 @@ def uncovered(path: Path) -> list[str]:
     return found
 
 
+def re_declared_otherwise(path: Path) -> list[str]:
+    """The declarations of either normal weight in one sheet that are not their :89 in a mono
+    rule. design/tokens.css's :root defines both, and authored() does not read it. Anywhere
+    else --fw-regular-mono is never declared, and --fw-regular is declared only as
+    var(--fw-regular-mono), in a rule that sets the mono family or that the reset reaches."""
+    found = []
+    for selector, props in _rules(path).items():
+        mono = is_mono(selector) or any(_sets_mono(prop, value) for prop, value, _line in props)
+        found += [f"{path.relative_to(ROOT).as_posix()}:{line} {selector} {{ {prop}: {value} }}"
+                  for prop, value, line in props
+                  if prop in ("--fw-regular", "--fw-regular-mono")
+                  and not (mono and (prop, value) == RE_DECLARED)]
+    return found
+
+
 def test_the_body_draws_at_their_normal_weight():
     body = _rules(COMPONENTS)["body"]
     stated = {prop: value for prop, value, _line in body}
@@ -159,6 +177,26 @@ def test_the_mono_weight_is_read_only_where_the_normal_weight_is_re_declared():
     assert not found, (
         "var(--fw-regular-mono) read other than as `--fw-regular: var(--fw-regular-mono)`:\n  "
         + "\n  ".join(found))
+
+
+def test_only_their_mono_context_re_declares_the_normal_weight():
+    """The test above holds what the mono weight is assigned to; this one holds what the
+    normal weight is assigned, and where. Every declaration of either is judged, not just
+    whether the rule holds the right one: the cascade keeps a rule's last, so a mono rule that
+    re-declares the token and then declares it again is outside the context."""
+    sheets = authored()
+    seen = sum(1 for sheet in sheets
+               for _selector, prop, _value, _line in declarations(sheet.read_text(encoding="utf-8"))
+               if prop == RE_DECLARED[0])
+    # Not vacuous: 32 rules re-declared it when this was written.
+    assert seen >= 30, seen
+    found = [name for sheet in sheets for name in re_declared_otherwise(sheet)]
+    assert not found, (
+        "declarations that change what a run reads when it asks for the normal weight, other "
+        "than their mono context's (globals.css@86c813ec:89):\n  " + "\n  ".join(found)
+        + "\ndesign/tokens.css's :root alone defines --fw-regular and --fw-regular-mono. "
+        f"Anywhere else the one declaration is `{RE_DECLARED[0]}: {RE_DECLARED[1]};`, in a "
+        "rule that sets the mono family or that the reset reaches.")
 
 
 def test_every_rule_that_sets_the_mono_family_is_in_their_mono_context():
@@ -229,6 +267,11 @@ def test_the_reset_reaches_what_its_selector_matches(selector, expected):
     (".x { font-family: var(--font-mono); font-weight: normal; }",
      [":1 .x -- sets the weight to normal, the normal weight without the token; a run that "
       "asks for it reads var(--fw-regular)"]),
+    # `initial` is font-weight's initial value, normal, which is 400.
+    (".x { font-family: var(--font-mono); --fw-regular: var(--fw-regular-mono);"
+     " font-weight: initial; }",
+     [":1 .x -- sets the weight to initial, the normal weight without the token; a run that "
+      "asks for it reads var(--fw-regular)"]),
     (".tech { font-family: var(--font-mono); font-weight: 450; }",
      [":1 .tech -- sets the weight to 450, the normal weight without the token; a run that "
       "asks for it reads var(--fw-regular)"]),
@@ -262,3 +305,51 @@ def test_a_mono_rule_is_judged_by_its_own_declarations(tmp_path, css, expected, 
     sheet = tmp_path / "a.css"
     sheet.write_text(css, encoding="utf-8")
     assert [name.removeprefix("a.css") for name in uncovered(sheet)] == expected
+
+
+@pytest.mark.parametrize("css,expected", [
+    # Their :89, in a rule that sets the mono family or that the reset reaches.
+    (".x { font-family: var(--font-mono); --fw-regular: var(--fw-regular-mono); }", []),
+    (".x { --fw-regular: var(--fw-regular-mono); font: var(--fs-sm) var(--font-mono); }", []),
+    ("code, pre, kbd, samp, .tech, .code { --fw-regular: var(--fw-regular-mono); }", []),
+    (".x .tech { --fw-regular: var(--fw-regular-mono); }", []),
+    ("@media (min-width: 1px) { .x { font-family: var(--font-mono);"
+     " --fw-regular: var(--fw-regular-mono); } }", []),
+    # Reading the token is not declaring it.
+    (".x { font-family: var(--font); font-weight: var(--fw-regular); }", []),
+    # Any other value beside the re-declaration: after it, where the cascade keeps it, and
+    # before it, where swapping the two lines would.
+    (".x { font-family: var(--font-mono); --fw-regular: var(--fw-regular-mono);"
+     " font-weight: var(--fw-regular); --fw-regular: 450; }", [":1 .x { --fw-regular: 450 }"]),
+    (".x { font-family: var(--font-mono); --fw-regular: 450;"
+     " --fw-regular: var(--fw-regular-mono); }", [":1 .x { --fw-regular: 450 }"]),
+    # A rule the reset reaches, declaring the token back to the sans normal.
+    (".tech { font-family: var(--font-mono); --fw-regular: 450; }",
+     [":1 .tech { --fw-regular: 450 }"]),
+    ("code .x { --fw-regular: 450; }", [":1 code .x { --fw-regular: 450 }"]),
+    # The mono normal written without the token, and inheriting the parent's sans normal.
+    (".x { font-family: var(--font-mono); --fw-regular: 400; }", [":1 .x { --fw-regular: 400 }"]),
+    (".x { font-family: var(--font-mono); --fw-regular: inherit; }",
+     [":1 .x { --fw-regular: inherit }"]),
+    # The mono weight itself, which every run below this rule would then read.
+    (".x { font-family: var(--font-mono); --fw-regular: var(--fw-regular-mono);"
+     " --fw-regular-mono: 450; }", [":1 .x { --fw-regular-mono: 450 }"]),
+    (":root { --fw-regular-mono: 400; }", [":1 :root { --fw-regular-mono: 400 }"]),
+    (":root { --fw-regular: 450; }", [":1 :root { --fw-regular: 450 }"]),
+    # The mono value in a sans rule: a sans run asking for the normal weight would read 400.
+    (".x { --fw-regular: var(--fw-regular-mono); }",
+     [":1 .x { --fw-regular: var(--fw-regular-mono) }"]),
+    (".x { font-family: var(--font); --fw-regular: var(--fw-regular-mono); }",
+     [":1 .x { --fw-regular: var(--fw-regular-mono) }"]),
+    ("code + .x { --fw-regular: var(--fw-regular-mono); }",
+     [":1 code + .x { --fw-regular: var(--fw-regular-mono) }"]),
+    ("code, .x { --fw-regular: var(--fw-regular-mono); }",
+     [":1 code, .x { --fw-regular: var(--fw-regular-mono) }"]),
+    ("@media (min-width: 1px) { .x { --fw-regular: 450; } }", [":1 .x { --fw-regular: 450 }"]),
+])
+def test_a_re_declaration_is_judged_by_its_value_and_its_rule(tmp_path, css, expected,
+                                                              monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    sheet = tmp_path / "a.css"
+    sheet.write_text(css, encoding="utf-8")
+    assert [name.removeprefix("a.css") for name in re_declared_otherwise(sheet)] == expected
