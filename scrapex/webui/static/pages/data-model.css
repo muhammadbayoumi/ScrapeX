@@ -276,10 +276,9 @@
   gap: var(--sp-1);
 }
 
+/* An icon-only Button: `button.icon-button`'s 26px square, Supabase's tiny (#1430). */
 .model-zoom .icon-button {
   display: grid;
-  width: 2.5rem;
-  height: 2.5rem;
   padding: 0;
   place-items: center;
   font-size: 1.15rem;

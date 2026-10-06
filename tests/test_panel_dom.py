@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -6809,6 +6810,239 @@ def test_each_control_takes_its_supabase_components_default_size(open_panel):
     page.wait_for_selector("#view-source", state="visible")
     assert page.evaluate(
         "() => getComputedStyle(document.getElementById('url')).minHeight") == "34px"
+
+
+#: Supabase's SIZE height of the component a control is, at its default
+#: (constants.ts@86c813ec:61-62): a Button is tiny (Button.tsx@86c813ec:192), an Input small
+#: (input.tsx@86c813ec:31), and a Select small, the panel's own listbox trigger among them
+#: (select.tsx@86c813ec:37-38).
+_SIZE = {"button": 26, "field": 34}
+
+#: Every screen the size sweep reads, and how a person reaches it from the one before.
+_SIZE_SCREENS = (
+    ("#view-profile", ['nav.side-rail button[data-view="profile"]']),
+    ("#view-manage-account", ["#manage-account"]),
+    ("#view-engines", ["#tab-engines"]),
+    ("#view-engine-detail", ['#view-engines .engine-row[data-engine-id="scrapex-engine"]']),
+    ("#view-source", [SOURCE_TAB]),
+    ("#view-source", ['label[for="source-urls"]']),
+    ("#view-source", ['label[for="source-addsite"]']),
+    ("#view-run", [RUN_TAB]),
+    ("#view-jobs", ['nav.side-rail button[data-view="jobs"]']),
+    ("#view-data", [DATA_TAB]),
+    ("#view-data", ['.dataset-card[data-open="contractors"] .split-button-trigger']),
+    ("#view-finance", [FINANCE_TAB, ".finance-preferences-card > summary"]),
+    ("#view-appearance", ['nav.side-rail button[data-view="appearance"]']),
+    ("#view-sources", [SOURCES_TAB]),
+    ("#view-source-edit", ['[data-edit-source="SHORT"]']),
+    ("#view-console", ['nav.side-rail button[data-view="console"]']),
+    ("#view-database", ['nav.side-rail button[data-view="database"]']),
+    ("#view-settings", [SETTINGS_TAB]),
+    *(("#view-settings", [f'button.settings-toggle[data-sect="{section}"]'])
+      for section in ("s-engine", "s-storage", "s-sched", "s-output", "s-crawl", "s-timezone",
+                      "s-about")),
+    # A schedule row holds the panel's one native time field.
+    ("#view-settings", ["#view-settings details.sched-row > summary"]),
+    ("nav.side-rail", []),
+    ("#workspace-menu", ["#workspace-toggle"]),
+)
+
+#: Reads every Button and text field on one screen, as a name and a rendered height; `also`
+#: names Buttons drawn as another element. A name is the id, else the tag and its classes
+#: (state classes `is-*` left out). A visually hidden native <select>, 1px behind its own
+#: trigger, is not drawn and is not read; a <textarea> is Supabase's Textarea, which has no
+#: SIZE height (textarea.tsx@86c813ec:12).
+_READ_SIZES = """([scopeSelector, known, also = []]) => {
+  const FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
+    + ':not([type=range]):not([type=color]):not([type=file]), select, .sx-select-trigger';
+  const BUTTON = ['button', '.button', ...also].join(', ');
+  const name = (el) => el.id ? '#' + el.id : el.tagName.toLowerCase()
+    + [...el.classList].filter((c) => !c.startsWith('is-')).map((c) => '.' + c).join('');
+  const out = [];
+  for (const el of document.querySelector(scopeSelector).querySelectorAll(`${BUTTON}, ${FIELD}`)) {
+    const r = el.getBoundingClientRect();
+    if (!el.checkVisibility({visibilityProperty: true}) || r.width < 2 || r.height < 2) continue;
+    out.push({name: name(el), kind: el.matches(FIELD) ? 'field' : 'button',
+              height: Math.round(r.height * 100) / 100,
+              select: el.tagName === 'SELECT', padTop: parseFloat(getComputedStyle(el).paddingTop),
+              known: known.find((selector) => el.matches(selector)) || null});
+  }
+  return out;
+}"""
+
+#: Controls that are a Supabase component other than the plain Button or Input, each at that
+#: component's height.
+_ANOTHER_COMPONENT = {
+    ".engine-url-save": (24, "their InputGroupButton, h-6 (input-group.tsx@86c813ec:125, :130)"),
+    ".engine-url-field input": (32, "an InputGroupInput fills its group's 34px inside the "
+                                    "group's border (input-group.tsx@86c813ec:170, -m-px)"),
+    ".finance-converter-row input": (32, "an InputGroupInput, inside its group's border"),
+    ".finance-converter-select-trigger": (32, "a Select inside the converter's group, inside "
+                                              "its border"),
+}
+
+_TOUCH_TARGET = "#1051: --touch-target sizes it, 48px, on every pointer"
+_ROW = "a row of a lead and lines of text, which Supabase gives no control height (#1040 rule 2)"
+
+#: Buttons and fields that are not at their Supabase SIZE height, each with why.
+#: THIS LIST ONLY SHRINKS: a selector that no longer matches a control off its size fails the
+#: test until it is taken out, and a control newly off its size fails until it is named here.
+_OFF_SIZE = {
+    ".side-rail .rail-item": _TOUCH_TARGET,
+    ".engine-action-row": _TOUCH_TARGET,
+    ".appearance-scheme-picker button": (
+        "a ToggleGroup item, h-10 (toggle.tsx@86c813ec:20); in the panel " + _TOUCH_TARGET),
+    "#run-mode-trigger": "a Select whose box " + _TOUCH_TARGET + " until #1051 lands",
+    ".engine-row": _ROW,
+    ".workspace-destination": _ROW,
+    ".account-switch": _ROW,
+    ".accounts-disclosure": _ROW,
+    ".accounts-action": _ROW,
+    ".manage-account-row-button": _ROW,
+    ".settings-toggle": "a Settings section's disclosure header, a row",
+    ".appearance-palette-tile": "a palette's tile, which Supabase gives no control height",
+    ".split-button-option": ("their DropdownMenuItem, whose height is its padding and its text "
+                             "(dropdown-menu.tsx@86c813ec:104)"),
+    "button.link": "a text link drawn as a <button>, at the height of its line",
+    ".coverage-open": "a line of a Data card's text that opens its coverage, drawn as text",
+    "#check": "stretched by its `.field` row to the 34px Input beside it",
+}
+
+
+def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
+    """#1430's test. A bare <button> draws 26px tall, Supabase's Button at tiny, and `#url`
+    34px, their Input at small; each failed on main, at 36 and 38.25, because the Button's
+    text and padding (15px on a 1.2 line, 8px by 16px) and the Input's (a 1.35 line) stood
+    them taller than the floor #1050 gave them.
+
+    Then every Button and text field on every screen, read from the boxes the panel draws, as
+    #1437 (finding 2) asks: each is at its SIZE height, at its own component's in
+    `_ANOTHER_COMPONENT`, or named in `_OFF_SIZE`, which only shrinks."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    page.evaluate("""() => {
+      const probe = document.createElement('button');
+      probe.type = 'button';
+      probe.id = 'bare-button-probe';
+      probe.textContent = 'Probe';
+      document.querySelector('main').prepend(probe);
+    }""")
+    probe = page.locator("#bare-button-probe").bounding_box()
+    page.evaluate("() => document.getElementById('bare-button-probe').remove()")
+
+    known = [*_ANOTHER_COMPONENT, *_OFF_SIZE]
+    controls: dict[str, list[dict]] = {}
+    for scope, steps in _SIZE_SCREENS:
+        for target in steps:
+            page.wait_for_selector(target, state="visible")
+            page.click(target)
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry animation moves every box it holds while it
+        # runs (settle_view says why). An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        for control in page.evaluate(_READ_SIZES, [scope, known]):
+            controls.setdefault(control["name"], []).append(control)
+
+    assert {"a bare <button>": probe and round(probe["height"], 2),
+            "#url": {c["height"] for c in controls.get("#url", [])}} == {
+        "a bare <button>": _SIZE["button"], "#url": {_SIZE["field"]}}
+    seen = [c for found in controls.values() for c in found]
+    assert sum(c["select"] for c in seen) >= 3, "the sweep read no native <select>"
+    at_size = Counter(c["kind"] for c in seen if c["known"] is None)
+    # 70 Buttons and 32 fields read at their size when #1430 measured; fewer means a screen
+    # did not open.
+    assert at_size["button"] >= 60 and at_size["field"] >= 25, (
+        f"the sweep read {dict(at_size)} controls at their size; a screen did not open")
+
+    wrong = sorted({f"{c['name']} ({c['kind']}): {c['height']}px" for c in seen
+                    if c["known"] is None and abs(c["height"] - _SIZE[c["kind"]]) > 0.01})
+    assert not wrong, (
+        f"Buttons not {_SIZE['button']}px or fields not {_SIZE['field']}px tall, named nowhere: "
+        + "\n  ".join(["", *wrong]))
+    other = sorted({f"{c['name']}: {c['height']}px, not {_ANOTHER_COMPONENT[c['known']][0]}"
+                    for c in seen if c["known"] in _ANOTHER_COMPONENT
+                    and abs(c["height"] - _ANOTHER_COMPONENT[c["known"]][0]) > 0.01})
+    assert not other, "controls off their own component's height:\n  " + "\n  ".join(other)
+    unread = sorted(set(_ANOTHER_COMPONENT) - {c["known"] for c in seen})
+    assert not unread, f"named in _ANOTHER_COMPONENT and read on no screen: {unread}"
+    # Chromium lays a native <select> out at `line-height: normal`, a 21px line at 15px: with
+    # block padding inside 34px it cuts the descenders off (design/components.css).
+    padded = sorted({c["name"] for c in seen if c["select"] and c["padTop"]})
+    assert not padded, f"a native <select> with block padding inside its 34px: {padded}"
+    off = {c["known"] for c in seen if c["known"] in _OFF_SIZE
+           and abs(c["height"] - _SIZE[c["kind"]]) > 0.01}
+    assert off == set(_OFF_SIZE), (
+        "named in _OFF_SIZE and matching no control off its size, so take it out: "
+        f"{sorted(set(_OFF_SIZE) - off)}")
+
+
+#: (font-size, line-height, padding-top, padding-inline-start) of each control, read from the
+#: cascade. A probe stands for each shared variant, so a screen's own rule cannot hide it.
+_READ_TEXT = """(selectors) => Object.fromEntries(selectors.map((selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return [selector, null];
+  const s = getComputedStyle(el);
+  return [selector, [s.fontSize, s.lineHeight, s.paddingTop, s.paddingInlineStart]];
+}))"""
+
+#: SIZE_VARIANTS.tiny is `text-xs px-2.5 py-1` and .small `text-base md:text-sm leading-4 px-3
+#: py-2` (constants.ts@86c813ec:47-48, :54-55): 12px on a 16px line, 4px by 10px, for a Button
+#: and a `compact` one and a split button's primary; 15px on a 16px line, 8px by 12px, for an
+#: Input, and the panel's listbox trigger, a Select. Their Textarea takes the text's own line
+#: (textarea.tsx@86c813ec:12): text-base's 1.5, and from md text-sm's calc(1.25 / 0.875). A
+#: native <select> has no block padding: Chromium lays it out at `line-height: normal`, and its
+#: line is centred in its 34px.
+_TINY = ("12px", "16px", "4px", "10px")
+_TEXT_AT_360 = {
+    "#p-button": _TINY, "#p-compact": _TINY, "#p-split": _TINY,
+    "#p-input": ("15px", "16px", "8px", "12px"),
+    "#p-select": ("15px", "normal", "0px", "12px"),
+    "#p-textarea": ("15px", "22.5px", "8px", "12px"),
+    "#run-mode-trigger": ("15px", "16px", "8px", "12px"),
+    # Rows drawn as <button>s are not Buttons: each keeps the text around it on a 1.2 line.
+    "button.accounts-action": ("15px", "18px", "12px", "16px"),
+    "button.accounts-disclosure": ("15px", "18px", "12px", "16px"),
+    "button.workspace-destination": ("15px", "18px", "8px", "8px"),
+    "button.manage-account-row-button": ("15px", "18px", "12px", "16px"),
+    "button.engine-action-row": ("13px", "15.6px", "8px", "16px"),
+}
+
+
+def _text(page, expected: dict) -> dict:
+    return {selector: read and tuple(read)
+            for selector, read in page.evaluate(_READ_TEXT, list(expected)).items()}
+
+
+def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
+    """#1430: the text and padding of a Button are SIZE tiny's and a field's SIZE small's, at
+    the panel's width and from Tailwind's md, 48rem, where small's text-sm takes over: their
+    text-base is 15px and their text-sm 13px (apps/studio/styles/globals.css@86c813ec:56-57).
+    The heights are `test_every_button_is_26px_and_every_field_34px_tall`'s; a 1.2 line on a
+    12px label still stands inside the 26px floor, so only this sees the text."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    page.evaluate("""() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button type="button" id="p-button">Button</button>'
+        + '<button type="button" id="p-compact" class="compact">Compact</button>'
+        + '<div class="split-button"><button type="button" id="p-split" '
+        + 'class="split-button-primary">Split</button></div>'
+        + '<input id="p-input"><select id="p-select"><option>One</option></select>'
+        + '<textarea id="p-textarea"></textarea>';
+      document.querySelector('main').prepend(host);
+    }""")
+    assert _text(page, _TEXT_AT_360) == _TEXT_AT_360
+
+    page.set_viewport_size({"width": 768, "height": 800})
+    small = {"#p-input": ("13px", "16px", "8px", "12px"),
+             "#p-select": ("13px", "normal", "0px", "12px"),
+             "#p-textarea": ("13px", "18.5718px", "8px", "12px"),
+             "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY}
+    assert _text(page, small) == small
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):

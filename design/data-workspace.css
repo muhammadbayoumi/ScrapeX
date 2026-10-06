@@ -13,13 +13,17 @@
 .dataset-menu{position:relative;flex:none}
 .dataset-menu>summary{list-style:none}
 .dataset-menu>summary::-webkit-details-marker{display:none}
+/* The dataset picker's trigger is their combobox's: a Button at its tiny default, text-xs
+   px-2.5 py-1 h-[26px] (Button.tsx@86c813ec:192, constants.ts@86c813ec:47, :54, :61), with
+   its icons at that size's 14px, 3.5 steps of --spacing (Button.tsx@86c813ec:127), #1430. */
 .dataset-menu-trigger{display:inline-flex;align-items:center;justify-content:center;gap:.45rem;
-  min-height:2.3rem;padding:.42rem .85rem;border:1px solid var(--accent);
-  border-radius:var(--radius);background:var(--accent-weak);color:var(--accent-ink);
-  font:inherit;font-size:.8rem;font-weight:var(--fw-heavy);cursor:pointer}
+  min-height:var(--control-height-tiny);padding:var(--sp-1) calc(var(--sp-1) * 2.5);
+  border:1px solid var(--accent);border-radius:var(--radius);background:var(--accent-weak);
+  color:var(--accent-ink);font:inherit;font-size:var(--fs-xs);line-height:var(--sp-4);
+  font-weight:var(--fw-heavy);cursor:pointer}
 .dataset-menu-trigger:hover{background:color-mix(in srgb,var(--accent) 18%,transparent);filter:none}
 .dataset-menu-trigger:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);outline-offset:var(--focus-ring-offset);box-shadow:var(--focus-ring-gap)}
-.dataset-menu-trigger svg{width:1.05rem;height:1.05rem;fill:currentColor}
+.dataset-menu-trigger svg{width:calc(var(--sp-1) * 3.5);height:calc(var(--sp-1) * 3.5);fill:currentColor}
 .dataset-menu-chevron{transition:transform var(--dur) var(--ease)}
 .dataset-menu[open] .dataset-menu-chevron{transform:rotate(180deg)}
 .dataset-menu-popover{position:absolute;z-index:120;inset-inline-start:0;top:calc(100% + .45rem);
@@ -30,7 +34,9 @@
 .dataset-browser-title{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
 .dataset-browser-title h2{margin:0;font-size:.9rem}
 .dataset-browser-title p{margin:.12rem 0 .7rem;color:var(--muted);font-size:.67rem}
-.dataset-icon-button{display:grid;width:30px;height:30px;padding:0;place-items:center;
+/* An icon-only Button at its tiny default, the panel's 26px square (#1430). */
+.dataset-icon-button{display:grid;width:var(--control-height-tiny);
+  height:var(--control-height-tiny);padding:0;place-items:center;
   border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--muted)}
 .dataset-icon-button:hover{border-color:var(--accent);background:var(--accent-weak);
   color:var(--accent-ink);filter:none}

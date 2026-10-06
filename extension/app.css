@@ -87,7 +87,14 @@
     border-radius: var(--radius);
     background: var(--control-bg);
     color: var(--text);
+    /* Supabase's SelectTrigger at small takes the Input's text, text-base md:text-sm on
+       a 1rem line (select.tsx@86c813ec:37-38, constants.ts@86c813ec:48); the line is the
+       Button's, so only the size is stated. */
+    font-size: var(--fs);
     text-align: start;
+  }
+  @media (min-width: 48rem) {
+    .sx-select-trigger { font-size: var(--fs-sm); }
   }
   .sx-select-trigger:hover:not(:disabled),
   .sx-select.is-open .sx-select-trigger {
@@ -854,7 +861,6 @@
   .engine-maintenance-actions .engine-action {
     width: 100%;
     min-height: var(--control-height-tiny);
-    padding: var(--sp-2) var(--sp-3);
     white-space: normal;
     border-radius: var(--radius-pill);
   }
@@ -926,12 +932,18 @@
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
   }
+  /* Supabase's InputGroupButton (input-group.tsx@86c813ec:122-147): their Button at
+     variant `text` (:137), whose border is transparent (Button.tsx@86c813ec:78), with its
+     tiny size made h-6 px-2 rounded-md (:125, :130) over tiny's text-xs py-1. h-6 is
+     1.5rem, --sp-5: 4 + 16 + 4 with no border drawn. It sits in the group's inline-end
+     addon, pr-2 with mr-[-0.4rem] for a button (:87). Until #1430 it was a 32px segment
+     of the group with a divider. */
   .engine-url-save {
-    min-height: calc(var(--control-height-small) - 2px);
-    padding: 0 var(--sp-3);
+    min-height: var(--sp-5);
+    margin-inline-end: calc(var(--sp-2) - 0.4rem);
+    padding: var(--sp-1) var(--sp-2);
     border: 0;
-    border-inline-start: 1px solid var(--outline-variant);
-    border-radius: 0;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--accent-ink);
   }
@@ -1887,6 +1899,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-medium);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   button.accounts-disclosure:hover:not(:disabled) {
@@ -1916,16 +1931,18 @@
   .account-row {
     position: relative;
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr) var(--control-height-tiny);
+    grid-template-columns: var(--sp-7) minmax(0, 1fr) var(--control-height-tiny);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
   }
+  /* Supabase's Avatar, h-10 w-10 (avatar.tsx@86c813ec:14): 2.5rem, which is --sp-7, and
+     the row's first column is the face. */
   .account-face {
     display: grid;
     place-items: center;
-    width: 2rem;
-    height: 2rem;
+    width: var(--sp-7);
+    height: var(--sp-7);
     border-radius: 50%;
     object-fit: cover;
     background: var(--chip);
@@ -2098,6 +2115,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   button.accounts-action:hover:not(:disabled) {
@@ -2262,6 +2282,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
   }
   button.manage-account-row-button:hover:not(:disabled) {
     border-color: transparent;
@@ -3271,6 +3294,9 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
     white-space: normal;
   }
@@ -3514,6 +3540,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   /* Written as button.engine-row and spelled out in full: the base `button`
@@ -3847,6 +3876,8 @@
     color: var(--text);
     font-size: var(--fs-sm);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: a 1.2 line, not the tiny Button's. */
+    line-height: 1.2;
     text-align: start;
   }
   button.engine-action-row:hover:not(:disabled) {
@@ -3898,10 +3929,6 @@
     border-top: 1px solid var(--line);
     background: var(--surface);
   }
-  .engine-detail-actions > button {
-    min-height: 40px;
-  }
-
   /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
      `.engine-action-row > span` already makes for the rows above. `button` sets
      `white-space: nowrap` (components.css), so a label longer than its button

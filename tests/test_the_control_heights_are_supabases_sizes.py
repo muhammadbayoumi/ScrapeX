@@ -21,6 +21,11 @@ issue that moves it. DEFAULT is what each component's default reads here: a READ
 and a HELD row does not, so a row cannot cite a component whose default it is not. Where a
 row's selector matches extension/app.html, the element it matches is the element its component
 is: a Button is a <button>, an Input an <input>, and one inside an InputGroup is the group's.
+
+STEPS names the controls whose Supabase component defaults to a Tailwind h-N, a step of their
+--spacing rather than a SIZE height, so they read the --sp-* token that step is and no
+--control-height (#1430). KEPT also holds the literal heights #1430 found where no Supabase
+component gives the element a control size.
 """
 from __future__ import annotations
 
@@ -64,7 +69,7 @@ ELEMENT = {BUTTON: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
            GROUP_INSIDE: {"input"}, GROUP_BUTTON: {"button"}}
 
 #: The value each component's default size reads here. GROUP_BUTTON has none: its default, h-6,
-#: 24px, is no SIZE height, so no token holds it and a row that cites it is HELD.
+#: 24px, is no SIZE height but a step of their --spacing, so a row that cites it is in STEPS.
 DEFAULT = {BUTTON: TINY, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL, GROUP_INSIDE: SMALL_INSIDE}
 
 C = "design/components.css"
@@ -83,6 +88,11 @@ READS = {
     (C, "button.icon-button.xs, .button.icon-button.xs", "min-height"): (TINY, BUTTON),
     (C, "button.compact, .button.compact", "min-height"): (TINY, BUTTON),
     (C, "input, select, textarea", "min-height"): (SMALL, INPUT),
+    # A native <select> is laid out at `line-height: normal` whatever the sheet says, so it
+    # takes the Select's h-[34px] as a height, not only a floor (#1430).
+    (C, "select", "height"): (SMALL, INPUT),
+    # So does a native date or time field, whose editor pads its own fields (#1430).
+    (C, 'input[type="date"], input[type="time"]', "height"): (SMALL, INPUT),
     (C, "button.chip", "min-height"): (TINY, BUTTON),
     (C, ".split-button-primary, .split-button-trigger", "min-height"): (TINY, SPLIT),
     (C, ".split-button-trigger", "width"): (TINY, SPLIT),
@@ -96,7 +106,7 @@ READS = {
     (APP, ".engine-url-field", "min-height"): (SMALL, GROUP),
     (APP, ".engine-url-field input", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
     # The third column is the row's menu, an icon Button; the first is the face (KEPT).
-    (APP, ".account-row", "grid-template-columns"): (f"2rem minmax(0, 1fr) {TINY}", BUTTON),
+    (APP, ".account-row", "grid-template-columns"): (f"var(--sp-7) minmax(0, 1fr) {TINY}", BUTTON),
     (APP, ".manage-account-heading", "grid-template-columns"): (f"{TINY} minmax(0, 1fr)", BUTTON),
     (APP, "button.manage-account-back", "width"): (TINY, BUTTON),
     (APP, "button.manage-account-back", "min-width"): (TINY, BUTTON),
@@ -110,17 +120,39 @@ READS = {
     (APP, ".finance-converter-row", "height"): (SMALL, GROUP),
     (APP, ".finance-converter-row input", "line-height"): (SMALL_INSIDE, GROUP_INSIDE),
     ("extension/console.css", ".map-cells", "min-height"): (TINY, BUTTON),
+    # #1430: the dataset picker's trigger (their combobox's Button) and the source list's
+    # icon link (an icon-only Button, the panel's square).
+    ("design/data-workspace.css", ".dataset-menu-trigger", "min-height"): (TINY, BUTTON),
+    ("design/data-workspace.css", ".dataset-icon-button", "width"): (TINY, BUTTON),
+    ("design/data-workspace.css", ".dataset-icon-button", "height"): (TINY, BUTTON),
 }
 
 #: The reads that are a Supabase component held off its default, each until the issue that
 #: moves it: (authored sheet, selector, property) -> (the value it declares, the component, the
 #: issue).
-HELD = {
+HELD: dict[tuple[str, str, str], tuple[str, str, str]] = {
+    # Empty since #1430 brought the engine address Save, the one row here, to its
+    # InputGroupButton default: it is in STEPS.
+}
+
+AVATAR = "avatar.tsx@86c813ec:14 h-10 w-10"
+TOGGLE = "toggle.tsx@86c813ec:20 size default, h-10; ToggleGroup's default at toggle-group.tsx@86c813ec:11"
+
+#: What each STEPS component's default reads here: Tailwind's h-N is N steps of their 0.25rem
+#: --spacing, so h-6 is 1.5rem, --sp-5, and h-10 2.5rem, --sp-7.
+STEP = {GROUP_BUTTON: "var(--sp-5)", AVATAR: "var(--sp-7)", TOGGLE: "var(--sp-7)"}
+
+#: (authored sheet, selector, property) -> (the value it declares, the component that says so).
+STEPS = {
     # `#save`, the <button> in the engine address group (extension/app.html), is Supabase's
-    # InputGroupButton, not the group's Input. It stays a full-height segment of the group,
-    # 32px, until #1430 brings it to the 24px default; 32px is InputGroupButton's `small`,
-    # h-8 (input-group.tsx@86c813ec:126), which is not its default.
-    (APP, ".engine-url-save", "min-height"): (SMALL_INSIDE, GROUP_BUTTON, "#1430"),
+    # InputGroupButton, h-6, 24px (input-group.tsx@86c813ec:125, :130). It was a 32px segment
+    # of the group, InputGroupButton's `small` (:126), until #1430.
+    (APP, ".engine-url-save", "min-height"): ("var(--sp-5)", GROUP_BUTTON),
+    # The account row's face; the row's first column is the face (the test below).
+    (APP, ".account-face", "width"): ("var(--sp-7)", AVATAR),
+    (APP, ".account-face", "height"): ("var(--sp-7)", AVATAR),
+    # Light, Dark and Device: one ToggleGroup. In the panel the touch target holds it (#1051).
+    (C, ".appearance-scheme-picker button", "min-height"): ("var(--sp-7)", TOGGLE),
 }
 
 #: The reads that left the control scale, each at the size it rendered before #1050, and why.
@@ -131,19 +163,40 @@ KEPT = {
         "minmax(0, 1fr) auto 2rem", "the column of the pill's chevron, a <span>"),
     (APP, ".accounts-pill-chevron", "width"): ("2rem", "a chevron in a <span>, not a control"),
     (APP, ".accounts-pill-chevron", "height"): ("2rem", "a chevron in a <span>, not a control"),
-    (APP, ".account-face", "width"): (
-        "2rem", "an Avatar, which is h-10 w-10 at avatar.tsx@86c813ec:14, not a control"),
-    (APP, ".account-face", "height"): (
-        "2rem", "an Avatar, which is h-10 w-10 at avatar.tsx@86c813ec:14, not a control"),
     ("scrapex/webui/static/pages/sync.css", ".sync-section-nav a", "min-height"): (
         "2rem", "an in-page section link, which Supabase gives no control size"),
     ("scrapex/webui/static/pages/overview.css", ".overview-source-more", "min-height"): (
         "2rem", "a text link, which Supabase gives no control size"),
+    # The literal heights #1430 found and kept (#1040 rule 2).
+    (APP, ".accounts-action", "min-height"): (
+        "3.5rem", "a card's destination row (a <button>), which Supabase gives no control size"),
+    ("design/data-workspace.css", ".data-source-overview-trigger", "min-height"): (
+        "3.35rem", "a card's disclosure header (a <summary>); their AccordionTrigger declares "
+                   "no height, only py-4 (accordion.tsx@86c813ec:32)"),
+    ("scrapex/webui/static/webui.css", ".source-filter-trigger", "min-height"): (
+        "3.4rem", "a source picker whose label is two lines, the name over its domain; their "
+                  "trigger is a one-line Button, so taking its 26px drops a line: his call"),
+    ("design/grid-theme.css", ".record-inspector-nav button", "width"): (
+        "2.75rem", "the record inspector's icon rail; which Supabase component it is, a Button, "
+                   "a Toggle or a sidebar item, is his call"),
+    ("design/grid-theme.css", ".record-inspector-nav button", "min-height"): (
+        "2.75rem", "the record inspector's icon rail; which Supabase component it is, a Button, "
+                   "a Toggle or a sidebar item, is his call"),
 }
 
 #: Supabase's menu and select items declare no height, only padding and text
 #: (dropdown-menu.tsx@86c813ec:104, select.tsx@86c813ec:159), so these two declare none either.
 NO_HEIGHT = {(C, ".split-button-option"), (APP, ".finance-converter-option")}
+
+#: A screen's rule for a Button or an Input that declares none of these, so the shared rule's
+#: size is the control's (#1430): the enrichment page's fields were 40px on their own floor,
+#: and the data model's zoom buttons a 40px square of their own.
+SHARED_SIZE = {
+    ("extension/enrichment.css", "input, select"): {
+        "height", "min-height", "padding", "padding-block", "font", "font-size", "line-height"},
+    ("scrapex/webui/static/pages/data-model.css", ".model-zoom .icon-button"): {
+        "height", "min-height", "width", "min-width"},
+}
 
 TOKEN_READ = re.compile(r"--control-height")
 
@@ -246,6 +299,31 @@ def test_a_control_held_off_its_default_names_the_issue_that_moves_it(where):
         f"held at {value} until {issue}. If {issue} moved it, its row belongs in READS.")
 
 
+@pytest.mark.parametrize("where", sorted(STEPS), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
+def test_a_control_whose_default_is_a_spacing_step_reads_that_step(where):
+    """An InputGroupButton is h-6, an Avatar h-10 w-10 and a Toggle h-10: steps of Tailwind's
+    --spacing, not SIZE heights, so each reads the --sp-* token its step is (#1430). A row
+    cannot cite a component whose step it does not read, and none is a --control-height read,
+    which READS or HELD would name."""
+    value, component = STEPS[where]
+    assert where not in READS and where not in HELD, where
+    assert STEP.get(component) == value, (
+        f"{where[0]} `{where[1]}` {where[2]}: its row reads {value}, but it names {component}, "
+        f"whose default reads {STEP.get(component, 'no step')} here.")
+    found = _authored_declarations().get(where, [])
+    assert found == [value], (
+        f"{where[0]} `{where[1]}` declares {where[2]}: {found or 'nothing'}; it is {component}, "
+        f"which is {value} here.")
+
+
+def test_the_account_rows_first_column_is_the_face():
+    """The face and the column it sits in were two separate 2rem literals, so one could move
+    without the other (#1437, finding 1). The column is the face's width."""
+    columns = _authored_declarations()[(APP, ".account-row", "grid-template-columns")]
+    face = _authored_declarations()[(APP, ".account-face", "width")]
+    assert [_split(value, " \t\n")[0][1] for value in columns] == face, (columns, face)
+
+
 def test_each_panel_read_names_the_element_its_selector_matches():
     """A row names the Supabase component its element is, so the element its selector matches
     in extension/app.html must be that component's: the engine address Save, a <button>, was
@@ -260,7 +338,8 @@ def test_each_panel_read_names_the_element_its_selector_matches():
     markup = BeautifulSoup(PANEL.read_text(encoding="utf-8"), "html.parser")
     checked, grouped, wrong = set(), set(), []
     rows = {**{where: component for where, (_value, component) in READS.items()},
-            **{where: component for where, (_value, component, _issue) in HELD.items()}}
+            **{where: component for where, (_value, component, _issue) in HELD.items()},
+            **{where: component for where, (_value, component) in STEPS.items()}}
     # By identity: a bs4 Tag compares equal to any tag with the same name, attributes and
     # contents.
     groups = {id(element) for (sheet, selector, _prop), component in rows.items()
@@ -312,8 +391,19 @@ def test_a_menu_or_select_item_declares_no_height(where):
         f"padding and text (dropdown-menu.tsx@86c813ec:104, select.tsx@86c813ec:159).")
 
 
+@pytest.mark.parametrize("where", sorted(SHARED_SIZE), ids=lambda key: f"{key[0]} {key[1]}")
+def test_a_screens_button_or_field_takes_the_shared_size(where):
+    sheet, selector = where
+    declared = {prop for (name, sel, prop) in _authored_declarations()
+                if name == sheet and sel == selector}
+    assert declared, f"{sheet} has no `{selector}` rule any more; update SHARED_SIZE"
+    assert not declared & SHARED_SIZE[where], (
+        f"{sheet} `{selector}` declares {sorted(declared & SHARED_SIZE[where])}; the shared "
+        f"Button or Input rule in design/components.css sizes it (#1430).")
+
+
 def test_the_parsers_see_the_three_surfaces():
     """A sheet that moved out of authored() would empty its rows from every test above."""
-    sheets = {where[0] for where in [*READS, *HELD, *KEPT]}
+    sheets = {where[0] for where in [*READS, *HELD, *KEPT, *STEPS, *SHARED_SIZE]}
     found = {sheet.relative_to(ROOT).as_posix() for sheet in authored()}
     assert sheets <= found, sorted(sheets - found)
