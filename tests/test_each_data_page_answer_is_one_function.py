@@ -1,9 +1,10 @@
 """Each answer the Data page reads is one function, and its route is that function.
 
-THE LIGHT FILE STORES THESE BODIES (#1199). A reader with no engine opens a record
-card, an activity tree and the dataset list from a copy the engine wrote, so the copy
-must be the route's own answer rather than a second build of it. Three of them lived
-inside `create_app` closures, where a second caller could only copy them:
+THE LIGHT FILE IS TO STORE THESE BODIES (#1199, not yet built). A reader with no
+engine will open a record card, an activity tree and the dataset list from a copy the
+engine wrote, so the copy must be the route's own answer rather than a second build of
+it. Three of them lived inside `create_app` closures, where a second caller could only
+copy them:
 
     GET /api/offer/{source}/{id}     ->  reports.offer_card
     GET /api/taxonomy/{dataset}      ->  taxonomy.dataset_taxonomy
@@ -14,6 +15,7 @@ with no response model, which is how the light file will write them.
 """
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 
@@ -50,7 +52,8 @@ def _as_served(payload) -> bytes:
 
 @pytest.fixture()
 def db_path(tmp_path):
-    """One offer, ingested twice at two prices, so its story has a change in it."""
+    """One offer, ingested twice at two prices, so its story has a change in it, and
+    one stated detail, so its card's `details` is not empty."""
     path = tmp_path / "harvest.db"
     conn = dbmod.connect(path)
     dbmod.migrate(conn)
@@ -59,6 +62,13 @@ def db_path(tmp_path):
     ingest_payloads(conn, make_entry(), [make_payload(
         [one_row(price="1,100.00", price_before="1,100.00")],
         scraped_at="2026-07-20T10:00:00Z")])
+    # As tests/test_api_fields.py stores one: the table the card's details read.
+    product = conn.execute("SELECT source_product_id FROM source_product").fetchone()[0]
+    conn.execute(
+        "INSERT INTO source_product_attribute (source_product_id, attribute_code, "
+        " attribute_label, raw_value, attribute_group, lang, is_site_filter) "
+        "VALUES (?, 'cable_gauge', 'Cable gauge', '2.5 mm', 'Specifications', 'en', 0)",
+        (product,))
     conn.commit()
     conn.close()
     return path
@@ -94,6 +104,26 @@ def test_the_offer_route_serves_the_card_byte_for_byte(client, db_path):
     assert list(card) == ["offer", "periods", "observations", "changes", "details"]
     # NOT VACUOUS: two prices, so the story has a history and a change to compare.
     assert len(card["observations"]) == 2 and card["changes"], card
+
+
+def test_the_card_holds_the_offers_own_history_readings_and_details(db_path):
+    """The byte test above compares the route with this very function, so a defect
+    inside the function moves both sides. Here each part is held to what was stored:
+    two price periods, oldest first; two readings, newest first; one stated detail."""
+    offer_id = _offer_id(db_path)
+    conn = dbmod.connect(db_path)
+    try:
+        card = offer_card(conn, SOURCE, offer_id)
+    finally:
+        conn.close()
+
+    assert card["offer"]["offer_id"] == offer_id
+    assert [period["price"] for period in card["periods"]] == [1200.0, 1100.0]
+    assert all("price_period_id" in period for period in card["periods"])
+    assert [reading["price"] for reading in card["observations"]] == [1100.0, 1200.0]
+    assert [reading["business_date"] for reading in card["observations"]] == sorted(
+        (reading["business_date"] for reading in card["observations"]), reverse=True)
+    assert "2.5 mm" in json.dumps(card["details"], ensure_ascii=False), card["details"]
 
 
 def test_another_sources_offer_is_no_card_and_a_404(client, db_path):
@@ -205,6 +235,41 @@ def test_the_list_names_every_live_dataset_with_its_site(tmp_path):
 
     assert sorted((row["site_key"], row["dataset_key"]) for row in listed) == [
         ("muqawil_org", "contractor_profiles"), ("muqawil_org", "contractors")]
+
+
+def test_a_dataset_counts_only_its_active_rows_and_an_empty_one_counts_none(
+        tmp_path):
+    """The number on the dataset's card. A record the site stopped publishing is
+    marked `unavailable` (`sightings.mark_unavailable`), stays on the table, and is not
+    counted; a dataset with no rows reads 0, never the 1 a `count(*)` over the outer
+    join would give."""
+    path = tmp_path / "counts.db"
+    conn = dbmod.connect(path)
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn, status="suggested")  # two cards, no fold
+        definition, version = conn.execute(
+            "SELECT d.dataset_definition_id, v.schema_version_id "
+            "FROM dataset_definition AS d JOIN dataset_schema_version AS v "
+            "ON v.dataset_definition_id = d.dataset_definition_id "
+            "WHERE d.dataset_key = 'contractor_profiles'").fetchone()
+        for cid in ("8001", "8002", "8003"):
+            _record(conn, definition, version, cid)
+        conn.execute("UPDATE generic_record SET status = 'unavailable' "
+                     "WHERE record_key = 'key-8003'")
+        conn.commit()
+        counted = {row["dataset_key"]: row["rows"]
+                   for row in service.listed_datasets(conn)}
+    finally:
+        conn.close()
+
+    assert counted == {"contractor_profiles": 2, "contractors": 0}
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    listed = TestClient(create_app(path, manifest_path=manifest)).get(
+        "/api/sources").json()["sources"]
+    assert {row["source_key"]: row["observations"] for row in listed
+            if row.get("kind") == "dataset"} == counted
 
 
 def test_the_list_is_empty_when_the_catalogue_is_switched_off(tmp_path, monkeypatch):

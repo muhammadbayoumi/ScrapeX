@@ -955,9 +955,9 @@ def listed_datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
     ONE QUERY, EVERY READER. `/api/sources` learned about datasets in #212 and the
     PAGE did not, so `/source/contractors` answered 404 while `/api/table/contractors`
-    served 11,059 rows to nobody at all. The panel's listing, the engine's own page and
-    the light file (#1199) now read this one list, so a dataset reaches all three or
-    none.
+    served 11,059 rows to nobody at all. The panel's listing and the engine's own page
+    read this one list, so a dataset reaches both or neither; the light file (#1199,
+    not yet built) is to be its third reader.
 
     GATED HERE, on `GENERIC_DATASET_CATALOG`. This list is the advertisement: what tells
     a user the capability exists, which is the claim `is_enabled`'s docstring forbids
@@ -992,7 +992,8 @@ def dataset_folds(conn: sqlite3.Connection, listed_keys) -> dict[str, str]:
     """Which listed dataset folds into which one's card: child key -> parent key. `R-47`.
 
     ONLY THE PRESENTATION COLLAPSES. The two `dataset_definition` rows stay two; this
-    says which one card shows both, for the panel's listing and for the light file.
+    says which one card shows both, for the panel's listing (and, once it is built, for
+    the light file of #1199).
 
     CONFIRMED AND ONE-TO-ONE, both load-bearing. `review_status` is the human gate — a
     proposed relationship is a guess, and collapsing two cards on a guess would hide a

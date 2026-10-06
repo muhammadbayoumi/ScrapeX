@@ -903,9 +903,9 @@ def create_app(
         """Every listed dataset, in the shape a source listing already speaks.
 
         WHICH DATASETS, AND THE FLAG THAT GATES THEM, are
-        `extract_service.listed_datasets`'s: one list for this listing, the engine's
-        own `/source/{key}` page and the light file (#1199). This adds what only a
-        listing needs: the freshness and the work waiting.
+        `extract_service.listed_datasets`'s: one list for this listing and the engine's
+        own `/source/{key}` page. This adds what only a listing needs: the freshness and
+        the work waiting.
 
         `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
         Wipe and Rename, and every one of those is a price-path action that would
@@ -1117,8 +1117,7 @@ def create_app(
         if len(rows) < 2:
             return rows
         entries = {row["source_key"]: row for row in rows}
-        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule, so
-        # the light file folds the same ones.
+        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule.
         general = general_read_conn()
         try:
             folded_into = extract_service.dataset_folds(general, entries)
@@ -1735,7 +1734,7 @@ def create_app(
 
         The same ownership rule as the HTML page: an offer that is not this
         source's answers 404 without confirming whether the id exists at all.
-        `reports.offer_card` builds it, so the light file stores this same body.
+        `reports.offer_card` builds it, so a copy (#1199) can store this same body.
         """
         conn = read_conn()
         try:
@@ -2179,8 +2178,8 @@ def create_app(
         contractor's 22.9 interests are invisible on every screen. This is the read
         half of the filter his ruling asked for.
 
-        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so the
-        light file stores this same body.
+        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so a copy
+        (#1199) can store this same body.
 
         WHOLE AND UNPAGED, because it is 214 nodes. The membership table it counts
         against is 407,384 rows and is scanned once, not once per node.

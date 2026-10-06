@@ -417,8 +417,9 @@ def group_tree(conn: sqlite3.Connection, group_key: str) -> dict:
 def dataset_taxonomy(conn: sqlite3.Connection, dataset_key: str) -> dict:
     """The vocabularies a dataset's rows point at, with what holds each node.
 
-    ONE FUNCTION, TWO READERS: `GET /api/taxonomy/{dataset_key}` answers it, and the
-    light file (#1199) stores it for a reader with no engine.
+    ONE FUNCTION, SO A SECOND READER CAN CALL IT: `GET /api/taxonomy/{dataset_key}`
+    answers it, and the light file (#1199, not yet built) is to store it for a reader
+    with no engine.
 
     GROUPS THE SOURCE DECLARES AS TREES, AND THAT IS NOT A LITERAL LIST. muqawil
     declares five multi-valued groups and two are wired; `kind="tree"` is the

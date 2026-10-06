@@ -1760,10 +1760,10 @@ def offer_card(conn: sqlite3.Connection, source_key: str,
                offer_id: int) -> dict | None:
     """One offer's story, as the Data page's record card shows it.
 
-    ONE FUNCTION, TWO READERS. `GET /api/offer/{source_key}/{offer_id}` answers it,
-    and the light file (#1199) stores it for a reader with no engine. It lived inside
-    the route, where the copy could only have been a second copy of five keys and
-    their order.
+    ONE FUNCTION, SO A SECOND READER CAN CALL IT. `GET /api/offer/{source_key}/{offer_id}`
+    answers it, and the light file (#1199, not yet built) is to store it for a reader
+    with no engine. Inside the route, that copy could only have been a second copy of
+    five keys and their order.
 
     None when the offer is not this source's, without saying whether the id exists
     at all: the ownership rule the HTML page has, which the route turns into 404.
