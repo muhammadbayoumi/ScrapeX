@@ -172,6 +172,7 @@
   margin-bottom: var(--sp-4);
   color: var(--accent-ink);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 
@@ -454,6 +455,7 @@
 .model-table-count {
   color: var(--muted);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 
@@ -486,6 +488,7 @@
   flex: none;
   color: var(--muted);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: .61rem;
   text-transform: lowercase;
 }
@@ -694,6 +697,7 @@
 .model-column-list small {
   color: var(--muted);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 
@@ -732,6 +736,7 @@
 .model-principle-grid article > span {
   color: var(--accent-ink);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 

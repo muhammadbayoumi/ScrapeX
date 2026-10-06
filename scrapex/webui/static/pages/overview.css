@@ -442,6 +442,7 @@
 .overview-activity-row time {
   color: var(--muted);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
   white-space: nowrap;
 }

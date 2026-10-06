@@ -202,6 +202,17 @@ where this summary is brief.
      `md` name that Tailwind does not have. --fs-2xs (11px) has no counterpart in
      their ramp or in the stock ramp their mono context resets to.
      THIS ITEM SAID "THE VALUES MATCH" UNTIL 2026-09-25; --fs-2xs did not.
+     THEIR MONO CONTEXT RESETS TWO THINGS, AND ONE OF THEM IS HERE. Inside code,
+     .code-content, pre, kbd, samp and .font-mono (globals.css:70-75) they reset
+     the size ramp to stock Tailwind and --font-weight-normal to 400 (:89). The
+     weight is here: body text draws at their 450, --fw-regular, and mono text at
+     400, --fw-regular-mono, a name of this product's, because no one selector here
+     reaches every mono run the way their .font-mono does. The shape differs. Their
+     reset moves the weight of text that ASKS for the normal weight, so a bare
+     .font-mono run of theirs inherits 450; here every mono run that states no
+     weight of its own draws at 400. The size ramp is not here: mono text takes the
+     same --fs-* rungs as the rest. Until 2026-10-06 neither was, and body text drew
+     at the browser's 400.
 
   4. THE MOTION CURVES ARE THEIRS; NAMING TWO OF THEM IS NOT. --ease and
      --ease-travel in design/tokens.css are Supabase's own, at the commit above, in

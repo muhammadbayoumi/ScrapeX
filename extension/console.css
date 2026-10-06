@@ -182,6 +182,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .pair-key {
   overflow: hidden;
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
 }
@@ -321,6 +322,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -385,6 +387,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .map-said-mode {
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   color: var(--text);
 }
@@ -398,6 +401,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   background: var(--bg);
   color: var(--muted);
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 
@@ -454,6 +458,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .finding-where {
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   color: var(--muted);
   white-space: nowrap;
@@ -492,6 +497,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .sheet-name {
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-sm);
 }
 
@@ -575,6 +581,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .source-key {
   overflow: hidden;
   font-family: var(--font-mono);
+  font-weight: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -650,7 +657,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .build-sheet {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-regular);
+  font-weight: var(--fw-regular-mono);
   color: var(--muted);
 }
 

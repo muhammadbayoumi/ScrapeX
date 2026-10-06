@@ -323,7 +323,8 @@
      to fix it -- these names are load-bearing across 19 stylesheets.
      One thing of theirs this ramp does not have: they reset the whole scale to
      stock Tailwind inside code/pre/kbd/.font-mono, so their mono context runs a
-     different size ramp AND a different normal weight (400, not 450). */
+     different size ramp. Its other reset, the normal weight, is
+     --fw-regular-mono below (#752). */
   --fs-2xs: 0.6875rem;
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
@@ -343,6 +344,12 @@
      font-extrabold. The claim holds for the library these components come from,
      which is what this ramp copies, and it holds nowhere wider. */
   --fw-regular: 450;
+  /* Their mono context's normal weight: globals.css@86c813ec:89 resets
+     --font-weight-normal to 400 inside code, .code-content, pre, kbd, samp and
+     .font-mono (:70-75). They re-declare the one token there; no selector of ours
+     reaches every mono run, so the value is a token of its own, and each rule that
+     sets --font-mono reads it (design/components.css says where). */
+  --fw-regular-mono: 400;
   --fw-medium: 500;
   --fw-bold: 600;
   --fw-heavy: 600;

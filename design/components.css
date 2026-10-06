@@ -24,12 +24,16 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/* Supabase's body is `font-normal`, their --font-weight-normal 450, and never
+   synthesises a weight its face does not have (globals.css@86c813ec:35, :62, :64). */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  font-synthesis-weight: none;
   line-height: var(--lh);
 }
 
@@ -801,7 +805,7 @@ button.chip {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: var(--fw-regular);
+  font-weight: var(--fw-regular-mono);
   line-height: inherit;
   white-space: nowrap;
 }
@@ -895,6 +899,24 @@ code {
   background: var(--chip);
   font-family: var(--font-mono);
   font-size: 0.9em;
+}
+
+/* THE MONO CONTEXT DRAWS AT 400 (#752). Supabase names it in
+   apps/design-system/styles/globals.css@86c813ec:70-75 -- `code, .code-content, pre,
+   kbd, samp, .font-mono` -- and resets --font-weight-normal to 400 inside it (:89).
+   This is that selector, with .tech and .code where they write .font-mono and
+   .code-content. A rule in another sheet that sets var(--font-mono) is reached by
+   none of it, so it states var(--fw-regular-mono) itself;
+   tests/test_the_body_reads_supabases_normal_weight.py names one that does not.
+   strong and b are left out: their reset moves the NORMAL weight only, so an
+   emphasised technical value stays emphasised. */
+code,
+pre,
+kbd,
+samp,
+.tech:not(strong, b),
+.code:not(strong, b) {
+  font-weight: var(--fw-regular-mono);
 }
 
 .page-header {
@@ -1534,6 +1556,7 @@ code {
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular-mono);
 }
 
 /* The destructive split button.
