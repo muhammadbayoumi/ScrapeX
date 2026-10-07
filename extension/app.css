@@ -256,6 +256,13 @@
   .mb-2 { margin-bottom: var(--sp-2); }
   .my-2 { margin-block: var(--sp-2); }
   .toolbar-spaced { margin-block: var(--sp-2); }
+  /* On a touch screen Run's Select all and Clear stand --touch-stack-gap under the site search
+     and over the site list, so their 44px reach, 9px past each edge of their 26px boxes, takes
+     none of the field's taps and loses none to the list (his ruling on #1457;
+     design/tokens.css says why it is 18px). */
+  @media (hover: none), (pointer: coarse) {
+    #site-search + .toolbar-spaced { margin-block: var(--touch-stack-gap); }
+  }
   #adv-toggle[aria-expanded="true"] .sx-icon { transform: rotate(90deg); }
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
@@ -4009,6 +4016,13 @@
     padding: var(--sp-3) var(--sp-4);
     border-top: 1px solid var(--line);
     background: var(--surface);
+  }
+  /* On a touch screen the two stand --touch-stack-gap apart, so their 44px reaches, 9px past
+     each edge of their 26px boxes, meet between them: Check again's takes none of Download's
+     taps, and neither is cut short (his ruling on #1457; design/tokens.css says why it is
+     18px). */
+  @media (hover: none), (pointer: coarse) {
+    .engine-detail-actions { row-gap: var(--touch-stack-gap); }
   }
   /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
      `.engine-action-row > span` already makes for the rows above. `button` sets
