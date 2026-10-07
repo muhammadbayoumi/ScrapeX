@@ -473,9 +473,9 @@ def test_the_changelog_cites_no_path_that_has_moved():
 def test_agents_md_is_what_claude_md_renders_to():
     """What an agent that is not Claude Code loads, and the only control there is.
 
-    `main` has no branch protection -- GitHub offers it on a public repository or a
-    paid plan and this one is neither -- so nothing mechanical stops another agent
-    pushing. That makes this file's contents the boundary, not a convenience.
+    `main` carries a ruleset now, so another agent cannot push to the trunk -- but it
+    can still rewrite THIS file, in a branch or in the working tree the next session
+    reads. That is the drift path, and it is why the check below is equality.
 
     PINNED TO ITS RENDERER, like both of its siblings: `CHANGELOG.md` at :428 and
     `docs/data-page-schema.md` at tests/test_the_ruling_matches_the_code.py:51. An

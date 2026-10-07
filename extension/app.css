@@ -1326,8 +1326,14 @@
      tall child grows the view instead of handing the overflow to the scroller
      inside it — which is the page-scrolls-instead-of-rows behaviour the chain
      exists to remove. */
-  /* Inset (#721): a focusable tabpanel fills `main`, which clips a ring drawn outside it. */
-  section[role="tabpanel"]:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
+  /* Inset (#721, #1471): these four views fill `main`, which clips a ring drawn outside
+     them. Every other view sits inside main's padding and keeps the shared outside ring,
+     which an inset one would lose under the view's sticky heading. */
+  :is(#view-profile, #view-engines, #view-manage-account, #view-engine-detail):focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+    box-shadow: none;
+  }
   #view-profile {
     display: flex;
     flex-direction: column;
@@ -3731,6 +3737,8 @@
     background: var(--surface);
     overflow: hidden;
   }
+  /* Inset (#1471): the action list clips, so a ring outside a row would not show. */
+  button.engine-action-row:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
   /* `auto minmax(0, 1fr)` and NOT `minmax(0, 1fr) auto`, which is what the
      reference carried. An `auto` value track sizes to its max-content, so a value
      longer than the space left starved the label track to zero and the label

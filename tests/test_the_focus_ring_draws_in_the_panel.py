@@ -3,10 +3,12 @@ a 2px ring at a 2px offset painted in the background. The outline draws the ring
 control's own box-shadow can take it away, and a shadow paints the gap."""
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 pytest.importorskip("playwright")
-from tests.test_panel_dom import ROOT, _contrast, _over, browser, open_panel  # noqa: E402,F401  (the fixtures)
+from tests.test_panel_dom import ACCOUNT, ROOT, _contrast, _over, browser, open_panel  # noqa: E402,F401  (the fixtures)
 from tests.test_tab_page_dom import open_data  # noqa: E402,F401  (the fixture)
 
 # Guards the extension's panel; see tests/test_the_extension_gate_is_complete.py.
@@ -146,7 +148,8 @@ CHECK = r"""async ({where, leftTo, skip}) => {
   await new Promise(done => setTimeout(done, 120));
   const focusable = [...document.querySelectorAll(
       'button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')]
-    .filter(el => !el.disabled && el.offsetParent !== null && !(skip && el.matches(skip)));
+    // getClientRects, not offsetParent: offsetParent is null for a fixed-position control too.
+    .filter(el => !el.disabled && el.getClientRects().length > 0 && !(skip && el.matches(skip)));
   for (const el of focusable) {
     el.focus();
     if (document.activeElement !== el) continue;
@@ -162,7 +165,9 @@ CHECK = r"""async ({where, leftTo, skip}) => {
     if (!drawers.length && track && paintable(track) && (exempt ? visible(track) : draws(track)))
       drawers.push(track);
     if (!drawers.length) { seen.ringless.push(name(el)); continue; }
-    if (!shown(drawers[0])) seen.clipped.push(name(el));
+    // Every element that draws a ring for this control must show it, not only the nearest:
+    // a card's ring around a checkbox that draws its own is a ring the reader looks for too.
+    if (drawers.some(drawer => !shown(drawer))) seen.clipped.push(name(el));
     // The probe's 3:1 is the ring colour at full strength, and opacity fades a ring with
     // its element: the grid's popup button rests at .55, which takes its ring to 1.8:1
     // in dark mode once its own focus rule is gone (#1453).
@@ -202,6 +207,117 @@ def test_every_control_in_every_view_draws_the_ring(open_panel):
         for key, value in sweep(page, view).items():
             seen[key] += value
     assert len(views) >= 10 and seen["controls"] >= 250 and seen["opened"] >= 40, seen
+    assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
+    assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
+    assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
+    assert not seen["faded"], f"controls whose ring is painted below full opacity: {seen['faded']}"
+
+
+#: A view's own ring: the band each side of its outline covers, and whether the view fills
+#: `main` (its box is main's, edge to edge) or sits inside main's padding.
+RING_BANDS = """(id) => {
+  const el = document.getElementById(id), s = getComputedStyle(el), r = el.getBoundingClientRect();
+  const main = document.querySelector('main').getBoundingClientRect();
+  const width = parseFloat(s.outlineWidth), offset = parseFloat(s.outlineOffset);
+  const inner = {l: r.left - offset, t: r.top - offset, r: r.right + offset, b: r.bottom + offset};
+  const outer = {l: inner.l - width, t: inner.t - width, r: inner.r + width, b: inner.b + width};
+  return {offset, fills: Math.abs(r.left - main.left) < 1 && Math.abs(r.right - main.right) < 1,
+          sides: {left: [outer.l, inner.t, inner.l, inner.b], right: [inner.r, inner.t, outer.r, inner.b],
+                  top: [inner.l, outer.t, inner.r, inner.t], bottom: [inner.l, inner.b, inner.r, outer.b]}};
+}"""
+
+#: For each side, how many pixels of its band (inside the viewport) differ between two
+#: screenshots, and how many there are: what focus visibly changed there.
+PIXELS_CHANGED = """async ({focused, blurred, sides}) => {
+  const load = (src) => new Promise(done => { const image = new Image(); image.onload = () => done(image); image.src = src; });
+  const read = (image) => { const canvas = document.createElement('canvas');
+    canvas.width = image.width; canvas.height = image.height;
+    const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+    return context.getImageData(0, 0, image.width, image.height); };
+  const [a, b] = (await Promise.all([load(focused), load(blurred)])).map(read);
+  const out = {};
+  for (const [side, [l, t, r, bottom]] of Object.entries(sides)) {
+    let changed = 0, total = 0;
+    for (let y = Math.max(0, Math.ceil(t)); y < Math.min(a.height, Math.floor(bottom)); y++)
+      for (let x = Math.max(0, Math.ceil(l)); x < Math.min(a.width, Math.floor(r)); x++) {
+        const i = (y * a.width + x) * 4; total++;
+        if (a.data[i] !== b.data[i] || a.data[i + 1] !== b.data[i + 1] || a.data[i + 2] !== b.data[i + 2]) changed++;
+      }
+    out[side] = [changed, total];
+  }
+  return out;
+}"""
+
+SETTLED = "() => document.getAnimations().every(a => a.playState !== 'running' || a.effect.getTiming().iterations === Infinity)"
+
+
+def _ring_seen(browser, page, view_id: str) -> tuple[dict, dict]:
+    """The view's ring and, per side, the share of its band that focus visibly changes."""
+    page.keyboard.press("Shift")  # keyboard modality, without moving focus
+    page.focus(f"#{view_id}")
+    page.wait_for_function(SETTLED, timeout=3000)
+    ring = page.evaluate(RING_BANDS, view_id)
+    focused = page.screenshot()
+    page.evaluate("() => document.activeElement.blur()")
+    page.wait_for_function(SETTLED, timeout=3000)
+    blurred = page.screenshot()
+    canvas = browser.new_page()
+    try:
+        changed = canvas.evaluate(PIXELS_CHANGED, {
+            "focused": "data:image/png;base64," + base64.b64encode(focused).decode(),
+            "blurred": "data:image/png;base64," + base64.b64encode(blurred).decode(),
+            "sides": ring["sides"]})
+    finally:
+        canvas.close()
+    return ring, {side: hit / total for side, (hit, total) in changed.items() if total}
+
+
+def test_every_view_shows_its_own_ring(browser, open_panel):
+    """#1471: what a focused view's ring shows, read in pixels, because the sweep's clip
+    check cannot see a child painted over a ring. A view that fills `main` is clipped
+    by it, so it draws the inset ring, and at least three of its sides show (a sticky
+    heading may cover the top). Every other view keeps the outside ring, and every side
+    inside the viewport shows: an inset ring there is lost under the view's own sticky
+    heading. The views no rail button opens (Manage account, Engine detail, the source
+    editor) are measured too, and their controls swept."""
+    page = open_panel(signed_in=ACCOUNT)
+    page.keyboard.press("Tab")  # keyboard modality; views are switched by script, not a click
+    views = page.eval_on_selector_all("nav.side-rail button[data-view]", "buttons => buttons.map(b => b.dataset.view)")
+    measured, seen = {}, {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": [], "faded": []}
+
+    def open_view(script: str, view_id: str) -> None:
+        page.evaluate(script)
+        page.wait_for_selector(f"#{view_id}:not(.hidden)")
+        page.wait_for_function(SETTLED, timeout=3000)
+
+    for view in views:
+        open_view(f"() => document.querySelector('nav.side-rail button[data-view=\"{view}\"]').click()", f"view-{view}")
+        measured[view] = _ring_seen(browser, page, f"view-{view}")
+    beyond_the_rail = [
+        ("manage-account", "profile", "() => document.querySelector('#manage-account').click()"),
+        ("engine-detail", "engines", "() => document.querySelector('#view-engines .engine-row').click()"),
+        ("source-edit", "sources", "() => document.querySelector('[data-edit-source]').click()"),
+    ]
+    for view, home, opener in beyond_the_rail:
+        open_view(f"() => document.querySelector('nav.side-rail button[data-view=\"{home}\"]').click()", f"view-{home}")
+        open_view(opener, f"view-{view}")
+        measured[view] = _ring_seen(browser, page, f"view-{view}")
+        for key, value in sweep(page, view).items():
+            seen[key] += value
+
+    assert len(measured) >= 13, sorted(measured)
+    wrong = {}
+    for view, (ring, shares) in measured.items():
+        shown = sorted(side for side, share in shares.items() if share >= 0.8)
+        if ring["fills"]:
+            ok = ring["offset"] < 0 and len(shown) >= 3
+        else:
+            ok = ring["offset"] > 0 and shown == sorted(shares)
+        if not ok:
+            wrong[view] = {"fills": ring["fills"], "offset": ring["offset"],
+                           "shown": {side: round(share, 2) for side, share in shares.items()}}
+    assert not wrong, f"views whose own ring is not seen as it should be: {wrong}"
+    assert seen["controls"] >= 20, seen
     assert not seen["ringless"], f"controls that draw no focus ring: {seen['ringless']}"
     assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
