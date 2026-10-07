@@ -160,6 +160,16 @@ th, td {
 }
 th { color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; }
 td code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Supabase's action cell (components/table.mdx@86c813ec:197): each action carries
+   hit-area-2, and two side by side keep at least gap-x-2 between them, so their reaches
+   meet in the gap and neither covers the other's box. ONE LINE, as their cell's
+   `flex items-center gap-x-2` is: wrapped, three actions stacked with no gap between
+   them and the one below took the bottom of the one above, measured at 360px. The
+   cell's own padding holds the outer reach. An action is `button, .button`, as
+   design/components.css names a Button, so the catalogue's snippet, whose actions carry
+   no `button` class, keeps the gap too: without it they stood 4px apart. */
+td.action-cell { white-space: nowrap; }
+td.action-cell > :is(button, .button) + :is(button, .button) { margin-inline-start: var(--sp-2); }
 
 .hidden { display: none !important; }
 

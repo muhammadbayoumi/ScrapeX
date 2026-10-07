@@ -182,6 +182,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .pair-key {
   overflow: hidden;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
 }
@@ -271,6 +272,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .map-profile-key {
   overflow: hidden;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   text-overflow: ellipsis;
@@ -321,6 +323,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -376,6 +379,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .map-said-target,
 .map-said-source {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
 }
@@ -385,6 +389,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .map-said-mode {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   color: var(--text);
 }
@@ -398,6 +403,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   background: var(--bg);
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 
@@ -454,6 +460,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .finding-where {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   color: var(--muted);
   white-space: nowrap;
@@ -492,6 +499,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .sheet-name {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
 }
 
@@ -575,6 +583,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .source-key {
   overflow: hidden;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -649,6 +658,7 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 
 .build-sheet {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   font-weight: var(--fw-regular);
   color: var(--muted);
@@ -671,3 +681,25 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   opacity: .6;
 }
 
+/* ON A TOUCH SCREEN THE CONSOLE'S THREE LISTS KEEP THE FLOOR ON THEIR BOX (#1051). The
+   rail's tabs stand 2px apart and a table's or a source's rows 1px apart, while a hit area
+   reaches 3-4px past a 36-37px row, so the row below took the bottom of the one above,
+   measured at 360px. Each keeps the 44px box it had before #1051 and draws no hit area, as
+   the schedule filters do: Supabase keeps adjacent reaches a gap apart
+   (components/table.mdx@86c813ec:197). `button.`, because a pair row with nothing to open
+   is a <div>, which never took the floor. */
+@media (hover: none), (pointer: coarse) {
+  button.rail-link,
+  button.pair-row,
+  button.source-row { min-height: var(--touch-floor); }
+  button.rail-link::before,
+  button.pair-row::before,
+  button.source-row::before { content: none; }
+  /* "Add a source" stands flush under the last source, so it reaches down the whole of what
+     its box lacks of the floor, Supabase's one-sided hit-area-b
+     (hit-area.css@86c813ec:97-110). Centred, it took that row's bottom 3.4px. */
+  #source-add {
+    --hit-area-t: 0px;
+    --hit-area-b: min(0px, 100% - var(--touch-floor));
+  }
+}

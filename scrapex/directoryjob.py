@@ -149,7 +149,26 @@ def resumable_runs(conn: sqlite3.Connection, source_key: str,
     issue 642 rejected under "make the ref per-source instead of per-job". An update
     exists to find what changed, so it must re-read. Only an interruption leaves work
     that a later run should not buy again.
+
+    NOR IS A RUN THAT A LATER CRAWL HAS COMPLETED PAST -- issue 1503. The offer exists
+    to save what the stopped run kept, and once a crawl started after it has read the
+    whole frontier, that saving is spent. When that crawl is the CONTINUATION ITSELF it
+    is worse: a continuation stores under the inherited ref, so the stopped row stays
+    `cancelled` while its ref fills with a completed crawl's pages -- the trap above,
+    behind a status that no longer describes the ref, and an offer no press could put
+    out. Measured on his warehouse 2026-10-07: the Oman register's cancelled run had
+    been continued five times; that day's three presses made 23, 11 and 11 requests
+    against 953 declared pages, stored 4 new URLs, and the card dated 23,543 rows to
+    that afternoon.
+
+    "LATER" IS `job_id`, THE ORDER JOBS WERE CREATED IN, AND NOT A REF. A continuation's
+    own ref holds nothing, so only its job row says it ran.
     """
+    pattern = f'%"{source_key}"%'
+    (spent_through,) = conn.execute(
+        "SELECT coalesce(max(job_id), 0) FROM crawl_job "
+        " WHERE job_kind = ? AND source_keys LIKE ? AND status = ?",
+        (JOB_KIND, pattern, JobStatus.COMPLETED.value)).fetchone()
     rows = conn.execute(
         "SELECT j.job_ref, j.status, j.finished_at, j.created_at, "
         "       count(s.page_snapshot_id) AS readings "
@@ -165,15 +184,17 @@ def resumable_runs(conn: sqlite3.Connection, source_key: str,
         "    OR substr(s.crawl_run_ref, 1, length(j.job_ref) + 5) "
         "         = 'job-' || j.job_ref || '-' "
         " WHERE j.job_kind = ? AND j.source_keys LIKE ? "
-        # NOT `completed`, for the reason the docstring gives. Every other terminal and
-        # non-terminal state -- cancelled, failed, paused, partially_completed,
-        # completed_with_errors -- left a frontier somebody stopped part way through.
-        "   AND j.status <> ? "
+        # CREATED AFTER THE NEWEST COMPLETED CRAWL OF THIS SOURCE, for the two reasons
+        # the docstring gives. A completed run is excluded by the same clause: its own
+        # job is at or before that one. Every other state -- cancelled, failed, paused,
+        # partially_completed, completed_with_errors -- left a frontier somebody stopped
+        # part way through, and is offered until a crawl created after it completes.
+        "   AND j.job_id > ? "
         # AN INNER JOIN IS THE FILTER: a run that stored nothing produces no row to
         # count, so there is nothing to offer and no clause is needed to say so.
         " GROUP BY j.job_id "
         " ORDER BY j.job_id DESC LIMIT ?",
-        (JOB_KIND, f'%"{source_key}"%', JobStatus.COMPLETED.value, limit)).fetchall()
+        (JOB_KIND, pattern, spent_through, limit)).fetchall()
     return [{"run_ref": f"job-{row[0]}", "job_ref": row[0], "status": row[1],
              "stopped_at": row[2] or row[3], "readings": int(row[4])}
             for row in rows]

@@ -35,7 +35,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from scrapex import db as dbmod, directoryjob, jobs  # noqa: E402
+from scrapex import db as dbmod, directoryjob, jobs, profilejob  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
 from scrapex.vocab import JobStatus, RunMode  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
@@ -107,6 +107,113 @@ def test_a_run_that_stored_nothing_is_not_offered(conn):
     conn.commit()
 
     assert directoryjob.resumable_runs(conn, SITE) == []
+
+
+# ---- a run a later crawl has completed past (issue 1503) --------------------
+
+
+def _continuation(connection: sqlite3.Connection, inherited: str, status: JobStatus,
+                  pages: int) -> str:
+    """A crawl that continued `inherited`, as the card's control queues one: its pages
+    land under the INHERITED ref, and its own ref holds nothing."""
+    ref = jobs.create_job(connection, [SITE], job_kind=directoryjob.JOB_KIND,
+                          status=status, checkpoint={"resume_run_ref": inherited})
+    for page in range(pages):
+        connection.execute(
+            "INSERT INTO generic_page_snapshot "
+            "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+            "VALUES (?, 'text/html', X'00', ?, ?)",
+            (f"https://muqawil.org/en/contractors?page={100 + page}",
+             f"hash-{ref}-{page}", f"{inherited}-riyadh-a1"))
+    connection.commit()
+    return ref
+
+
+def test_a_completed_continuation_retires_the_run_it_continued(conn):
+    """ISSUE 1503 AS HE MET IT, 2026-10-07. He pressed Continue, the crawl completed, and
+    the card offered the same stopped run again -- with a bigger count, because the
+    continuation stores its pages under the ref it inherited. The Oman register's
+    cancelled run had been continued five times; that day's three presses made 23, 11
+    and 11 requests against 953 declared pages and stored 4 new URLs between them."""
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+    _continuation(conn, stopped, JobStatus.COMPLETED, pages=5)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert offered == [], (
+        f"a run its own continuation completed is still offered: {offered} -- the badge "
+        "cannot go out, and the next press skips everything and reports success")
+
+
+def test_a_stopped_run_a_later_crawl_completed_past_is_not_offered(conn):
+    """THE ISSUE'S FIRST CASE: a fresh crawl, under its own ref, read the whole frontier
+    after the run stopped. What the stopped run kept was bought again by that crawl, so
+    continuing it saves nothing and fetches again what the newer crawl stored."""
+    _stopped_run(conn, JobStatus.PAUSED, pages=3)
+    _stopped_run(conn, JobStatus.COMPLETED, pages=10)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert offered == [], (
+        f"a run older than a completed crawl is offered: {offered}")
+
+
+def test_a_run_stopped_after_the_newest_completed_crawl_is_still_offered(conn):
+    """THE EXCLUSION REACHES NO FURTHER THAN THE COMPLETED CRAWL. A run created after it
+    kept pages nothing has read since, which is the saving issue 642 exists for."""
+    _stopped_run(conn, JobStatus.COMPLETED, pages=10)
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert [one["run_ref"] for one in offered] == [stopped], offered
+
+
+def test_the_newest_completed_crawl_decides_not_the_first(conn):
+    """HIS WAREHOUSE HOLDS SEVERAL COMPLETED CRAWLS PER SITE -- five for the Oman register,
+    four for muqawil -- so a stopped run can sit between two of them. An older completed
+    crawl does not shelter it from a newer one."""
+    _stopped_run(conn, JobStatus.COMPLETED, pages=10)
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+    _continuation(conn, stopped, JobStatus.COMPLETED, pages=5)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert offered == [], (
+        f"a run a newer crawl completed past is offered because an older one did not: "
+        f"{offered}")
+
+
+@pytest.mark.parametrize("ended", [JobStatus.CANCELLED, JobStatus.FAILED,
+                                   JobStatus.PARTIALLY_COMPLETED,
+                                   JobStatus.COMPLETED_WITH_ERRORS])
+def test_a_later_crawl_that_did_not_complete_retires_nothing(conn, ended):
+    """ONLY A COMPLETED CRAWL READ THE WHOLE FRONTIER. One that ended any other way left
+    part of it unread, so what the older run kept is still a saving."""
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+    _continuation(conn, stopped, ended, pages=2)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert [one["run_ref"] for one in offered] == [stopped], (
+        f"a later crawl that ended {ended.value} retired the run it did not finish: "
+        f"{offered}")
+
+
+@pytest.mark.parametrize("keys, kind", [
+    ([SITE], profilejob.JOB_KIND),
+    (["oman_tenderboard"], directoryjob.JOB_KIND),
+], ids=["a profile sweep of this site", "a listing crawl of another site"])
+def test_a_completed_crawl_of_another_frontier_retires_nothing(conn, keys, kind):
+    """THE REACH IS THIS SITE'S LISTING FRONTIER. A completed profile sweep read profile
+    pages, and a completed crawl of another directory read another site, so neither has
+    read what this run kept."""
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+    jobs.create_job(conn, keys, job_kind=kind, status=JobStatus.COMPLETED)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert [one["run_ref"] for one in offered] == [stopped], offered
 
 
 def test_the_runner_stores_under_the_inherited_ref(conn):
@@ -297,8 +404,8 @@ def test_a_settled_row_stops_the_listing_crawl_at_its_next_cell(conn, monkeypatc
 # ---- the route the control presses ------------------------------------------
 
 
-@pytest.fixture()
-def served(tmp_path):
+def _engine(tmp_path, build):
+    """An engine over a scratch warehouse that `build` filled, and what `build` returned."""
     path = tmp_path / "harvest.db"
     connection = dbmod.connect(path)
     dbmod.migrate(connection)
@@ -306,12 +413,24 @@ def served(tmp_path):
         "INSERT INTO source_site (source_key, source_name, base_url, platform) "
         "VALUES (?, 'muqawil.org', 'https://muqawil.org', 'directory')", (SITE,))
     connection.commit()
-    stopped = _stopped_run(connection, JobStatus.CANCELLED, pages=5)
-    finished = _stopped_run(connection, JobStatus.COMPLETED, pages=7)
+    made = build(connection)
     connection.close()
     manifest = tmp_path / "sources.yaml"
     shutil.copy(MANIFEST_FILE, manifest)
-    return TestClient(create_app(path, manifest_path=manifest)), path, stopped, finished
+    return TestClient(create_app(path, manifest_path=manifest)), path, made
+
+
+@pytest.fixture()
+def served(tmp_path):
+    def build(connection):
+        # THE FINISHED RUN IS THE OLDER ONE. A completed crawl created AFTER the stopped
+        # run would retire it (issue 1503), and these tests are about a run still owed.
+        finished = _stopped_run(connection, JobStatus.COMPLETED, pages=7)
+        stopped = _stopped_run(connection, JobStatus.CANCELLED, pages=5)
+        return stopped, finished
+
+    client, path, (stopped, finished) = _engine(tmp_path, build)
+    return client, path, stopped, finished
 
 
 def test_the_route_queues_a_crawl_that_continues_the_stopped_run(served):
@@ -385,3 +504,45 @@ def test_the_sources_route_offers_the_stopped_run_to_the_card(served):
     assert offered[0]["run_ref"] == stopped
     assert offered[0]["readings"] == 5
     assert offered[0]["status"] == JobStatus.CANCELLED.value
+
+
+@pytest.fixture()
+def continued(tmp_path):
+    """His warehouse on 2026-10-07, in small: a cancelled run, and a continuation of it
+    that completed."""
+    def build(connection):
+        stopped = _stopped_run(connection, JobStatus.CANCELLED, pages=5)
+        _continuation(connection, stopped, JobStatus.COMPLETED, pages=4)
+        return stopped
+
+    return _engine(tmp_path, build)
+
+
+def test_the_card_stops_offering_a_run_once_its_continuation_completed(continued):
+    """WHAT HE SAW: both presses completed and the badge stayed. The card draws the
+    offer from this key alone (the panel's `waitingLine`), so the key is the fix."""
+    client, _path, stopped = continued
+
+    rows = client.get("/api/sources").json()["sources"]
+    cards = [row for row in rows if row.get("site_key") == SITE]
+    offered = [row["work_waiting"]["resumable"] for row in cards
+               if (row.get("work_waiting") or {}).get("resumable")]
+
+    assert cards, "muqawil is in no listing at all"
+    assert offered == [], (
+        f"the card still offers {stopped} after a continuation of it completed: {offered}")
+
+
+def test_the_route_refuses_to_continue_a_run_a_later_crawl_completed_past(continued):
+    """REFUSED IF ASKED FOR ANYWAY, because the card and the route read one function. A
+    hand-made post would otherwise queue the press that skips everything and reports
+    success."""
+    client, _path, stopped = continued
+
+    refused = client.post("/api/jobs", json={
+        "source_keys": [SITE], "run_mode": "update", "resume_run_ref": stopped})
+
+    assert refused.status_code == 409, refused.text
+    assert "not resumable" in refused.json()["detail"]
+    assert "a crawl created after it has completed" in refused.json()["detail"], (
+        f"the refusal does not say why a stopped run is refused: {refused.text}")

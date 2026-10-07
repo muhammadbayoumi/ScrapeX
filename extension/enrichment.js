@@ -475,12 +475,13 @@ async function refreshReview(reset = true) {
         tr.append(td);
       });
       const actions = document.createElement("td");
+      actions.className = "action-cell";
       for (const [action, label] of [
         ["approve", "Approve"], ["reject", "Reject"], ["override", "Override"],
       ]) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "button ghost";
+        button.className = "button ghost hit-area-2";
         button.textContent = label;
         button.addEventListener("click", () => decideReview(row, action));
         actions.append(button);
@@ -548,9 +549,10 @@ async function refreshIdentityCandidates(reset = true) {
         tr.append(td);
       }
       const actions = document.createElement("td");
+      actions.className = "action-cell";
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "button ghost";
+      button.className = "button ghost hit-area-2";
       button.textContent = "Merge";
       button.addEventListener("click", () => mergeIdentity(row));
       actions.append(button);
@@ -608,10 +610,11 @@ async function refreshMergeHistory(reset = true) {
         tr.append(td);
       }
       const actions = document.createElement("td");
+      actions.className = "action-cell";
       if (!row.reversed_at) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "button ghost";
+        button.className = "button ghost hit-area-2";
         button.textContent = "Reverse";
         button.addEventListener("click", () => reverseMerge(row));
         actions.append(button);
