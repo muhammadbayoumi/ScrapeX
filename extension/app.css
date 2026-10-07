@@ -81,6 +81,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    align-content: center;
     gap: var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
@@ -106,7 +107,10 @@
   /* Its height is SelectTrigger's h-[34px], a height and not a floor, and its value is one
      line, truncated, as Supabase's `[&>span]:truncate` (select.tsx@86c813ec:53,
      constants.ts@86c813ec:62). As a floor, the 20px chevron stood it 38px, and the default
-     mode's label, wrapping on a 320px panel with a mouse, 54px (#1051). */
+     mode's label, wrapping on a 320px panel with a mouse, 54px (#1051). The row is centred
+     in the box, as their `items-center` line is (select.tsx@86c813ec:50): the chevron is
+     taller than the 16px inside the padding, and a grid sets a row taller than its box at
+     the top, so the value and the chevron sat 2px below the middle. */
   .sx-select-trigger > span {
     overflow: hidden;
     text-overflow: ellipsis;

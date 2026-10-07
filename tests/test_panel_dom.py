@@ -6933,7 +6933,7 @@ _SWEEP = """([scopeSelector, sizes]) => {
     // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
     const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 48; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
     const supabase = heights.find(([selector]) => el.matches(selector))[1];
-    out.controls.push({name: name(el), height: r.height, supabase, reach: reach(-1) + reach(1)});
+    out.controls.push({name: name(el), width: r.width, height: r.height, supabase, reach: reach(-1) + reach(1)});
   }
   const scrollers = [document.scrollingElement, ...document.querySelectorAll('*')].filter((s) =>
     s === document.scrollingElement || /auto|scroll|hidden/.test(getComputedStyle(s).overflow));
@@ -7098,7 +7098,9 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
     34 IS A HEIGHT, NOT A FLOOR, and the value is one line, truncated, as Supabase's
     `[&>span]:truncate` (select.tsx@86c813ec:53). As a floor, the 20px chevron stood the
     trigger 38px, and on a 320px panel with a mouse the default mode's label wrapped and
-    stood it 54px.
+    stood it 54px. The value and the chevron stand on the box's middle line, as Supabase's
+    `items-center` line does (select.tsx@86c813ec:50): taller than the 16px inside the
+    padding, they sat 2px below it until the row was centred.
 
     On a touch screen the 48px is its reach, through its hit area: a tap 23px from its centre
     lands on it and one 25px away does not. With a mouse the box is the reach, as Supabase's
@@ -7109,6 +7111,10 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
     trigger.scroll_into_view_if_needed()
     box = trigger.bounding_box()
     assert box and box["height"] == 34, box
+    middles = trigger.evaluate("""(el) => [el, el.querySelector('[data-select-label]'), el.querySelector('svg')]
+      .map((part) => { const r = part.getBoundingClientRect(); return r.top + r.height / 2; })""")
+    assert max(middles) - min(middles) < 0.5, (
+        f"the value and the chevron are off the trigger's middle line (box, value, chevron): {middles}")
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     reach = 23 if touch else box["height"] / 2 - 1
     beyond = 25 if touch else box["height"] / 2 + 2
@@ -7130,9 +7136,10 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
       const lines = new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size;
       const r = el.getBoundingClientRect(), l = label.getBoundingClientRect();
       return {box: r.height, lines,
-              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth};
+              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth,
+              centred: Math.abs(l.top + l.height / 2 - (r.top + r.height / 2)) < 0.5};
     }""")
-    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True}, (
+    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True, "centred": True}, (
         f"{'touch' if touch else 'mouse'}, 320px: a long value no longer stays one truncated "
         f"line in the trigger's 34px: {narrow}")
 

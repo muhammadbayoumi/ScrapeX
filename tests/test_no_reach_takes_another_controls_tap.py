@@ -57,18 +57,18 @@ def webui_on_a_phone(browser, tmp_path):  # noqa: F811
 _KEEPS_THE_FLOOR = ("#1051: it keeps the 44px floor on its box and draws no hit area, because its "
                     "neighbours stand nearer than its reach would run, and Supabase keeps adjacent "
                     "reaches a gap apart (components/table.mdx@86c813ec:197)")
-_OFF_THE_SCALE = ("a literal min-height off Supabase's scale in design/grid-theme.css, the kind "
-                  "#1430 lists, though its census of ten does not name this one")
 
 #: Web UI controls whose box is taller than their Supabase component's on a touch screen, each
-#: with why it is still. It may only shrink (assert_no_box_grows_and_no_reach_shrinks).
+#: with why it is still. It may only shrink (assert_no_box_grows_and_no_reach_shrinks). The two
+#: grid controls stand on design/grid-theme.css's literal min-heights, 2.35rem and 1.65rem,
+#: which #1430's thread adds to its census of heights off Supabase's scale.
 _WEB_TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#add-btn", "#copy-script", "#gen-token", "#model-fit", "#model-zoom-in", "#model-zoom-out",
-        "#open-folder", "#ph-rebuild", "#probe-btn", "#revoke-token", "#run", "#save-funnel",
-        "#save-loc", "#send-funnel", "#show-script", "#test-funnel", "a.button.ghost.icon-label",
-        "a.button.icon-label", "button.schedule-save", "button.split-button-primary"], _PADDING),
-    **dict.fromkeys(["#grid-columns-button", "button.grid-lang-option"], _OFF_THE_SCALE),
+        "#add-btn", "#copy-script", "#gen-token", "#grid-columns-button", "#model-fit",
+        "#model-zoom-in", "#model-zoom-out", "#open-folder", "#ph-rebuild", "#probe-btn",
+        "#revoke-token", "#run", "#save-funnel", "#save-loc", "#send-funnel", "#show-script",
+        "#test-funnel", "a.button.ghost.icon-label", "a.button.icon-label",
+        "button.grid-lang-option", "button.schedule-save", "button.split-button-primary"], _PADDING),
     **dict.fromkeys([
         "#excel_folder", "#excel_schema", "#excel_structure", "#excel_update", "#excel_workbook",
         "#funnel_token", "#funnel_url", "#model-database", "#model-layer", "#model-search",
@@ -103,7 +103,8 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
     count = sum(map(len, read["controls"].values()))
     assert count >= 90, f"the sweep read {count} buttons and fields; a page did not draw"
     menu = read["controls"].get("button.sidebar-toggle.workspace-menu-button.icon-button", [])
-    assert len(menu) == len(PAGES) and {(c["height"], c["reach"]) for c in menu} == {(26, 44)}, (
+    assert len(menu) == len(PAGES) and {
+        (c["width"], c["height"], c["reach"]) for c in menu} == {(26, 26, 44)}, (
         f"the menu button is not a 26px square that reaches exactly 44px on every page: {menu}")
     assert_no_box_grows_and_no_reach_shrinks(read, _WEB_TALLER_THAN_SUPABASE, _WEB_SHORT_OF_THE_FLOOR)
 
