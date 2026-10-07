@@ -300,3 +300,109 @@ def test_a_bundle_missing_the_static_directory_is_caught_here(tmp_path):
     assert "does not exist" in done.stderr and "static" in done.stderr, (
         f"it failed for some other reason than the missing static tree:\n{done.stderr}"
     )
+
+
+# --- run as the release runs it: a refusal is the process's exit status ------------
+#
+# `test_every_declared_file_is_actually_in_the_repository` asks `RUNTIME_DATA` what
+# `build()` asks it, and GitHub reads neither. It reads the exit status, which only
+# `raise SystemExit(build())` at the foot of the recipe sets: `raise SystemExit(0)`
+# there left every test in this file green (#1323). So the recipe is copied into a
+# tree laid out like the repository and run as release-engine.yml's build step runs
+# it, `python packaging/build_engine.py` from the root. A stand-in for PyInstaller
+# goes first on its import path, so no test here can start a real build, and
+# whether a build was started is a file on disk.
+
+#: What the stand-in exits with. Not 1, so PyInstaller's own failure cannot pass
+#: for one of the recipe's refusals.
+PYINSTALLER_FAILS_WITH = 7
+
+#: `python -m PyInstaller`: it leaves the file the test names, then fails.
+STAND_IN_PYINSTALLER = (
+    "import os, pathlib\n"
+    "pathlib.Path(os.environ['STAND_IN_PYINSTALLER_RAN']).touch()\n"
+    f"raise SystemExit({PYINSTALLER_FAILS_WITH})\n")
+
+_RECIPE = _recipe()
+#: The entry point and every runtime source, each as the recipe names it from the root.
+ENTRY = _RECIPE.ENTRY.relative_to(_RECIPE.ROOT).as_posix()
+RUNTIME_SOURCES = [source for source, _ in _RECIPE.RUNTIME_DATA]
+
+
+def _staged_repository(tmp_path: Path, leave_out: str | None = None) -> Path:
+    """The recipe, its entry point and every runtime source, where the repository
+    keeps them, less `leave_out`. Empty stand-ins rather than copies: the recipe
+    asks only whether each one exists."""
+    assert leave_out in (None, ENTRY, *RUNTIME_SOURCES), f"the recipe reads no {leave_out!r}"
+    stage = tmp_path / "repository"
+    for source in (ENTRY, *RUNTIME_SOURCES):
+        if source == leave_out:
+            continue
+        target = stage / source
+        if (ROOT / source).is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch()
+    copy = stage / BUILD_RECIPE.relative_to(ROOT)
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(BUILD_RECIPE, copy)
+    return stage
+
+
+def _run_the_recipe(stage: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, Path]:
+    """The build step's command from the staged root, and the file the stand-in
+    leaves if it is ever started.
+
+    The stand-in is a REGULAR package, `__init__.py` and all: a directory without
+    one is only a namespace portion, and an installed PyInstaller later on the path
+    would win over it.
+    """
+    stand_in = tmp_path / "stand-in" / "PyInstaller"
+    stand_in.mkdir(parents=True)
+    (stand_in / "__init__.py").touch()
+    (stand_in / "__main__.py").write_text(STAND_IN_PYINSTALLER, encoding="utf-8")
+    ran = tmp_path / "pyinstaller-ran"
+    done = subprocess.run(
+        [sys.executable, BUILD_RECIPE.relative_to(ROOT).as_posix()], cwd=stage,
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+        env={**os.environ, "PYTHONPATH": str(stand_in.parent),
+             "PYTHONIOENCODING": "utf-8", "STAND_IN_PYINSTALLER_RAN": str(ran)})
+    return done, ran
+
+
+def test_a_failed_pyinstaller_build_fails_the_step_with_its_status(tmp_path):
+    """THE PREMISE OF THE TWO BELOW, and the failure a release meets most often.
+    With nothing missing, the staged recipe reaches PyInstaller (the stand-in,
+    which fails) and exits with its status. Without this, "the stand-in never
+    started" below could hold because it never could."""
+    done, ran = _run_the_recipe(_staged_repository(tmp_path), tmp_path)
+
+    assert ran.is_file(), f"the staged recipe never reached PyInstaller:\n{done.stderr}"
+    assert done.returncode == PYINSTALLER_FAILS_WITH, (
+        f"PyInstaller exited {PYINSTALLER_FAILS_WITH} and the build step exited "
+        f"{done.returncode}:\n{done.stdout}\n{done.stderr}")
+
+
+def test_a_missing_entry_point_fails_the_step_before_pyinstaller(tmp_path):
+    stage = _staged_repository(tmp_path, leave_out=ENTRY)
+    done, ran = _run_the_recipe(stage, tmp_path)
+
+    assert done.returncode == 1, (
+        f"the tree has no {ENTRY} and the build step exited {done.returncode}:\n"
+        f"{done.stdout}\n{done.stderr}")
+    assert f"missing entry point: {stage.resolve() / ENTRY}" in done.stderr, done.stderr
+    assert not ran.exists(), "PyInstaller was started on a tree with no entry point"
+
+
+@pytest.mark.parametrize("source", RUNTIME_SOURCES)
+def test_a_missing_runtime_source_fails_the_step_before_pyinstaller(tmp_path, source):
+    """PyInstaller warns about a missing `--add-data` source and builds anyway, so
+    the refusal is the recipe's, and it counts only if it reaches the exit status."""
+    done, ran = _run_the_recipe(_staged_repository(tmp_path, leave_out=source), tmp_path)
+
+    assert done.returncode == 1, (
+        f"the tree has no {source} and the build step exited {done.returncode}:\n"
+        f"{done.stdout}\n{done.stderr}")
+    assert f"they are not here: {[source]}" in done.stderr, done.stderr
+    assert not ran.exists(), f"PyInstaller was started without {source}"
