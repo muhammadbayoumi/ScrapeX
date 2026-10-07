@@ -169,6 +169,21 @@ def test_a_run_stopped_after_the_newest_completed_crawl_is_still_offered(conn):
     assert [one["run_ref"] for one in offered] == [stopped], offered
 
 
+def test_the_newest_completed_crawl_decides_not_the_first(conn):
+    """HIS WAREHOUSE HOLDS SEVERAL COMPLETED CRAWLS PER SITE -- five for the Oman register,
+    four for muqawil -- so a stopped run can sit between two of them. An older completed
+    crawl does not shelter it from a newer one."""
+    _stopped_run(conn, JobStatus.COMPLETED, pages=10)
+    stopped = _stopped_run(conn, JobStatus.CANCELLED, pages=3)
+    _continuation(conn, stopped, JobStatus.COMPLETED, pages=5)
+
+    offered = directoryjob.resumable_runs(conn, SITE)
+
+    assert offered == [], (
+        f"a run a newer crawl completed past is offered because an older one did not: "
+        f"{offered}")
+
+
 @pytest.mark.parametrize("ended", [JobStatus.CANCELLED, JobStatus.FAILED,
                                    JobStatus.PARTIALLY_COMPLETED,
                                    JobStatus.COMPLETED_WITH_ERRORS])
