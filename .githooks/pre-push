@@ -38,18 +38,27 @@ done
 
 # NO DIRECT PUSH TO MAIN, and it is checked before anything costs a database open.
 #
-# WHY IT IS HERE AND NOT ON GITHUB. Branch protection is the right home for this
-# and this repository cannot have it: GitHub offers it on a public repository or a
-# paid plan, and this one is private and free. So `main` has no server-side gate at
-# all -- CI runs and blocks nothing, and the merge gate in CLAUDE.md holds only for
-# a session that has read it.
+# GITHUB REFUSES THIS TOO NOW, so this hook is the fast local half and not the only
+# gate. `main` carries an active ruleset -- `pull_request`, `required_status_checks`
+# (scope, lint, test, contract-parity, strict), `non_fast_forward`, `deletion` -- and
+# its bypass list is EMPTY, so it binds the owner as well. A red pull request can no
+# longer be merged either, which this comment used to say it could.
 #
-# WHAT IT ACTUALLY BUYS, and it is narrower than branch protection. It stops a push,
-# not a merge: `gh pr merge` happens on GitHub and this hook never sees it, so a red
-# pull request can still be merged. What it does stop is the thing that actually
-# happens here -- an agent or a session pushing straight to main, having never read
-# the rules. Several agents now run against this repository on this one machine, so
-# a local guard covers nearly all of the real surface.
+# ASK `rulesets`, NOT `branches/main/protection`. That second call answers
+# 404 "Branch not protected" WHILE the ruleset is active, because the classic
+# endpoint cannot see rulesets:
+#
+#     gh api repos/:owner/:repo/rulesets                   -> 1, enforcement active
+#     gh api repos/:owner/:repo/branches/main/protection   -> 404
+#
+# This comment used to reason from that one call and conclude the trunk was open, on
+# a plan and a visibility the repository has both since left behind. Protection is on,
+# the repository is public, and the 404 did not change. Anything that asks only the
+# protection endpoint will keep reaching the old conclusion.
+#
+# WHAT THIS HOOK STILL BUYS. It refuses before the push leaves the machine, names the
+# way forward in the refusal, and keeps refusing if the ruleset is ever relaxed.
+# Several agents run against this repository on this one machine.
 #
 # AND WHAT IT CANNOT DO. `--no-verify` skips it, and a machine that has never run
 # `git config core.hooksPath .githooks` never had it. Both are deliberate acts, and
