@@ -4629,12 +4629,15 @@ def create_app(
             if asked not in offered:
                 # A COMPLETED RUN IS NOT RESUMABLE. Inheriting its ref would make this
                 # crawl skip every page it stored -- a crawl that reads nothing and
-                # reports success, which is the trap issue 642 rejected by name.
+                # reports success, which is the trap issue 642 rejected by name. Nor is
+                # a stopped run that a later crawl has completed past (issue 1503): what
+                # it kept was read again by that crawl, so there is nothing to save.
                 raise HTTPException(
                     status_code=409,
-                    detail=f"{asked!r} is not an interrupted run of {source_keys[0]!r}. "
-                           "A finished run is not resumable: continuing it would skip "
-                           "everything it stored and read nothing")
+                    detail=f"{asked!r} is not resumable for {source_keys[0]!r}: it "
+                           "completed, or a crawl created after it has completed since, "
+                           "so there is nothing left for it to continue. Start a new "
+                           "crawl instead")
             checkpoint = {**(checkpoint or {}), "resume_run_ref": asked}
         if job_kind == profilejob.JOB_KIND:
             # WHICH PROFILES, PASSED THROUGH RATHER THAN DECIDED HERE. The runner reads
