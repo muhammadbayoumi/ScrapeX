@@ -123,7 +123,7 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
     named = [f"{selector}.touch-reach" for selector in WEB_ALSO]
     also = {name: {(c["height"], c["reach"]) for c in seen}
             for name, seen in read["controls"].items() if name in named}
-    assert also == dict.fromkeys(named, {(26, 44)}), (
+    assert also == {name: {(26, 44)} for name in named}, (
         f"a Button drawn as another element is not a 26px box that reaches 44px: {also}")
     menu = read["controls"].get("button.sidebar-toggle.workspace-menu-button.icon-button", [])
     assert len(menu) == len(PAGES) and {

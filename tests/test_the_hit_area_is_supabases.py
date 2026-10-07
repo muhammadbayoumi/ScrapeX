@@ -268,7 +268,7 @@ def test_each_stack_reads_the_gap_in_a_top_level_coarse_block_at_every_width():
     assert not misplaced, (
         f"a stack reads --touch-stack-gap somewhere other than directly in a top-level "
         f"`{COARSE}` block, so at some width it keeps its own gap: {misplaced}")
-    assert HALF_THE_GAP <= set(STACK_GAP), sorted(HALF_THE_GAP - set(STACK_GAP))
+    assert not HALF_THE_GAP - set(STACK_GAP), sorted(HALF_THE_GAP - set(STACK_GAP))
     other = {where: value for where, _around, value in reads
              if value != ("calc(var(--touch-stack-gap) / 2)" if where in HALF_THE_GAP
                           else "var(--touch-stack-gap)")}
