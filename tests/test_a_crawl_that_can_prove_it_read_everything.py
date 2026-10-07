@@ -123,6 +123,9 @@ class Partition:
     def read_ids(self, html: str) -> tuple[str, ...]:
         return tuple(_ID.findall(html))
 
+    def refused_rows(self, html: str) -> tuple[str, ...]:
+        return ()
+
     def in_cell(self, cell: Cell, *, last_page: int):
         return _CellSource(self, cell, last_page)
 
@@ -667,6 +670,62 @@ def test_a_parse_failure_is_not_reported_as_a_dead_page(conn):
         "SELECT COUNT(*) FROM generic_page_snapshot").fetchone()[0]
     assert stored >= 1, "the pages the site served must still be evidence"
     assert outcome.cells[0].attempts[0].pages_read >= 1
+
+
+class _Refusing(Partition):
+    """Refuses ROW 3 alone, as the Oman reader refuses `ALWASIT` (#1333), and cannot
+    read the page holding row 6 at all. Neither is on the pages sizing reads except
+    row 3, which is on page 1 -- the page sizing takes its per-page count from."""
+
+    def read_ids(self, html: str) -> tuple[str, ...]:
+        if '/row/6/' in html:
+            raise RuntimeError("this page is not the shape the reader knows")
+        return tuple(one for one in super().read_ids(html) if one != "3")
+
+    def refused_rows(self, html: str) -> tuple[str, ...]:
+        return ("3: its two keys disagree",) if '/row/3/' in html else ()
+
+
+def _refusing_run(conn):
+    register(conn)
+    ids = [str(n) for n in range(1, 13)]
+    one = cell(region_id=1)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+    return crawl_partition(conn, _Refusing(directory, cells=(one,)), BASE,
+                           fetch=directory.fetch, run_ref="run-1", dataset_key="rows",
+                           max_attempts=3, resize_at_end=False)
+
+
+def test_a_refused_row_is_still_a_row_the_page_published(conn):
+    """Sized from `read_ids` alone, page 1's refused row made every page one row
+    short: `(3 − 1) · 3 + 4 = 10` where the cell publishes 12, and the deficit that
+    should have named the refusal would have hidden it."""
+    only = _refusing_run(conn).cells[0]
+
+    assert only.size.declared == 12, str(only.size)
+    assert "3" not in only.ids and "6" not in only.ids
+
+
+def test_the_report_names_what_the_reader_refused_once_each(conn):
+    """#1333: the only trace of fifty refused firms was `D=50`, which reads as the
+    site's shortfall. Every attempt re-reads the same pages, so a refusal counted per
+    attempt would print once per attempt; it is named once."""
+    outcome = _refusing_run(conn)
+    report = str(outcome)
+
+    assert len(outcome.cells[0].attempts) > 1, "the fixture must re-read the pages"
+    assert "1 page(s) the reader refused, so none of their rows count:" in report
+    assert "1 row(s) the reader refused on pages it read, so they do not count:" in report
+    assert report.count("3: its two keys disagree") == 1, report
+    assert report.count("not the shape the reader knows") == 1, report
+    assert "page=1" in report.split("3: its two keys disagree")[0].splitlines()[-1]
+
+
+def test_a_crawl_that_refused_nothing_says_nothing_about_refusals(conn):
+    register(conn)
+    directory = Directory({"whole": ["1", "2"], "region_id_1": ["1", "2"]})
+    outcome = run(conn, Partition(directory, cells=(cell(region_id=1),)), directory)
+    assert "the reader refused" not in str(outcome)
 
 
 def test_an_empty_cell_is_complete_by_having_nothing_in_it(conn):

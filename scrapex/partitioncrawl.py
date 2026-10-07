@@ -194,6 +194,10 @@ class PartitionedListing(Protocol):
     def read_ids(self, html: str) -> tuple[str, ...]:
         """Every row id on this page, IN PUBLISHED ORDER and keeping duplicates."""
 
+    def refused_rows(self, html: str) -> tuple[str, ...]:
+        """Each row on this page `read_ids` left out, named with why. Empty for a site
+        whose reader refuses whole pages only."""
+
     def in_cell(self, cell: Cell, *, last_page: int) -> PageSource:
         """A `PageSource` naming exactly this cell's pages."""
 
@@ -251,6 +255,9 @@ class Attempt:
     #: `pages_read` and already stored as evidence. Adding them together made
     #: `CellOutcome.requests` report a cost the crawl never paid.
     parse_failures: tuple[tuple[str, str], ...] = ()
+    #: Rows a page that read left out, `(url, why)`: the page's other ids count, these
+    #: do not, and the cell's deficit includes them (#1333).
+    refused_rows: tuple[tuple[str, str], ...] = ()
     #: Pages this ref had already stored, so a resume did not store them twice.
     skipped: tuple[str, ...] = ()
     #: Pages whose ids were read back off disk instead of off the wire — a resume
@@ -594,8 +601,34 @@ class PartitionOutcome:
                 f"({self.whole.declared:,} -> {self.whole_at_end.declared:,}), so a "
                 "cell ending one or two short of its declared count may have lost a "
                 "contractor rather than missed one")
+        lines.extend(self._what_the_reader_refused())
         lines.extend(self.notes)
         return "\n".join(lines)
+
+    def _what_the_reader_refused(self) -> list[str]:
+        """Pages and rows the site served and the reader would not count, named.
+
+        WITHOUT THIS A REFUSAL READ AS THE SITE'S SHORTFALL. #1333: one Oman page was
+        refused on every crawl and the only trace of its fifty firms was `D=50`, which
+        says "the site did not show us fifty", not "we would not read a page". Each
+        attempt re-reads the same pages, so the same refusal is named once.
+        """
+        lines: list[str] = []
+        for title, entries in (
+                ("page(s) the reader refused, so none of their rows count",
+                 [entry for cell in self.cells for attempt in cell.attempts
+                  for entry in attempt.parse_failures]),
+                ("row(s) the reader refused on pages it read, so they do not count",
+                 [entry for cell in self.cells for attempt in cell.attempts
+                  for entry in attempt.refused_rows])):
+            named = list(dict.fromkeys(entries))
+            if not named:
+                continue
+            lines.append(f"{len(named):,} {title}:")
+            lines.extend(f"  {url} — {why}" for url, why in named[:20])
+            if len(named) > 20:
+                lines.append(f"  … and {len(named) - 20:,} more")
+        return lines
 
 
 def size_cell(fetch: Fetch, partition: PartitionedListing, base_url: str,
@@ -611,14 +644,25 @@ def size_cell(fetch: Fetch, partition: PartitionedListing, base_url: str,
     first = fetch(partition.listing_url(base_url, locale=partition.primary_locale,
                                         page=1, cell=cell))
     last_page = partition.read_last_page(first)
-    cards_per_page = len(partition.read_ids(first))
+    cards_per_page = _published(partition, first)
     if last_page == 1:
         return CellSize(cell=cell, last_page=1, cards_per_page=cards_per_page,
                         tail_cards=cards_per_page, requests=1)
     tail = fetch(partition.listing_url(base_url, locale=partition.primary_locale,
                                        page=last_page, cell=cell))
     return CellSize(cell=cell, last_page=last_page, cards_per_page=cards_per_page,
-                    tail_cards=len(partition.read_ids(tail)), requests=2)
+                    tail_cards=_published(partition, tail), requests=2)
+
+
+def _published(partition: PartitionedListing, html: str) -> int:
+    """How many rows this page PUBLISHES: the ones read and the ones refused.
+
+    A SIZE IS A CLAIM ABOUT THE SITE, NOT ABOUT THE READER. Counted from `read_ids`
+    alone, a refused row on page 1 (#1333) would declare every page one row short and
+    the cell `L − 1` rows short, so the deficit that should name the refusal would
+    hide it.
+    """
+    return len(partition.read_ids(html)) + len(partition.refused_rows(html))
 
 
 class _Unstored:
@@ -769,6 +813,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
               for page in range(1, size.last_page + 1)}
     seen: dict[int, tuple[str, ...]] = {}
     parse_failures: list[tuple[str, str]] = []
+    refused_rows: list[tuple[str, str]] = []
 
     def harvesting(url: str) -> str:
         html = fetch(url)
@@ -776,6 +821,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         if page is not None:
             try:
                 seen[page] = partition.read_ids(html)
+                refused_rows.extend((url, why) for why in partition.refused_rows(html))
             except Exception as exc:
                 # A PARSE MUST NOT BREAK A FETCH. The walker turns any exception
                 # from `fetch` into a failed page, so letting a parse error
@@ -826,6 +872,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         note=note, run_ref=run_ref, snapshots=outcome.snapshots,
         unstored=outcome.unstored, failures=tuple(outcome.report.failures),
         parse_failures=tuple(parse_failures),
+        refused_rows=tuple(refused_rows),
         skipped=tuple(left_out) + outcome.skipped,
         recovered=tuple(sorted(recovered)),
         witness_requests=0 if baseline is None else 1)

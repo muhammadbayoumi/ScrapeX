@@ -207,3 +207,90 @@ def test_an_unpairable_firm_reaches_the_candidate_as_a_refusal_not_a_gap():
     """The full English fixture still holds the firm with no CR number."""
     with pytest.raises(RegisterShapeError, match="no counterpart"):
         bilingual_listing_candidate(EN, AR)
+
+
+# --- a refused row (#1333) -----------------------------------------------------------
+
+def _disagreeing(html: str, key: str = "00169963") -> str:
+    """The page with one firm's activities argument changed so its two keys disagree:
+    the shape of `ALWASIT` against `nabil` on page 369 of job 191."""
+    marked = html.replace(f"getProcActivities('{key}')", "getProcActivities('nabil')")
+    assert marked != html, f"the fixture no longer carries {key}'s activities call"
+    return marked
+
+
+@pytest.mark.parametrize("english, arabic", [
+    pytest.param(True, False, id="english-only"),
+    pytest.param(False, True, id="arabic-only"),
+    pytest.param(True, True, id="both-views"),
+])
+def test_a_refused_row_leaves_the_rest_of_the_page_approvable_and_is_named(english, arabic):
+    """His ruling on #1333: the row, not the page. Refused in ONE view, its twin in the
+    other must leave too -- left behind it is an orphan, and `join_languages` refuses a
+    page with an orphan, which would lose the page all over again."""
+    whole = _candidate()
+    candidate = bilingual_listing_candidate(
+        _disagreeing(_pairable_en()) if english else _pairable_en(),
+        _disagreeing(AR) if arabic else AR)
+
+    keys = [row["short_name"] for row in candidate.rows]
+    assert candidate.approvable
+    assert "00169963" not in keys
+    assert len(keys) == len(whole.rows) - 1, "every other firm on the page is kept"
+    assert len(candidate.warnings) == 1, candidate.warnings
+    assert candidate.warnings[0].startswith("row 00169963 refused: "), candidate.warnings
+    assert "'nabil'" in candidate.warnings[0]
+
+
+def test_a_page_with_nothing_refused_carries_no_warning():
+    assert _candidate().warnings == ()
+
+
+def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
+        tmp_path, monkeypatch):
+    """The real `contractors.approve`, the real Oman directory and the real schema: a
+    page that refused a row is approved, and the log he reads names the row it left
+    out. Approved silently, the refusal would be the same gap #1333 was."""
+    import io
+    from contextlib import redirect_stdout
+
+    from scrapex import contractors, directories
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.snapshotbody import encode
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        def stored(url: str, html: str) -> int:
+            body, codec, dict_id = encode(conn, html, label=None)
+            cursor = conn.execute(
+                "INSERT INTO generic_page_snapshot (source_url, html_content, "
+                " content_hash, crawl_run_ref, html_codec, html_dict_id, captured_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (url, body, url, "run-1", codec, dict_id, "2026-10-03T10:00:00Z"))
+            conn.commit()
+            return int(cursor.lastrowid)
+
+        english, arabic = _disagreeing(_pairable_en()), AR
+        en_url = "https://esnad.example/page?CTRL_STRDIRECTION=LTR&pageNo=369"
+        ar_url = "https://esnad.example/page?CTRL_STRDIRECTION=RTL&pageNo=369"
+        pair = {"en": (stored(en_url, english), english),
+                "ar": (stored(ar_url, arabic), arabic)}
+        monkeypatch.setattr(contractors, "_pairs",
+                            lambda c, d, run_ref, *, ids=(): {"page-369": pair})
+        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        # `say` also writes a log file; it goes to this test's directory, not a home.
+        monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
+
+        said = io.StringIO()
+        with redirect_stdout(said):
+            contractors.approve(conn, directories.get("oman_tenderboard"), "run-1")
+        log = said.getvalue()
+    finally:
+        conn.close()
+
+    assert "approved 1 page(s)" in log, log
+    assert "approved page-369 without a row: row 00169963 refused: " in log, log
+    assert "refused page-369" not in log, "the page itself must not read as refused"
