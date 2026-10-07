@@ -570,13 +570,14 @@ def test_a_firm_found_under_a_new_key_by_its_cr_number_is_not_absent(conn, capsy
 def test_a_firm_found_by_a_rows_second_key_is_not_absent_and_case_is_not_a_difference(
         conn, capsys):
     """`nabil` was the key once; the row now printed `ALWASIT` says `nabil` in its
-    activities call -- so it is the same firm. The call lower-cases, so a stored `NABIL`
-    is found too."""
+    activities call -- so it is the same firm. The two copies were measured to differ
+    in case, so neither side's case decides: a stored `NABIL2` is found by `nabil2`,
+    and a stored `nabil` by `Nabil`."""
     _stored(conn, ("nabil", "active"), ("NABIL2", "active"))
     _ledger(conn, "nabil", "NABIL2")
 
     _crawl(conn, _registered(), ["ALWASIT", "OTHER"],
-           [("ALWASIT", None, "nabil"), ("OTHER", None, "nabil2")])
+           [("ALWASIT", None, "Nabil"), ("OTHER", None, "nabil2")])
 
     assert _absent_at(conn, "nabil") is None and _absent_at(conn, "NABIL2") is None
     said = capsys.readouterr().out
@@ -593,6 +594,16 @@ def test_both_pieces_of_evidence_are_named_when_both_find_it(conn, capsys):
 
     assert "changed key: OLD → NEW (by cr_number and second key)" in (
         capsys.readouterr().out)
+
+
+def test_a_cr_number_printed_with_spaces_around_it_is_the_same_number(conn, capsys):
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", " CR-7 ", "new")])
+
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW (by cr_number)" in capsys.readouterr().out
 
 
 def test_a_firm_no_evidence_finds_is_marked_absent_as_before(conn, capsys):

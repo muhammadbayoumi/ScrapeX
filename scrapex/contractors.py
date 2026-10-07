@@ -567,9 +567,11 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
     by_registration: dict[str, set[str]] = {}
     by_second_key: dict[str, set[str]] = {}
     for row in outcome.identity_evidence:
-        if row.registration and row.registration.strip():
+        # A BLANK IS NEVER LOOKED UP: `stored_values` returns no blank number to look
+        # one up by, so a blank kept here is unreachable rather than a match.
+        if row.registration:
             by_registration.setdefault(row.registration.strip(), set()).add(row.key)
-        if row.second_key and row.second_key.strip():
+        if row.second_key:
             by_second_key.setdefault(row.second_key.strip().lower(), set()).add(row.key)
     registrations = (stored_values(conn, directory.dataset_key,
                                    id_field=directory.identity_field,
