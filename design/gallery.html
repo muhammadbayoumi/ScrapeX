@@ -310,10 +310,10 @@
   <div class="g-item">
     <h3>Sizes and icon-only</h3>
     <p class="g-why">
-      <code class="code">icon-button</code> is a square at Supabase's tiny Button
-      height, 26px, the Button's default size. With a mouse,
-      <code class="code">compact</code> and <code class="code">xs</code> draw the same
-      square, because Supabase's Button has no size below tiny, and on a touch screen
+      <code class="code">icon-button</code> is Supabase's icon-only Button, 36 by 26:
+      the tiny Button's padding around a 14px icon, at the Button's default size. With a
+      mouse, <code class="code">compact</code> and <code class="code">xs</code> draw the
+      same box, because Supabase's Button has no size below tiny, and on a touch screen
       too: the 44px coarse-pointer floor is the reach of each one's hit area (below), not
       its box, so none of them draws the 26 by 44 slab a plain
       <code class="code">icon-button</code> drew until #1051. <code class="code">icon-button</code> and
@@ -363,6 +363,21 @@
   &lt;button class="ghost hit-area-2"&gt;Inspect&lt;/button&gt;
   &lt;button class="ghost hit-area-2"&gt;Edit&lt;/button&gt;
 &lt;/td&gt;</pre>
+  </div>
+
+  <div class="g-item">
+    <h3>Touch reach</h3>
+    <p class="g-why">
+      A Button drawn as another element, a <code class="code">&lt;summary&gt;</code> or an
+      <code class="code">&lt;a&gt;</code>, which <code class="code">button, .button</code> does
+      not select. <code class="code">touch-reach</code> gives it a Button's hit area: on a
+      touch screen it reaches 44px tall, and with a mouse it keeps its box. The web UI's
+      dataset picker and its source-list icon link carry it
+      (<code class="code">design/data-workspace.css</code>, #1430).
+    </p>
+    <div class="g-demo cluster">
+      <details><summary class="touch-reach">A summary drawn as a Button</summary></details>
+    </div>
   </div>
 
   <div class="g-item">

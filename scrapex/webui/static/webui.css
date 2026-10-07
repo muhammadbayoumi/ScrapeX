@@ -88,7 +88,8 @@ h3 {
       background:var(--surface);z-index:4;display:flex;flex-direction:column}
     .sidebar-toggle{display:none;place-items:center}
     .sidebar-toggle:hover:not(:disabled){background:var(--accent-weak);color:var(--accent-ink)}
-    .sidebar-toggle svg{width:1.5rem;height:1.5rem;fill:currentColor}
+    /* Its icon is an icon-only Button's 14px, from components.css (#1430). */
+    .sidebar-toggle svg{fill:currentColor}
     .workspace-menu-button{position:fixed;inset-block-start:var(--sp-3);
       inset-inline-start:var(--sp-3);z-index:10;background:var(--surface);
       color:var(--text);box-shadow:var(--shadow-sm)}
