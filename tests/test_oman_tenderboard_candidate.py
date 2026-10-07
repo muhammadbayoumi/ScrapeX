@@ -209,7 +209,7 @@ def test_an_unpairable_firm_reaches_the_candidate_as_a_refusal_not_a_gap():
         bilingual_listing_candidate(EN, AR)
 
 
-# --- a refused row (#1333) -----------------------------------------------------------
+# --- a row whose two keys disagree (#1333) -------------------------------------------
 
 def _disagreeing(html: str, key: str = "00169963") -> str:
     """The page with one firm's activities argument changed so its two keys disagree:
@@ -219,37 +219,52 @@ def _disagreeing(html: str, key: str = "00169963") -> str:
     return marked
 
 
+def test_the_warning_column_is_declared_last_and_has_no_arabic_twin():
+    """LAST, so every column the Sheet already carries keeps its place; an identifier-
+    class field, so `R-12` gives it no `_ar` twin."""
+    assert FIELDS[-1] == "key_warning"
+    assert [f.field_key for f in _candidate().fields][-1] == "key_warning"
+    assert "key_warning" in NO_ARABIC_TWIN
+
+
 @pytest.mark.parametrize("english, arabic", [
     pytest.param(True, False, id="english-only"),
     pytest.param(False, True, id="arabic-only"),
     pytest.param(True, True, id="both-views"),
 ])
-def test_a_refused_row_leaves_the_rest_of_the_page_approvable_and_is_named(english, arabic):
-    """His ruling on #1333: the row, not the page. Refused in ONE view, its twin in the
-    other must leave too -- left behind it is an orphan, and `join_languages` refuses a
-    page with an orphan, which would lose the page all over again."""
+def test_a_disagreeing_row_is_a_firm_whose_warning_column_says_why(english, arabic):
+    """His ruling on #1333: record every disagreeing row, never skip it. In whichever
+    view the keys disagree, the firm stays on the page under its commented key and its
+    `key_warning` names both keys; every other row's is empty."""
     whole = _candidate()
     candidate = bilingual_listing_candidate(
         _disagreeing(_pairable_en()) if english else _pairable_en(),
         _disagreeing(AR) if arabic else AR)
 
-    keys = [row["short_name"] for row in candidate.rows]
+    rows = {row["short_name"]: row for row in candidate.rows}
     assert candidate.approvable
-    assert "00169963" not in keys
-    assert len(keys) == len(whole.rows) - 1, "every other firm on the page is kept"
-    assert len(candidate.warnings) == 1, candidate.warnings
-    assert candidate.warnings[0].startswith("row 00169963 refused: "), candidate.warnings
-    assert "'nabil'" in candidate.warnings[0]
+    assert len(rows) == len(whole.rows), "no firm is left out"
+    warning = rows["00169963"]["key_warning"]
+    assert warning and "'00169963'" in warning and "'nabil'" in warning, warning
+    assert warning.count("disagree beyond case") == 1, (
+        f"the same sentence from both views is said once: {warning}")
+    assert [key for key, row in rows.items() if row["key_warning"]] == ["00169963"]
+    assert candidate.warnings == (f"row 00169963: {warning}",), candidate.warnings
 
 
-def test_a_page_with_nothing_refused_carries_no_warning():
-    assert _candidate().warnings == ()
+def test_a_page_whose_keys_all_agree_has_an_empty_warning_column():
+    candidate = _candidate()
+    assert all(row["key_warning"] is None for row in candidate.rows)
+    assert candidate.warnings == ()
 
 
-def _approve_log(tmp_path, monkeypatch, english: str, arabic: str) -> str:
+def _approve_log(tmp_path, monkeypatch, english: str, arabic: str, *, after=None
+                 ) -> tuple[str, dict[str, dict]]:
     """What the real `contractors.approve` says over one stored Oman page pair, on the
-    real Oman directory and the real schema."""
+    real Oman directory and the real schema -- and the rows it stored, by key. `after`
+    is handed the connection once the approval is done, and its output is in the log."""
     import io
+    import json
     from contextlib import redirect_stdout
 
     from scrapex import contractors, directories
@@ -284,7 +299,17 @@ def _approve_log(tmp_path, monkeypatch, english: str, arabic: str) -> str:
         said = io.StringIO()
         with redirect_stdout(said):
             contractors.approve(conn, directories.get("oman_tenderboard"), "run-1")
-        return said.getvalue()
+            if after is not None:
+                after(conn)
+        rows = {}
+        for (blob,) in conn.execute(
+                "SELECT r.data_json FROM generic_record AS r "
+                "  JOIN dataset_definition AS d "
+                "    ON d.dataset_definition_id = r.dataset_definition_id "
+                " WHERE d.dataset_key = ?", (DATASET_KEY,)):
+            row = json.loads(blob)
+            rows[row["short_name"]] = row
+        return said.getvalue(), rows
     finally:
         conn.close()
 
@@ -297,39 +322,95 @@ def _only(html: str, key: str) -> str:
                   keep, html, flags=re.DOTALL)
 
 
-def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
+def test_the_real_approval_writes_the_disagreeing_row_with_its_warning(
         tmp_path, monkeypatch):
-    """A page that refused a row is approved, and the log he reads names the row it
-    left out. Approved silently, the refusal would be the same gap #1333 was."""
-    log = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
+    """Through `contractors.approve` onto the real schema: the firm is a stored row whose
+    `key_warning` is filled, its neighbours' is empty, and the log he reads names it."""
+    log, rows = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
 
     assert "approved 1 page(s)" in log, log
-    assert "approved page-369 without a row: row 00169963 refused: " in log, log
-    assert "refused page-369" not in log, "the page itself must not read as refused"
+    assert "approved page-369 with a warning: row 00169963: " in log, log
+    assert "refused page-369" not in log, log
+    assert set(rows) == {row["short_name"] for row in _candidate().rows}
+    assert "'nabil'" in rows["00169963"]["key_warning"], rows["00169963"]
+    assert all(row["key_warning"] is None
+               for key, row in rows.items() if key != "00169963"), rows
 
 
-def test_a_page_whose_only_firm_was_refused_is_not_called_approved(
+def test_a_page_whose_only_firm_disagrees_is_approved_not_refused(tmp_path, monkeypatch):
+    """Under #1537 this page was refused -- nothing left once its one row was. Now the
+    row is the firm, so the page is approved and the firm is stored."""
+    log, rows = _approve_log(tmp_path, monkeypatch,
+                             _only(_disagreeing(_pairable_en()), "nabil"),
+                             _only(AR, "00169963"))
+
+    assert "approved 1 page(s)" in log, log
+    assert "refused page-369" not in log, log
+    assert list(rows) == ["00169963"] and rows["00169963"]["key_warning"], rows
+
+
+def test_a_page_whose_write_failed_is_not_called_approved_with_a_warning(
         tmp_path, monkeypatch):
-    """Nothing left to approve, so the page is REFUSED -- and the log must not also
-    claim it was approved without a row."""
-    log = _approve_log(tmp_path, monkeypatch,
-                       _only(_disagreeing(_pairable_en()), "nabil"),
-                       _only(AR, "00169963"))
-
-    assert "approved 0 page(s)" in log, log
-    assert "refused page-369: row 00169963 refused: " in log, log
-    assert "without a row" not in log, log
-
-
-def test_a_page_whose_write_failed_is_not_called_approved(tmp_path, monkeypatch):
-    """The write rolled back, so nothing was approved; the row it would have left out
-    must not be reported as left out of an approval that never happened."""
+    """The write rolled back, so nothing was approved; its row's warning must not be
+    reported beside an approval that never happened."""
     from scrapex.extract import service
 
     def fail(*args, **kwargs):
         raise RuntimeError("disk full")
     monkeypatch.setattr(service, "approve_candidate", fail)
-    log = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
+    log, rows = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
 
     assert "refused page-369: RuntimeError: disk full" in log, log
-    assert "without a row" not in log, log
+    assert "with a warning" not in log, log
+    assert rows == {}
+
+
+def test_a_firm_the_register_rekeyed_is_found_by_its_cr_number_end_to_end(
+        tmp_path, monkeypatch):
+    """THE REAL CHAIN, so the field names cannot drift apart: rows stored by the real
+    approval, evidence read by the real `OmanPartition`, and the real Oman directory's
+    `registration_field` joining the two. `00169963` comes back as `NEWKEY` with its CR
+    number unchanged -- it changed key, it did not leave."""
+    from scrapex import directories
+    from scrapex.contractors import mark_departures
+    from scrapex.partitioncrawl import (
+        WHOLE,
+        Attempt,
+        CellOutcome,
+        CellSize,
+        PartitionOutcome,
+    )
+    from scrapex.sightings import record_sightings
+    from scrapex.sites.oman_tenderboard import OmanPartition, read_ids
+
+    directory = directories.get("oman_tenderboard")
+    assert directory.registration_field == "cr_number"
+    assert directory.registration_field in FIELDS
+    rekeyed = _pairable_en().replace("<!-- <td>00169963</td> -->",
+                                     "<!-- <td>NEWKEY</td> -->").replace(
+        "getProcActivities('00169963')", "getProcActivities('newkey')")
+    ids = read_ids(rekeyed)
+    assert "NEWKEY" in ids and "00169963" not in ids, "the fixture must rekey the firm"
+
+    def crawl(conn):
+        stored = [row["short_name"] for row in _candidate().rows]
+        record_sightings(conn, DATASET_KEY, stored)
+        conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-08-20T09:00:00Z'")
+        conn.commit()
+        size = CellSize(cell=WHOLE, last_page=1, cards_per_page=len(ids),
+                        tail_cards=len(ids), requests=1)
+        outcome = PartitionOutcome(whole=size, cells=(CellOutcome(size=size, attempts=(
+            Attempt(ids=ids, pages_read=1, witnessed=True, note="", run_ref="r2",
+                    identity_evidence=OmanPartition().identity_evidence(rekeyed)),)),))
+        assert outcome.provably_complete
+        mark_departures(conn, directory, outcome, "r2")
+        absent = conn.execute(
+            "SELECT external_id FROM dataset_sighting "
+            " WHERE dataset_key = ? AND last_absent_at IS NOT NULL",
+            (DATASET_KEY,)).fetchall()
+        assert absent == [], absent
+
+    log, rows = _approve_log(tmp_path, monkeypatch, _pairable_en(), AR, after=crawl)
+
+    assert rows["00169963"]["cr_number"], "the stored firm must carry its CR number"
+    assert "changed key: 00169963 → NEWKEY (by cr_number)" in log, log

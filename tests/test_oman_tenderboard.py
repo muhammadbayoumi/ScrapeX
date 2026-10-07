@@ -35,7 +35,7 @@ from scrapex.sites.oman_tenderboard import (
     read_company_types,
     read_ids,
     read_last_page,
-    read_page,
+    read_rows,
     read_subcategories,
     listing_url,
     subcategory_url,
@@ -98,41 +98,41 @@ def _page(rows, pages=3):
 def test_the_real_page_yields_its_four_firms_and_not_the_paginator():
     """51 rows pass a cell-count filter on a real page and 50 are firms; the paginator
     renders nine cells of its own."""
-    firms = read_page(_en()).firms
+    firms = read_rows(_en())
     assert len(firms) == 4, [f.short_name for f in firms]
 
 
 def test_the_commented_out_identifier_is_recovered():
     """`<!-- <td>0000</td> -->` — an HTML parser that strips comments loses the key."""
-    assert "0000" in [f.short_name for f in read_page(_en()).firms]
+    assert "0000" in [f.short_name for f in read_rows(_en())]
 
 
 def test_the_short_name_is_a_name_and_not_always_a_number():
     """Measured in the fixture: `ZYPHARSPH` beside `0000` and `00064048`. Nothing here
     may parse it as an integer or strip its leading zeros."""
-    names = [f.short_name for f in read_page(_en()).firms]
+    names = [f.short_name for f in read_rows(_en())]
     assert "ZYPHARSPH" in names
     assert "0000" in names, "and a zero-padded one must survive intact too"
 
 
 def test_a_missing_cr_number_reads_as_absent_not_as_empty_text():
-    firm = next(f for f in read_page(_en()).firms if f.short_name == "ZYPHARSPH")
+    firm = next(f for f in read_rows(_en()) if f.short_name == "ZYPHARSPH")
     assert firm.cr_number is None
 
 
 def test_a_missing_expiry_reads_as_absent():
-    firm = next(f for f in read_page(_en()).firms if f.short_name == "00004174")
+    firm = next(f for f in read_rows(_en()) if f.short_name == "00004174")
     assert firm.expiry_raw is None
 
 
 def test_the_address_is_arabic_in_the_english_view():
     """So R-12's base column stays NULL for it and the `_ar` column carries the value."""
-    firm = next(f for f in read_page(_en()).firms if f.short_name == "0000")
+    firm = next(f for f in read_rows(_en()) if f.short_name == "0000")
     assert firm.address and re.search(r"[؀-ۿ]", firm.address)
 
 
 def test_the_category_cell_is_kept_exactly_as_printed():
-    firm = next(f for f in read_page(_en()).firms if f.short_name == "00169963")
+    firm = next(f for f in read_rows(_en()) if f.short_name == "00169963")
     assert firm.category_raw.startswith("Information Technology Services")
 
 
@@ -199,7 +199,7 @@ def test_a_single_category_cell_decomposes_to_one_name():
 
 def test_the_multi_category_cell_in_the_fixture_decomposes_with_no_remainder():
     vocab = read_categories(_en())
-    firm = next(f for f in read_page(_en()).firms if f.short_name == "00169963")
+    firm = next(f for f in read_rows(_en()) if f.short_name == "00169963")
     split = decompose_categories(firm.category_raw, vocab)
     assert split.remainder == ""
     assert len(split.names) > 1, split
@@ -209,7 +209,7 @@ def test_every_category_cell_in_the_fixture_decomposes_with_no_remainder():
     """The measured property: 102 of 102 on the sample, zero remainder."""
     vocab = read_categories(_en())
     leftovers = {f.short_name: decompose_categories(f.category_raw, vocab).remainder
-                 for f in read_page(_en()).firms}
+                 for f in read_rows(_en())}
     assert not any(leftovers.values()), leftovers
 
 
@@ -255,15 +255,15 @@ def test_the_codes_keep_the_order_the_cell_printed():
 # --- the bilingual join --------------------------------------------------------------
 
 def test_the_two_views_pair_on_the_cr_number():
-    english = tuple(f for f in read_page(_en()).firms if f.cr_number)
-    arabic = read_page(_ar()).firms
+    english = tuple(f for f in read_rows(_en()) if f.cr_number)
+    arabic = read_rows(_ar())
     pairs = join_languages(english, arabic)
     assert len(pairs) == len(arabic) == 3
 
 
 def test_the_pair_carries_english_on_one_side_and_arabic_on_the_other():
-    english = tuple(f for f in read_page(_en()).firms if f.cr_number)
-    pairs = join_languages(english, read_page(_ar()).firms)
+    english = tuple(f for f in read_rows(_en()) if f.cr_number)
+    pairs = join_languages(english, read_rows(_ar()))
     en, ar = next(p for p in pairs if p[0].short_name == "0000")
     assert en.cr_number == ar.cr_number
     assert en.name == "AL REEF LINE UNITED TRADE CO LLC"
@@ -275,8 +275,8 @@ def test_the_join_is_on_the_number_and_not_on_position():
     """The real orders agree, so the fixture alone cannot catch a positional join. The
     Arabic side is reversed here on purpose: `docs/GULF-EGYPT-SOURCES.md:338` says never
     to pair by row position, and an order that happens to agree is not a contract."""
-    english = tuple(f for f in read_page(_en()).firms if f.cr_number)
-    arabic = tuple(reversed(read_page(_ar()).firms))
+    english = tuple(f for f in read_rows(_en()) if f.cr_number)
+    arabic = tuple(reversed(read_rows(_ar())))
     pairs = join_languages(english, arabic)
     for en, ar in pairs:
         assert en.cr_number == ar.cr_number
@@ -287,10 +287,10 @@ def test_a_firm_with_no_cr_number_pairs_on_the_record_key_instead():
     """A proof run over 40 real pages: pairing on the CR alone refused 3 of them and
     lost 150 firms to protect three. All three carried no CR in EITHER view while their
     counterpart sat in the Arabic view under the same short name."""
-    en = read_page(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
-                               name="ATI PROJECT SRL")])).firms
-    ar = read_page(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
-                               name="شفلهحقختثؤف سقم")])).firms
+    en = read_rows(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
+                               name="ATI PROJECT SRL")]))
+    ar = read_rows(_page([_row(short="ATIPROJECT", echo="atiproject", cr="",
+                               name="شفلهحقختثؤف سقم")]))
     pairs = join_languages(en, ar)
     assert len(pairs) == 1
     assert pairs[0][0].name == "ATI PROJECT SRL"
@@ -303,10 +303,10 @@ def test_the_cr_number_still_wins_when_both_keys_could_pair():
     # length is now its own refusal -- and this test is about which KEY wins, not about
     # that. `AAA` appears in both, so pairing on the record key would be the easy wrong
     # answer; the CR number sends it to `BBB` instead.
-    en = read_page(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
-                          _row(short="CCC", echo="ccc", cr="C2", name="EN TWO")])).firms
-    ar = read_page(_page([_row(short="BBB", echo="bbb", cr="C1", name="AR ONE"),
-                          _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")])).firms
+    en = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
+                          _row(short="CCC", echo="ccc", cr="C2", name="EN TWO")]))
+    ar = read_rows(_page([_row(short="BBB", echo="bbb", cr="C1", name="AR ONE"),
+                          _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")]))
     pairs = join_languages(en, ar)
     assert pairs[0][1].name == "AR ONE", "matched on C1, not on the short name"
 
@@ -314,12 +314,12 @@ def test_the_cr_number_still_wins_when_both_keys_could_pair():
 def test_a_firm_neither_key_can_pair_is_still_news():
     """It is the case worth raising on, and it did not occur in 1,850 firms."""
     with pytest.raises(RegisterShapeError, match="no counterpart"):
-        join_languages(read_page(_en()).firms, read_page(_ar()).firms)
+        join_languages(read_rows(_en()), read_rows(_ar()))
 
 
 def test_the_unpairable_firm_is_named_in_the_refusal():
     with pytest.raises(RegisterShapeError, match="ZYPHARSPH"):
-        join_languages(read_page(_en()).firms, read_page(_ar()).firms)
+        join_languages(read_rows(_en()), read_rows(_ar()))
 
 
 # --- the urls ------------------------------------------------------------------------
@@ -364,81 +364,143 @@ def test_the_subcategory_url_refuses_an_empty_code():
 
 def test_a_row_with_no_comment_raises_because_the_key_lives_in_one():
     with pytest.raises(RegisterShapeError, match="0 comment"):
-        read_page(_page([_row(comment=False)]))
+        read_rows(_page([_row(comment=False)]))
 
 
 def test_a_row_with_two_comments_raises():
     row = _row().replace("<td>A FIRM LLC</td>", "<!-- noise --><td>A FIRM LLC</td>")
     with pytest.raises(RegisterShapeError, match="2 comment"):
-        read_page(_page([row]))
+        read_rows(_page([row]))
 
 
 def test_a_comment_holding_more_than_one_cell_raises():
     row = _row().replace("<!-- <td>00001234</td> -->",
                          "<!-- <td>00001234</td><td>extra</td> -->")
     with pytest.raises(RegisterShapeError, match="exactly one cell"):
-        read_page(_page([row]))
+        read_rows(_page([row]))
 
 
 def test_a_row_with_the_wrong_number_of_cells_raises():
     row = _row().replace("<td>99000000</td>", "")
     with pytest.raises(RegisterShapeError, match="not the 11"):
-        read_page(_page([row]))
+        read_rows(_page([row]))
 
 
-def test_a_key_that_disagrees_with_the_rows_own_activities_argument_refuses_that_row():
-    """Two independent copies of the record key; a disagreement means this row's key is
-    unknown. #1333, his ruling: the ROW is refused and named, and the firms beside it
-    are read -- refusing the page cost forty-nine firms on every crawl."""
-    page = read_page(_page([_row(short="00001234", echo="00009999"),
-                            _row(short="00005555", echo="00005555")]))
+def test_a_key_that_disagrees_with_its_activities_argument_is_a_firm_with_a_warning():
+    """His ruling on #1333: record every such row, never skip it. It is keyed by its
+    COMMENTED key -- the one every other row is stored under -- and the doubt rides on
+    it, naming both keys so the Sheet says what disagreed."""
+    firms = read_rows(_page([_row(short="ALWASIT", echo="nabil"),
+                             _row(short="00005555", echo="00005555")]))
 
-    assert [f.short_name for f in page.firms] == ["00005555"], (
-        "the agreeing row beside the refused one must still be read")
-    assert [r.short_name for r in page.refused] == ["00001234"]
-    assert "'00009999'" in page.refused[0].reason, (
-        "the refusal must name both keys, so the log says what disagreed")
-    assert read_ids(_page([_row(short="00001234", echo="00009999")])) == (), (
-        "a refused row's key is the thing in doubt, so it is not counted as an id")
-
-
-def test_two_disagreeing_rows_on_one_page_still_refuse_the_page():
-    """One in 23,619 is a mistyped row. Two on one page is the reader's key having
-    stopped being the record key, which is what the refusal was always for."""
-    with pytest.raises(RegisterShapeError, match="two rows on one page") as refused:
-        read_page(_page([_row(short="00001234", echo="00009999"),
-                         _row(short="00005555", echo="00005555"),
-                         _row(short="00007777", echo="00008888")]))
-
-    said = str(refused.value)
-    assert "'00001234'" in said and "'00007777'" in said, (
-        f"the refusal must name both rows, or the log says a page was lost and not "
-        f"which rows lost it: {said}")
+    assert [f.short_name for f in firms] == ["ALWASIT", "00005555"]
+    warned = firms[0]
+    assert warned.activities_key == "nabil"
+    assert warned.key_warning is not None
+    assert "'ALWASIT'" in warned.key_warning and "'nabil'" in warned.key_warning, (
+        warned.key_warning)
+    assert "disagree beyond case" in warned.key_warning
 
 
-def test_the_partition_names_a_refused_row_and_refuses_nothing_on_a_clean_page():
-    partition = OmanPartition()
-    named = partition.refused_rows(_page([_row(short="ALWASIT", echo="nabil")]))
+def test_a_row_whose_keys_agree_carries_no_warning():
+    firms = read_rows(_page([_row(short="00001234", echo="00001234"),
+                             _row(short="ZYPHARSPH", echo="zypharsph")]))
+    assert [f.key_warning for f in firms] == [None, None], (
+        "a case-only difference is the measured normal, not a doubt")
+    assert [f.activities_key for f in firms] == ["00001234", "zypharsph"]
 
-    assert len(named) == 1 and named[0].startswith("ALWASIT: "), named
-    assert partition.refused_rows(_page([_row()])) == ()
+
+def test_many_disagreeing_rows_on_one_page_are_all_firms_with_warnings():
+    """NO PAGE THRESHOLD. #1537 raised on a second disagreeing row, which would lose a
+    whole page again; the owner removed that rule. Every row stays, every row warned."""
+    rows = [_row(short=f"0000{n}", echo=f"other{n}") for n in range(1, 6)]
+    rows.insert(2, _row(short="00009999", echo="00009999"))
+    firms = read_rows(_page(rows))
+
+    assert len(firms) == 6
+    assert [f.short_name for f in firms if f.key_warning] == [
+        "00001", "00002", "00003", "00004", "00005"]
+    assert next(f for f in firms if f.short_name == "00009999").key_warning is None
+
+
+def test_a_disagreeing_row_is_an_id_so_the_count_can_close():
+    """Left out of `read_ids`, its page declared one row the reader would never count,
+    and the register's proof could not close: D=1 on every crawl, two extra full
+    reads, and the firm missing (#1333)."""
+    page = _page([_row(short="00000001"), _row(short="ALWASIT", echo="nabil"),
+                  _row(short="00000003")])
+    assert read_ids(page) == ("00000001", "ALWASIT", "00000003")
+
+
+def test_the_partition_gives_each_rows_key_cr_number_and_second_key():
+    """The evidence `contractors.mark_departures` looks a firm up by before calling it
+    gone -- the CR number, and the activities argument, which is how `nabil` would be
+    found if it had been stored under that key."""
+    from scrapex.pagesource import RowIdentity
+
+    evidence = OmanPartition().identity_evidence(_page([
+        _row(short="ALWASIT", echo="nabil", cr="1234567"),
+        _row(short="00000002", cr="")]))
+
+    assert evidence == (
+        RowIdentity(key="ALWASIT", registration="1234567", second_key="nabil"),
+        RowIdentity(key="00000002", registration=None, second_key="00000002"),
+    ), "a blank CR is no evidence, so it is None and never an empty string"
+
+
+def test_a_register_holding_a_disagreeing_row_is_proven_complete_by_count(tmp_path):
+    """THE CRAWL, END TO END, ON THE REAL READER. Three rows declared, three read --
+    `ALWASIT` among them -- so the cell closes by count on its first read, and the
+    two extra full reads #1537 paid on every crawl are not made."""
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.partitioncrawl import crawl_partition
+
+    pages = {1: [_row(short="00000001", cr="C1"),
+                 _row(short="ALWASIT", echo="nabil", cr="C2")],
+             2: [_row(short="00000003", cr="C3")]}
+
+    def fetch(url: str) -> str:
+        number = int(re.search(r"[?&]pageNo=(\d+)", url).group(1))
+        return _page(pages[number], pages=2)
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        conn.execute("INSERT INTO source_site (source_key, source_name, base_url, "
+                     "crawl_scope) VALUES ('oman_tenderboard','Oman',?,'listing_only')",
+                     (BASE_URL,))
+        conn.commit()
+        outcome = crawl_partition(conn, OmanPartition(), BASE_URL, fetch=fetch,
+                                  run_ref="run-1",
+                                  dataset_key="oman_registered_vendors",
+                                  resize_at_end=False)
+    finally:
+        conn.close()
+
+    only = outcome.cells[0]
+    assert only.size.declared == 3, str(only.size)
+    assert outcome.deficit == 0 and only.provably_complete, str(outcome)
+    assert "ALWASIT" in outcome.ids
+    assert len(only.attempts) == 1, "a proven cell is not read again"
 
 
 def test_the_two_copies_of_the_key_may_differ_in_case_and_that_is_not_a_failure():
     """Measured over 152 real rows: identical on 150, case-only on 2, otherwise never.
     The call lower-cases an alphabetic key -- `ZYPHARSPH` against `zypharsph`."""
-    firms = read_page(_page([_row(short="ZYPHARSPH", echo="zypharsph")])).firms
+    firms = read_rows(_page([_row(short="ZYPHARSPH", echo="zypharsph")]))
     assert firms[0].short_name == "ZYPHARSPH", "the printed form is what is stored"
 
 
 def test_an_agreeing_key_is_accepted():
-    firms = read_page(_page([_row(short="00001234", echo="00001234")])).firms
+    firms = read_rows(_page([_row(short="00001234", echo="00001234")]))
     assert firms[0].short_name == "00001234"
 
 
 def test_a_row_with_no_short_name_raises():
     with pytest.raises(RegisterShapeError, match="no Company Short Name"):
-        read_page(_page([_row(short="")]))
+        read_rows(_page([_row(short="")]))
 
 
 def test_a_row_with_no_company_name_is_kept_and_not_refused():
@@ -452,7 +514,7 @@ def test_a_row_with_no_company_name_is_kept_and_not_refused():
     Kept as a test rather than deleted because the behaviour it pins is still a decision:
     the NEXT session to see a blank cell here should find out that it was considered.
     """
-    firms = read_page(_page([_row(name="")])).firms
+    firms = read_rows(_page([_row(name="")]))
     assert len(firms) == 1, "the blank full name discarded its own row"
     assert firms[0].name is None, (
         f"the blank cell read as {firms[0].name!r}; it is absent, not empty text"
@@ -779,10 +841,10 @@ def test_each_field_carries_the_value_the_view_that_owns_it_published():
     """
     from scrapex.extract.oman_tenderboard import _row as candidate_row
 
-    english = read_page(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="EN NAME",
-                                    tel="9111", fax="9222", vtype="Local")])).firms[0]
-    arabic = read_page(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="AR NAME",
-                                   tel="9333", fax="9444", vtype="محلية")])).firms[0]
+    english = read_rows(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="EN NAME",
+                                    tel="9111", fax="9222", vtype="Local")]))[0]
+    arabic = read_rows(_page([_row(short="AAA", echo="aaa", cr="CR-EN", name="AR NAME",
+                                   tel="9333", fax="9444", vtype="محلية")]))[0]
     row = candidate_row(english, arabic, {})
 
     assert row["cr_number"] == "CR-EN", row["cr_number"]
@@ -817,9 +879,9 @@ def test_a_data_rows_first_cell_must_be_the_plain_integer_s_no():
         page = _page([_row()]).replace('<td align="center">1</td>',
                                        f'<td align="center">{printed}</td>', 1)
         with pytest.raises(RegisterShapeError, match="not the plain"):
-            read_page(page)
+            read_rows(page)
 
-    assert len(read_page(_page([_row()])).firms) == 1, "a plain integer S No. is still read"
+    assert len(read_rows(_page([_row()]))) == 1, "a plain integer S No. is still read"
 
 
 def test_the_text_reader_unescapes_what_the_site_escaped():
@@ -854,17 +916,17 @@ def test_a_repeated_key_in_the_arabic_view_is_refused_not_last_written():
     `read_ids` keeps duplicates deliberately for this reason; discarding them here was
     where that news was lost.
     """
-    english = read_page(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
-                               _row(short="BBB", echo="bbb", cr="C2", name="EN TWO")])).firms
-    repeated_cr = read_page(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
-                                   _row(short="BBB", echo="bbb", cr="C1", name="AR TWO")])).firms
+    english = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="EN ONE"),
+                               _row(short="BBB", echo="bbb", cr="C2", name="EN TWO")]))
+    repeated_cr = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
+                                   _row(short="BBB", echo="bbb", cr="C1", name="AR TWO")]))
     with pytest.raises(RegisterShapeError, match="repeats a CR number"):
         join_languages(english, repeated_cr)
 
     # BOTH ECHOES MATCH THEIR OWN KEY, or the row-level cross-check fires first and
     # this would pass for the wrong reason.
-    repeated_key = read_page(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
-                                    _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")])).firms
+    repeated_key = read_rows(_page([_row(short="AAA", echo="aaa", cr="C1", name="AR ONE"),
+                                    _row(short="AAA", echo="aaa", cr="C2", name="AR TWO")]))
     with pytest.raises(RegisterShapeError, match="repeats a record key"):
         join_languages(english, repeated_key)
 
@@ -928,12 +990,12 @@ def test_a_blank_full_name_is_a_field_and_the_page_still_reads():
     warehouse entirely, in a register whose total is known.
 
     Re-measured after the change over all 942 stored pages: 936 accepted before, 940
-    after, and the two still refused are page 368 in both locales -- the genuine
-    identifier disagreement, which must keep raising.
+    after, and the two still refused were page 368 in both locales -- the identifier
+    disagreement, which since #1333 is a firm with a warning instead.
     """
     blank = _row(short="CARITOR", name="", cat="المكاتب الإستــشــارية", vtype="عالمية")
     ordinary = _row(short="00009999", name="A REAL NAME LLC")
-    firms = read_page(_page([blank, ordinary])).firms
+    firms = read_rows(_page([blank, ordinary]))
 
     assert len(firms) == 2, (
         f"the page yielded {len(firms)} firms, not 2. One blank full name discarded the "
@@ -953,15 +1015,15 @@ def test_the_refusals_that_mean_the_reader_is_broken_still_raise():
 
     A field the site leaves blank for one class of registrant is data. A first cell that
     is not an integer and a missing short name are evidence that this reader's
-    understanding of the page has stopped being true. `ALWASIT` against `nabil` -- found
-    on page 368 of the owner's crawl, and 369 of job 191 -- is the third kind: one row
-    whose key is unknown, refused alone since #1333 and pinned beside its own test.
+    understanding of the page has stopped being true. `ALWASIT` against `nabil` -- page
+    368 of the owner's crawl, 369 of job 191 -- is neither since #1333: a firm with a
+    warning, pinned by its own tests above.
     """
     with pytest.raises(RegisterShapeError, match="no Company Short Name"):
-        read_page(_page([_row(short="")]))
+        read_rows(_page([_row(short="")]))
 
     # The blank name must not have made the OTHER cells lenient either. An uncommented
     # key raises about the COMMENT -- the record key is recovered from it, and a row
     # without one is a row this reader cannot identify.
     with pytest.raises(RegisterShapeError, match="comment"):
-        read_page(_page([_row(short="ALWASIT", comment=False)]))
+        read_rows(_page([_row(short="ALWASIT", comment=False)]))

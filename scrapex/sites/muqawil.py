@@ -38,7 +38,14 @@ from collections.abc import Iterable
 
 from bs4 import BeautifulSoup
 
-from ..pagesource import WHOLE, Cell, FetchedPage, PageSource, SliceNotSupported
+from ..pagesource import (
+    WHOLE,
+    Cell,
+    FetchedPage,
+    PageSource,
+    RowIdentity,
+    SliceNotSupported,
+)
 
 #: The trailing path segment that makes a profile render its self-build prices.
 #: A literal because it is one, and named because `143` in a URL template is the
@@ -455,8 +462,11 @@ class MuqawilPartition:
     def read_ids(self, html: str) -> tuple[str, ...]:
         return read_ids(html)
 
-    def refused_rows(self, html: str) -> tuple[str, ...]:
-        # `read_ids` reads every card that holds a profile link; it leaves none out.
+    def identity_evidence(self, html: str) -> tuple[RowIdentity, ...]:
+        # NONE OFFERED, AND THAT IS UNMEASURED RATHER THAN RULED OUT. A card does carry
+        # a membership number, but muqawil reissues those (`contractors.approve`), so
+        # whether one names the same contractor across a change of id is not known.
+        # Until it is, a departure here rests on the id alone, as it always has.
         return ()
 
     def in_cell(self, cell: Cell, *, last_page: int) -> PageSource:

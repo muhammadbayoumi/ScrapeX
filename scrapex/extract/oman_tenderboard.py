@@ -43,7 +43,7 @@ from ..sites.oman_tenderboard import (
     decompose_categories,
     join_languages,
     read_categories,
-    read_page,
+    read_rows,
 )
 
 #: The dataset these rows land in.
@@ -53,6 +53,11 @@ DATASET_NAME = "Oman registered vendors"
 #: The identity, and `#1004` measured why it is this and not the CR number: the short name
 #: was unique and present on 102 of 102 rows, the CR number blank on 1 of 102.
 IDENTITY_FIELD = "short_name"
+
+#: The field that names the same firm under ANY record key: the CR number. Not the
+#: identity -- it is blank on ~2% -- but what `contractors.mark_departures` looks a
+#: firm up by before it calls one gone whose key the register changed (#1333).
+REGISTRATION_FIELD = "cr_number"
 
 #: DECLARED AND ORDERED. See the module docstring: a derived list makes the schema a
 #: property of one page. A field the site ADDS is still kept -- appended after these, by
@@ -78,13 +83,17 @@ FIELDS: tuple[str, ...] = (
     "reg_expiry",
     "company_type",
     "company_type_ar",
+    # WHY THIS ROW'S RECORD KEY IS IN DOUBT, empty on every row whose two keys agree --
+    # the owner's ruling on #1333, and the column he reads it in. LAST, so every column
+    # the Sheet already carries keeps its place.
+    "key_warning",
 )
 
 #: `R-12`: identifiers, numbers, dates and codes get no `_ar` twin. Named rather than
 #: implied, so a later field is placed deliberately.
 NO_ARABIC_TWIN = frozenset({
     "short_name", "cr_number", "telephone", "fax", "reg_expiry",
-    "registered_category_count", "registered_category_undecoded",
+    "registered_category_count", "registered_category_undecoded", "key_warning",
 })
 
 
@@ -117,6 +126,11 @@ def _row(english: Firm, arabic: Firm, vocabulary: dict[str, str]) -> dict[str, s
         "reg_expiry": english.expiry_raw,
         "company_type": english.company_type,
         "company_type_ar": arabic.company_type,
+        # EITHER VIEW'S DOUBT, ONCE. Each view carries its own activities argument, so
+        # the two can disagree apart; the same sentence from both is said once.
+        "key_warning": "; ".join(dict.fromkeys(
+            warning for warning in (english.key_warning, arabic.key_warning)
+            if warning)) or None,
     }
 
 
@@ -130,14 +144,7 @@ def bilingual_listing_candidate(english_html: str, arabic_html: str, *,
     several names with no separator (`#1004` §4).
     """
     vocabulary = read_categories(english_html)
-    english, arabic = read_page(english_html), read_page(arabic_html)
-    # A ROW REFUSED IN EITHER VIEW LEAVES BOTH. The two views are the same fifty firms,
-    # so its twin in the other view would otherwise be an orphan, and `join_languages`
-    # refuses a page with one -- the forty-nine firms #1333 recovers would go again.
-    refused = {row.short_name: row.reason for row in english.refused + arabic.refused}
-    pairs = join_languages(
-        tuple(firm for firm in english.firms if firm.short_name not in refused),
-        tuple(firm for firm in arabic.firms if firm.short_name not in refused))
+    pairs = join_languages(read_rows(english_html), read_rows(arabic_html))
     rows = tuple(_row(english, arabic, vocabulary) for english, arabic in pairs)
 
     present = {key for row in rows for key in row}
@@ -166,10 +173,10 @@ def bilingual_listing_candidate(english_html: str, arabic_html: str, *,
         # Every field on every row, absent ones as None rather than missing.
         rows=tuple({name: row.get(name) for name in names} for row in rows),
         confidence=1.0,
-        # NAMED, NOT DROPPED: an approvable page that refused a row says which, and
-        # `contractors.approve` prints it beside the page.
-        warnings=tuple(f"row {key} refused: {reason}"
-                       for key, reason in sorted(refused.items())),
+        # NAMED IN THE LOG AS WELL AS THE COLUMN: `contractors.approve` prints each
+        # beside the page it approved, so a run says which rows carry a doubt.
+        warnings=tuple(f"row {row['short_name']}: {row['key_warning']}"
+                       for row in rows if row["key_warning"]),
         approvable=bool(rows),
         truncated=False,
     )
