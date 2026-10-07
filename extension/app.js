@@ -6197,19 +6197,28 @@ function sourceMenu(source) {
  * back that promise rather than asking again, and a poll that saw nothing active does not
  * re-arm, so it is waited out and the question asked afresh.
  *
+ * RUN IS SHOWN BEFORE THAT WAIT, NOT AFTER IT. The wait lasts until that poll is answered,
+ * and for that long the card stayed on screen: a second press queued the same crawl again.
+ *
  * THE REF IS KEPT, as `startRun` keeps it: a job that has already ended when Run asks is
  * not in the active list, and only the ref lets the poll show how it ended.
  *
  * NO SITE IS SELECTED. Start stays pressable for any ticked site, so ticking the busy one
  * here would put the duplicate one click away.
+ *
+ * ACTIVITY'S TOP GOES TO THE TOP OF RUN'S SCROLL AREA. The status line is at the card's
+ * top, and a running crawl's card -- its rows and its log -- is taller than that area in
+ * a short panel: `center` left the line above the area, hidden. `nearest` leaves it there
+ * whenever such a card already covers the area, as it does when he left Run at the end
+ * of a log, because the scroll position outlives the trip to Data.
  */
 async function followStartedJob(jobRef) {
+  showView("run");
   if (pollPromise) await pollPromise;
   state.jobRef = jobRef;
-  showView("run");
   await pollJob();
   $("activity").scrollIntoView({
-    behavior: reduceMotion.matches ? "auto" : "smooth", block: "center"});
+    behavior: reduceMotion.matches ? "auto" : "smooth", block: "start"});
 }
 
 /** Everything a source menu can do, in one place so the card stays a template. */

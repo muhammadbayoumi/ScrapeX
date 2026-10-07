@@ -2199,12 +2199,15 @@ _CARD_JOB_ACTIONS = [("update", "directory_crawl"), ("interpret", "dataset_inter
 # is a fixed list and its POST a canned `job_stub`, so no test could watch Run adopt a
 # job a card had just posted. `ROUTES` is the stub's own top-level table
 # (tools/panel_harness.py), so this edits it on the answer, the way a commit changes a
-# real engine's list. `queued` is null for a job that has already ended by then.
+# real engine's list: the job joins whatever was already active, newest first. `queued`
+# is null for a job that has already ended by then.
 #
 # AN ACTIVE-LIST READ IS ANSWERED WITH WHAT THE ENGINE HELD WHEN IT LEFT, `staleMs`
 # later. The stub reads its table at answer time, and no in-flight poll can be stale
-# against that. The order is a counter, not a clock: measured, a poll leaving and the
-# POST's answer can read the same `performance.now()`.
+# against that. Each read records when it left and when it was answered, so a test can
+# tell a poll still out when the POST was answered from one already back. The order is
+# a counter, not a clock: measured, a poll leaving and the POST's answer can read the
+# same `performance.now()`.
 _QUEUES_WHAT_IS_POSTED = """([queued, staleMs]) => {
   window.__activePolls = [];
   let order = 0;
@@ -2214,15 +2217,17 @@ _QUEUES_WHAT_IS_POSTED = """([queued, staleMs]) => {
     const method = (options && options.method) || "GET";
     if (method === "GET" && path.startsWith("/api/jobs?active_only")) {
       const seen = JSON.parse(JSON.stringify(ROUTES["/api/jobs"]));
-      window.__activePolls.push({left: ++order, saw: seen.jobs.map((job) => job.job_ref)});
+      const poll = {left: ++order, saw: seen.jobs.map((job) => job.job_ref)};
+      window.__activePolls.push(poll);
       if (staleMs) await new Promise((done) => setTimeout(done, staleMs));
+      poll.answered = ++order;
       return {ok: true, status: 200, json: async () => seen};
     }
     const answer = await original(url, options);
     if (method === "POST" && path === "/api/jobs" && answer.ok) {
       window.__postedAt = ++order;
       if (queued) {
-        ROUTES["/api/jobs"] = {jobs: [queued]};
+        ROUTES["/api/jobs"] = {jobs: [queued, ...ROUTES["/api/jobs"].jobs]};
         // Read by its ref too, or the stub answers that with the LIST, and a panel that
         // drew it would be drawing a shape no engine sends.
         ROUTES["/api/jobs/" + queued.job_ref] = queued;
@@ -2232,18 +2237,41 @@ _QUEUES_WHAT_IS_POSTED = """([queued, staleMs]) => {
   };
 }"""
 
-# Where Activity's status line is, against the part of Run that is on screen. The line
-# is what he reads -- the job's status and site -- so it is what has to be in view.
+# Where Activity's status line is, against Run's scroll area -- the `.view-scroll` that
+# clips it -- and whether the line is what is painted there. The line is what he reads
+# -- the job's status and site -- so it is what has to be in view. NOT `#view-run`: its
+# top is the sticky heading's, 85px above the scroll area's, and a line hidden under the
+# heading read as on screen.
 _WHERE_ACTIVITY_IS = """() => {
   const line = document.getElementById("act-state");
   const view = document.getElementById("view-run");
+  const area = document.getElementById("activity").closest(".view-scroll");
   const shown = line.checkVisibility() && !view.classList.contains("hidden");
-  const r = line.getBoundingClientRect(), v = view.getBoundingClientRect();
-  const fold = Math.min(v.bottom, innerHeight);
-  return {onRun: !view.classList.contains("hidden"), shown,
-          inView: shown && r.top >= v.top && r.bottom <= fold,
-          top: Math.round(r.top), fold: Math.round(fold), said: line.textContent};
+  const r = line.getBoundingClientRect(), a = area.getBoundingClientRect();
+  const fold = Math.min(a.bottom, innerHeight);
+  const hit = document.elementFromPoint(r.left + 10, r.top + r.height / 2);
+  const painted = Boolean(hit) && line.contains(hit);
+  return {onRun: !view.classList.contains("hidden"), shown, painted,
+          inView: shown && r.top >= a.top && r.bottom <= fold && painted,
+          top: Math.round(r.top), areaTop: Math.round(a.top), fold: Math.round(fold),
+          card: document.getElementById("activity").offsetHeight,
+          area: Math.round(a.height), said: line.textContent};
 }"""
+
+# Resolves once Activity's line has held one position for ten frames running. A smooth
+# scroll moves it on every frame until it stops -- measured, no frame repeated on the
+# way -- and so does `showView`'s 180ms entry animation.
+_ONCE_THE_LINE_IS_AT_REST = """() => new Promise((done) => {
+  const line = document.getElementById("act-state");
+  let last = NaN, still = 0;
+  const frame = () => {
+    const top = line.getBoundingClientRect().top;
+    still = top === last ? still + 1 : 0;
+    last = top;
+    if (still >= 10) done(true); else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+})"""
 
 
 def _card_job(kind, **over):
@@ -2277,14 +2305,21 @@ def _press_on_the_card(page, action):
 
 
 def _where_activity_lands(page, timeout=5_000) -> dict:
-    """Wait for Activity's line to come into view, and report where it is either way, so
-    a failure names the fold instead of timing out."""
+    """Wait for Activity's line to come into view and then to come to REST, and report
+    where it rests either way, so a failure names the edge instead of timing out.
+
+    AT REST, NOT AT THE FIRST FRAME IN VIEW. A smooth scroll carries the line through
+    the scroll area on its way to where it stops: measured at 650px, in view at
+    [534, 558] on the way and hidden at [30, 54] at rest, so a scroll that overshot
+    passed. The wait for the line to come into view stays first: until the follow
+    scrolls, the line is still too -- below the fold, on Run's last card."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
     try:
         page.wait_for_function(f"() => ({_WHERE_ACTIVITY_IS})().inView", timeout=timeout)
     except PlaywrightTimeout:
         pass
+    page.wait_for_function(_ONCE_THE_LINE_IS_AT_REST, timeout=timeout)
     return page.evaluate(_WHERE_ACTIVITY_IS)
 
 
@@ -2322,7 +2357,8 @@ def test_a_card_action_follows_the_job_it_started(open_panel, action, kind):
     assert where["onRun"], f"{action!r} did not take him to Run: {where}"
     assert where["inView"], (
         f"Activity is not on screen after {action!r}: its line is at {where['top']}px "
-        f"against a fold at {where['fold']}px (shown: {where['shown']})")
+        f"against Run's scroll area at {where['areaTop']}-{where['fold']}px (shown: "
+        f"{where['shown']}, painted: {where['painted']})")
     assert "muqawil_org" in where["said"], (
         f"Activity does not name the site the job is for: {where['said']!r}")
     assert text_of(page, "#sel-count") == "0 selected", text_of(page, "#sel-count")
@@ -2345,17 +2381,23 @@ def test_a_first_visit_to_run_puts_the_started_job_on_screen(open_panel):
 
     assert where["shown"], f"Activity was never drawn: {where}"
     assert where["inView"], (
-        f"Activity was drawn below the fold: its line is at {where['top']}px against a "
-        f"fold at {where['fold']}px")
+        f"Activity was drawn out of view: its line is at {where['top']}px against Run's "
+        f"scroll area at {where['areaTop']}-{where['fold']}px")
 
 
 def _press_update_as_a_poll_leaves(page):
     """Press Update now while a poll that left before the job was committed is still on
     its way back. The panel coming back into view is what starts that poll; the press
     lands while its answer is still on the way (`_QUEUES_WHAT_IS_POSTED` with a delay).
+    Returns once the POST is answered, so what a test does next happens while that poll
+    is still out.
 
     IT REFUSES TO GO ON VACUOUSLY: the case is a poll that left before the POST was
-    answered and saw nothing. Without one, a test proves only what the plain press does.
+    answered, saw nothing, and was answered after it. Read the moment the POST is
+    answered, that poll has no answer yet or one recorded after the POST's. Without one,
+    a test proves only what the plain press does. Checking only that it LEFT first
+    passed a poll answered at once, and with it the press whose wait for that poll was
+    deleted.
     """
     page.locator('.dataset-card[data-open="contractors"] .split-button-trigger').click()
     page.evaluate("""() => {
@@ -2366,7 +2408,9 @@ def _press_update_as_a_poll_leaves(page):
     page.wait_for_function("() => window.__postedAt", timeout=5_000)
     polls = page.evaluate("() => window.__activePolls")
     posted_at = page.evaluate("() => window.__postedAt")
-    assert polls and polls[0]["saw"] == [] and polls[0]["left"] < posted_at, (
+    answered = polls[0].get("answered") if polls else None
+    assert (polls and polls[0]["saw"] == [] and polls[0]["left"] < posted_at
+            and (answered is None or answered > posted_at)), (
         f"no poll was in flight across the press, so this proves nothing: {polls}, "
         f"posted at {posted_at}")
 
@@ -2391,6 +2435,46 @@ def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
         "the mini-player is hidden, so no poll is following the job")
     assert where["inView"] and "muqawil_org" in where["said"], (
         f"Activity is not on screen naming the job: {where}")
+
+
+def test_the_in_flight_guard_refuses_a_poll_answered_before_the_post(open_panel):
+    """THE GUARD CAN FAIL FOR THE CASE IT NAMES. It checked only that the poll left
+    before the POST was answered, so a poll answered at once passed it -- and so did
+    the press with its wait for that poll deleted, 3 runs of 3 (#1388's merge gate). A
+    poll back before the POST is no poll in flight."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+
+    with pytest.raises(AssertionError, match="no poll was in flight across the press"):
+        _press_update_as_a_poll_leaves(page)
+
+
+def test_a_second_press_while_a_poll_is_waited_out_queues_no_second_job(open_panel):
+    """RUN IS SHOWN THE MOMENT THE POST IS ANSWERED, NOT ONCE A POLL IN FLIGHT IS BACK.
+    `followStartedJob` waited that poll out on Data: for as long as it took to come
+    back, the card stayed on screen and said nothing, and a second press queued the
+    same crawl again -- with a poll out for 1.5 s, 2 jobs posted where main posts 1
+    (#1388's merge gate). That second crawl is issue 779 itself."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 1_500])
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    _press_update_as_a_poll_leaves(page)
+    view = page.evaluate("() => currentViewName()")
+    # HIS SECOND PRESS, on whatever is on screen while that poll is still out.
+    if page.is_visible('.dataset-card[data-open="contractors"] .split-button-trigger'):
+        _press_on_the_card(page, "update")
+    assert "answered" not in page.evaluate("() => window.__activePolls[0]"), (
+        "the poll in flight was back before the second press, so it proves nothing")
+    _where_activity_lands(page)    # the press followed to its end before counting
+
+    posted = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(posted) == 1, (
+        f"two presses while a poll was waited out, {len(posted)} jobs posted; the panel "
+        f"was on {view!r} when the first POST was answered")
+    assert view == "run", f"the answered press left the panel on {view!r}"
+    assert not page.js_errors, page.js_errors
 
 
 # A JOB THAT ENDS WITHIN ONE POLL OF THE PRESS: zero pages, an immediate failure. It ends
@@ -2487,6 +2571,120 @@ def test_bringing_the_job_into_view_honours_reduced_motion(open_panel):
     assert where["inView"], (
         f"under reduced motion the scroll to Activity had not landed when the press "
         f"ended, so it animated: {where}")
+
+
+def _a_crawl_an_hour_in():
+    """A crawl that has held the worker for an hour: its fetch progress and its source's
+    row of 304s, retries and pace. With `_A_LONG_LOG` its Activity card is 702px tall,
+    more than Run's scroll area holds in any panel under about 870px."""
+    return _running_job(
+        job_ref="job_other", job_kind="crawl", source_keys=["SALLA_SHOP"],
+        current_source_key="SALLA_SHOP", started_at="2026-10-06T09:00:00Z",
+        fetch={"requests": 1200, "expected": 4000, "basis": "estimate",
+               "as_of": "2026-10-01", "unknown_sources": [],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 1200,
+                                          "expected": 4000, "basis": "estimate",
+                                          "as_of": "2026-10-01", "not_modified": 300,
+                                          "retries": 4, "pace_s": 2.0,
+                                          "honouring_delay": True}}})
+
+
+#: Enough of that crawl's log to fill its box, in the engine's row shape.
+_A_LONG_LOG = [{"logged_at": "2026-10-06T10:00:00Z", "level": "info",
+                "source_key": "SALLA_SHOP", "message": f"fetched page {i} of the listing"}
+               for i in range(60)]
+
+
+def _open_on_run_beside_a_crawl(open_panel, height):
+    """Run in a panel `height` tall, with that crawl's Activity drawn."""
+    page = open_panel(jobs=[_a_crawl_an_hour_in()], view="run", logs=_A_LONG_LOG)
+    page.set_viewport_size({"width": 360, "height": height})
+    page.wait_for_function(
+        "() => document.getElementById('act-state').textContent.includes('SALLA_SHOP')",
+        timeout=5_000)
+    return page
+
+
+# Whether Run's scroll area is at its end, scrolled there first when `move` is set.
+_RUN_AT_ITS_END = """(move) => {
+  const area = document.getElementById("activity").closest(".view-scroll");
+  if (move) area.scrollTop = area.scrollHeight;
+  return area.scrollTop > 0
+    && area.scrollTop >= area.scrollHeight - area.clientHeight - 1;
+}"""
+
+
+@pytest.mark.parametrize("left_at", ["its top", "the end of the log"])
+@pytest.mark.parametrize("height", [800, 750, 700, 650])
+def test_a_press_while_a_crawl_runs_rests_activitys_line_in_view(open_panel, height,
+                                                                  left_at):
+    """A CARD TALLER THAN RUN'S SCROLL AREA, WITH ITS LINE AT ITS TOP. A crawl holds the
+    worker when he presses, so the press's job queues behind it and Activity draws the
+    crawl (issue 778's ranking), rows and log. Centred, the card's top rested above the
+    area and the line with it: hidden at 750, 700 and 650px, clear by 4px at 800
+    (#1388's merge gate). The tests above draw a short card in an 800px panel, where
+    every downward scroll stops at the same place, so none of them can tell an
+    alignment that hides the line from one that shows it.
+
+    WHERE HE LEFT RUN STILL HOLDS: the scroll area keeps its place while Run is hidden.
+    A press made after he read to the end of the log starts there, with the card already
+    covering the area, and `nearest` does nothing from there."""
+    page = _open_on_run_beside_a_crawl(open_panel, height)
+    if left_at == "the end of the log":
+        assert page.evaluate(_RUN_AT_ITS_END, True), "Run has nothing to scroll"
+        page.click(DATA_TAB)
+        page.click(RUN_TAB)
+        assert page.evaluate(_RUN_AT_ITS_END, False), (
+            "Run's scroll area did not keep its place across a trip to Data, so this is "
+            "the other case again")
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl", queued_behind={
+        "position": 1, "capacity": 1, "running_count": 1,
+        "running": [{"job_ref": "job_other", "source_keys": ["SALLA_SHOP"]}],
+        "starting_now": False}), 0])
+
+    _press_on_the_card(page, "update")
+    where = _where_activity_lands(page)
+
+    assert where["card"] > where["area"], (
+        f"Activity fits Run's scroll area, so this proves nothing: {where}")
+    assert where["inView"], (
+        f"at {height}px, left at {left_at}, the line rests at {where['top']}px against "
+        f"Run's scroll area at {where['areaTop']}-{where['fold']}px (painted: "
+        f"{where['painted']})")
+    assert not page.js_errors, page.js_errors
+
+
+def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
+    """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
+    read through `_where_activity_lands`, and it returned at the first frame the line
+    was in view, so a scroll that carried the line through Run's scroll area to rest
+    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
+    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    page = _open_on_run_beside_a_crawl(open_panel, 650)
+    # Started a moment from now, so the wait below is watching when the line arrives.
+    page.evaluate(f"""() => {{
+        const where = {_WHERE_ACTIVITY_IS};
+        window.__inViewOnTheWay = false;
+        const watch = () => {{
+          if (where().inView) window.__inViewOnTheWay = true;
+          else requestAnimationFrame(watch);
+        }};
+        requestAnimationFrame(watch);
+        setTimeout(() => {{
+          const area = document.getElementById("activity").closest(".view-scroll");
+          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+        }}, 300);
+    }}""")
+
+    where = _where_activity_lands(page)
+
+    assert page.evaluate("() => window.__inViewOnTheWay"), (
+        f"the scroll never carried the line through view, so this proves nothing: {where}")
+    assert not where["inView"], (
+        f"read as in view at {where['top']}px, on the way to resting above Run's scroll "
+        f"area: {where}")
 
 
 @pytest.mark.parametrize("action", [action for action, _ in _CARD_JOB_ACTIONS])
