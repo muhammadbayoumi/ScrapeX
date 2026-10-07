@@ -988,7 +988,7 @@ def listed_datasets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
              "base_url": row[5], "rows": int(row[6])} for row in found]
 
 
-def dataset_folds(conn: sqlite3.Connection, listed_keys) -> dict[str, str]:
+def dataset_folds(conn: sqlite3.Connection, listed_keys: Iterable[str]) -> dict[str, str]:
     """Which listed dataset folds into which one's card: child key -> parent key. `R-47`.
 
     ONLY THE PRESENTATION COLLAPSES. The two `dataset_definition` rows stay two; this
@@ -1007,6 +1007,13 @@ def dataset_folds(conn: sqlite3.Connection, listed_keys) -> dict[str, str]:
     than discovered: nothing in the warehouse is two deep today, and the day something
     is, its middle row stays visible.
     """
+    # ONE KEY IS REFUSED, NOT SPLIT INTO LETTERS. A `str` is an `Iterable[str]` too, so
+    # the type lets it through, and `set()` would split it into characters and fold
+    # nothing without a word. One key could fold nothing anyway: a fold needs both its
+    # ends listed.
+    if isinstance(listed_keys, str):
+        raise TypeError(
+            f"dataset_folds takes the listed dataset keys, not one key: {listed_keys!r}")
     links = conn.execute(
         "SELECT p.dataset_key AS parent, c.dataset_key AS child "
         "FROM dataset_relationship AS r "
