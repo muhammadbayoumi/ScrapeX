@@ -861,6 +861,7 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
                else max_attempts)
     union: set[str] = set()
     dry = 0
+    asked = 0
     for number in range(1, allowed + 1):
         attempt = _read_cell(
             conn, partition, base_url, size, fetch=fetch,
@@ -884,9 +885,14 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
         if len(union) == size.declared:
             break
         # AND STOP WHEN THE READS GO DRY, which is the third reason and the one
-        # that was missing. Counted from the SECOND attempt: the first cannot be
-        # dry, since an empty union means everything it read was new.
-        dry = dry + 1 if number > 1 and gained == 0 else 0
+        # that was missing. Counted from the SECOND attempt that asked the site:
+        # the first cannot be dry, since an empty union means everything it read
+        # was new. A REPLAY ASKED NOTHING (#1394) — its pages were stored by the
+        # run being resumed, so it gains zero by construction and leaves the
+        # count where it was. `CellOutcome.went_dry` applies the same rule.
+        if attempt.pages_read > 0:
+            asked += 1
+            dry = dry + 1 if asked > 1 and gained == 0 else 0
         if dry >= dry_attempts:
             break
     # RE-SIZED ONLY WHEN IT MATTERS. One request a cell over 56 cells is 56
