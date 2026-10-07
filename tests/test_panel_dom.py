@@ -6825,12 +6825,13 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
 #: The Supabase component each control the sweeps read is, by the first selector it matches, and
 #: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
 #: it is written down. The sweep resolves the value against the page's own tokens. The listbox
-#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. What stands
-#: in the converter's InputGroup fills it inside the group's border, as its READS row for the
-#: amount says, and the two currency triggers beside the amount do the same.
+#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. The
+#: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
+#: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
+#: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
 _SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
     (".sx-select-trigger", SELECT_TRIGGER),
-    (".finance-converter-row :is(button, input)", GROUP_INSIDE),
+    (".finance-converter-row input", GROUP_INSIDE),
     ("input, select", INPUT),
     ("button, .button", BUTTON))]
 
@@ -7004,6 +7005,9 @@ _TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every 
                  "Supabase component it is cannot be computed")
 _A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
           "rule 2)")
+_GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px "
+                 "(input-group.tsx@86c813ec:125, :130, :137), stands as a full-height 32px "
+                 "segment of the converter's group")
 
 #: Controls whose box is taller than their Supabase component's on a touch screen, each with
 #: why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its size fails the
@@ -7031,6 +7035,9 @@ _TALLER_THAN_SUPABASE = {
         "#drive-review-permissions", "button.manage-account-row.manage-account-row-button.has-lead",
         "button.account-switch", "button.accounts-disclosure", "button.appearance-palette-tile",
         "button.link.sect.settings-toggle", "button.workspace-destination"], _A_ROW),
+    **dict.fromkeys([
+        "#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
+        _GROUP_BUTTON),
 }
 
 #: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
