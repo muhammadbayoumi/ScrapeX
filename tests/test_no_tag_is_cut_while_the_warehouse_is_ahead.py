@@ -170,14 +170,15 @@ def test_it_finds_the_engine_tag_among_several_refs(tmp_path):
 
 
 def test_it_refuses_a_direct_push_to_main(tmp_path):
-    """`main` has no branch protection -- GitHub offers it on a public repository or a
-    paid plan and this one is neither -- so this hook is the only thing between an
-    agent and the trunk. Several agents run against this repository on this machine.
+    """`main` carries an active ruleset with an empty bypass list, so GitHub refuses a
+    direct push too. This hook is the local half: it refuses before the push leaves
+    the machine, and it keeps refusing if the ruleset is relaxed. Several agents run
+    against this repository on this machine.
     """
     proc = _run(tmp_path, "refs/heads/main a1 refs/heads/main b1\n", probe=AHEAD)
     assert proc.returncode != 0, (
-        "a direct push to main was allowed, so the one local stand-in for branch "
-        "protection does not exist")
+        "a direct push to main was allowed, so the local half of the main guard "
+        "does not exist")
     assert "REFUSED: a direct push to main." in proc.stderr
     assert not proc.asked, (
         "refusing main ran `database-status`. The refusal is free and must stay free, "

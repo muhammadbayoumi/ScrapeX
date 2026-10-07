@@ -78,6 +78,9 @@
       .settings-sidebar-title{display:none}
       .settings-nav{display:flex;flex-direction:row;overflow-x:auto;padding:.1rem}
       .settings-nav-item{flex:0 0 auto;width:auto;grid-template-columns:28px auto;padding:.5rem .65rem;text-align:left}
+      /* Inset (#1471): the nav scrolls here, and its .1rem padding cuts a ring outside an item. */
+      .settings-nav-item:focus-visible{outline:var(--focus-ring-width) solid var(--focus-ring-color);
+        outline-offset:calc(-1 * var(--focus-ring-width));box-shadow:none}
       .settings-nav-icon{width:28px;height:28px}
       .settings-nav-copy small{display:none}
       .settings-assurance{display:none}
