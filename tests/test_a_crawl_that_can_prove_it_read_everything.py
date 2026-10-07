@@ -1436,6 +1436,97 @@ def test_a_replayed_attempt_does_not_count_as_a_dry_read(conn):
         "has nothing left")
 
 
+def never_closes(directory: Directory, label: str, hidden: str):
+    """A fetch that holds the cell's order still and never serves one row.
+
+    Beside `never_converges`, which rolls: here a resume's replays recover every id
+    the site will ever show, so its first read that asks the site gains NOTHING —
+    the case where the first asking read must still not count as dry.
+    """
+    anchor = f'<a href="/en/row/{hidden}/143">row</a>'
+
+    def fetch(url: str) -> str:
+        return directory.fetch(url).replace(anchor, "", 1)
+    return fetch
+
+
+def _resume_a_cell_that_went_dry(conn, region_id: int, shape):
+    """A first run reads a cell that cannot close until it goes dry; a second run
+    with the SAME ref resumes it, so its first attempts replay the first run's.
+
+    Returns the first run's cell, the second run's cell, and the second run's
+    allowance, so a test can tell the loop stopping from the allowance running out.
+    """
+    register(conn)
+    ids = [str(1000 + 20 * region_id + n) for n in range(12)]
+    one = cell(region_id=region_id)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+    first = crawl_partition(
+        conn, Partition(directory, cells=(one,)), BASE,
+        fetch=shape(directory, one.label, ids[5]), run_ref="resumed",
+        dataset_key="rows", retry_page_ceiling=1, heavy_attempts=10,
+        resize_at_end=False).cells[0]
+    allowance = len(first.attempts) + 10
+    second = crawl_partition(
+        conn, Partition(directory, cells=(one,)), BASE,
+        fetch=shape(directory, one.label, ids[5]), run_ref="resumed",
+        dataset_key="rows", retry_page_ceiling=1, heavy_attempts=allowance,
+        resize_at_end=False).cells[0]
+    return first, second, allowance
+
+
+def _gains(outcome) -> list[tuple[int, int]]:
+    """`(pages_read, ids new to the union)` per attempt, for a failure message."""
+    union: set[str] = set()
+    out = []
+    for attempt in outcome.attempts:
+        fresh = set(attempt.ids)
+        out.append((attempt.pages_read, len(fresh - union)))
+        union |= fresh
+    return out
+
+
+_RESUMED_SHAPES = pytest.mark.parametrize(
+    "shape", [never_converges, never_closes], ids=["rolling", "still"])
+
+
+@_RESUMED_SHAPES
+def test_the_loop_does_not_stop_a_cell_on_replayed_attempts(conn, shape):
+    """#1394: THE LOOP'S OWN COUNTER, not the reporting property.
+
+    The test above asserts `went_dry()`, which filters replays; the loop's counter
+    did not, so a resumed cell stopped after two replays without asking the site
+    anything. Here the first run went dry after at least three attempts, so the
+    resume opens with at least three replays — enough to fire the unfiltered stop.
+    """
+    first, second, _ = _resume_a_cell_that_went_dry(conn, region_id=10, shape=shape)
+
+    assert len(first.attempts) > DRY_ATTEMPTS, "the first run must leave replays"
+    replays = [a for a in second.attempts if a.pages_read == 0]
+    assert len(replays) == len(first.attempts), (
+        "every attempt the first run stored must replay", len(replays))
+    asked = [a for a in second.attempts if a.pages_read > 0]
+    assert len(asked) > DRY_ATTEMPTS, (
+        "the resume stopped the cell before it asked the site enough times to call "
+        "it dry", _gains(second))
+
+
+@_RESUMED_SHAPES
+def test_the_loop_stops_a_resumed_cell_only_when_went_dry_says_so(conn, shape):
+    """The two halves of one decision agree: a cell the loop stopped short of its
+    allowance, with no proof, is one `went_dry()` reports as dry.
+
+    The `still` shape is the one that pins the first asking read: its replays
+    recover every id the site shows, so that read gains nothing and only the rule
+    that the first asking read cannot be dry keeps the loop and `went_dry()` equal.
+    """
+    _, second, allowance = _resume_a_cell_that_went_dry(conn, region_id=11, shape=shape)
+
+    assert not second.provably_complete, "the fixture must not let it close"
+    assert len(second.attempts) < allowance, "it used its whole allowance"
+    assert second.went_dry(), _gains(second)
+
+
 def test_a_stop_does_not_crawl_the_cells_that_have_not_started(registry):
     """`shutdown(wait=True)` RUNS WHAT IS ALREADY QUEUED, and that is a pause that
     crawls the whole site.
