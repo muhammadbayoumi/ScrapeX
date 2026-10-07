@@ -490,7 +490,8 @@ def _fault(report, key=SOURCE) -> str:
     return found[0]
 
 
-def test_a_table_without_its_columns_is_a_fault(client, db_path, tmp_path, monkeypatch):
+def test_every_price_table_without_its_columns_is_a_fault(
+        client, db_path, tmp_path, monkeypatch):
     real = reports.table_payload
 
     def without_columns(conn, source_key, *args, **kwargs):
@@ -501,8 +502,45 @@ def test_a_table_without_its_columns_is_a_fault(client, db_path, tmp_path, monke
     monkeypatch.setattr(reports, "table_payload", without_columns)
     report = _write(client, db_path, tmp_path / "out")
 
+    # Every source, the 13 empty ones too: one that does not fold is checked only once.
+    assert sorted(f["key"] for f in report.faults if f["kind"] == "price") == sorted(
+        entry.source_key for entry in client.app.state.manifest.sources)
     assert _fault(report) == (
         f"TypeError: {SOURCE}: the table has no rows or columns list")
+
+
+def test_a_folded_table_without_its_columns_is_a_fault(
+        client, db_path, tmp_path, monkeypatch):
+    real = reports.table_payload
+
+    def folded_without_columns(conn, source_key, *args, fold_variants=False, **kwargs):
+        table = real(conn, source_key, *args, fold_variants=fold_variants, **kwargs)
+        if fold_variants:
+            del table["columns"]
+        return table
+
+    monkeypatch.setattr(reports, "table_payload", folded_without_columns)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert _fault(report) == (
+        f"TypeError: {SOURCE}: the table has no rows or columns list")
+
+
+def test_a_dataset_table_without_its_columns_is_a_fault(
+        client, db_path, tmp_path, monkeypatch):
+    real = service.dataset_table_payload
+
+    def without_columns(conn, dataset_key, *args, **kwargs):
+        table = real(conn, dataset_key, *args, **kwargs)
+        del table["columns"]
+        return table
+
+    monkeypatch.setattr(service, "dataset_table_payload", without_columns)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert sorted((f["site_key"], f["problem"]) for f in report.faults) == [
+        (site, f"TypeError: {site}/{DATASET}: the table has no rows or columns list")
+        for site in ("muqawil_org", "other_org")]
 
 
 def test_a_table_that_repeats_an_offer_is_a_fault(client, db_path, tmp_path, monkeypatch):
