@@ -27,10 +27,12 @@ from tests.test_console_dom import WORKBOOK  # noqa: E402
 from tests.test_panel_dom import (  # noqa: E402,F401  (browser is the fixture)
     _A_ROW,
     _NO_BEFORE,
+    STACK_GAP,
     WEB_ALSO,
     assert_no_box_grows_and_no_reach_shrinks,
     browser,
     read_the_sweep,
+    stacks_off_the_gap,
 )
 from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, PAGES, webui_page  # noqa: E402
 
@@ -128,6 +130,52 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
         (c["width"], c["height"], c["reach"]) for c in menu} == {(36, 26, 44)}, (
         f"the menu button is not a 36x26 box that reaches exactly 44px on every page: {menu}")
     assert_no_box_grows_and_no_reach_shrinks(read, _WEB_TALLER_THAN_SUPABASE, _WEB_SHORT_OF_THE_FLOOR)
+
+
+#: The web UI page each stack in a page sheet stands on.
+_STACK_PAGE = {"scrapex/webui/static/pages/overview.css": "/",
+               "scrapex/webui/static/pages/exports.css": "/exports",
+               "scrapex/webui/static/pages/sync.css": "/sync"}
+
+#: The widths his ruling on #1457 was measured at in the web UI: / took taps at 800, 1024 and
+#: 1280px, /exports and /sync at 480px. The enrichment page's rows stood 17px apart from 1024px.
+_STACK_WIDTHS = (480, 800, 1024, 1280)
+
+
+def test_on_a_phone_the_web_uis_stacks_stand_18px_apart_at_the_widths_they_failed(
+        browser, tmp_path):  # noqa: F811
+    """The panel's test of his ruling on #1457, over the web UI's stacks and the enrichment
+    page's action cells: on a touch screen each computes his 18px, or 9px each side in a cell,
+    at every width it failed at. A rule scoped to a width that set /sync's or /exports' gap
+    back to 8px passed the static guard and the sweep, which reads only 360px."""
+    web = {where: _STACK_PAGE.get(where[0]) for where in STACK_GAP
+           if where[0] != "extension/app.css" and where[0] != "extension/enrichment.css"}
+    assert None not in web.values(), f"a stack with no page here to read it on: {web}"
+    off = []
+    with webui_page(browser, tmp_path, viewport={"width": 480, "height": 800},
+                    has_touch=True, is_mobile=True) as page:
+        for width in _STACK_WIDTHS:
+            page.set_viewport_size({"width": width, "height": 800})
+            for path in sorted(set(web.values())):
+                response = page.goto(ORIGIN + path)
+                assert response is not None and response.status == 200, (path, response)
+                stacks = [where for where, on in web.items() if on == path]
+                off += stacks_off_the_gap(page, stacks, f"{path} at {width}px")
+    cells = [where for where in STACK_GAP if where[0] == "extension/enrichment.css"]
+    assert len(cells) == 1, cells
+    with tabpage_harness.serve_extension() as base:
+        page = browser.new_page(viewport={"width": 480, "height": 800}, has_touch=True,
+                                is_mobile=True)
+        page.add_init_script(ENRICHMENT_STUB)
+        try:
+            page.goto(f"{base}/enrichment.html?source=D&site=S")
+            page.wait_for_selector("#merge-rows td.action-cell > button", timeout=10_000)
+            for width in _STACK_WIDTHS:
+                page.set_viewport_size({"width": width, "height": 800})
+                off += stacks_off_the_gap(page, cells, f"enrichment.html at {width}px")
+        finally:
+            page.close()
+    assert not off, "a stack does not stand his 18px apart on a touch screen:\n  " + "\n  ".join(off)
 
 
 #: The Console's screens, each with the click that opens it from the one before, over

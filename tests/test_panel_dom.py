@@ -125,7 +125,12 @@ from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
     INPUT,
     SELECT_TRIGGER,
 )
-from tests.test_the_hit_area_is_supabases import SCHEME_PICKER  # noqa: E402
+from tests.test_the_hit_area_is_supabases import (  # noqa: E402
+    APP,
+    HALF_THE_GAP,
+    SCHEME_PICKER,
+    STACK_GAP,
+)
 
 
 @pytest.fixture(scope="module")
@@ -7851,6 +7856,47 @@ def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
     assert count >= 100 and len(read["controls"]) >= 70, (
         f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
     assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
+
+
+#: Each stack's spacing as the page computes it, from [[selector, property], ...] out of
+#: STACK_GAP: [selector, property, how many elements match, every distinct value]. A
+#: `margin-block` or `padding-block` is read on both its sides.
+STACK_GAPS = """(stacks) => stacks.map(([selector, prop]) => {
+  const sides = prop === 'row-gap' ? [prop] : [`${prop}-start`, `${prop}-end`];
+  const found = [...document.querySelectorAll(selector)];
+  const values = found.flatMap((el) => sides.map((side) => getComputedStyle(el).getPropertyValue(side)));
+  return [selector, prop, found.length, [...new Set(values)]];
+})"""
+
+
+def stacks_off_the_gap(page, stacks: list, label: str) -> list[str]:
+    """What STACK_GAPS reads for `stacks`, STACK_GAP's keys for one surface, on `page`, where
+    it is not his 18px on a touch screen, or half of it in a cell HALF_THE_GAP names."""
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        f"{label}: the page is not a touch screen, so nothing read here is about one")
+    found = page.evaluate(STACK_GAPS, [[selector, prop] for _sheet, selector, prop in stacks])
+    expected = {(selector, prop): "9px" if (sheet, selector, prop) in HALF_THE_GAP else "18px"
+                for sheet, selector, prop in stacks}
+    return [f"{label}: {selector} {prop} matched {count} and computed {values}"
+            for selector, prop, count, values in found
+            if count == 0 or values != [expected[(selector, prop)]]]
+
+
+def test_on_a_touch_screen_the_panels_stacks_stand_18px_apart_at_the_widths_they_failed(
+        open_panel):
+    """His ruling on #1457, read in a browser: on a touch screen the Engine screen's Download
+    and Check again, and Run's Select all and Clear, stand 18px apart, at 320, 420 and 500px,
+    where the stacks took each other's taps before it. The static guard holds where each
+    stack reads --touch-stack-gap, and a later rule scoped to a width that set the gap back
+    to 8px passed it, and the sweep, which reads only 360px."""
+    stacks = [where for where in STACK_GAP if where[0] == APP]
+    assert len(stacks) == 2, stacks
+    page = open_panel(touch=True)
+    off = []
+    for width in (320, 420, 500):
+        page.set_viewport_size({"width": width, "height": 800})
+        off += stacks_off_the_gap(page, stacks, f"{width}px")
+    assert not off, "a stack does not stand his 18px apart on a touch screen:\n  " + "\n  ".join(off)
 
 
 @pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
