@@ -772,6 +772,27 @@ def test_a_witness_does_not_close_a_cell_over_a_refused_row_either():
     assert _cell_that_refused([every], witnessed=True, refused=False).provably_complete
 
 
+def test_a_shortfall_over_a_refused_row_is_never_called_churn():
+    """A row left during the read AND a row was refused: the departure does not account
+    for the refusal, so the report must not say nothing was missed."""
+    import dataclasses
+    seen = [str(n) for n in range(1, 13) if n not in (3, 7)]
+    shrunk = CellSize(cell=WHOLE, last_page=3, cards_per_page=4, tail_cards=3, requests=2)
+    refusing = dataclasses.replace(_cell_that_refused([seen]), size_at_end=shrunk)
+    clean = dataclasses.replace(_cell_that_refused([seen], refused=False),
+                                size_at_end=shrunk)
+
+    assert clean.observed_deficit == 2 and clean.departures == 1
+    assert not clean.deficit_is_churn, "two short, one left: not churn either way"
+    one_short = dataclasses.replace(clean, attempts=(dataclasses.replace(
+        clean.attempts[0], ids=tuple(seen + ["7"])),))
+    assert one_short.deficit_is_churn, "the fixture must reach the churn verdict"
+    refused_one_short = dataclasses.replace(refusing, attempts=(dataclasses.replace(
+        refusing.attempts[0], ids=tuple(seen + ["7"])),))
+    assert not refused_one_short.deficit_is_churn
+    assert "nothing was missed" not in str(refused_one_short)
+
+
 def test_a_resumed_run_names_the_rows_refused_on_the_pages_it_replays(conn):
     """The reviewer's second case: a replayed page is read off disk by `_ids_from_disk`
     alone, so its refused row went unnamed and the resumed report said only `D=…`."""

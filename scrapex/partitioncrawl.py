@@ -325,8 +325,12 @@ class CellOutcome:
 
     @property
     def deficit_is_churn(self) -> bool:
-        """Whether this cell's shortfall is fully explained by rows leaving it."""
-        return (not self.provably_complete
+        """Whether this cell's shortfall is fully explained by rows leaving it.
+
+        NEVER OVER A REFUSED ROW: that part of the shortfall is the reader's, and
+        calling it churn would print "nothing was missed" above the line naming it.
+        """
+        return (not self.provably_complete and not self.refused_a_row
                 and 0 < self.observed_deficit <= self.departures)
 
     def went_dry(self, dry_attempts: int = DRY_ATTEMPTS) -> bool:
