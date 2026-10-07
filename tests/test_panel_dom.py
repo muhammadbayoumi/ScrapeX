@@ -6858,7 +6858,8 @@ _SIZE_SCREENS = (
 #: trigger, is not drawn and is not read; a <textarea> is Supabase's Textarea, which has no
 #: SIZE height (textarea.tsx@86c813ec:12). A Button that draws an icon and no text is an
 #: icon-only Button, `icon` its icon's width: a visually hidden label, in a box under 2px,
-#: draws none.
+#: draws none. `select` is a drop-down only: a list box, `multiple` or more than one row
+#: tall, keeps its rows and its padding (design/components.css `select[multiple]`).
 _READ_SIZES = """([scopeSelector, known, also = []]) => {
   const FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
     + ':not([type=range]):not([type=color]):not([type=file]), select, .sx-select-trigger';
@@ -6884,7 +6885,8 @@ _READ_SIZES = """([scopeSelector, known, also = []]) => {
               height: Math.round(r.height * 100) / 100, width: Math.round(r.width * 100) / 100,
               iconOnly: !field && icons.length > 0 && !drawsText(el),
               icon: icons.length ? Math.max(...icons.map((box) => Math.round(box.width * 100) / 100)) : null,
-              select: el.tagName === 'SELECT', padTop: parseFloat(getComputedStyle(el).paddingTop),
+              select: el.tagName === 'SELECT' && !el.multiple && el.size <= 1,
+              padTop: parseFloat(getComputedStyle(el).paddingTop),
               known: known.find((selector) => el.matches(selector)) || null});
   }
   return out;
@@ -6935,6 +6937,8 @@ _OFF_SIZE = {
     ".split-button-option": ("their DropdownMenuItem, whose height is its padding and its text "
                              "(dropdown-menu.tsx@86c813ec:104)"),
     "button.link": "a text link drawn as a <button>, at the height of its line",
+    # The Add Site form's Fallback engines, `multiple size="3"` (extension/app.html).
+    "select[multiple]": "a list box, which Supabase gives no SIZE height: it keeps its rows",
     ".coverage-open": "a line of a Data card's text that opens its coverage, drawn as text",
 }
 
@@ -6963,10 +6967,8 @@ def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
 
     known = [*_ANOTHER_COMPONENT, *_OFF_SIZE]
     controls: dict[str, list[dict]] = {}
-    for scope, steps in _SIZE_SCREENS:
-        for target in steps:
-            page.wait_for_selector(target, state="visible")
-            page.click(target)
+
+    def read(scope):
         page.wait_for_selector(scope, state="visible")
         # Measured, so settled: a view's entry animation moves every box it holds while it
         # runs (settle_view says why). An endless animation is not waited for.
@@ -6976,6 +6978,16 @@ def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
             arg=scope, timeout=5_000)
         for control in page.evaluate(_READ_SIZES, [scope, known, _ALSO]):
             controls.setdefault(control["name"], []).append(control)
+
+    # The Add Site form opens only on a successful Test site, so no click in _SIZE_SCREENS
+    # reaches it: its fields, Add site and the panel's one list box (#1457's reviews).
+    _open_add_form(page)
+    read("#add-form")
+    for scope, steps in _SIZE_SCREENS:
+        for target in steps:
+            page.wait_for_selector(target, state="visible")
+            page.click(target)
+        read(scope)
 
     assert {"a bare <button>": probe and round(probe["height"], 2),
             "#url": {c["height"] for c in controls.get("#url", [])}} == {
@@ -7048,6 +7060,8 @@ _TEXT_AT_360 = {
     # Test site is a Button at size small, SIZE_VARIANTS.small's text and padding (his ruling on
     # #1457), not tiny's.
     "#check": ("15px", "16px", "8px", "12px"),
+    # A list box is no drop-down: it keeps the Input's text and its padding, and its rows.
+    "#p-list": ("15px", "16px", "8px", "12px"),
     # Rows drawn as <button>s are not Buttons: each keeps the text around it on a 1.2 line.
     "button.accounts-action": ("15px", "18px", "12px", "16px"),
     "button.accounts-disclosure": ("15px", "18px", "12px", "16px"),
@@ -7077,17 +7091,23 @@ def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
         + '<div class="split-button"><button type="button" id="p-split" '
         + 'class="split-button-primary">Split</button></div>'
         + '<input id="p-input"><select id="p-select"><option>One</option></select>'
+        + '<select id="p-list" multiple size="3"><option>One</option><option>Two</option>'
+        + '<option>Three</option></select>'
         + '<textarea id="p-textarea"></textarea>';
       document.querySelector('main').prepend(host);
     }""")
     assert _text(page, _TEXT_AT_360) == _TEXT_AT_360
+    # Taller than its three 16px rows, which the 34px a drop-down takes would cut to one.
+    rows = page.locator("#p-list").bounding_box()
+    assert rows and rows["height"] > 3 * 16, rows
 
     page.set_viewport_size({"width": 768, "height": 800})
     small = {"#p-input": ("13px", "16px", "8px", "12px"),
              "#p-select": ("13px", "normal", "0px", "12px"),
              "#p-textarea": ("13px", "18.5718px", "8px", "12px"),
              "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY,
-             "#check": ("13px", "16px", "8px", "12px")}
+             "#check": ("13px", "16px", "8px", "12px"),
+             "#p-list": ("13px", "16px", "8px", "12px")}
     assert _text(page, small) == small
 
 
