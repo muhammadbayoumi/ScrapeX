@@ -138,6 +138,9 @@ const state = {
   // The SQLite the engine loaded, and its verdict on the WAL-reset bug; `null`
   // on the same two conditions.
   engineSqlite: null,
+  // The Python the engine runs, and its verdict against the pin; `null` on the
+  // same two conditions.
+  enginePython: null,
   versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
@@ -689,6 +692,7 @@ function setStatus(engine) {
   // and an honest "cannot know" turns into a claim.
   state.engineBuild = engine.build || null;
   state.engineSqlite = engine.sqlite || null;
+  state.enginePython = engine.python || null;
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
   // exactly one place: the Diagnostics output, which only appears when someone
@@ -3926,6 +3930,30 @@ function engineSqliteText(sqlite) {
                    + "SQLite's WAL-reset bug." };
 }
 
+// WHICH PYTHON THE ENGINE RUNS, and whether it is below the Python ScrapeX is
+// pinned to (#1321). His engine's launcher names its interpreter once, so a pin
+// move leaves it behind. The engine reads the pin and decides the verdict
+// (`scrapex/interpreter.py`); this only words it, on `engineSqliteText`'s terms:
+// "Not reported" for an engine from before the field, a badge only when it is
+// below, and an answer this panel does not know is said to be unrecognised. A pin
+// the engine could not read is its own answer, and it wears no badge.
+function enginePythonText(python) {
+  if (!python || !python.version) return { value: "Not reported", verdict: "", detail: "" };
+  const value = String(python.version);
+  if (python.verdict === "below") {
+    return { value, verdict: "Upgrade needed",
+             detail: `ScrapeX needs Python ${python.floor} or newer. `
+                     + "Parts of the engine can fail on an older one." };
+  }
+  if (python.verdict === "ok") return { value, verdict: "", detail: "" };
+  if (python.verdict === "unknown") {
+    return { value, verdict: "",
+             detail: "The engine could not read which Python ScrapeX needs." };
+  }
+  return { value, verdict: "",
+           detail: "This panel does not recognise the engine's answer about its Python." };
+}
+
 // THE COMPATIBILITY PARAGRAPH IS GONE, not moved. It said the mismatch a second
 // time in a `.notice` class no loaded stylesheet defined, so it rendered as bare
 // text; the banner now carries `data-tone="danger"` and the Protocol row states
@@ -3956,6 +3984,14 @@ function renderEngineStatusUI() {
   // Amber, the one "attend to this" badge the kit has (see the Build badge above).
   sqliteBadge.className = "badge off";
   sqliteBadge.classList.toggle("hidden", !sqlite.verdict);
+  const python = enginePythonText(state.enginePython);
+  $("engine-python-value").textContent = python.value;
+  $("engine-python-detail").textContent = python.detail;
+  const pythonBadge = $("engine-python-verdict");
+  pythonBadge.textContent = python.verdict;
+  // Amber, as the SQLite badge is.
+  pythonBadge.className = "badge off";
+  pythonBadge.classList.toggle("hidden", !python.verdict);
   // The version beside the name on the catalogue row: shown only when there IS
   // one, because an empty `.tech` chip beside a name reads as a missing value
   // rather than as an engine nobody has installed.
@@ -4754,7 +4790,7 @@ function renderEngineDetail(id) {
   $("engine-licence").textContent = engine.licence;
 
   for (const row of ["engine-spec-installed", "engine-spec-build",
-                     "engine-spec-sqlite", "engine-spec-latest",
+                     "engine-spec-python", "engine-spec-sqlite", "engine-spec-latest",
                      "engine-spec-protocol", "engine-spec-power"]) {
     $(row).classList.toggle("hidden", !installed);
   }

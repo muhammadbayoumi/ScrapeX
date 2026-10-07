@@ -1670,9 +1670,22 @@
             <span class="engine-spec-value tech" id="engine-build-value">—</span>
           </div>
           <!-- UNDER BUILD, because it is the same question one layer down: which
-               SQLite this engine loaded, and whether it carries the fix for
-               SQLite's WAL-reset bug (#1207). The badge appears only when it is
-               affected. -->
+               Python runs this engine, and whether it is below the Python
+               ScrapeX is pinned to (#1321). The badge appears only when it is. -->
+          <div class="engine-spec-row" id="engine-spec-python">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label">
+                Python
+                <span class="badge hidden" id="engine-python-verdict"></span>
+              </span>
+              <small id="engine-python-detail"></small>
+            </span>
+            <span class="engine-spec-value tech" id="engine-python-value">—</span>
+          </div>
+          <!-- UNDER PYTHON, because it is the same question one layer down again:
+               which SQLite this engine's Python loaded, and whether it carries the
+               fix for SQLite's WAL-reset bug (#1207). The badge appears only when
+               it is affected. -->
           <div class="engine-spec-row" id="engine-spec-sqlite">
             <span class="engine-spec-note">
               <span class="engine-spec-label">

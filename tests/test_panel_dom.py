@@ -6127,6 +6127,92 @@ def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
         "a stopped engine's build stayed on the screen")
 
 
+def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
+        open_panel, tmp_path, monkeypatch):
+    """#1321: which Python the engine runs, beside its SQLite, and when it is behind.
+
+    His engine runs from source through a launcher that names its interpreter once,
+    so a pin move leaves it below `requires-python` and no screen said so. Every
+    payload but the unrecognised one is the engine's own `interpreter.report()`,
+    moved only by the pin it reads, so the panel is never tested against an answer
+    the engine would not give. And the NEGATIVE matters as much: a Python at the
+    pin wears no badge, or the badge becomes furniture.
+    """
+    import platform
+
+    from scrapex import interpreter
+
+    level = open_panel()
+    level.click("#tab-engines")
+    open_engine(level)
+    assert text_of(level, "#engine-python-value") == platform.python_version()
+    assert level.locator("#engine-python-verdict").is_visible() is False, (
+        "a Python at the pin wore a badge")
+    assert text_of(level, "#engine-python-detail") == ""
+
+    # THE PIN MOVES AND THE ENGINE STAYS, which #1267's weekly reminder makes routine.
+    ahead = f"{sys.version_info.major}.{sys.version_info.minor + 1}"
+    pin = tmp_path / "pin" / ".python-version"
+    pin.parent.mkdir()
+    pin.write_text(ahead + "\n", encoding="utf-8")
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+    behind = open_panel()
+    behind.click("#tab-engines")
+    open_engine(behind)
+    assert text_of(behind, "#engine-python-value") == platform.python_version()
+    assert behind.locator("#engine-python-verdict").is_visible() is True
+    assert text_of(behind, "#engine-python-verdict") == "Upgrade needed"
+    assert behind.get_attribute("#engine-python-verdict", "class") == "badge off", (
+        "the amber badge is the kit's one 'attend to this'")
+    assert f"ScrapeX needs Python {ahead} or newer." in text_of(
+        behind, "#engine-python-detail"), "the row must say which Python it needs"
+    # Three independent facts: a Python behind the pin is not an affected SQLite
+    # and not a stale build.
+    assert behind.locator("#engine-sqlite-verdict").is_visible() is False
+    assert behind.locator("#engine-build-verdict").is_visible() is False
+
+    # A PIN THE ENGINE COULD NOT READ is its own answer: neither a verdict nor a
+    # fault of this panel's.
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin.parent / "missing")
+    unread = open_panel()
+    unread.click("#tab-engines")
+    open_engine(unread)
+    assert text_of(unread, "#engine-python-value") == platform.python_version()
+    assert unread.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(unread, "#engine-python-detail") == (
+        "The engine could not read which Python ScrapeX needs.")
+
+    # A VERDICT THIS PANEL DOES NOT KNOW — a newer engine's — is not dressed as a
+    # known one.
+    unknown = open_panel(engine_python={"version": "3.16.0", "floor": "3.14",
+                                        "verdict": "partly"})
+    unknown.click("#tab-engines")
+    open_engine(unknown)
+    assert text_of(unknown, "#engine-python-value") == "3.16.0"
+    assert unknown.locator("#engine-python-verdict").is_visible() is False, (
+        "an unrecognised verdict was dressed as a known one")
+    assert "does not recognise" in text_of(unknown, "#engine-python-detail")
+
+    # An engine from before the field is not an engine in trouble.
+    old = open_panel(engine_python=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-python-value") == "Not reported"
+    assert old.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(old, "#engine-python-detail") == ""
+
+    # AN ENGINE THAT STOPS takes its Python with it, as the SQLite row does.
+    behind.evaluate("() => FAIL.push('/api/health')")
+    behind.click("#engine-recheck")
+    behind.wait_for_function(
+        "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
+    behind.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    assert text_of(behind, "#engine-python-value") == "Not reported", (
+        "a stopped engine's Python verdict stayed on the screen")
+    assert behind.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(behind, "#engine-python-detail") == ""
+
+
 def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
     """OP-114. The value column resolved to 0px and the version printed VERTICALLY.
 

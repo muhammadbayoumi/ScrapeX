@@ -37,6 +37,7 @@ from .. import (
     datasetjob,
     directories,
     directoryjob,
+    interpreter,
     localinbox,
     nativehost,
     pricehistory,
@@ -2088,7 +2089,12 @@ def create_app(
                 # panel only draws it, the split `/api/version` already makes.
                 # It needs no database, so it answers when the database cannot.
                 "sqlite": {"version": sqlite3.sqlite_version,
-                           "wal_reset_bug": dbmod.wal_reset_bug()}}
+                           "wal_reset_bug": dbmod.wal_reset_bug()},
+                # WHICH PYTHON THIS PROCESS RUNS, against the pin (#1321). The
+                # launcher names its interpreter once, so a pin move leaves a
+                # source engine below it; the same split as `sqlite` above, and
+                # it needs no database either.
+                "python": interpreter.report()}
 
     @app.get("/api/version")
     def api_version(extension_version: str | None = None):

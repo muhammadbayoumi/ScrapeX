@@ -146,8 +146,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
-         worker_alive=True, engine_build=None, engine_sqlite=None, bundle=None,
-         ui=None) -> str:
+         worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
+         bundle=None, ui=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -211,6 +211,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     sqlite = {"version": "3.53.4", "wal_reset_bug": wal_reset_bug((3, 53, 4))}
     if isinstance(engine_sqlite, dict):
         sqlite = engine_sqlite
+    # `engine_python` is the eighth, on the same three terms. None is the REAL
+    # report — this interpreter against the pin `scrapex.interpreter.PIN_FILE` names
+    # — so a caller moves the verdict by moving the pin and the payload stays the
+    # engine's own; `False` removes the key; a dict overrides it.
+    from scrapex import interpreter
+    python = interpreter.report()
+    if isinstance(engine_python, dict):
+        python = engine_python
     health = {"ok": True, "app": "scrapex", "version": engine_version,
               "worker_alive": worker_alive,
               "latest_extension_version": VERSION,
@@ -222,6 +230,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         health["build"] = build
     if engine_sqlite is not False:
         health["sqlite"] = sqlite
+    if engine_python is not False:
+        health["python"] = python
     routes = {
         "/api/health": health,
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},
