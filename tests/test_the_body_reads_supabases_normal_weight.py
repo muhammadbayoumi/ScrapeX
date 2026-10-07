@@ -26,13 +26,13 @@ carries their selector with this product's classes in it -- tools/value_literals
 says which classes those are, for this guard and for the value guard alike -- and every other
 rule that sets the mono family re-declares the token itself. A rule that does neither fails
 here, by file and line. So does a mono rule -- one that sets the mono family or that the reset
-reaches -- that sets the normal weight without reading the token, and anything that reads
---fw-regular-mono as a weight: each draws the same number whether its run asks for the normal
-weight or not. So does any other declaration of either token than :root's one each in
-design/tokens.css: the cascade keeps a rule's last declaration and every run inside the rule
-inherits it, so a second value in a mono rule takes its runs back out of the context, the
-mono value in a sans rule puts sans runs into it, and a dark block moves every run in that
-theme alone.
+reaches through any selector in its list -- that sets the normal weight without reading the
+token, and anything that reads --fw-regular-mono as a weight: each draws the same number
+whether its run asks for the normal weight or not. So does any other declaration of either
+token than :root's one each in design/tokens.css: the cascade keeps a rule's last declaration
+and every run inside the rule inherits it, so a second value in a mono rule takes its runs
+back out of the context, the mono value in a sans rule puts sans runs into it, and a dark
+block moves every run in that theme alone.
 
 That the weights COMPUTE, and that 450 is drawn by the variable face rather than rounded to
 400, is measured in a browser by tests/test_the_normal_weight_draws_on_both_surfaces.py.
@@ -104,12 +104,14 @@ def _weight(prop: str, value: str) -> str | None:
 def uncovered(path: Path) -> list[str]:
     """The rules in one sheet that set the mono family and are outside their mono context,
     neither reached by the reset nor re-declaring the normal weight themselves; and the rules
-    that set the mono family or that the reset reaches, and set the normal weight as a literal,
-    which reads no context at all."""
+    that set the mono family or that the reset reaches, through any selector in their list,
+    and set the normal weight as a literal, which reads no context at all."""
     found = []
     for selector, props in _rules(path).items():
         mono = [line for prop, value, line in props if _sets_mono(prop, value)]
-        if not (mono or is_mono(selector)):
+        # One selector the reset reaches is enough: a literal pins that selector's runs.
+        reached = any(is_mono(piece) for _before, piece in _split(selector, ","))
+        if not (mono or reached):
             continue
         # A rule the reset reaches may set no family: it is named by its first declaration.
         line = mono[0] if mono else props[0][2]
@@ -119,7 +121,8 @@ def uncovered(path: Path) -> list[str]:
         if weights and weights[-1] in LITERAL_NORMAL:
             found.append(f"{name} -- sets the weight to {weights[-1]}, the normal weight "
                          "without the token; a run that asks for it reads var(--fw-regular)")
-        elif not (is_mono(selector) or RE_DECLARED in [(prop, value) for prop, value, _ in props]):
+        elif mono and not (is_mono(selector)
+                           or RE_DECLARED in [(prop, value) for prop, value, _ in props]):
             found.append(name)
     return found
 
@@ -334,6 +337,16 @@ def test_the_reset_reaches_what_its_selector_matches(selector, expected):
     # Neither reached by the reset nor setting the family: not a mono rule.
     (".tech-label { font-weight: normal; }", []),
     ("code + .x { font-weight: 450; }", []),
+    # A list the reset reaches through one of its selectors: the literal pins that one's runs.
+    ("code, .x { font-weight: 450; }",
+     [":1 code, .x -- sets the weight to 450, the normal weight without the token; a run that "
+      "asks for it reads var(--fw-regular)"]),
+    (".x td, .x .tech { font-weight: normal; }",
+     [":1 .x td, .x .tech -- sets the weight to normal, the normal weight without the token; a "
+      "run that asks for it reads var(--fw-regular)"]),
+    # Such a list with no literal sets no family, so it needs no re-declaration of its own.
+    (".x td, .x code, .x .tech { overflow-wrap: anywhere; }", []),
+    (".x, .y { font-weight: 450; }", []),
 ])
 def test_a_mono_rule_is_judged_by_its_own_declarations(tmp_path, css, expected, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
