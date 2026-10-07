@@ -114,6 +114,16 @@ ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
 from scrapex.vocab import RunMode  # noqa: E402
 
+# Which Supabase component a control is, and the size its default reads: #1050's guard holds
+# both, and the touch sweep below reads them there (#1051).
+from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
+    BUTTON,
+    DEFAULT,
+    GROUP_INSIDE,
+    INPUT,
+    SELECT_TRIGGER,
+)
+
 
 @pytest.fixture(scope="module")
 def browser():
@@ -7474,16 +7484,32 @@ def test_the_three_back_buttons_draw_one_box(open_panel):
         f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
 
 
-def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
-    """With a mouse the three icon squares are one 26px size (the test below). On a touch
-    screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
-    `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
-    docs/UI-KIT.md say:
+#: Reads which control, if any, takes a tap at a point: the element there, or the
+#: control that element sits inside. A hit area is the control's ::before, and a
+#: hit on a pseudo-element reports its originating element, so a tap the ::before
+#: catches comes back as the control itself.
+_TAKES_THE_TAP = """([x, y]) => {
+  const hit = document.elementFromPoint(x, y);
+  const control = hit && hit.closest('button, .button, input, select, textarea, summary, a');
+  return control ? (control.id || control.getAttribute('class') || control.tagName) : null;
+}"""
 
-    - a plain `icon-button` declares no min-height of its own, so it takes the floor and
-      draws 26x44. #1051 moves that reach into a hit area and changes this number;
-    - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
-      (through its own) outrank the block and stay 26px squares, under the floor.
+
+def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_the_reach(
+        open_panel):
+    """#1051's own test: on a touch screen an icon button's box is its control height,
+    26px, while a tap 4px outside the box still lands on it.
+
+    WHAT IT REPLACED. `design/components.css`'s `(hover: none), (pointer: coarse)`
+    block lifted `button` to `min-height: 2.75rem`, so a plain `icon-button` drew
+    26x44, a slab, while `compact` and `xs`, whose own min-height outranks the block,
+    stayed 26px squares (#1432's comment on #1051). The 44px is now the reach of
+    Supabase's hit area, a ::before at negative insets
+    (packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49), so the box is the
+    tiny Button's square on every pointer and the reach is still 44px tall.
+
+    EXACTLY 44, NOT MORE. A tap 21px from the centre lands; 23px does not, so a reach
+    that grew to --touch-target's 48 fails here as surely as one that shrank.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -7492,10 +7518,11 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         "the page did not open as a touch screen, so nothing below is about one")
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
-    # In a block of its own: beside `#signout` in the flex top bar, a 44px probe would
-    # stretch the row and the sign-out with it.
+    # In a block of its own, with room above and below it: beside `#signout` in the
+    # flex top bar, a probe would share the row and the reach with it.
     page.evaluate("""() => {
       const host = document.createElement('div');
+      host.style.padding = '24px 0';
       host.innerHTML = '<button type="button" id="plain-icon-button-probe" '
         + 'class="ghost icon-button"><svg class="sx-icon" aria-hidden="true"></svg></button>';
       document.querySelector('main').prepend(host);
@@ -7506,9 +7533,367 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (26, 44),
+    assert sizes == {"#plain-icon-button-probe": (26, 26),
                      "#accounts-card .account-menu-button": (26, 26),
-                     "#signout": (26, 26)}, sizes
+                     "#signout": (26, 26)}, (
+        f"on a touch screen an icon button's box is its 26px control height: {sizes}")
+
+    box = page.locator("#plain-icon-button-probe").bounding_box()
+    cx, top, bottom = box["x"] + box["width"] / 2, box["y"], box["y"] + box["height"]
+    cy = top + box["height"] / 2
+    taken = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("4px above the box", top - 4), ("4px below the box", bottom + 4),
+        ("21px above the centre", cy - 21), ("21px below the centre", cy + 21))}
+    assert taken == dict.fromkeys(taken, "plain-icon-button-probe"), (
+        f"a tap inside the 44px reach no longer reaches the icon button: {taken}")
+    beyond = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("23px above the centre", cy - 23), ("23px below the centre", cy + 23))}
+    assert "plain-icon-button-probe" not in beyond.values(), (
+        f"the reach grew past the 44px it was: {beyond}")
+
+
+#: The Supabase component each control the sweeps read is, by the first selector it matches, and
+#: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
+#: it is written down. The sweep resolves the value against the page's own tokens. The listbox
+#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. The
+#: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
+#: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
+#: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
+_SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
+    (".sx-select-trigger", SELECT_TRIGGER),
+    (".finance-converter-row input", GROUP_INSIDE),
+    ("input, select", INPUT),
+    ("button, .button", BUTTON))]
+
+#: What every button and input reached on a touch screen before #1051: the coarse-pointer
+#: block's `min-height: 2.75rem`, which is --touch-floor now.
+_TOUCH_FLOOR = 44
+
+#: Every screen the sweep reads, and how a person reaches it from the one before: the rail's
+#: pages, the three it does not list, the Workspace sheet and an open listbox.
+_SWEEP_SCREENS = (
+    *((f"#view-{view}", [("click", f'nav.side-rail button[data-view="{view}"]')])
+      for view in ("profile", "database", "engines", "source", "jobs", "run", "data",
+                   "finance", "appearance", "sources", "console", "settings")),
+    ("nav.side-rail", []),
+    ("#view-manage-account", [("click", 'nav.side-rail button[data-view="profile"]'),
+                              ("click", "#manage-account")]),
+    ("#view-engine-detail", [("click", "#tab-engines"),
+                             ("click", '#view-engines .engine-row[data-engine-id="scrapex-engine"]')]),
+    ("#view-source-edit", [("click", SOURCES_TAB), ("click", '[data-edit-source="SHORT"]')]),
+    (".sx-select.is-open", [("click", RUN_TAB), ("click", "#run-mode-trigger")]),
+    ("#workspace-menu", [("press", "Escape"), ("click", "#workspace-toggle")]),
+)
+
+#: Reads every control on one screen: its box, how far a tap still reaches it straight up
+#: and down from its centre, and every point inside a control-like element's box that
+#: another control's reach takes. A name is the id, else the classes (state classes `is-*`
+#: left out), else the parent's first class.
+#:
+#: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
+#: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
+#: `pointer-events: none` on the three ::before selectors design/components.css draws a hit
+#: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
+#: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
+#: second read would be of another layout. A point the control never held is not counted:
+#: its own rounded corner, a corner its list clips off (#db-bundles' first row under
+#: #db-open-backups: CI's Chromium clips a relative row's corner for hit-testing, and 141
+#: does not), or a label laid over its radio. A point it held is counted however close the
+#: two boxes stand, so a reach into a box that touches its own is caught as surely as one
+#: across a gap. EACH EDGE IS READ AT THREE DEPTHS, 0.75, 2.5 and 4.5px in: where two boxes
+#: meet at a fractional height, hit-testing gives the outermost row to the neighbour with
+#: every hit area off too, so that row alone saw one of the Console rail's five thefts
+#: with its tabs touching.
+#:
+#: AND NO HIT AREA WIDENS WHAT A SCROLLER SCROLLS. A ::before past the end of a scroller's
+#: content is scrollable overflow, so every scroller is read with each hit area drawn and with
+#: none (`content: none`), and the two must agree. It is read last, with every scroll position
+#: put back, because a widened scroller scrolls back once its hit areas go.
+#:
+#: Takes [the scope's selector, _SUPABASE_SIZES].
+_SWEEP = """([scopeSelector, sizes]) => {
+  const LIKE = 'button, .button, input, select, textarea, summary, a[href], label';
+  const taker = (x, y) => { const hit = document.elementFromPoint(x, y); return hit && hit.closest(LIKE); };
+  // Reads with `declaration` set on every hit area: design/components.css draws one with these.
+  const withEveryHitArea = (declaration, read) => {
+    const style = document.createElement('style');
+    style.textContent = `button::before, .button::before, .hit-area-2::before { ${declaration} !important; }`;
+    document.head.append(style);
+    try { return read(); } finally { style.remove(); }
+  };
+  const probe = document.body.appendChild(document.createElement('div'));
+  probe.style.cssText = 'position: absolute; visibility: hidden;';
+  const heights = sizes.map(([selector, value]) => {
+    probe.style.height = value;
+    return [selector, parseFloat(getComputedStyle(probe).height)];
+  });
+  probe.remove();
+  if (!heights.every(([, height]) => height > 0)) throw new Error(`a Supabase size did not resolve: ${JSON.stringify([sizes, heights])}`);
+  const name = (el) => {
+    if (el.id) return '#' + el.id;
+    const classes = [...el.classList].filter((c) => !c.startsWith('is-'));
+    const tag = el.tagName.toLowerCase() + (el.tagName === 'INPUT' ? `[type=${el.type}]` : '');
+    if (classes.length) return tag + '.' + classes.join('.');
+    const up = el.parentElement && [...el.parentElement.classList].find((c) => !c.startsWith('is-'));
+    return (up ? `.${up} > ` : '') + tag;
+  };
+  const shown = (el) => el.checkVisibility({visibilityProperty: true})
+    && el.getBoundingClientRect().width >= 2 && el.getBoundingClientRect().height >= 2;
+  const scope = document.querySelector(scopeSelector);
+  const out = {controls: [], stolen: [], widened: []};
+  for (const el of scope.querySelectorAll(LIKE)) {
+    if (!shown(el)) continue;
+    el.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = el.getBoundingClientRect();
+    const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, r.height / 2, r.width / 2);
+    const points = [];
+    for (const depth of [0.75, 2.5, 4.5]) {
+      if (2 * depth < r.height) for (let x = r.left + radius + 1; x <= r.right - radius - 1; x += 2) points.push([x, r.top + depth], [x, r.bottom - depth]);
+      if (2 * depth < r.width) for (let y = r.top + radius + 1; y <= r.bottom - radius - 1; y += 2) points.push([r.left + depth, y], [r.right - depth, y]);
+    }
+    for (const fx of [0.25, 0.5, 0.75]) for (const fy of [0.25, 0.5, 0.75]) points.push([r.left + r.width * fx, r.top + r.height * fy]);
+    const owns = (hit) => Boolean(hit) && (hit === el || el.contains(hit));
+    const held = withEveryHitArea('pointer-events: none', () => points.map(([x, y]) => owns(taker(x, y))));
+    points.forEach(([x, y], i) => {
+      const other = taker(x, y);
+      if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
+    });
+    if (!el.matches('button, .button, input:not([type=checkbox]):not([type=radio]), select')) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
+    // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
+    const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 48; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
+    const supabase = heights.find(([selector]) => el.matches(selector))[1];
+    out.controls.push({name: name(el), width: r.width, height: r.height, supabase, reach: reach(-1) + reach(1)});
+  }
+  const scrollers = [document.scrollingElement, ...document.querySelectorAll('*')].filter((s) =>
+    s === document.scrollingElement || /auto|scroll|hidden/.test(getComputedStyle(s).overflow));
+  const at = scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
+  const extent = () => scrollers.map((s) => `${s.scrollWidth - s.clientWidth}x${s.scrollHeight - s.clientHeight}`);
+  const drawn = extent();
+  const bare = withEveryHitArea('content: none', extent);
+  scrollers.forEach((s, i) => { [s.scrollLeft, s.scrollTop] = at[i]; });
+  drawn.forEach((scrolls, i) => {
+    if (scrolls !== bare[i]) out.widened.push(`${name(scrollers[i])} scrolls ${scrolls}, and ${bare[i]} without its hit areas`);
+  });
+  return out;
+}"""
+
+
+def read_the_sweep(page, scope: str, label: str, read: dict) -> None:
+    """Runs _SWEEP over `scope` on `page` and adds what it found to `read`, the
+    {"controls": {name: [control, ...]}, "stolen": [...], "widened": [...]} a sweep collects
+    over one surface, each finding under `label`, the screen it was read on."""
+    found = page.evaluate(_SWEEP, [scope, _SUPABASE_SIZES])
+    read["stolen"] += [f"{label}: {theft}" for theft in found["stolen"]]
+    read["widened"] += [f"{label}: {scroller}" for scroller in found["widened"]]
+    for control in found["controls"]:
+        read["controls"].setdefault(control["name"], []).append(control)
+
+
+def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: dict,
+                                             short_of_the_floor: dict) -> None:
+    """What every touch sweep holds over what read_the_sweep read on one surface (#1051): no
+    reach takes a tap inside another control's box, no hit area widens what a scroller scrolls,
+    and every control's box is no taller than its Supabase component's and its reach at least
+    the 44px floor, but for the controls named, each with its bound and its reason.
+
+    BOTH LISTS MAY ONLY SHRINK: a named control that comes down to its size, or up to the floor,
+    fails until its name goes, and a new one fails until it is named with its reason. AND EACH
+    NAME KEEPS ITS BOUND: a tall box may not stand more than half a pixel above the ceiling
+    named for it, nor a short reach fall more than half a pixel below the least. Without the
+    ceiling, a named box could grow back to #1051's 44px slab with every check green."""
+    assert not read["stolen"], (
+        "a hit area takes taps inside another control's box:\n  "
+        + "\n  ".join(sorted(set(read["stolen"]))))
+    assert not read["widened"], (
+        "a hit area widens what a scroller scrolls:\n  " + "\n  ".join(sorted(set(read["widened"]))))
+    controls = read["controls"]
+    taller = {name: max(c["height"] for c in seen) for name, seen in controls.items()
+              if any(c["height"] > c["supabase"] + 0.01 for c in seen)}
+    assert set(taller) == set(taller_than_supabase), (
+        f"taller than Supabase's size, not named: {sorted(set(taller) - set(taller_than_supabase))}\n"
+        f"named, and not taller any more (take the name out): "
+        f"{sorted(set(taller_than_supabase) - set(taller))}\n"
+        f"all: {dict(sorted(taller.items()))}")
+    rose = {name: (round(height, 2), taller_than_supabase[name][0])
+            for name, height in taller.items() if height > taller_than_supabase[name][0] + 0.5}
+    assert not rose, f"box taller than the ceiling named for it, (now, ceiling): {rose}"
+    short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
+             if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
+    assert set(short) == set(short_of_the_floor), (
+        f"reached across less than {_TOUCH_FLOOR}px, not named: "
+        f"{sorted(set(short) - set(short_of_the_floor))}\n"
+        f"named, and not short any more (take the name out): "
+        f"{sorted(set(short_of_the_floor) - set(short))}\n"
+        f"all: {dict(sorted(short.items()))}")
+    fell = {name: (reach, short_of_the_floor[name][0]) for name, reach in short.items()
+            if reach < short_of_the_floor[name][0] - 0.5}
+    assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
+
+
+_PADDING = ("#1430: its padding and type, or a literal height off Supabase's scale, stand it "
+            "taller than its SIZE height")
+_NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
+              "44px floor on its box")
+_TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
+                 "Supabase component it is cannot be computed")
+_A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
+          "rule 2)")
+_GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px "
+                 "(input-group.tsx@86c813ec:125, :130, :137), stands as a full-height 32px "
+                 "segment of the converter's group")
+
+#: Controls whose box is taller than their Supabase component's on a touch screen, each with
+#: its ceiling and why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its
+#: size fails the test until its name goes, and a new one fails until it is named here with its
+#: reason. AND NO NAMED BOX MAY GROW: its ceiling is the tallest box the sweep read for it on
+#: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
+#: fails, as a reach more than half a pixel below its least does.
+_TALLER_THAN_SUPABASE = {
+    **dict.fromkeys(["#clear-sel", "#select-all"], (32.5, _PADDING)),
+    "button.split-button-primary": (34, _PADDING),
+    **dict.fromkeys([
+        "#add-cur", "#console-open", "#cur-use", "#db-integrity-check", "#db-open-backups",
+        "#jobs-reload", "#manage-backup", "#open-workbook", "#run", "#runtime-upgrade",
+        "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
+        "#source-edit-save", "#source-edit-wipe", "#source-manager-add",
+        "button.ghost.source-manager-edit"], (36, _PADDING)),
+    **dict.fromkeys(["#engine-download", "#engine-recheck"], (40, _PADDING)),
+    "button.accounts-action": (56, _PADDING),
+    **dict.fromkeys([
+        "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
+        "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
+        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+    **dict.fromkeys([
+        "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
+        "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
+        "#tab-sources", "#workspace-toggle", ".appearance-scheme-picker > button",
+        "button.sx-select-option", "#runtime-restart", "#engine-diagnostics",
+        "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    "#engine-copy-details": (48.5, _TOUCH_TARGET),
+    "button.engine-row": (103, _TOUCH_TARGET),
+    "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
+    "button.account-switch": (42, _A_ROW),
+    "button.accounts-disclosure": (44, _A_ROW),
+    "#drive-review-permissions": (48, _A_ROW),
+    "button.workspace-destination": (80, _A_ROW),
+    "button.link.sect.settings-toggle": (80.5, _A_ROW),
+    "button.manage-account-row.manage-account-row-button.has-lead": (91, _A_ROW),
+    "button.appearance-palette-tile": (129, _A_ROW),
+    **dict.fromkeys(["#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
+                    (32, _GROUP_BUTTON)),
+}
+
+#: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
+#: keep and why. The least is what it reached before #1051, measured on main 333e680f, for all
+#: but the converter's amount, whose reason says what it lost. It may only shrink, the same way.
+_SHORT_OF_THE_FLOOR = {
+    "#signout": (26, "its view's scroll edge clips the top of its reach; its own min-height "
+                     "outranked the floor, so it was a 26px square"),
+    "#db-open-backups": (35.5, "the row button flush below it takes its own box, as it did"),
+    "#finance-converter-target-trigger": (41.5, "the source row above it stacks at z-index 2 and "
+                                                "takes their shared gap first, as it did"),
+    "#finance-converter-amount": (32, "#1051, his to decide: it reached 44 only because the "
+                                      "triggers' floor stretched its row past the row's own "
+                                      "34px, and an <input> draws no ::before to keep it"),
+}
+
+
+def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
+    """#1051's sweep. On a touch screen every button and input in the panel has a box no taller
+    than its Supabase component's, and a tap still reaches it across at least the 44px the
+    coarse-pointer floor gave it, through its hit area (design/components.css). The two
+    exception lists name every control that is not there yet, and why.
+
+    AND NO REACH TAKES ANOTHER CONTROL'S TAP. A hit area paints over what is under it, so a
+    reach longer than the gap to a neighbour takes the edge of the neighbour's box: Supabase
+    keeps adjacent reaches a gap apart for that reason
+    (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Every point along
+    the inside edges of every control-like box on these screens is read, and a point the
+    control holds with every hit area off must still be its with them on (_SWEEP says why).
+    Measured in the web UI, a 2x2 grid of filters 4px apart failed it until
+    scrapex/webui/static/pages/schedules.css kept their floor on the box."""
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        "the page did not open as a touch screen, so nothing below is about one")
+    read = {"controls": {}, "stolen": [], "widened": []}
+    for scope, steps in _SWEEP_SCREENS:
+        for kind, target in steps:
+            if kind == "press":
+                page.keyboard.press(target)
+            else:
+                page.wait_for_selector(target, state="visible")
+                page.click(target)
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry and the listbox's `select-menu-in` scale every
+        # box they hold while they run (settle_view says why), and the listbox's options read
+        # 47.04, 48 at 0.98, until it ends. An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        read_the_sweep(page, scope, scope, read)
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 100 and len(read["controls"]) >= 70, (
+        f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
+    assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
+
+
+@pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
+def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach(
+        open_panel, touch):
+    """The panel's listbox trigger is Supabase's SelectTrigger, small, 34px
+    (select.tsx@86c813ec:31-38 at SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:62, :111).
+    Until #1051 it read --touch-target, a 48px box on every pointer.
+
+    34 IS A HEIGHT, NOT A FLOOR, and the value is one line, truncated, as Supabase's
+    `[&>span]:truncate` (select.tsx@86c813ec:53). As a floor, the 20px chevron stood the
+    trigger 38px, and on a 320px panel with a mouse the default mode's label wrapped and
+    stood it 54px. The value and the chevron stand on the box's middle line, as Supabase's
+    `items-center` line does (select.tsx@86c813ec:50): taller than the 16px inside the
+    padding, they sat 2px below it until the row was centred.
+
+    On a touch screen the 48px is its reach, through its hit area: a tap 23px from its centre
+    lands on it and one 25px away does not. With a mouse the box is the reach, as Supabase's
+    is, so a tap 2px past the box is not the trigger's."""
+    page = open_panel(view="run", touch=touch)
+    settle_view(page, "run")
+    trigger = page.locator("#run-mode-trigger")
+    trigger.scroll_into_view_if_needed()
+    box = trigger.bounding_box()
+    assert box and box["height"] == 34, box
+    middles = trigger.evaluate("""(el) => [el, el.querySelector('[data-select-label]'), el.querySelector('svg')]
+      .map((part) => { const r = part.getBoundingClientRect(); return r.top + r.height / 2; })""")
+    assert max(middles) - min(middles) < 0.5, (
+        f"the value and the chevron are off the trigger's middle line (box, value, chevron): {middles}")
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    reach = 23 if touch else box["height"] / 2 - 1
+    beyond = 25 if touch else box["height"] / 2 + 2
+    taken = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-reach, reach)]
+    missed = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-beyond, beyond)]
+    assert taken == ["run-mode-trigger", "run-mode-trigger"], (touch, reach, taken)
+    assert "run-mode-trigger" not in missed, (
+        f"{'touch' if touch else 'mouse'}: a tap {beyond}px from the trigger's centre landed on "
+        f"it, so its reach is more than {'48px' if touch else 'its box'}: {missed}")
+
+    # The narrowest panel, with a value wider than the trigger: one line, inside a 34px box.
+    page.set_viewport_size({"width": 320, "height": 800})
+    narrow = trigger.evaluate("""(el) => {
+      const label = el.querySelector('[data-select-label]');
+      label.textContent = 'Update existing data from every source this panel reads';
+      // A line per distinct top: a truncated line is two rects, its text and its ellipsis.
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      const lines = new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const r = el.getBoundingClientRect(), l = label.getBoundingClientRect();
+      return {box: r.height, lines,
+              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth,
+              centred: Math.abs(l.top + l.height / 2 - (r.top + r.height / 2)) < 0.5};
+    }""")
+    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True, "centred": True}, (
+        f"{'touch' if touch else 'mouse'}, 320px: a long value no longer stays one truncated "
+        f"line in the trigger's 34px: {narrow}")
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):

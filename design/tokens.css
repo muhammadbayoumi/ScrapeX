@@ -222,6 +222,11 @@
   --control-height-tiny: 26px;
   --control-height-small: 34px;
   --touch-target: 3rem;
+  /* The 44px every button, input and select reaches on a touch screen, `(hover: none),
+     (pointer: coarse)`: a button through its hit area, an input or a select on its box
+     (design/components.css, #1051). Supabase sets no touch size outside action cells, so
+     it stays (#1040 rule 2) until the WCAG 2.2 SC 2.5.8 study is reviewed. */
+  --touch-floor: 2.75rem;
 
   /* Spacing — 4px base */
   --sp-0: 0;

@@ -495,13 +495,11 @@ button.icon-button,
    32px notches under a 40px default; Supabase's Button has no size below its
    tiny default (constants.ts@86c813ec:61), so on a fine pointer all three are
    that 26px square (#1050), and the width lines below restate `icon-button`'s.
-   ON A TOUCH SCREEN THEY PART. The `(hover: none), (pointer: coarse)` block at
-   the end of this sheet lifts a plain `icon-button` to its 44px floor, a 26x44
-   box until #1051 moves that reach into a hit area. `compact`, through
-   `button.compact`'s min-height, and `xs`, through its own, outrank that block
-   and stay 26px squares, under the 44px coarse-pointer floor: they are for
-   secondary icon controls, and a primary or destructive action uses a plain
-   `icon-button`. That `min-height` is the one line `xs` adds.
+   ON A TOUCH SCREEN TOO, and each of the three reaches 44px tall through its hit
+   area, the `(hover: none), (pointer: coarse)` block at the end of this sheet
+   (#1051). Until then that block drew a plain `icon-button` 26x44, while `compact`
+   and `xs`, whose min-height outranks it, stayed 26px with no more reach than
+   that. That `min-height` is the one line `xs` adds.
    `padding: 0` keeps `compact`'s padding, which comes later in this sheet, from
    standing a 20px icon 30px tall in a 26px-wide box. */
 button.icon-button.compact,
@@ -1001,12 +999,75 @@ samp,
   }
 }
 
+/* A HIT AREA IS SUPABASE'S INVISIBLE EXTENSION OF A CONTROL, AND IT LEAVES THE BOX
+   WHERE IT IS (#1051). packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49
+   gives the control `position: relative` and a ::before with `content: ''`,
+   `position: absolute`, top, right, bottom and left at `var(--hit-area-t|r|b|l, 0px)`
+   and `pointer-events: inherit`; `hit-area-N` sets each inset to minus N spacing
+   steps. A tap on the ::before is a tap on its control.
+   THIS RULE IS WHAT A HIT AREA IS, and it draws nothing: a ::before with no `content`
+   is not generated. The two rules after it say where one is drawn. No button here
+   draws a ::before of its own (the palette tile's check is its ::after), and an
+   <input> or a <select> draws none at all, so neither can carry one. */
+button::before,
+.button::before,
+.hit-area-2::before {
+  position: absolute;
+  top: var(--hit-area-t, 0px);
+  right: var(--hit-area-r, 0px);
+  bottom: var(--hit-area-b, 0px);
+  left: var(--hit-area-l, 0px);
+  pointer-events: inherit;
+}
+
+/* hit-area-2: 8px on each side, Supabase's for the compact controls in an action cell
+   (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Two actions
+   side by side keep at least --sp-2 between them, so their reaches meet in the gap and
+   neither covers the other's box. */
+.hit-area-2 {
+  position: relative;
+  --hit-area-t: calc(-1 * var(--sp-2));
+  --hit-area-r: calc(-1 * var(--sp-2));
+  --hit-area-b: calc(-1 * var(--sp-2));
+  --hit-area-l: calc(-1 * var(--sp-2));
+}
+
+.hit-area-2::before {
+  content: "";
+}
+
+/* ON A TOUCH SCREEN A BUTTON STILL REACHES 44PX TALL, THROUGH ITS HIT AREA (#1051).
+   This block lifted `button, .button, input, select` to `min-height: 2.75rem`, which
+   drew a 26px icon button 26x44. That floor, --touch-floor, is the hit area's reach
+   now, centred on the box: each inset is half of what the box lacks of it, and zero
+   once the box has it (`100%` is the box's height, the ::before's containing block).
+   The floor never widened a box, so the reach is not widened either. Supabase's Button
+   is `relative` already (Button.tsx@86c813ec:14).
+   AN <input> OR A <select> KEEPS THE FLOOR ON ITS BOX. It cannot carry a ::before, so
+   moving its reach is a choice between a 34px Input (input.tsx@86c813ec:31) and the
+   44px reach, and that choice is his (#1051). */
 @media (hover: none), (pointer: coarse) {
   button,
-  .button,
+  .button {
+    position: relative;
+    --hit-area-t: min(0px, (100% - var(--touch-floor)) / 2);
+    --hit-area-b: min(0px, (100% - var(--touch-floor)) / 2);
+  }
+
+  button::before,
+  .button::before {
+    content: "";
+  }
+
+  /* Supabase's 8px, or the floor's reach where that is the larger. */
+  .hit-area-2 {
+    --hit-area-t: min(calc(-1 * var(--sp-2)), (100% - var(--touch-floor)) / 2);
+    --hit-area-b: min(calc(-1 * var(--sp-2)), (100% - var(--touch-floor)) / 2);
+  }
+
   input,
   select {
-    min-height: 2.75rem;
+    min-height: var(--touch-floor);
   }
 }
 
