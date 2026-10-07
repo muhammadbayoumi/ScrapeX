@@ -145,8 +145,8 @@ record, and every kind of question, has its command: the **`record-it` skill**.
 `docs/ENGINEERING-SOURCES.md` for the engine and `docs/DESIGN-SYSTEM-SOURCES.md` for the
 interface — cite the entry's key at the line it governs, and changing the rule means
 arguing with its source rather than with whoever wrote it. **How the interface should
-behave is never asked of him**: its study answers from that file — Supabase first, widely
-followed official sources only where Supabase is silent — and he reviews the answer.
+behave is never asked of him**: a study answers it from the interface's file — Supabase
+first, widely followed official sources only where Supabase is silent — and he reviews it.
 
 ## Four traps that cost an afternoon each
 
