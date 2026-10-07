@@ -6165,6 +6165,8 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     # WHAT HE SEES, and not only what the DOM holds: `text_of` reads hidden text too.
     assert text_of(level, "#engine-spec-python .engine-spec-label") == "Python"
     assert level.locator("#engine-spec-python .engine-spec-label").is_visible() is True
+    assert level.locator("#engine-python-value").is_visible() is True, (
+        "the version he asked to see is not shown")
 
     # THE PIN MOVES AND THE ENGINE STAYS, which #1267's weekly reminder makes routine.
     ahead = f"{major}.{minor + 1}"

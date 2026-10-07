@@ -91,9 +91,12 @@ def test_the_report_is_this_interpreter_against_the_pin():
 def _pin(tmp_path: Path, minors_ahead: int) -> tuple[Path, str]:
     """A pin this many minors ahead of this interpreter: 0 is level with it, and 1 is the
     state a pin move leaves him in. Written from the interpreter, never read from the
-    checkout, so each test means the same on a machine still below the real pin."""
+    checkout, so each test means the same on a machine still below the real pin.
+
+    ONE PATH, REWRITTEN, as a pull rewrites `.python-version` in place: a pin moved to a
+    new path would let a cache keyed on the path pass the per-poll test."""
     text = f"{sys.version_info.major}.{sys.version_info.minor + minors_ahead}"
-    pin = tmp_path / "pin" / str(minors_ahead) / ".python-version"
+    pin = tmp_path / "pin" / ".python-version"
     pin.parent.mkdir(parents=True, exist_ok=True)
     pin.write_text(text + "\n", encoding="utf-8")
     return pin, text
