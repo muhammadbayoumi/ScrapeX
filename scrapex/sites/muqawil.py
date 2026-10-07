@@ -455,6 +455,10 @@ class MuqawilPartition:
     def read_ids(self, html: str) -> tuple[str, ...]:
         return read_ids(html)
 
+    def refused_rows(self, html: str) -> tuple[str, ...]:
+        # `read_ids` reads every card that holds a profile link; it leaves none out.
+        return ()
+
     def in_cell(self, cell: Cell, *, last_page: int) -> PageSource:
         """A `PageSource` naming exactly this cell's pages, in both locales."""
         return MuqawilPageSource(last_page=last_page, locales=self._locales,

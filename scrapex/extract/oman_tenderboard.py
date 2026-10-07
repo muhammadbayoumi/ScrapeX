@@ -43,7 +43,7 @@ from ..sites.oman_tenderboard import (
     decompose_categories,
     join_languages,
     read_categories,
-    read_rows,
+    read_page,
 )
 
 #: The dataset these rows land in.
@@ -130,7 +130,14 @@ def bilingual_listing_candidate(english_html: str, arabic_html: str, *,
     several names with no separator (`#1004` §4).
     """
     vocabulary = read_categories(english_html)
-    pairs = join_languages(read_rows(english_html), read_rows(arabic_html))
+    english, arabic = read_page(english_html), read_page(arabic_html)
+    # A ROW REFUSED IN EITHER VIEW LEAVES BOTH. The two views are the same fifty firms,
+    # so its twin in the other view would otherwise be an orphan, and `join_languages`
+    # refuses a page with one -- the forty-nine firms #1333 recovers would go again.
+    refused = {row.short_name: row.reason for row in english.refused + arabic.refused}
+    pairs = join_languages(
+        tuple(firm for firm in english.firms if firm.short_name not in refused),
+        tuple(firm for firm in arabic.firms if firm.short_name not in refused))
     rows = tuple(_row(english, arabic, vocabulary) for english, arabic in pairs)
 
     present = {key for row in rows for key in row}
@@ -159,7 +166,10 @@ def bilingual_listing_candidate(english_html: str, arabic_html: str, *,
         # Every field on every row, absent ones as None rather than missing.
         rows=tuple({name: row.get(name) for name in names} for row in rows),
         confidence=1.0,
-        warnings=(),
+        # NAMED, NOT DROPPED: an approvable page that refused a row says which, and
+        # `contractors.approve` prints it beside the page.
+        warnings=tuple(f"row {key} refused: {reason}"
+                       for key, reason in sorted(refused.items())),
         approvable=bool(rows),
         truncated=False,
     )

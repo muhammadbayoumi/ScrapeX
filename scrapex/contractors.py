@@ -1555,6 +1555,9 @@ def approve(conn, directory: Directory, run_ref: str, *,
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
+    #: What an APPROVED page said it left out -- a row its reader refused while the
+    #: rest of the page stood (#1333). Not `refused`, which counts whole pages.
+    left_out: list[tuple[str, str]] = []
     #: Contractor ids the SITE would not serve, and the ones whose profile page read.
     #: Issue 794. Collected rather than written per page so one statement per direction
     #: settles the ledger, and so a run that changes nothing writes nothing.
@@ -1685,6 +1688,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
             continue
         conn.commit()
         made += 1
+        left_out.extend((key, warning) for warning in candidate.warnings)
         kept_newer += int(result.get("kept_newer") or 0)
         if contractor is not None:
             # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
@@ -1741,6 +1745,10 @@ def approve(conn, directory: Directory, run_ref: str, *,
         say(f"  refused {key}: {why}")
     if len(refused) > 20:
         say(f"  … and {len(refused) - 20} more")
+    for key, why in left_out[:20]:
+        say(f"  approved {key} without a row: {why}")
+    if len(left_out) > 20:
+        say(f"  … and {len(left_out) - 20} more")
     # THE VERDICT IS RECORDED AND NOT ONLY PRINTED -- issue 794. Without this the
     # refusal lived in the job log, which `log_retention_days` prunes after 30 days, and
     # the ids stayed in `missing_profile_ids` for ever: his card said 37 contractors had
