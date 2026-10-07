@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_the_control_heights_are_supabases_sizes import TOGGLE
 from tests.test_the_shadows_are_what_supabases_atoms_render import _rules_around
 from tools.value_literals import authored, declarations
 
@@ -75,6 +76,11 @@ WHOLE_ROW = ("a whole row a tap toggles or opens, a <label> or a <summary>, whic
              "control height: its 48px box is its reach (#1040 rule 2)")
 HIS = ("#1051, his to decide: a control whose Supabase component cannot be computed, so its "
        "48px box is not moved into a reach")
+#: The scheme picker's item is computed: their ToggleGroup item, 40px. The panel's
+#: --touch-target stands it 48px, which the panel's touch sweep and size test name too.
+SCHEME_PICKER = (f"Supabase's ToggleGroup item, 40px ({TOGGLE}); #1051, his to decide: the "
+                 f"panel's --touch-target stands it 48px on every pointer, and that 48px box is "
+                 f"not moved into a reach")
 BOX = {
     (C, ".appearance-switch", "width"): "the switch's own invisible 48px target around its "
                                         "40x24 track, already a reach in all but name",
@@ -93,7 +99,7 @@ BOX = {
     (APP, ".side-rail .rail-item", "width"): HIS,
     (APP, ".side-rail .rail-item", "height"): HIS,
     (APP, ".side-rail .rail-item", "min-height"): HIS,
-    (APP, ".appearance-page .appearance-scheme-picker button", "min-height"): HIS,
+    (APP, ".appearance-page .appearance-scheme-picker button", "min-height"): SCHEME_PICKER,
     # Two headings and one <summary> (extension/app.html, Finance's preferences disclosure).
     (APP, ".finance-section-heading", "min-height"): WHOLE_ROW,
     (APP, ".finance-setting-row", "min-height"): WHOLE_ROW,

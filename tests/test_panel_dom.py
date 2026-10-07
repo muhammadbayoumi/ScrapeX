@@ -125,6 +125,7 @@ from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
     INPUT,
     SELECT_TRIGGER,
 )
+from tests.test_the_hit_area_is_supabases import SCHEME_PICKER  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -7753,6 +7754,7 @@ def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: d
 
 _NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
               "44px floor on its box")
+#: The rail's items and the Engine screen's action rows: one reason for both lists below.
 _TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
                  "Supabase component it is cannot be computed")
 _A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
@@ -7775,9 +7777,9 @@ _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
-        "#tab-sources", "#workspace-toggle", ".appearance-scheme-picker > button",
-        "button.sx-select-option", "#runtime-restart", "#engine-diagnostics",
-        "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+        "#tab-sources", "#workspace-toggle", "button.sx-select-option", "#runtime-restart",
+        "#engine-diagnostics", "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    ".appearance-scheme-picker > button": (48, SCHEME_PICKER),
     "#engine-copy-details": (48.5, _TOUCH_TARGET),
     "button.engine-row": (103, _TOUCH_TARGET),
     "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
@@ -8034,23 +8036,19 @@ _ANOTHER_COMPONENT = {
                    "34px field, by his ruling on #1457"),
 }
 
-_TOUCH_TARGET = "#1051: --touch-target sizes it, 48px, on every pointer"
-_ROW = "a row of a lead and lines of text, which Supabase gives no control height (#1040 rule 2)"
-
 #: Buttons and fields that are not at their Supabase SIZE height, each with why.
 #: THIS LIST ONLY SHRINKS: a selector that no longer matches a control off its size fails the
 #: test until it is taken out, and a control newly off its size fails until it is named here.
 _OFF_SIZE = {
     ".side-rail .rail-item": _TOUCH_TARGET,
     ".engine-action-row": _TOUCH_TARGET,
-    ".appearance-scheme-picker button": (
-        "a ToggleGroup item, h-10 (toggle.tsx@86c813ec:20); in the panel " + _TOUCH_TARGET),
-    ".engine-row": _ROW,
-    ".workspace-destination": _ROW,
-    ".account-switch": _ROW,
-    ".accounts-disclosure": _ROW,
-    ".accounts-action": _ROW,
-    ".manage-account-row-button": _ROW,
+    ".appearance-scheme-picker button": SCHEME_PICKER,
+    ".engine-row": _A_ROW,
+    ".workspace-destination": _A_ROW,
+    ".account-switch": _A_ROW,
+    ".accounts-disclosure": _A_ROW,
+    ".accounts-action": _A_ROW,
+    ".manage-account-row-button": _A_ROW,
     ".settings-toggle": "a Settings section's disclosure header, a row",
     ".appearance-palette-tile": "a palette's tile, which Supabase gives no control height",
     ".split-button-option": ("their DropdownMenuItem, whose height is its padding and its text "
