@@ -79,26 +79,35 @@ def test_a_pin_of_any_other_shape_is_refused(tmp_path, text):
 
 
 def test_the_report_is_this_interpreter_against_the_pin():
+    """No verdict is expected here: after a pin move this interpreter is below the real
+    pin, a correct "below", because pip checks `requires-python` only at install."""
     minimum = interpreter.floor()
     assert interpreter.report() == {
         "version": platform.python_version(),
         "floor": f"{minimum[0]}.{minimum[1]}",
         "verdict": interpreter.verdict(sys.version_info, minimum)}
-    # pip installs this suite only at or above `requires-python`.
-    assert interpreter.report()["verdict"] == "ok"
 
 
-def _pin_ahead(tmp_path: Path) -> tuple[Path, str]:
-    """A pin one minor ahead of this interpreter: the state a pin move leaves him in."""
-    ahead = f"{sys.version_info.major}.{sys.version_info.minor + 1}"
-    pin = tmp_path / "pin" / ".python-version"
-    pin.parent.mkdir(exist_ok=True)
-    pin.write_text(ahead + "\n", encoding="utf-8")
-    return pin, ahead
+def _pin(tmp_path: Path, minors_ahead: int) -> tuple[Path, str]:
+    """A pin this many minors ahead of this interpreter: 0 is level with it, and 1 is the
+    state a pin move leaves him in. Written from the interpreter, never read from the
+    checkout, so each test means the same on a machine still below the real pin."""
+    text = f"{sys.version_info.major}.{sys.version_info.minor + minors_ahead}"
+    pin = tmp_path / "pin" / str(minors_ahead) / ".python-version"
+    pin.parent.mkdir(parents=True, exist_ok=True)
+    pin.write_text(text + "\n", encoding="utf-8")
+    return pin, text
+
+
+def test_a_pin_level_with_this_interpreter_reads_ok(tmp_path, monkeypatch):
+    pin, level = _pin(tmp_path, 0)
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+    assert interpreter.report() == {
+        "version": platform.python_version(), "floor": level, "verdict": "ok"}
 
 
 def test_a_pin_ahead_of_this_interpreter_reads_below(tmp_path, monkeypatch):
-    pin, ahead = _pin_ahead(tmp_path)
+    pin, ahead = _pin(tmp_path, 1)
     monkeypatch.setattr(interpreter, "PIN_FILE", pin)
     assert interpreter.report() == {
         "version": platform.python_version(), "floor": ahead, "verdict": "below"}
@@ -147,8 +156,11 @@ def test_the_health_poll_carries_the_report(client):
 
 def test_the_verdict_is_the_pin_at_the_moment_it_is_asked(client, tmp_path, monkeypatch):
     """Read per poll, not at import: a pin move pulled into the checkout shows at once."""
-    assert client.get("/api/health").json()["python"]["verdict"] == "ok"
-    pin, ahead = _pin_ahead(tmp_path)
+    pin, level = _pin(tmp_path, 0)
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+    python = client.get("/api/health").json()["python"]
+    assert (python["floor"], python["verdict"]) == (level, "ok")
+    pin, ahead = _pin(tmp_path, 1)
     monkeypatch.setattr(interpreter, "PIN_FILE", pin)
     python = client.get("/api/health").json()["python"]
     assert (python["floor"], python["verdict"]) == (ahead, "below")

@@ -6142,6 +6142,19 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
 
     from scrapex import interpreter
 
+    # EACH PIN IS WRITTEN FROM THIS INTERPRETER, never read from the checkout. After a
+    # pin move a machine's interpreter is below the real pin until it is upgraded, and
+    # a correct badge there must not fail the level state.
+    major, minor = sys.version_info[:2]
+
+    def pin_at(text: str):
+        pin = tmp_path / "pin" / text / ".python-version"
+        pin.parent.mkdir(parents=True)
+        pin.write_text(text + "\n", encoding="utf-8")
+        monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+        return pin
+
+    pin_at(f"{major}.{minor}")
     level = open_panel()
     level.click("#tab-engines")
     open_engine(level)
@@ -6149,13 +6162,13 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     assert level.locator("#engine-python-verdict").is_visible() is False, (
         "a Python at the pin wore a badge")
     assert text_of(level, "#engine-python-detail") == ""
+    # WHAT HE SEES, and not only what the DOM holds: `text_of` reads hidden text too.
+    assert text_of(level, "#engine-spec-python .engine-spec-label") == "Python"
+    assert level.locator("#engine-spec-python .engine-spec-label").is_visible() is True
 
     # THE PIN MOVES AND THE ENGINE STAYS, which #1267's weekly reminder makes routine.
-    ahead = f"{sys.version_info.major}.{sys.version_info.minor + 1}"
-    pin = tmp_path / "pin" / ".python-version"
-    pin.parent.mkdir()
-    pin.write_text(ahead + "\n", encoding="utf-8")
-    monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+    ahead = f"{major}.{minor + 1}"
+    pin = pin_at(ahead)
     behind = open_panel()
     behind.click("#tab-engines")
     open_engine(behind)
@@ -6166,6 +6179,8 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
         "the amber badge is the kit's one 'attend to this'")
     assert f"ScrapeX needs Python {ahead} or newer." in text_of(
         behind, "#engine-python-detail"), "the row must say which Python it needs"
+    assert behind.locator("#engine-python-detail").is_visible() is True, (
+        "the sentence that says which Python it needs is not shown")
     # Three independent facts: a Python behind the pin is not an affected SQLite
     # and not a stale build.
     assert behind.locator("#engine-sqlite-verdict").is_visible() is False
@@ -6181,6 +6196,9 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     assert unread.locator("#engine-python-verdict").is_visible() is False
     assert text_of(unread, "#engine-python-detail") == (
         "The engine could not read which Python ScrapeX needs.")
+    # With no badge, the sentence is the only thing that tells this state from one
+    # at the pin.
+    assert unread.locator("#engine-python-detail").is_visible() is True
 
     # A VERDICT THIS PANEL DOES NOT KNOW — a newer engine's — is not dressed as a
     # known one.
