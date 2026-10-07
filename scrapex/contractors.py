@@ -543,8 +543,10 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
     activities argument). Found either way it CHANGED KEY: it is named, counted, and
     neither recorded absent nor marked. Found neither way, the proof stands as before.
     A firm with no stored number and no echoing row is therefore still marked on its
-    key alone -- the limit of the evidence, not a choice. If the site ever rekeyed every
-    firm, this says "23,600 changed key", not "23,600 departed".
+    key alone -- the limit of the evidence, not a choice. A number one stored firm shares
+    with another still published keeps it too, and is named the same way, because which
+    of two rows carrying one CR number is the firm is his to read, not this to guess. If
+    the site ever rekeyed every firm, this says "23,600 changed key", not "departed".
     """
     if outcome.nested:
         say(f"departures not marked: this crawl proves {outcome.scope} only, and a "
@@ -600,9 +602,9 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
     if rekeyed:
         say(f"  {len(rekeyed):,} firm(s) changed key rather than departed -- this crawl "
             "shows each under a new key, so none is recorded absent:")
-        for old, found in list(rekeyed.items())[:20]:
+        for old, where in list(rekeyed.items())[:20]:
             say(f"    changed key: {old} → " + ", ".join(
-                f"{new} (by {how})" for new, how in found.items()))
+                f"{new} (by {how})" for new, how in where.items()))
         if len(rekeyed) > 20:
             say(f"    … and {len(rekeyed) - 20:,} more")
 
