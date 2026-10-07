@@ -5569,35 +5569,64 @@ async function controlJob(control) {
 }
 
 // ---- browse data -----------------------------------------------------------
+
+// A SITE WHOSE PAGES ARE STORED AND ARE NOT ROWS YET. A directory has no dataset until its
+// stored pages are interpreted, so it reports `observations: 0`, and the Data page dropped
+// it together with the only control that could interpret them: the Oman register's crawl
+// completed with 2,838 stored pages and this page drew nothing. The engine sets
+// `work_waiting.interpret` on a `directory` row only when a finished crawl stored pages no
+// interpretation has read (`app.py` `_work_waiting`). Read twice -- whether the card is
+// drawn and whether it offers the press -- because it is one fact.
+//
+// AND WHILE AN INTERPRETATION OF THEM IS ON ITS WAY. The engine withholds `interpret` for
+// as long as one is queued, running or paused (#1042), so a card drawn from it alone
+// vanished the moment he pressed it, and where it was the only card this page said "Run a
+// crawl" about pages already on disk. `interpretation_live` keeps it until the first rows
+// list the site as a dataset instead (`_registered_directories`), or until the
+// interpretation ends without reading them and `interpret` is owed again. The card says
+// nothing about the job meanwhile (`waitingLine`).
+const storedNotRows = (source) => {
+  const waiting = source.work_waiting || {};
+  return source.kind === "directory"
+    && Boolean(waiting.interpret || waiting.interpretation_live);
+};
+
 async function loadDatasets() {
   const box = $("datasets");
   try {
     const { sources } = await api("/api/sources");
-    const withData = sources.filter((s) => s.observations > 0);
-    if (!withData.length) {
+    const cards = sources.filter((s) => s.observations > 0 || storedNotRows(s));
+    if (!cards.length) {
       box.innerHTML = `<div class="card"><span class="muted">No data yet. Run a crawl from the Run tab.</span></div>`;
       return;
     }
-    box.innerHTML = withData.map((s) => `
+    // A CARD IS A LINK ONLY WHEN IT HAS ROWS TO OPEN. `openDataset` goes to
+    // `/source/<key>`, and for a site with no dataset that is a dead page. The card with
+    // no rows keeps `data-open` because its menu reads the key from it, and says what it
+    // holds in the waiting line rather than as "0" rows or "no successful crawl yet".
+    box.innerHTML = cards.map((s) => {
+      const opens = s.observations > 0;
+      return `
       <article class="card dataset-card" data-open="${esc(s.source_key)}"
                data-site="${esc(s.site_key || "")}"
                data-resume="${esc(((s.work_waiting || {}).resumable || {}).run_ref || "")}"
-               role="link" tabindex="0"
-               aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
+               ${opens ? `role="link" tabindex="0"
+               aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook"` : ""}>
         ${sourceMenu(s)}
         <div><div class="dataset-identity-line">${sourceIdentity(
-          s, false, fmtCount(s.observations))}</div>
-          <div class="n">${countLine(s)}</div>
-          <div class="n muted">${freshnessLine(s)}</div>
+          s, false, opens ? fmtCount(s.observations) : null)}</div>
+          ${opens ? `<div class="n">${countLine(s)}</div>
+          <div class="n muted">${freshnessLine(s)}</div>` : ""}
           ${waitingLine(s)}</div>
-      </article>`).join("");
+      </article>`;
+    }).join("");
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
       const card = root.closest("[data-open]");
       window.ScrapeXSplitButton.wire(
         root, (action) => runSourceAction(action, card.dataset.open, card.dataset.site,
                                           card.dataset.resume));
     });
-    box.querySelectorAll("[data-open]").forEach((card) => {
+    box.querySelectorAll('[data-open][role="link"]').forEach((card) => {
       // THE MENU IS INSIDE THE CARD, AND THE CARD IS ITSELF A LINK. Without
       // this guard, opening the menu ALSO opens the dataset in a new tab — the
       // owner clicks three dots and lands on a different page, having chosen
@@ -6012,11 +6041,12 @@ const SOURCE_ACTIONS = [
  */
 function sourceActions(source) {
   // A REGISTERED DIRECTORY HAS NEITHER SET. `kind: "directory"` is a source this
-  // build can crawl and has not crawled yet (`app.py` `_registered_directories`,
+  // build can crawl and holds no dataset for yet (`app.py` `_registered_directories`,
   // his «المفروض المصادر تظهر بدون بيانات فهى مسجلة ومحفوظة فى الكود»): the
   // manifest-only actions would 400 on it and the dataset-resolving ones would 404,
   // because `/api/table/{key}` has no dataset to resolve. So it starts with none and
-  // gains exactly one below -- the crawl, which is the only thing it can do.
+  // gains below only what needs no dataset: the crawl, continuing a stopped one, and
+  // interpreting the pages one stored.
   const base = source.kind === "directory"
     ? []
     : source.kind === "dataset"
@@ -6087,19 +6117,23 @@ function sourceActions(source) {
   // unreachable. Interpreting the copy afterwards took 21 minutes and moved coverage from
   // 96.8% to 99.4%: 434 contractors that were already on disk.
   //
-  // ON A DATASET CARD ONLY, AND THAT IS A MEASURED LINE RATHER THAN A KIND CHECK FOR ITS
-  // OWN SAKE. A card of kind `directory` is a source this build can crawl and has NOT
-  // crawled, so there is no evidence to read and the runner would refuse with
-  // `NothingToInterpret` -- correctly, and pointlessly, because nothing could have made it
-  // work. A `dataset` card exists because rows exist, which means a crawl ran, so the
-  // action always has either pages to interpret or an honest count of none.
+  // ON A DATASET CARD, AND ON A DIRECTORY CARD ONLY WHEN THE ENGINE SAYS ITS PAGES ARE
+  // OWED ONE. A `dataset` card exists because rows exist, which means a crawl ran, so the
+  // action always has either pages to interpret or an honest count of none. A `directory`
+  // card has no dataset yet, and most have never crawled: there the runner would refuse
+  // with `NothingToInterpret` -- correctly, and pointlessly. But "a directory has not
+  // crawled" was an assumption, and the Oman register broke it: a completed crawl, 2,838
+  // stored pages, no dataset, and no door. `storedNotRows` is the engine's word that pages
+  // are stored and not rows yet, and the interpretation is what turns that card into a
+  // dataset.
   //
   // A PRESS WHILE ONE IS WAITING IS REFUSED BY THE ROUTE, not disabled here. `POST
   // /api/jobs` answers 409 when an interpretation of the source has not started yet
   // (issue 779), so the row stays live and the refusal says why. An earlier version
   // disabled it and wrote the reason on the row, and that reason was wrong for most of
   // the statuses it was written over.
-  const interpretable = source.site_key && source.kind === "dataset" ? [{
+  const interpretable = source.site_key
+      && (source.kind === "dataset" || storedNotRows(source)) ? [{
     action: "interpret",
     label: "Interpret stored pages",
     why: "Turn the pages the last crawl saved into rows. Fetches nothing.",
@@ -6117,10 +6151,10 @@ function sourceActions(source) {
   // hours is one he cannot safely press, so the button asks the narrow one and the route
   // carries `whole_frontier` for a caller that wants the other.
   //
-  // ON A DATASET CARD ONLY, for the same measured reason as `interpret` above: a
-  // `directory` card is a source that has never been crawled, so no listing has named a
-  // profile and the runner would refuse with `NothingToFetch` -- correctly, and
-  // pointlessly.
+  // ON A DATASET CARD ONLY. A `directory` card has no rows, so every contractor its
+  // listing named is rowless and "the missing ones" are the whole frontier -- the 87-hour
+  // press above -- and the engine sends that card no `profiles` (`app.py`
+  // `_work_waiting`). Its next press is the interpretation.
   // AND CONTINUING A CRAWL SOMEBODY STOPPED, so its pages are not bought twice.
   // Measured twice in three days: a cancelled run held 3,138 pages and the next crawl
   // re-fetched 3,429 of the same ones over about four hours -- ~3,400 requests at
@@ -6183,6 +6217,44 @@ function sourceMenu(source) {
     </div>`;
 }
 
+/**
+ * Take the owner to the job a card just started, and put it in front of him.
+ *
+ * THE FOUR CARD ACTIONS THAT START A JOB POSTED IT AND FORGOT IT: `showView("run")` and
+ * nothing else. Run polls only on its first visit per backend generation (the memo in
+ * `loadRunDestination`), so from the second visit on nothing asked the engine about the
+ * job, Activity stayed hidden, and the natural next step -- tick the site, press Start --
+ * queued the same crawl twice (issue 779). On a first visit the poll did run, and drew
+ * Activity below the fold: it is Run's last card.
+ *
+ * A POLL ALREADY IN FLIGHT MAY HAVE LEFT BEFORE THIS JOB WAS COMMITTED. `pollJob` hands
+ * back that promise rather than asking again, and a poll that saw nothing active does not
+ * re-arm, so it is waited out and the question asked afresh.
+ *
+ * RUN IS SHOWN BEFORE THAT WAIT, NOT AFTER IT. The wait lasts until that poll is answered,
+ * and for that long the card stayed on screen: a second press queued the same crawl again.
+ *
+ * THE REF IS KEPT, as `startRun` keeps it: a job that has already ended when Run asks is
+ * not in the active list, and only the ref lets the poll show how it ended.
+ *
+ * NO SITE IS SELECTED. Start stays pressable for any ticked site, so ticking the busy one
+ * here would put the duplicate one click away.
+ *
+ * ACTIVITY'S TOP GOES TO THE TOP OF RUN'S SCROLL AREA. The status line is at the card's
+ * top, and a running crawl's card -- its rows and its log -- is taller than that area in
+ * a short panel: `center` left the line above the area, hidden. `nearest` leaves it there
+ * whenever such a card already covers the area, as it does when he left Run at the end
+ * of a log, because the scroll position outlives the trip to Data.
+ */
+async function followStartedJob(jobRef) {
+  showView("run");
+  if (pollPromise) await pollPromise;
+  state.jobRef = jobRef;
+  await pollJob();
+  $("activity").scrollIntoView({
+    behavior: reduceMotion.matches ? "auto" : "smooth", block: "start"});
+}
+
 /** Everything a source menu can do, in one place so the card stays a template. */
 async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
   // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
@@ -6223,8 +6295,8 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
       // `/api/jobs` with a canned success, so no DOM test validated a mode; and
       // `test_an_action_withheld_for_its_route_really_is_refused` accepted any 4xx, so a
       // 400 about the MODE read as the 404 about the KEY it claimed to be measuring.
-      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6237,9 +6309,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     // cannot infer which of the two verbs this is -- the same key supports both.
     const interpretKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
-                               job_kind: "dataset_interpret"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [interpretKey], run_mode: "update",
+                                               job_kind: "dataset_interpret"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6261,9 +6333,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     if (!resumeRef) return;
     const crawlKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update",
-                               resume_run_ref: resumeRef});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [crawlKey], run_mode: "update",
+                                               resume_run_ref: resumeRef});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
@@ -6279,9 +6351,9 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     // contractors with no profile", which is what this button says it does.
     const profileKey = siteKey || key;
     try {
-      await post("/api/jobs", {source_keys: [profileKey], run_mode: "update",
-                               job_kind: "profile_crawl"});
-      showView("run");
+      const started = await post("/api/jobs", {source_keys: [profileKey], run_mode: "update",
+                                               job_kind: "profile_crawl"});
+      await followStartedJob(started.job_ref);
     } catch (error) {
       out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
     }
