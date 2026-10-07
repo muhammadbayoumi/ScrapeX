@@ -25,13 +25,14 @@ through `font-family: var(--font-mono)` in 34 rules across 10 sheets. design/com
 carries their selector with this product's classes in it -- tools/value_literals.py's MONO
 says which classes those are, for this guard and for the value guard alike -- and every other
 rule that sets the mono family re-declares the token itself. A rule that does neither fails
-here, by file and line. So does a mono rule that sets the normal weight without reading the
-token, and anything that reads --fw-regular-mono as a weight: each draws the same number
-whether its run asks for the normal weight or not. So does any other declaration of either
-token than :root's one each in design/tokens.css: the cascade keeps a rule's last declaration
-and every run inside the rule inherits it, so a second value in a mono rule takes its runs
-back out of the context, the mono value in a sans rule puts sans runs into it, and a dark
-block moves every run in that theme alone.
+here, by file and line. So does a mono rule -- one that sets the mono family or that the reset
+reaches -- that sets the normal weight without reading the token, and anything that reads
+--fw-regular-mono as a weight: each draws the same number whether its run asks for the normal
+weight or not. So does any other declaration of either token than :root's one each in
+design/tokens.css: the cascade keeps a rule's last declaration and every run inside the rule
+inherits it, so a second value in a mono rule takes its runs back out of the context, the
+mono value in a sans rule puts sans runs into it, and a dark block moves every run in that
+theme alone.
 
 That the weights COMPUTE, and that 450 is drawn by the variable face rather than rounded to
 400, is measured in a browser by tests/test_the_normal_weight_draws_on_both_surfaces.py.
@@ -101,15 +102,18 @@ def _weight(prop: str, value: str) -> str | None:
 
 
 def uncovered(path: Path) -> list[str]:
-    """The rules in one sheet that set the mono family and are outside their mono context:
-    neither reached by the reset nor re-declaring the normal weight themselves, or setting the
-    normal weight as a literal, which reads no context at all."""
+    """The rules in one sheet that set the mono family and are outside their mono context,
+    neither reached by the reset nor re-declaring the normal weight themselves; and the rules
+    that set the mono family or that the reset reaches, and set the normal weight as a literal,
+    which reads no context at all."""
     found = []
     for selector, props in _rules(path).items():
         mono = [line for prop, value, line in props if _sets_mono(prop, value)]
-        if not mono:
+        if not (mono or is_mono(selector)):
             continue
-        name = f"{path.relative_to(ROOT).as_posix()}:{mono[0]} {selector}"
+        # A rule the reset reaches may set no family: it is named by its first declaration.
+        line = mono[0] if mono else props[0][2]
+        name = f"{path.relative_to(ROOT).as_posix()}:{line} {selector}"
         weights = [weight for prop, value, _line in props
                    if (weight := _weight(prop, value)) is not None]
         if weights and weights[-1] in LITERAL_NORMAL:
@@ -211,9 +215,11 @@ def test_every_rule_that_sets_the_mono_family_is_in_their_mono_context():
     assert rules >= 30, rules
     found = [name for sheet in sheets for name in uncovered(sheet)]
     assert not found, (
-        "rules that set var(--font-mono) outside their mono context, so a run that asks for "
-        "the normal weight draws 450 where Supabase's draws 400:\n  " + "\n  ".join(found)
-        + f"\nRe-declare `{RE_DECLARED[0]}: {RE_DECLARED[1]};` in the rule.")
+        "mono rules outside their mono context (globals.css@86c813ec:70-75, :89), or setting "
+        "the normal weight as a literal:\n  " + "\n  ".join(found)
+        + f"\nA rule that sets var(--font-mono) and that the reset does not reach re-declares "
+        f"`{RE_DECLARED[0]}: {RE_DECLARED[1]};`, and a mono rule sets the normal weight as "
+        "var(--fw-regular), not as a literal.")
 
 
 def test_no_sheet_writes_their_mono_class_names():
@@ -303,6 +309,31 @@ def test_the_reset_reaches_what_its_selector_matches(selector, expected):
     (".x h3 { font-family: var(--font-mono); }", [":1 .x h3"]),
     (".x,\n.y { font-size: 1px; font-family: var(--font-mono); }", [":2 .x, .y"]),
     ("@media (min-width: 1px) { .x { font-family: var(--font-mono); } }", [":1 .x"]),
+    # A rule the reset reaches sets no family, and its literal still reads no context: every
+    # run inside it draws that number, where a bare one inherits 450 and one asking reads 400.
+    (".engine-spec-value.tech { font-weight: normal; }",
+     [":1 .engine-spec-value.tech -- sets the weight to normal, the normal weight without the "
+      "token; a run that asks for it reads var(--fw-regular)"]),
+    (".x .tech { font-weight: 450; }",
+     [":1 .x .tech -- sets the weight to 450, the normal weight without the token; a run that "
+      "asks for it reads var(--fw-regular)"]),
+    ("code { font-weight: 400; }",
+     [":1 code -- sets the weight to 400, the normal weight without the token; a run that asks "
+      "for it reads var(--fw-regular)"]),
+    ("code .x { font-weight: initial; }",
+     [":1 code .x -- sets the weight to initial, the normal weight without the token; a run "
+      "that asks for it reads var(--fw-regular)"]),
+    # With no family line, it is named by its first declaration.
+    (".x .tech {\n  color: red;\n  font-weight: 450;\n}",
+     [":2 .x .tech -- sets the weight to 450, the normal weight without the token; a run that "
+      "asks for it reads var(--fw-regular)"]),
+    (".tech { font-weight: var(--fw-regular); }", []),
+    (".tech { font-weight: var(--fw-bold); }", []),
+    ("code .x { font-weight: inherit; }", []),
+    (".tech { color: red; }", []),
+    # Neither reached by the reset nor setting the family: not a mono rule.
+    (".tech-label { font-weight: normal; }", []),
+    ("code + .x { font-weight: 450; }", []),
 ])
 def test_a_mono_rule_is_judged_by_its_own_declarations(tmp_path, css, expected, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
