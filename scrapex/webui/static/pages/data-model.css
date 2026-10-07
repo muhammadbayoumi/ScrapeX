@@ -172,6 +172,7 @@
   margin-bottom: var(--sp-4);
   color: var(--accent-ink);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 
@@ -437,6 +438,7 @@
 .model-table-head strong {
   overflow: hidden;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -453,6 +455,7 @@
 .model-table-count {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 
@@ -485,6 +488,7 @@
   flex: none;
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: .61rem;
   text-transform: lowercase;
 }
@@ -504,6 +508,7 @@
   place-items: center;
   border-radius: 3px;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: .56rem;
   font-weight: var(--fw-bold);
   line-height: 1;
@@ -561,6 +566,7 @@
 .model-legend b:not(.key-badge) {
   color: var(--text);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
 }
 
 .model-inspector {
@@ -606,6 +612,7 @@
   margin: 0 0 var(--sp-2);
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-lg);
 }
 
@@ -634,6 +641,7 @@
 
 .model-inspector-meta strong {
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
 }
 
@@ -693,6 +701,7 @@
 .model-column-list small {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 
@@ -731,6 +740,7 @@
 .model-principle-grid article > span {
   color: var(--accent-ink);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
 }
 

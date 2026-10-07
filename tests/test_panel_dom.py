@@ -116,6 +116,16 @@ ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
 from scrapex.vocab import RunMode  # noqa: E402
 
+# Which Supabase component a control is, and the size its default reads: #1050's guard holds
+# both, and the touch sweep below reads them there (#1051).
+from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
+    BUTTON,
+    DEFAULT,
+    GROUP_INSIDE,
+    INPUT,
+    SELECT_TRIGGER,
+)
+
 
 @pytest.fixture(scope="module")
 def browser():
@@ -2188,6 +2198,736 @@ def test_a_dataset_card_can_interpret_what_the_crawl_stored(open_panel):
     assert body["run_mode"] in {mode.value for mode in RunMode}, (
         f"`{body['run_mode']}` is not a RunMode, so the engine answers 400 about the mode "
         f"and never reads the kind: {body}")
+
+
+#: A directory whose crawl stored pages that are not rows yet, shaped as
+#: `_registered_directories` builds it -- `kind: "directory"`, `observations: 0`, no
+#: `last_success`, and `work_waiting.interpret` set. The Oman register on his office
+#: machine: a completed crawl, 2,838 stored pages, no dataset, and nothing on the Data
+#: page. `tests/test_a_directory_holding_stored_pages_is_owed_its_interpretation.py`
+#: asserts the engine sends exactly this shape.
+STORED_NOT_ROWS = {
+    "kind": "directory", "site_key": "oman_tenderboard", "source_key": "oman_tenderboard",
+    "source_name": "Oman Tender Board registered vendors", "source_name_ar": "",
+    "base_url": "https://etendering.tenderboard.gov.om", "family": "generic",
+    "active": False, "implemented": True, "supports_history": False,
+    "observations": 0, "products": 0, "last_success": None,
+    "work_waiting": {"interpret": {"crawl_finished_at": "2026-10-02T09:15:00Z",
+                                   "interpreted_at": None},
+                     "interpretation_live": False,
+                     "profiles": None, "resumable": None},
+    "kept_pages": 0, "kept_at": None,
+}
+
+
+def test_a_directory_holding_stored_pages_gets_a_card_that_interprets_them(open_panel):
+    """THE SITE APPEARED NOWHERE, SO NOTHING COULD START THE STEP THAT MAKES IT APPEAR.
+
+    The Data page drew a card only for `observations > 0`, a directory has rows only after
+    an interpretation, and "Interpret stored pages" was offered only to a `dataset` card.
+    So the Oman register's 2,838 stored pages had no card and no control.
+
+    FOUR THINGS ARE READ OFF ONE CARD: that it is drawn; that it says pages are stored and
+    not rows yet, not "0" rows or "no successful crawl yet" (it has crawled); that it is
+    NOT a link, because `/source/<key>` is a dead page for a site with no dataset; and that
+    its one press posts the interpretation for the SITE key, with the kind named.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    never_crawled = {**STORED_NOT_ROWS, "site_key": "another_directory",
+                     "source_key": "another_directory",
+                     "work_waiting": {"interpret": None, "profiles": None,
+                                      "resumable": None}}
+    page = open_panel(sources=[*STRESS_SOURCES, STORED_NOT_ROWS, never_crawled])
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    page.click(DATA_TAB)
+    # DRAWN, AND THEN COUNTED: `loadDatasets` writes either cards or its empty-state card,
+    # so a missing card fails below by name rather than as a timeout.
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    card = page.locator('.dataset-card[data-open="oman_tenderboard"]')
+
+    assert card.count() == 1, "a directory holding uninterpreted pages has no card"
+    assert page.locator('.dataset-card[data-open="another_directory"]').count() == 0, (
+        "a directory with nothing stored is drawn, and its card would offer nothing")
+
+    said = card.text_content() or ""
+    assert "not rows yet" in said, f"the card does not say its pages are not rows: {said!r}"
+    for wrong in ("0 rows", "0 products", "no successful crawl yet"):
+        assert wrong not in said, f"the card claims {wrong!r} about a crawled site: {said!r}"
+    assert card.locator(".source-identity-meta").count() == 0, (
+        "the identity line prints a row count of 0 for pages that are not rows")
+
+    assert card.get_attribute("role") is None and card.get_attribute("tabindex") is None, (
+        "the card is announced as a link to a dataset that does not exist")
+    # AND IT DOES NOT LOOK LIKE ONE, while a card with rows still does.
+    cursor = "element => getComputedStyle(element).cursor"
+    assert card.evaluate(cursor) != "pointer", (
+        "the card shows the link cursor over a click that opens nothing")
+    assert page.locator('.dataset-card[data-open="LONG_AR"]').evaluate(cursor) == "pointer", (
+        "a card with rows lost the cursor that says it opens its dataset")
+    # NOR DOES IT LIGHT UP UNDER THE POINTER, the other half of looking like a link. Read
+    # once each transition has finished, so a colour mid-fade is not mistaken for either.
+    look = """async (element) => {
+        await Promise.all(element.getAnimations().map((one) => one.finished));
+        const style = getComputedStyle(element);
+        return [style.borderColor, style.backgroundColor];
+    }"""
+    link = page.locator('.dataset-card[data-open="LONG_AR"]')
+    resting, link_resting = card.evaluate(look), link.evaluate(look)
+    card.hover()
+    assert card.evaluate(look) == resting, (
+        "the card lights up under the pointer as if a click would open something")
+    link.hover()
+    assert link.evaluate(look) != link_resting, (
+        "a card with rows no longer lights up under the pointer, so the check above "
+        "proves nothing about hover")
+    card.locator(".dataset-identity-line").click()
+    card.press("Enter")
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => window.__opened") == [], (
+        "pressing the card opened /source/<key>, a dead page for a site with no dataset")
+
+    page.evaluate("() => { window.__writes.length = 0; }")
+    card.locator(".split-button-trigger").click()
+    offered = card.locator("[data-split-action]")
+    actions = [offered.nth(i).get_attribute("data-split-action")
+               for i in range(offered.count())]
+    assert "interpret" in actions, f"the card offers no interpretation: {actions}"
+    for dead in ("table", "enrich", "profiles"):
+        assert dead not in actions, (
+            f"{dead!r} is offered on a site with no dataset, and its route cannot work: "
+            f"{actions}")
+
+    card.locator('[data-split-action="interpret"]').click()
+    page.wait_for_function("() => window.__writes.some(w => w.path === '/api/jobs')",
+                           timeout=10_000)
+    queued = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(queued) == 1, f"one press, {len(queued)} jobs queued: {queued}"
+    assert queued[0]["body"] == {"source_keys": ["oman_tenderboard"],
+                                 "run_mode": "update",
+                                 "job_kind": "dataset_interpret"}, queued[0]["body"]
+
+
+def test_the_empty_state_does_not_send_him_to_crawl_what_he_crawled(open_panel):
+    """"No data yet. Run a crawl from the Run tab." is the next action for a warehouse
+    that has crawled nothing. With pages stored and only the interpretation owed, it is
+    the wrong one -- the card with the press is the right one. And with nothing stored it
+    must still say it."""
+    page = open_panel(sources=[STORED_NOT_ROWS])
+    page.click(DATA_TAB)
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    assert "No data yet" not in (page.text_content("#datasets") or ""), (
+        "the page tells him to run a crawl when the crawl ran and only the "
+        "interpretation is owed")
+    assert page.locator('.dataset-card[data-open="oman_tenderboard"]').count() == 1
+
+    nothing = {**STORED_NOT_ROWS, "work_waiting": {"interpret": None, "profiles": None,
+                                                   "resumable": None}}
+    page = open_panel(sources=[nothing])
+    page.click(DATA_TAB)
+    page.wait_for_function(
+        "() => (document.getElementById('datasets').textContent || '').includes('No data yet')",
+        timeout=4000)
+    assert page.locator(".dataset-card").count() == 0
+
+
+def test_a_directory_card_stays_while_its_interpretation_is_on_its_way(open_panel):
+    """PRESSING IT MUST NOT MAKE IT VANISH.
+
+    The engine withholds `interpret` while an interpretation of the source is queued,
+    running or paused (#1042), and this card has no rows to stand on, so it disappeared the
+    moment he pressed it -- and, where it was the only card, the page said "No data yet.
+    Run a crawl from the Run tab." about a site whose pages were on disk. A paused one
+    waits on him, so that lasted until he found it on the Jobs page.
+
+    THE ROW IS THE ENGINE'S SHAPE WHILE ONE IS LIVE:
+    `tests/test_a_directory_holding_stored_pages_is_owed_its_interpretation.py` asserts
+    `interpret: None` with `interpretation_live: True` for each of those statuses.
+    The card says nothing about the job (`waitingLine`, withheld and not explained), and
+    its press stays offered as a dataset card's does: `POST /api/jobs` refuses a second one
+    while the first is waiting.
+    """
+    on_its_way = {**STORED_NOT_ROWS,
+                  "work_waiting": {"interpret": None, "interpretation_live": True,
+                                   "profiles": None, "resumable": None}}
+    page = open_panel(sources=[on_its_way])
+    page.click(DATA_TAB)
+    page.wait_for_selector("#datasets .card", timeout=4000)
+    card = page.locator('.dataset-card[data-open="oman_tenderboard"]')
+
+    assert "No data yet" not in (page.text_content("#datasets") or ""), (
+        "the page tells him to run a crawl while the pages it stored are being interpreted")
+    assert card.count() == 1, (
+        "the card vanished when its interpretation was queued, and nothing on the Data "
+        "page says the site exists")
+    assert card.locator('[role="status"]').count() == 0, (
+        "the card narrates a live interpretation, which the mini-player and the Jobs page "
+        "already describe")
+    assert card.get_attribute("role") is None, (
+        "a card with no rows is announced as a link to a dataset that does not exist")
+
+    card.locator(".split-button-trigger").click()
+    offered = card.locator("[data-split-action]")
+    actions = [offered.nth(i).get_attribute("data-split-action")
+               for i in range(offered.count())]
+    assert "interpret" in actions, f"the card offers no interpretation: {actions}"
+
+
+def test_only_a_directory_draws_the_card_for_pages_that_are_not_rows(open_panel):
+    """A DATASET REPORTING NO ROWS IS NOT "PAGES NOT ROWS YET".
+
+    A dataset row exists once an interpretation has registered it, and that happens inside
+    the same `approve_candidate` call that writes the first page's rows, with no commit
+    between them (`extract/service.py`). So a `dataset` row reporting 0 is not a site whose
+    pages were never read, and the card's words -- "its pages are not rows yet" -- would be
+    false about it. It keeps the rule it had: no rows, no card. Without the kind half of
+    `storedNotRows`, both rows below were drawn and the suite stayed green.
+    """
+    from tools.panel_harness import STRESS_SOURCES
+
+    rowless = {**STORED_NOT_ROWS, "kind": "dataset", "source_key": "vendors_owed",
+               "site_key": "vendors_owed"}
+    live = {**STORED_NOT_ROWS, "kind": "dataset", "source_key": "vendors_live",
+            "site_key": "vendors_live",
+            "work_waiting": {"interpret": None, "interpretation_live": True,
+                             "profiles": None, "resumable": None}}
+    page = open_panel(sources=[*STRESS_SOURCES, rowless, live])
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="LONG_AR"]', timeout=4000)
+
+    for key in ("vendors_owed", "vendors_live"):
+        assert page.locator(f'.dataset-card[data-open="{key}"]').count() == 0, (
+            f"a dataset with no rows is drawn as pages that are not rows yet: {key}")
+
+
+# ---- a card's actions follow the job they started (issue 779) ---------------
+
+#: The four card actions that start a job, each with the kind the engine gives it. The
+#: stub's contractors card offers all four.
+_CARD_JOB_ACTIONS = [("update", "directory_crawl"), ("interpret", "dataset_interpret"),
+                     ("resume", "directory_crawl"), ("profiles", "profile_crawl")]
+
+# AN ENGINE WHOSE ACTIVE LIST CHANGES WHEN THE POST IS ANSWERED. The stub's `/api/jobs`
+# is a fixed list and its POST a canned `job_stub`, so no test could watch Run adopt a
+# job a card had just posted. `ROUTES` is the stub's own top-level table
+# (tools/panel_harness.py), so this edits it on the answer, the way a commit changes a
+# real engine's list: the job joins whatever was already active, newest first. `queued`
+# is null for a job that has already ended by then.
+#
+# AN ACTIVE-LIST READ IS ANSWERED WITH WHAT THE ENGINE HELD WHEN IT LEFT, `staleMs`
+# later. The stub reads its table at answer time, and no in-flight poll can be stale
+# against that. Each read records when it left and when it was answered, so a test can
+# tell a poll still out when the POST was answered from one already back. The order is
+# a counter, not a clock: measured, a poll leaving and the POST's answer can read the
+# same `performance.now()`.
+_QUEUES_WHAT_IS_POSTED = """([queued, staleMs]) => {
+  window.__activePolls = [];
+  let order = 0;
+  const original = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace(/^[a-z]+:\\/\\/[^/]+/, "");
+    const method = (options && options.method) || "GET";
+    if (method === "GET" && path.startsWith("/api/jobs?active_only")) {
+      const seen = JSON.parse(JSON.stringify(ROUTES["/api/jobs"]));
+      const poll = {left: ++order, saw: seen.jobs.map((job) => job.job_ref)};
+      window.__activePolls.push(poll);
+      if (staleMs) await new Promise((done) => setTimeout(done, staleMs));
+      poll.answered = ++order;
+      return {ok: true, status: 200, json: async () => seen};
+    }
+    const answer = await original(url, options);
+    if (method === "POST" && path === "/api/jobs" && answer.ok) {
+      window.__postedAt = ++order;
+      if (queued) {
+        ROUTES["/api/jobs"] = {jobs: [queued, ...ROUTES["/api/jobs"].jobs]};
+        // Read by its ref too, or the stub answers that with the LIST, and a panel that
+        // drew it would be drawing a shape no engine sends.
+        ROUTES["/api/jobs/" + queued.job_ref] = queued;
+      }
+    }
+    return answer;
+  };
+}"""
+
+# Where Activity's status line is, against Run's scroll area -- the `.view-scroll` that
+# clips it -- and whether the line is what is painted there. The line is what he reads
+# -- the job's status and site -- so it is what has to be in view. NOT `#view-run`: its
+# top is the sticky heading's, 85px above the scroll area's, and a line hidden under the
+# heading read as on screen.
+_WHERE_ACTIVITY_IS = """() => {
+  const line = document.getElementById("act-state");
+  const view = document.getElementById("view-run");
+  const area = document.getElementById("activity").closest(".view-scroll");
+  const shown = line.checkVisibility() && !view.classList.contains("hidden");
+  const r = line.getBoundingClientRect(), a = area.getBoundingClientRect();
+  const fold = Math.min(a.bottom, innerHeight);
+  const hit = document.elementFromPoint(r.left + 10, r.top + r.height / 2);
+  const painted = Boolean(hit) && line.contains(hit);
+  return {onRun: !view.classList.contains("hidden"), shown, painted,
+          inView: shown && r.top >= a.top && r.bottom <= fold && painted,
+          top: Math.round(r.top), areaTop: Math.round(a.top), fold: Math.round(fold),
+          card: document.getElementById("activity").offsetHeight,
+          area: Math.round(a.height), said: line.textContent};
+}"""
+
+# Resolves once Activity's line has held one position for ten frames running. A smooth
+# scroll moves it on every frame until it stops -- measured, no frame repeated on the
+# way -- and so does `showView`'s 180ms entry animation.
+_ONCE_THE_LINE_IS_AT_REST = """() => new Promise((done) => {
+  const line = document.getElementById("act-state");
+  let last = NaN, still = 0;
+  const frame = () => {
+    const top = line.getBoundingClientRect().top;
+    still = top === last ? still + 1 : 0;
+    last = top;
+    if (still >= 10) done(true); else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+})"""
+
+
+def _card_job(kind, **over):
+    """The job the stub's POST names (`job_stub`), over the contractors card's site."""
+    return _running_job(**{"job_ref": "job_stub", "job_kind": kind, "status": "queued",
+                           "stage": None, "started_at": None,
+                           "source_keys": ["muqawil_org"],
+                           "current_source_key": "muqawil_org", **over})
+
+
+def _open_on_data_after_run(open_panel):
+    """Run visited first with nothing active, then Data: the order of his press.
+
+    Run's destination load is memoised per backend generation (`loadRunDestination`),
+    so the visit a card action makes is a second one and asks the engine nothing by
+    itself. That is the case that drew him an empty Run."""
+    page = open_panel(jobs=[], view="run")
+    page.wait_for_function(
+        "() => document.querySelector('#sites input[data-key]')"
+        " && window.__calls.some(p => p.startsWith('/api/jobs?active_only'))",
+        timeout=5_000)
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    return page
+
+
+def _press_on_the_card(page, action):
+    card = page.locator('.dataset-card[data-open="contractors"]')
+    card.locator(".split-button-trigger").click()
+    card.locator(f'[data-split-action="{action}"]').click()
+
+
+def _where_activity_lands(page, timeout=5_000) -> dict:
+    """Wait for Activity's line to come into view and then to come to REST, and report
+    where it rests either way, so a failure names the edge instead of timing out.
+
+    AT REST, NOT AT THE FIRST FRAME IN VIEW. A smooth scroll carries the line through
+    the scroll area on its way to where it stops: measured at 650px, in view at
+    [534, 558] on the way and hidden at [30, 54] at rest, so a scroll that overshot
+    passed. The wait for the line to come into view stays first: until the follow
+    scrolls, the line is still too -- below the fold, on Run's last card."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        page.wait_for_function(f"() => ({_WHERE_ACTIVITY_IS})().inView", timeout=timeout)
+    except PlaywrightTimeout:
+        pass
+    page.wait_for_function(_ONCE_THE_LINE_IS_AT_REST, timeout=timeout)
+    return page.evaluate(_WHERE_ACTIVITY_IS)
+
+
+@pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
+def test_a_card_action_follows_the_job_it_started(open_panel, action, kind):
+    """HIS PRESS, 2026-10-03: `Update now` on the Data card, and Run showed nothing.
+
+    The card posted the job, threw the `job_ref` away and called `showView("run")`. Run
+    had been visited earlier in the session, so its memoised load asked the engine
+    nothing, Activity stayed hidden, and he ticked the site and pressed Start: jobs 189
+    and 190, the same crawl twice, 13 seconds apart (issue 779). Interpret, Continue and
+    Fetch profiles had the same three lines.
+
+    So each press must be followed by a question to the engine that sees the job, and by
+    Activity on screen naming the job's site. And NO SITE IS SELECTED: Start stays
+    pressable for a ticked site, so ticking the busy one would put the duplicate one
+    click away.
+    """
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job(kind), 0])
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    _press_on_the_card(page, action)
+    where = _where_activity_lands(page)
+
+    posted = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(posted) == 1, f"one press, {len(posted)} jobs posted: {posted}"
+    polls = page.evaluate("() => window.__activePolls")
+    assert any("job_stub" in poll["saw"] for poll in polls), (
+        f"nothing asked the engine about the job {action!r} started, so Run had nothing "
+        f"to draw: active-list reads after the press {polls}")
+    assert page.is_visible("#miniplayer"), (
+        "the mini-player is hidden, so no poll is following the job")
+    assert where["onRun"], f"{action!r} did not take him to Run: {where}"
+    assert where["inView"], (
+        f"Activity is not on screen after {action!r}: its line is at {where['top']}px "
+        f"against Run's scroll area at {where['areaTop']}-{where['fold']}px (shown: "
+        f"{where['shown']}, painted: {where['painted']})")
+    assert "muqawil_org" in where["said"], (
+        f"Activity does not name the site the job is for: {where['said']!r}")
+    assert text_of(page, "#sel-count") == "0 selected", text_of(page, "#sel-count")
+    assert page.locator("#sites input:checked").count() == 0, (
+        "Run ticked the busy site, so Start would queue the same job again")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_first_visit_to_run_puts_the_started_job_on_screen(open_panel):
+    """THE OTHER HALF OF THE SAME PRESS. When the card's visit IS Run's first, the
+    memoised load does poll and Activity is drawn -- below the fold, because it is
+    Run's last card, under Choose sites and Run options. Measured before this change:
+    the line at 950px in a panel whose Run view ends at 734px."""
+    page = open_panel(jobs=[], view="data")
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+
+    _press_on_the_card(page, "update")
+    where = _where_activity_lands(page)
+
+    assert where["shown"], f"Activity was never drawn: {where}"
+    assert where["inView"], (
+        f"Activity was drawn out of view: its line is at {where['top']}px against Run's "
+        f"scroll area at {where['areaTop']}-{where['fold']}px")
+
+
+def _press_update_as_a_poll_leaves(page):
+    """Press Update now while a poll that left before the job was committed is still on
+    its way back. The panel coming back into view is what starts that poll; the press
+    lands while its answer is still on the way (`_QUEUES_WHAT_IS_POSTED` with a delay).
+    Returns once the POST is answered, so what a test does next happens while that poll
+    is still out.
+
+    IT REFUSES TO GO ON VACUOUSLY: the case is a poll that left before the POST was
+    answered, saw nothing, and was answered after it. Read the moment the POST is
+    answered, that poll has no answer yet or one recorded after the POST's. Without one,
+    a test proves only what the plain press does. Checking only that it LEFT first
+    passed a poll answered at once, and with it the press whose wait for that poll was
+    deleted.
+    """
+    page.locator('.dataset-card[data-open="contractors"] .split-button-trigger').click()
+    page.evaluate("""() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        document.querySelector(
+          '.dataset-card[data-open="contractors"] [data-split-action="update"]').click();
+    }""")
+    page.wait_for_function("() => window.__postedAt", timeout=5_000)
+    polls = page.evaluate("() => window.__activePolls")
+    posted_at = page.evaluate("() => window.__postedAt")
+    answered = polls[0].get("answered") if polls else None
+    assert (polls and polls[0]["saw"] == [] and polls[0]["left"] < posted_at
+            and (answered is None or answered > posted_at)), (
+        f"no poll was in flight across the press, so this proves nothing: {polls}, "
+        f"posted at {posted_at}")
+
+
+def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
+    """`pollJob` HANDS BACK A POLL ALREADY IN FLIGHT rather than asking again. One whose
+    request left before the job was committed sees nothing active and does not re-arm,
+    so a card action that only called `pollJob` would be handed it, and nothing would
+    follow the job."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    _press_update_as_a_poll_leaves(page)
+    where = _where_activity_lands(page)
+
+    polls = page.evaluate("() => window.__activePolls")
+    # A POLL THAT SAW THE JOB, NOT ONLY A DRAWING OF IT. Waiting on the stale poll alone
+    # still draws the job once -- its "nothing active" branch reads it by its ref -- and
+    # then stops asking, so Activity sits at `queued` for the whole run. Measured.
+    assert any("job_stub" in poll["saw"] for poll in polls), (
+        f"no poll after the press saw the job, so nothing will follow it: {polls}")
+    assert page.is_visible("#miniplayer"), (
+        "the mini-player is hidden, so no poll is following the job")
+    assert where["inView"] and "muqawil_org" in where["said"], (
+        f"Activity is not on screen naming the job: {where}")
+
+
+def test_the_in_flight_guard_refuses_a_poll_answered_before_the_post(open_panel):
+    """THE GUARD CAN FAIL FOR THE CASE IT NAMES. It checked only that the poll left
+    before the POST was answered, so a poll answered at once passed it -- and so did
+    the press with its wait for that poll deleted, 3 runs of 3 (#1388's merge gate). A
+    poll back before the POST is no poll in flight."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+
+    with pytest.raises(AssertionError, match="no poll was in flight across the press"):
+        _press_update_as_a_poll_leaves(page)
+
+
+def test_a_second_press_while_a_poll_is_waited_out_queues_no_second_job(open_panel):
+    """RUN IS SHOWN THE MOMENT THE POST IS ANSWERED, NOT ONCE A POLL IN FLIGHT IS BACK.
+    `followStartedJob` waited that poll out on Data: for as long as it took to come
+    back, the card stayed on screen and said nothing, and a second press queued the
+    same crawl again -- with a poll out for 1.5 s, 2 jobs posted where main posts 1
+    (#1388's merge gate). That second crawl is issue 779 itself."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 1_500])
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    _press_update_as_a_poll_leaves(page)
+    view = page.evaluate("() => currentViewName()")
+    # HIS SECOND PRESS, on whatever is on screen while that poll is still out.
+    if page.is_visible('.dataset-card[data-open="contractors"] .split-button-trigger'):
+        _press_on_the_card(page, "update")
+    assert "answered" not in page.evaluate("() => window.__activePolls[0]"), (
+        "the poll in flight was back before the second press, so it proves nothing")
+    _where_activity_lands(page)    # the press followed to its end before counting
+
+    posted = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(posted) == 1, (
+        f"two presses while a poll was waited out, {len(posted)} jobs posted; the panel "
+        f"was on {view!r} when the first POST was answered")
+    assert view == "run", f"the answered press left the panel on {view!r}"
+    assert not page.js_errors, page.js_errors
+
+
+# A JOB THAT ENDS WITHIN ONE POLL OF THE PRESS: zero pages, an immediate failure. It ends
+# just after the panel first reads it, whichever way -- named in the active list, or by
+# its ref -- so the panel can draw it `queued` once and must still find out how it ended.
+# The answer that read it is copied before the end: a stub answer reads `ROUTES` only
+# when its body is read, and would otherwise hand back the end it was meant to precede.
+_ENDS_ONCE_THE_PANEL_HAS_READ_IT = """(ended) => {
+  const original = window.fetch;
+  let over = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace(/^[a-z]+:\\/\\/[^/]+/, "");
+    const method = (options && options.method) || "GET";
+    const answer = await original(url, options);
+    const listed = path.startsWith("/api/jobs?active_only");
+    if (over || method !== "GET" || !answer.ok
+        || !(listed || path === "/api/jobs/" + ended.job_ref)) return answer;
+    const body = await answer.json();
+    if (!listed || body.jobs.some((job) => job.job_ref === ended.job_ref)) {
+      over = true;
+      ROUTES["/api/jobs"] = {jobs: []};
+      ROUTES["/api/jobs/" + ended.job_ref] = ended;
+    }
+    return {ok: answer.ok, status: answer.status, json: async () => body};
+  };
+}"""
+
+
+def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(open_panel):
+    """THE POLL IN FLIGHT IS WAITED OUT BEFORE THE REF IS KEPT, NOT AFTER. Kept first,
+    the stale poll's nothing-active branch reads the new job by its ref, draws it
+    `queued` once and clears the ref. A job that ends before the fresh poll then leaves
+    nothing to ask about it: Activity says `queued` for a job that is over, and nothing
+    polls. Measured with `state.jobRef = jobRef` moved above the wait in
+    `followStartedJob`: `queued`, the mini-player hidden."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    page.evaluate(_ENDS_ONCE_THE_PANEL_HAS_READ_IT,
+                  _card_job("directory_crawl", status="failed", stage=None))
+    _press_update_as_a_poll_leaves(page)
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('act-state').textContent.includes('failed')",
+            timeout=8_000)
+    except PlaywrightTimeout:
+        pass
+    where = page.evaluate(_WHERE_ACTIVITY_IS)
+
+    assert where["shown"] and "failed" in where["said"], (
+        f"Activity does not say how a job that ended within a poll of the press ended "
+        f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
+
+
+@pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
+def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, action,
+                                                                     kind):
+    """THE REF IS KEPT, as `startRun` keeps it. A job can be over by the time Run asks,
+    and an ended job is not in the active list: without the ref the poll finds nothing,
+    and Run is as blank as it was for him.
+
+    EVERY ACTION KEEPS ITS OWN. Each of the four reads `job_ref` off its own answer, and
+    a job still running hides a dropped ref: the active list names the job anyway."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [None, 0])
+    ended = _card_job(kind, status="failed", stage=None)
+    page.evaluate("(job) => { ROUTES['/api/jobs/job_stub'] = job; }", ended)
+
+    _press_on_the_card(page, action)
+    where = _where_activity_lands(page)
+
+    assert where["shown"], (
+        f"Run shows nothing for a job {action!r} started that already ended: {where}")
+    assert where["inView"], f"the ended job was drawn off screen: {where}"
+    assert "failed" in where["said"], (
+        f"Activity does not say how the job ended: {where['said']!r}")
+
+
+def test_bringing_the_job_into_view_honours_reduced_motion(open_panel):
+    """AN EXPLICIT `behavior: "smooth"` OVERRIDES the stylesheet's reduced-motion rule
+    (issue 701), so the scroll states its own, the way `showView` does. Read in the
+    task the press ends in: an instant scroll has already landed there, a smooth one
+    has only begun."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+    page.emulate_media(reduced_motion="reduce")
+
+    where = page.evaluate(
+        "async () => { await runSourceAction('update', 'contractors', 'muqawil_org');"
+        f" return ({_WHERE_ACTIVITY_IS})(); }}")
+
+    assert where["shown"], f"the press drew no Activity, so this proves nothing: {where}"
+    assert where["inView"], (
+        f"under reduced motion the scroll to Activity had not landed when the press "
+        f"ended, so it animated: {where}")
+
+
+def _a_crawl_an_hour_in():
+    """A crawl that has held the worker for an hour: its fetch progress and its source's
+    row of 304s, retries and pace. With `_A_LONG_LOG` its Activity card is 702px tall,
+    more than Run's scroll area holds in any panel under about 870px."""
+    return _running_job(
+        job_ref="job_other", job_kind="crawl", source_keys=["SALLA_SHOP"],
+        current_source_key="SALLA_SHOP", started_at="2026-10-06T09:00:00Z",
+        fetch={"requests": 1200, "expected": 4000, "basis": "estimate",
+               "as_of": "2026-10-01", "unknown_sources": [],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 1200,
+                                          "expected": 4000, "basis": "estimate",
+                                          "as_of": "2026-10-01", "not_modified": 300,
+                                          "retries": 4, "pace_s": 2.0,
+                                          "honouring_delay": True}}})
+
+
+#: Enough of that crawl's log to fill its box, in the engine's row shape.
+_A_LONG_LOG = [{"logged_at": "2026-10-06T10:00:00Z", "level": "info",
+                "source_key": "SALLA_SHOP", "message": f"fetched page {i} of the listing"}
+               for i in range(60)]
+
+
+def _open_on_run_beside_a_crawl(open_panel, height):
+    """Run in a panel `height` tall, with that crawl's Activity drawn."""
+    page = open_panel(jobs=[_a_crawl_an_hour_in()], view="run", logs=_A_LONG_LOG)
+    page.set_viewport_size({"width": 360, "height": height})
+    page.wait_for_function(
+        "() => document.getElementById('act-state').textContent.includes('SALLA_SHOP')",
+        timeout=5_000)
+    return page
+
+
+# Whether Run's scroll area is at its end, scrolled there first when `move` is set.
+_RUN_AT_ITS_END = """(move) => {
+  const area = document.getElementById("activity").closest(".view-scroll");
+  if (move) area.scrollTop = area.scrollHeight;
+  return area.scrollTop > 0
+    && area.scrollTop >= area.scrollHeight - area.clientHeight - 1;
+}"""
+
+
+@pytest.mark.parametrize("left_at", ["its top", "the end of the log"])
+@pytest.mark.parametrize("height", [800, 750, 700, 650])
+def test_a_press_while_a_crawl_runs_rests_activitys_line_in_view(open_panel, height,
+                                                                  left_at):
+    """A CARD TALLER THAN RUN'S SCROLL AREA, WITH ITS LINE AT ITS TOP. A crawl holds the
+    worker when he presses, so the press's job queues behind it and Activity draws the
+    crawl (issue 778's ranking), rows and log. Centred, the card's top rested above the
+    area and the line with it: hidden at 750, 700 and 650px, clear by 4px at 800
+    (#1388's merge gate). The tests above draw a short card in an 800px panel, where
+    every downward scroll stops at the same place, so none of them can tell an
+    alignment that hides the line from one that shows it.
+
+    WHERE HE LEFT RUN STILL HOLDS: the scroll area keeps its place while Run is hidden.
+    A press made after he read to the end of the log starts there, with the card already
+    covering the area, and `nearest` does nothing from there."""
+    page = _open_on_run_beside_a_crawl(open_panel, height)
+    if left_at == "the end of the log":
+        assert page.evaluate(_RUN_AT_ITS_END, True), "Run has nothing to scroll"
+        page.click(DATA_TAB)
+        page.click(RUN_TAB)
+        assert page.evaluate(_RUN_AT_ITS_END, False), (
+            "Run's scroll area did not keep its place across a trip to Data, so this is "
+            "the other case again")
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl", queued_behind={
+        "position": 1, "capacity": 1, "running_count": 1,
+        "running": [{"job_ref": "job_other", "source_keys": ["SALLA_SHOP"]}],
+        "starting_now": False}), 0])
+
+    _press_on_the_card(page, "update")
+    where = _where_activity_lands(page)
+
+    assert where["card"] > where["area"], (
+        f"Activity fits Run's scroll area, so this proves nothing: {where}")
+    assert where["inView"], (
+        f"at {height}px, left at {left_at}, the line rests at {where['top']}px against "
+        f"Run's scroll area at {where['areaTop']}-{where['fold']}px (painted: "
+        f"{where['painted']})")
+    assert not page.js_errors, page.js_errors
+
+
+def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
+    """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
+    read through `_where_activity_lands`, and it returned at the first frame the line
+    was in view, so a scroll that carried the line through Run's scroll area to rest
+    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
+    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    page = _open_on_run_beside_a_crawl(open_panel, 650)
+    # Started a moment from now, so the wait below is watching when the line arrives.
+    page.evaluate(f"""() => {{
+        const where = {_WHERE_ACTIVITY_IS};
+        window.__inViewOnTheWay = false;
+        const watch = () => {{
+          if (where().inView) window.__inViewOnTheWay = true;
+          else requestAnimationFrame(watch);
+        }};
+        requestAnimationFrame(watch);
+        setTimeout(() => {{
+          const area = document.getElementById("activity").closest(".view-scroll");
+          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+        }}, 300);
+    }}""")
+
+    where = _where_activity_lands(page)
+
+    assert page.evaluate("() => window.__inViewOnTheWay"), (
+        f"the scroll never carried the line through view, so this proves nothing: {where}")
+    assert not where["inView"], (
+        f"read as in view at {where['top']}px, on the way to resting above Run's scroll "
+        f"area: {where}")
+
+
+@pytest.mark.parametrize("action", [action for action, _ in _CARD_JOB_ACTIONS])
+def test_a_card_action_the_engine_refuses_says_why_on_the_card(open_panel, action):
+    """A REFUSED PRESS STAYS WHERE HE PRESSED. The engine's own words go in
+    `#datasets-msg` under the card, and the panel does not go to Run, where nothing
+    would say why."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = open_panel(view="data", fail_routes=["/api/jobs"])
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+
+    _press_on_the_card(page, action)
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('datasets-msg').textContent.trim()",
+            timeout=5_000)
+    except PlaywrightTimeout:
+        pass
+
+    assert "the engine could not do that" in text_of(page, "#datasets-msg"), (
+        f"a refused {action!r} left no word under the card: "
+        f"{text_of(page, '#datasets-msg')!r}")
+    assert page.locator("#datasets-msg .err").count() == 1, (
+        "the refusal is not drawn as one")
+    assert page.is_visible("#view-data") and page.is_hidden("#view-run"), (
+        f"a refused {action!r} left the card for Run, away from the line saying why")
 
 
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
@@ -6750,16 +7490,32 @@ def test_the_three_back_buttons_draw_one_box(open_panel):
         f"the three back buttons in this panel no longer draw one 36x26 box: {sizes}")
 
 
-def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
-    """With a mouse the three icon-only Buttons are one 36x26 box (the test below). On a
-    touch screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
-    `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
-    docs/UI-KIT.md say:
+#: Reads which control, if any, takes a tap at a point: the element there, or the
+#: control that element sits inside. A hit area is the control's ::before, and a
+#: hit on a pseudo-element reports its originating element, so a tap the ::before
+#: catches comes back as the control itself.
+_TAKES_THE_TAP = """([x, y]) => {
+  const hit = document.elementFromPoint(x, y);
+  const control = hit && hit.closest('button, .button, input, select, textarea, summary, a');
+  return control ? (control.id || control.getAttribute('class') || control.tagName) : null;
+}"""
 
-    - a plain `icon-button` declares no min-height of its own, so it takes the floor and
-      draws 36x44. #1051 moves that reach into a hit area and changes this number;
-    - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
-      (through its own) outrank the block and stay 36x26, under the floor.
+
+def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_the_reach(
+        open_panel):
+    """#1051's own test: on a touch screen an icon button's box is its control height,
+    26px, while a tap 4px outside the box still lands on it.
+
+    WHAT IT REPLACED. `design/components.css`'s `(hover: none), (pointer: coarse)`
+    block lifted `button` to `min-height: 2.75rem`, so a plain `icon-button` drew
+    26x44, a slab, while `compact` and `xs`, whose own min-height outranks the block,
+    stayed 26px squares (#1432's comment on #1051). The 44px is now the reach of
+    Supabase's hit area, a ::before at negative insets
+    (packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49), so the box is the
+    tiny Button's square on every pointer and the reach is still 44px tall.
+
+    EXACTLY 44, NOT MORE. A tap 21px from the centre lands; 23px does not, so a reach
+    that grew to --touch-target's 48 fails here as surely as one that shrank.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -6768,10 +7524,11 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         "the page did not open as a touch screen, so nothing below is about one")
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
-    # In a block of its own: beside `#signout` in the flex top bar, a 44px probe would
-    # stretch the row and the sign-out with it.
+    # In a block of its own, with room above and below it: beside `#signout` in the
+    # flex top bar, a probe would share the row and the reach with it.
     page.evaluate("""() => {
       const host = document.createElement('div');
+      host.style.padding = '24px 0';
       host.innerHTML = '<button type="button" id="plain-icon-button-probe" '
         + 'class="ghost icon-button"><svg class="sx-icon" aria-hidden="true"></svg></button>';
       document.querySelector('main').prepend(host);
@@ -6782,9 +7539,367 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (36, 44),
-                     "#accounts-card .account-menu-button": (36, 26),
-                     "#signout": (36, 26)}, sizes
+    assert sizes == {"#plain-icon-button-probe": (26, 26),
+                     "#accounts-card .account-menu-button": (26, 26),
+                     "#signout": (26, 26)}, (
+        f"on a touch screen an icon button's box is its 26px control height: {sizes}")
+
+    box = page.locator("#plain-icon-button-probe").bounding_box()
+    cx, top, bottom = box["x"] + box["width"] / 2, box["y"], box["y"] + box["height"]
+    cy = top + box["height"] / 2
+    taken = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("4px above the box", top - 4), ("4px below the box", bottom + 4),
+        ("21px above the centre", cy - 21), ("21px below the centre", cy + 21))}
+    assert taken == dict.fromkeys(taken, "plain-icon-button-probe"), (
+        f"a tap inside the 44px reach no longer reaches the icon button: {taken}")
+    beyond = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("23px above the centre", cy - 23), ("23px below the centre", cy + 23))}
+    assert "plain-icon-button-probe" not in beyond.values(), (
+        f"the reach grew past the 44px it was: {beyond}")
+
+
+#: The Supabase component each control the sweeps read is, by the first selector it matches, and
+#: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
+#: it is written down. The sweep resolves the value against the page's own tokens. The listbox
+#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. The
+#: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
+#: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
+#: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
+_SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
+    (".sx-select-trigger", SELECT_TRIGGER),
+    (".finance-converter-row input", GROUP_INSIDE),
+    ("input, select", INPUT),
+    ("button, .button", BUTTON))]
+
+#: What every button and input reached on a touch screen before #1051: the coarse-pointer
+#: block's `min-height: 2.75rem`, which is --touch-floor now.
+_TOUCH_FLOOR = 44
+
+#: Every screen the sweep reads, and how a person reaches it from the one before: the rail's
+#: pages, the three it does not list, the Workspace sheet and an open listbox.
+_SWEEP_SCREENS = (
+    *((f"#view-{view}", [("click", f'nav.side-rail button[data-view="{view}"]')])
+      for view in ("profile", "database", "engines", "source", "jobs", "run", "data",
+                   "finance", "appearance", "sources", "console", "settings")),
+    ("nav.side-rail", []),
+    ("#view-manage-account", [("click", 'nav.side-rail button[data-view="profile"]'),
+                              ("click", "#manage-account")]),
+    ("#view-engine-detail", [("click", "#tab-engines"),
+                             ("click", '#view-engines .engine-row[data-engine-id="scrapex-engine"]')]),
+    ("#view-source-edit", [("click", SOURCES_TAB), ("click", '[data-edit-source="SHORT"]')]),
+    (".sx-select.is-open", [("click", RUN_TAB), ("click", "#run-mode-trigger")]),
+    ("#workspace-menu", [("press", "Escape"), ("click", "#workspace-toggle")]),
+)
+
+#: Reads every control on one screen: its box, how far a tap still reaches it straight up
+#: and down from its centre, and every point inside a control-like element's box that
+#: another control's reach takes. A name is the id, else the classes (state classes `is-*`
+#: left out), else the parent's first class.
+#:
+#: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
+#: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
+#: `pointer-events: none` on the three ::before selectors design/components.css draws a hit
+#: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
+#: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
+#: second read would be of another layout. A point the control never held is not counted:
+#: its own rounded corner, a corner its list clips off (#db-bundles' first row under
+#: #db-open-backups: CI's Chromium clips a relative row's corner for hit-testing, and 141
+#: does not), or a label laid over its radio. A point it held is counted however close the
+#: two boxes stand, so a reach into a box that touches its own is caught as surely as one
+#: across a gap. EACH EDGE IS READ AT THREE DEPTHS, 0.75, 2.5 and 4.5px in: where two boxes
+#: meet at a fractional height, hit-testing gives the outermost row to the neighbour with
+#: every hit area off too, so that row alone saw one of the Console rail's five thefts
+#: with its tabs touching.
+#:
+#: AND NO HIT AREA WIDENS WHAT A SCROLLER SCROLLS. A ::before past the end of a scroller's
+#: content is scrollable overflow, so every scroller is read with each hit area drawn and with
+#: none (`content: none`), and the two must agree. It is read last, with every scroll position
+#: put back, because a widened scroller scrolls back once its hit areas go.
+#:
+#: Takes [the scope's selector, _SUPABASE_SIZES].
+_SWEEP = """([scopeSelector, sizes]) => {
+  const LIKE = 'button, .button, input, select, textarea, summary, a[href], label';
+  const taker = (x, y) => { const hit = document.elementFromPoint(x, y); return hit && hit.closest(LIKE); };
+  // Reads with `declaration` set on every hit area: design/components.css draws one with these.
+  const withEveryHitArea = (declaration, read) => {
+    const style = document.createElement('style');
+    style.textContent = `button::before, .button::before, .hit-area-2::before { ${declaration} !important; }`;
+    document.head.append(style);
+    try { return read(); } finally { style.remove(); }
+  };
+  const probe = document.body.appendChild(document.createElement('div'));
+  probe.style.cssText = 'position: absolute; visibility: hidden;';
+  const heights = sizes.map(([selector, value]) => {
+    probe.style.height = value;
+    return [selector, parseFloat(getComputedStyle(probe).height)];
+  });
+  probe.remove();
+  if (!heights.every(([, height]) => height > 0)) throw new Error(`a Supabase size did not resolve: ${JSON.stringify([sizes, heights])}`);
+  const name = (el) => {
+    if (el.id) return '#' + el.id;
+    const classes = [...el.classList].filter((c) => !c.startsWith('is-'));
+    const tag = el.tagName.toLowerCase() + (el.tagName === 'INPUT' ? `[type=${el.type}]` : '');
+    if (classes.length) return tag + '.' + classes.join('.');
+    const up = el.parentElement && [...el.parentElement.classList].find((c) => !c.startsWith('is-'));
+    return (up ? `.${up} > ` : '') + tag;
+  };
+  const shown = (el) => el.checkVisibility({visibilityProperty: true})
+    && el.getBoundingClientRect().width >= 2 && el.getBoundingClientRect().height >= 2;
+  const scope = document.querySelector(scopeSelector);
+  const out = {controls: [], stolen: [], widened: []};
+  for (const el of scope.querySelectorAll(LIKE)) {
+    if (!shown(el)) continue;
+    el.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = el.getBoundingClientRect();
+    const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, r.height / 2, r.width / 2);
+    const points = [];
+    for (const depth of [0.75, 2.5, 4.5]) {
+      if (2 * depth < r.height) for (let x = r.left + radius + 1; x <= r.right - radius - 1; x += 2) points.push([x, r.top + depth], [x, r.bottom - depth]);
+      if (2 * depth < r.width) for (let y = r.top + radius + 1; y <= r.bottom - radius - 1; y += 2) points.push([r.left + depth, y], [r.right - depth, y]);
+    }
+    for (const fx of [0.25, 0.5, 0.75]) for (const fy of [0.25, 0.5, 0.75]) points.push([r.left + r.width * fx, r.top + r.height * fy]);
+    const owns = (hit) => Boolean(hit) && (hit === el || el.contains(hit));
+    const held = withEveryHitArea('pointer-events: none', () => points.map(([x, y]) => owns(taker(x, y))));
+    points.forEach(([x, y], i) => {
+      const other = taker(x, y);
+      if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
+    });
+    if (!el.matches('button, .button, input:not([type=checkbox]):not([type=radio]), select')) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
+    // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
+    const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 48; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
+    const supabase = heights.find(([selector]) => el.matches(selector))[1];
+    out.controls.push({name: name(el), width: r.width, height: r.height, supabase, reach: reach(-1) + reach(1)});
+  }
+  const scrollers = [document.scrollingElement, ...document.querySelectorAll('*')].filter((s) =>
+    s === document.scrollingElement || /auto|scroll|hidden/.test(getComputedStyle(s).overflow));
+  const at = scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
+  const extent = () => scrollers.map((s) => `${s.scrollWidth - s.clientWidth}x${s.scrollHeight - s.clientHeight}`);
+  const drawn = extent();
+  const bare = withEveryHitArea('content: none', extent);
+  scrollers.forEach((s, i) => { [s.scrollLeft, s.scrollTop] = at[i]; });
+  drawn.forEach((scrolls, i) => {
+    if (scrolls !== bare[i]) out.widened.push(`${name(scrollers[i])} scrolls ${scrolls}, and ${bare[i]} without its hit areas`);
+  });
+  return out;
+}"""
+
+
+def read_the_sweep(page, scope: str, label: str, read: dict) -> None:
+    """Runs _SWEEP over `scope` on `page` and adds what it found to `read`, the
+    {"controls": {name: [control, ...]}, "stolen": [...], "widened": [...]} a sweep collects
+    over one surface, each finding under `label`, the screen it was read on."""
+    found = page.evaluate(_SWEEP, [scope, _SUPABASE_SIZES])
+    read["stolen"] += [f"{label}: {theft}" for theft in found["stolen"]]
+    read["widened"] += [f"{label}: {scroller}" for scroller in found["widened"]]
+    for control in found["controls"]:
+        read["controls"].setdefault(control["name"], []).append(control)
+
+
+def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: dict,
+                                             short_of_the_floor: dict) -> None:
+    """What every touch sweep holds over what read_the_sweep read on one surface (#1051): no
+    reach takes a tap inside another control's box, no hit area widens what a scroller scrolls,
+    and every control's box is no taller than its Supabase component's and its reach at least
+    the 44px floor, but for the controls named, each with its bound and its reason.
+
+    BOTH LISTS MAY ONLY SHRINK: a named control that comes down to its size, or up to the floor,
+    fails until its name goes, and a new one fails until it is named with its reason. AND EACH
+    NAME KEEPS ITS BOUND: a tall box may not stand more than half a pixel above the ceiling
+    named for it, nor a short reach fall more than half a pixel below the least. Without the
+    ceiling, a named box could grow back to #1051's 44px slab with every check green."""
+    assert not read["stolen"], (
+        "a hit area takes taps inside another control's box:\n  "
+        + "\n  ".join(sorted(set(read["stolen"]))))
+    assert not read["widened"], (
+        "a hit area widens what a scroller scrolls:\n  " + "\n  ".join(sorted(set(read["widened"]))))
+    controls = read["controls"]
+    taller = {name: max(c["height"] for c in seen) for name, seen in controls.items()
+              if any(c["height"] > c["supabase"] + 0.01 for c in seen)}
+    assert set(taller) == set(taller_than_supabase), (
+        f"taller than Supabase's size, not named: {sorted(set(taller) - set(taller_than_supabase))}\n"
+        f"named, and not taller any more (take the name out): "
+        f"{sorted(set(taller_than_supabase) - set(taller))}\n"
+        f"all: {dict(sorted(taller.items()))}")
+    rose = {name: (round(height, 2), taller_than_supabase[name][0])
+            for name, height in taller.items() if height > taller_than_supabase[name][0] + 0.5}
+    assert not rose, f"box taller than the ceiling named for it, (now, ceiling): {rose}"
+    short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
+             if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
+    assert set(short) == set(short_of_the_floor), (
+        f"reached across less than {_TOUCH_FLOOR}px, not named: "
+        f"{sorted(set(short) - set(short_of_the_floor))}\n"
+        f"named, and not short any more (take the name out): "
+        f"{sorted(set(short_of_the_floor) - set(short))}\n"
+        f"all: {dict(sorted(short.items()))}")
+    fell = {name: (reach, short_of_the_floor[name][0]) for name, reach in short.items()
+            if reach < short_of_the_floor[name][0] - 0.5}
+    assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
+
+
+_PADDING = ("#1430: its padding and type, or a literal height off Supabase's scale, stand it "
+            "taller than its SIZE height")
+_NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
+              "44px floor on its box")
+_TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
+                 "Supabase component it is cannot be computed")
+_A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
+          "rule 2)")
+_GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px "
+                 "(input-group.tsx@86c813ec:125, :130, :137), stands as a full-height 32px "
+                 "segment of the converter's group")
+
+#: Controls whose box is taller than their Supabase component's on a touch screen, each with
+#: its ceiling and why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its
+#: size fails the test until its name goes, and a new one fails until it is named here with its
+#: reason. AND NO NAMED BOX MAY GROW: its ceiling is the tallest box the sweep read for it on
+#: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
+#: fails, as a reach more than half a pixel below its least does.
+_TALLER_THAN_SUPABASE = {
+    **dict.fromkeys(["#clear-sel", "#select-all"], (32.5, _PADDING)),
+    "button.split-button-primary": (34, _PADDING),
+    **dict.fromkeys([
+        "#add-cur", "#console-open", "#cur-use", "#db-integrity-check", "#db-open-backups",
+        "#jobs-reload", "#manage-backup", "#open-workbook", "#run", "#runtime-upgrade",
+        "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
+        "#source-edit-save", "#source-edit-wipe", "#source-manager-add",
+        "button.ghost.source-manager-edit"], (36, _PADDING)),
+    **dict.fromkeys(["#engine-download", "#engine-recheck"], (40, _PADDING)),
+    "button.accounts-action": (56, _PADDING),
+    **dict.fromkeys([
+        "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
+        "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
+        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+    **dict.fromkeys([
+        "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
+        "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
+        "#tab-sources", "#workspace-toggle", ".appearance-scheme-picker > button",
+        "button.sx-select-option", "#runtime-restart", "#engine-diagnostics",
+        "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    "#engine-copy-details": (48.5, _TOUCH_TARGET),
+    "button.engine-row": (103, _TOUCH_TARGET),
+    "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
+    "button.account-switch": (42, _A_ROW),
+    "button.accounts-disclosure": (44, _A_ROW),
+    "#drive-review-permissions": (48, _A_ROW),
+    "button.workspace-destination": (80, _A_ROW),
+    "button.link.sect.settings-toggle": (80.5, _A_ROW),
+    "button.manage-account-row.manage-account-row-button.has-lead": (91, _A_ROW),
+    "button.appearance-palette-tile": (129, _A_ROW),
+    **dict.fromkeys(["#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
+                    (32, _GROUP_BUTTON)),
+}
+
+#: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
+#: keep and why. The least is what it reached before #1051, measured on main 333e680f, for all
+#: but the converter's amount, whose reason says what it lost. It may only shrink, the same way.
+_SHORT_OF_THE_FLOOR = {
+    "#signout": (26, "its view's scroll edge clips the top of its reach; its own min-height "
+                     "outranked the floor, so it was a 26px square"),
+    "#db-open-backups": (35.5, "the row button flush below it takes its own box, as it did"),
+    "#finance-converter-target-trigger": (41.5, "the source row above it stacks at z-index 2 and "
+                                                "takes their shared gap first, as it did"),
+    "#finance-converter-amount": (32, "#1051, his to decide: it reached 44 only because the "
+                                      "triggers' floor stretched its row past the row's own "
+                                      "34px, and an <input> draws no ::before to keep it"),
+}
+
+
+def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
+    """#1051's sweep. On a touch screen every button and input in the panel has a box no taller
+    than its Supabase component's, and a tap still reaches it across at least the 44px the
+    coarse-pointer floor gave it, through its hit area (design/components.css). The two
+    exception lists name every control that is not there yet, and why.
+
+    AND NO REACH TAKES ANOTHER CONTROL'S TAP. A hit area paints over what is under it, so a
+    reach longer than the gap to a neighbour takes the edge of the neighbour's box: Supabase
+    keeps adjacent reaches a gap apart for that reason
+    (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Every point along
+    the inside edges of every control-like box on these screens is read, and a point the
+    control holds with every hit area off must still be its with them on (_SWEEP says why).
+    Measured in the web UI, a 2x2 grid of filters 4px apart failed it until
+    scrapex/webui/static/pages/schedules.css kept their floor on the box."""
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        "the page did not open as a touch screen, so nothing below is about one")
+    read = {"controls": {}, "stolen": [], "widened": []}
+    for scope, steps in _SWEEP_SCREENS:
+        for kind, target in steps:
+            if kind == "press":
+                page.keyboard.press(target)
+            else:
+                page.wait_for_selector(target, state="visible")
+                page.click(target)
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry and the listbox's `select-menu-in` scale every
+        # box they hold while they run (settle_view says why), and the listbox's options read
+        # 47.04, 48 at 0.98, until it ends. An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        read_the_sweep(page, scope, scope, read)
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 100 and len(read["controls"]) >= 70, (
+        f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
+    assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
+
+
+@pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
+def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach(
+        open_panel, touch):
+    """The panel's listbox trigger is Supabase's SelectTrigger, small, 34px
+    (select.tsx@86c813ec:31-38 at SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:62, :111).
+    Until #1051 it read --touch-target, a 48px box on every pointer.
+
+    34 IS A HEIGHT, NOT A FLOOR, and the value is one line, truncated, as Supabase's
+    `[&>span]:truncate` (select.tsx@86c813ec:53). As a floor, the 20px chevron stood the
+    trigger 38px, and on a 320px panel with a mouse the default mode's label wrapped and
+    stood it 54px. The value and the chevron stand on the box's middle line, as Supabase's
+    `items-center` line does (select.tsx@86c813ec:50): taller than the 16px inside the
+    padding, they sat 2px below it until the row was centred.
+
+    On a touch screen the 48px is its reach, through its hit area: a tap 23px from its centre
+    lands on it and one 25px away does not. With a mouse the box is the reach, as Supabase's
+    is, so a tap 2px past the box is not the trigger's."""
+    page = open_panel(view="run", touch=touch)
+    settle_view(page, "run")
+    trigger = page.locator("#run-mode-trigger")
+    trigger.scroll_into_view_if_needed()
+    box = trigger.bounding_box()
+    assert box and box["height"] == 34, box
+    middles = trigger.evaluate("""(el) => [el, el.querySelector('[data-select-label]'), el.querySelector('svg')]
+      .map((part) => { const r = part.getBoundingClientRect(); return r.top + r.height / 2; })""")
+    assert max(middles) - min(middles) < 0.5, (
+        f"the value and the chevron are off the trigger's middle line (box, value, chevron): {middles}")
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    reach = 23 if touch else box["height"] / 2 - 1
+    beyond = 25 if touch else box["height"] / 2 + 2
+    taken = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-reach, reach)]
+    missed = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-beyond, beyond)]
+    assert taken == ["run-mode-trigger", "run-mode-trigger"], (touch, reach, taken)
+    assert "run-mode-trigger" not in missed, (
+        f"{'touch' if touch else 'mouse'}: a tap {beyond}px from the trigger's centre landed on "
+        f"it, so its reach is more than {'48px' if touch else 'its box'}: {missed}")
+
+    # The narrowest panel, with a value wider than the trigger: one line, inside a 34px box.
+    page.set_viewport_size({"width": 320, "height": 800})
+    narrow = trigger.evaluate("""(el) => {
+      const label = el.querySelector('[data-select-label]');
+      label.textContent = 'Update existing data from every source this panel reads';
+      // A line per distinct top: a truncated line is two rects, its text and its ellipsis.
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      const lines = new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const r = el.getBoundingClientRect(), l = label.getBoundingClientRect();
+      return {box: r.height, lines,
+              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth,
+              centred: Math.abs(l.top + l.height / 2 - (r.top + r.height / 2)) < 0.5};
+    }""")
+    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True, "centred": True}, (
+        f"{'touch' if touch else 'mouse'}, 320px: a long value no longer stays one truncated "
+        f"line in the trigger's 34px: {narrow}")
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):

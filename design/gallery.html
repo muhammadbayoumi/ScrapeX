@@ -313,11 +313,10 @@
       <code class="code">icon-button</code> is Supabase's icon-only Button, 36 by 26:
       the tiny Button's padding around a 14px icon, at the Button's default size. With a
       mouse, <code class="code">compact</code> and <code class="code">xs</code> draw the
-      same box, because Supabase's Button has no size below tiny. On a touch screen they
-      part: a plain <code class="code">icon-button</code> takes the 44px coarse-pointer
-      floor and draws 36 by 44 until #1051, while <code class="code">compact</code> and
-      <code class="code">xs</code> stay 26px tall under that floor, so a primary or
-      destructive action never uses them. <code class="code">icon-button</code> and
+      same box, because Supabase's Button has no size below tiny, and on a touch screen
+      too: the 44px coarse-pointer floor is the reach of each one's hit area (below), not
+      its box, so none of them draws the 26 by 44 slab a plain
+      <code class="code">icon-button</code> drew until #1051. <code class="code">icon-button</code> and
       <code class="code">compact</code> were never composable until 2026-08-05 —
       together they drew a rectangle.
     </p>
@@ -339,6 +338,31 @@
 &lt;button class="ghost icon-button compact" aria-label="Download"&gt;…&lt;/button&gt;
 &lt;button class="ghost icon-button xs" aria-label="Sign out"&gt;…&lt;/button&gt;
 &lt;button class="link"&gt;A button that reads as a link&lt;/button&gt;</pre>
+  </div>
+
+  <div class="g-item">
+    <h3>Hit area</h3>
+    <p class="g-why">
+      Supabase's larger target that leaves the box where it is: a
+      <code class="code">::before</code> at negative insets
+      (<code class="code">packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49</code>).
+      <code class="code">hit-area-2</code> reaches 8px past each side, for the compact
+      controls in a table's action cell, and two side by side keep at least 8px between
+      them, so their reaches meet in the gap and neither covers the other's box
+      (<code class="code">components/table.mdx@86c813ec:197</code>). The snippet's
+      <code class="code">action-cell</code> is the enrichment page's
+      (<code class="code">extension/enrichment.css</code>), which keeps a cell's actions on
+      one line and that gap apart. On a touch screen every
+      button reaches <code class="code">--touch-floor</code>, 44px, tall the same way.
+    </p>
+    <div class="g-demo cluster">
+      <button type="button" class="ghost hit-area-2">Inspect</button>
+      <button type="button" class="ghost hit-area-2">Edit</button>
+    </div>
+    <pre>&lt;td class="action-cell"&gt;
+  &lt;button class="ghost hit-area-2"&gt;Inspect&lt;/button&gt;
+  &lt;button class="ghost hit-area-2"&gt;Edit&lt;/button&gt;
+&lt;/td&gt;</pre>
   </div>
 
   <div class="g-item">

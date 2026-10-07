@@ -17,8 +17,9 @@
      Input or Select small, 34px. A 48px floor stood here until R-85/OD-09 deleted
      it («احذفها», 2026-09-02), because Supabase's scale has no 48px step.
      `--touch-target` is not a control height: it keeps its explicit reads in this
-     file, where an element is sized for touch on purpose, and #1051 moves that
-     reach into an invisible hit area. */
+     file, where an element is sized for touch on purpose. On a touch screen the
+     Select trigger's 48px is the reach of its invisible hit area (#1051); the other
+     reads still size a box, and which of them become a hit area is his (#1051). */
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
@@ -88,10 +89,11 @@
   }
   .sx-select-trigger {
     width: 100%;
-    min-height: var(--touch-target);
+    height: var(--control-height-small);
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    align-content: center;
     gap: var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
@@ -120,6 +122,28 @@
   }
   .sx-select.is-open .sx-select-trigger .sx-icon {
     transform: rotate(180deg);
+  }
+  /* Its height is SelectTrigger's h-[34px], a height and not a floor, and its value is one
+     line, truncated, as Supabase's `[&>span]:truncate` (select.tsx@86c813ec:53,
+     constants.ts@86c813ec:62). As a floor, the 20px chevron stood it 38px, and the default
+     mode's label, wrapping on a 320px panel with a mouse, 54px (#1051). The row is centred
+     in the box, as their `items-center` line is (select.tsx@86c813ec:50): the chevron is
+     taller than the 16px inside the padding, and a grid sets a row taller than its box at
+     the top, so the value and the chevron sat 2px below the middle. */
+  .sx-select-trigger > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Supabase's SelectTrigger is small, 34px (select.tsx@86c813ec:37-38 at
+     SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:111), on every pointer. --touch-target,
+     48px, was its box until #1051; on a touch screen it is its reach, through its hit
+     area (design/components.css), and with a mouse the box is the reach, as Supabase's. */
+  @media (hover: none), (pointer: coarse) {
+    .sx-select-trigger {
+      --hit-area-t: min(0px, (100% - var(--touch-target)) / 2);
+      --hit-area-b: min(0px, (100% - var(--touch-target)) / 2);
+    }
   }
   .sx-select-list {
     position: absolute;
@@ -399,10 +423,12 @@
     background-clip: padding-box;
   }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
-                  color: var(--text); cursor: pointer;
+                  color: var(--text);
                   transition: border-color var(--dur-fast) var(--ease-in-out),
                               background var(--dur-fast) var(--ease-in-out); }
-  .dataset-card:hover {
+  /* Only a card that opens something looks as if it does (`loadDatasets`). */
+  .dataset-card[role="link"] { cursor: pointer; }
+  .dataset-card[role="link"]:hover {
     border-color: var(--accent);
     background: var(--surface-subtle);
   }
@@ -691,6 +717,15 @@
   .source-edit-back {
     display: grid;
     place-items: center;
+  }
+  /* The sticky heading holds this button at its view's scroll edge, which clips a hit
+     area reaching up, so on a touch screen it reaches down the whole of what its box
+     lacks of the 44px floor, as the floor's own box did (#1051). Centred, it kept 35. */
+  @media (hover: none), (pointer: coarse) {
+    .source-edit-back {
+      --hit-area-t: 0px;
+      --hit-area-b: min(0px, 100% - var(--touch-floor));
+    }
   }
   .source-edit-summary {
     display: flex;
@@ -1119,6 +1154,16 @@
   /* The Add Site panel holds the full settings form. Capping it keeps the other
      choices reachable without scrolling past every field. */
   .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
+  /* "Use this page" is the last thing in its panel, which clips so that it can open, so a hit
+     area reaching down lost its last 4px to the clip and gave the panel 4px to scroll on a
+     touch screen. It reaches up the whole of what its box lacks of the 44px floor instead,
+     Supabase's one-sided hit-area-t (hit-area.css@86c813ec:82-95), into the gap above (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    #cur-use {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
+  }
   .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .source-preview-icon { width: 1.0625rem; height: 1.0625rem; flex: none; margin-top: .125rem; }
   .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
@@ -1818,6 +1863,17 @@
     color: var(--muted);
     font-size: var(--fs-xs);
   }
+  /* Signed in, the legal row sits on the bottom edge of the stage, the page's one scroller, so
+     a hit area reaching down past it made the page scroll by 10px on a touch screen. The row's
+     button reaches up the whole of what its box lacks of the 44px floor instead, Supabase's
+     one-sided hit-area-t (hit-area.css@86c813ec:82-95), over the row's top padding and the
+     page's free space above it, where no control stands (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    .profile-legal button {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
+  }
 
   /* ---- the accounts card ------------------------------------------------
      The identity block above is fixed; this is the part that grows with how
@@ -2338,6 +2394,7 @@
   /* Sizes and counts read as data, not prose. */
   .manage-account-figure {
     font-family: var(--font-mono);
+    --fw-regular: var(--fw-regular-mono);
   }
 
   /* The backup card: the same column as the danger card below it, without the
