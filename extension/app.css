@@ -2298,6 +2298,7 @@
   /* Sizes and counts read as data, not prose. */
   .manage-account-figure {
     font-family: var(--font-mono);
+    --fw-regular: var(--fw-regular-mono);
   }
 
   /* The backup card: the same column as the danger card below it, without the

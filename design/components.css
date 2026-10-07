@@ -24,12 +24,16 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/* Supabase's body is `font-normal`, their --font-weight-normal 450, and never
+   synthesises a weight its face does not have (globals.css@86c813ec:35, :62, :64). */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  font-synthesis-weight: none;
   line-height: var(--lh);
 }
 
@@ -800,6 +804,7 @@ button.chip {
   flex: none;
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
   line-height: inherit;
@@ -895,6 +900,24 @@ code {
   background: var(--chip);
   font-family: var(--font-mono);
   font-size: 0.9em;
+}
+
+/* THEIR MONO CONTEXT (#752). Supabase names it in
+   apps/design-system/styles/globals.css@86c813ec:70-75 -- `code, .code-content, pre,
+   kbd, samp, .font-mono` -- and re-declares --font-weight-normal as 400 inside it
+   (:89). This is that selector, with .tech and .code where they write .font-mono and
+   .code-content. It sets no weight: a bare mono run inherits body's 450, and only a
+   run that asks for the normal weight, var(--fw-regular), draws 400. A rule in
+   another sheet that sets var(--font-mono) is reached by none of it, so it
+   re-declares the token itself; tests/test_the_body_reads_supabases_normal_weight.py
+   names one that does not. */
+code,
+pre,
+kbd,
+samp,
+.tech,
+.code {
+  --fw-regular: var(--fw-regular-mono);
 }
 
 .page-header {
@@ -1533,6 +1556,7 @@ code {
 .split-button-option-tag {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 

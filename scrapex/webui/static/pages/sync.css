@@ -380,6 +380,7 @@
   background: var(--accent-weak);
   color: var(--accent-ink);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-sm);
 }
 
