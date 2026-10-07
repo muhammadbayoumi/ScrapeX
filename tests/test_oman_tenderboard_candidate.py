@@ -246,11 +246,9 @@ def test_a_page_with_nothing_refused_carries_no_warning():
     assert _candidate().warnings == ()
 
 
-def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
-        tmp_path, monkeypatch):
-    """The real `contractors.approve`, the real Oman directory and the real schema: a
-    page that refused a row is approved, and the log he reads names the row it left
-    out. Approved silently, the refusal would be the same gap #1333 was."""
+def _approve_log(tmp_path, monkeypatch, english: str, arabic: str) -> str:
+    """What the real `contractors.approve` says over one stored Oman page pair, on the
+    real Oman directory and the real schema."""
     import io
     from contextlib import redirect_stdout
 
@@ -273,7 +271,6 @@ def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
             conn.commit()
             return int(cursor.lastrowid)
 
-        english, arabic = _disagreeing(_pairable_en()), AR
         en_url = "https://esnad.example/page?CTRL_STRDIRECTION=LTR&pageNo=369"
         ar_url = "https://esnad.example/page?CTRL_STRDIRECTION=RTL&pageNo=369"
         pair = {"en": (stored(en_url, english), english),
@@ -287,10 +284,52 @@ def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
         said = io.StringIO()
         with redirect_stdout(said):
             contractors.approve(conn, directories.get("oman_tenderboard"), "run-1")
-        log = said.getvalue()
+        return said.getvalue()
     finally:
         conn.close()
+
+
+def _only(html: str, key: str) -> str:
+    """The page with every firm row removed except `key`'s."""
+    def keep(match):
+        return match.group(0) if key in match.group(0) else ""
+    return re.sub(r"<tr[^>]*>(?:(?!</tr>).)*getProcActivities(?:(?!</tr>).)*</tr>",
+                  keep, html, flags=re.DOTALL)
+
+
+def test_the_interpretation_names_the_refused_row_beside_the_page_it_approved(
+        tmp_path, monkeypatch):
+    """A page that refused a row is approved, and the log he reads names the row it
+    left out. Approved silently, the refusal would be the same gap #1333 was."""
+    log = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
 
     assert "approved 1 page(s)" in log, log
     assert "approved page-369 without a row: row 00169963 refused: " in log, log
     assert "refused page-369" not in log, "the page itself must not read as refused"
+
+
+def test_a_page_whose_only_firm_was_refused_is_not_called_approved(
+        tmp_path, monkeypatch):
+    """Nothing left to approve, so the page is REFUSED -- and the log must not also
+    claim it was approved without a row."""
+    log = _approve_log(tmp_path, monkeypatch,
+                       _only(_disagreeing(_pairable_en()), "nabil"),
+                       _only(AR, "00169963"))
+
+    assert "approved 0 page(s)" in log, log
+    assert "refused page-369: row 00169963 refused: " in log, log
+    assert "without a row" not in log, log
+
+
+def test_a_page_whose_write_failed_is_not_called_approved(tmp_path, monkeypatch):
+    """The write rolled back, so nothing was approved; the row it would have left out
+    must not be reported as left out of an approval that never happened."""
+    from scrapex.extract import service
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(service, "approve_candidate", fail)
+    log = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
+
+    assert "refused page-369: RuntimeError: disk full" in log, log
+    assert "without a row" not in log, log

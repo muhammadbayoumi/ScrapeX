@@ -405,10 +405,15 @@ def test_a_key_that_disagrees_with_the_rows_own_activities_argument_refuses_that
 def test_two_disagreeing_rows_on_one_page_still_refuse_the_page():
     """One in 23,619 is a mistyped row. Two on one page is the reader's key having
     stopped being the record key, which is what the refusal was always for."""
-    with pytest.raises(RegisterShapeError, match="two rows on one page"):
+    with pytest.raises(RegisterShapeError, match="two rows on one page") as refused:
         read_page(_page([_row(short="00001234", echo="00009999"),
                          _row(short="00005555", echo="00005555"),
                          _row(short="00007777", echo="00008888")]))
+
+    said = str(refused.value)
+    assert "'00001234'" in said and "'00007777'" in said, (
+        f"the refusal must name both rows, or the log says a page was lost and not "
+        f"which rows lost it: {said}")
 
 
 def test_the_partition_names_a_refused_row_and_refuses_nothing_on_a_clean_page():

@@ -34,6 +34,9 @@ from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.pagesource import WHOLE, Cell
 from scrapex.partitioncrawl import (
     DRY_ATTEMPTS,
+    Attempt,
+    CellOutcome,
+    CellSize,
     NotASubdivision,
     crawl_partition,
     size_cell,
@@ -673,17 +676,23 @@ def test_a_parse_failure_is_not_reported_as_a_dead_page(conn):
 
 
 class _Refusing(Partition):
-    """Refuses ROW 3 alone, as the Oman reader refuses `ALWASIT` (#1333), and cannot
-    read the page holding row 6 at all. Neither is on the pages sizing reads except
-    row 3, which is on page 1 -- the page sizing takes its per-page count from."""
+    """Refuses ROW 3 and ROW 11 alone, as the Oman reader refuses `ALWASIT` (#1333),
+    and cannot read the page holding row 6 at all.
+
+    THE TWO REFUSED ROWS SIT ON THE TWO PAGES SIZING READS: row 3 on page 1, where the
+    per-page count comes from, and row 11 on the last page, where the tail count does.
+    Either one counted as unpublished makes the declared size one short."""
+
+    _REFUSED = {"3": "3: its two keys disagree", "11": "11: its two keys disagree"}
 
     def read_ids(self, html: str) -> tuple[str, ...]:
         if '/row/6/' in html:
             raise RuntimeError("this page is not the shape the reader knows")
-        return tuple(one for one in super().read_ids(html) if one != "3")
+        return tuple(one for one in super().read_ids(html) if one not in self._REFUSED)
 
     def refused_rows(self, html: str) -> tuple[str, ...]:
-        return ("3: its two keys disagree",) if '/row/3/' in html else ()
+        return tuple(why for one, why in self._REFUSED.items()
+                     if f"/row/{one}/" in html)
 
 
 def _refusing_run(conn):
@@ -698,12 +707,13 @@ def _refusing_run(conn):
 
 def test_a_refused_row_is_still_a_row_the_page_published(conn):
     """Sized from `read_ids` alone, page 1's refused row made every page one row
-    short: `(3 − 1) · 3 + 4 = 10` where the cell publishes 12, and the deficit that
-    should have named the refusal would have hidden it."""
+    short and the tail's made the last page one short: `(3 − 1) · 3 + 3 = 9` where the
+    cell publishes 12, and the deficit that should have named the refusals would have
+    hidden them."""
     only = _refusing_run(conn).cells[0]
 
     assert only.size.declared == 12, str(only.size)
-    assert "3" not in only.ids and "6" not in only.ids
+    assert not {"3", "6", "11"} & set(only.ids)
 
 
 def test_the_report_names_what_the_reader_refused_once_each(conn):
@@ -714,11 +724,70 @@ def test_the_report_names_what_the_reader_refused_once_each(conn):
     report = str(outcome)
 
     assert len(outcome.cells[0].attempts) > 1, "the fixture must re-read the pages"
-    assert "1 page(s) the reader refused, so none of their rows count:" in report
-    assert "1 row(s) the reader refused on pages it read, so they do not count:" in report
+    lines = report.splitlines()
+    pages = lines.index("1 page(s) the reader refused, so none of their rows count:")
+    rows = lines.index("2 row(s) the reader refused on pages it read, so they do not count:")
+    # EACH ENTRY UNDER ITS OWN HEADING. Swapped, a refused row would be reported as a
+    # refused page -- fifty firms lost where one was.
+    assert "page=2" in lines[pages + 1] and "not the shape" in lines[pages + 1], report
+    assert "3: its two keys disagree" in lines[rows + 1], report
+    assert "11: its two keys disagree" in lines[rows + 2], report
     assert report.count("3: its two keys disagree") == 1, report
+    assert report.count("11: its two keys disagree") == 1, report
     assert report.count("not the shape the reader knows") == 1, report
     assert "page=1" in report.split("3: its two keys disagree")[0].splitlines()[-1]
+
+
+def _cell_that_refused(ids_per_attempt, *, refused=True, witnessed=False):
+    """A cell declaring 12 rows, read once per entry of `ids_per_attempt`, each read
+    refusing row 3 on page 1 when `refused`."""
+    size = CellSize(cell=WHOLE, last_page=3, cards_per_page=4, tail_cards=4, requests=2)
+    why = (("https://site.test/en/list?page=1", "3: its two keys disagree"),)
+    return CellOutcome(size=size, attempts=tuple(
+        Attempt(ids=tuple(ids), pages_read=3, witnessed=witnessed, note="",
+                run_ref=f"a{n}", refused_rows=why if refused else ())
+        for n, ids in enumerate(ids_per_attempt, 1)))
+
+
+def test_an_arrival_does_not_close_a_cell_over_a_refused_row():
+    """The reviewer's case on #1537. Declared 12, row 3 refused, so the reader can see
+    11 -- until one firm joins between reads and the union reaches 12. Called complete,
+    the cell would let `mark_departures` mark the refused firm absent while the site
+    still publishes it."""
+    first = [str(n) for n in range(1, 13) if n != 3]
+    arrival = ["13"] + first[:10]
+    refusing = _cell_that_refused([first, arrival])
+    clean = _cell_that_refused([first, arrival], refused=False)
+
+    assert len(refusing.ids) == refusing.size.declared == 12, "the fixture must reach N"
+    assert clean.provably_complete, "without the refusal the count would close it"
+    assert not refusing.provably_complete
+    assert refusing.proof_kind == ""
+    assert "COMPLETE" not in str(refusing), str(refusing)
+
+
+def test_a_witness_does_not_close_a_cell_over_a_refused_row_either():
+    every = [str(n) for n in range(1, 13) if n != 3] + ["13"]
+    assert not _cell_that_refused([every], witnessed=True).provably_complete
+    assert _cell_that_refused([every], witnessed=True, refused=False).provably_complete
+
+
+def test_a_resumed_run_names_the_rows_refused_on_the_pages_it_replays(conn):
+    """The reviewer's second case: a replayed page is read off disk by `_ids_from_disk`
+    alone, so its refused row went unnamed and the resumed report said only `D=…`."""
+    _refusing_run(conn)
+    one = cell(region_id=1)
+    ids = [str(n) for n in range(1, 13)]
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+    resumed = crawl_partition(conn, _Refusing(directory, cells=(one,)), BASE,
+                              fetch=directory.fetch, run_ref="run-1",
+                              dataset_key="rows", max_attempts=3, resize_at_end=False)
+
+    replays = [a for a in resumed.cells[0].attempts if a.pages_read == 0]
+    assert replays, "the second run must replay what the first stored"
+    assert all(a.refused_rows for a in replays), [a.refused_rows for a in replays]
+    report = str(resumed)
+    assert "3: its two keys disagree" in report and "11: its two keys disagree" in report
 
 
 def test_a_crawl_that_refused_nothing_says_nothing_about_refusals(conn):

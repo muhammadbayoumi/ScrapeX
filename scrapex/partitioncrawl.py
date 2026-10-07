@@ -382,12 +382,28 @@ class CellOutcome:
         return bool(self.attempts) and len(self.ids) == self.size.declared
 
     @property
+    def refused_a_row(self) -> bool:
+        """Whether any read of this cell left a row the site published uncounted."""
+        return any(attempt.refused_rows for attempt in self.attempts)
+
+    @property
     def provably_complete(self) -> bool:
-        """Either proof suffices, and the report says which one carried it."""
+        """Either proof suffices, and the report says which one carried it.
+
+        NEITHER PROOF HOLDS OVER A REFUSED ROW (#1333). The cell declares the row and
+        the reader will not count it, so its distinct ids can reach `declared` only by
+        an ARRIVAL standing in for it -- one new firm during a read of 23,619 -- and a
+        cell called complete then lets `mark_departures` mark the refused firm absent
+        while the site still publishes it.
+        """
+        if self.refused_a_row:
+            return False
         return self.proof is not None or self.counted_complete
 
     @property
     def proof_kind(self) -> str:
+        if not self.provably_complete:
+            return ""
         if self.proof is not None:
             return "witness"
         if self.counted_complete:
@@ -715,8 +731,14 @@ class _Unstored:
 
 
 def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
-                   urls: Iterable[str]) -> dict[str, tuple[str, ...]]:
-    """Ids for pages this run had already stored, read back off the evidence.
+                   urls: Iterable[str]
+                   ) -> tuple[dict[str, tuple[str, ...]], list[tuple[str, str]]]:
+    """Ids for pages this run had already stored, read back off the evidence -- and the
+    rows the reader refused on them, `(url, why)`.
+
+    THE REFUSALS COME BACK WITH THE IDS. A replayed page is read here and nowhere else,
+    so a refusal not collected here is a refused row a resumed run never names: the
+    deficit it leaves reads as the site's shortfall, which is #1333 again.
 
     THIS IS WHAT THE SNAPSHOTS ARE FOR, and without it a resumed run reports a
     false deficit. `snapshotcrawl`'s resume SKIPS urls this run already stored —
@@ -730,6 +752,7 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
     this attempt, and the retry that follows is the method working.
     """
     found: dict[str, tuple[str, ...]] = {}
+    refused: list[tuple[str, str]] = []
     for url in urls:
         row = conn.execute(
             "SELECT page_snapshot_id, source_url, html_content, html_codec, "
@@ -739,13 +762,15 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
         if row is None:
             continue
         try:
-            found[url] = partition.read_ids(decode(conn, row))
+            html = decode(conn, row)
+            found[url] = partition.read_ids(html)
+            refused.extend((url, why) for why in partition.refused_rows(html))
         except Exception:
             # A page that cannot be decoded or parsed contributes nothing and
             # must not end the crawl. It shows up as a smaller `recovered` set
             # against a larger `skipped` one, which is visible in the report.
             continue
-    return found
+    return found, refused
 
 
 def witness(fetch: Fetch, partition: PartitionedListing, base_url: str,
@@ -854,8 +879,9 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
     # declined. Reading both means a change in either module leaves the arithmetic
     # right rather than quietly short by a page.
     left_out = [url for url in wanted if url in stored]
-    recovered = _ids_from_disk(
+    recovered, refused_on_disk = _ids_from_disk(
         conn, partition, dict.fromkeys(left_out + list(outcome.skipped)))
+    refused_rows.extend(refused_on_disk)
     for url, ids in recovered.items():
         if url in wanted:
             seen.setdefault(wanted[url], ids)
