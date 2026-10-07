@@ -114,6 +114,7 @@ Compose, do not invent.
 | `icon-button compact` | the same 36×26 box — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny |
 | `split-button` + `split-button-primary` / `-trigger` / `-menu` / `-option` | an action with a menu beside it |
 | `hit-area-2` | reaches 8px past each side through an invisible `::before`, the box unchanged: Supabase's for a table's action cell (`components/table.mdx@86c813ec:197`), where two side by side keep 8px apart |
+| `touch-reach` | a Button drawn as another element, a `<summary>` or an `<a>`: on a touch screen it reaches 44px tall through a Button's hit area, and with a mouse it keeps its box, as every button does (#1051, #1430) |
 
 **Surfaces** `card` · `card hi` · `card warn` · `banner` · `grid` · `row` ·
 `stack` · `cluster` · `srow` · `section-header` · `page-header` · `page-title` ·

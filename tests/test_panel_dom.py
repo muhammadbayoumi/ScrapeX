@@ -7561,6 +7561,14 @@ def test_on_a_touch_screen_an_icon_button_keeps_its_box_and_its_hit_area_keeps_t
         f"the reach grew past the 44px it was: {beyond}")
 
 
+#: Buttons the web UI draws as another element: the dataset picker's trigger is a <summary>
+#: and the source list's icon link an <a> (design/data-workspace.css). Each is held to the
+#: Button's size (tests/test_the_web_ui_controls_are_supabases_sizes.py) and, on a touch
+#: screen, to its reach (tests/test_no_reach_takes_another_controls_tap.py), which its
+#: `touch-reach` class draws as a Button's hit area (design/components.css).
+WEB_ALSO = ["summary.dataset-menu-trigger", "a.dataset-icon-button"]
+
+
 #: The Supabase component each control the sweeps read is, by the first selector it matches, and
 #: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
 #: it is written down. The sweep resolves the value against the page's own tokens. The listbox
@@ -7568,11 +7576,13 @@ def test_on_a_touch_screen_an_icon_button_keeps_its_box_and_its_hit_area_keeps_t
 #: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
 #: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
 #: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
+#: The web UI's Buttons drawn as another element are Buttons too, so their reach is read.
 _SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
     (".sx-select-trigger", SELECT_TRIGGER),
     (".finance-converter-row input", GROUP_INSIDE),
     ("input, select", INPUT),
-    ("button, .button", BUTTON))]
+    ("button, .button", BUTTON),
+    (", ".join(WEB_ALSO), BUTTON))]
 
 #: What every button and input reached on a touch screen before #1051: the coarse-pointer
 #: block's `min-height: 2.75rem`, which is --touch-floor now.
@@ -7601,7 +7611,7 @@ _SWEEP_SCREENS = (
 #:
 #: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
 #: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
-#: `pointer-events: none` on the three ::before selectors design/components.css draws a hit
+#: `pointer-events: none` on the four ::before selectors design/components.css draws a hit
 #: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
 #: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
 #: second read would be of another layout. A point the control never held is not counted:
@@ -7626,7 +7636,7 @@ _SWEEP = """([scopeSelector, sizes]) => {
   // Reads with `declaration` set on every hit area: design/components.css draws one with these.
   const withEveryHitArea = (declaration, read) => {
     const style = document.createElement('style');
-    style.textContent = `button::before, .button::before, .hit-area-2::before { ${declaration} !important; }`;
+    style.textContent = `button::before, .button::before, .touch-reach::before, .hit-area-2::before { ${declaration} !important; }`;
     document.head.append(style);
     try { return read(); } finally { style.remove(); }
   };
@@ -7667,7 +7677,7 @@ _SWEEP = """([scopeSelector, sizes]) => {
       const other = taker(x, y);
       if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
     });
-    if (!el.matches('button, .button, input:not([type=checkbox]):not([type=radio]), select')) continue;
+    if (el.matches('input[type=checkbox], input[type=radio]') || !heights.some(([selector]) => el.matches(selector))) continue;
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
     // the box from the centre, which a 30px scan read as 41.5 on a 24px link.

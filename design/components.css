@@ -1074,9 +1074,13 @@ samp,
    THIS RULE IS WHAT A HIT AREA IS, and it draws nothing: a ::before with no `content`
    is not generated. The two rules after it say where one is drawn. No button here
    draws a ::before of its own (the palette tile's check is its ::after), and an
-   <input> or a <select> draws none at all, so neither can carry one. */
+   <input> or a <select> draws none at all, so neither can carry one.
+   `touch-reach` is a Button drawn as another element, a <summary> or an <a>, which
+   neither `button` nor `.button` selects: on a touch screen it reaches as a Button
+   does, and with a mouse it keeps its box, as a Button does. */
 button::before,
 .button::before,
+.touch-reach::before,
 .hit-area-2::before {
   position: absolute;
   top: var(--hit-area-t, 0px);
@@ -1114,14 +1118,16 @@ button::before,
    44px reach, and that choice is his (#1051). */
 @media (hover: none), (pointer: coarse) {
   button,
-  .button {
+  .button,
+  .touch-reach {
     position: relative;
     --hit-area-t: min(0px, (100% - var(--touch-floor)) / 2);
     --hit-area-b: min(0px, (100% - var(--touch-floor)) / 2);
   }
 
   button::before,
-  .button::before {
+  .button::before,
+  .touch-reach::before {
     content: "";
   }
 

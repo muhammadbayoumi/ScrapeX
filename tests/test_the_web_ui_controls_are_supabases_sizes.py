@@ -16,16 +16,12 @@ pytest.importorskip("playwright")
 pytest.importorskip("fastapi")
 
 from tests.test_panel_dom import (  # noqa: E402,F401  (the fixture)
-    _ICON_ONLY, _READ_SIZES, _SIZE, browser)
+    _ICON_ONLY, _READ_SIZES, _SIZE, WEB_ALSO, browser)
 from tests.test_the_focus_ring_draws_in_the_web_ui import (  # noqa: E402,F401  (the fixture)
     ORIGIN, PAGES, webui)
 
 # The shared Button and Input rules are design/components.css, which the panel ships too.
 pytestmark = pytest.mark.extension
-
-#: Buttons the web UI draws as another element: the dataset picker's trigger is a <summary>
-#: and the source list's icon link an <a> (design/data-workspace.css).
-ALSO = ["summary.dataset-menu-trigger", "a.dataset-icon-button"]
 
 #: Controls that are not at their SIZE height, each with why. THIS LIST ONLY SHRINKS, as the
 #: panel's `_OFF_SIZE` does.
@@ -55,14 +51,15 @@ def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
             webui.evaluate("() => document.querySelectorAll('details.sect').forEach((d) => { d.open = true; })")
             webui.wait_for_selector(".appearance-scheme-picker button", state="visible")
         controls += [{**control, "page": path}
-                     for control in webui.evaluate(_READ_SIZES, ["body", list(OFF_SIZE), ALSO])]
+                     for control in webui.evaluate(_READ_SIZES, ["body", list(OFF_SIZE), WEB_ALSO])]
 
     at_size = Counter(c["kind"] for c in controls if c["known"] is None)
     # 40 Buttons and 36 fields read at their size when #1430 measured; fewer means a page
     # did not draw.
     assert at_size["button"] >= 34 and at_size["field"] >= 30, dict(at_size)
     names = {c["name"] for c in controls}
-    assert {"summary.dataset-menu-trigger", "a.dataset-icon-button", "#probe-url"} <= names, (
+    assert {"summary.dataset-menu-trigger.touch-reach", "a.dataset-icon-button.touch-reach",
+            "#probe-url"} <= names, (
         "a control #1430 sized was not read")
 
     wrong = sorted({f"{c['page']} {c['name']} ({c['kind']}): {c['height']}px" for c in controls
@@ -81,7 +78,7 @@ def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
     # Every icon-only Button is Supabase's 36x26 around its 14px icon (#1430; his ruling on
     # #1457): the source list's icon link at this width.
     icon_only = [c for c in controls if c["iconOnly"] and c["known"] is None]
-    assert "a.dataset-icon-button" in {c["name"] for c in icon_only}, icon_only
+    assert "a.dataset-icon-button.touch-reach" in {c["name"] for c in icon_only}, icon_only
     boxes = sorted({f"{c['page']} {c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
                     for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})
     assert not boxes, "icon-only Buttons not 36x26 around a 14px icon:\n  " + "\n  ".join(boxes)

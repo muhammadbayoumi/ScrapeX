@@ -27,6 +27,7 @@ from tests.test_console_dom import WORKBOOK  # noqa: E402
 from tests.test_panel_dom import (  # noqa: E402,F401  (browser is the fixture)
     _A_ROW,
     _NO_BEFORE,
+    WEB_ALSO,
     assert_no_box_grows_and_no_reach_shrinks,
     browser,
     read_the_sweep,
@@ -75,7 +76,7 @@ _WEB_TALLER_THAN_SUPABASE = {
         "#probe-url", "#schedule-search", "#source-search", ".field > input[type=text]",
         ".field > input[type=url]", ".field > select", ".filters > select",
         ".schedule-field > input[type=text]", ".schedule-field > input[type=time]",
-        ".schedule-field > select"], (44, _NO_BEFORE)),
+        ".schedule-field > select", "input[type=search].dataset-search"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#settings-collection-tab", "#settings-connections-tab", "#settings-governance-tab",
         "#settings-workspace-tab"], (52, _A_ROW)),
@@ -85,7 +86,12 @@ _WEB_TALLER_THAN_SUPABASE = {
 }
 
 #: Web UI controls a tap reaches less than 44px of on a touch screen: (the least, why).
-_WEB_SHORT_OF_THE_FLOOR: dict[str, tuple[float, str]] = {}
+_WEB_SHORT_OF_THE_FLOOR: dict[str, tuple[float, str]] = {
+    "summary.data-grid-command.dataset-menu-trigger": (26, (
+        "the grid's dataset picker on /source stands 9px under the source overview's trigger, "
+        "so a centred 44px reach took that trigger's taps: it draws no hit area and reaches its "
+        "26px box, where main's 37px box reached 37, until #1367 rebuilds the grid")),
+}
 
 
 def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
@@ -103,8 +109,20 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
         assert response is not None and response.status == 200, (path, response and response.status)
         page.wait_for_load_state("networkidle")
         read_the_sweep(page, "body", path, read)
+        if path == "/data":
+            # The source list, and its icon link, are inside the dataset picker. Only the open
+            # picker is read: at 360px it covers its own trigger, which was read closed.
+            page.click("summary.dataset-menu-trigger")
+            page.wait_for_selector("a.dataset-icon-button", state="visible")
+            read_the_sweep(page, ".dataset-menu-popover", f"{path}, its dataset picker", read)
     count = sum(map(len, read["controls"].values()))
     assert count >= 90, f"the sweep read {count} buttons and fields; a page did not draw"
+    # The sweep names a control by its classes, and each of WEB_ALSO carries `touch-reach`.
+    named = [f"{selector}.touch-reach" for selector in WEB_ALSO]
+    also = {name: {(c["height"], c["reach"]) for c in seen}
+            for name, seen in read["controls"].items() if name in named}
+    assert also == dict.fromkeys(named, {(26, 44)}), (
+        f"a Button drawn as another element is not a 26px box that reaches 44px: {also}")
     menu = read["controls"].get("button.sidebar-toggle.workspace-menu-button.icon-button", [])
     assert len(menu) == len(PAGES) and {
         (c["width"], c["height"], c["reach"]) for c in menu} == {(36, 26, 44)}, (

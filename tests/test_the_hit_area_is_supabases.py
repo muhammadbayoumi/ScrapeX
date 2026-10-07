@@ -58,7 +58,7 @@ SUPABASE_BEFORE = {
     "left": "var(--hit-area-l, 0px)",
     "pointer-events": "inherit",
 }
-BEFORE = "button::before, .button::before, .hit-area-2::before"
+BEFORE = "button::before, .button::before, .touch-reach::before, .hit-area-2::before"
 COARSE = "@media (hover: none), (pointer: coarse)"
 
 #: Every read of --touch-target in a sheet this repository authors, and what it is. A REACH is
@@ -188,9 +188,10 @@ def test_on_a_touch_screen_the_floor_is_a_buttons_reach_and_no_buttons_box():
     coarse = _split(COMPONENTS.read_text(encoding="utf-8"), COARSE)[0]
     assert coarse, f"{C} has no `{COARSE}` block"
     reach = "min(0px, (100% - var(--touch-floor)) / 2)"
-    assert _declared("button, .button", coarse) == {
+    assert _declared("button, .button, .touch-reach", coarse) == {
         "position": ["relative"], "--hit-area-t": [reach], "--hit-area-b": [reach]}
-    assert _declared("button::before, .button::before", coarse) == {"content": ['""']}
+    assert _declared("button::before, .button::before, .touch-reach::before", coarse) == {
+        "content": ['""']}
     assert _declared("input, select", coarse) == {"min-height": ["var(--touch-floor)"]}
     lifted = [(sel, value) for sel, prop, value, _line in declarations(coarse)
               if prop in {"min-height", "height"} and re.search(r"(^|[\s,])\.?button\b", sel)]
