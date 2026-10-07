@@ -7501,10 +7501,10 @@ _TAKES_THE_TAP = """([x, y]) => {
 }"""
 
 
-def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_the_reach(
+def test_on_a_touch_screen_an_icon_button_keeps_its_box_and_its_hit_area_keeps_the_reach(
         open_panel):
-    """#1051's own test: on a touch screen an icon button's box is its control height,
-    26px, while a tap 4px outside the box still lands on it.
+    """#1051's own test: on a touch screen an icon button's box is Supabase's icon-only
+    Button, 36x26, while a tap 4px outside the box still lands on it.
 
     WHAT IT REPLACED. `design/components.css`'s `(hover: none), (pointer: coarse)`
     block lifted `button` to `min-height: 2.75rem`, so a plain `icon-button` drew
@@ -7512,10 +7512,13 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
     stayed 26px squares (#1432's comment on #1051). The 44px is now the reach of
     Supabase's hit area, a ::before at negative insets
     (packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49), so the box is the
-    tiny Button's square on every pointer and the reach is still 44px tall.
+    tiny icon-only Button's on every pointer, tiny's px-2.5 py-1 around a 14px icon (#1430,
+    his ruling on #1457), and the reach is still 44px tall.
 
     EXACTLY 44, NOT MORE. A tap 21px from the centre lands; 23px does not, so a reach
-    that grew to --touch-target's 48 fails here as surely as one that shrank.
+    that grew to --touch-target's 48 fails here as surely as one that shrank. The box's
+    26px is 24 inside its border, so each inset is (24 - 44) / 2, -10px, and the reach
+    ends 9px past the border, 22px from the centre, above and below.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -7539,10 +7542,10 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (26, 26),
-                     "#accounts-card .account-menu-button": (26, 26),
-                     "#signout": (26, 26)}, (
-        f"on a touch screen an icon button's box is its 26px control height: {sizes}")
+    assert sizes == {"#plain-icon-button-probe": (36, 26),
+                     "#accounts-card .account-menu-button": (36, 26),
+                     "#signout": (36, 26)}, (
+        f"on a touch screen an icon button's box is Supabase's icon-only Button, 36x26: {sizes}")
 
     box = page.locator("#plain-icon-button-probe").bounding_box()
     cx, top, bottom = box["x"] + box["width"] / 2, box["y"], box["y"] + box["height"]
@@ -7738,8 +7741,6 @@ def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: d
     assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
 
 
-_PADDING = ("#1430: its padding and type, or a literal height off Supabase's scale, stand it "
-            "taller than its SIZE height")
 _NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
               "44px floor on its box")
 _TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
@@ -7757,16 +7758,6 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
-    **dict.fromkeys(["#clear-sel", "#select-all"], (32.5, _PADDING)),
-    "button.split-button-primary": (34, _PADDING),
-    **dict.fromkeys([
-        "#add-cur", "#console-open", "#cur-use", "#db-integrity-check", "#db-open-backups",
-        "#jobs-reload", "#manage-backup", "#open-workbook", "#run", "#runtime-upgrade",
-        "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
-        "#source-edit-save", "#source-edit-wipe", "#source-manager-add",
-        "button.ghost.source-manager-edit"], (36, _PADDING)),
-    **dict.fromkeys(["#engine-download", "#engine-recheck"], (40, _PADDING)),
-    "button.accounts-action": (56, _PADDING),
     **dict.fromkeys([
         "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
         "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
@@ -7782,6 +7773,7 @@ _TALLER_THAN_SUPABASE = {
     "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
     "button.account-switch": (42, _A_ROW),
     "button.accounts-disclosure": (44, _A_ROW),
+    "button.accounts-action": (56, _A_ROW),
     "#drive-review-permissions": (48, _A_ROW),
     "button.workspace-destination": (80, _A_ROW),
     "button.link.sect.settings-toggle": (80.5, _A_ROW),
@@ -7793,11 +7785,14 @@ _TALLER_THAN_SUPABASE = {
 
 #: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
 #: keep and why. The least is what it reached before #1051, measured on main 333e680f, for all
-#: but the converter's amount, whose reason says what it lost. It may only shrink, the same way.
+#: but two whose reasons say what they lost: the converter's amount, and the backups button,
+#: whose box #1430 brought to the tiny Button's 26px. It may only shrink, the same way.
 _SHORT_OF_THE_FLOOR = {
     "#signout": (26, "its view's scroll edge clips the top of its reach; its own min-height "
                      "outranked the floor, so it was a 26px square"),
-    "#db-open-backups": (35.5, "the row button flush below it takes its own box, as it did"),
+    "#db-open-backups": (34.5, "the row button flush below it takes its own box, as it did, so "
+                               "below its centre it reaches only to its own bottom edge: half "
+                               "the tiny Button's 26px since #1430, where it was half of 36"),
     "#finance-converter-target-trigger": (41.5, "the source row above it stacks at z-index 2 and "
                                                 "takes their shared gap first, as it did"),
     "#finance-converter-amount": (32, "#1051, his to decide: it reached 44 only because the "
@@ -8040,10 +8035,6 @@ _OFF_SIZE = {
     ".engine-action-row": _TOUCH_TARGET,
     ".appearance-scheme-picker button": (
         "a ToggleGroup item, h-10 (toggle.tsx@86c813ec:20); in the panel " + _TOUCH_TARGET),
-    # 48px by the touch target; under it, its 20px chevron and the Select's py-2 stand it 38px,
-    # over the 34px, so it stays named when #1051 moves that floor into a hit area.
-    "#run-mode-trigger": ("a Select whose box " + _TOUCH_TARGET + "; under it, its 20px "
-                          "chevron stands it 38px"),
     ".engine-row": _ROW,
     ".workspace-destination": _ROW,
     ".account-switch": _ROW,

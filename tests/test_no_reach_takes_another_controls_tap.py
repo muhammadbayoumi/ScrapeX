@@ -27,7 +27,6 @@ from tests.test_console_dom import WORKBOOK  # noqa: E402
 from tests.test_panel_dom import (  # noqa: E402,F401  (browser is the fixture)
     _A_ROW,
     _NO_BEFORE,
-    _PADDING,
     assert_no_box_grows_and_no_reach_shrinks,
     browser,
     read_the_sweep,
@@ -58,21 +57,18 @@ _KEEPS_THE_FLOOR = ("#1051: it keeps the 44px floor on its box and draws no hit 
                     "neighbours stand nearer than its reach would run, and Supabase keeps adjacent "
                     "reaches a gap apart (components/table.mdx@86c813ec:197)")
 
+#: Why the grid's own controls are taller: they stand on design/grid-theme.css's literal
+#: min-heights, 2.35rem and 1.65rem, off Supabase's scale, which #1430 left to the grid's
+#: rebuild, as tests/test_the_web_ui_controls_are_supabases_sizes.py's OFF_SIZE says.
+_THE_GRID = ("the grid's own control, at a literal height off Supabase's scale until #1367 "
+             "rebuilds the grid")
+
 #: Web UI controls whose box is taller than their Supabase component's on a touch screen, each
 #: with its ceiling, read as the panel's are, and why it is still. It may only shrink, and no
-#: named box may grow past its ceiling (assert_no_box_grows_and_no_reach_shrinks). The two grid
-#: controls stand on design/grid-theme.css's literal min-heights, 2.35rem and 1.65rem, which
-#: #1430's thread adds to its census of heights off Supabase's scale.
+#: named box may grow past its ceiling (assert_no_box_grows_and_no_reach_shrinks).
 _WEB_TALLER_THAN_SUPABASE = {
-    "button.grid-lang-option": (26.5, _PADDING),
-    "button.split-button-primary": (33, _PADDING),
-    **dict.fromkeys([
-        "#add-btn", "#copy-script", "#gen-token", "#model-fit", "#open-folder", "#ph-rebuild",
-        "#probe-btn", "#revoke-token", "#run", "#save-funnel", "#save-loc", "#send-funnel",
-        "#show-script", "#test-funnel", "a.button.ghost.icon-label", "a.button.icon-label",
-        "button.schedule-save"], (36, _PADDING)),
-    "#grid-columns-button": (38, _PADDING),
-    **dict.fromkeys(["#model-zoom-in", "#model-zoom-out"], (40, _PADDING)),
+    "button.grid-lang-option": (26.5, _THE_GRID),
+    "#grid-columns-button": (38, _THE_GRID),
     **dict.fromkeys([
         "#excel_folder", "#excel_schema", "#excel_structure", "#excel_update", "#excel_workbook",
         "#funnel_token", "#funnel_url", "#model-database", "#model-layer", "#model-search",
@@ -97,7 +93,8 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
     control's tap or widens a scroller, every box is its Supabase component's size, and every
     reach is the 44px the coarse-pointer floor gave it, but for the controls named above. The
     menu button, `.sidebar-toggle`, is the web UI's plain icon button: #1051 named it a 26x44
-    slab, and it is a 26px square that reaches 44."""
+    slab, and it is Supabase's icon-only Button, 36x26 (#1430, his ruling on #1457), that
+    reaches 44."""
     page = webui_on_a_phone
     assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches")
     read = {"controls": {}, "stolen": [], "widened": []}
@@ -110,8 +107,8 @@ def test_on_a_phone_no_web_ui_box_grows_and_no_reach_shrinks(webui_on_a_phone):
     assert count >= 90, f"the sweep read {count} buttons and fields; a page did not draw"
     menu = read["controls"].get("button.sidebar-toggle.workspace-menu-button.icon-button", [])
     assert len(menu) == len(PAGES) and {
-        (c["width"], c["height"], c["reach"]) for c in menu} == {(26, 26, 44)}, (
-        f"the menu button is not a 26px square that reaches exactly 44px on every page: {menu}")
+        (c["width"], c["height"], c["reach"]) for c in menu} == {(36, 26, 44)}, (
+        f"the menu button is not a 36x26 box that reaches exactly 44px on every page: {menu}")
     assert_no_box_grows_and_no_reach_shrinks(read, _WEB_TALLER_THAN_SUPABASE, _WEB_SHORT_OF_THE_FLOOR)
 
 
@@ -125,10 +122,6 @@ _CONSOLE_SCREENS = (("#cv-overview", None), ("#cv-tables", "#cv-tab-tables"),
 #: Console controls whose box is taller than their Supabase component's on a touch screen, each
 #: with its ceiling and why it is still, held as the web UI's are.
 _CONSOLE_TALLER_THAN_SUPABASE = {
-    "button.button.ghost.sheet-open": (29.5, _PADDING),
-    **dict.fromkeys([
-        "#column-add", "#inspect-edit", "#source-add", "#workbook-choose", "#workbook-recheck"],
-        (37.5, _PADDING)),
     **dict.fromkeys([
         "#cv-tab-build", "#cv-tab-overview", "#cv-tab-problems", "#cv-tab-scrapex",
         "#cv-tab-sources", "#cv-tab-tables", "button.pair-row", "button.source-row.source-noted"],
@@ -254,7 +247,7 @@ _ACTIONS = """(root) => [...document.querySelector(root).querySelectorAll('td.ac
           gap: next ? next.getBoundingClientRect().left - r.right : null,
           sameLine: next ? Math.abs(next.getBoundingClientRect().top - r.top) < 1 : null,
           hasNext: Boolean(next), hasPrevious: Boolean(button.previousElementSibling),
-          past6: past(6), past9: past(9), edges: [...new Set(edges)]};
+          past6: past(6), past8: past(8), past9: past(9), past11: past(11), edges: [...new Set(edges)]};
 })"""
 
 
@@ -272,7 +265,8 @@ def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
     ON ONE LINE, as their cell's `flex items-center gap-x-2` is: at 360px the three review
     actions wrapped onto three lines with no gap between them until `td.action-cell` stopped
     them wrapping, and each took the bottom of the one above. On a touch screen the reach is
-    the larger of hit-area-2's 8px and the 44px floor's."""
+    the larger of hit-area-2's 8px and the 44px floor's: up and down on a 26px action, the
+    floor's (#1430)."""
     with tabpage_harness.serve_extension() as base:
         page = browser.new_page(viewport={"width": width, "height": 900},
                                 has_touch=touch, is_mobile=touch)
@@ -288,11 +282,17 @@ def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
     assert not errors, errors
     assert [a["text"] for a in actions] == [
         "Approve", "Reject", "Override", "Approve", "Reject", "Override", "Merge", "Reverse"], actions
-    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions)
+    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions, touch)
 
 
-def _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions):
-    """The rules of Supabase's action cell, held for each action _ACTIONS read."""
+def _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions, touch):
+    """The rules of Supabase's action cell, held for each action _ACTIONS read.
+
+    UP AND DOWN ON A TOUCH SCREEN THE FLOOR'S REACH IS THE LARGER. An action is the tiny
+    Button, 26px (#1430), 24 inside its border, so the 44px floor insets its hit area by
+    (24 - 44) / 2, -10px, past hit-area-2's -8px: it reaches 9px past the border, not 7. There
+    a tap 8px out lands and one 11px out does not, not 10, because the top edge measured up to
+    0.75px past the 9. Left and right keep hit-area-2's reach: the floor never widened a box."""
     for action in actions:
         assert "hit-area-2" in action["classes"].split(), action
         assert action["edges"] == ["self"], (
@@ -301,8 +301,17 @@ def _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(a
                 *(["right"] if not action["hasNext"] else [])}
         assert {side: action["past6"][side] for side in free} == dict.fromkeys(free, "self"), (
             f"{action['text']}: a tap 6px past a free side missed it: {action['past6']}")
-        assert "self" not in action["past9"].values(), (
-            f"{action['text']}: a tap 9px past its box still lands on it: {action['past9']}")
+        beyond = dict(action["past9"])
+        if touch:
+            up_and_down = ("top", "bottom")
+            assert {side: action["past8"][side] for side in up_and_down} == dict.fromkeys(
+                up_and_down, "self"), (
+                f"{action['text']}: on a touch screen a tap 8px above or below missed it, so it "
+                f"does not reach the 44px floor: {action['past8']}")
+            beyond.update({side: action["past11"][side] for side in up_and_down})
+        assert "self" not in beyond.values(), (
+            f"{action['text']}: a tap past its reach still lands on it (9px out, and 11px up "
+            f"and down on a touch screen): {beyond}")
         if action["hasNext"]:
             assert action["sameLine"], f"{action['text']}: the actions wrapped: {actions}"
             assert action["gap"] >= 8 - 0.01, (
@@ -346,4 +355,4 @@ def test_the_catalogues_action_cell_keeps_its_actions_apart(browser, touch, widt
         finally:
             page.close()
     assert [a["text"] for a in actions] == ["Inspect", "Edit"], actions
-    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions)
+    _assert_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(actions, touch)
