@@ -6925,7 +6925,10 @@ _OFF_SIZE = {
     ".engine-action-row": _TOUCH_TARGET,
     ".appearance-scheme-picker button": (
         "a ToggleGroup item, h-10 (toggle.tsx@86c813ec:20); in the panel " + _TOUCH_TARGET),
-    "#run-mode-trigger": "a Select whose box " + _TOUCH_TARGET + " until #1051 lands",
+    # 48px by the touch target; under it, its 20px chevron and the Select's py-2 stand it 38px,
+    # over the 34px, so it stays named when #1051 moves that floor into a hit area.
+    "#run-mode-trigger": ("a Select whose box " + _TOUCH_TARGET + "; under it, its 20px "
+                          "chevron stands it 38px"),
     ".engine-row": _ROW,
     ".workspace-destination": _ROW,
     ".account-switch": _ROW,
@@ -7068,6 +7071,7 @@ _TEXT_AT_360 = {
     "button.workspace-destination": ("15px", "18px", "8px", "8px"),
     "button.manage-account-row-button": ("15px", "18px", "12px", "16px"),
     "button.engine-action-row": ("13px", "15.6px", "8px", "16px"),
+    "button.engine-row": ("15px", "18px", "12px", "16px"),
 }
 
 
