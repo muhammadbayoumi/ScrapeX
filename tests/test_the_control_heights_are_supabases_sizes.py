@@ -93,8 +93,9 @@ READS = {
     # A native <select> is laid out at `line-height: normal` whatever the sheet says, so it
     # takes the Select's h-[34px] as a height, not only a floor (#1430).
     (C, "select", "height"): (SMALL, INPUT),
-    # So does a native date or time field, whose editor pads its own fields (#1430).
-    (C, 'input[type="date"], input[type="time"]', "height"): (SMALL, INPUT),
+    # So does a one-line <input>: on the floor alone Chromium drew its value only inside
+    # leading-4's 16px line, which cut the marks over Arabic letters (#1430, #1457's tests pass).
+    (C, "input", "height"): (SMALL, INPUT),
     (C, "button.chip", "min-height"): (TINY, BUTTON),
     (C, ".split-button-primary, .split-button-trigger", "min-height"): (TINY, SPLIT),
     (C, ".split-button-trigger", "width"): (TINY, SPLIT),
@@ -107,6 +108,7 @@ READS = {
     # row's stretch.
     (APP, "#check", "min-height"): (SMALL, BUTTON_SMALL),
     (APP, ".engine-url-field", "min-height"): (SMALL, GROUP),
+    (APP, ".engine-url-field input", "height"): (SMALL_INSIDE, GROUP_INSIDE),
     (APP, ".engine-url-field input", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
     (APP, ".finance-number-field input", "min-height"): (SMALL, INPUT),
     (APP, ".finance-converter-row", "height"): (SMALL, GROUP),

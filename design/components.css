@@ -556,7 +556,8 @@ button.sect:hover:not(:disabled) {
    (constants.ts@86c813ec:48, :55, :62, :97). Their text-base is 0.9375rem and their
    text-sm 0.8125rem (apps/studio/styles/globals.css@86c813ec:56-57), so a value is 15px
    below Tailwind's md, 48rem (theme.css:328), and 13px from it, the @media block below;
-   leading-4 is a 1rem line. 8 + 16 + 8 and the border are the 34px floor (#1430). */
+   leading-4 is a 1rem line. 8 + 16 + 8 and the border are the 34px floor (#1430); a <select>
+   and a one-line <input> take it as their height, below. */
 input,
 select,
 textarea {
@@ -615,12 +616,16 @@ select[multiple] {
   padding-block: var(--sp-2);
 }
 
-/* A NATIVE DATE OR TIME FIELD TAKES THEIR HEIGHT TOO. Their Input is h-[34px], a fixed
-   height (constants.ts@86c813ec:62), and an <input> never takes a second line, so nothing
-   spills. On the floor alone Chromium's date and time editor, which pads its own fields,
-   stood a time field 37.64px and a date field 36px at 13px; at 34px neither is cut. */
-input[type="date"],
-input[type="time"] {
+/* A ONE-LINE FIELD TAKES THEIR HEIGHT TOO. Their Input is h-[34px], a fixed height
+   (constants.ts@86c813ec:62), with py-2 and leading-4 inside it (:48, :55), and an <input>
+   never takes a second line. On the floor alone Chromium drew a value only inside leading-4's
+   16px line: at 15px that cut 3 to 3.5px off the marks over and under Arabic letters, the
+   shadda over a doubled lam among them, and 1.5px off an accented capital, where main's 1.35
+   line cut at most 1px. At their fixed 34px, with the same py-2 and leading-4, it draws every
+   mark whole (#1457's tests pass, measured). A checkbox or a radio keeps its 1rem box, by its
+   own rule below. Chromium's date and time editor pads its own fields: on the floor alone it
+   stood a time field 37.64px and a date field 36px at 13px, and at 34px neither is cut. */
+input {
   height: var(--control-height-small);
 }
 

@@ -937,6 +937,9 @@
   .engine-url-field > .sx-icon { color: var(--muted); }
   .engine-url-field input {
     min-width: 0;
+    /* The group's 34px inside its border, as a height too: a one-line Input takes its 34px
+       as a height (design/components.css, #1430). */
+    height: calc(var(--control-height-small) - 2px);
     min-height: calc(var(--control-height-small) - 2px);
     padding: 0;
     border: 0;

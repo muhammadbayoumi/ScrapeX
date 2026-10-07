@@ -72,6 +72,7 @@ numbers for the second one.
 """
 from __future__ import annotations
 
+import base64
 import re
 import sys
 from collections import Counter
@@ -7088,6 +7089,82 @@ def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
              "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY,
              "#check": ("13px", "16px", "8px", "12px")}
     assert _text(page, small) == small
+
+
+#: The height, in CSS px, of what an element's screenshot draws inside its border and the edge
+#: of its inline padding: from the first row to the last that differs from its background. The
+#: harness stubs `fetch`, so the PNG is decoded from its bytes.
+_INK = """async ([png, scale]) => {
+  const bytes = Uint8Array.from(atob(png), (ch) => ch.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext('2d');
+  context.drawImage(bitmap, 0, 0);
+  const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  const light = (i) => (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+  const [top, side] = [Math.ceil(1.5 * scale), 4 * scale];
+  const ground = light(((bitmap.height >> 1) * bitmap.width + side) * 4);
+  const rows = [];
+  for (let y = top; y < bitmap.height - top; y++) {
+    for (let x = side; x < bitmap.width - side; x++) {
+      if (Math.abs(light((y * bitmap.width + x) * 4) - ground) > 0.12) { rows.push(y); break; }
+    }
+  }
+  return rows.length ? (rows[rows.length - 1] - rows[0] + 1) / scale : 0;
+}"""
+
+#: Text with marks over and under its letters: a shadda over a doubled lam, the harakat and
+#: Quranic brackets, and Latin accented capitals with descenders.
+_MARKED = ("عبد اللّه", "لِلْجُمْلَةِ ﴿ٱلْحَمْدُ﴾", "gjpqy ÁÉÍ")
+
+
+def _ink(page, selector: str, scale: int) -> float:
+    # The element's own screenshot, which waits for its box to stand still.
+    png = page.locator(selector).screenshot()
+    return page.evaluate(_INK, [base64.b64encode(png).decode(), scale])
+
+
+def test_a_field_draws_the_marks_over_and_under_its_letters(browser, tmp_path):
+    """#1457's tests pass, must fix 1. Supabase's Input is leading-4, a 16px line, with py-2 in
+    a fixed h-[34px] (constants.ts@86c813ec:48, :55, :62). On the 34px floor alone Chromium drew
+    the value only inside that 16px line: at 15px, below Tailwind's md, it cut the shadda off
+    عبد اللّه, the harakat off a line of Quran and the accents off ÁÉÍ, where main's 1.35 line
+    cut at most 1px. At their fixed 34px, with the same py-2 and leading-4, every mark draws
+    whole, so a one-line field takes the 34px as its height (design/components.css).
+
+    Each string's ink in the Add Site form's Arabic name field is read from a 4x screenshot and
+    compared with the same field on a `normal` line that is free to grow, where nothing is cut:
+    16 against 19px for the shadda on the floor, and 19 at the fixed height, when #1430
+    measured. At 800px the text is 13px."""
+    page_file = harness.build_page(tmp_path, harness.stub(), name="ink.html")
+    page = browser.new_page(viewport={"width": 360, "height": 900}, device_scale_factor=4)
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        _open_add_form(page)
+        page.evaluate("() => document.fonts.ready")
+        field = "#f-name-ar"
+        drawn, boxes = {}, set()
+        for width in (360, 800):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.locator(field).scroll_into_view_if_needed()
+            for text in _MARKED:
+                page.fill(field, text)
+                page.evaluate("() => document.activeElement.blur()")
+                boxes.add(round(page.locator(field).bounding_box()["height"], 2))
+                cut = _ink(page, field, 4)
+                page.evaluate("""(sel) => Object.assign(document.querySelector(sel).style,
+                  {lineHeight: 'normal', height: 'auto', paddingBlock: '8px'})""", field)
+                whole = _ink(page, field, 4)
+                page.evaluate("(sel) => document.querySelector(sel).removeAttribute('style')", field)
+                drawn[(width, text)] = (cut, whole)
+    finally:
+        page.close()
+    assert boxes == {34}, f"the field's box is not Supabase's 34px Input: {boxes}"
+    # One device pixel at 4x is the rounding of a line centred rather than padded.
+    lost = {key: ink for key, ink in drawn.items() if ink[1] - ink[0] > 0.25}
+    assert not lost, ("a field cut the marks off its value, (drawn, whole) in px: "
+                      f"{lost}")
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
