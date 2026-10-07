@@ -953,7 +953,7 @@ def create_app(
                 # THE PANEL NO LONGER READS THIS KEY FOR A DATASET, and the note
                 # above now describes exactly one surviving reader: the engine's
                 # own `/source/{key}` page, which fills `SourceSummary.products`
-                # from it at line ~960 and prints it as a "Products" tile
+                # from it in its handler, `source`, and prints it as a "Products" tile
                 # (`templates/_source_overview.html`). So a contractor directory
                 # still reads "Products 17,304" THERE — the same defect this
                 # branch fixed on the panel, on the surface this branch did not

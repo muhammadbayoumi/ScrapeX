@@ -2392,6 +2392,532 @@ def test_only_a_directory_draws_the_card_for_pages_that_are_not_rows(open_panel)
             f"a dataset with no rows is drawn as pages that are not rows yet: {key}")
 
 
+# ---- a card's actions follow the job they started (issue 779) ---------------
+
+#: The four card actions that start a job, each with the kind the engine gives it. The
+#: stub's contractors card offers all four.
+_CARD_JOB_ACTIONS = [("update", "directory_crawl"), ("interpret", "dataset_interpret"),
+                     ("resume", "directory_crawl"), ("profiles", "profile_crawl")]
+
+# AN ENGINE WHOSE ACTIVE LIST CHANGES WHEN THE POST IS ANSWERED. The stub's `/api/jobs`
+# is a fixed list and its POST a canned `job_stub`, so no test could watch Run adopt a
+# job a card had just posted. `ROUTES` is the stub's own top-level table
+# (tools/panel_harness.py), so this edits it on the answer, the way a commit changes a
+# real engine's list: the job joins whatever was already active, newest first. `queued`
+# is null for a job that has already ended by then.
+#
+# AN ACTIVE-LIST READ IS ANSWERED WITH WHAT THE ENGINE HELD WHEN IT LEFT, `staleMs`
+# later. The stub reads its table at answer time, and no in-flight poll can be stale
+# against that. Each read records when it left and when it was answered, so a test can
+# tell a poll still out when the POST was answered from one already back. The order is
+# a counter, not a clock: measured, a poll leaving and the POST's answer can read the
+# same `performance.now()`.
+_QUEUES_WHAT_IS_POSTED = """([queued, staleMs]) => {
+  window.__activePolls = [];
+  let order = 0;
+  const original = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace(/^[a-z]+:\\/\\/[^/]+/, "");
+    const method = (options && options.method) || "GET";
+    if (method === "GET" && path.startsWith("/api/jobs?active_only")) {
+      const seen = JSON.parse(JSON.stringify(ROUTES["/api/jobs"]));
+      const poll = {left: ++order, saw: seen.jobs.map((job) => job.job_ref)};
+      window.__activePolls.push(poll);
+      if (staleMs) await new Promise((done) => setTimeout(done, staleMs));
+      poll.answered = ++order;
+      return {ok: true, status: 200, json: async () => seen};
+    }
+    const answer = await original(url, options);
+    if (method === "POST" && path === "/api/jobs" && answer.ok) {
+      window.__postedAt = ++order;
+      if (queued) {
+        ROUTES["/api/jobs"] = {jobs: [queued, ...ROUTES["/api/jobs"].jobs]};
+        // Read by its ref too, or the stub answers that with the LIST, and a panel that
+        // drew it would be drawing a shape no engine sends.
+        ROUTES["/api/jobs/" + queued.job_ref] = queued;
+      }
+    }
+    return answer;
+  };
+}"""
+
+# Where Activity's status line is, against Run's scroll area -- the `.view-scroll` that
+# clips it -- and whether the line is what is painted there. The line is what he reads
+# -- the job's status and site -- so it is what has to be in view. NOT `#view-run`: its
+# top is the sticky heading's, 85px above the scroll area's, and a line hidden under the
+# heading read as on screen.
+_WHERE_ACTIVITY_IS = """() => {
+  const line = document.getElementById("act-state");
+  const view = document.getElementById("view-run");
+  const area = document.getElementById("activity").closest(".view-scroll");
+  const shown = line.checkVisibility() && !view.classList.contains("hidden");
+  const r = line.getBoundingClientRect(), a = area.getBoundingClientRect();
+  const fold = Math.min(a.bottom, innerHeight);
+  const hit = document.elementFromPoint(r.left + 10, r.top + r.height / 2);
+  const painted = Boolean(hit) && line.contains(hit);
+  return {onRun: !view.classList.contains("hidden"), shown, painted,
+          inView: shown && r.top >= a.top && r.bottom <= fold && painted,
+          top: Math.round(r.top), areaTop: Math.round(a.top), fold: Math.round(fold),
+          card: document.getElementById("activity").offsetHeight,
+          area: Math.round(a.height), said: line.textContent};
+}"""
+
+# Resolves once Activity's line has held one position for ten frames running. A smooth
+# scroll moves it on every frame until it stops -- measured, no frame repeated on the
+# way -- and so does `showView`'s 180ms entry animation.
+_ONCE_THE_LINE_IS_AT_REST = """() => new Promise((done) => {
+  const line = document.getElementById("act-state");
+  let last = NaN, still = 0;
+  const frame = () => {
+    const top = line.getBoundingClientRect().top;
+    still = top === last ? still + 1 : 0;
+    last = top;
+    if (still >= 10) done(true); else requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+})"""
+
+
+def _card_job(kind, **over):
+    """The job the stub's POST names (`job_stub`), over the contractors card's site."""
+    return _running_job(**{"job_ref": "job_stub", "job_kind": kind, "status": "queued",
+                           "stage": None, "started_at": None,
+                           "source_keys": ["muqawil_org"],
+                           "current_source_key": "muqawil_org", **over})
+
+
+def _open_on_data_after_run(open_panel):
+    """Run visited first with nothing active, then Data: the order of his press.
+
+    Run's destination load is memoised per backend generation (`loadRunDestination`),
+    so the visit a card action makes is a second one and asks the engine nothing by
+    itself. That is the case that drew him an empty Run."""
+    page = open_panel(jobs=[], view="run")
+    page.wait_for_function(
+        "() => document.querySelector('#sites input[data-key]')"
+        " && window.__calls.some(p => p.startsWith('/api/jobs?active_only'))",
+        timeout=5_000)
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    return page
+
+
+def _press_on_the_card(page, action):
+    card = page.locator('.dataset-card[data-open="contractors"]')
+    card.locator(".split-button-trigger").click()
+    card.locator(f'[data-split-action="{action}"]').click()
+
+
+def _where_activity_lands(page, timeout=5_000) -> dict:
+    """Wait for Activity's line to come into view and then to come to REST, and report
+    where it rests either way, so a failure names the edge instead of timing out.
+
+    AT REST, NOT AT THE FIRST FRAME IN VIEW. A smooth scroll carries the line through
+    the scroll area on its way to where it stops: measured at 650px, in view at
+    [534, 558] on the way and hidden at [30, 54] at rest, so a scroll that overshot
+    passed. The wait for the line to come into view stays first: until the follow
+    scrolls, the line is still too -- below the fold, on Run's last card."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        page.wait_for_function(f"() => ({_WHERE_ACTIVITY_IS})().inView", timeout=timeout)
+    except PlaywrightTimeout:
+        pass
+    page.wait_for_function(_ONCE_THE_LINE_IS_AT_REST, timeout=timeout)
+    return page.evaluate(_WHERE_ACTIVITY_IS)
+
+
+@pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
+def test_a_card_action_follows_the_job_it_started(open_panel, action, kind):
+    """HIS PRESS, 2026-10-03: `Update now` on the Data card, and Run showed nothing.
+
+    The card posted the job, threw the `job_ref` away and called `showView("run")`. Run
+    had been visited earlier in the session, so its memoised load asked the engine
+    nothing, Activity stayed hidden, and he ticked the site and pressed Start: jobs 189
+    and 190, the same crawl twice, 13 seconds apart (issue 779). Interpret, Continue and
+    Fetch profiles had the same three lines.
+
+    So each press must be followed by a question to the engine that sees the job, and by
+    Activity on screen naming the job's site. And NO SITE IS SELECTED: Start stays
+    pressable for a ticked site, so ticking the busy one would put the duplicate one
+    click away.
+    """
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job(kind), 0])
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    _press_on_the_card(page, action)
+    where = _where_activity_lands(page)
+
+    posted = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(posted) == 1, f"one press, {len(posted)} jobs posted: {posted}"
+    polls = page.evaluate("() => window.__activePolls")
+    assert any("job_stub" in poll["saw"] for poll in polls), (
+        f"nothing asked the engine about the job {action!r} started, so Run had nothing "
+        f"to draw: active-list reads after the press {polls}")
+    assert page.is_visible("#miniplayer"), (
+        "the mini-player is hidden, so no poll is following the job")
+    assert where["onRun"], f"{action!r} did not take him to Run: {where}"
+    assert where["inView"], (
+        f"Activity is not on screen after {action!r}: its line is at {where['top']}px "
+        f"against Run's scroll area at {where['areaTop']}-{where['fold']}px (shown: "
+        f"{where['shown']}, painted: {where['painted']})")
+    assert "muqawil_org" in where["said"], (
+        f"Activity does not name the site the job is for: {where['said']!r}")
+    assert text_of(page, "#sel-count") == "0 selected", text_of(page, "#sel-count")
+    assert page.locator("#sites input:checked").count() == 0, (
+        "Run ticked the busy site, so Start would queue the same job again")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_first_visit_to_run_puts_the_started_job_on_screen(open_panel):
+    """THE OTHER HALF OF THE SAME PRESS. When the card's visit IS Run's first, the
+    memoised load does poll and Activity is drawn -- below the fold, because it is
+    Run's last card, under Choose sites and Run options. Measured before this change:
+    the line at 950px in a panel whose Run view ends at 734px."""
+    page = open_panel(jobs=[], view="data")
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+
+    _press_on_the_card(page, "update")
+    where = _where_activity_lands(page)
+
+    assert where["shown"], f"Activity was never drawn: {where}"
+    assert where["inView"], (
+        f"Activity was drawn out of view: its line is at {where['top']}px against Run's "
+        f"scroll area at {where['areaTop']}-{where['fold']}px")
+
+
+def _press_update_as_a_poll_leaves(page):
+    """Press Update now while a poll that left before the job was committed is still on
+    its way back. The panel coming back into view is what starts that poll; the press
+    lands while its answer is still on the way (`_QUEUES_WHAT_IS_POSTED` with a delay).
+    Returns once the POST is answered, so what a test does next happens while that poll
+    is still out.
+
+    IT REFUSES TO GO ON VACUOUSLY: the case is a poll that left before the POST was
+    answered, saw nothing, and was answered after it. Read the moment the POST is
+    answered, that poll has no answer yet or one recorded after the POST's. Without one,
+    a test proves only what the plain press does. Checking only that it LEFT first
+    passed a poll answered at once, and with it the press whose wait for that poll was
+    deleted.
+    """
+    page.locator('.dataset-card[data-open="contractors"] .split-button-trigger').click()
+    page.evaluate("""() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        document.querySelector(
+          '.dataset-card[data-open="contractors"] [data-split-action="update"]').click();
+    }""")
+    page.wait_for_function("() => window.__postedAt", timeout=5_000)
+    polls = page.evaluate("() => window.__activePolls")
+    posted_at = page.evaluate("() => window.__postedAt")
+    answered = polls[0].get("answered") if polls else None
+    assert (polls and polls[0]["saw"] == [] and polls[0]["left"] < posted_at
+            and (answered is None or answered > posted_at)), (
+        f"no poll was in flight across the press, so this proves nothing: {polls}, "
+        f"posted at {posted_at}")
+
+
+def test_a_poll_already_in_flight_does_not_hide_the_job(open_panel):
+    """`pollJob` HANDS BACK A POLL ALREADY IN FLIGHT rather than asking again. One whose
+    request left before the job was committed sees nothing active and does not re-arm,
+    so a card action that only called `pollJob` would be handed it, and nothing would
+    follow the job."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    _press_update_as_a_poll_leaves(page)
+    where = _where_activity_lands(page)
+
+    polls = page.evaluate("() => window.__activePolls")
+    # A POLL THAT SAW THE JOB, NOT ONLY A DRAWING OF IT. Waiting on the stale poll alone
+    # still draws the job once -- its "nothing active" branch reads it by its ref -- and
+    # then stops asking, so Activity sits at `queued` for the whole run. Measured.
+    assert any("job_stub" in poll["saw"] for poll in polls), (
+        f"no poll after the press saw the job, so nothing will follow it: {polls}")
+    assert page.is_visible("#miniplayer"), (
+        "the mini-player is hidden, so no poll is following the job")
+    assert where["inView"] and "muqawil_org" in where["said"], (
+        f"Activity is not on screen naming the job: {where}")
+
+
+def test_the_in_flight_guard_refuses_a_poll_answered_before_the_post(open_panel):
+    """THE GUARD CAN FAIL FOR THE CASE IT NAMES. It checked only that the poll left
+    before the POST was answered, so a poll answered at once passed it -- and so did
+    the press with its wait for that poll deleted, 3 runs of 3 (#1388's merge gate). A
+    poll back before the POST is no poll in flight."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+
+    with pytest.raises(AssertionError, match="no poll was in flight across the press"):
+        _press_update_as_a_poll_leaves(page)
+
+
+def test_a_second_press_while_a_poll_is_waited_out_queues_no_second_job(open_panel):
+    """RUN IS SHOWN THE MOMENT THE POST IS ANSWERED, NOT ONCE A POLL IN FLIGHT IS BACK.
+    `followStartedJob` waited that poll out on Data: for as long as it took to come
+    back, the card stayed on screen and said nothing, and a second press queued the
+    same crawl again -- with a poll out for 1.5 s, 2 jobs posted where main posts 1
+    (#1388's merge gate). That second crawl is issue 779 itself."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 1_500])
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    _press_update_as_a_poll_leaves(page)
+    view = page.evaluate("() => currentViewName()")
+    # HIS SECOND PRESS, on whatever is on screen while that poll is still out.
+    if page.is_visible('.dataset-card[data-open="contractors"] .split-button-trigger'):
+        _press_on_the_card(page, "update")
+    assert "answered" not in page.evaluate("() => window.__activePolls[0]"), (
+        "the poll in flight was back before the second press, so it proves nothing")
+    _where_activity_lands(page)    # the press followed to its end before counting
+
+    posted = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"] == "/api/jobs"]
+    assert len(posted) == 1, (
+        f"two presses while a poll was waited out, {len(posted)} jobs posted; the panel "
+        f"was on {view!r} when the first POST was answered")
+    assert view == "run", f"the answered press left the panel on {view!r}"
+    assert not page.js_errors, page.js_errors
+
+
+# A JOB THAT ENDS WITHIN ONE POLL OF THE PRESS: zero pages, an immediate failure. It ends
+# just after the panel first reads it, whichever way -- named in the active list, or by
+# its ref -- so the panel can draw it `queued` once and must still find out how it ended.
+# The answer that read it is copied before the end: a stub answer reads `ROUTES` only
+# when its body is read, and would otherwise hand back the end it was meant to precede.
+_ENDS_ONCE_THE_PANEL_HAS_READ_IT = """(ended) => {
+  const original = window.fetch;
+  let over = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url).replace(/^[a-z]+:\\/\\/[^/]+/, "");
+    const method = (options && options.method) || "GET";
+    const answer = await original(url, options);
+    const listed = path.startsWith("/api/jobs?active_only");
+    if (over || method !== "GET" || !answer.ok
+        || !(listed || path === "/api/jobs/" + ended.job_ref)) return answer;
+    const body = await answer.json();
+    if (!listed || body.jobs.some((job) => job.job_ref === ended.job_ref)) {
+      over = true;
+      ROUTES["/api/jobs"] = {jobs: []};
+      ROUTES["/api/jobs/" + ended.job_ref] = ended;
+    }
+    return {ok: answer.ok, status: answer.status, json: async () => body};
+  };
+}"""
+
+
+def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(open_panel):
+    """THE POLL IN FLIGHT IS WAITED OUT BEFORE THE REF IS KEPT, NOT AFTER. Kept first,
+    the stale poll's nothing-active branch reads the new job by its ref, draws it
+    `queued` once and clears the ref. A job that ends before the fresh poll then leaves
+    nothing to ask about it: Activity says `queued` for a job that is over, and nothing
+    polls. Measured with `state.jobRef = jobRef` moved above the wait in
+    `followStartedJob`: `queued`, the mini-player hidden."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 600])
+    page.evaluate(_ENDS_ONCE_THE_PANEL_HAS_READ_IT,
+                  _card_job("directory_crawl", status="failed", stage=None))
+    _press_update_as_a_poll_leaves(page)
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('act-state').textContent.includes('failed')",
+            timeout=8_000)
+    except PlaywrightTimeout:
+        pass
+    where = page.evaluate(_WHERE_ACTIVITY_IS)
+
+    assert where["shown"] and "failed" in where["said"], (
+        f"Activity does not say how a job that ended within a poll of the press ended "
+        f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
+
+
+@pytest.mark.parametrize("action,kind", _CARD_JOB_ACTIONS)
+def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, action,
+                                                                     kind):
+    """THE REF IS KEPT, as `startRun` keeps it. A job can be over by the time Run asks,
+    and an ended job is not in the active list: without the ref the poll finds nothing,
+    and Run is as blank as it was for him.
+
+    EVERY ACTION KEEPS ITS OWN. Each of the four reads `job_ref` off its own answer, and
+    a job still running hides a dropped ref: the active list names the job anyway."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [None, 0])
+    ended = _card_job(kind, status="failed", stage=None)
+    page.evaluate("(job) => { ROUTES['/api/jobs/job_stub'] = job; }", ended)
+
+    _press_on_the_card(page, action)
+    where = _where_activity_lands(page)
+
+    assert where["shown"], (
+        f"Run shows nothing for a job {action!r} started that already ended: {where}")
+    assert where["inView"], f"the ended job was drawn off screen: {where}"
+    assert "failed" in where["said"], (
+        f"Activity does not say how the job ended: {where['said']!r}")
+
+
+def test_bringing_the_job_into_view_honours_reduced_motion(open_panel):
+    """AN EXPLICIT `behavior: "smooth"` OVERRIDES the stylesheet's reduced-motion rule
+    (issue 701), so the scroll states its own, the way `showView` does. Read in the
+    task the press ends in: an instant scroll has already landed there, a smooth one
+    has only begun."""
+    page = _open_on_data_after_run(open_panel)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl"), 0])
+    page.emulate_media(reduced_motion="reduce")
+
+    where = page.evaluate(
+        "async () => { await runSourceAction('update', 'contractors', 'muqawil_org');"
+        f" return ({_WHERE_ACTIVITY_IS})(); }}")
+
+    assert where["shown"], f"the press drew no Activity, so this proves nothing: {where}"
+    assert where["inView"], (
+        f"under reduced motion the scroll to Activity had not landed when the press "
+        f"ended, so it animated: {where}")
+
+
+def _a_crawl_an_hour_in():
+    """A crawl that has held the worker for an hour: its fetch progress and its source's
+    row of 304s, retries and pace. With `_A_LONG_LOG` its Activity card is 702px tall,
+    more than Run's scroll area holds in any panel under about 870px."""
+    return _running_job(
+        job_ref="job_other", job_kind="crawl", source_keys=["SALLA_SHOP"],
+        current_source_key="SALLA_SHOP", started_at="2026-10-06T09:00:00Z",
+        fetch={"requests": 1200, "expected": 4000, "basis": "estimate",
+               "as_of": "2026-10-01", "unknown_sources": [],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 1200,
+                                          "expected": 4000, "basis": "estimate",
+                                          "as_of": "2026-10-01", "not_modified": 300,
+                                          "retries": 4, "pace_s": 2.0,
+                                          "honouring_delay": True}}})
+
+
+#: Enough of that crawl's log to fill its box, in the engine's row shape.
+_A_LONG_LOG = [{"logged_at": "2026-10-06T10:00:00Z", "level": "info",
+                "source_key": "SALLA_SHOP", "message": f"fetched page {i} of the listing"}
+               for i in range(60)]
+
+
+def _open_on_run_beside_a_crawl(open_panel, height):
+    """Run in a panel `height` tall, with that crawl's Activity drawn."""
+    page = open_panel(jobs=[_a_crawl_an_hour_in()], view="run", logs=_A_LONG_LOG)
+    page.set_viewport_size({"width": 360, "height": height})
+    page.wait_for_function(
+        "() => document.getElementById('act-state').textContent.includes('SALLA_SHOP')",
+        timeout=5_000)
+    return page
+
+
+# Whether Run's scroll area is at its end, scrolled there first when `move` is set.
+_RUN_AT_ITS_END = """(move) => {
+  const area = document.getElementById("activity").closest(".view-scroll");
+  if (move) area.scrollTop = area.scrollHeight;
+  return area.scrollTop > 0
+    && area.scrollTop >= area.scrollHeight - area.clientHeight - 1;
+}"""
+
+
+@pytest.mark.parametrize("left_at", ["its top", "the end of the log"])
+@pytest.mark.parametrize("height", [800, 750, 700, 650])
+def test_a_press_while_a_crawl_runs_rests_activitys_line_in_view(open_panel, height,
+                                                                  left_at):
+    """A CARD TALLER THAN RUN'S SCROLL AREA, WITH ITS LINE AT ITS TOP. A crawl holds the
+    worker when he presses, so the press's job queues behind it and Activity draws the
+    crawl (issue 778's ranking), rows and log. Centred, the card's top rested above the
+    area and the line with it: hidden at 750, 700 and 650px, clear by 4px at 800
+    (#1388's merge gate). The tests above draw a short card in an 800px panel, where
+    every downward scroll stops at the same place, so none of them can tell an
+    alignment that hides the line from one that shows it.
+
+    WHERE HE LEFT RUN STILL HOLDS: the scroll area keeps its place while Run is hidden.
+    A press made after he read to the end of the log starts there, with the card already
+    covering the area, and `nearest` does nothing from there."""
+    page = _open_on_run_beside_a_crawl(open_panel, height)
+    if left_at == "the end of the log":
+        assert page.evaluate(_RUN_AT_ITS_END, True), "Run has nothing to scroll"
+        page.click(DATA_TAB)
+        page.click(RUN_TAB)
+        assert page.evaluate(_RUN_AT_ITS_END, False), (
+            "Run's scroll area did not keep its place across a trip to Data, so this is "
+            "the other case again")
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [_card_job("directory_crawl", queued_behind={
+        "position": 1, "capacity": 1, "running_count": 1,
+        "running": [{"job_ref": "job_other", "source_keys": ["SALLA_SHOP"]}],
+        "starting_now": False}), 0])
+
+    _press_on_the_card(page, "update")
+    where = _where_activity_lands(page)
+
+    assert where["card"] > where["area"], (
+        f"Activity fits Run's scroll area, so this proves nothing: {where}")
+    assert where["inView"], (
+        f"at {height}px, left at {left_at}, the line rests at {where['top']}px against "
+        f"Run's scroll area at {where['areaTop']}-{where['fold']}px (painted: "
+        f"{where['painted']})")
+    assert not page.js_errors, page.js_errors
+
+
+def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
+    """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
+    read through `_where_activity_lands`, and it returned at the first frame the line
+    was in view, so a scroll that carried the line through Run's scroll area to rest
+    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
+    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    page = _open_on_run_beside_a_crawl(open_panel, 650)
+    # Started a moment from now, so the wait below is watching when the line arrives.
+    page.evaluate(f"""() => {{
+        const where = {_WHERE_ACTIVITY_IS};
+        window.__inViewOnTheWay = false;
+        const watch = () => {{
+          if (where().inView) window.__inViewOnTheWay = true;
+          else requestAnimationFrame(watch);
+        }};
+        requestAnimationFrame(watch);
+        setTimeout(() => {{
+          const area = document.getElementById("activity").closest(".view-scroll");
+          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+        }}, 300);
+    }}""")
+
+    where = _where_activity_lands(page)
+
+    assert page.evaluate("() => window.__inViewOnTheWay"), (
+        f"the scroll never carried the line through view, so this proves nothing: {where}")
+    assert not where["inView"], (
+        f"read as in view at {where['top']}px, on the way to resting above Run's scroll "
+        f"area: {where}")
+
+
+@pytest.mark.parametrize("action", [action for action, _ in _CARD_JOB_ACTIONS])
+def test_a_card_action_the_engine_refuses_says_why_on_the_card(open_panel, action):
+    """A REFUSED PRESS STAYS WHERE HE PRESSED. The engine's own words go in
+    `#datasets-msg` under the card, and the panel does not go to Run, where nothing
+    would say why."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = open_panel(view="data", fail_routes=["/api/jobs"])
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+
+    _press_on_the_card(page, action)
+    try:
+        page.wait_for_function(
+            "() => document.getElementById('datasets-msg').textContent.trim()",
+            timeout=5_000)
+    except PlaywrightTimeout:
+        pass
+
+    assert "the engine could not do that" in text_of(page, "#datasets-msg"), (
+        f"a refused {action!r} left no word under the card: "
+        f"{text_of(page, '#datasets-msg')!r}")
+    assert page.locator("#datasets-msg .err").count() == 1, (
+        "the refusal is not drawn as one")
+    assert page.is_visible("#view-data") and page.is_hidden("#view-run"), (
+        f"a refused {action!r} left the card for Run, away from the line saying why")
+
+
 def test_a_dataset_card_says_rows_and_coverage_never_products(open_panel):
     """A CONTRACTOR IS NOT A PRODUCT, and the card said 17,304 of them were.
 

@@ -389,52 +389,82 @@ def test_putting_a_file_into_the_hub_is_written_once(engine):
         "a publishing step calls the API directly instead of the helper")
 
 
-def test_the_helper_creates_and_replaces_and_survives_the_missing_file(tmp_path):
-    """RUN, NOT READ. The create branch depends on `gh` exiting non-zero for a
-    file that is not there, under `set -euo pipefail` — which kills a script
-    on exactly that. Getting it wrong fails the FIRST release only, when
-    nothing has been published yet and there is no sha to find."""
+#: `gh` as the helper meets it. The sha read answers from SHA_EXISTS and the PUT
+#: from PUT_FAILS, and the PUT echoes its arguments to stderr so a test can see
+#: what was sent.
+STUB_GH = (
+    "#!/usr/bin/env bash\n"
+    'if [ "$3" = "--jq" ] && [ "$4" = ".sha" ]; then\n'
+    '  if [ -n "${SHA_EXISTS:-}" ]; then echo abc123; exit 0; fi\n'
+    '  echo \'{"message":"Not Found"}\' >&2; exit 1\n'
+    "fi\n"
+    'echo "PUT $*" >&2\n'
+    'if [ -n "${PUT_FAILS:-}" ]; then\n'
+    "  echo 'gh: Resource not accessible by personal access token (HTTP 403)' >&2\n"
+    "  exit 1\n"
+    "fi\n"
+    "echo ok\n")
+
+
+def run_the_helper(tmp_path, *, sha_exists: bool, put_fails: bool = False):
+    """The helper as the publishing steps run it: sourced under their own
+    `set -euo pipefail`, then called, with the stub `gh` first on PATH."""
     bash = shutil.which("bash")
     if not bash:
         pytest.skip("bash is not on PATH")
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "gh").write_text(
-        "#!/usr/bin/env bash\n"
-        'if [ "$3" = "--jq" ] && [ "$4" = ".sha" ]; then\n'
-        '  if [ -n "${SHA_EXISTS:-}" ]; then echo abc123; exit 0; fi\n'
-        '  echo \'{"message":"Not Found"}\' >&2; exit 1\n'
-        "fi\n"
-        'echo "PUT $*" >&2\n'
-        "echo ok\n", encoding="utf-8", newline="\n")
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "gh").write_text(STUB_GH, encoding="utf-8", newline="\n")
     (bin_dir / "gh").chmod(0o755)
     (tmp_path / "payload.json").write_text('{"hello":1}', encoding="utf-8")
 
-    def run(sha_exists: bool):
-        return subprocess.run(
-            [bash, "-c",
-             "set -euo pipefail\n"
-             f". {HELPER.as_posix()}\n"
-             'put_to_hub "ScrapeX/json/version.json" payload.json "a message"'],
-            cwd=tmp_path, capture_output=True, text=True,
-            env={**os.environ,
-                 "PATH": f"{bin_dir.as_posix()}{os.pathsep}{os.environ['PATH']}",
-                 "PUBLIC_REPO": "muhammadbayoumi/mbiX-hub",
-                 **({"SHA_EXISTS": "1"} if sha_exists else {})})
+    return subprocess.run(
+        [bash, "-c",
+         "set -euo pipefail\n"
+         f". {HELPER.as_posix()}\n"
+         'put_to_hub "ScrapeX/json/version.json" payload.json "a message"'],
+        cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ,
+             "PATH": f"{bin_dir.as_posix()}{os.pathsep}{os.environ['PATH']}",
+             "PUBLIC_REPO": "muhammadbayoumi/mbiX-hub",
+             **({"SHA_EXISTS": "1"} if sha_exists else {}),
+             **({"PUT_FAILS": "1"} if put_fails else {})})
 
-    first = run(sha_exists=False)
+
+def test_the_helper_creates_and_replaces_and_survives_the_missing_file(tmp_path):
+    """RUN, NOT READ. The create branch depends on `gh` exiting non-zero for a
+    file that is not there, under `set -euo pipefail` — which kills a script
+    on exactly that. Getting it wrong fails the FIRST release only, when
+    nothing has been published yet and there is no sha to find."""
+    first = run_the_helper(tmp_path, sha_exists=False)
     assert first.returncode == 0, (
         f"the FIRST release cannot publish anything: {first.stderr}")
     assert "creating" in first.stdout
     assert "-f sha=" not in first.stderr, (
         "a sha is sent when creating, which the API rejects")
 
-    again = run(sha_exists=True)
+    again = run_the_helper(tmp_path, sha_exists=True)
     assert again.returncode == 0, again.stderr
     assert "replacing" in again.stdout
     assert "-f sha=abc123" in again.stderr, (
         "no sha is sent when replacing, which the API rejects as a conflict")
+
+
+@pytest.mark.parametrize("sha_exists", [False, True], ids=["creating", "replacing"])
+def test_a_publish_the_hub_refuses_turns_the_step_red(tmp_path, sha_exists):
+    """THE PUT IS THE ONE CALL WHOSE FAILURE MUST REACH THE STEP. The sha read
+    is excused on purpose; the PUT's status is the helper's, and under the
+    steps' `set -euo pipefail` it is the step's. With `|| true` on the PUT, a
+    hub that refused the version manifest, the privacy policy or the support
+    page left the step green, and so did every test here (#1323)."""
+    done = run_the_helper(tmp_path, sha_exists=sha_exists, put_fails=True)
+
+    assert "PUT " in done.stderr, f"the helper never sent the PUT:\n{done.stderr}"
+    assert done.returncode != 0, (
+        f"the hub refused the file and the step exited 0:\n{done.stdout}\n{done.stderr}")
+    assert "(HTTP 403)" in done.stderr, (
+        f"the step failed without the hub's reason in its log:\n{done.stderr}")
 
 
 def test_the_panel_and_the_workflow_name_the_same_file(engine):
