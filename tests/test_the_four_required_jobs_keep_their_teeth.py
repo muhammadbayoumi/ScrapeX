@@ -33,11 +33,16 @@ one of the names.
 IT NEEDS NOTHING BUT PYTEST AND PYYAML, because `lint` installs nothing else and
 runs it with `--noconftest`. `yaml` is IMPORTED, not importorskip'd: a guard that
 skipped when its parser was missing would report green in exactly the job that
-exists to notice the others going quiet.
+exists to notice the others going quiet. The tests that run the parity gate need
+`node` as well and skip without it; `lint` sets Node up before it runs this file,
+so there they always run.
 """
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -253,6 +258,60 @@ def test_each_gate_runs_exactly_its_command_and_unconditionally(jobs, name, comm
     assert "if" not in found[0], (
         f"the step in `{name}` that runs `{command.splitlines()[-1]}` carries "
         f"`if: {found[0]['if']!r}`; skipped, it leaves the job green")
+
+
+# ---- the parity gate answers with its exit status -----------------------------------
+#
+# The pin above holds `node contract/parity/parity.test.mjs` as the step's whole
+# command. What the command answers is the script's last line, `process.exit(fail ?
+# 1 : 0)`, and `process.exit(0)` there left every test in this file green while the
+# gate passed any difference between the JS and Python `normalize` (#1323). So the
+# pinned command is run as the step runs it, from the root of a copy of contract/:
+# once as it is, and once per list of vectors with one answer Python never froze.
+
+#: The frozen vectors, as contract/parity/parity.test.mjs names them, and the group
+#: it reports each list under.
+VECTORS = Path("contract") / "normalize-vectors.v1.json"
+PARITY_GROUPS = {"fold": "foldDigits", "fingerprint": "optionFingerprint",
+                 "record_hash": "recordHash"}
+
+
+def run_the_parity_gate(tmp_path: Path, wrong: str | None = None):
+    """The pinned command from the root of a copy of contract/, with the first
+    vector in the list named `wrong` answering something Python never froze."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not on PATH")
+    shutil.copytree(ROOT / "contract", tmp_path / "contract")
+    if wrong is not None:
+        vectors = json.loads((tmp_path / VECTORS).read_text(encoding="utf-8"))
+        vectors[wrong][0]["out"] += " and something else"
+        (tmp_path / VECTORS).write_text(json.dumps(vectors, ensure_ascii=False),
+                                        encoding="utf-8")
+    program, *arguments = PINNED_RUNS["contract-parity"][0].split()
+    assert program == "node", f"the parity gate is run by {program}, not node"
+    return subprocess.run([node, *arguments], cwd=tmp_path, capture_output=True,
+                          text=True, encoding="utf-8", timeout=60)
+
+
+def test_the_parity_gate_passes_the_vectors_as_frozen(tmp_path):
+    """The premise of the test below: the copy is the whole gate, and it is green."""
+    done = run_the_parity_gate(tmp_path)
+
+    assert done.returncode == 0, f"{done.stdout}\n{done.stderr}"
+    for group in PARITY_GROUPS.values():
+        assert f"PASS  {group}:" in done.stdout, done.stdout
+
+
+@pytest.mark.parametrize("wrong,group", PARITY_GROUPS.items(), ids=list(PARITY_GROUPS))
+def test_one_wrong_vector_turns_the_parity_gate_red(tmp_path, wrong, group):
+    done = run_the_parity_gate(tmp_path, wrong)
+
+    assert done.returncode == 1, (
+        f"a {group} vector the JS engine does not reproduce left the gate exiting "
+        f"{done.returncode}, so `contract-parity` reports green over a fork:\n"
+        f"{done.stdout}\n{done.stderr}")
+    assert f"FAIL [{group}]" in done.stdout, done.stdout
 
 
 def test_the_conditions_in_test_are_exactly_the_scope_tiers(jobs):

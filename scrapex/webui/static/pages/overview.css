@@ -271,6 +271,7 @@
   background: var(--chip);
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
 }
@@ -442,6 +443,7 @@
 .overview-activity-row time {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
   white-space: nowrap;
 }

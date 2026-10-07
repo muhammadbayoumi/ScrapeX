@@ -404,10 +404,12 @@
     background-clip: padding-box;
   }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
-                  color: var(--text); cursor: pointer;
+                  color: var(--text);
                   transition: border-color var(--dur-fast) var(--ease-in-out),
                               background var(--dur-fast) var(--ease-in-out); }
-  .dataset-card:hover {
+  /* Only a card that opens something looks as if it does (`loadDatasets`). */
+  .dataset-card[role="link"] { cursor: pointer; }
+  .dataset-card[role="link"]:hover {
     border-color: var(--accent);
     background: var(--surface-subtle);
   }
@@ -2350,6 +2352,7 @@
   /* Sizes and counts read as data, not prose. */
   .manage-account-figure {
     font-family: var(--font-mono);
+    --fw-regular: var(--fw-regular-mono);
   }
 
   /* The backup card: the same column as the danger card below it, without the
