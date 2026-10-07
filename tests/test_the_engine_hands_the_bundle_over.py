@@ -421,8 +421,8 @@ def module_keep() -> int:
     return int(found.group(1))
 
 
-def test_both_files_of_a_backup_are_pruned_together(client):
-    """The two files of one backup do NOT share an mtime — `shutil.copy2` gives
+def test_a_backups_archive_and_panel_pack_are_pruned_together(client):
+    """The files of one backup do NOT share an mtime — `shutil.copy2` gives
     the panel pack the timestamp of the staged file it came from, minutes before
     the archive beside it is closed. Pruning each suffix independently could keep
     an archive from one build and a pack from another, and the panel uploads the

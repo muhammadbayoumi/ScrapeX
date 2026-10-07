@@ -1,9 +1,10 @@
-"""The light file is what the routes answer, written from a copy, readable one part at a time.
+"""The light file is what the Data page reads, written from a copy, readable one part at a time.
 
-#1199. A reader with no engine (#1200) will draw the Data page from this file, so
-every part must be the route's own body, byte for byte. Each test below holds that, or
-one property the reader relies on: one part inflates alone, two writes agree, the copy
-is never written, and one table that fails costs that table and nothing else.
+#1199. A reader with no engine (#1200) will draw the Data page from this file, so every
+part a route serves must be that route's own body, byte for byte, and `selected` the
+filter's own answer. Each test below holds one of those, or one property the reader will
+rely on: one part inflates alone, two writes agree, the copy is never written, and one
+table that fails costs that table and nothing else.
 
 THE FIXTURE IS ONE WAREHOUSE HOLDING EVERY SHAPE THE WRITER MUST CARRY: a price source
 with two variants at one price (so it folds) and an Arabic brand (so `ensure_ascii`
@@ -142,9 +143,9 @@ def _table(report, kind: str, site_key: str, key: str) -> dict:
     return found[0]
 
 
-# ---- every part is the route's own body ----------------------------------------
+# ---- each part is what the page reads, and the index says where it is ----------
 
-def test_every_part_is_the_body_its_route_answers(client, db_path, tmp_path):
+def test_every_route_part_is_the_body_its_route_answers(client, db_path, tmp_path):
     """If this fails, the page a reader opens offline is not the page the engine shows."""
     report = _write(client, db_path, tmp_path / "out")
 
