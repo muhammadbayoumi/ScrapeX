@@ -6966,11 +6966,13 @@ def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: d
     """What every touch sweep holds over what read_the_sweep read on one surface (#1051): no
     reach takes a tap inside another control's box, no hit area widens what a scroller scrolls,
     and every control's box is no taller than its Supabase component's and its reach at least
-    the 44px floor, but for the controls named, each with its reason.
+    the 44px floor, but for the controls named, each with its bound and its reason.
 
     BOTH LISTS MAY ONLY SHRINK: a named control that comes down to its size, or up to the floor,
-    fails until its name goes, and a new one fails until it is named with its reason. A short
-    reach may not fall below the least named for it."""
+    fails until its name goes, and a new one fails until it is named with its reason. AND EACH
+    NAME KEEPS ITS BOUND: a tall box may not stand more than half a pixel above the ceiling
+    named for it, nor a short reach fall more than half a pixel below the least. Without the
+    ceiling, a named box could grow back to #1051's 44px slab with every check green."""
     assert not read["stolen"], (
         "a hit area takes taps inside another control's box:\n  "
         + "\n  ".join(sorted(set(read["stolen"]))))
@@ -6984,6 +6986,9 @@ def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: d
         f"named, and not taller any more (take the name out): "
         f"{sorted(set(taller_than_supabase) - set(taller))}\n"
         f"all: {dict(sorted(taller.items()))}")
+    rose = {name: (round(height, 2), taller_than_supabase[name][0])
+            for name, height in taller.items() if height > taller_than_supabase[name][0] + 0.5}
+    assert not rose, f"box taller than the ceiling named for it, (now, ceiling): {rose}"
     short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
              if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
     assert set(short) == set(short_of_the_floor), (
@@ -7010,34 +7015,44 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
                  "segment of the converter's group")
 
 #: Controls whose box is taller than their Supabase component's on a touch screen, each with
-#: why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its size fails the
-#: test until its name goes, and a new one fails until it is named here with its reason.
+#: its ceiling and why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its
+#: size fails the test until its name goes, and a new one fails until it is named here with its
+#: reason. AND NO NAMED BOX MAY GROW: its ceiling is the tallest box the sweep read for it on
+#: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
+#: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
+    **dict.fromkeys(["#clear-sel", "#select-all"], (32.5, _PADDING)),
+    "button.split-button-primary": (34, _PADDING),
     **dict.fromkeys([
-        "#add-cur", "#clear-sel", "#console-open", "#cur-use", "#db-integrity-check",
-        "#db-open-backups", "#engine-download", "#engine-recheck", "#jobs-reload", "#manage-backup",
-        "#open-workbook", "#run", "#runtime-upgrade", "#select-all",
+        "#add-cur", "#console-open", "#cur-use", "#db-integrity-check", "#db-open-backups",
+        "#jobs-reload", "#manage-backup", "#open-workbook", "#run", "#runtime-upgrade",
         "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
-        "#source-edit-save", "#source-edit-wipe", "#source-manager-add", "button.accounts-action",
-        "button.ghost.source-manager-edit", "button.split-button-primary"], _PADDING),
+        "#source-edit-save", "#source-edit-wipe", "#source-manager-add",
+        "button.ghost.source-manager-edit"], (36, _PADDING)),
+    **dict.fromkeys(["#engine-download", "#engine-recheck"], (40, _PADDING)),
+    "button.accounts-action": (56, _PADDING),
     **dict.fromkeys([
         "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
         "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
-        "#source-edit-vat", "#source-manager-filter"], _NO_BEFORE),
+        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
         "#tab-sources", "#workspace-toggle", ".appearance-scheme-picker > button",
         "button.sx-select-option", "#runtime-restart", "#engine-diagnostics",
-        "#engine-setup-guide", "#engine-copy-details", "button.engine-row",
-        "#engine-row-scrapex-engine"], _TOUCH_TARGET),
-    **dict.fromkeys([
-        "#drive-review-permissions", "button.manage-account-row.manage-account-row-button.has-lead",
-        "button.account-switch", "button.accounts-disclosure", "button.appearance-palette-tile",
-        "button.link.sect.settings-toggle", "button.workspace-destination"], _A_ROW),
-    **dict.fromkeys([
-        "#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
-        _GROUP_BUTTON),
+        "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    "#engine-copy-details": (48.5, _TOUCH_TARGET),
+    "button.engine-row": (103, _TOUCH_TARGET),
+    "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
+    "button.account-switch": (42, _A_ROW),
+    "button.accounts-disclosure": (44, _A_ROW),
+    "#drive-review-permissions": (48, _A_ROW),
+    "button.workspace-destination": (80, _A_ROW),
+    "button.link.sect.settings-toggle": (80.5, _A_ROW),
+    "button.manage-account-row.manage-account-row-button.has-lead": (91, _A_ROW),
+    "button.appearance-palette-tile": (129, _A_ROW),
+    **dict.fromkeys(["#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
+                    (32, _GROUP_BUTTON)),
 }
 
 #: Controls a tap reaches less than 44px of on a touch screen, each with the least it must

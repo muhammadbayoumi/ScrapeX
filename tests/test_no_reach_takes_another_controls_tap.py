@@ -59,27 +59,33 @@ _KEEPS_THE_FLOOR = ("#1051: it keeps the 44px floor on its box and draws no hit 
                     "reaches a gap apart (components/table.mdx@86c813ec:197)")
 
 #: Web UI controls whose box is taller than their Supabase component's on a touch screen, each
-#: with why it is still. It may only shrink (assert_no_box_grows_and_no_reach_shrinks). The two
-#: grid controls stand on design/grid-theme.css's literal min-heights, 2.35rem and 1.65rem,
-#: which #1430's thread adds to its census of heights off Supabase's scale.
+#: with its ceiling, read as the panel's are, and why it is still. It may only shrink, and no
+#: named box may grow past its ceiling (assert_no_box_grows_and_no_reach_shrinks). The two grid
+#: controls stand on design/grid-theme.css's literal min-heights, 2.35rem and 1.65rem, which
+#: #1430's thread adds to its census of heights off Supabase's scale.
 _WEB_TALLER_THAN_SUPABASE = {
+    "button.grid-lang-option": (26.5, _PADDING),
+    "button.split-button-primary": (33, _PADDING),
     **dict.fromkeys([
-        "#add-btn", "#copy-script", "#gen-token", "#grid-columns-button", "#model-fit",
-        "#model-zoom-in", "#model-zoom-out", "#open-folder", "#ph-rebuild", "#probe-btn",
-        "#revoke-token", "#run", "#save-funnel", "#save-loc", "#send-funnel", "#show-script",
-        "#test-funnel", "a.button.ghost.icon-label", "a.button.icon-label",
-        "button.grid-lang-option", "button.schedule-save", "button.split-button-primary"], _PADDING),
+        "#add-btn", "#copy-script", "#gen-token", "#model-fit", "#open-folder", "#ph-rebuild",
+        "#probe-btn", "#revoke-token", "#run", "#save-funnel", "#save-loc", "#send-funnel",
+        "#show-script", "#test-funnel", "a.button.ghost.icon-label", "a.button.icon-label",
+        "button.schedule-save"], (36, _PADDING)),
+    "#grid-columns-button": (38, _PADDING),
+    **dict.fromkeys(["#model-zoom-in", "#model-zoom-out"], (40, _PADDING)),
     **dict.fromkeys([
         "#excel_folder", "#excel_schema", "#excel_structure", "#excel_update", "#excel_workbook",
         "#funnel_token", "#funnel_url", "#model-database", "#model-layer", "#model-search",
         "#probe-url", "#schedule-search", "#source-search", ".field > input[type=text]",
         ".field > input[type=url]", ".field > select", ".filters > select",
         ".schedule-field > input[type=text]", ".schedule-field > input[type=time]",
-        ".schedule-field > select"], _NO_BEFORE),
-    **dict.fromkeys([f"#schedule-source-{i}" for i in range(13)] + [
+        ".schedule-field > select"], (44, _NO_BEFORE)),
+    **dict.fromkeys([
         "#settings-collection-tab", "#settings-connections-tab", "#settings-governance-tab",
-        "#settings-workspace-tab"], _A_ROW),
-    "button.schedule-filter": _KEEPS_THE_FLOOR,
+        "#settings-workspace-tab"], (52, _A_ROW)),
+    **dict.fromkeys([f"#schedule-source-{i}" for i in range(1, 13)], (73.5, _A_ROW)),
+    "#schedule-source-0": (76, _A_ROW),
+    "button.schedule-filter": (44, _KEEPS_THE_FLOOR),
 }
 
 #: Web UI controls a tap reaches less than 44px of on a touch screen: (the least, why).
@@ -116,16 +122,18 @@ _CONSOLE_SCREENS = (("#cv-overview", None), ("#cv-tables", "#cv-tab-tables"),
                     ("#cv-inspect", "#tables-list button.pair-row >> nth=0"),
                     ("#cv-sources", "#cv-tab-sources"))
 
-#: Console controls whose box is taller than their Supabase component's on a touch screen.
+#: Console controls whose box is taller than their Supabase component's on a touch screen, each
+#: with its ceiling and why it is still, held as the web UI's are.
 _CONSOLE_TALLER_THAN_SUPABASE = {
+    "button.button.ghost.sheet-open": (29.5, _PADDING),
     **dict.fromkeys([
-        "#column-add", "#inspect-edit", "#source-add", "#workbook-choose", "#workbook-recheck",
-        "button.button.ghost.sheet-open"], _PADDING),
+        "#column-add", "#inspect-edit", "#source-add", "#workbook-choose", "#workbook-recheck"],
+        (37.5, _PADDING)),
     **dict.fromkeys([
         "#cv-tab-build", "#cv-tab-overview", "#cv-tab-problems", "#cv-tab-scrapex",
         "#cv-tab-sources", "#cv-tab-tables", "button.pair-row", "button.source-row.source-noted"],
-        _KEEPS_THE_FLOOR),
-    "button.map-cells.map-grid": _A_ROW,
+        (44, _KEEPS_THE_FLOOR)),
+    "button.map-cells.map-grid": (85, _A_ROW),
 }
 
 #: Console controls a tap reaches less than 44px of on a touch screen: (the least, why).
