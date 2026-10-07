@@ -7,6 +7,8 @@ or thread. The warehouse is the small one tests/test_webui.py ingests.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("playwright")
@@ -55,13 +57,17 @@ def webui(browser, tmp_path):  # noqa: F811
         page.close()
 
 
-@pytest.mark.parametrize("width", [1280, 900, 640])
-def test_every_control_on_every_page_draws_the_ring(webui, width):
+def every_page_swept(webui, width: int) -> None:
     """#721 names both surfaces. Each page is opened, and every control on it checked the
     way the panel's are; the data page's column chooser is opened and checked too, because
     its search field is a wrapper that only exists once it opens. The web UI lays out
     differently at 900px and at 640px, and a ring that shows at one width can be cut at
-    another, so each is swept (#1471)."""
+    another, so each is swept (#1471).
+
+    ONE FILE PER WIDTH, and that is the point of the split (#1489). CI runs the suite
+    with `--dist loadfile`, which keeps a file on one worker, so three widths in one file
+    ran one after another on one worker. Each width now has its own file:
+    tests/test_the_focus_ring_draws_in_the_web_ui_at_900px.py and ..._at_640px.py."""
     webui.set_viewport_size({"width": width, "height": 900})
     seen = {"controls": 0, "opened": 0, "ringless": [], "clipped": [], "doubled": [], "faded": []}
     for path in PAGES:
@@ -82,3 +88,17 @@ def test_every_control_on_every_page_draws_the_ring(webui, width):
     assert not seen["clipped"], f"controls whose ring shows on fewer than two sides: {seen['clipped']}"
     assert not seen["doubled"], f"fields that draw a ring or gap under their wrapper's: {seen['doubled']}"
     assert not seen["faded"], f"controls whose ring is painted below full opacity: {seen['faded']}"
+
+
+def test_every_control_on_every_page_draws_the_ring(webui):
+    every_page_swept(webui, 1280)
+
+
+def test_every_narrower_width_keeps_its_own_sweep():
+    """The 900px and 640px sweeps live in files of their own, so deleting one would drop
+    its width from CI with nothing failing: the browser-suite step discovers the files
+    there are, not the ones there should be."""
+    here = Path(__file__).parent
+    missing = [width for width in (900, 640)
+               if not (here / f"test_the_focus_ring_draws_in_the_web_ui_at_{width}px.py").is_file()]
+    assert not missing, f"no sweep file for the web UI at {missing}px"
