@@ -347,6 +347,9 @@ def test_the_reset_reaches_what_its_selector_matches(selector, expected):
     # Such a list with no literal sets no family, so it needs no re-declaration of its own.
     (".x td, .x code, .x .tech { overflow-wrap: anywhere; }", []),
     (".x, .y { font-weight: 450; }", []),
+    # A list that sets the family is in the context only when the reset reaches every selector
+    # in it: `.x td` is mono here and outside it, so the list re-declares the token itself.
+    (".x td, .x .tech { font-family: var(--font-mono); }", [":1 .x td, .x .tech"]),
 ])
 def test_a_mono_rule_is_judged_by_its_own_declarations(tmp_path, css, expected, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
