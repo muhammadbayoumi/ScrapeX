@@ -7,6 +7,7 @@ tool's, whatever the bytes.
 """
 from __future__ import annotations
 
+import dataclasses
 import io
 import sys
 import tarfile
@@ -39,8 +40,23 @@ def _tarball(files: dict[str, str], licence: str = MIT) -> bytes:
 
 def _package(name: str, data: bytes, *, entries=("index.js",), dist="package/dist"):
     return tool.Package(name=name, npm=f"@test/{name}", version="1.0.0",
-                        tarball=f"https://registry.invalid/{name}.tgz",
                         integrity=tool.integrity_of(data), dist=dist, entries=entries)
+
+
+def _tree(root: Path) -> dict[str, bytes]:
+    """Every file under `root`, with its bytes: what a run left on disk."""
+    return {path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def _arguments(tarballs: dict[str, bytes], directory: Path) -> list[str]:
+    """main()'s `--tarball` arguments for these bytes, each written under `directory`."""
+    arguments = []
+    for name, data in tarballs.items():
+        path = directory / f"{name}.tgz"
+        path.write_bytes(data)
+        arguments.append(f"--tarball={name}={path}")
+    return arguments
 
 
 @pytest.fixture
@@ -55,6 +71,9 @@ def packages(monkeypatch):
             '/**\n * import { constructTable } from "@tanstack/table-core"\n */\n'
             'import { build } from "./core/build.js";\nexport { build };\n'),
         "package/dist/core/build.js": (
+            # Not ASCII, as seven of the real modules are not: what a copy's bytes
+            # are then depends on the encoding it was written in.
+            "// The store is read by name — the one bare import.\n"
             'import { atom } from "@tanstack/store";\n'
             'export function build() {\n'
             '  if (process.env.NODE_ENV === "development") console.warn("dev");\n'
@@ -64,6 +83,26 @@ def packages(monkeypatch):
     chosen = (_package("table-core", core), _package("store", store))
     monkeypatch.setattr(tool, "PACKAGES", chosen)
     return {"table-core": core, "store": store}
+
+
+@pytest.fixture
+def destinations(tmp_path, monkeypatch):
+    """main()'s two copies, moved under tmp_path and holding a file from the version
+    before, and npm out of reach. EVERY main() TEST TAKES IT: main() writes
+    DESTINATIONS, which are the two real vendored trees, and downloads every
+    package it is not handed a tarball for."""
+    roots = (tmp_path / "engine" / "tanstack", tmp_path / "extension" / "tanstack")
+    for root in roots:
+        (root / "table-core").mkdir(parents=True)
+        (root / "table-core" / "stale.js").write_text("the version before\n", encoding="utf-8")
+    monkeypatch.setattr(tool, "ROOT", tmp_path)
+    monkeypatch.setattr(tool, "DESTINATIONS", roots)
+
+    def offline(package):
+        pytest.fail(f"main() went to npm for {package.npm}")
+
+    monkeypatch.setattr(tool, "download", offline)
+    return roots
 
 
 def test_it_keeps_only_what_the_entries_reach_and_makes_the_three_rewrites(packages):
@@ -121,6 +160,22 @@ def test_a_module_the_closure_names_and_the_tarball_lacks_is_refused(packages, m
         tool.build(packages)
 
 
+@pytest.mark.parametrize("read", ["process.env.DEBUG", 'process.env["NODE_ENV"]'])
+def test_a_process_env_read_the_rewrite_does_not_replace_is_refused(packages, monkeypatch,
+                                                                     read):
+    """The rewrite replaces `process.env.NODE_ENV` as written and nothing else, and
+    any other read of `process` throws in a page. Only the check after the
+    rewrites refuses it."""
+    core = _tarball({"package/dist/index.js": f"export const debug = {read};\n"})
+    monkeypatch.setattr(tool, "PACKAGES", (_package("table-core", core),
+                                           tool.PACKAGES[1]))
+    packages["table-core"] = core
+
+    with pytest.raises(tool.VendorError,
+                       match=r"^@test/table-core: index\.js still names process\.env$"):
+        tool.build(packages)
+
+
 def test_it_writes_both_copies_byte_for_byte_with_lf(packages, tmp_path):
     files = tool.build(packages)
     one, two = tmp_path / "engine" / "tanstack", tmp_path / "extension" / "tanstack"
@@ -130,35 +185,108 @@ def test_it_writes_both_copies_byte_for_byte_with_lf(packages, tmp_path):
 
     tool.write(files, (one, two))
 
+    expected = {name: text.encode("utf-8") for name, text in files.items()}
     for root in (one, two):
-        written = {p.relative_to(root).as_posix(): p.read_bytes()
-                   for p in root.rglob("*") if p.is_file()}
-        assert sorted(written) == sorted(files)
+        written = _tree(root)
+        assert written == expected, root
         assert all(b"\r\n" not in data for data in written.values())
     assert not (one / "table-core" / "stale.js").exists()
 
 
-def test_main_refuses_and_writes_nothing_when_a_rule_is_broken(packages, tmp_path,
-                                                              monkeypatch, capsys):
-    packages["store"] = packages["store"] + b"tampered"
-    paths = {}
-    for name, data in packages.items():
-        paths[name] = tmp_path / f"{name}.tgz"
-        paths[name].write_bytes(data)
-    destination = tmp_path / "out"
-    monkeypatch.setattr(tool, "DESTINATIONS", (destination,))
+def test_write_refuses_a_path_outside_its_destinations_and_writes_nothing(destinations,
+                                                                         tmp_path):
+    """THE SECOND WALL, for a path build() let through. Each target is resolved
+    the way this machine writes it, and all of them are checked before either
+    copy is touched."""
+    before = _tree(tmp_path)
 
-    code = tool.main([f"--tarball={name}={path}" for name, path in paths.items()])
+    with pytest.raises(tool.VendorError,
+                       match=r"^table-core/\.\./\.\./escape\.js would be written outside"):
+        tool.write({"table-core/index.js": "export {};\n",
+                    "table-core/../../escape.js": "export {};\n"}, destinations)
+
+    assert _tree(tmp_path) == before
+
+
+def test_main_refuses_a_module_outside_its_package_and_writes_nothing(packages, destinations,
+                                                                      tmp_path, monkeypatch,
+                                                                      capsys):
+    """A tarball entry whose name climbs out of dist, imported by the entry
+    module, is refused before anything is written: unchecked, it lands one level
+    above each copy."""
+    core = _tarball({
+        "package/dist/index.js": 'import { x } from "../../escape.js";\nexport { x };\n',
+        "package/dist/../../escape.js": "export const x = 1;\n",
+    })
+    monkeypatch.setattr(tool, "PACKAGES", (_package("table-core", core),
+                                           tool.PACKAGES[1]))
+    packages["table-core"] = core
+    arguments = _arguments(packages, tmp_path)
+    before = _tree(tmp_path)
+
+    code = tool.main(arguments)
+
+    assert code == 1
+    assert capsys.readouterr().out == (
+        "refused: @test/table-core: ../../escape.js lies outside package/dist, so it "
+        "would be written outside the package\n")
+    assert _tree(tmp_path) == before
+
+
+def test_main_refuses_and_writes_nothing_when_a_rule_is_broken(packages, destinations,
+                                                              tmp_path, capsys):
+    packages["store"] = packages["store"] + b"tampered"
+    arguments = _arguments(packages, tmp_path)
+    before = _tree(tmp_path)
+
+    code = tool.main(arguments)
 
     assert code == 1
     assert "refused:" in capsys.readouterr().out
-    assert not destination.exists()
+    # Both copies still hold the version before: a refusal removes nothing.
+    assert _tree(tmp_path) == before
 
 
-def test_main_rejects_a_tarball_for_a_package_it_does_not_vendor(tmp_path):
+def test_main_writes_both_copies_where_destinations_names(packages, destinations,
+                                                          tmp_path, capsys):
+    code = tool.main(_arguments(packages, tmp_path))
+
+    assert code == 0
+    expected = {name: text.encode("utf-8") for name, text in tool.build(packages).items()}
+    assert [_tree(root) for root in destinations] == [expected, expected]
+    assert capsys.readouterr().out == "".join(
+        f"wrote {len(expected)} files to {root.relative_to(tmp_path)}\n" for root in destinations)
+
+
+def test_main_rejects_a_tarball_for_a_package_it_does_not_vendor(destinations, tmp_path):
     with pytest.raises(SystemExit) as stopped:
         tool.main([f"--tarball=lodash={tmp_path / 'x.tgz'}"])
     assert stopped.value.code == 2
+
+
+def test_a_new_pin_downloads_the_version_it_names(monkeypatch):
+    """The README's update step changes a version and an integrity, and that is
+    the whole edit: a URL holding its own copy of the version fetched the old
+    tarball, and the integrity check then blamed npm for it."""
+    asked = []
+
+    def urlopen(url, timeout):
+        asked.append(url)
+        return io.BytesIO(b"tarball")
+
+    monkeypatch.setattr(tool.urllib.request, "urlopen", urlopen)
+    unscoped = tool.Package(name="left-pad", npm="left-pad", version="1.3.0", integrity="",
+                            dist="package", entries=("index.js",))
+
+    for package in (*tool.PACKAGES, unscoped):
+        assert tool.download(dataclasses.replace(package, version="99.0.0")) == b"tarball"
+
+    assert asked == [
+        "https://registry.npmjs.org/@tanstack/table-core/-/table-core-99.0.0.tgz",
+        "https://registry.npmjs.org/@tanstack/store/-/store-99.0.0.tgz",
+        "https://registry.npmjs.org/@tanstack/virtual-core/-/virtual-core-99.0.0.tgz",
+        "https://registry.npmjs.org/left-pad/-/left-pad-99.0.0.tgz",
+    ]
 
 
 def test_the_pinned_packages_are_the_ones_the_readme_records():

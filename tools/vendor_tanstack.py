@@ -23,7 +23,8 @@ makes exactly three rewrites, all in the vendored text and none in behaviour:
 
 Anything else that would not load in a page (another bare specifier, a
 dynamic ``import()``, a module the closure names that the tarball lacks) stops
-the tool instead of being written.
+the tool instead of being written. So does a module path that climbs out of its
+package: nothing is written outside the two copies.
 
 Usage:
     python tools/vendor_tanstack.py
@@ -61,30 +62,33 @@ class Package:
     name: str          # the directory it is vendored under
     npm: str           # the npm package name
     version: str
-    tarball: str       # the registry URL
     integrity: str     # npm's dist.integrity for that exact tarball
     dist: str          # the directory inside the tarball that holds the modules
     entries: tuple[str, ...]  # the modules the grid imports, relative to dist
+
+    @property
+    def tarball(self) -> str:
+        """The registry URL, read from `npm` and `version`, so a new pin is the
+        version and the integrity and nothing else."""
+        return (f"https://registry.npmjs.org/{self.npm}/-/"
+                f"{self.npm.rpartition('/')[2]}-{self.version}.tgz")
 
 
 PACKAGES = (
     Package(
         name="table-core", npm="@tanstack/table-core", version="9.2.5",
-        tarball="https://registry.npmjs.org/@tanstack/table-core/-/table-core-9.2.5.tgz",
         integrity="sha512-HCMUpaEBEBS9AkV44sdTDmNgFrAA6H4NAnUgwuoWN7IkPgwXWlf3bfZ0moyxLwZqQXdpNQZdEl7LMW4rqm9zQQ==",
         dist="package/dist",
         entries=("index.js", "store-reactivity-bindings.js"),
     ),
     Package(
         name="store", npm="@tanstack/store", version="0.11.2",
-        tarball="https://registry.npmjs.org/@tanstack/store/-/store-0.11.2.tgz",
         integrity="sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==",
         dist="package/dist",
         entries=("index.js",),
     ),
     Package(
         name="virtual-core", npm="@tanstack/virtual-core", version="3.17.11",
-        tarball="https://registry.npmjs.org/@tanstack/virtual-core/-/virtual-core-3.17.11.tgz",
         integrity="sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==",
         dist="package/dist/esm",
         entries=("index.js",),
@@ -170,6 +174,12 @@ def closure(package: Package, modules: dict[str, str]) -> list[str]:
         path = pending.pop(0)
         if path in seen:
             continue
+        # A module is written at `<package>/<path>`, so a path that climbs out of
+        # dist lands outside its package, and past the destination if it climbs on.
+        normal = posixpath.normpath(path)
+        if normal == ".." or normal.startswith(("../", "/")):
+            raise VendorError(f"{package.npm}: {path} lies outside {package.dist}, so it "
+                              "would be written outside the package")
         if path not in modules:
             raise VendorError(f"{package.npm}: {path} is imported but not in the tarball")
         seen.append(path)
@@ -224,7 +234,16 @@ def build(tarballs: dict[str, bytes]) -> dict[str, str]:
     return files
 
 
-def write(files: dict[str, str], destinations: tuple[Path, ...] = DESTINATIONS) -> None:
+def write(files: dict[str, str], destinations: tuple[Path, ...]) -> None:
+    # Every target is checked before anything is removed, so a refusal leaves both
+    # copies as they were.
+    for destination in destinations:
+        root = destination.resolve()
+        outside = [relative for relative in files
+                   if root not in (destination / relative).resolve().parents]
+        if outside:
+            raise VendorError(f"{', '.join(outside)} would be written outside "
+                              f"{destination}; nothing was written")
     for destination in destinations:
         if destination.exists():
             shutil.rmtree(destination)
@@ -260,10 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         files = build(tarballs)
+        write(files, DESTINATIONS)
     except VendorError as error:
         print(f"refused: {error}")
         return 1
-    write(files)
     for destination in DESTINATIONS:
         print(f"wrote {len(files)} files to {destination.relative_to(ROOT)}")
     return 0

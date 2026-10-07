@@ -113,9 +113,10 @@ def chromium():
 
 def test_the_vendored_modules_build_a_table_in_a_real_page(chromium):
     """THE GUARD ABOVE, PROVED IN CHROMIUM. Reading the text cannot show that the
-    rewritten store path resolves, or that nothing else reads `process` at import
-    time; a page importing the shipped files can. A sorted table and a Virtualizer
-    out of the vendored bytes, served as the extension and the engine serve them."""
+    rewritten store path resolves, or that nothing else reads `process` when the
+    code runs; a page importing the shipped files can. A sorted table, and a
+    Virtualizer that answers which ten of 100 rows a 100px window shows, out of
+    the vendored bytes, served as the extension and the engine serve them."""
     sys.path.insert(0, str(ROOT / "tools"))
     import tabpage_harness
 
@@ -136,8 +137,21 @@ def test_the_vendored_modules_build_a_table_in_a_real_page(chromium):
                      sortFn: (a, b, id) => a.getValue(id) - b.getValue(id)}],
           initialState: {sorting: [{id: "n", desc: true}]},
         });
+        // Rows 10px high in a 100px window, scrolled to the top: rows 0 to 9.
+        const virtualizer = new v.Virtualizer({
+          count: 100,
+          estimateSize: () => 10,
+          initialRect: {width: 100, height: 100},
+          overscan: 0,
+          getScrollElement: () => null,
+          scrollToFn: v.elementScroll,
+          observeElementRect: v.observeElementRect,
+          observeElementOffset: v.observeElementOffset,
+        });
+        virtualizer._didMount();
+        virtualizer._willUpdate();
         return {sorted: table.getSortedRowModel().rows.map((row) => row.original.n),
-                virtualizer: typeof v.Virtualizer};
+                rows: virtualizer.getVirtualItems().map((item) => item.index)};
       } catch (error) {
         return {error: String(error && error.stack || error)};
       }
@@ -154,7 +168,7 @@ def test_the_vendored_modules_build_a_table_in_a_real_page(chromium):
         finally:
             context.close()
     assert "error" not in result, result["error"]
-    assert result == {"sorted": [3, 2, 1], "virtualizer": "function"}
+    assert result == {"sorted": [3, 2, 1], "rows": list(range(10))}
     assert errors == []
 
 
