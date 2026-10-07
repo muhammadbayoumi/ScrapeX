@@ -3425,8 +3425,8 @@ def create_app(
     #: that decision.
     RECEIVED_PREFIX = "from-drive-"
 
-    #: The panel pack lifted out of the bundle, named so the two files of one
-    #: backup share a stamp and sort together.
+    #: The panel pack lifted out of the bundle, named so the files of one backup
+    #: share a stamp and sort together.
     PANEL_SUFFIX = "-panel.jsonl.gz"
 
     #: How many built bundles stay on disk. NOTHING pruned these before
@@ -3455,7 +3455,7 @@ def create_app(
     #: only add a stale one to clear.
     _bundle_build_lock = threading.Lock()
 
-    #: `%Y%m%d-%H%M%S`, the stamp both files of a backup share.
+    #: `%Y%m%d-%H%M%S`, the stamp every file of a backup shares.
     _BUNDLE_STAMP = re.compile(rf"^{re.escape(BUNDLE_PREFIX)}(\d{{8}}-\d{{6}})")
 
     def _bundle_folder(conn) -> Path:
@@ -3488,7 +3488,7 @@ def create_app(
     def _prune_old_bundles(folder: Path, keep: int = BUNDLE_KEEP) -> None:
         """Keep the newest `keep` backups; delete every file of the older ones.
 
-        BY STAMP RATHER THAN BY MTIME, because the two files of one backup do not
+        BY STAMP RATHER THAN BY MTIME, because the files of one backup do not
         share an mtime: `shutil.copy2` gives the panel pack the timestamp of the
         staged file it was copied from, minutes before the archive beside it is
         closed. Pruning each suffix on its own could therefore keep an archive

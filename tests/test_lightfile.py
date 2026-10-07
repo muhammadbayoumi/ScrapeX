@@ -14,6 +14,7 @@ with an activity tree; and a second site holding the same `dataset_key`, which o
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import shutil
 import sqlite3
@@ -206,6 +207,43 @@ def test_a_nodes_records_are_what_the_filter_keeps(client, db_path, tmp_path):
         "the fixture has no undeclared node, so its answer is untested")
 
 
+def test_a_confirmed_fold_is_the_one_the_listing_draws(client, db_path, tmp_path):
+    """His warehouse folds the profiles into the contractors card (`R-47`), so the
+    index's `folded_into` names the card the listing shows them under."""
+    conn = sqlite3.connect(db_path)
+    try:
+        source, child = conn.execute(
+            "SELECT d.source_id, d.dataset_definition_id FROM dataset_definition AS d "
+            "JOIN source_site AS s ON s.source_id = d.source_id "
+            "WHERE s.source_key = 'muqawil_org' AND d.dataset_key = ?",
+            (DATASET,)).fetchone()
+        parent = conn.execute(
+            "INSERT INTO dataset_definition (source_id, dataset_key, original_name, "
+            "  dataset_kind, discovery_method) "
+            "VALUES (?, 'contractors', 'Contractors', 'table', 'repeating_dom') "
+            "RETURNING dataset_definition_id", (source,)).fetchone()[0]
+        # As tests/test_each_data_page_answer_is_one_function.py links two datasets.
+        conn.execute(
+            "INSERT INTO dataset_relationship (source_id, relationship_key, "
+            "  parent_dataset_id, child_dataset_id, cardinality, review_status) "
+            "VALUES (?, 'profile_of', ?, ?, 'one_to_one', 'confirmed')",
+            (source, parent, child))
+        conn.commit()
+    finally:
+        conn.close()
+
+    report = _write(client, db_path, tmp_path / "out")
+
+    cards = {row["source_key"]: row for row in client.get("/api/sources").json()["sources"]
+             if row.get("kind") == "dataset"}
+    assert DATASET not in cards, "the listing no longer folds, so this proves nothing"
+    [under] = [key for key, card in cards.items()
+               if DATASET in [line["dataset_key"] for line in card.get("coverage", [])]]
+    assert _table(report, "dataset", "muqawil_org", DATASET)["folded_into"] == under
+    assert all(table["folded_into"] is None for table in report.index["tables"]
+               if table["key"] != DATASET)
+
+
 def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_path):
     copy = archive.backup_database(db_path, tag="light")
     report = _write(client, db_path, tmp_path / "out", copy=copy)
@@ -216,8 +254,14 @@ def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_p
     assert index["parts_file"] == {
         "name": report.parts_path.name, "bytes": report.parts_path.stat().st_size,
         "sha256": bundle.sha256_of(report.parts_path)}
+    # EACH PART'S DIGEST IS OF ITS MEMBER AS STORED, the bytes a reader slices out and
+    # checks before it inflates anything.
+    data = report.parts_path.read_bytes()
     for table in index["tables"]:
-        for described in table["parts"].values():
+        for part, described in table["parts"].items():
+            member = data[described["offset"]:described["offset"] + described["bytes"]]
+            assert hashlib.sha256(member).hexdigest() == described["sha256"], (
+                table["key"], part)
             inflated = _part(report, described)
             assert len(inflated) == described["raw_bytes"]
     # ASKED OF THE PARSED INDEX, by name. JSON doubles every backslash in a Windows
@@ -225,8 +269,8 @@ def test_the_index_describes_the_parts_file_and_each_part(client, db_path, tmp_p
     said = json.dumps(index, ensure_ascii=False)
     for name in (copy.name, copy.parent.name):
         assert name not in said, (
-            f"{name!r} is in the index; it travels to Drive and must carry names, "
-            "never paths")
+            f"{name!r} is in the index, which PR-5 is to upload to Drive, so it must "
+            "carry names, never paths")
 
 
 def test_the_members_tile_the_file_with_nothing_between_them(client, db_path, tmp_path):
@@ -418,6 +462,69 @@ def test_an_interrupted_write_leaves_no_file_under_any_name(
         _write(client, db_path, tmp_path / "out")
 
     assert list((tmp_path / "out").iterdir()) == []
+
+
+def test_an_index_that_cannot_be_written_takes_the_whole_parts_file_with_it(
+        client, db_path, tmp_path, monkeypatch):
+    """By then the parts file is whole under its `.part` name, and it goes too."""
+    copy = archive.backup_database(db_path, tag="light")
+    real_write_text = Path.write_text
+
+    def written_then_no_room(self, *args, **kwargs):
+        real_write_text(self, *args, **kwargs)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", written_then_no_room)
+    with pytest.raises(OSError, match="No space left on device"):
+        _write(client, db_path, tmp_path / "out", copy=copy)
+
+    assert list((tmp_path / "out").iterdir()) == []
+
+
+# ---- a reader that breaks the shape the page reads is a fault, never a part --------
+
+def _fault(report, key=SOURCE) -> str:
+    found = [one["problem"] for one in report.faults if one["key"] == key]
+    assert len(found) == 1, f"{key} is not one fault: {report.faults}"
+    return found[0]
+
+
+def test_a_table_without_its_columns_is_a_fault(client, db_path, tmp_path, monkeypatch):
+    real = reports.table_payload
+
+    def without_columns(conn, source_key, *args, **kwargs):
+        table = real(conn, source_key, *args, **kwargs)
+        del table["columns"]
+        return table
+
+    monkeypatch.setattr(reports, "table_payload", without_columns)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert _fault(report) == (
+        f"TypeError: {SOURCE}: the table has no rows or columns list")
+
+
+def test_a_table_that_repeats_an_offer_is_a_fault(client, db_path, tmp_path, monkeypatch):
+    real = reports.table_payload
+
+    def repeated(conn, source_key, *args, **kwargs):
+        table = real(conn, source_key, *args, **kwargs)
+        table["rows"] = table["rows"] + table["rows"][:1]
+        return table
+
+    monkeypatch.setattr(reports, "table_payload", repeated)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert _fault(report).startswith(f"ValueError: {SOURCE}: a row's offer_id is ")
+    assert _fault(report).endswith(", missing or repeated")
+
+
+def test_a_row_whose_offer_has_no_card_is_a_fault(client, db_path, tmp_path, monkeypatch):
+    monkeypatch.setattr(reports, "offer_card", lambda conn, source_key, offer_id: None)
+    report = _write(client, db_path, tmp_path / "out")
+
+    assert _fault(report).startswith(f"LookupError: {SOURCE}: offer ")
+    assert _fault(report).endswith(" is in the table and has no card")
 
 
 # ---- the edges ---------------------------------------------------------------------------

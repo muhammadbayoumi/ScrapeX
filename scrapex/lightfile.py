@@ -5,10 +5,10 @@ WHAT IT IS. Two files beside each bundle the Back up button builds, sharing its 
     scrapex-bundle-<stamp>-light.gz     one gzip member per part
     scrapex-bundle-<stamp>-light.json   the index: where each part is, and its digests
 
-A part is the exact body a route answers today, built by that route's own reader and
-serialised the way FastAPI serialises a route with no response model. So a reader with
-no engine (#1200) draws the same table, opens the same record card and filters by the
-same activity tree as the engine's own page:
+Every part but `selected` is the exact body a route answers today, built by that route's
+own reader and serialised the way FastAPI serialises a route with no response model. So
+a reader with no engine, which #1200 is to build, can draw the same table, open the same
+record card and filter by the same activity tree as the engine's own page:
 
     price    table          GET /api/table/{key}?fold=0
              table-folded   GET /api/table/{key}?fold=1, when folding changes anything
@@ -18,13 +18,18 @@ same activity tree as the engine's own page:
              selected       per node, the records the table's filter keeps for it
 
 ONE FILE OF INDEPENDENT MEMBERS, NOT ONE FILE PER SOURCE. RFC 1952 lets gzip members
-follow one another, so the file is still gzip, and a browser inflates one part with
-`blob.slice(offset, offset + bytes)` through `DecompressionStream("gzip")`, which it
-has built in. A card part is inflated only when a row's card is opened. One file is one
-upload, one checksum and one name for a pointer to hold, as `bundle.PANEL_PACK` argues.
+follow one another, so the file is still gzip, and a browser can inflate one part alone
+with `blob.slice(offset, offset + bytes)` through `DecompressionStream("gzip")`, which
+it has built in. So that reader need inflate a source's cards only when a row's card is
+opened. One file is one thing to upload, one checksum and one name for a pointer to
+hold, as `bundle.PANEL_PACK` argues.
 
-NO SQL OF ITS OWN, for the reason `bundle.py` gives: every part comes from a reader the
-engine already serves from, so the copy cannot drift from the page.
+NO SQL OF ITS OWN, for the reason `bundle.py` gives. Every part but `selected` comes from
+the reader its route already serves, so it cannot drift from the page. `selected` comes
+from `taxonomy.selected_by_node`, which answers the table's node filter ahead of time
+and which no route calls, so tests hold it to the filter:
+tests/test_a_node_selects_what_the_filter_selects.py, and
+`test_a_nodes_records_are_what_the_filter_keeps` for the copy.
 
 READ-ONLY, ONE SNAPSHOT. The database is opened with `?mode=ro`, escaped into the URI
 (`storage.row_counts` says why), inside one read transaction, so every part describes
@@ -53,7 +58,7 @@ from .payload import utc_now_iso
 from .version import VERSION
 
 #: The light file's own layout, separate from `bundle.BUNDLE_FORMAT`, which his ruling
-#: of 2026-10-05 kept at 1 because nothing inside the zip changed. A reader refuses a
+#: of 2026-10-05 kept at 1 because nothing inside the zip changed. A reader must refuse a
 #: format it does not know. Adding a part does not move this; removing or reshaping
 #: one does, because an older reader would then half-read the file.
 LIGHT_FORMAT = 1
