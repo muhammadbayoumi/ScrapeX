@@ -206,7 +206,7 @@ If documentation and implementation conflict, record the conflict explicitly wit
 
 ## Gap sources: studied, not adopted
 
-A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. The exceptions are two he has already settled: #1040 adopted Noto Sans Arabic (#1048 ships it), and Google's branding guidelines already govern the sign-in button through its test. A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
+A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. The exceptions are two he has already settled: #1040 adopted Noto Sans Arabic (#1048 ships it), and Google's branding guidelines already govern the sign-in button through its test. A gap the table does not name yet is studied against widely followed official sources: W3C standards, the platform's own APIs, and published design systems, including those the bar below keeps out of anything Supabase covers. The change that adopts the study's answer adds the gap's row (#1074). A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
 
 | Where Supabase is silent | Official sources to study | Studied in |
 | --- | --- | --- |
