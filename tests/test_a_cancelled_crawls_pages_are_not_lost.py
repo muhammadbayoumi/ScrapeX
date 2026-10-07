@@ -520,7 +520,7 @@ def continued(tmp_path):
 
 def test_the_card_stops_offering_a_run_once_its_continuation_completed(continued):
     """WHAT HE SAW: both presses completed and the badge stayed. The card draws the
-    offer from this key alone (`waitingLine`, extension/app.js), so the key is the fix."""
+    offer from this key alone (the panel's `waitingLine`), so the key is the fix."""
     client, _path, stopped = continued
 
     rows = client.get("/api/sources").json()["sources"]
