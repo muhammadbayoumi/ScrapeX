@@ -619,9 +619,9 @@ select[multiple] {
 /* A ONE-LINE FIELD TAKES THEIR HEIGHT TOO. Their Input is h-[34px], a fixed height
    (constants.ts@86c813ec:62), with py-2 and leading-4 inside it (:48, :55), and an <input>
    never takes a second line. On the floor alone Chromium drew a value only inside leading-4's
-   16px line: at 15px that cut 3 to 3.5px off the marks over and under Arabic letters, the
+   16px line: at 15px that cut 3 to 3.75px off the marks over and under Arabic letters, the
    shadda over a doubled lam among them, and 1.5px off an accented capital, where main's 1.35
-   line cut at most 1px. At their fixed 34px, with the same py-2 and leading-4, it draws every
+   line cut about 1px. At their fixed 34px, with the same py-2 and leading-4, it draws every
    mark whole (#1457's tests pass, measured). A checkbox or a radio keeps its 1rem box, by its
    own rule below. Chromium's date and time editor pads its own fields: on the floor alone it
    stood a time field 37.64px and a date field 36px at 13px, and at 34px neither is cut. */

@@ -7152,9 +7152,10 @@ def test_a_field_draws_the_marks_over_and_under_its_letters(browser, tmp_path):
     """#1457's tests pass, must fix 1. Supabase's Input is leading-4, a 16px line, with py-2 in
     a fixed h-[34px] (constants.ts@86c813ec:48, :55, :62). On the 34px floor alone Chromium drew
     the value only inside that 16px line: at 15px, below Tailwind's md, it cut the shadda off
-    عبد اللّه, the harakat off a line of Quran and the accents off ÁÉÍ, where main's 1.35 line
-    cut at most 1px. At their fixed 34px, with the same py-2 and leading-4, every mark draws
-    whole, so a one-line field takes the 34px as its height (design/components.css).
+    عبد اللّه, the harakat off a phrase in Quranic brackets and 1.5px off the accents of ÁÉÍ,
+    where main's 1.35 line cut about 1px. At their fixed 34px, with the same py-2 and leading-4,
+    every mark draws whole, so a one-line field takes the 34px as its height
+    (design/components.css).
 
     Each string's ink in the Add Site form's Arabic name field is read from a 4x screenshot and
     compared with the same field on a `normal` line that is free to grow, where nothing is cut:
