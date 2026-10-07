@@ -251,8 +251,9 @@ _ACTIONS = """(root) => [...document.querySelector(root).querySelectorAll('td.ac
 })"""
 
 
-@pytest.mark.parametrize("touch, width", [(False, 1280), (False, 360), (True, 360)],
-                         ids=["mouse-1280", "mouse-360", "touch-360"])
+@pytest.mark.parametrize("touch, width", [(False, 1280), (False, 360), (True, 360), (True, 1024),
+                                          (True, 1280)],
+                         ids=["mouse-1280", "mouse-360", "touch-360", "touch-1024", "touch-1280"])
 def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
         browser, touch, width):  # noqa: F811
     """Supabase's action cell (components/table.mdx@86c813ec:197): each action carries
@@ -266,7 +267,9 @@ def test_each_action_reaches_past_its_box_and_no_further_than_its_neighbour(
     actions wrapped onto three lines with no gap between them until `td.action-cell` stopped
     them wrapping, and each took the bottom of the one above. On a touch screen the reach is
     the larger of hit-area-2's 8px and the 44px floor's: up and down on a 26px action, the
-    floor's (#1430)."""
+    floor's (#1430). From 1024px the cells stop wrapping and one row's actions stand over the
+    next row's, 17px apart, so the lower reach cut the upper one to 42.5px until the cell
+    held half of --touch-stack-gap above and below (extension/enrichment.css)."""
     with tabpage_harness.serve_extension() as base:
         page = browser.new_page(viewport={"width": width, "height": 900},
                                 has_touch=touch, is_mobile=touch)

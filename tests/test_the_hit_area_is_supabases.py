@@ -107,8 +107,11 @@ BOX = {
 
 #: Every read of --touch-stack-gap, and the stack of tiny Buttons it spaces on a touch screen
 #: (his ruling on #1457). AN EQUALITY with the sheets, as REACH | BOX is: a stack that starts
-#: or stops reading it fails until it is named here or taken out.
+#: or stops reading it fails until it is named here or taken out. A stack reads the gap
+#: itself, but for the cells named in HALF_THE_GAP.
 STACK_GAP = {
+    ("extension/enrichment.css", "td.action-cell", "padding-block"): (
+        "the enrichment page's review actions, one row's over the next row's"),
     (APP, "#site-search + .toolbar-spaced", "margin-block"): (
         "Run's Select all and Clear, under the site search and over the site list"),
     (APP, ".engine-detail-actions", "row-gap"): "the Engine screen's Download and Check again",
@@ -119,6 +122,10 @@ STACK_GAP = {
         "/sync's two hero links and its rows of actions: Copy script and Show script, and "
         "Save connection, Generate token and Revoke token"),
 }
+
+#: The stacks whose Buttons stand in table cells, one row's under another's: each cell holds
+#: half the gap above and below its action, so two rows' reaches meet at the row's border.
+HALF_THE_GAP = {("extension/enrichment.css", "td.action-cell", "padding-block")}
 
 
 def _declared(selector: str, css: str) -> dict[str, list[str]]:
@@ -254,5 +261,9 @@ def test_each_stack_reads_the_gap_in_a_top_level_coarse_block_at_every_width():
     assert not misplaced, (
         f"a stack reads --touch-stack-gap somewhere other than directly in a top-level "
         f"`{COARSE}` block, so at some width it keeps its own gap: {misplaced}")
-    other = {where: value for where, _around, value in reads if value != "var(--touch-stack-gap)"}
-    assert not other, f"a stack reads something other than the gap itself: {other}"
+    assert HALF_THE_GAP <= set(STACK_GAP), sorted(HALF_THE_GAP - set(STACK_GAP))
+    other = {where: value for where, _around, value in reads
+             if value != ("calc(var(--touch-stack-gap) / 2)" if where in HALF_THE_GAP
+                          else "var(--touch-stack-gap)")}
+    assert not other, (
+        f"a stack reads something other than the gap itself, or a cell other than half: {other}")

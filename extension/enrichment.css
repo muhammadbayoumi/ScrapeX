@@ -171,6 +171,15 @@ td code { white-space: pre-wrap; overflow-wrap: anywhere; }
 td.action-cell { white-space: nowrap; }
 td.action-cell > :is(button, .button) + :is(button, .button) { margin-inline-start: var(--sp-2); }
 
+/* ON A TOUCH SCREEN THE CELL'S PADDING HOLDS HALF THE STACK GAP ABOVE AND BELOW (his ruling
+   on #1457). There a 26px action reaches 9px past its box, and the row below stands its own
+   action under this one: with the cell's 8px each side and the row's 1px border, the two
+   stood 17px apart, and the lower action's reach cut the upper one's to 42.5px from 1024px
+   up. Half of --touch-stack-gap each side holds each reach in its own cell. */
+@media (hover: none), (pointer: coarse) {
+  td.action-cell { padding-block: calc(var(--touch-stack-gap) / 2); }
+}
+
 .hidden { display: none !important; }
 
 @media (max-width: 900px) {
