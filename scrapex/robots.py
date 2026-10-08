@@ -127,8 +127,8 @@ class RobotsReport:
             # goes on. This one's crawl does not, and the subtitle is where he reads
             # it before choosing anything.
             return (f"{self.host}: robots.txt could not be reached "
-                    f"({self.unreadable}) — every crawl of this site pauses until it "
-                    "can be read (RFC 9309)")
+                    f"({self.unreadable}) — a crawl of this site pauses here; press "
+                    "Resume once robots.txt answers again (RFC 9309)")
         if self.unreadable:
             return f"{self.host}: robots.txt could not be read ({self.unreadable})"
         if not self.found:
@@ -144,27 +144,38 @@ class RobotsReport:
                                    else "allows this source, asks for no delay")
 
 
-def is_unreachable(status_code: int | None) -> bool:
-    """Whether a failed robots.txt read means the crawl must PAUSE (ES-2).
+def is_unreachable(outcome: int | BaseException) -> bool:
+    """Whether a robots.txt read that ended in `outcome` means the crawl PAUSES (ES-2).
 
-    `None` is a read that got no answer at all -- a refused connection, a timeout,
-    a TLS failure. RFC 9309 §2.3.1.4: when robots.txt is unreachable "due to server
-    or network errors", the crawler "MUST assume complete disallow". §2.3.1.3 lets
-    a 4xx mean there is no file, which is why a 403 or a 410 is NOT this: those
-    stay "treated as if the site had none" (#1413).
+    `outcome` is the status of the LAST attempt -- the fetcher retries the read as
+    it retries a page -- or the exception the read raised. RFC 9309 §2.3.1.4:
+    unreachable "due to server or network errors" means the crawler "MUST assume
+    complete disallow". So a 5xx, and an `httpx.TransportError` (a refused
+    connection, a timeout, a TLS or proxy failure), pause.
+
+    EVERYTHING ELSE IS "UNAVAILABLE", §2.3.1.3, where the crawler MAY crawl: a 4xx
+    other than 404, and an exception that is not the network's -- too many
+    redirects (§2.3.1.2 lets more than five be treated as unavailable), an invalid
+    url, a body that would not decode. Those stay "treated as if the site had
+    none" (#1413). An exception is matched by TYPE, which is why this module
+    imports httpx here and nowhere else: it reads no network, it names one.
 
     ONE ANSWER FOR THE FETCHER AND FOR `GET /robots`, so what the owner is shown
     before choosing is what the crawl does -- the #1413 principle.
     """
-    return status_code is None or 500 <= status_code <= 599
+    if isinstance(outcome, BaseException):
+        import httpx
+
+        return isinstance(outcome, httpx.TransportError)
+    return 500 <= outcome <= 599
 
 
 def unreachable_reason(host: str, why: str) -> str:
     """The sentence the pause carries into the job log and onto the panel."""
     return (f"{host}: robots.txt could not be reached ({why}). RFC 9309 §2.3.1.4 "
             "says a crawler must then treat the whole site as disallowed, so this "
-            "site's run is paused and none of its pages is fetched until robots.txt "
-            "can be read")
+            "site's run is paused and none of its pages is fetched; press Resume "
+            "once robots.txt answers again")
 
 
 def _parse(text: str) -> tuple[RobotFileParser, list[tuple[str, str, str]]]:

@@ -257,10 +257,12 @@ def test_an_unreadable_robots_txt_is_fetched_and_written_down_once_under_threads
 def test_an_unreachable_robots_txt_pauses_every_thread_from_one_fetch(robots):
     """#1585: a 5xx or no answer pauses the site (ES-2). Every worker sharing the
     fetcher is paused, the file was asked for ONCE, and no page went out -- the
-    workers that waited on the lock re-raise the cached answer instead of asking."""
-    _, asked, outcomes = _robots_crowd(robots)
+    workers that waited on the lock re-raise the cached answer instead of asking --
+    including while the first one backed off between its attempts."""
+    one, asked, outcomes = _robots_crowd(robots)
 
-    assert asked == ["/robots.txt"], asked
+    # ONE READ: its attempts, retried like a page, and no worker's own.
+    assert asked == ["/robots.txt"] * one._max_attempts, asked
     assert len(outcomes) == ROBOTS_WORKERS
     assert all(isinstance(o, RobotsUnreachable) for o in outcomes), outcomes
 

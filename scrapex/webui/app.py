@@ -2336,9 +2336,8 @@ def create_app(
         is true, choosing obey does not make this source polite, it makes it
         collect nothing while reporting success.
         """
-        import httpx
-
-        from ..robots import RobotsChoice, RobotsCustom, decide, inspect, is_unreachable
+        from ..connectors.base import general_fetcher, resolve_fetcher
+        from ..robots import RobotsChoice, RobotsCustom, decide, inspect
 
         try:
             entry = app.state.manifest.get(source_key)
@@ -2356,31 +2355,29 @@ def create_app(
         finally:
             conn.close()
 
-        text, unreadable = None, ""
-        #: None until the site answers -- `is_unreachable` reads that as a network
-        #: failure, which the crawl pauses on (ES-2), exactly as the fetcher does.
-        status: int | None = None
+        # READ THROUGH THE CRAWL'S OWN FETCHER (#1585), so the pause reported here
+        # is the pause the crawl takes. This built its own client -- a 15s timeout
+        # against the crawl's 30s default, no browser headers, no HTTP/2, no
+        # retries -- and a slow or header-sensitive site read one way here and the
+        # other way in the crawl. `read_robots` is the read `_load_robots` makes:
+        # the same timeout, agent, headers, retries and classification.
+        #
+        # A BROWSER SOURCE GETS THE GENERAL FETCHER: `resolve_fetcher` would start
+        # Playwright for it, and the browser transport reads no robots.txt at all.
+        #
+        # ONE HOST: `base_url`'s. A source that reads another host too (heidelberg's
+        # API and corporate hosts) has each read by the crawl on first contact, and
+        # `robots_url` below says which one this answer is about.
+        fetcher = (general_fetcher(crawl, source_user_agent=entry.user_agent)
+                   if entry.fetcher == Fetcher.BROWSER
+                   else resolve_fetcher(entry, crawl))
         try:
-            base = urlsplit(entry.base_url)
-            with httpx.Client(timeout=15.0, follow_redirects=True,
-                              headers={"User-Agent": agent}) as client:
-                answer = client.get(f"{base.scheme}://{base.netloc}/robots.txt")
-            status = answer.status_code
-            if answer.status_code == 200:
-                text = answer.text
-            elif answer.status_code not in (404, 410):
-                # 404 means there is no file, which is an ANSWER. Anything else
-                # means we did not get to read one, and the two must not look
-                # alike on the screen.
-                unreadable = f"HTTP {answer.status_code}"
-        except Exception as exc:
-            # Any failure to READ robots.txt is reported as a failure to read
-            # it, never as an empty file: "the site asks nothing" and "we could
-            # not find out" lead the owner to opposite choices.
-            unreadable = f"{type(exc).__name__}: {exc}"
+            read = fetcher.read_robots(entry.base_url)
+        finally:
+            fetcher.close()
 
-        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable,
-                         unreachable=bool(unreadable) and is_unreachable(status))
+        report = inspect(entry.base_url, read.text, user_agent=agent,
+                         unreadable=read.unreadable, unreachable=read.unreachable)
         choice = RobotsChoice(entry.robots or "default")
         custom = None
         if choice is RobotsChoice.CUSTOM and entry.robots_custom:
@@ -2406,6 +2403,9 @@ def create_app(
             # TRUE MEANS THE CRAWL PAUSES on this site (a 5xx or no answer, ES-2);
             # `on_a_disallowed_path.reason` says so in words.
             "unreachable": report.unreachable,
+            # WHICH FILE was read: a source whose crawl touches a second host has
+            # that host's robots.txt read by the crawl, not by this route.
+            "robots_url": read.url,
             "names_us": report.names_us,
             "user_agent": agent,
             "crawl_delay_s": report.crawl_delay_s,
@@ -5008,7 +5008,7 @@ def _queued_behind(job: dict, queue: dict | None) -> dict | None:
 #: which it did, and the comment is why this sentence names none.
 PROGRESS_UNITS: dict[str, str] = {
     "organization_enrichment": "organizations",
-    # `profilejob.py:29` -- "progress is counted in PAGES", and `:295` writes
+    # `profilejob.py:29` -- "progress is counted in PAGES", and `:296` writes
     # `progress_total = wanted * 2`, which is one page per locale per contractor.
     profilejob.JOB_KIND: "page(s)",
     # `datasetjob` counts page PAIRS: `approve` collapses the en/ar halves of one page,

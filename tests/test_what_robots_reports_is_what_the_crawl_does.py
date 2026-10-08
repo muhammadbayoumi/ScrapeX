@@ -278,14 +278,19 @@ def test_the_pause_is_a_crawl_blocked_so_every_page_guard_lets_it_through(robots
 def test_an_unreachable_file_is_read_once_and_every_later_page_pauses_too(robots,
                                                                           named):
     """Cached per host, as a refusal is: page two re-raises without asking the site
-    for robots.txt again, and without asking for the page either."""
+    for robots.txt again, and without asking for the page either. The one READ is
+    its attempts -- retried like a page, so a 599 that `_request` would not retry is
+    asked once -- and nothing after them."""
     fetcher, asked = _counting(robots)
+    retried = (isinstance(robots, Exception)
+               or robots.status_code in HttpFetcher.RETRY_STATUSES)
 
     for n in range(3):
         with pytest.raises(RobotsUnreachable, match=named):
             fetcher.get(f"{PAGE}?page={n}")
 
-    assert asked == [f"https://{HOST}/robots.txt"], asked
+    attempts = fetcher._max_attempts if retried else 1
+    assert asked == [f"https://{HOST}/robots.txt"] * attempts, asked
 
 
 @pytest.mark.parametrize("robots,named", UNREACHABLE)
@@ -322,7 +327,9 @@ def test_an_unreachable_file_on_one_host_does_not_pause_another():
 
 def test_the_robots_read_that_failed_still_owes_the_pace(monkeypatch):
     """Unchanged by the pause (#1302): the read is paced like a request, so a site
-    that answered 503 is not asked again sooner than the pace allows."""
+    that answered 503 is not asked again sooner than the pace allows. Its retries
+    back off as a page's do -- 2x and 4x the pace -- and the pace is owed after the
+    last of them."""
     slept = _clocked(monkeypatch)
     fetcher, _ = _fetcher(httpx.Response(503), min_interval_s=3.0)
 
@@ -330,17 +337,170 @@ def test_the_robots_read_that_failed_still_owes_the_pace(monkeypatch):
         fetcher.get(PAGE)
     fetcher._throttle()
 
-    assert slept == [3.0], slept
+    assert slept == [6.0, 12.0, 3.0], slept
 
 
 @pytest.mark.parametrize("status,pauses", [
-    (None, True), (500, True), (503, True), (599, True),
+    (500, True), (503, True), (599, True),
     (400, False), (403, False), (404, False), (410, False), (429, False),
-    (499, False), (200, False), (301, False),
+    (499, False), (200, False), (301, False), (600, False),
 ])
-def test_only_the_server_or_the_network_counts_as_unreachable(status, pauses):
-    """The boundary, at both edges: §2.3.1.4 is 5xx and no answer; §2.3.1.3 is 4xx."""
+def test_only_the_server_counts_among_statuses(status, pauses):
+    """The boundary, at both edges: §2.3.1.4 is 5xx; §2.3.1.3 is 4xx."""
     assert is_unreachable(status) is pauses
+
+
+@pytest.mark.parametrize("error,pauses", [
+    pytest.param(httpx.ConnectError("refused"), True, id="ConnectError"),
+    pytest.param(httpx.ReadTimeout("slow"), True, id="ReadTimeout"),
+    pytest.param(httpx.ProxyError("403 Forbidden"), True, id="ProxyError"),
+    pytest.param(httpx.RemoteProtocolError("hung up"), True, id="RemoteProtocolError"),
+    pytest.param(httpx.TooManyRedirects("loop"), False, id="TooManyRedirects"),
+    pytest.param(httpx.DecodingError("bad gzip"), False, id="DecodingError"),
+    pytest.param(httpx.InvalidURL("no host"), False, id="InvalidURL"),
+    pytest.param(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad"), False,
+                 id="UnicodeDecodeError"),
+    pytest.param(ValueError("anything else"), False, id="ValueError"),
+])
+def test_only_the_network_counts_among_exceptions(error, pauses):
+    """§2.3.1.4 names "network errors": `httpx.TransportError` and nothing else. Too
+    many redirects is §2.3.1.2's "unavailable", and a file that would not decode was
+    answered -- neither is the network failing."""
+    assert is_unreachable(error) is pauses
+
+
+# ---- the read is retried like a page before it pauses (#1585) -------------------
+
+def _scripted(*answers) -> tuple[HttpFetcher, list[str]]:
+    """A fetcher whose robots.txt gives `answers` in turn: a response or an exception
+    per attempt, the last repeated. Every request is recorded."""
+    asked: list[str] = []
+    queue = list(answers)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            answer = queue.pop(0) if len(queue) > 1 else queue[0]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=1.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    return fetcher, asked
+
+
+@pytest.mark.parametrize("first", [
+    pytest.param(httpx.ConnectError("dropped"), id="ConnectError"),
+    pytest.param(httpx.ReadTimeout("slow"), id="ReadTimeout"),
+    pytest.param(httpx.Response(503), id="503"),
+    pytest.param(httpx.Response(502), id="502"),
+])
+def test_one_failed_attempt_then_an_answer_crawls(first):
+    """THE OWNER'S RULING: one dropped connection does not pause a site for the day.
+    The second attempt's 404 is the answer -- no file -- and the page goes out."""
+    fetcher, asked = _scripted(first, httpx.Response(404))
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert asked == ["/robots.txt", "/robots.txt", "/products/1"], asked
+    assert fetcher.retry_count == 1, "the retry was not counted"
+    assert fetcher.degradations == [], fetcher.degradations
+
+
+def test_a_retried_read_that_then_serves_the_file_applies_its_rules():
+    fetcher, asked = _scripted(httpx.Response(503),
+                               httpx.Response(200, text=SLOW_SITE))
+    fetcher._obey_disallow = True
+
+    with pytest.raises(RobotsDisallowed):
+        fetcher.get(PRIVATE)
+
+    assert asked == ["/robots.txt", "/robots.txt"], asked
+    assert fetcher._min_interval_s == 10.0, "the file read on the retry was not used"
+
+
+@pytest.mark.parametrize("attempts", [1, 2, 3, 5])
+def test_every_attempt_fails_and_then_it_pauses(attempts):
+    """N attempts, the fetcher's own `max_attempts`, and no page: the pause comes only
+    after the last one."""
+    fetcher, asked = _scripted(httpx.ConnectError("refused"))
+    fetcher._max_attempts = attempts
+
+    with pytest.raises(RobotsUnreachable, match="ConnectError"):
+        fetcher.get(PAGE)
+
+    assert asked == ["/robots.txt"] * attempts, asked
+    assert fetcher.retry_count == attempts - 1
+    assert fetcher.requests_count == 0, "a robots read was counted as a crawl request"
+
+
+def test_the_last_attempts_answer_decides():
+    """A 503 then a 403: the read ended in a 4xx, so the crawl goes on and says so."""
+    fetcher, asked = _scripted(httpx.Response(503), httpx.Response(403))
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert asked == ["/robots.txt", "/robots.txt", "/products/1"], asked
+    assert any("could not be read (HTTP 403)" in w for w in fetcher.degradations)
+
+
+def test_a_429_is_retried_like_a_page_and_then_read_as_a_4xx():
+    """`_request` retries a 429, so the read does; ending on one is §2.3.1.3."""
+    fetcher, asked = _scripted(httpx.Response(429))
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert asked.count("/robots.txt") == fetcher._max_attempts, asked
+    assert any("could not be read (HTTP 429)" in w for w in fetcher.degradations)
+
+
+@pytest.mark.parametrize("status", [404, 403, 410, 401, 400])
+def test_a_status_a_page_is_not_retried_on_is_read_once(status):
+    """Only `RETRY_STATUSES` are asked again, as on a page."""
+    fetcher, asked = _scripted(httpx.Response(status))
+
+    fetcher.get(PAGE)
+
+    assert asked.count("/robots.txt") == 1, asked
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param(httpx.TooManyRedirects("loop"), id="TooManyRedirects"),
+    pytest.param(httpx.DecodingError("bad gzip"), id="DecodingError"),
+])
+def test_a_failure_that_is_not_the_networks_is_not_retried_and_crawls(error):
+    """`_request` lets these through unretried; so does the read. Neither is a network
+    error, so §2.3.1.3 applies: the crawl goes on and the run's log says why."""
+    fetcher, asked = _scripted(error)
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert asked == ["/robots.txt", "/products/1"], asked
+    [line] = _unreadable_notes(fetcher)
+    assert type(error).__name__ in line, line
+
+
+def test_the_retry_backs_off_as_a_page_does_and_honours_retry_after(monkeypatch):
+    """The same `_sleep_backoff`: a named Retry-After is waited, then the pace."""
+    slept = _clocked(monkeypatch)
+    fetcher, _ = _scripted(httpx.Response(503, headers={"Retry-After": "7"}),
+                           httpx.Response(404))
+
+    fetcher.get(PAGE)
+
+    assert slept[0] == 7.0, slept
+
+
+def test_the_retried_read_happens_once_per_host_under_the_lock():
+    """The cache is filled after the LAST attempt: a second page asks nothing."""
+    fetcher, asked = _scripted(httpx.Response(503), httpx.Response(404))
+
+    fetcher.get(PAGE)
+    fetcher.get(PAGE + "?again=1")
+
+    assert asked.count("/robots.txt") == 2, asked
 
 
 @pytest.mark.parametrize("choice", list(RobotsChoice))
@@ -783,4 +943,149 @@ def test_the_route_reports_the_pause_the_crawl_takes(panel, monkeypatch, key, ro
     if pauses:
         reason = shown["on_a_disallowed_path"]["reason"]
         assert "RFC 9309 §2.3.1.4" in reason and "paused" in reason, reason
+        assert "press Resume" in reason, reason
+        assert shown["on_a_disallowed_path"]["delay_s"] is None, shown
         assert "pauses" in shown["summary"], shown["summary"]
+        assert "RFC 9309" in shown["summary"] and "Resume" in shown["summary"], shown
+
+
+# ---- the route reads robots.txt the way the crawl does (#1585 review) ----------
+
+def _route_and_crawl_against(panel, monkeypatch, key: str, handler, settings: dict):
+    """Ask the route and the crawl's own fetcher the same site, with the same saved
+    settings. Returns (route's JSON, whether the crawl paused, what the site saw)."""
+    from scrapex.capture import crawl_settings as real_crawl_settings
+
+    def saved(conn):
+        return {**real_crawl_settings(conn), "min_interval_s": 0.0, **settings}
+    monkeypatch.setattr("scrapex.webui.app.crawl_settings", saved)
+    seen: list[httpx.Request] = []
+
+    def recording(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return handler(request)
+
+    real_client = httpx.Client
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(recording)
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        response = panel.get(f"/api/sources/{key}/robots")
+        choice, custom = ROUTE_SOURCES[key]
+        fetcher = resolve_fetcher(entry(robots=choice, robots_custom=custom),
+                                  {"min_interval_s": 0.0, **settings})
+        try:
+            fetcher.get(PAGE)
+            paused = False
+        except RobotsUnreachable:
+            paused = True
+        finally:
+            fetcher.close()
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+    assert response.status_code == 200, response.text
+    return response.json(), paused, seen
+
+
+def test_a_site_slower_than_15s_reads_the_same_on_the_route_and_in_the_crawl(
+        panel, monkeypatch):
+    """The route's own client timed out at 15s; the crawl waits `crawl_timeout_s`
+    (30s shipped). A site answering in 20s was reported unreachable -- "the crawl
+    pauses" -- while the crawl read it and went on."""
+    def twenty_seconds(request: httpx.Request) -> httpx.Response:
+        if request.extensions["timeout"]["read"] < 20:
+            raise httpx.ReadTimeout("no answer within the timeout")
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        return httpx.Response(200, text="ok")
+
+    shown, paused, _ = _route_and_crawl_against(panel, monkeypatch, "DEF",
+                                                twenty_seconds, {"timeout_s": 30.0})
+
+    assert paused is False
+    assert shown["unreachable"] is False, shown
+    assert shown["found"] is True, shown
+
+
+def test_the_route_uses_the_owners_timeout_too(panel, monkeypatch):
+    """And the other way: his 10s timeout makes the 20s site unreachable in both."""
+    def twenty_seconds(request: httpx.Request) -> httpx.Response:
+        if request.extensions["timeout"]["read"] < 20:
+            raise httpx.ReadTimeout("no answer within the timeout")
+        return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+
+    shown, paused, _ = _route_and_crawl_against(panel, monkeypatch, "DEF",
+                                                twenty_seconds, {"timeout_s": 10.0})
+
+    assert paused is True
+    assert shown["unreachable"] is True, shown
+
+
+def test_a_site_that_answers_only_a_browser_reads_the_same_on_both(panel, monkeypatch):
+    """The route sent a bare User-Agent and no client hints; the crawl sends the
+    panel's Chrome and its hints. A site that 503s anything without them was shown
+    as pausing while the crawl was let in."""
+    agent = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+    hints = '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"'
+
+    def browsers_only(request: httpx.Request) -> httpx.Response:
+        if (request.headers.get("user-agent") != agent
+                or request.headers.get("sec-ch-ua") != hints):
+            return httpx.Response(503)
+        return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+
+    shown, paused, seen = _route_and_crawl_against(
+        panel, monkeypatch, "DEF", browsers_only,
+        {"browser_user_agent": agent, "client_hints": hints, "user_agent": ""})
+
+    assert paused is False
+    assert shown["unreachable"] is False, shown
+    assert shown["found"] is True, shown
+    assert all(r.headers.get("sec-ch-ua") == hints for r in seen), "a bare request"
+
+
+def test_the_route_retries_like_the_crawl(panel, monkeypatch):
+    """One dropped connection then the file: the crawl reads it on its retry, so the
+    route must not report a pause the crawl would not take."""
+    calls: list[int] = []
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if request.url.path == "/robots.txt" and len(calls) % 2 == 1:
+            raise httpx.ConnectError("dropped")
+        return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+
+    shown, paused, _ = _route_and_crawl_against(panel, monkeypatch, "OBEY", flaky, {})
+
+    assert paused is False
+    assert shown["unreachable"] is False, shown
+
+
+@pytest.mark.parametrize("error", [
+    pytest.param(httpx.TooManyRedirects("loop"), id="TooManyRedirects"),
+    pytest.param(httpx.ConnectError("refused"), id="ConnectError"),
+])
+def test_the_route_classifies_an_exception_as_the_crawl_does(panel, monkeypatch, error):
+    def raising(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            raise error
+        return httpx.Response(200, text="ok")
+
+    shown, paused, _ = _route_and_crawl_against(panel, monkeypatch, "DEF", raising, {})
+
+    assert shown["unreachable"] is paused, (shown, paused)
+    assert paused is isinstance(error, httpx.TransportError)
+
+
+def test_the_route_says_which_robots_txt_it_read(panel, monkeypatch):
+    """A source whose crawl reads a second host (heidelberg's API and corporate
+    hosts) is reported for its `base_url` host only, and the answer says so."""
+    shown, _, _ = _route_and_crawl_against(
+        panel, monkeypatch, "DEF",
+        lambda request: httpx.Response(404 if request.url.path == "/robots.txt" else 200),
+        {})
+
+    assert shown["robots_url"] == f"https://{HOST}/robots.txt", shown

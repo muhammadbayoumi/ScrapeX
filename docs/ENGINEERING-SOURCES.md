@@ -121,11 +121,14 @@ If a chained interpret is ever measured holding the write lock long enough to bl
 crawl he started, entry 3 of the precedence order applies — a number from his machine
 outranks the practice above — and this entry is superseded rather than argued with.
 
+---
+
 ## ES-2 · An unreachable robots.txt is complete disallow
 
 **Governs:** what a crawl does when a site's robots.txt cannot be read — by status class.
 
-**Cited at:** `scrapex/robots.py`, `scrapex/connectors/base.py`, `scrapex/webui/app.py`.
+**Cited at:** `scrapex/robots.py`, `scrapex/connectors/base.py`, `scrapex/webui/app.py`,
+`scrapex/directoryjob.py`, `scrapex/contractors.py`, `scrapex/connectors/heidelberg.py`.
 
 ### The source
 
@@ -135,11 +138,14 @@ outranks the practice above — and this entry is superseded rather than argued 
 
 ### What it decides
 
-A 5xx, or a read that got no answer at all, **pauses** the site's run (`RobotsUnreachable`,
-a `CrawlBlocked`) and no page of that host is fetched, under every robots choice. A 4xx
-keeps #1413's answer: crawled under the tool's own rules, said once at WARNING.
-`GET /api/sources/{key}/robots` gives the same answer from the same function,
-`robots.is_unreachable`.
+A 5xx, or a network failure (`httpx.TransportError`), on the last of the read's attempts
+**pauses** the site's run (`RobotsUnreachable`, a `CrawlBlocked`) and no page of that host
+is fetched, under every robots choice. The read is retried as a page is first. A 4xx other
+than 404, or a failure that is not the network's (too many redirects — §2.3.1.2 — or a body
+that will not decode), keeps #1413's answer: crawled under the tool's own rules, said once
+at WARNING. A 404 is no file. `GET /api/sources/{key}/robots` reads through the crawl's
+own fetcher (`HttpFetcher.read_robots`) and classifies with the same function,
+`robots.is_unreachable`, so it gives the same answer.
 
 **Decided** by the owner on #1585, replacing that part of the #1413 ruling.
 
@@ -147,3 +153,6 @@ keeps #1413's answer: crawled under the tool's own rules, said once at WARNING.
 
 Level 1 of the precedence order: nothing below an RFC outranks it. A later RFC that
 updates 9309 supersedes this entry rather than being argued with.
+
+§2.3.1.4 also says that after 30 days unreachable a crawler MAY use a cached copy or
+crawl as if there were no file. That is a MAY, not taken today; taking it is his decision.

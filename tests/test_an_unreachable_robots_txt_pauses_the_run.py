@@ -154,7 +154,7 @@ def test_the_listing_crawl_pauses_and_asks_for_no_page(conn, monkeypatch, robots
     ref = _listing(conn)
 
     assert jobs.get_job(conn, ref)["status"] == "paused"
-    assert site.asked == [ROBOTS], site.asked
+    assert site.asked == [ROBOTS] * built["fetcher"]._max_attempts, site.asked
     assert built["fetcher"].requests_count == 0
     lines = jobs.job_logs(conn, ref)
     paused = [line for line in lines if line["message"].startswith("paused: ")]
@@ -165,6 +165,11 @@ def test_the_listing_crawl_pauses_and_asks_for_no_page(conn, monkeypatch, robots
     assert "Resuming under" in said, "the line does not say what Resume does"
     assert not any(m.startswith("failed:") for m in _messages(conn, ref))
     assert "running" not in _runs(conn), "the crawl's run row was left open"
+    job = jobs.get_job(conn, ref)
+    # The card's slot says the fetch STOPPED, not that it finished.
+    assert job["counters"]["sources"][SITE]["state"] == "stopped", job["counters"]
+    # A pause as the owner's writes it: no instruction left behind, no stage.
+    assert job["control"] == "none" and job["stage"] is None, job
 
 
 def test_the_listing_breaker_pauses_too_when_it_trips_on_the_first_request(
@@ -218,13 +223,18 @@ def test_a_cancel_pending_when_the_site_stops_the_run_is_honoured(conn, monkeypa
     db_file = conn.execute("PRAGMA database_list").fetchone()[2]
     refs: list[str] = []
 
+    pressed: list[bool] = []
+
     def robots_after_a_cancel(request: httpx.Request) -> httpx.Response:
-        own = dbmod.connect(db_file)
-        try:
-            jobs.set_control(own, refs[0], JobControl.CANCEL)
-            own.commit()
-        finally:
-            own.close()
+        # ONCE: the read is retried, and a second press on a job already
+        # `cancelling` is a different question from the one asked here.
+        if not pressed:
+            own = dbmod.connect(db_file)
+            try:
+                pressed.append(jobs.set_control(own, refs[0], JobControl.CANCEL))
+                own.commit()
+            finally:
+                own.close()
         return httpx.Response(503)
 
     _wire(monkeypatch, _Site(robots_after_a_cancel))
@@ -266,7 +276,7 @@ def test_the_profile_sweep_pauses_and_asks_for_no_page(conn, monkeypatch, robots
     ref = _profiles(conn, ids=("7101", "7102"))
 
     assert jobs.get_job(conn, ref)["status"] == "paused"
-    assert site.asked == [ROBOTS], site.asked
+    assert site.asked == [ROBOTS] * built["fetcher"]._max_attempts, site.asked
     assert built["fetcher"].requests_count == 0
     lines = jobs.job_logs(conn, ref)
     paused = [line for line in lines if line["message"].startswith("paused: ")]
@@ -299,6 +309,64 @@ def test_the_breaker_stops_the_profile_sweep_instead_of_being_swallowed(conn,
     assert sum(m.startswith("  [") and "HTTPStatusError" in m
                for m in _messages(conn, ref)) == 4, _messages(conn, ref)
     assert _runs(conn) == ["partial"]
+    # THE RUN ROW'S ACCOUNT: nothing stored, the four refused pages, five requests.
+    assert tuple(conn.execute("SELECT rows_seen, errors_count, requests_count "
+                              "FROM crawl_run").fetchone()) == (0, 4, 5)
+
+
+def test_a_run_row_that_cannot_be_closed_does_not_swallow_the_stop(conn, monkeypatch):
+    """THE RECORD MAY NOT DESTROY THE OUTCOME. A locked warehouse at `close_run` must
+    not turn the site's stop into an OperationalError the job settles as FAILED --
+    and the row it could not close is said, not skipped in silence."""
+    import sqlite3
+
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    site = _Site(httpx.Response(503))
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
+    said: list[str] = []
+    monkeypatch.setattr(contractors.runs, "close_run", locked)
+
+    with contractors.lines_go_to(said.append), pytest.raises(RobotsUnreachable):
+        contractors.details(conn, directoryjob.directories.get(SITE), fetch, fetcher,
+                            "locked-run", ids=("7101",))
+    fetcher.close()
+
+    assert any(line.startswith("could not close this run's row: OperationalError: "
+                               "database is locked") for line in said), said
+
+
+def test_a_pause_pending_when_the_site_stops_the_run_settles_as_one_pause(
+        conn, monkeypatch):
+    """He pressed Pause while robots.txt was being read: one pause, and the pending
+    instruction is cleared rather than left to fire on the resumed run."""
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    refs: list[str] = []
+    pressed: list[bool] = []
+
+    def robots_after_a_pause(request: httpx.Request) -> httpx.Response:
+        if not pressed:
+            own = dbmod.connect(db_file)
+            try:
+                pressed.append(jobs.set_control(own, refs[0], JobControl.PAUSE))
+                own.commit()
+            finally:
+                own.close()
+        return httpx.Response(503)
+
+    _wire(monkeypatch, _Site(robots_after_a_pause))
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    refs.append(ref)
+    conn.commit()
+
+    directoryjob.run_directory_crawl_job_once(conn, ref)
+
+    assert pressed == [True]
+    job = jobs.get_job(conn, ref)
+    assert job["status"] == "paused" and job["control"] == "none", job
+    assert sum(m.startswith("paused: ") for m in _messages(conn, ref)) == 1
 
 
 def test_a_paused_sweep_resumes_once_robots_txt_reads(conn, monkeypatch):
@@ -339,12 +407,54 @@ def test_the_pooled_sweep_stops_every_worker(conn, monkeypatch, robots, page):
     fetcher.close()
 
     if page is None:
-        assert site.asked == [ROBOTS], site.asked
+        assert site.asked == [ROBOTS], site.asked  # max_attempts is 1 here
     else:
         # The trip, plus at most what the other workers already had in flight.
         limit = connectors_base.HttpFetcher.BLOCK_LIMIT
         assert limit <= len(site.pages) <= limit + workers - 1, site.pages
     assert _runs(conn) == ["partial"]
+
+
+def test_the_pooled_sweep_counts_every_page_its_workers_stored(conn, monkeypatch):
+    """THE RUN ROW IS AN ACCOUNT, AND IT SAID NOTHING WAS STORED. Raising at the first
+    blocked future dropped every later future's result, so pages other workers had
+    stored -- on disk, under the run -- closed as `rows_seen=0`, and their notes went
+    unsaid. Six pages answer, then the site refuses until the breaker trips."""
+    served: list[str] = []
+    guard = __import__("threading").Lock()
+
+    def six_then_refuse(request: httpx.Request) -> httpx.Response:
+        with guard:
+            served.append(str(request.url))
+            n = len(served)
+        if n <= 6:
+            return httpx.Response(200, text="<html></html>")
+        return httpx.Response(403)
+
+    site = _Site(httpx.Response(404), page=six_then_refuse)
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
+    fetcher._max_attempts = 1
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    ids = tuple(str(7100 + n) for n in range(10))           # twenty pages
+    said: list[str] = []
+
+    with contractors.lines_go_to(said.append), pytest.raises(CrawlBlocked):
+        contractors.details(conn, directoryjob.directories.get(SITE), fetch, fetcher,
+                            "pool-run", ids=ids, workers=3,
+                            connect=lambda: dbmod.connect(db_file))
+    fetcher.close()
+
+    on_disk = conn.execute(
+        "SELECT COUNT(*) FROM generic_page_snapshot WHERE crawl_run_ref = 'pool-run'"
+    ).fetchone()[0]
+    rows_seen, errors = conn.execute(
+        "SELECT rows_seen, errors_count FROM crawl_run").fetchone()
+    assert on_disk == 6, on_disk
+    assert rows_seen == on_disk, f"the run row says {rows_seen}, the disk holds {on_disk}"
+    refused = [line for line in said if "HTTPStatusError" in line]
+    assert errors == len(refused), (errors, said)
+    assert len(refused) >= 4, "the refusals before the trip were not said"
 
 
 def test_one_dead_profile_is_still_one_failed_page(conn, monkeypatch):
@@ -462,6 +572,9 @@ def test_a_price_source_pauses_and_says_why_not_that_it_was_blocked(
     assert "blocked by the site" not in said[0]["message"], said[0]["message"]
     assert "no page was kept" in said[0]["message"], said[0]["message"]
     assert not any(line["message"].startswith("failed:") for line in lines)
+    # And the job's own error text, the one the finished card shows, says the same.
+    error = jobs.get_job(memory, ref)["error_summary"]
+    assert "could not be reached" in error and "blocked by the site" not in error, error
 
 
 def test_a_price_source_paused_after_a_page_keeps_it_for_resume(memory, journal,

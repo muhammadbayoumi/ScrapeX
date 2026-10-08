@@ -961,9 +961,11 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             # A CONNECTION PER WORKER, opened and closed by the worker that uses it.
             # `sqlite3` refuses one across threads; every connection sets WAL and
             # `busy_timeout`, so two writers wait for each other instead of failing.
-            def run(number: int, url: str) -> tuple[int, bool, str]:
+            def run(number: int, url: str) -> tuple[int, bool | None, str]:
                 if halted.is_set():
-                    return number, False, ""
+                    # `None`, NOT `False`: this page was never asked for, so it is
+                    # neither stored nor failed, and the run row must not say so.
+                    return number, None, ""
                 writer = connect()
                 try:
                     did, note = one(number, url, writer)
@@ -974,6 +976,11 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                     writer.close()
                 return number, did, note
 
+            #: The site's stop, if a worker met one. HELD UNTIL EVERY FUTURE IS READ:
+            #: raising at the first one dropped the pages later futures had already
+            #: stored and their notes, so the run row closed `rows_seen=0` over
+            #: snapshots that were on disk.
+            blocked: CrawlBlocked | None = None
             with ThreadPoolExecutor(max_workers=workers,
                                     thread_name_prefix="detail") as pool:
                 futures = [pool.submit(run, number, url)
@@ -983,11 +990,19 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                 # make the output depend on scheduling, which makes a diff between two
                 # runs useless.
                 for future in futures:
-                    _, did, note = future.result()
+                    try:
+                        _, did, note = future.result()
+                    except CrawlBlocked as stop:
+                        blocked = blocked or stop
+                        continue
+                    if did is None:
+                        continue
                     stored += did
                     failed += not did
                     if note:
                         notes.append(note)
+            if blocked is not None:
+                raise blocked
         else:
             for number, url in enumerate(todo, start=1):
                 # BEFORE THE FETCH, so a stop costs no request. Asked with the index of
@@ -1012,7 +1027,8 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         # left `running` is permanent, since no sweep settles `crawl_run`. PARTIAL, as a
         # pause closes it: what was stored is kept and a resume skips it. And the record
         # may not destroy the outcome -- a locked database here must not turn the site's
-        # stop into a failure -- so a failed write is said and the stop still travels.
+        # stop into a failure -- so a failed `close_run` write, the one write this
+        # clause makes, is said and the stop still travels.
         for note in notes:
             say(note)
         try:
