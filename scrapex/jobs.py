@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 from . import db as dbmod
 from .archive import backup_database
 from .capture import CaptureResult, capture_source
-from .connectors.base import CrawlBlocked, CrawlInterrupted
+from .connectors.base import CrawlBlocked, CrawlInterrupted, stopped_because
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
@@ -845,9 +845,9 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         # reads partially completed and the source is named.
         from . import localinbox
         kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
-        run.errors.append(f"{source_key}: blocked by the site: {blocked}")
+        run.errors.append(f"{source_key}: {stopped_because(blocked)}")
         append_log(conn, run.job_id,
-                   f"blocked by the site ({blocked}) — "
+                   f"{stopped_because(blocked)} — "
                    + (f"{kept} fetched page(s) kept; Resume on this source "
                       "continues from them once the site lets us back in"
                       if kept else

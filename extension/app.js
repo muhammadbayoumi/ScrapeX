@@ -1958,11 +1958,19 @@ async function lookAtRobots() {
       // THE ONE THAT CHANGES THE ANSWER, said plainly and not as a footnote.
       lines.push("Obeying would leave this source with nothing to collect.");
     }
-    if (report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
+    // AN UNREACHABLE robots.txt PAUSES EVERY CRAWL OF THE SITE (#1585, RFC 9309),
+    // not only a disallowed path, so the summary -- which already says so -- is the
+    // whole answer. The disallowed-path line would repeat it under a heading that
+    // suggests the other paths are fine.
+    // NOR FOR A BROWSER SOURCE (`crawl_reads_robots` false): its crawl reads no
+    // robots.txt, the summary already says so, and the line would say it again.
+    if (!report.unreachable && report.crawl_reads_robots !== false
+        && report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
       lines.push("On a disallowed path today: " + report.on_a_disallowed_path.reason);
     }
     box.textContent = lines.join(" ");
-    box.classList.toggle("warn", Boolean(report.would_block_everything));
+    box.classList.toggle("warn",
+      Boolean(report.would_block_everything || report.unreachable));
   } catch (error) {
     box.textContent = "Could not read it: " + (error && error.message ? error.message : error);
   } finally {

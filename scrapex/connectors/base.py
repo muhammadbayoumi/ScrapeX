@@ -6,6 +6,7 @@ is uniform: ScrapedTable -> funnel payload -> ingest.
 """
 from __future__ import annotations
 
+import math
 import random
 import re
 import ssl
@@ -294,6 +295,30 @@ class CrawlInterrupted(CrawlBlocked):
         self.control = control
 
 
+class RobotsUnreachable(CrawlBlocked):
+    """The site's robots.txt could not be reached: a 5xx, or no answer at all.
+
+    RFC 9309 §2.3.1.4 makes that "complete disallow" (ES-2, the owner's ruling on
+    #1585), so the run for this site PAUSES -- as a block by the site does since
+    #1448 -- rather than crawling under the tool's own rules, which is what #1413
+    did with it. A CrawlBlocked for the reason CrawlInterrupted gives: every
+    connector's per-page guard already re-raises one, so no page of the host goes
+    out after it and no guard needs a new clause.
+    """
+
+
+def stopped_because(blocked: CrawlBlocked) -> str:
+    """How a job log names what stopped a site's run -- ONE spelling for every runner.
+
+    AN UNREACHABLE robots.txt IS NOT A BLOCK, and "blocked by the site" over a
+    refused connection would send him looking for a ban that does not exist. Its
+    own sentence already names the host, the status and RFC 9309 (ES-2).
+    """
+    if isinstance(blocked, RobotsUnreachable):
+        return str(blocked)
+    return f"blocked by the site ({blocked})"
+
+
 def declare_frontier(fetcher, pages: int) -> None:
     """"I now know I will fetch `pages` more pages" — for any fetcher, or none.
 
@@ -357,6 +382,28 @@ def fetch_slot(fetcher, requests: int) -> dict:
     live["pace_s"] = float(getattr(fetcher, "_min_interval_s", 0.0) or 0.0)
     live["honouring_delay"] = bool(getattr(fetcher, "_honour_crawl_delay", True))
     return live
+
+
+@dataclass(frozen=True)
+class RobotsRead:
+    """What one read of a host's robots.txt came back with (`HttpFetcher.read_robots`)."""
+
+    #: The file asked for, so a report about a source that reads two hosts can say
+    #: which one it means.
+    url: str
+    #: The file, when it was served (200). None for no file or no answer.
+    text: str | None
+    #: Why it could not be read, when it could not: "HTTP 403", "ConnectError: ...".
+    #: Empty for a 200 and for a 404, which is an answer: there is no file.
+    unreadable: str
+    #: RFC 9309 §2.3.1.4: the crawl must pause (`robots.is_unreachable`).
+    unreachable: bool
+    #: Only from `read_robots(answer_promptly=True)`: the site asked to be retried
+    #: after this many seconds, more than the route will wait. The crawl waits it.
+    retry_after_s: float | None = None
+    #: Only from `read_robots(answer_promptly=True)`: the retries' time budget ran out
+    #: before their attempts did. The crawl would have kept retrying.
+    cut_short: bool = False
 
 
 class RobotsDisallowed(RuntimeError):
@@ -472,6 +519,10 @@ class HttpFetcher:
         #: the source, not the request, so it is given again without a second
         #: robots.txt fetch -- uncached, every page re-fetched the file.
         self._robots_refused: dict[str, ValueError] = {}
+        #: host -> why its robots.txt could not be reached (ES-2). Cached for the
+        #: refusal's reason: every later request of that host re-raises without a
+        #: second robots.txt fetch, and without a page fetch either.
+        self._robots_unreachable: dict[str, str] = {}
         #: One robots.txt read per host, however many workers share this
         #: fetcher (#1572). Unlocked, every worker whose first request left
         #: before the first answer arrived fetched the file itself: 6 workers,
@@ -727,9 +778,20 @@ class HttpFetcher:
         return self._request("POST", url, **kwargs)
 
     def _robots_for(self, url: str):
+        # A HOST ALREADY ANSWERED IS ANSWERED WITHOUT THE LOCK. One lock serves every
+        # host, and a read now retries -- up to a 900s Retry-After per attempt -- so a
+        # page of a host read long ago waited behind another host's backoff. The
+        # three caches are written once per host, after the answer is final, and a
+        # dict lookup is atomic, so reading them here asks nothing of the site.
+        from urllib.parse import urlsplit
+
+        host = urlsplit(url).netloc
+        if (host in self._robots or host in self._robots_refused
+                or host in self._robots_unreachable):
+            return self._load_robots(url)
         # HELD ACROSS THE FETCH, so a worker that arrives while the file is being
-        # read waits for that answer instead of asking again. One lock for every
-        # host: a fetcher crawls one site, and the wait is one request at most.
+        # read waits for that answer instead of asking again: once per host, its
+        # retries included, so no worker asks while another is backing off.
         with self._robots_lock:
             return self._load_robots(url)
 
@@ -737,50 +799,48 @@ class HttpFetcher:
         from urllib.parse import urlsplit
         from urllib.robotparser import RobotFileParser
 
+        from ..robots import unreachable_reason
+
         host = urlsplit(url).netloc
         if host in self._robots:
             return self._robots[host]
         if host in self._robots_refused:
             raise ValueError(str(self._robots_refused[host]))
+        if host in self._robots_unreachable:
+            raise RobotsUnreachable(self._robots_unreachable[host])
+        read = self.read_robots(url)
+        if read.unreachable:
+            # A SERVER OR NETWORK FAILURE IS COMPLETE DISALLOW (ES-2, the owner's
+            # ruling on #1585, replacing #1413's for these). RFC 9309 §2.3.1.4: the
+            # crawler "MUST assume complete disallow". #1413 crawled on under the
+            # tool's own rules; now the site's run pauses -- under every choice,
+            # since no rule of the site's was read for a choice to act on. Only
+            # after every attempt `read_robots` makes has failed. No degradation
+            # line: the pause carries this reason into the log, and two lines for
+            # one fact disagree in time.
+            reason = unreachable_reason(host, read.unreadable)
+            self._robots_unreachable[host] = reason
+            raise RobotsUnreachable(reason)
         parser = None
-        unreadable = ""
-        try:
-            robots_url = f"{urlsplit(url).scheme}://{host}/robots.txt"
-            # The plain client, NOT self.get: a robots fetch inside _request
-            # would recurse, and it must not count as a crawl request either.
-            # BUT IT IS PACED LIKE ONE (#1302): the site served it, so the first
-            # page owes the interval after it. Outside the pacer, page one left
-            # 1.2 s and 2.3 s later on two studies -- the second against the
-            # `Crawl-delay: 10` this very file asked for.
-            try:
-                answer = self._client.get(robots_url)
-            finally:
-                with self._throttle_lock:
-                    self._last_request_at = time.monotonic()
-            if answer.status_code == 200:
-                parser = RobotFileParser()
-                parser.parse(answer.text.splitlines())
-                # Kept so the report shown to the owner can quote the actual
-                # lines. RobotFileParser answers questions and cannot be asked
-                # what it read.
-                self._robots_text[host] = answer.text
-            elif answer.status_code != 404:
-                # 404 is an ANSWER: the site has no file. Anything else means we
-                # never got to read one (#1413).
-                unreadable = f"HTTP {answer.status_code}"
-        except Exception as exc:
-            parser = None
-            unreadable = f"{type(exc).__name__}: {exc}"
-        if unreadable:
+        if read.text is not None:
+            parser = RobotFileParser()
+            parser.parse(read.text.splitlines())
+            # Kept so the report shown to the owner can quote the actual lines.
+            # RobotFileParser answers questions and cannot be asked what it read.
+            self._robots_text[host] = read.text
+        if read.unreadable:
             # AN UNREADABLE FILE IS TREATED AS NO FILE, AND SAYS SO (#1413, the
             # owner's ruling). It was cached as "no rules" with nothing written,
             # so a 503 on robots.txt switched every robots check off in silence
-            # -- under `obey` too. The tool's own rules apply, under every
-            # choice, and the run's log names the status or error that put them
-            # there. One line per host: this branch runs once per host. A
-            # WARNING, not a note: the site's own rules were never read.
+            # -- under `obey` too. NOW ONLY RFC 9309's "unavailable" (§2.3.1.3)
+            # reaches here: a 4xx other than 404, or a read that failed for a
+            # reason that is not the network's (`robots.is_unreachable`). The
+            # tool's own rules apply, under every choice, and the run's log names
+            # the status that put them there. One line per host: this branch runs
+            # once per host. A WARNING, not a note: the site's own rules were
+            # never read.
             self.degradations.append(
-                f"{host}: robots.txt could not be read ({unreadable}) — treated "
+                f"{host}: robots.txt could not be read ({read.unreadable}) — treated "
                 f"as if the site had none; the tool's own rules apply "
                 f"(pace {self._min_interval_s:g}s)")
         if parser is not None:
@@ -794,6 +854,126 @@ class HttpFetcher:
         # skip the delay without a word.
         self._robots[host] = parser
         return parser
+
+    def read_robots(self, url: str, *, answer_promptly: bool = False) -> RobotsRead:
+        """Read the robots.txt of `url`'s host as the crawl reads it. Caches nothing.
+
+        TWO CALLERS, ONE READ: `_load_robots` and `GET /api/sources/{key}/robots`.
+        The route built its own client -- a 15s timeout against the crawl's 30s, no
+        browser headers, no HTTP/2 -- so a slow or header-sensitive site could be
+        reported readable and pause the crawl, or the reverse. Reading through this
+        fetcher makes the pause the route reports the pause the crawl takes.
+
+        RETRIED LIKE A PAGE (the owner's ruling on #1585): the same attempts, the
+        same statuses and the same backoff as `_request`, so one dropped connection
+        does not pause a site for the day. Only the LAST attempt's outcome decides.
+        The plain client, NOT `self.get`: a robots fetch inside `_request` would
+        recurse, and it must not count as a crawl request or trip the breaker.
+
+        BUT IT IS PACED LIKE ONE (#1302): the site served it, so the first page owes
+        the interval after it. Outside the pacer, page one left 1.2 s and 2.3 s
+        later on two studies -- the second against the `Crawl-delay: 10` this very
+        file asked for. A retry waits its backoff AND the pace, as `_request`'s does.
+
+        `answer_promptly` IS THE ROUTE'S, AND ONLY THE ROUTE'S (the coordinator's rulings
+        on #1588). The panel waits on that answer, with no timeout of its own, and a
+        503 naming Retry-After 900 held it fifteen minutes per retry. So:
+
+          * a wait the site names longer than this fetcher's timeout is not waited:
+            the read ends on the answer it has, and `retry_after_s` says what the site
+            asked;
+          * and the retries share ONE budget -- the same timeout, counted from the end
+            of the first attempt. No wait starts that would run past it, a retry is
+            given only what is left of it as its own timeout, and when nothing is
+            left the read ends on its last outcome and `cut_short` says the crawl
+            would have kept going. The whole read is at most two timeouts.
+
+        Same attempts, same statuses, same classification -- only the WAITING differs,
+        and the crawl keeps the full one.
+        """
+        from urllib.parse import urlsplit
+
+        from ..robots import is_unreachable
+
+        parts = urlsplit(url)
+        robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
+        text, unreadable = None, ""
+        outcome: int | Exception
+        budget_s = (self._client.timeout.read or 30.0) if answer_promptly else None
+        #: When the retries' budget runs out (`answer_promptly` only).
+        deadline: float | None = None
+        #: Both set only under `answer_promptly`; see the docstring.
+        retry_after_s: float | None = None
+        cut_short = False
+
+        def no_time_for(wait: float) -> bool:
+            """Would this wait, then the pace before the next attempt, pass the
+            deadline? The pace is counted at its jittered maximum: never a guess
+            that lets an attempt start late."""
+            if deadline is None:
+                return False
+            pace = self._min_interval_s * (1.0 + self._jitter)
+            return time.monotonic() + wait + pace >= deadline
+
+        try:
+            answer = None
+            failure: httpx.TransportError | None = None
+            for attempt in range(1, self._max_attempts + 1):
+                if attempt > 1:
+                    self._throttle()
+                answer, failure = None, None
+                # A RETRY UNDER A DEADLINE GETS ONLY WHAT IS LEFT OF IT as its
+                # timeout, or one slow attempt would carry the read a whole timeout
+                # past the budget it was started inside.
+                limit = ({} if deadline is None
+                         else {"timeout": max(0.001, deadline - time.monotonic())})
+                try:
+                    answer = self._client.get(robots_url, **limit)
+                except httpx.TransportError as exc:
+                    # The same clause `_request` has: worth another try, and the
+                    # last one's failure is the answer.
+                    failure = exc
+                finally:
+                    with self._throttle_lock:
+                        self._last_request_at = time.monotonic()
+                    if budget_s is not None and deadline is None:
+                        deadline = time.monotonic() + budget_s
+                if attempt == self._max_attempts:
+                    break
+                if failure is None and answer.status_code not in self.RETRY_STATUSES:
+                    break
+                asked: float | None = None
+                if failure is None:
+                    asked = self._retry_after_s(answer)
+                    if budget_s is not None and asked is not None and asked > budget_s:
+                        retry_after_s = asked
+                        break
+                wait = self._backoff_delay(attempt, answer)
+                if no_time_for(wait):
+                    # The site's own number, when it named one, is said here too:
+                    # within the budget, past what is left of it.
+                    cut_short, retry_after_s = True, asked
+                    break
+                self.retry_count += 1
+                time.sleep(wait)
+            if failure is not None:
+                raise failure
+            assert answer is not None, "the loop ends on an answer or a failure"
+            outcome = answer.status_code
+            if answer.status_code == 200:
+                text = answer.text
+            elif answer.status_code != 404:
+                # 404 is an ANSWER: the site has no file. Anything else means we
+                # never got to read one (#1413).
+                unreadable = f"HTTP {answer.status_code}"
+        except Exception as exc:
+            # Classified by type in `is_unreachable`: the network's failure pauses,
+            # any other (too many redirects, a body that would not decode) does not.
+            outcome = exc
+            text, unreadable = None, f"{type(exc).__name__}: {exc}"
+        return RobotsRead(url=robots_url, text=text, unreadable=unreadable,
+                          unreachable=is_unreachable(outcome),
+                          retry_after_s=retry_after_s, cut_short=cut_short)
 
     def _robots_report(self, host: str, url: str) -> RobotsReport:
         """What this host's robots.txt says for this crawler, read once."""
@@ -996,27 +1176,49 @@ class HttpFetcher:
                 f"on {url}). Stopping rather than pressing a site that has said no — "
                 "slow the crawl down or spread it over more runs, and retry later.")
 
-    def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
-        """Retry-After when the server names a delay, else exponential backoff.
+    @staticmethod
+    def _retry_after_s(response: httpx.Response) -> float | None:
+        """The delay a response's Retry-After names in seconds, or None.
 
-        A server-named delay gets its own, much higher ceiling: silently
-        shrinking a requested hour to two minutes was the OPPOSITE of
-        honouring it, and re-knocking early is how a polite crawler stops
-        being welcome. When the cap does bite, it is recorded, not hidden.
+        None also for an HTTP date: the default backoff stands for that, as it
+        always has. One reading, for `_backoff_delay` and `read_robots` alike.
+
+        AND NONE FOR A NUMBER THAT IS NOT A WAIT. The header is the site's string,
+        and `float()` takes "inf", "nan" and "1e999": `inf` reached the panel's JSON
+        and crashed the route with a 500, and `nan` slipped past `min`/`max` -- every
+        comparison with it is false -- into `sleep(0)`, a retry with no wait at all.
+        A negative one is no wait either. Each falls back to the default backoff.
+        """
+        try:
+            value = float(response.headers.get("Retry-After", ""))
+        except ValueError:
+            return None
+        return value if math.isfinite(value) and value >= 0 else None
+
+    def _backoff_delay(self, attempt: int, response: httpx.Response | None = None) -> float:
+        """How long `_sleep_backoff` waits before attempt `attempt + 1`.
+
+        Retry-After when the server names a delay, else exponential backoff. A
+        server-named delay gets its own, much higher ceiling: silently shrinking a
+        requested hour to two minutes was the OPPOSITE of honouring it, and
+        re-knocking early is how a polite crawler stops being welcome. When the cap
+        does bite, it is recorded, not hidden.
+
+        Its own function so `read_robots(answer_promptly=True)` can ask how long a
+        wait WOULD be before deciding whether it has the time for it.
         """
         delay = min(self._min_interval_s * (2 ** attempt), self.MAX_BACKOFF_S)
-        if response is not None:
-            named = response.headers.get("Retry-After", "")
-            try:
-                asked = float(named)
-                delay = min(asked, self.MAX_RETRY_AFTER_S)
-                if asked > self.MAX_RETRY_AFTER_S:
-                    self.robots_warnings.append(
-                        f"server asked for Retry-After {asked:.0f}s; waited the "
-                        f"{self.MAX_RETRY_AFTER_S:.0f}s ceiling instead")
-            except ValueError:
-                pass          # Retry-After may be an HTTP date; the default stands
-        time.sleep(max(0.0, delay))
+        asked = self._retry_after_s(response) if response is not None else None
+        if asked is not None:
+            delay = min(asked, self.MAX_RETRY_AFTER_S)
+            if asked > self.MAX_RETRY_AFTER_S:
+                self.robots_warnings.append(
+                    f"server asked for Retry-After {asked:.0f}s; waited the "
+                    f"{self.MAX_RETRY_AFTER_S:.0f}s ceiling instead")
+        return max(0.0, delay)
+
+    def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
+        time.sleep(self._backoff_delay(attempt, response))
 
     def _throttle(self) -> None:
         """One request per interval, HOWEVER MANY THREADS SHARE THIS FETCHER.

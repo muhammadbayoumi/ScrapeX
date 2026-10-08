@@ -273,10 +273,14 @@ sources:
     body = answer.json()
     assert body["unreadable"], "an unreachable site is being reported as having no rules"
     assert not body["found"]
-    assert "could not be read" in body["summary"]
+    # A NETWORK FAILURE, so since #1585 (ES-2, RFC 9309 §2.3.1.4) the crawl PAUSES on
+    # this site, and the route says so where it said "could not be read" before.
+    assert body["unreachable"] is True, body
+    assert "could not be reached" in body["summary"], body["summary"]
     assert body["choice"] == "obey", "the route does not report the source's own choice"
     # It must still say what would happen, rather than leaving the screen blank.
     assert body["on_a_disallowed_path"]["reason"]
+    assert body["on_a_disallowed_path"]["may_fetch"] is False, body
 
 
 def test_the_look_route_refuses_a_source_that_does_not_exist(tmp_path):

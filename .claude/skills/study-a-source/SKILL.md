@@ -24,7 +24,7 @@ below are its shape, generalised.
   study is tens of requests, not thousands. The heidelberg study spent 23 with a
   self-imposed 2.5 s gap (`docs/recon/heidelberg-materials-eg.md:48`).
 - **`robots.txt` is read first and obeyed for the whole study**, whatever
-  `crawl_obey_disallow` ships at (`scrapex/settings.py:99`). `scrapex/robots.py:161`
+  `crawl_obey_disallow` ships at (`scrapex/settings.py:99`). `scrapex/robots.py:206`
   parses it; a study never needs the path a site asked you to leave alone.
 - **Never authenticate, never pay, never bypass a block.** A field behind a login is
   recorded as existing and gated — that is a finding, and getting at it is his decision.

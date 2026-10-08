@@ -53,6 +53,7 @@ import time
 from contextlib import nullcontext
 
 from . import capture, contractors, directories, directoryjob, sightings, source_settings
+from .connectors.base import CrawlBlocked
 from .payload import utc_now_iso
 from .sites.muqawil import MuqawilPageSource
 from .vocab import JobControl, JobStage, JobStatus, LogLevel
@@ -444,6 +445,13 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
         # status and said where it stopped.
         return jobs.get_job(conn, job_ref)
+    except CrawlBlocked as blocked:
+        # THE SITE'S STOP: `details` lets it through its per-page guard and closes its
+        # run PARTIAL on the way. A pause, as the listing crawl settles it.
+        directoryjob.pause_for_the_site(
+            conn, job, job_ref, source_key, blocked,
+            f"Resuming re-reads {run_ref} and skips what is already stored")
+        return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",
                         level=LogLevel.ERROR, source_key=source_key)
