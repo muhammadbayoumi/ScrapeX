@@ -447,8 +447,9 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         jobs._finish(conn, job["job_id"], JobStatus.FAILED, str(exc))
         raise
     finally:
-        # ON EVERY EXIT, as the listing crawl does it: a sweep stopped or failed by a
-        # Disallow under `obey` is exactly the run whose robots line matters.
+        # ON EVERY EXIT, as the listing crawl does it. Under `obey` a Disallow does
+        # not stop the sweep: `contractors.details` refuses that page alone, and
+        # this robots line is what says why the pages were not read.
         directoryjob.log_politeness(conn, job["job_id"], source_key, fetcher)
         conn.commit()
 

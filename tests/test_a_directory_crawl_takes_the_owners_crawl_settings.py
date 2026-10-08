@@ -335,12 +335,12 @@ def test_a_run_that_asked_nothing_states_no_pace(conn, monkeypatch):
                    for line in _lines(conn, ref))
 
 
-@RUNNERS
-def test_a_disallow_obeyed_by_the_owners_switch_fails_the_run_and_says_why(
-        conn, monkeypatch, run):
-    """THE ERROR PATH. With `crawl_obey_disallow` on, a disallowed page stops the run --
-    and the robots line still reaches the log, because the disclosure is written on the
-    way out of every exit, not only a clean one."""
+def test_a_disallow_obeyed_by_the_owners_switch_fails_the_listing_and_says_why(
+        conn, monkeypatch):
+    """THE ERROR PATH. With `crawl_obey_disallow` on, a disallowed page stops the
+    listing crawl -- and the robots line still reaches the log, because the disclosure
+    is written on the way out of every exit, not only a clean one."""
+    run = _run_directory
     settings.save(conn, {"crawl_obey_disallow": "1"})
     conn.commit()
     _spy(monkeypatch, robots=SLOW_SITE)
@@ -352,6 +352,27 @@ def test_a_disallow_obeyed_by_the_owners_switch_fails_the_run_and_says_why(
     ref = conn.execute("SELECT job_ref FROM crawl_job").fetchone()[0]
     assert jobs.get_job(conn, ref)["status"] == "failed"
     messages = [line["message"] for line in _lines(conn, ref)]
+    disallow = [m for m in messages if m.startswith(f"{HOST}: robots.txt disallows")]
+    assert len(disallow) == 1, messages
+
+
+def test_a_disallow_obeyed_by_the_owners_switch_refuses_each_profile_and_says_why(
+        conn, monkeypatch):
+    """THE PROFILE SWEEP DOES NOT STOP. The REAL `contractors.details` contains each
+    page's failure, so under `obey` with every path disallowed no profile page goes
+    out, each is refused on its own, the sweep ends `completed` with nothing stored,
+    and the robots line is said once. Whether that should read as `completed` is
+    the owner's question, filed rather than decided here."""
+    settings.save(conn, {"crawl_obey_disallow": "1"})
+    conn.commit()
+    built = _spy(monkeypatch, robots="User-agent: *\nDisallow: /\n")
+
+    ref = _run_profile(conn)
+
+    assert jobs.get_job(conn, ref)["status"] == "completed"
+    assert built["fetcher"].requests_count == 0
+    messages = [line["message"] for line in _lines(conn, ref)]
+    assert any("RobotsDisallowed" in m for m in messages), messages
     disallow = [m for m in messages if m.startswith(f"{HOST}: robots.txt disallows")]
     assert len(disallow) == 1, messages
 
