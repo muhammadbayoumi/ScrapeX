@@ -47,7 +47,10 @@ fetched lazily once per host (via the plain client: it does not count as a crawl
 request), and every disclosure travels through `robots_warnings` →
 `CaptureResult.notes` → the job log at **info** level (data warnings stay at
 warning level, on `CaptureResult.warnings`), so none of this is silent and none
-of it masquerades as a defect.
+of it masquerades as a defect. One exception: a robots.txt that could not be read
+(any status but 200 or 404, or a transport error) goes through `degradations` →
+`CaptureResult.warnings` at **warning** level, because the site's own rules were
+never read and the run went on under the tool's.
 
 Changing the DEFAULT = the `crawl_obey_disallow` setting, no code.
 Changing what a single source does = its `robots:` key in the manifest, or the

@@ -508,7 +508,8 @@ class HttpFetcher:
         self.not_modified_count = 0
         self.retry_count = 0
         #: Requests this run had to make in a costlier shape because the site
-        #: refused the efficient one. Read into the run's warnings — a crawl
+        #: refused the efficient one, or ran without the site's robots.txt
+        #: because it could not be read. Read into the run's warnings — a crawl
         #: that quietly costs ten times the requests is a bill nobody sees.
         self.degradations: list[str] = []
         #: (host, parameter) pairs proven refused, so the lesson is asked once

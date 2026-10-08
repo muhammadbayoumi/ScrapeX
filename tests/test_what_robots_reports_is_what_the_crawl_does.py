@@ -169,6 +169,7 @@ def test_a_404_is_still_no_file_and_still_says_nothing(choice):
     fetcher.get(PRIVATE)
 
     assert fetcher.robots_warnings == []
+    assert fetcher.degradations == [], "a 404 was written down as unreadable"
     assert seen == [PRIVATE]
     assert fetcher._min_interval_s == 1.0
 
@@ -297,6 +298,35 @@ def test_a_custom_rule_with_a_null_delay_still_takes_the_sites():
     fetcher.get(PAGE)
 
     assert fetcher._min_interval_s == 10.0
+
+
+@pytest.mark.parametrize("pace", [10.0, 15.0], ids=["equal", "slower"])
+def test_a_site_delay_no_longer_than_the_pace_changes_nothing_and_says_nothing(pace):
+    """The site asks for 10s; the pace in force is already that or slower. Nothing
+    moves, so no line may claim the site's delay was honoured."""
+    fetcher, _ = _fetcher(SLOW_SITE, min_interval_s=pace)
+
+    fetcher.get(PAGE)
+
+    assert fetcher._min_interval_s == pace
+    assert not any("crawl delay" in w for w in fetcher.robots_warnings), (
+        fetcher.robots_warnings)
+
+
+@pytest.mark.parametrize("custom_delay", [10.0, 12.0], ids=["equal", "above"])
+def test_a_custom_delay_at_or_above_the_sites_needs_no_line_on_a_bare_fetcher(
+        custom_delay):
+    """Built WITHOUT `resolve_fetcher`, so the pace starts at 0 and only the custom
+    branch of `_apply_site_delay` can keep the log quiet."""
+    fetcher, _ = _fetcher(SLOW_SITE, robots_choice="custom",
+                          robots_custom={"enforce_disallow": False,
+                                         "crawl_delay_s": custom_delay})
+
+    fetcher.get(PAGE)
+
+    assert fetcher._min_interval_s == custom_delay
+    assert not any("crawl delay" in w for w in fetcher.robots_warnings), (
+        fetcher.robots_warnings)
 
 
 def test_custom_with_no_rule_stored_is_still_refused_on_a_site_with_a_delay():
