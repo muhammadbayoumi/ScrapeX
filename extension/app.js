@@ -8740,7 +8740,16 @@ async function backUpToDrive(token, report = "drive-msg") {
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
     : "";
-  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}`;
+  // THE LIGHT FILE (#1199) never fails a backup, so what it could not write is
+  // said here, where he reads the result, rather than left in the reply.
+  const faults = built.light?.faults || [];
+  const light = built.light_error
+    ? ` The offline copy of the Data page was not written: ${built.light_error}.`
+    : faults.length
+      ? ` The offline copy of the Data page left out ${faults.length} ` +
+        `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
+      : "";
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${light}`;
 }
 
 async function fetchFromDrive(token) {
