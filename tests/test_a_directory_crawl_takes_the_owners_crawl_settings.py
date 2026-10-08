@@ -25,12 +25,19 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from scrapex import contractors, directoryjob, jobs, profilejob, settings
+from scrapex import contractors, directoryjob, jobs, profilejob, settings, source_settings
 from scrapex import db as dbmod
+from scrapex.config import Manifest
 from scrapex.connectors import base as connectors_base
 from scrapex.connectors.base import DEFAULT_USER_AGENT, RobotsDisallowed
 
 SITE = "muqawil_org"
+
+#: `source_settings.save` judges a choice against the manifest (an unprobed price source
+#: cannot be activated); a directory is in none, so any manifest without it will do.
+_NO_PRICE_SOURCES = Manifest.model_validate({"sources": [{
+    "source_key": "SOME_SHOP", "source_name": "Some Shop", "base_url": "https://shop.test",
+    "family": "custom-json-api", "extract": [{"kind": "product_prices"}]}]})
 HOST = "muqawil.org"
 SLOW_SITE = "User-agent: *\nCrawl-delay: 10\nDisallow: /private/\n"
 #: Far from zero for the reason tests/test_http_fetcher.py gives at FROZEN_CLOCK.
@@ -88,8 +95,9 @@ def _spy(monkeypatch, robots: str = "", robots_status: int = 200) -> dict:
             return httpx.Response(200, text=robots) if robots else httpx.Response(404)
         return httpx.Response(200, text="<html></html>")
 
-    def spying(crawl_settings):
-        fetcher, fetch = real(crawl_settings)
+    def spying(crawl_settings, rules):
+        built["rules"] = rules
+        fetcher, fetch = real(crawl_settings, rules)
         built["headers"] = dict(fetcher._client.headers)
         built["timeout"] = fetcher._client.timeout
         fetcher._client.close()
@@ -163,7 +171,8 @@ def test_the_owners_crawl_settings_reach_the_directory_fetcher(conn, monkeypatch
     assert built["headers"]["user-agent"] == "OwnerTyped/7.0"
     assert fetcher._honour_crawl_delay is False
     assert fetcher._obey_disallow is True
-    # STAGE 1: a directory has no robots answer of its own yet, so it takes the tool's.
+    # He chose nothing for this directory, so its robots answer is the tool's. What he
+    # chooses for it is held by `test_his_choices_for_this_directory_reach_its_fetcher`.
     assert fetcher._robots_choice == "default"
 
 
@@ -191,6 +200,46 @@ def test_the_panels_own_browser_agent_and_its_hints_reach_the_directory_fetcher(
 
 
 @RUNNERS
+def test_his_choices_for_this_directory_reach_its_fetcher(conn, monkeypatch, run):
+    """#1414 STAGE 2 (#1584): a directory takes his per-source choices from the
+    warehouse, by the function a price source's take them -- over his general settings,
+    as a price source's own rules are. Before this it had nowhere to keep one."""
+    settings.save(conn, OWNER)
+    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {
+        "user_agent": "HisDirectory/1.0", "crawl_pace_s": 6.0, "robots": "custom",
+        "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 0.0}})
+    conn.commit()
+    built = _spy(monkeypatch)
+    _visiting(monkeypatch, [])
+
+    run(conn)
+
+    fetcher = built["fetcher"]
+    assert built["rules"] == source_settings.effective(conn, SITE, None)
+    assert fetcher._user_agent == "HisDirectory/1.0", "his agent for it beats the typed one"
+    assert fetcher._min_interval_s == 6.0, "the slowest of his pace and the general one"
+    assert fetcher._robots_choice == "custom"
+    assert fetcher._robots_custom == {"enforce_disallow": True, "crawl_delay_s": 0.0}
+
+
+@RUNNERS
+def test_a_directory_choice_he_cleared_falls_back_to_his_general_settings(
+        conn, monkeypatch, run):
+    """A directory ships nothing, so clearing a choice leaves the general rule alone."""
+    settings.save(conn, OWNER)
+    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {"user_agent": "HisDirectory/1.0"})
+    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {"user_agent": None})
+    conn.commit()
+    built = _spy(monkeypatch)
+    _visiting(monkeypatch, [])
+
+    run(conn)
+
+    assert built["fetcher"]._user_agent == "OwnerTyped/7.0"
+    assert built["fetcher"]._min_interval_s == 4.5
+
+
+@RUNNERS
 def test_with_nothing_saved_the_directory_fetcher_is_what_it_always_was(
         conn, monkeypatch, run):
     """THE SHIPPED DEFAULTS ARE THE OLD `HttpFetcher(min_interval_s=1.0)`, field for
@@ -212,7 +261,7 @@ def test_with_nothing_saved_the_directory_fetcher_is_what_it_always_was(
 def test_the_command_lines_pace_is_still_the_only_thing_it_sets():
     """`--pace` alone, through the same chain: everything else at the shipped default,
     which is what `HttpFetcher(min_interval_s=pace)` built before."""
-    fetcher, _ = contractors.make_fetch({"min_interval_s": 2.5})
+    fetcher, _ = contractors.make_fetch({"min_interval_s": 2.5}, source_settings.NO_OPINION)
     try:
         old = connectors_base.HttpFetcher(min_interval_s=2.5)
         try:
@@ -242,7 +291,8 @@ def test_a_price_source_with_no_rules_of_its_own_gets_the_same_general_fetcher()
     chosen = {"min_interval_s": 3.0, "timeout_s": 9.0, "user_agent": "",
               "browser_user_agent": "Chrome-ish/1", "client_hints": '"X";v="1"',
               "honour_crawl_delay": False, "obey_disallow": True}
-    price = connectors_base.resolve_fetcher(entry, chosen)
+    price = connectors_base.resolve_fetcher(
+        entry, source_settings.layered({}, entry.source_key, entry), chosen)
     general = connectors_base.general_fetcher(chosen)
     try:
         for name in ("_min_interval_s", "_user_agent", "_honour_crawl_delay",
@@ -418,13 +468,22 @@ def test_a_degradation_said_twice_is_written_once_at_warning(conn):
 @pytest.mark.parametrize("flag", ["--plan", "--crawl", "--details"])
 def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, flag):
     """`contractors.run` builds its fetcher in three places; each passes `--pace` alone,
-    so the command line behaves exactly as it did before the owner's settings existed."""
-    asked: list[dict] = []
-    real = contractors.make_fetch
+    so the command line behaves exactly as it did before the owner's settings existed.
 
-    def spying(crawl_settings):
+    HIS PER-SOURCE CHOICES are a different question and do reach `--crawl` and
+    `--details`, which open the warehouse; `--plan` opens none and sizes the directory
+    as a source that said nothing."""
+    asked: list[dict] = []
+    handed: list = []
+    real = contractors.make_fetch
+    his = source_settings.SourceRules(
+        active=False, robots=source_settings.RobotsChoice.OBEY, robots_custom=None,
+        user_agent="HisDirectory/1.0", crawl_pace_s=6.0)
+
+    def spying(crawl_settings, rules):
         asked.append(crawl_settings)
-        return real(crawl_settings)
+        handed.append(rules)
+        return real(crawl_settings, rules)
 
     class _Conn:
         def close(self):
@@ -432,8 +491,11 @@ def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, f
 
     monkeypatch.setattr(contractors, "make_fetch", spying)
     monkeypatch.setattr(contractors, "validate", lambda args: None)
-    monkeypatch.setattr(contractors, "get_directory", lambda key: object())
+    monkeypatch.setattr(contractors, "get_directory", lambda key: SimpleNamespace(key=key))
     monkeypatch.setattr(contractors, "open_engine", _Conn)
+    # The fake connection has no warehouse to ask, so his answer is handed in here.
+    monkeypatch.setattr(contractors.source_settings, "effective",
+                        lambda conn, key, shipped: his)
     for name in ("plan", "crawl", "details"):
         monkeypatch.setattr(contractors, name, lambda *a, **k: None)
     parser = argparse.ArgumentParser()
@@ -442,6 +504,7 @@ def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, f
     assert contractors.run(parser.parse_args([flag, "--pace", "2.5"])) == 0
 
     assert asked == [{"min_interval_s": 2.5}]
+    assert handed == [source_settings.NO_OPINION if flag == "--plan" else his]
 
 
 def test_log_politeness_tolerates_a_stand_in_with_nothing_to_say(conn):

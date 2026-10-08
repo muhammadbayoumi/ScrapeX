@@ -274,24 +274,53 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
     return read(conn, source_key)
 
 
-def effective(conn: sqlite3.Connection, manifest: Manifest, source_key: str) -> SourceRules:
+#: What a source that said nothing has, and what `effective` falls to when neither he
+#: nor `sources.yaml` answered a field: inactive, robots `default`, no agent, no pace.
+#: Each None hands the question to his GENERAL rules, which `connectors.base.
+#: general_fetcher` applies. Named for the one caller with no warehouse to ask: the
+#: command line's `contractors --plan`.
+NO_OPINION = SourceRules(active=False, robots=RobotsChoice.DEFAULT, robots_custom=None,
+                         user_agent=None, crawl_pace_s=None)
+
+
+def effective(conn: sqlite3.Connection, source_key: str,
+              shipped: SourceEntry | None) -> SourceRules:
     """The five answers a crawl of this source acts on.
 
+    `shipped` is this source's `sources.yaml` entry, or None for a source the manifest
+    does not declare -- every directory source. It is REQUIRED, not defaulted: a price
+    source asked for without its entry would silently lose Zid's agent, so a caller says
+    "None" on purpose. Taken as the entry rather than the manifest because the crawl
+    already holds the entry it is running (`capture.capture_source`).
+
     Per field: his stored choice, else the `sources.yaml` entry's value, else no
-    per-source opinion. `robots` and `robots_custom` move as ONE field, because a rule is
-    meaningless without its choice: his choice of `obey` must not inherit a shipped
-    custom rule, and his `custom` must not be judged against a shipped `obey`.
+    per-source opinion (`NO_OPINION`); `layered` says how.
 
     A source with no `source_site` row is not refused here, unlike in `save`. A price
     source's first crawl happens before its first ingest registers it, and that crawl
     still needs its shipped agent -- Zid answers 403 to any other.
 
+    """
+    return layered(read(conn, source_key), source_key, shipped)
+
+
+def layered(chosen: dict, source_key: str, shipped: SourceEntry | None) -> SourceRules:
+    """`effective`'s layering, given his choices already read -- `{}` for none.
+
+    Its own function for the one caller with no warehouse to read: `scrapex crawl`, which
+    writes to the local inbox and so runs a source as it shipped.
+
+    `robots` and `robots_custom` move as ONE field, because a rule is meaningless without
+    its choice: his choice of `obey` must not inherit a shipped custom rule, and his
+    `custom` must not be judged against a shipped `obey`.
+
     A shipped custom rule is checked by the rules `save` applies, and a misspelt shipped
     choice fails, both as `SourceSettingError`: the manifest is hand-edited, and a wrong
     value there must stop the crawl that would act on it rather than be guessed at.
     """
-    chosen = read(conn, source_key)
-    shipped = _shipped(manifest, source_key)
+    if shipped is not None and shipped.source_key != source_key:
+        raise ValueError(
+            f"asked for {source_key!r} with {shipped.source_key!r}'s manifest entry")
 
     if shipped is not None and shipped.family == ConnectorFamily.TBD_PROBE:
         # Whatever was stored: a source can be activated and then see a later release
@@ -300,7 +329,7 @@ def effective(conn: sqlite3.Connection, manifest: Manifest, source_key: str) -> 
     elif "active" in chosen:
         active = chosen["active"]
     else:
-        active = bool(shipped.active) if shipped is not None else False
+        active = bool(shipped.active) if shipped is not None else NO_OPINION.active
 
     if "robots" in chosen:
         robots, custom = chosen["robots"], chosen.get("robots_custom")
@@ -319,17 +348,17 @@ def effective(conn: sqlite3.Connection, manifest: Manifest, source_key: str) -> 
                   if robots is RobotsChoice.CUSTOM and shipped.robots_custom is not None
                   else None)
     else:
-        robots, custom = RobotsChoice.DEFAULT, None
+        robots, custom = NO_OPINION.robots, NO_OPINION.robots_custom
 
     if "user_agent" in chosen:
         agent = chosen["user_agent"]
     else:
-        agent = shipped.user_agent if shipped is not None else None
+        agent = shipped.user_agent if shipped is not None else NO_OPINION.user_agent
 
     if "crawl_pace_s" in chosen:
         pace = chosen["crawl_pace_s"]
     else:
-        pace = shipped.crawl_pace_s if shipped is not None else None
+        pace = shipped.crawl_pace_s if shipped is not None else NO_OPINION.crawl_pace_s
 
     return SourceRules(active=active, robots=robots, robots_custom=custom,
                        user_agent=agent, crawl_pace_s=pace)

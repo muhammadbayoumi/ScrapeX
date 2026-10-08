@@ -436,12 +436,12 @@ def test_a_directory_source_takes_every_choice(conn, manifest):
 
 # ---- effective: his choice > the shipped entry > no opinion ---------------------------
 
-NO_OPINION = SourceRules(active=False, robots=RobotsChoice.DEFAULT, robots_custom=None,
+NOTHING_SAID = SourceRules(active=False, robots=RobotsChoice.DEFAULT, robots_custom=None,
                          user_agent=None, crawl_pace_s=None)
 
 
 def test_a_price_source_he_never_touched_is_what_it_shipped_with(conn, manifest):
-    assert effective(conn, manifest, SHOP) == SourceRules(
+    assert effective(conn, SHOP, manifest.get(SHOP)) == SourceRules(
         active=True, robots=RobotsChoice.OBEY, robots_custom=None,
         user_agent="ShippedAgent/1.0", crawl_pace_s=3.0)
 
@@ -452,7 +452,7 @@ def test_his_choice_wins_over_what_the_source_shipped_with(conn, manifest):
                                                   "crawl_delay_s": 0.0},
                                 "user_agent": "HisAgent/2.0", "crawl_pace_s": 1.0})
 
-    assert effective(conn, manifest, SHOP) == SourceRules(
+    assert effective(conn, SHOP, manifest.get(SHOP)) == SourceRules(
         active=False, robots=RobotsChoice.CUSTOM,
         robots_custom={"enforce_disallow": True, "crawl_delay_s": 0.0},
         user_agent="HisAgent/2.0", crawl_pace_s=1.0)
@@ -462,7 +462,7 @@ def test_a_field_he_has_not_chosen_still_inherits_beside_one_he_has(conn, manife
     """Per field, not per row: one choice stored does not erase the shipped others."""
     save(conn, manifest, SHOP, {"crawl_pace_s": 10.0})
 
-    rules = effective(conn, manifest, SHOP)
+    rules = effective(conn, SHOP, manifest.get(SHOP))
 
     assert rules.crawl_pace_s == 10.0
     assert (rules.active, rules.robots, rules.user_agent) == (
@@ -473,7 +473,7 @@ def test_a_cleared_choice_falls_back_to_what_shipped(conn, manifest):
     save(conn, manifest, SHOP, {"user_agent": "HisAgent/2.0", "active": False})
     save(conn, manifest, SHOP, {"user_agent": None, "active": None})
 
-    assert effective(conn, manifest, SHOP) == SourceRules(
+    assert effective(conn, SHOP, manifest.get(SHOP)) == SourceRules(
         active=True, robots=RobotsChoice.OBEY, robots_custom=None,
         user_agent="ShippedAgent/1.0", crawl_pace_s=3.0)
 
@@ -483,19 +483,19 @@ def test_his_default_is_a_choice_and_beats_a_shipped_obey(conn, manifest):
     tool-wide setting even where the source shipped `obey`."""
     save(conn, manifest, SHOP, {"robots": "default"})
 
-    assert effective(conn, manifest, SHOP).robots is RobotsChoice.DEFAULT
+    assert effective(conn, SHOP, manifest.get(SHOP)).robots is RobotsChoice.DEFAULT
 
 
 def test_the_choice_and_its_rule_move_together(conn):
     """A shipped custom rule is not inherited under his `obey`; it is meaningless there."""
     shipped_custom = Manifest.model_validate({"sources": [_entry(
         SHOP, robots="custom", robots_custom={"enforce_disallow": True, "crawl_delay_s": 9})]})
-    assert effective(conn, shipped_custom, SHOP).robots_custom == {
+    assert effective(conn, SHOP, shipped_custom.get(SHOP)).robots_custom == {
         "enforce_disallow": True, "crawl_delay_s": 9}
 
     save(conn, shipped_custom, SHOP, {"robots": "obey"})
 
-    rules = effective(conn, shipped_custom, SHOP)
+    rules = effective(conn, SHOP, shipped_custom.get(SHOP))
     assert (rules.robots, rules.robots_custom) == (RobotsChoice.OBEY, None)
 
 
@@ -505,28 +505,28 @@ def test_a_shipped_rule_under_a_choice_that_ignores_it_is_not_handed_on(conn):
     leftover = Manifest.model_validate({"sources": [_entry(
         SHOP, robots="obey", robots_custom={"enforce_disallow": False, "crawl_delay_s": 30})]})
 
-    assert effective(conn, leftover, SHOP).robots_custom is None
+    assert effective(conn, SHOP, leftover.get(SHOP)).robots_custom is None
 
 
 def test_a_misspelt_shipped_choice_fails_loudly_rather_than_acting_as_default(conn):
     misspelt = Manifest.model_validate({"sources": [_entry(SHOP, robots="obeys")]})
 
     with pytest.raises(ValueError, match="obeys"):
-        effective(conn, misspelt, SHOP)
+        effective(conn, SHOP, misspelt.get(SHOP))
 
 
 def test_a_price_source_that_shipped_nothing_has_no_opinion(conn, manifest):
-    assert effective(conn, manifest, PLAIN) == NO_OPINION
+    assert effective(conn, PLAIN, manifest.get(PLAIN)) == NOTHING_SAID
 
 
 def test_a_directory_source_has_no_shipped_layer(conn, manifest):
     """Not in `sources.yaml`, so between his choice and the general rules there is
     nothing -- and before this table there was nothing above the general rules either."""
-    assert effective(conn, manifest, DIRECTORY) == NO_OPINION
+    assert effective(conn, DIRECTORY, None) == NOTHING_SAID
 
     save(conn, manifest, DIRECTORY, {"robots": "obey", "crawl_pace_s": 5.0})
 
-    assert effective(conn, manifest, DIRECTORY) == SourceRules(
+    assert effective(conn, DIRECTORY, None) == SourceRules(
         active=False, robots=RobotsChoice.OBEY, robots_custom=None,
         user_agent=None, crawl_pace_s=5.0)
 
@@ -535,7 +535,8 @@ def test_a_price_source_never_crawled_still_gets_what_it_shipped_with(conn, mani
     """Its first crawl runs before its first ingest registers it in `source_site`, and
     that crawl still needs its shipped agent: a Zid shop answers 403 to any other."""
     assert read(conn, NEVER_CRAWLED) == {}
-    assert effective(conn, manifest, NEVER_CRAWLED).user_agent == "ZidNeedsThis/1.0"
+    rules = effective(conn, NEVER_CRAWLED, manifest.get(NEVER_CRAWLED))
+    assert rules.user_agent == "ZidNeedsThis/1.0"
 
 
 # ---- the bounds agree wherever a pace is written, and the edges the review found -----
@@ -617,7 +618,7 @@ def test_a_source_whose_family_went_back_to_tbd_probe_is_not_active(conn, manife
     save(conn, manifest, SHOP, {"active": True})
     reverted = Manifest.model_validate({"sources": [_entry(SHOP, family="TBD-probe")]})
 
-    assert effective(conn, reverted, SHOP).active is False
+    assert effective(conn, SHOP, reverted.get(SHOP)).active is False
     assert save(conn, reverted, SHOP, {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
     with pytest.raises(SourceSettingError, match="TBD-probe"):
         save(conn, reverted, SHOP, {"active": True})
@@ -630,11 +631,11 @@ def test_the_shipped_rule_handed_out_is_a_copy(conn):
     shipped = Manifest.model_validate({"sources": [_entry(
         SHOP, robots="custom", robots_custom=rule)]})
 
-    handed = effective(conn, shipped, SHOP).robots_custom
+    handed = effective(conn, SHOP, shipped.get(SHOP)).robots_custom
     handed["crawl_delay_s"] = 0
 
     assert shipped.get(SHOP).robots_custom == {"enforce_disallow": True, "crawl_delay_s": 9}
-    assert effective(conn, shipped, SHOP).robots_custom == {"enforce_disallow": True,
+    assert effective(conn, SHOP, shipped.get(SHOP)).robots_custom == {"enforce_disallow": True,
                                                            "crawl_delay_s": 9.0}
 
 
@@ -651,7 +652,7 @@ def test_a_shipped_custom_rule_is_held_to_the_rules_a_saved_one_is(conn, rule):
         SHOP, robots="custom", robots_custom=rule)]})
 
     with pytest.raises(SourceSettingError):
-        effective(conn, shipped, SHOP)
+        effective(conn, SHOP, shipped.get(SHOP))
 
 
 def test_the_schema_page_says_what_an_empty_field_follows():
@@ -709,3 +710,15 @@ def test_a_new_row_is_stamped_now_in_the_warehouses_own_format(conn, manifest):
 def test_a_rule_without_a_choice_names_what_is_missing(conn, manifest):
     with pytest.raises(SourceSettingError, match="choice is not set"):
         save(conn, manifest, SHOP, {"robots_custom": {"enforce_disallow": True}})
+
+
+def test_the_module_names_the_same_nothing_said_this_file_expects():
+    """`NO_OPINION` is the bottom layer and what the command line's `--plan` crawls
+    under; written out here so a change to it is a change somebody sees."""
+    assert source_settings.NO_OPINION == NOTHING_SAID
+
+
+def test_another_sources_entry_is_refused_rather_than_layered(conn, manifest):
+    """A caller holding the wrong entry would hand one shop's agent to another."""
+    with pytest.raises(ValueError, match="manifest entry"):
+        effective(conn, PLAIN, manifest.get(SHOP))

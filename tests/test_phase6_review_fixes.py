@@ -349,7 +349,11 @@ def test_a_zero_request_interval_is_honoured_not_silently_replaced():
     """A setting the owner changed must take effect, or the field is a lie."""
     from scrapex.connectors.base import resolve_fetcher
 
-    fetcher = resolve_fetcher(make_entry(), {"min_interval_s": 0, "timeout_s": 5})
+    from scrapex.source_settings import layered
+
+    entry = make_entry()
+    fetcher = resolve_fetcher(entry, layered({}, entry.source_key, entry),
+                              {"min_interval_s": 0, "timeout_s": 5})
     assert fetcher._min_interval_s == 0
     assert fetcher._client.timeout.read == 5
     fetcher.close()
@@ -412,7 +416,7 @@ def test_a_crawl_in_flight_refuses_to_ingest_into_a_sealed_archive(conn, db_path
 
     import scrapex.capture as capmod
     original = capmod.build_connector
-    capmod.build_connector = lambda e, crawl=None: (_Connector(), _Fetcher())
+    capmod.build_connector = lambda e, rules, crawl=None: (_Connector(), _Fetcher())
     try:
         with pytest.raises(WarehouseSupersededError, match="was replaced"):
             capture_source(conn, make_entry())

@@ -25,10 +25,19 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from scrapex import source_settings
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import HttpFetcher, RobotsDisallowed, resolve_fetcher
 from scrapex.robots import RobotsChoice, RobotsCustom, decide, inspect
 from scrapex.vocab import ExtractKind, ExtractScope
+
+
+def _shipped_fetcher(source, crawl_settings=None):
+    """`resolve_fetcher` for a source as it SHIPPED -- no warehouse, so no choice of his
+    (#1584) -- which is the layer every test in this file is about."""
+    return resolve_fetcher(source, source_settings.layered({}, source.source_key, source),
+                           crawl_settings)
+
 
 HOST = "shop.test"
 PAGE = f"https://{HOST}/products/1"
@@ -244,7 +253,7 @@ def test_the_default_still_follows_the_switch_when_it_is_off():
 def test_a_custom_delay_below_the_sites_is_applied_as_set():
     source = entry(robots="custom",
                    robots_custom={"enforce_disallow": False, "crawl_delay_s": 2.0})
-    fetcher, _ = _over(SLOW_SITE, resolve_fetcher(source, {"min_interval_s": 1.0}))
+    fetcher, _ = _over(SLOW_SITE, _shipped_fetcher(source, {"min_interval_s": 1.0}))
 
     fetcher.get(PAGE)
 
@@ -259,7 +268,7 @@ def test_page_one_waits_the_custom_delay_not_the_sites(monkeypatch):
     slept = _clocked(monkeypatch)
     source = entry(robots="custom",
                    robots_custom={"enforce_disallow": False, "crawl_delay_s": 2.0})
-    fetcher, _ = _over(SLOW_SITE, resolve_fetcher(source, {"min_interval_s": 1.0}))
+    fetcher, _ = _over(SLOW_SITE, _shipped_fetcher(source, {"min_interval_s": 1.0}))
     fetcher._jitter = 0.0
 
     fetcher.get(PAGE)
@@ -270,7 +279,7 @@ def test_page_one_waits_the_custom_delay_not_the_sites(monkeypatch):
 def test_a_custom_delay_above_the_sites_is_applied_and_needs_no_warning():
     source = entry(robots="custom",
                    robots_custom={"enforce_disallow": False, "crawl_delay_s": 12.0})
-    fetcher, _ = _over(SLOW_SITE, resolve_fetcher(source, {"min_interval_s": 1.0}))
+    fetcher, _ = _over(SLOW_SITE, _shipped_fetcher(source, {"min_interval_s": 1.0}))
 
     fetcher.get(PAGE)
 
@@ -293,7 +302,7 @@ def test_a_custom_delay_reaches_a_fetcher_built_without_resolve_fetcher():
 def test_a_custom_rule_with_a_null_delay_still_takes_the_sites():
     source = entry(robots="custom",
                    robots_custom={"enforce_disallow": False, "crawl_delay_s": None})
-    fetcher, _ = _over(SLOW_SITE, resolve_fetcher(source, {"min_interval_s": 1.0}))
+    fetcher, _ = _over(SLOW_SITE, _shipped_fetcher(source, {"min_interval_s": 1.0}))
 
     fetcher.get(PAGE)
 
@@ -396,7 +405,7 @@ def test_the_pace_applied_is_the_pace_decide_reports(choice, custom, honour):
     never the site's delay behind the report's back."""
     source = entry(robots=choice, robots_custom=custom)
     settings = {"min_interval_s": 1.0, "honour_crawl_delay": honour}
-    fetcher = resolve_fetcher(source, settings)
+    fetcher = _shipped_fetcher(source, settings)
     owners_pace = fetcher._min_interval_s
     fetcher, _ = _over(SLOW_SITE, fetcher)
 
@@ -541,7 +550,7 @@ def test_the_route_reports_the_delay_the_crawl_applies(panel, monkeypatch, key, 
     reported = answer.json()["on_a_disallowed_path"]["delay_s"]
 
     choice, custom = ROUTE_SOURCES[key]
-    fetcher = resolve_fetcher(entry(robots=choice, robots_custom=custom),
+    fetcher = _shipped_fetcher(entry(robots=choice, robots_custom=custom),
                               {"min_interval_s": 1.0, "honour_crawl_delay": honour})
     owners_pace = fetcher._min_interval_s
     fetcher, _ = _over(SLOW_SITE, fetcher)

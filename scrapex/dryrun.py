@@ -21,7 +21,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from . import contractors, passes
+from . import contractors, passes, source_settings
 from .crawlscope import CrawlScope
 from .directories import Directory
 from .directories import get as get_directory
@@ -327,7 +327,9 @@ def dry_payload(source_key: str, *, general: sqlite3.Connection,
                                        "source has neither of"}
         body["last_run"] = last
         body["passes"] = [one.as_dict() for one in passes.price_passes(
-            target.entry, last_requests=last["requests"])]
+            target.entry,
+            active=source_settings.effective(price, target.source_key, target.entry).active,
+            last_requests=last["requests"])]
         return body
 
     directory = _directory_for(target)

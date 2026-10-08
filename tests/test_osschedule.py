@@ -199,7 +199,11 @@ class _Manifest:
     """Every source active — `active` gating is scheduler.fire_due's own test."""
 
     def get(self, key):
-        return SimpleNamespace(source_key=key, active=True)
+        # Shaped as a shipped entry as far as `source_settings.effective` reads one: the
+        # scheduler asks it, so his choice in the warehouse can override `active`.
+        return SimpleNamespace(source_key=key, active=True, family="custom-json-api",
+                               robots="default", robots_custom=None, user_agent=None,
+                               crawl_pace_s=None)
 
 
 def _warehouse(tmp_path, *, due_source: str | None = None) -> Path:

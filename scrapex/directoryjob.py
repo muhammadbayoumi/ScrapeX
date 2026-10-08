@@ -31,7 +31,7 @@ import threading
 import time
 from contextlib import closing, nullcontext
 
-from . import capture, contractors, datasetjob, directories, snapshotcrawl
+from . import capture, contractors, datasetjob, directories, snapshotcrawl, source_settings
 from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
@@ -403,7 +403,10 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # would then be a `NameError` on the first cell, hours into a run that had already
     # fetched real pages. Structural beats incidental.
     # THE OWNER'S SETTINGS, THROUGH THE CHAIN A PRICE SOURCE'S FETCHER TAKES (#1414).
-    fetcher, fetch = contractors.make_fetch(capture.crawl_settings(conn))
+    # AND HIS CHOICES FOR THIS DIRECTORY, from the warehouse (#1584). None: a directory
+    # ships no manifest entry, so his choice falls straight to his general rules.
+    fetcher, fetch = contractors.make_fetch(
+        capture.crawl_settings(conn), source_settings.effective(conn, source_key, None))
 
     def _measured() -> dict:
         """What the fetcher has counted, in the shape `_fetch_progress` reads.

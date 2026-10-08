@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     # keeping the runtime edge where it is costs nothing and adds no cycle.
     from ..robots import RobotsReport
 
+    # Only annotated here: the rules arrive built, from `source_settings.effective`.
+    from ..source_settings import SourceRules
+
 import httpx
 
 from ..config import SourceEntry
@@ -1145,15 +1148,31 @@ def resolve_user_agent(source_user_agent: str | None,
             or DEFAULT_USER_AGENT)
 
 
-def resolve_fetcher(source: SourceEntry,
+def resolve_fetcher(source: SourceEntry, rules: SourceRules,
                     crawl_settings: dict | None = None) -> HttpFetcher | BrowserFetcher:
-    """Build the transport for a source: the general rules, then this source's own.
+    """Build the transport for a price source: the general rules, then this source's own.
+
+    `rules` is `source_settings.effective(conn, key, source)` -- his choice for this
+    source, else what `source` shipped with (#1584). `source` still says HOW the site is
+    read (`fetcher`), which is the manifest's to say and not his.
+    """
+    if source.fetcher == Fetcher.BROWSER:
+        return BrowserFetcher()
+    return source_fetcher(rules, crawl_settings)
+
+
+def source_fetcher(rules: SourceRules,
+                   crawl_settings: dict | None = None) -> HttpFetcher:
+    """An `HttpFetcher` for ONE source of any kind: his general rules, then its own.
+
+    THE ONE PLACE A SOURCE'S RULES BECOME A FETCHER, for a price source
+    (`resolve_fetcher`) and a directory (`contractors.make_fetch`) alike. A directory had
+    only `general_fetcher` (#1414 stage 1), because the per-source rules lived in a
+    `SourceEntry` it does not have; they live in the warehouse now, for both.
 
     The user agent is `resolve_user_agent`'s decision — see it for the four
     levels and why each exists.
     """
-    if source.fetcher == Fetcher.BROWSER:
-        return BrowserFetcher()
     # ONE PLACE DECIDES THE PACE, AND IT TAKES THE SLOWEST OPINION.
     #
     # There were three of these and only one was connected. The owner's setting
@@ -1172,21 +1191,26 @@ def resolve_fetcher(source: SourceEntry,
     # The site's Crawl-delay is NOT one of these opinions when the custom rule
     # names a delay: that delay is applied as set, and `_apply_site_delay` does
     # not raise it (#1413).
+    #
+    # A CUSTOM DELAY IS A PACE ONLY UNDER `custom` (#1591). This read
+    # `source.robots_custom` whatever the choice, so a rule left beside `obey` slowed
+    # the crawl with nothing on screen saying why. `rules.robots_custom` is None
+    # outside custom -- `effective`'s invariant, and the table's CHECK.
     source_paces = []
-    if source.crawl_pace_s:
-        source_paces.append(float(source.crawl_pace_s))
-    custom_delay = (source.robots_custom or {}).get("crawl_delay_s")
+    if rules.crawl_pace_s:
+        source_paces.append(float(rules.crawl_pace_s))
+    custom_delay = (rules.robots_custom or {}).get("crawl_delay_s")
     if custom_delay:
         source_paces.append(float(custom_delay))
     return general_fetcher(
         crawl_settings,
-        source_user_agent=source.user_agent,
+        source_user_agent=rules.user_agent,
         source_paces=tuple(source_paces),
         # The source's own answer, and what it means when the source did not
         # give one. Read HERE and not inside the fetcher because a single crawl
         # can run several sources and each may have answered differently.
-        robots_choice=source.robots or "default",
-        robots_custom=source.robots_custom,
+        robots_choice=rules.robots,
+        robots_custom=rules.robots_custom,
     )
 
 

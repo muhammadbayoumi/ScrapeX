@@ -46,6 +46,7 @@ from .. import (
     provenance,
     rates,
     retention,
+    source_settings,
     sourceboard,
     taxonomy,
 )
@@ -2348,7 +2349,11 @@ def create_app(
         conn = read_conn()
         try:
             crawl = crawl_settings(conn)
-            agent = resolve_user_agent(entry.user_agent, crawl)
+            # THE CRAWL'S OWN ANSWER for this source -- his choice, else what it shipped
+            # with (#1584) -- so the choice, rule and agent shown are the ones
+            # `capture_source` fetches with, not the manifest's alone.
+            rules = source_settings.effective(conn, source_key, entry)
+            agent = resolve_user_agent(rules.user_agent, crawl)
             obeys_by_default = bool(crawl.get("obey_disallow"))
             # Absent reads as HONOUR, exactly as `resolve_fetcher` reads it: the
             # delay shown here is the delay the crawl applies (#1413).
@@ -2376,12 +2381,10 @@ def create_app(
             unreadable = f"{type(exc).__name__}: {exc}"
 
         report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable)
-        choice = RobotsChoice(entry.robots or "default")
+        choice = rules.robots
         custom = None
-        if choice is RobotsChoice.CUSTOM and entry.robots_custom:
-            custom = RobotsCustom(
-                enforce_disallow=bool(entry.robots_custom.get("enforce_disallow")),
-                crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
+        if choice is RobotsChoice.CUSTOM and rules.robots_custom:
+            custom = RobotsCustom(**rules.robots_custom)
         # Shown as "what would happen on a disallowed path", because that is the
         # only case where the three choices differ at all.
         try:
@@ -2406,7 +2409,7 @@ def create_app(
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),
-            "custom": entry.robots_custom,
+            "custom": rules.robots_custom,
             "tool_default_obeys": obeys_by_default,
             "on_a_disallowed_path": outcome,
         }

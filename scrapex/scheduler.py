@@ -14,6 +14,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import source_settings
 from .jobs import create_job, list_jobs
 from .vocab import (
     BLOCKING_JOB_STATUSES,
@@ -194,7 +195,12 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
                 entry = manifest.get(schedule["source_key"])
             except KeyError:
                 entry = None                     # removed from the manifest
-            if entry is None or not entry.active:
+            # HIS `active` FOR THIS SOURCE, over the manifest's (#1584): a source he
+            # switched on in the panel fires, one he switched off does not, whatever
+            # `sources.yaml` ships. A source the manifest does not name still never
+            # fires here -- a directory's schedule is not this function's yet.
+            if entry is None or not source_settings.effective(
+                    conn, entry.source_key, entry).active:
                 _rearm(conn, schedule, now, fired=False)
                 continue
         due_at = _parse_iso(schedule["next_run_at"])
