@@ -10153,6 +10153,62 @@ HARNESS_BUNDLE = {
 }
 
 
+def _backed_up_with(open_panel, **reply) -> str:
+    """Press Back up on Manage account with this build reply; return what it said."""
+    page = open_panel(
+        signed_in=ACCOUNT,
+        bundle={**HARNESS_BUNDLE, **reply},
+        drive={"folder": "folder-1", "files": [], "pointer": None},
+    )
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+    page.click("#manage-backup")
+    page.wait_for_function(
+        "() => /Backed up/.test("
+        "document.querySelector('#manage-backup-msg').innerText)",
+        timeout=30000)
+    return page.inner_text("#manage-backup-msg").strip()
+
+
+def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
+    """#1199: the light file never fails a backup, so a table it could not write is
+    said where he reads the result, or it is a silent failure."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]})
+
+    assert said.endswith(
+        "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+
+
+def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
+    """Each by its key, a dataset's as well as a price source's, and counted."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"},
+        {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
+         "problem": "LookupError: muqawil_org/contractor_profiles: listed, and its "
+                    "table resolves to nothing"}]})
+
+    assert said.endswith("The offline copy of the Data page left out 2 tables: "
+                         "ELSEWEDYSHOP, contractor_profiles."), said
+
+
+def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):
+    said = _backed_up_with(open_panel, light=None,
+                           light_error="OSError: [Errno 28] No space left on device")
+
+    assert said.endswith("The offline copy of the Data page was not written: "
+                         "OSError: [Errno 28] No space left on device."), said
+
+
+def test_a_whole_offline_copy_adds_nothing_to_the_sentence(open_panel):
+    said = _backed_up_with(open_panel, light={"faults": []}, light_error=None)
+
+    assert "offline copy" not in said, said
+
+
 def test_the_button_takes_a_whole_backup_and_the_list_below_it_updates(open_panel):
     """The path the owner actually walks, end to end, from the screen he is on.
 
