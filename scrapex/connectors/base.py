@@ -717,7 +717,15 @@ class HttpFetcher:
             robots_url = f"{urlsplit(url).scheme}://{host}/robots.txt"
             # The plain client, NOT self.get: a robots fetch inside _request
             # would recurse, and it must not count as a crawl request either.
-            answer = self._client.get(robots_url)
+            # BUT IT IS PACED LIKE ONE (#1302): the site served it, so the first
+            # page owes the interval after it. Outside the pacer, page one left
+            # 1.2 s and 2.3 s later on two studies -- the second against the
+            # `Crawl-delay: 10` this very file asked for.
+            try:
+                answer = self._client.get(robots_url)
+            finally:
+                with self._throttle_lock:
+                    self._last_request_at = time.monotonic()
             if answer.status_code == 200:
                 parser = RobotFileParser()
                 parser.parse(answer.text.splitlines())
