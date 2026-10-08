@@ -97,7 +97,7 @@ def entry(**over) -> SourceEntry:
 
 
 def _unreadable_notes(fetcher: HttpFetcher) -> list[str]:
-    return [w for w in fetcher.robots_warnings if "could not be read" in w]
+    return [w for w in fetcher.degradations if "could not be read" in w]
 
 
 # ---- 1. an unreadable robots.txt is no robots.txt, said out loud --------------
@@ -127,7 +127,11 @@ def test_an_unreadable_file_is_written_down_once_per_host(robots, named, choice)
     fetcher.get(PAGE + "?again=1")
 
     notes = _unreadable_notes(fetcher)
-    assert len(notes) == 1, f"one host, {len(notes)} lines: {fetcher.robots_warnings}"
+    assert len(notes) == 1, f"one host, {len(notes)} lines: {fetcher.degradations}"
+    # A WARNING, not a note: `degradations` is what the run logs at WARNING
+    # (capture.py), `robots_warnings` only at INFO.
+    assert not any("could not be read" in w for w in fetcher.robots_warnings), (
+        fetcher.robots_warnings)
     assert named in notes[0], f"the line does not say what went wrong: {notes[0]}"
     assert HOST in notes[0], "the line does not say which site"
     assert "tool's own rules apply" in notes[0], notes[0]
@@ -304,6 +308,27 @@ def test_custom_with_no_rule_stored_is_still_refused_on_a_site_with_a_delay():
         with pytest.raises(ValueError, match="custom robots rule"):
             fetcher.get(PAGE)
     assert seen == [], "a page went out under a rule that does not exist"
+
+
+def test_custom_with_no_rule_stored_reads_robots_txt_once_not_per_page():
+    """The refusal is remembered per host. Uncached, every page fetched robots.txt
+    again -- unpaced, since the pace never got set -- and collected nothing."""
+    fetched: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        fetched.append(str(request.url))
+        if str(request.url).endswith("/robots.txt"):
+            return httpx.Response(200, text=SLOW_SITE)
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0, robots_choice="custom",
+                          robots_custom=None)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    for n in range(3):
+        with pytest.raises(ValueError, match="custom robots rule"):
+            fetcher.get(f"{PAGE}?page={n}")
+    assert fetched == [f"https://{HOST}/robots.txt"], fetched
 
 
 def test_custom_with_no_rule_stored_crawls_a_site_that_asks_for_no_delay():

@@ -465,6 +465,10 @@ class HttpFetcher:
         self._robots: dict[str, object] = {}
         #: host -> the file as it arrived, for the report.
         self._robots_text: dict[str, str] = {}
+        #: host -> why `_robots_for` refused it. A refusal is an answer about
+        #: the source, not the request, so it is given again without a second
+        #: robots.txt fetch -- uncached, every page re-fetched the file.
+        self._robots_refused: dict[str, ValueError] = {}
         self._user_agent = user_agent
         # The owner's per-run choice (2026-07-28). Default TRUE: a crawler that
         # ignores a site's asked-for pace by default is one that gets the owner
@@ -720,6 +724,8 @@ class HttpFetcher:
         host = urlsplit(url).netloc
         if host in self._robots:
             return self._robots[host]
+        if host in self._robots_refused:
+            raise ValueError(str(self._robots_refused[host]))
         parser = None
         unreadable = ""
         try:
@@ -755,13 +761,18 @@ class HttpFetcher:
             # so a 503 on robots.txt switched every robots check off in silence
             # -- under `obey` too. The tool's own rules apply, under every
             # choice, and the run's log names the status or error that put them
-            # there. One line per host: this branch runs once per host.
-            self.robots_warnings.append(
+            # there. One line per host: this branch runs once per host. A
+            # WARNING, not a note: the site's own rules were never read.
+            self.degradations.append(
                 f"{host}: robots.txt could not be read ({unreadable}) — treated "
                 f"as if the site had none; the tool's own rules apply "
                 f"(pace {self._min_interval_s:g}s)")
         if parser is not None:
-            self._apply_site_delay(host, url)
+            try:
+                self._apply_site_delay(host, url)
+            except ValueError as refusal:
+                self._robots_refused[host] = refusal
+                raise
         # CACHED LAST. `_apply_site_delay` raises for a custom choice with no
         # rule stored; cached first, the next request would find the parser and
         # skip the delay without a word.
