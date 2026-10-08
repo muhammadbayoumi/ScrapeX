@@ -112,8 +112,9 @@ work; `vacancies` and `tenders` are named, unbuilt.
 - **No module without its test file**, and error paths are tested like happy ones. A
   script a workflow runs gets a test that runs it as a process and sees it exit non-zero.
   `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
-  run the JS suites `pytest` never reaches; there is no `package.json`, and the extension
-  ships one vendored library (`extension/vendor/tabulator.min.js`) — add no second.
+  run the JS suites `pytest` never reaches; there is no `package.json`, and the extension's
+  only third-party code is TanStack, vendored by `tools/vendor_tanstack.py`, and Tabulator
+  until #1342 removes it — add no other.
 - **Python is `.python-version`'s — the newest stable CPython, adopted once the suite, every
   wheel and PyInstaller pass on it.** His engine follows only when, with his OK, each machine
   re-registers its native host from the new interpreter.

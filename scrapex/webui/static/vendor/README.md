@@ -9,7 +9,36 @@ mean a third party could change what runs on the owner's machine without a
 commit. So the bytes live in the repository, and updating them is a visible,
 reviewable change.
 
-## tabulator-tables 6.5.2
+## TanStack Table and TanStack Virtual (`tanstack/`)
+
+| package | version | npm integrity |
+| --- | --- | --- |
+| `@tanstack/table-core` | 9.2.5 | `sha512-HCMUpaEBEBS9AkV44sdTDmNgFrAA6H4NAnUgwuoWN7IkPgwXWlf3bfZ0moyxLwZqQXdpNQZdEl7LMW4rqm9zQQ==` |
+| `@tanstack/store` | 0.11.2 | `sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==` |
+| `@tanstack/virtual-core` | 3.17.11 | `sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==` |
+
+- Licence: MIT for all three — each package's `LICENSE` travels in its directory.
+- **Nothing loads them yet.** They are for `datagrid.js`, the grid's renderer,
+  which replaces Tabulator below (#1342). The extension carries the **second
+  copy** in `extension/vendor/tanstack/`; the two copies are held byte-identical
+  by `tests/test_vendor.py`.
+- Chosen over Tabulator, AG Grid and react-data-grid in #1342: Supabase's
+  design system builds its Data Table on TanStack and says its tables are
+  converging there, and the owner will not pay for AG Grid's Enterprise licence.
+
+The files are **not** npm's bytes exactly. `tools/vendor_tanstack.py` checks each
+tarball against the integrity above, keeps only the modules the grid's entry
+points reach, and makes three rewrites, because a browser cannot load the
+published files as they are:
+
+1. `"@tanstack/store"` becomes the relative path of the vendored store. A browser
+   resolves a bare name only through an import map, and the extension's MV3
+   policy refuses an inline one.
+2. `process.env.NODE_ENV` becomes `"production"`, as a bundler would write it;
+   `process` does not exist in a page.
+3. The trailing `//# sourceMappingURL=` line goes, because the maps are not vendored.
+
+## tabulator-tables 6.5.2 — being replaced (#1342)
 
 - Source: <https://unpkg.com/tabulator-tables@6.5.2/dist/>
 - Licence: MIT — full text in `tabulator.LICENSE.txt`
@@ -34,7 +63,12 @@ have justified taking a library at all.
 
 ## Updating
 
-1. Download the new files from unpkg at a pinned version.
-2. Record the version, date, sizes and hashes above.
-3. Run the test suite: `tests/test_vendor.py` fails if a file goes missing, is
-   truncated, or loses its licence text.
+**TanStack:**
+
+1. Change the pinned versions and integrities in `tools/vendor_tanstack.py`.
+2. Run `python tools/vendor_tanstack.py`. It writes **both** copies.
+3. Update the table above and run the test suite, browser tests included:
+   `tests/test_vendor.py` fails if a module is missing, the copies diverge, a bare
+   import or a `process` read survives, or a licence is lost.
+
+**Tabulator** is not updated again; it leaves once the grid draws through TanStack.

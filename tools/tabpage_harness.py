@@ -29,6 +29,7 @@ import contextlib
 import functools
 import json
 import re
+import sys
 import threading
 from collections.abc import Iterator
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -268,8 +269,23 @@ def build_data_page(tmp: Path, stub_js: str, name: str = "data.html", *,
 class _QuietHandler(SimpleHTTPRequestHandler):
     """`SimpleHTTPRequestHandler`, minus a log line per module fetched."""
 
+    # A module is refused unless it is served as JavaScript, and the platform's own
+    # table (on Windows, the registry) is not trusted to say so.
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".js": "text/javascript"}
+
     def log_message(self, *args, **kwargs):
         pass
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # A test closes its page while a file is still streaming, and the socket goes
+        # away under the handler. Anything else is still reported.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 @contextlib.contextmanager
@@ -282,8 +298,18 @@ def serve_extension() -> Iterator[str]:
     the one that ships, so a module deleted from the repository is a module
     missing from the test.
     """
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(EXT)))
+    with serve(EXT) as base:
+        yield base
+
+
+@contextlib.contextmanager
+def serve(directory: Path) -> Iterator[str]:
+    """`directory` over http on a free loopback port. Yields its base URL.
+
+    The port is chosen by the system, so it is never the owner's engine.
+    """
+    server = _Server(
+        ("127.0.0.1", 0), functools.partial(_QuietHandler, directory=str(directory)))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
