@@ -580,6 +580,21 @@ def test_the_light_route_serves_the_newest_light_file_as_a_gzip_file(client):
     assert "content-encoding" not in response.headers
 
 
+def test_the_light_route_serves_this_builds_file_and_not_a_kept_backups(client):
+    """`BUNDLE_KEEP` keeps older backups, each with its light file beside it, so the
+    folder holds several and the panel must be handed the one this build wrote."""
+    import os
+
+    connected, backups = client
+    built = connected.post("/api/bundle").json()
+    on_disk = backups / built["light"]["parts_file"]["name"]
+    kept = backups / "scrapex-bundle-20200101-000000-light.gz"
+    kept.write_bytes(b"a kept backup's light file")
+    os.utime(kept, (1_600_000_000, 1_600_000_000))
+
+    assert connected.get("/api/bundle/light").content == on_disk.read_bytes()
+
+
 def test_the_light_route_answers_404_before_any_build(client):
     connected, _backups = client
 
