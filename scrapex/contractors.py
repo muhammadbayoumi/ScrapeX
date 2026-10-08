@@ -216,9 +216,9 @@ def make_fetch(crawl_settings: dict | None, rules: SourceRules):
     and every key it leaves out reads as the shipped default.
 
     AND HIS CHOICES FOR THIS DIRECTORY (#1414 stage 2, #1584): `rules` is
-    `source_settings.effective(conn, key, None)` -- None because a directory ships no
-    manifest entry -- so its robots choice, custom rule, agent and pace reach the
-    fetcher by the same function a price source's do.
+    `source_settings.effective(conn, key, directory)` -- the directory being what it
+    ships with -- so its robots choice, custom rule, agent and pace reach the fetcher by
+    the same function a price source's do.
     """
     fetcher = source_fetcher(rules, crawl_settings)
 
@@ -2014,7 +2014,7 @@ def run(args: argparse.Namespace) -> int:
         named = _named_ids(args.ids) if args.ids is not None else ()
         if args.crawl:
             # His choices for this directory, from the warehouse this run opened.
-            rules = source_settings.effective(conn, directory.key, None)
+            rules = source_settings.effective(conn, directory.key, directory)
             fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
             # threads, so each worker opens its own. Only passed when it is
@@ -2030,7 +2030,7 @@ def run(args: argparse.Namespace) -> int:
                   heavy_attempts=args.heavy_attempts,
                   workers=args.workers, connect=factory)
         if args.details:
-            rules = source_settings.effective(conn, directory.key, None)
+            rules = source_settings.effective(conn, directory.key, directory)
             fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # SAME FACTORY, SAME REASON as --crawl above: one connection per
             # worker, opened only when more than one is asked for. 34,834 pages at

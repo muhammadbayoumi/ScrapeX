@@ -597,8 +597,8 @@ def reconcile_active(conn) -> dict[str, bool]:
     five of them switched off: ELBUROJ, HEIDELBERG_EG, MADAR, SIKAEGSHOP and
     SPARK_ESHOP.
 
-    Nothing was broken by it — the scheduler reads `entry.active` from the
-    manifest, so the right sources were crawled. The damage is to anyone who
+    Nothing was broken by it — the scheduler decided from the manifest, not from
+    this column, so the right sources were crawled. The damage is to anyone who
     reads the DATABASE: the owner with a query, an export, a future page, or the
     Console when it arrives. A column called `active` that is always 1 is worse
     than no column, because it answers a question it does not know.
@@ -612,9 +612,10 @@ def reconcile_active(conn) -> dict[str, bool]:
     from . import source_settings
     from .config import MANIFEST_FILE, load_manifest
 
+    # A manifest that fails to load -- including one whose robots rules `SourceEntry`
+    # refuses -- is not read as "every source is off".
     try:
-        shipped = {entry.source_key: entry
-                   for entry in load_manifest(MANIFEST_FILE).sources}
+        manifest = load_manifest(MANIFEST_FILE)
     except Exception:
         return {}                                # no manifest to obey
 
@@ -628,20 +629,18 @@ def reconcile_active(conn) -> dict[str, bool]:
         stored = dict(conn.execute("SELECT source_key, lifecycle FROM source_site"))
         wanted: dict[str, bool] = {}
         for key in stored:
-            if key in shipped:
-                try:
-                    wanted[key] = source_settings.effective(conn, key, shipped[key]).active
-                except source_settings.SourceSettingError:
-                    # A malformed robots rule in this source's manifest entry. Its
-                    # `active` is left as stored rather than guessed, and the crawl of
-                    # it refuses with this same sentence (`capture_source`), so the
-                    # defect is reported where he runs the source, not swallowed here.
-                    continue
+            # WHAT IT SHIPS WITH: its manifest entry, or its directory.
+            shipped = source_settings.shipped_with(manifest, key)
+            if shipped is not None:
+                # No refusal can come out of this: every entry passed `SourceEntry`,
+                # whose checks are the ones `effective` would apply, and a directory
+                # ships `active` alone.
+                wanted[key] = source_settings.effective(conn, key, shipped).active
             elif "active" in (chosen := source_settings.read(conn, key)):
-                # A source the manifest does not name -- a directory -- follows his
-                # choice when he has made one.
+                # A source neither the manifest nor the directory registry names
+                # follows his choice when he has made one.
                 wanted[key] = chosen["active"]
-            # Otherwise a source the manifest no longer names is left ALONE,
+            # Otherwise a source the release no longer names is left ALONE,
             # deliberately. Its rows are `undeclared_sources`' business, and silently
             # marking them inactive would hide the very thing that function exists to
             # surface.

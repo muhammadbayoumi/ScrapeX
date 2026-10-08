@@ -22,8 +22,10 @@ THREE LAYERS, MOST SPECIFIC FIRST, and `effective` is the only reader of all thr
 
     his choice for this source  >  what the source shipped with  >  no per-source opinion
 
-"Shipped with" is the `sources.yaml` entry, which a directory source does not have.
-"No per-source opinion" is what a source that said nothing has today -- inactive, robots
+"Shipped with" is the release's own word on the source: its `sources.yaml` entry for a
+price source, its `directories.Directory` for a directory -- which ships `active` and no
+robots, agent or pace opinion. Clearing a choice returns the field to that (his ruling,
+2026-10-08). "No per-source opinion" is what a source that said nothing has today -- inactive, robots
 `default`, no agent, no pace -- and it is NOT his general rules resolved here. Those are
 applied downstream exactly as they are now (`connectors.base.general_fetcher`,
 `resolve_user_agent`, `robots.decide`'s `tool_default_obeys`), so reading them a second
@@ -40,21 +42,29 @@ the write lock while it does.
 """
 from __future__ import annotations
 
-import math
 import sqlite3
-from dataclasses import dataclass, fields
+from collections.abc import Callable
+from dataclasses import dataclass
 
-from .config import Manifest, SourceEntry
-from .robots import RobotsChoice, RobotsCustom
+from . import directories
+from .config import (
+    Manifest,
+    SourceEntry,
+    checked_robots,
+    checked_robots_custom,
+    checked_seconds,
+    checked_user_agent,
+)
+from .directories import Directory
+from .robots import RobotsChoice
 from .vocab import ConnectorFamily
 
 #: The fields `save` accepts and `read` returns. A key outside this set is refused
 #: rather than ignored, for `settings.SETTINGS`' reason: a typo must not look saved.
 FIELDS = ("active", "robots", "robots_custom", "user_agent", "crawl_pace_s")
 
-#: The custom rule's knobs, READ OFF `robots.RobotsCustom` rather than written again
-#: here: a knob added to the rule the crawl obeys is a knob this module accepts.
-_CUSTOM_KEYS = frozenset(field.name for field in fields(RobotsCustom))
+#: What a source ships with: its manifest entry, its directory, or nothing.
+Shipped = SourceEntry | Directory | None
 
 
 class UnknownSourceError(LookupError):
@@ -123,17 +133,19 @@ def read(conn: sqlite3.Connection, source_key: str) -> dict:
     return chosen
 
 
-def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
+def save(conn: sqlite3.Connection, source_key: str, shipped: Shipped,
          changes: dict) -> dict:
     """Store some of his choices for one source; None clears one. Returns all stored.
 
     PARTIAL ON PURPOSE: a field `changes` does not name keeps what it had, so the panel
     sending the pace alone cannot wipe his robots choice.
 
-    The manifest is taken rather than looked up, so a test and the engine pass the one
-    they already hold -- and it is required rather than optional, because the rule it
-    serves (an unprobed source cannot be activated) must not be skippable by a caller
-    that forgot to pass it.
+    `shipped` is what `effective` takes -- this source's manifest entry, its directory,
+    or None -- and is required for the same reason: the rule it serves (an unprobed
+    source cannot be activated) must not be skippable by a caller that forgot it.
+
+    EVERY VALUE IS CHECKED BY `config`'s checkers, the ones `SourceEntry` runs on the
+    manifest, so the panel and `sources.yaml` refuse the same values with one sentence.
 
     REFUSED, each with the reason, and before anything is written:
       * a key outside `FIELDS`, or a source `source_site` does not have;
@@ -173,8 +185,7 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
             raise SourceSettingError(
                 f"{source_key}: active must be true, false or null, not {active!r}")
         columns["active"] = None if active is None else int(active)
-        shipped = _shipped(manifest, source_key)
-        if active is True and shipped is not None \
+        if active is True and isinstance(shipped, SourceEntry) \
                 and shipped.family == ConnectorFamily.TBD_PROBE:
             # Only when THIS change activates it: a pace edit to a source whose stored
             # `active` predates its family reverting to TBD-probe is not an activation,
@@ -186,12 +197,7 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
     if "robots" in changes:
         choice = changes["robots"]
         if choice is not None:
-            try:
-                choice = RobotsChoice(choice)
-            except ValueError:
-                raise SourceSettingError(
-                    f"{source_key}: robots must be one of "
-                    f"{[str(c) for c in RobotsChoice]} or null, not {choice!r}") from None
+            choice = _checked(source_key, checked_robots, choice)
         columns["robots_choice"] = None if choice is None else str(choice)
         if choice is not RobotsChoice.CUSTOM:
             # Away from custom, the rule goes with it -- see the migration's header.
@@ -202,7 +208,7 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
         if rule is None:
             enforce, delay = None, None
         else:
-            checked = _custom_rule(source_key, rule)
+            checked = _checked(source_key, checked_robots_custom, rule)
             enforce, delay = checked["enforce_disallow"], checked["crawl_delay_s"]
         # Written over whatever `robots` above cleared: a rule sent beside a choice
         # other than custom is then refused below as the contradiction it is, rather
@@ -210,27 +216,16 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
         columns["robots_enforce_disallow"] = None if enforce is None else int(enforce)
         columns["robots_crawl_delay_s"] = delay
     if "user_agent" in changes:
-        agent = changes["user_agent"]
-        if agent is not None and not isinstance(agent, str):
-            raise SourceSettingError(
-                f"{source_key}: user_agent must be text or null, not {agent!r}")
         # Empty CLEARS, as it does in `settings.save`: an emptied text box is the
         # panel's way of saying "no agent of my own".
-        agent = (agent or "").strip() or None
-        if agent is not None and not all(" " <= ch <= "~" for ch in agent):
-            # PRINTABLE ASCII, 0x20-0x7E, because a header value is: httpx refuses to
-            # send anything else -- Arabic letters, an accented one, a line break that
-            # would inject a header -- so it is refused here and not at the source's
-            # next crawl. The table's CHECK is the same range (`NOT GLOB '*[^ -~]*'`).
-            raise SourceSettingError(
-                f"{source_key}: user_agent must be one line of printable ASCII text "
-                "(English letters, digits, spaces and punctuation)")
-        columns["user_agent"] = agent
+        columns["user_agent"] = _checked(source_key, checked_user_agent,
+                                         changes["user_agent"])
     if "crawl_pace_s" in changes:
         pace = changes["crawl_pace_s"]
         columns["crawl_pace_s"] = (
             None if pace is None
-            else _seconds(source_key, "crawl_pace_s", pace, allow_zero=False))
+            else _checked(source_key, checked_seconds, "crawl_pace_s", pace,
+                          allow_zero=False))
 
     # THE ROW AS IT WILL STAND, so the rules between fields are judged on the result
     # and not on the change alone: a pace-only change to a custom source keeps a rule
@@ -283,12 +278,11 @@ NO_OPINION = SourceRules(active=False, robots=RobotsChoice.DEFAULT, robots_custo
                          user_agent=None, crawl_pace_s=None)
 
 
-def effective(conn: sqlite3.Connection, source_key: str,
-              shipped: SourceEntry | None) -> SourceRules:
+def effective(conn: sqlite3.Connection, source_key: str, shipped: Shipped) -> SourceRules:
     """The five answers a crawl of this source acts on.
 
-    `shipped` is this source's `sources.yaml` entry, or None for a source the manifest
-    does not declare -- every directory source. It is REQUIRED, not defaulted: a price
+    `shipped` is this source's `sources.yaml` entry, its `directories.Directory`, or None
+    for a source the release says nothing about. It is REQUIRED, not defaulted: a price
     source asked for without its entry would silently lose Zid's agent, so a caller says
     "None" on purpose. Taken as the entry rather than the manifest because the crawl
     already holds the entry it is running (`capture.capture_source`).
@@ -304,7 +298,7 @@ def effective(conn: sqlite3.Connection, source_key: str,
     return layered(read(conn, source_key), source_key, shipped)
 
 
-def layered(chosen: dict, source_key: str, shipped: SourceEntry | None) -> SourceRules:
+def layered(chosen: dict, source_key: str, shipped: Shipped) -> SourceRules:
     """`effective`'s layering, given his choices already read -- `{}` for none.
 
     Its own function for the one caller with no warehouse to read: `scrapex crawl`, which
@@ -313,107 +307,65 @@ def layered(chosen: dict, source_key: str, shipped: SourceEntry | None) -> Sourc
     `robots` and `robots_custom` move as ONE field, because a rule is meaningless without
     its choice: his choice of `obey` must not inherit a shipped custom rule, and his
     `custom` must not be judged against a shipped `obey`.
-
-    A shipped custom rule is checked by the rules `save` applies, and a misspelt shipped
-    choice fails, both as `SourceSettingError`: the manifest is hand-edited, and a wrong
-    value there must stop the crawl that would act on it rather than be guessed at.
     """
-    if shipped is not None and shipped.source_key != source_key:
-        raise ValueError(
-            f"asked for {source_key!r} with {shipped.source_key!r}'s manifest entry")
-
-    if shipped is not None and shipped.family == ConnectorFamily.TBD_PROBE:
+    base = _shipped_rules(source_key, shipped)
+    if "robots" in chosen:
+        robots, custom = chosen["robots"], chosen.get("robots_custom")
+    else:
+        robots, custom = base.robots, base.robots_custom
+    if isinstance(shipped, SourceEntry) and shipped.family == ConnectorFamily.TBD_PROBE:
         # Whatever was stored: a source can be activated and then see a later release
         # put its family back to TBD-probe, and there is then no collector to run.
         active = False
-    elif "active" in chosen:
-        active = chosen["active"]
     else:
-        active = bool(shipped.active) if shipped is not None else NO_OPINION.active
+        active = chosen.get("active", base.active)
+    return SourceRules(active=active, robots=robots, robots_custom=custom,
+                       user_agent=chosen.get("user_agent", base.user_agent),
+                       crawl_pace_s=chosen.get("crawl_pace_s", base.crawl_pace_s))
 
-    if "robots" in chosen:
-        robots, custom = chosen["robots"], chosen.get("robots_custom")
-    elif shipped is not None:
-        # `RobotsChoice(...)` and not the string: a manifest typo fails here, loudly,
-        # instead of comparing unequal to every choice and acting as the default.
-        try:
-            robots = RobotsChoice(shipped.robots or RobotsChoice.DEFAULT)
-        except ValueError:
-            raise SourceSettingError(
-                f"{source_key}: sources.yaml says robots: {shipped.robots!r}, which is "
-                f"none of {[str(c) for c in RobotsChoice]}") from None
-        # A NEW dict, never the manifest's own: a consumer that edits the rule it was
-        # handed must not be editing the manifest every later crawl reads.
-        custom = (_custom_rule(source_key, shipped.robots_custom)
+
+def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
+    """What the release says about this source, as the five answers.
+
+    A manifest entry has been through `SourceEntry`'s checks, which are `save`'s; its
+    custom rule is checked again here anyway, because a consumer edits what it is handed
+    and must not be editing the manifest: this builds a NEW dict. A directory ships
+    whether it is on and nothing else -- no robots, agent or pace of its own.
+    """
+    if isinstance(shipped, SourceEntry):
+        if shipped.source_key != source_key:
+            raise ValueError(
+                f"asked for {source_key!r} with {shipped.source_key!r}'s manifest entry")
+        robots = _checked(source_key, checked_robots, shipped.robots)
+        custom = (_checked(source_key, checked_robots_custom, shipped.robots_custom)
                   if robots is RobotsChoice.CUSTOM and shipped.robots_custom is not None
                   else None)
-    else:
-        robots, custom = NO_OPINION.robots, NO_OPINION.robots_custom
-
-    if "user_agent" in chosen:
-        agent = chosen["user_agent"]
-    else:
-        agent = shipped.user_agent if shipped is not None else NO_OPINION.user_agent
-
-    if "crawl_pace_s" in chosen:
-        pace = chosen["crawl_pace_s"]
-    else:
-        pace = shipped.crawl_pace_s if shipped is not None else NO_OPINION.crawl_pace_s
-
-    return SourceRules(active=active, robots=robots, robots_custom=custom,
-                       user_agent=agent, crawl_pace_s=pace)
+        return SourceRules(active=bool(shipped.active), robots=robots, robots_custom=custom,
+                           user_agent=shipped.user_agent, crawl_pace_s=shipped.crawl_pace_s)
+    if isinstance(shipped, Directory):
+        if shipped.key != source_key:
+            raise ValueError(
+                f"asked for {source_key!r} with {shipped.key!r}'s directory")
+        return SourceRules(active=shipped.active, robots=NO_OPINION.robots,
+                           robots_custom=None, user_agent=None, crawl_pace_s=None)
+    return NO_OPINION
 
 
-def _shipped(manifest: Manifest, source_key: str) -> SourceEntry | None:
-    """This source's `sources.yaml` entry, or None for a source the manifest does not
-    declare -- every directory source. `Manifest.get` raises for that case, and here it
-    is not an error: it is the layer a directory source does not have."""
-    return next((entry for entry in manifest.sources
-                 if entry.source_key == source_key), None)
+def shipped_with(manifest: Manifest, source_key: str) -> Shipped:
+    """What the release says about a source: its manifest entry, else its directory,
+    else None. The argument `effective` and `save` take, for a caller holding the
+    manifest rather than the entry (`storage.reconcile_active`, the panel's routes)."""
+    for entry in manifest.sources:
+        if entry.source_key == source_key:
+            return entry
+    if source_key in directories.BUILDERS:
+        return directories.get(source_key)
+    return None
 
 
-def _custom_rule(source_key: str, rule: object) -> dict:
-    """A custom robots rule, checked, as a NEW `{enforce_disallow, crawl_delay_s}`.
-
-    `enforce_disallow` is required although `RobotsCustom` defaults it: a rule that does
-    not say whether it obeys Disallow is a rule nobody decided, and reading it as False
-    would be deciding for him.
-    """
-    if not isinstance(rule, dict) or not set(rule) <= _CUSTOM_KEYS \
-            or "enforce_disallow" not in rule:
-        raise SourceSettingError(
-            f"{source_key}: a custom robots rule is {{enforce_disallow: "
-            f"true|false, crawl_delay_s: seconds|null}}, not {rule!r}")
-    enforce, delay = rule["enforce_disallow"], rule.get("crawl_delay_s")
-    if type(enforce) is not bool:
-        raise SourceSettingError(
-            f"{source_key}: enforce_disallow must be true or false, not {enforce!r}")
-    if delay is not None:
-        delay = _seconds(source_key, "crawl_delay_s", delay, allow_zero=True)
-    return {"enforce_disallow": enforce, "crawl_delay_s": delay}
-
-
-def _seconds(source_key: str, name: str, value: object, *, allow_zero: bool) -> float:
-    """A duration in seconds, refused unless it is a finite number in bounds.
-
-    Finite because SQLite stores NaN as NULL -- a pace he set would read back as "not
-    chosen" -- and an infinite pace is a crawl that never makes its next request. The
-    table's `< 9e999` and `SourceEntry`'s `allow_inf_nan=False` hold the same bound. An
-    integer too large for a float (`10**400`) is refused here, not raised as
-    OverflowError. Not a bool, because `True` is an int in Python and would be stored as
-    one second.
-    """
-    if type(value) not in (int, float):
-        raise SourceSettingError(
-            f"{source_key}: {name} must be a number of seconds or null, not {value!r}")
+def _checked(source_key: str, check: Callable, *args, **kwargs):
+    """Run one of `config`'s checkers, naming the source in its refusal."""
     try:
-        seconds = float(value)
-    except OverflowError:
-        seconds = math.inf
-    if not math.isfinite(seconds):
-        raise SourceSettingError(
-            f"{source_key}: {name} must be a finite number of seconds, not {value!r}")
-    if seconds < 0 or (seconds == 0 and not allow_zero):
-        bound = "0 or more" if allow_zero else "more than 0"
-        raise SourceSettingError(f"{source_key}: {name} must be {bound}, not {value!r}")
-    return seconds
+        return check(*args, **kwargs)
+    except ValueError as exc:
+        raise SourceSettingError(f"{source_key}: {exc}") from None

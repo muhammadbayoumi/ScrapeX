@@ -7,8 +7,10 @@ broken contract can neither merge nor run.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
+from dataclasses import fields
 from pathlib import Path
 from typing import Literal
 
@@ -41,6 +43,7 @@ try:
 except ImportError:                          # PyYAML built without libyaml
     from yaml import SafeLoader as _ManifestLoader
 
+from .robots import RobotsChoice, RobotsCustom
 from .vocab import (
     Authority,
     Cadence,
@@ -57,6 +60,94 @@ MANIFEST_FILE = Path(__file__).resolve().parent.parent / "sources.yaml"
 _SOURCE_KEY = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 _REGION = re.compile(r"^([A-Z]{2}|\*)$")  # ISO 3166-1 alpha-2 or wildcard
 _MATERIAL_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+
+
+# ---- the per-source crawl rules, checked in ONE place ------------------------------
+#
+# A source's robots choice, custom rule, agent and pace reach the warehouse two ways:
+# shipped in `sources.yaml` (checked here, by `SourceEntry`) and chosen in the panel
+# (`source_settings.save`). They were checked by two different rules, and the manifest's
+# was looser: `robots: Obey` or a custom delay of -1 loaded, was written by the panel's
+# `/edit` with a 200, and then raised inside the scheduler on every tick, which stopped
+# the worker dispatching ANY job (#1589 review). So both doors call these, and a value
+# one refuses the other refuses with the same sentence. Each raises ValueError, which a
+# pydantic validator reports as the field's error and `source_settings` re-raises as a
+# `SourceSettingError` naming the source.
+
+#: The custom rule's knobs, READ OFF `robots.RobotsCustom` rather than written again:
+#: a knob added to the rule the crawl obeys is a knob both doors accept.
+CUSTOM_RULE_KEYS = frozenset(field.name for field in fields(RobotsCustom))
+
+
+def checked_robots(value: object) -> RobotsChoice:
+    """A robots choice, as the enum the fetcher compares against.
+
+    A misspelt one ('Obey') would otherwise compare unequal to every choice and act as
+    the default -- the one outcome nobody would notice."""
+    try:
+        return RobotsChoice(value)
+    except ValueError:
+        raise ValueError(f"robots must be one of {[str(c) for c in RobotsChoice]}, "
+                         f"not {value!r}") from None
+
+
+def checked_seconds(name: str, value: object, *, allow_zero: bool) -> float:
+    """A duration in seconds, refused unless it is a finite number in bounds.
+
+    Finite because SQLite stores NaN as NULL -- a pace he set would read back as "not
+    chosen" -- and an infinite pace is a crawl that never makes its next request; the
+    table's `< 9e999` holds the same bound. An integer too large for a float
+    (`10**400`) is refused, not raised as OverflowError. Not a bool, because `True` is
+    an int in Python and would be one second.
+    """
+    if type(value) not in (int, float):
+        raise ValueError(f"{name} must be a number of seconds or null, not {value!r}")
+    try:
+        seconds = float(value)
+    except OverflowError:
+        seconds = math.inf
+    if not math.isfinite(seconds):
+        raise ValueError(f"{name} must be a finite number of seconds, not {value!r}")
+    if seconds < 0 or (seconds == 0 and not allow_zero):
+        bound = "0 or more" if allow_zero else "more than 0"
+        raise ValueError(f"{name} must be {bound}, not {value!r}")
+    return seconds
+
+
+def checked_robots_custom(rule: object) -> dict:
+    """A custom robots rule, checked, as a NEW `{enforce_disallow, crawl_delay_s}`.
+
+    `enforce_disallow` is required although `RobotsCustom` defaults it: a rule that does
+    not say whether it obeys Disallow is a rule nobody decided, and reading it as False
+    would be deciding for him. A delay of 0 is allowed -- "do not wait for this site" --
+    because `robots.decide` applies a custom delay as set (#1413).
+    """
+    if not isinstance(rule, dict) or not set(rule) <= CUSTOM_RULE_KEYS \
+            or "enforce_disallow" not in rule:
+        raise ValueError("a custom robots rule is {enforce_disallow: true|false, "
+                         f"crawl_delay_s: seconds|null}}, not {rule!r}")
+    enforce, delay = rule["enforce_disallow"], rule.get("crawl_delay_s")
+    if type(enforce) is not bool:
+        raise ValueError(f"enforce_disallow must be true or false, not {enforce!r}")
+    if delay is not None:
+        delay = checked_seconds("crawl_delay_s", delay, allow_zero=True)
+    return {"enforce_disallow": enforce, "crawl_delay_s": delay}
+
+
+def checked_user_agent(value: object) -> str | None:
+    """An agent to send, or None for "none of its own" -- which is what empty means.
+
+    PRINTABLE ASCII, 0x20-0x7E, because a header value is: httpx refuses to send
+    anything else -- Arabic letters, an accented one, a line break that would inject a
+    header -- so it is refused where it is typed, not at the source's next crawl.
+    """
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"user_agent must be text or null, not {value!r}")
+    agent = (value or "").strip() or None
+    if agent is not None and not all(" " <= ch <= "~" for ch in agent):
+        raise ValueError("user_agent must be one line of printable ASCII text "
+                         "(English letters, digits, spaces and punctuation)")
+    return agent
 
 
 class ExtractSpec(BaseModel):
@@ -443,6 +534,35 @@ class SourceEntry(BaseModel):
             raise ValueError(
                 f"{self.source_key}: fallback_families must not repeat the primary "
                 f"family {self.family.value!r}")
+        return self
+
+    @field_validator("robots")
+    @classmethod
+    def _robots_is_a_choice(cls, v: str) -> str:
+        return str(checked_robots(v))
+
+    @field_validator("robots_custom")
+    @classmethod
+    def _robots_custom_is_a_rule(cls, v: dict | None) -> dict | None:
+        return None if v is None else checked_robots_custom(v)
+
+    @field_validator("user_agent")
+    @classmethod
+    def _user_agent_can_be_sent(cls, v: str | None) -> str | None:
+        return checked_user_agent(v)
+
+    @model_validator(mode="after")
+    def _custom_rule_exactly_under_custom(self) -> SourceEntry:
+        # The table's CHECK, held here too: custom with no rule is what `robots.decide`
+        # refuses at crawl time, and a rule under another choice is one the crawl
+        # ignores -- `/api/sources/{key}/edit` already clears it for that reason.
+        custom = self.robots == RobotsChoice.CUSTOM
+        if custom and self.robots_custom is None:
+            raise ValueError(f"{self.source_key}: robots = custom needs its rule "
+                             "(robots_custom: {enforce_disallow, crawl_delay_s})")
+        if not custom and self.robots_custom is not None:
+            raise ValueError(f"{self.source_key}: a custom robots rule needs "
+                             f"robots = custom, and this source's is {self.robots}")
         return self
 
     @model_validator(mode="after")

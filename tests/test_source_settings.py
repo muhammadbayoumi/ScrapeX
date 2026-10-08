@@ -22,7 +22,7 @@ import sqlite3
 
 import pytest
 
-from scrapex import source_settings
+from scrapex import directories, source_settings
 from scrapex.config import Manifest
 from scrapex.databases.domain import EngineDatabase
 from scrapex.robots import RobotsChoice
@@ -33,6 +33,7 @@ from scrapex.source_settings import (
     effective,
     read,
     save,
+    shipped_with,
 )
 from scrapex.sources_admin import rename_source
 
@@ -139,7 +140,7 @@ def test_an_existing_warehouse_gains_the_table_and_keeps_its_sources(tmp_path, m
         assert upgraded.execute("PRAGMA user_version").fetchone()[0] == whole[-1].number
         assert upgraded.execute("SELECT source_name FROM source_site WHERE source_key = ?",
                                 (DIRECTORY,)).fetchone()[0] == "Saudi Contractors Authority"
-        save(upgraded, Manifest.model_validate({"sources": [_entry(PLAIN)]}), DIRECTORY,
+        save(upgraded, DIRECTORY, directories.get(DIRECTORY),
              {"crawl_pace_s": 5.0})
         upgraded.commit()
         assert read(upgraded, DIRECTORY) == {"crawl_pace_s": 5.0}
@@ -233,18 +234,18 @@ def test_every_field_round_trips(conn, manifest):
               "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 4.5},
               "user_agent": "HisAgent/2.0", "crawl_pace_s": 1.5}
 
-    stored = save(conn, manifest, SHOP, chosen)
+    stored = save(conn, SHOP, shipped_with(manifest, SHOP), chosen)
     conn.commit()
 
     assert stored == read(conn, SHOP) == {**chosen, "robots": RobotsChoice.CUSTOM}
     assert isinstance(stored["robots"], RobotsChoice)
-    assert save(conn, manifest, SHOP, read(conn, SHOP)) == stored, (
+    assert save(conn, SHOP, shipped_with(manifest, SHOP), read(conn, SHOP)) == stored, (
         "what read returns is not what save accepts")
 
 
 def test_a_custom_rule_with_the_sites_own_delay_round_trips(conn, manifest):
     """A null delay under custom means "whatever the site asked for" -- not "no rule"."""
-    save(conn, manifest, SHOP, {"robots": "custom",
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom",
                                 "robots_custom": {"enforce_disallow": False}})
 
     assert read(conn, SHOP)["robots_custom"] == {"enforce_disallow": False,
@@ -253,14 +254,14 @@ def test_a_custom_rule_with_the_sites_own_delay_round_trips(conn, manifest):
 
 def test_nothing_chosen_reads_empty_and_writes_nothing(conn, manifest):
     assert read(conn, SHOP) == {}
-    assert save(conn, manifest, SHOP, {}) == {}
+    assert save(conn, SHOP, shipped_with(manifest, SHOP), {}) == {}
     assert _row(conn, SHOP) is None
 
 
 def test_a_partial_change_keeps_every_field_it_does_not_name(conn, manifest):
     """The panel sending the pace alone must not wipe his robots choice."""
-    save(conn, manifest, SHOP, {"active": True, "robots": "obey", "user_agent": "A/1"})
-    save(conn, manifest, SHOP, {"crawl_pace_s": 9.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"active": True, "robots": "obey", "user_agent": "A/1"})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 9.0})
 
     assert read(conn, SHOP) == {"active": True, "robots": RobotsChoice.OBEY,
                                 "user_agent": "A/1", "crawl_pace_s": 9.0}
@@ -271,13 +272,13 @@ def test_each_field_clears_back_to_inherit(conn, manifest, field):
     everything = {"active": True, "robots": "custom",
                   "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 2.0},
                   "user_agent": "A/1", "crawl_pace_s": 2.0}
-    save(conn, manifest, SHOP, everything)
+    save(conn, SHOP, shipped_with(manifest, SHOP), everything)
     cleared = {field: None}
     if field == "robots_custom":
         # custom with no rule is refused, so clearing the rule means leaving custom.
         cleared["robots"] = "obey"
 
-    after = save(conn, manifest, SHOP, cleared)
+    after = save(conn, SHOP, shipped_with(manifest, SHOP), cleared)
 
     assert field not in after
     assert set(after) == set(everything) - {field} - (
@@ -290,49 +291,49 @@ def test_leaving_custom_clears_the_rule_so_it_cannot_come_back_unseen(conn, mani
     switches back. The same holds here -- and clearing the choice to inherit too."""
     rule = {"enforce_disallow": True, "crawl_delay_s": 7.0}
     for leave_to in ("obey", "default", None):
-        save(conn, manifest, SHOP, {"robots": "custom", "robots_custom": rule})
-        save(conn, manifest, SHOP, {"robots": leave_to})
+        save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom", "robots_custom": rule})
+        save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": leave_to})
         row = _row(conn, SHOP)
         assert row["robots_enforce_disallow"] is None, leave_to
         assert row["robots_crawl_delay_s"] is None, leave_to
         with pytest.raises(SourceSettingError, match="needs its rule"):
-            save(conn, manifest, SHOP, {"robots": "custom"})
+            save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom"})
 
 
 def test_custom_keeps_the_rule_already_stored_beside_it(conn, manifest):
     """Judged on the row as it will stand: a pace-only change to a custom source keeps
     its rule and is not refused for not re-sending it."""
-    save(conn, manifest, SHOP, {"robots": "custom",
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom",
                                 "robots_custom": {"enforce_disallow": True}})
-    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
-    save(conn, manifest, SHOP, {"robots": "custom"})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 2.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom"})
 
     assert read(conn, SHOP)["robots_custom"] == {"enforce_disallow": True,
                                                  "crawl_delay_s": None}
 
 
 def test_a_change_moves_updated_at(conn, manifest):
-    save(conn, manifest, SHOP, {"active": True})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"active": True})
     conn.execute("UPDATE source_setting SET updated_at = '2000-01-01T00:00:00Z'")
 
-    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 2.0})
 
     assert _row(conn, SHOP)["updated_at"] > "2000-01-01T00:00:00Z"
 
 
 def test_an_empty_agent_clears_as_an_empty_setting_does(conn, manifest):
     """`settings.save`'s rule: an emptied text box is "nothing of my own"."""
-    save(conn, manifest, SHOP, {"user_agent": "A/1"})
-    save(conn, manifest, SHOP, {"user_agent": "   "})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"user_agent": "A/1"})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"user_agent": "   "})
 
     assert "user_agent" not in read(conn, SHOP)
-    assert save(conn, manifest, SHOP, {"user_agent": "  B/2  "})["user_agent"] == "B/2"
+    assert save(conn, SHOP, shipped_with(manifest, SHOP), {"user_agent": "  B/2  "})["user_agent"] == "B/2"
 
 
 def test_a_rename_carries_his_choices(conn, manifest):
     """Keyed on `source_id`, so `rename_source` -- which moves the tables that name a
     source by its key -- moves these without knowing they exist."""
-    save(conn, manifest, DIRECTORY, {"crawl_pace_s": 4.0})
+    save(conn, DIRECTORY, shipped_with(manifest, DIRECTORY), {"crawl_pace_s": 4.0})
 
     rename_source(conn, DIRECTORY, "muqawil_renamed")
 
@@ -345,7 +346,7 @@ def test_an_unknown_source_is_refused_and_nothing_is_written(conn, manifest):
     source enters it at its first ingest."""
     for key in ("NOBODY", NEVER_CRAWLED):
         with pytest.raises(UnknownSourceError, match="source registry"):
-            save(conn, manifest, key, {"active": True})
+            save(conn, key, shipped_with(manifest, key), {"active": True})
     assert conn.execute("SELECT COUNT(*) FROM source_setting").fetchone()[0] == 0
 
 
@@ -405,11 +406,11 @@ def test_an_unknown_source_is_refused_and_nothing_is_written(conn, manifest):
                  id="a-key-that-is-not-text-beside-a-misspelt-one"),
 ])
 def test_a_refused_choice_says_why_and_writes_nothing(conn, manifest, changes, says):
-    save(conn, manifest, SHOP, {"crawl_pace_s": 8.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 8.0})
     before = _row(conn, SHOP)
 
     with pytest.raises(SourceSettingError, match=re.escape(says)):
-        save(conn, manifest, SHOP, changes)
+        save(conn, SHOP, shipped_with(manifest, SHOP), changes)
 
     assert _row(conn, SHOP) == before
 
@@ -417,17 +418,17 @@ def test_a_refused_choice_says_why_and_writes_nothing(conn, manifest, changes, s
 def test_an_unprobed_source_cannot_be_activated_as_the_manifest_refuses_it(conn, manifest):
     """`SourceEntry._probe_placeholder_is_inactive`: TBD-probe has no collector to run."""
     with pytest.raises(SourceSettingError, match="TBD-probe"):
-        save(conn, manifest, UNPROBED, {"active": True})
+        save(conn, UNPROBED, shipped_with(manifest, UNPROBED), {"active": True})
     assert _row(conn, UNPROBED) is None
 
-    assert save(conn, manifest, UNPROBED, {"active": False}) == {"active": False}
-    assert save(conn, manifest, UNPROBED, {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
+    assert save(conn, UNPROBED, shipped_with(manifest, UNPROBED), {"active": False}) == {"active": False}
+    assert save(conn, UNPROBED, shipped_with(manifest, UNPROBED), {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
 
 
 def test_a_directory_source_takes_every_choice(conn, manifest):
     """It has no family in the manifest, so nothing stands in for TBD-probe; and it is
     the kind of source that had nowhere to keep a choice before this table."""
-    chosen = save(conn, manifest, DIRECTORY, {
+    chosen = save(conn, DIRECTORY, shipped_with(manifest, DIRECTORY), {
         "active": True, "robots": "obey", "user_agent": "Dir/1", "crawl_pace_s": 5.0})
 
     assert chosen == {"active": True, "robots": RobotsChoice.OBEY, "user_agent": "Dir/1",
@@ -447,7 +448,7 @@ def test_a_price_source_he_never_touched_is_what_it_shipped_with(conn, manifest)
 
 
 def test_his_choice_wins_over_what_the_source_shipped_with(conn, manifest):
-    save(conn, manifest, SHOP, {"active": False, "robots": "custom",
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"active": False, "robots": "custom",
                                 "robots_custom": {"enforce_disallow": True,
                                                   "crawl_delay_s": 0.0},
                                 "user_agent": "HisAgent/2.0", "crawl_pace_s": 1.0})
@@ -460,7 +461,7 @@ def test_his_choice_wins_over_what_the_source_shipped_with(conn, manifest):
 
 def test_a_field_he_has_not_chosen_still_inherits_beside_one_he_has(conn, manifest):
     """Per field, not per row: one choice stored does not erase the shipped others."""
-    save(conn, manifest, SHOP, {"crawl_pace_s": 10.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 10.0})
 
     rules = effective(conn, SHOP, manifest.get(SHOP))
 
@@ -470,8 +471,8 @@ def test_a_field_he_has_not_chosen_still_inherits_beside_one_he_has(conn, manife
 
 
 def test_a_cleared_choice_falls_back_to_what_shipped(conn, manifest):
-    save(conn, manifest, SHOP, {"user_agent": "HisAgent/2.0", "active": False})
-    save(conn, manifest, SHOP, {"user_agent": None, "active": None})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"user_agent": "HisAgent/2.0", "active": False})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"user_agent": None, "active": None})
 
     assert effective(conn, SHOP, manifest.get(SHOP)) == SourceRules(
         active=True, robots=RobotsChoice.OBEY, robots_custom=None,
@@ -481,7 +482,7 @@ def test_a_cleared_choice_falls_back_to_what_shipped(conn, manifest):
 def test_his_default_is_a_choice_and_beats_a_shipped_obey(conn, manifest):
     """'default' and not-chosen are two different things: 'default' follows the
     tool-wide setting even where the source shipped `obey`."""
-    save(conn, manifest, SHOP, {"robots": "default"})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "default"})
 
     assert effective(conn, SHOP, manifest.get(SHOP)).robots is RobotsChoice.DEFAULT
 
@@ -493,26 +494,36 @@ def test_the_choice_and_its_rule_move_together(conn):
     assert effective(conn, SHOP, shipped_custom.get(SHOP)).robots_custom == {
         "enforce_disallow": True, "crawl_delay_s": 9}
 
-    save(conn, shipped_custom, SHOP, {"robots": "obey"})
+    save(conn, SHOP, shipped_with(shipped_custom, SHOP), {"robots": "obey"})
 
     rules = effective(conn, SHOP, shipped_custom.get(SHOP))
     assert (rules.robots, rules.robots_custom) == (RobotsChoice.OBEY, None)
 
 
-def test_a_shipped_rule_under_a_choice_that_ignores_it_is_not_handed_on(conn):
-    """`sources.yaml` can hold a leftover rule beside `obey` -- the manifest does not
-    refuse one. The effective answer keeps the table's invariant: no rule outside custom."""
-    leftover = Manifest.model_validate({"sources": [_entry(
-        SHOP, robots="obey", robots_custom={"enforce_disallow": False, "crawl_delay_s": 30})]})
+def test_a_shipped_rule_under_a_choice_that_ignores_it_is_refused_and_never_handed_on(
+        conn, manifest):
+    """The manifest refuses a leftover rule beside `obey`, as the table does. An entry
+    that got one past validation anyway (`model_copy` does not validate) still hands on
+    no rule: the effective answer keeps the table's invariant."""
+    leftover = {"enforce_disallow": False, "crawl_delay_s": 30}
+    with pytest.raises(ValueError, match="needs robots = custom"):
+        Manifest.model_validate({"sources": [_entry(SHOP, robots="obey",
+                                                    robots_custom=leftover)]})
 
-    assert effective(conn, SHOP, leftover.get(SHOP)).robots_custom is None
+    bypassed = manifest.get(SHOP).model_copy(update={"robots_custom": leftover})
+    assert effective(conn, SHOP, bypassed).robots_custom is None
 
 
-def test_a_misspelt_shipped_choice_fails_loudly_rather_than_acting_as_default(conn):
-    misspelt = Manifest.model_validate({"sources": [_entry(SHOP, robots="obeys")]})
+def test_a_misspelt_shipped_choice_fails_loudly_rather_than_acting_as_default(
+        conn, manifest):
+    """Refused where the manifest loads -- so the panel's `/edit` answers 400 -- and,
+    for an entry that got past that, refused by `effective` with the same sentence."""
+    with pytest.raises(ValueError, match="robots must be one of"):
+        Manifest.model_validate({"sources": [_entry(SHOP, robots="obeys")]})
 
-    with pytest.raises(ValueError, match="obeys"):
-        effective(conn, SHOP, misspelt.get(SHOP))
+    bypassed = manifest.get(SHOP).model_copy(update={"robots": "obeys"})
+    with pytest.raises(SourceSettingError, match="robots must be one of"):
+        effective(conn, SHOP, bypassed)
 
 
 def test_a_price_source_that_shipped_nothing_has_no_opinion(conn, manifest):
@@ -524,7 +535,7 @@ def test_a_directory_source_has_no_shipped_layer(conn, manifest):
     nothing -- and before this table there was nothing above the general rules either."""
     assert effective(conn, DIRECTORY, None) == NOTHING_SAID
 
-    save(conn, manifest, DIRECTORY, {"robots": "obey", "crawl_pace_s": 5.0})
+    save(conn, DIRECTORY, shipped_with(manifest, DIRECTORY), {"robots": "obey", "crawl_pace_s": 5.0})
 
     assert effective(conn, DIRECTORY, None) == SourceRules(
         active=False, robots=RobotsChoice.OBEY, robots_custom=None,
@@ -563,7 +574,7 @@ def test_a_pace_means_the_same_in_the_manifest_the_module_and_the_table(conn, ma
     except ValueError:
         by_manifest = False
     try:
-        save(conn, manifest, SHOP, {"crawl_pace_s": value})
+        save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": value})
         by_module = True
     except SourceSettingError:
         by_module = False
@@ -592,20 +603,20 @@ def test_the_custom_rule_takes_exactly_the_knobs_the_crawl_obeys(conn, manifest)
 
     rule = asdict(RobotsCustom(enforce_disallow=True, crawl_delay_s=2.0))
 
-    assert save(conn, manifest, SHOP, {"robots": "custom", "robots_custom": rule}
+    assert save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom", "robots_custom": rule}
                 )["robots_custom"] == rule
 
 
 def test_choices_that_are_not_a_mapping_are_refused(conn, manifest):
     with pytest.raises(SourceSettingError, match="mapping"):
-        save(conn, manifest, SHOP, [("active", True)])
+        save(conn, SHOP, shipped_with(manifest, SHOP), [("active", True)])
 
 
 def test_an_unknown_source_reads_as_a_sentence_not_a_quoted_key(conn, manifest):
     """`str()` of a KeyError is its argument's repr, so the sentence reached the panel in
     quotes. It is still a LookupError, which is what a caller catching lookups expects."""
     with pytest.raises(LookupError) as raised:
-        save(conn, manifest, "NOBODY", {"active": True})
+        save(conn, "NOBODY", shipped_with(manifest, "NOBODY"), {"active": True})
 
     assert not isinstance(raised.value, KeyError)
     assert str(raised.value) == raised.value.args[0]
@@ -615,13 +626,13 @@ def test_a_source_whose_family_went_back_to_tbd_probe_is_not_active(conn, manife
     """A later release can put a family back to TBD-probe after he activated the source.
     There is then no collector, so `effective` reads it inactive whatever was stored --
     and an unrelated edit to it is not refused for an activation he made earlier."""
-    save(conn, manifest, SHOP, {"active": True})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"active": True})
     reverted = Manifest.model_validate({"sources": [_entry(SHOP, family="TBD-probe")]})
 
     assert effective(conn, SHOP, reverted.get(SHOP)).active is False
-    assert save(conn, reverted, SHOP, {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
+    assert save(conn, SHOP, shipped_with(reverted, SHOP), {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
     with pytest.raises(SourceSettingError, match="TBD-probe"):
-        save(conn, reverted, SHOP, {"active": True})
+        save(conn, SHOP, shipped_with(reverted, SHOP), {"active": True})
 
 
 def test_the_shipped_rule_handed_out_is_a_copy(conn):
@@ -645,14 +656,23 @@ def test_the_shipped_rule_handed_out_is_a_copy(conn):
     pytest.param({"enforce_disallow": "yes"}, id="enforce-text"),
     pytest.param({"enforce_disallow": True, "delay": 5}, id="stray-key"),
 ])
-def test_a_shipped_custom_rule_is_held_to_the_rules_a_saved_one_is(conn, rule):
-    """The manifest is hand-edited; a rule there that `save` would refuse must stop the
-    crawl that would act on it, not be read with defaults filled in."""
-    shipped = Manifest.model_validate({"sources": [_entry(
-        SHOP, robots="custom", robots_custom=rule)]})
+def test_a_shipped_custom_rule_is_held_to_the_rules_a_saved_one_is(conn, manifest, rule):
+    """ONE CHECKER, TWO DOORS. A rule `save` refuses, the manifest refuses with the same
+    sentence; and one that got past the manifest anyway is refused by `effective`
+    rather than read with defaults filled in."""
+    with pytest.raises(SourceSettingError) as by_panel:
+        save(conn, SHOP, shipped_with(manifest, SHOP),
+             {"robots": "custom", "robots_custom": rule})
+    sentence = str(by_panel.value).removeprefix(f"{SHOP}: ")
+    with pytest.raises(ValueError) as by_manifest:
+        Manifest.model_validate({"sources": [_entry(SHOP, robots="custom",
+                                                    robots_custom=rule)]})
+    assert sentence in str(by_manifest.value)
 
-    with pytest.raises(SourceSettingError):
-        effective(conn, SHOP, shipped.get(SHOP))
+    bypassed = manifest.get(SHOP).model_copy(update={"robots": "custom",
+                                                     "robots_custom": rule})
+    with pytest.raises(SourceSettingError, match=re.escape(sentence)):
+        effective(conn, SHOP, bypassed)
 
 
 def test_the_schema_page_says_what_an_empty_field_follows():
@@ -669,28 +689,28 @@ def test_one_sources_change_never_touches_anothers(conn, manifest):
     """Every statement `save` runs is scoped to ONE source: the read of the stored row
     and the UPDATE both. Unscoped, the third save below would rewrite the directory's row
     or judge SHOP's change against it."""
-    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
-    save(conn, manifest, DIRECTORY, {"user_agent": "Dir/1"})
-    save(conn, manifest, SHOP, {"crawl_pace_s": 3.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 2.0})
+    save(conn, DIRECTORY, shipped_with(manifest, DIRECTORY), {"user_agent": "Dir/1"})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 3.0})
 
     assert read(conn, DIRECTORY) == {"user_agent": "Dir/1"}
     assert read(conn, SHOP) == {"crawl_pace_s": 3.0}
 
 
 def test_a_rule_on_one_source_does_not_decide_anothers_change(conn, manifest):
-    save(conn, manifest, DIRECTORY, {"robots": "custom",
+    save(conn, DIRECTORY, shipped_with(manifest, DIRECTORY), {"robots": "custom",
                                      "robots_custom": {"enforce_disallow": True}})
 
     with pytest.raises(SourceSettingError, match="needs its rule"):
-        save(conn, manifest, SHOP, {"robots": "custom"})
+        save(conn, SHOP, shipped_with(manifest, SHOP), {"robots": "custom"})
 
 
 def test_an_empty_change_to_a_stored_row_writes_nothing(conn, manifest):
     """No field named is no write: the row keeps its date, because nothing changed."""
-    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 2.0})
     conn.execute("UPDATE source_setting SET updated_at = '2000-01-01T00:00:00Z'")
 
-    assert save(conn, manifest, SHOP, {}) == {"crawl_pace_s": 2.0}
+    assert save(conn, SHOP, shipped_with(manifest, SHOP), {}) == {"crawl_pace_s": 2.0}
     assert _row(conn, SHOP)["updated_at"] == "2000-01-01T00:00:00Z"
 
 
@@ -699,7 +719,7 @@ def test_a_new_row_is_stamped_now_in_the_warehouses_own_format(conn, manifest):
     write -- not a constant and not epoch seconds."""
     from datetime import UTC, datetime
 
-    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"crawl_pace_s": 2.0})
     stamp = _row(conn, SHOP)["updated_at"]
 
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", stamp)
@@ -709,7 +729,7 @@ def test_a_new_row_is_stamped_now_in_the_warehouses_own_format(conn, manifest):
 
 def test_a_rule_without_a_choice_names_what_is_missing(conn, manifest):
     with pytest.raises(SourceSettingError, match="choice is not set"):
-        save(conn, manifest, SHOP, {"robots_custom": {"enforce_disallow": True}})
+        save(conn, SHOP, shipped_with(manifest, SHOP), {"robots_custom": {"enforce_disallow": True}})
 
 
 def test_the_module_names_the_same_nothing_said_this_file_expects():
@@ -722,3 +742,29 @@ def test_another_sources_entry_is_refused_rather_than_layered(conn, manifest):
     """A caller holding the wrong entry would hand one shop's agent to another."""
     with pytest.raises(ValueError, match="manifest entry"):
         effective(conn, PLAIN, manifest.get(SHOP))
+
+
+def test_a_built_directory_ships_on_and_nothing_else(conn):
+    """`directories.Directory` is a directory's shipped layer: on, and no robots, agent
+    or pace of its own -- so those fall to his general settings, and clearing a choice
+    returns `active` to on (his ruling)."""
+    directory = directories.get(DIRECTORY)
+
+    assert effective(conn, DIRECTORY, directory) == SourceRules(
+        active=True, robots=RobotsChoice.DEFAULT, robots_custom=None,
+        user_agent=None, crawl_pace_s=None)
+    save(conn, DIRECTORY, directory, {"active": False})
+    assert effective(conn, DIRECTORY, directory).active is False
+    save(conn, DIRECTORY, directory, {"active": None})
+    assert effective(conn, DIRECTORY, directory).active is True
+
+
+def test_what_a_source_ships_with_is_found_in_the_manifest_then_the_directories(manifest):
+    assert shipped_with(manifest, SHOP) is manifest.get(SHOP)
+    assert shipped_with(manifest, DIRECTORY) == directories.get(DIRECTORY)
+    assert shipped_with(manifest, "NOBODY") is None
+
+
+def test_another_directorys_registry_entry_is_refused(conn):
+    with pytest.raises(ValueError, match="directory"):
+        effective(conn, DIRECTORY, directories.get("oman_tenderboard"))

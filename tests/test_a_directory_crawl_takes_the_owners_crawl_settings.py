@@ -25,19 +25,20 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from scrapex import contractors, directoryjob, jobs, profilejob, settings, source_settings
+from scrapex import (
+    contractors,
+    directories,
+    directoryjob,
+    jobs,
+    profilejob,
+    settings,
+    source_settings,
+)
 from scrapex import db as dbmod
-from scrapex.config import Manifest
 from scrapex.connectors import base as connectors_base
 from scrapex.connectors.base import DEFAULT_USER_AGENT, RobotsDisallowed
 
 SITE = "muqawil_org"
-
-#: `source_settings.save` judges a choice against the manifest (an unprobed price source
-#: cannot be activated); a directory is in none, so any manifest without it will do.
-_NO_PRICE_SOURCES = Manifest.model_validate({"sources": [{
-    "source_key": "SOME_SHOP", "source_name": "Some Shop", "base_url": "https://shop.test",
-    "family": "custom-json-api", "extract": [{"kind": "product_prices"}]}]})
 HOST = "muqawil.org"
 SLOW_SITE = "User-agent: *\nCrawl-delay: 10\nDisallow: /private/\n"
 #: Far from zero for the reason tests/test_http_fetcher.py gives at FROZEN_CLOCK.
@@ -205,7 +206,7 @@ def test_his_choices_for_this_directory_reach_its_fetcher(conn, monkeypatch, run
     warehouse, by the function a price source's take them -- over his general settings,
     as a price source's own rules are. Before this it had nowhere to keep one."""
     settings.save(conn, OWNER)
-    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {
+    source_settings.save(conn, SITE, directories.get(SITE), {
         "user_agent": "HisDirectory/1.0", "crawl_pace_s": 6.0, "robots": "custom",
         "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 0.0}})
     conn.commit()
@@ -215,7 +216,7 @@ def test_his_choices_for_this_directory_reach_its_fetcher(conn, monkeypatch, run
     run(conn)
 
     fetcher = built["fetcher"]
-    assert built["rules"] == source_settings.effective(conn, SITE, None)
+    assert built["rules"] == source_settings.effective(conn, SITE, directories.get(SITE))
     assert fetcher._user_agent == "HisDirectory/1.0", "his agent for it beats the typed one"
     assert fetcher._min_interval_s == 6.0, "the slowest of his pace and the general one"
     assert fetcher._robots_choice == "custom"
@@ -227,8 +228,8 @@ def test_a_directory_choice_he_cleared_falls_back_to_his_general_settings(
         conn, monkeypatch, run):
     """A directory ships nothing, so clearing a choice leaves the general rule alone."""
     settings.save(conn, OWNER)
-    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {"user_agent": "HisDirectory/1.0"})
-    source_settings.save(conn, _NO_PRICE_SOURCES, SITE, {"user_agent": None})
+    source_settings.save(conn, SITE, directories.get(SITE), {"user_agent": "HisDirectory/1.0"})
+    source_settings.save(conn, SITE, directories.get(SITE), {"user_agent": None})
     conn.commit()
     built = _spy(monkeypatch)
     _visiting(monkeypatch, [])

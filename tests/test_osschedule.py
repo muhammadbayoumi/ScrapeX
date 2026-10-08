@@ -199,11 +199,14 @@ class _Manifest:
     """Every source active — `active` gating is scheduler.fire_due's own test."""
 
     def get(self, key):
-        # Shaped as a shipped entry as far as `source_settings.effective` reads one: the
-        # scheduler asks it, so his choice in the warehouse can override `active`.
-        return SimpleNamespace(source_key=key, active=True, family="custom-json-api",
-                               robots="default", robots_custom=None, user_agent=None,
-                               crawl_pace_s=None)
+        # A real entry: the scheduler asks `source_settings.effective`, which reads what
+        # a source ships with off a `SourceEntry` (his choice can override `active`).
+        from scrapex.config import SourceEntry
+
+        return SourceEntry.model_validate({
+            "source_key": key, "source_name": key, "base_url": "https://source.test",
+            "family": "custom-json-api", "active": True,
+            "extract": [{"kind": "product_prices"}]})
 
 
 def _warehouse(tmp_path, *, due_source: str | None = None) -> Path:

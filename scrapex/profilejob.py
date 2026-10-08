@@ -407,7 +407,8 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # THE OWNER'S SETTINGS, THROUGH THE CHAIN A PRICE SOURCE'S FETCHER TAKES (#1414).
     # AND HIS CHOICES FOR THIS DIRECTORY, as the listing crawl takes them (#1584).
     fetcher, fetch = contractors.make_fetch(
-        capture.crawl_settings(conn), source_settings.effective(conn, source_key, None))
+        capture.crawl_settings(conn),
+        source_settings.effective(conn, source_key, directory))
     # ONE DEFINITION OF A HOST, taken from `jobs` rather than written again here, for the
     # reason `directoryjob` states: a source filed under one host name for grouping and
     # another for reservation is two jobs crawling a site together. The fallback is the

@@ -403,10 +403,11 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # would then be a `NameError` on the first cell, hours into a run that had already
     # fetched real pages. Structural beats incidental.
     # THE OWNER'S SETTINGS, THROUGH THE CHAIN A PRICE SOURCE'S FETCHER TAKES (#1414).
-    # AND HIS CHOICES FOR THIS DIRECTORY, from the warehouse (#1584). None: a directory
-    # ships no manifest entry, so his choice falls straight to his general rules.
+    # AND HIS CHOICES FOR THIS DIRECTORY, from the warehouse (#1584), over what the
+    # directory ships with -- which is no robots, agent or pace of its own.
     fetcher, fetch = contractors.make_fetch(
-        capture.crawl_settings(conn), source_settings.effective(conn, source_key, None))
+        capture.crawl_settings(conn),
+        source_settings.effective(conn, source_key, directory))
 
     def _measured() -> dict:
         """What the fetcher has counted, in the shape `_fetch_progress` reads.
