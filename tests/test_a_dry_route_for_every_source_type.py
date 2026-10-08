@@ -232,7 +232,7 @@ def test_the_network_guard_would_catch_the_pass_it_advertises(client, monkeypatc
     _cut_the_wire(monkeypatch)
 
     with pytest.raises(AssertionError, match="reached the network"):
-        contractors.make_fetch(1.0)
+        contractors.make_fetch({"min_interval_s": 1.0})
 
 
 # ---- zero writes, guarded ---------------------------------------------------

@@ -46,7 +46,7 @@ from contextlib import contextmanager
 from . import catalog, runs, taxonomy
 from . import validators as validator_store
 from .catalog_models import SiteCreate
-from .connectors.base import HttpFetcher, declare_frontier
+from .connectors.base import declare_frontier, general_fetcher
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .databases.registry import DATABASE_ROOT
@@ -199,7 +199,7 @@ def open_engine():
     return registry.engine.connect()
 
 
-def make_fetch(pace_s: float):
+def make_fetch(crawl_settings: dict | None):
     """One fetcher, and PACING LIVES HERE AND NOWHERE ELSE.
 
     `HttpFetcher` rate-limits with jitter, replays ETags so an unchanged page
@@ -207,8 +207,14 @@ def make_fetch(pace_s: float):
     after five refusals. `partitioncrawl` therefore adds no pace of its own: two
     layers would each charge for the wait, and a second per request over ~2,000
     requests is thirty-three minutes nobody chose to spend.
+
+    BUILT BY THE SAME CHAIN A PRICE SOURCE'S IS (#1414). This was
+    `HttpFetcher(min_interval_s=pace_s)`, so the panel's pace, timeout, agent and
+    robots switches never reached a directory. The jobs pass
+    `capture.crawl_settings(conn)`; the command line passes its `--pace` alone,
+    and every key it leaves out reads as the shipped default.
     """
-    fetcher = HttpFetcher(min_interval_s=pace_s)
+    fetcher = general_fetcher(crawl_settings)
 
     def fetch(url: str) -> str:
         return fetcher.get(url).text
@@ -1991,7 +1997,7 @@ def run(args: argparse.Namespace) -> int:
     directory = get_directory(getattr(args, "source", None))
     started = time.monotonic()
     if args.plan:
-        _, fetch = make_fetch(args.pace)
+        _, fetch = make_fetch({"min_interval_s": args.pace})
         plan(directory, fetch, started)
         return 0
 
@@ -1999,7 +2005,7 @@ def run(args: argparse.Namespace) -> int:
     try:
         named = _named_ids(args.ids) if args.ids is not None else ()
         if args.crawl:
-            fetcher, fetch = make_fetch(args.pace)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace})
             # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
             # threads, so each worker opens its own. Only passed when it is
             # actually needed, so a single-worker crawl keeps using `conn`.
@@ -2014,7 +2020,7 @@ def run(args: argparse.Namespace) -> int:
                   heavy_attempts=args.heavy_attempts,
                   workers=args.workers, connect=factory)
         if args.details:
-            fetcher, fetch = make_fetch(args.pace)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace})
             # SAME FACTORY, SAME REASON as --crawl above: one connection per
             # worker, opened only when more than one is asked for. 34,834 pages at
             # 9.03 s each is 87 hours single-threaded and about 14 with six.
