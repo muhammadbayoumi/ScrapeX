@@ -262,13 +262,15 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                                          token=t.page_token)
         requests_count = fetcher.requests_count
     except Exception as exc:
-        from .connectors.base import CrawlInterrupted
-        if journal and isinstance(exc, CrawlInterrupted):
+        from .connectors.base import CrawlBlocked
+        if journal and isinstance(exc, CrawlBlocked):
             # The journaled pages survive, but their warnings live only in
             # memory (the payload contract carries none) — flush them to the
             # job log now or the resume silently forgets e.g. which countries
             # published nothing this week. Politeness notes flush at INFO
-            # (owner robots ruling), data warnings at WARNING.
+            # (owner robots ruling), data warnings at WARNING. `CrawlBlocked`
+            # and not only the owner's `CrawlInterrupted` (its subclass): a
+            # block by the SITE keeps its pages for Resume too (#1448).
             from .jobs import append_log
             from .vocab import LogLevel
             flush = list(dict.fromkeys(
