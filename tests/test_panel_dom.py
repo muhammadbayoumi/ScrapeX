@@ -72,8 +72,10 @@ numbers for the second one.
 """
 from __future__ import annotations
 
+import base64
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -122,6 +124,12 @@ from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
     GROUP_INSIDE,
     INPUT,
     SELECT_TRIGGER,
+)
+from tests.test_the_hit_area_is_supabases import (  # noqa: E402
+    APP,
+    HALF_THE_GAP,
+    SCHEME_PICKER,
+    STACK_GAP,
 )
 
 
@@ -7502,14 +7510,15 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 26px pill with no resting border or background, muted until hovered.
+    a 36x26 pill with no resting border or background, muted until hovered.
 
-    26 SQUARE SINCE #1050, WAS 32 WIDE AND 40 TALL, AND 40 AND 48 BEFORE R-85/OD-09.
-    It is an icon-only Button, and Supabase's Button defaults to tiny, 26px
-    (Button.tsx@86c813ec:192, constants.ts@86c813ec:61), so the declared width and
-    the global `min-height` now read the same token and the box is square. The
-    asymmetry this test was written about, a 32px width under a 40px floor, went
-    with the two notches that made it.
+    36x26 SINCE #1430, BY HIS RULING ON #1457; A 26 SQUARE SINCE #1050, WAS 32 WIDE AND
+    40 TALL, AND 40 AND 48 BEFORE R-85/OD-09. It is an icon-only Button, Supabase's at
+    its tiny default (Button.tsx@86c813ec:192): tiny's px-2.5 py-1 around its 14px icon,
+    in the Button's 1px border (constants.ts@86c813ec:54, Button.tsx@86c813ec:127, :25).
+    So it declares no width, and that padding is its 36px; its height is the global
+    `min-height`'s 26px. The asymmetry this test was written about, a 32px width under a
+    40px floor, went with the two notches that made it.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
     than a remembered one: `button, .button { min-height: var(--control-height-tiny) }`
@@ -7530,18 +7539,20 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
     declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "var(--control-height-tiny)", declared
+    assert declared["width"] is None, declared
 
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(26, abs=0.01), box["width"]
-    # 26 TALL TOO. `button, .button` in components.css carries `min-height:
-    # var(--control-height-tiny)` and nothing here overrides it, and with no padding
-    # the 20px icon sits inside that floor, so the height is the token's. Measured,
-    # not assumed. That it is the same box as its two copies is
-    # `test_the_three_back_buttons_draw_one_box`.
+    assert box["width"] == pytest.approx(36, abs=0.01), box["width"]
+    # 26 TALL. `button, .button` in components.css carries `min-height:
+    # var(--control-height-tiny)` and nothing here overrides it, and tiny's 4px padding
+    # around the 14px icon, 24px with the border, sits inside that floor, so the height
+    # is the token's. Measured, not assumed. That it is the same box as its two copies
+    # is `test_the_three_back_buttons_draw_one_box`.
     assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
+    icon = btn.locator("svg").bounding_box()
+    assert icon and (icon["width"], icon["height"]) == (14, 14), icon
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
@@ -7554,10 +7565,11 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
 def test_the_three_back_buttons_draw_one_box(open_panel):
     """Source, Manage account and one engine each open under the same back button: a
-    `ghost` icon-only <button> with the arrow-back icon and an aria-label
+    `ghost icon-button` <button> with the arrow-back icon and an aria-label
     (extension/app.html `#source-edit-back`, `#manage-account-back`,
-    `#engine-detail-back`). Each is Supabase's Button at its tiny default, an icon in a
-    26px square (Button.tsx@86c813ec:192, constants.ts@86c813ec:61).
+    `#engine-detail-back`). Each is Supabase's icon-only Button at its tiny default,
+    36x26: tiny's px-2.5 around a 14px icon, 26px tall (Button.tsx@86c813ec:192, :127,
+    constants.ts@86c813ec:54, :61), by his ruling on #1457.
 
     BOXES, NOT `min-height`. This compared the two computed min-heights until #1432's
     review showed both come from `button, .button`, so a height declared on either
@@ -7585,9 +7597,9 @@ def test_the_three_back_buttons_draw_one_box(open_panel):
 
     sizes = {selector: box and (round(box["width"], 2), round(box["height"], 2))
              for selector, box in boxes.items()}
-    assert sizes == {"#manage-account-back": (26, 26), "#engine-detail-back": (26, 26),
-                     "#source-edit-back": (26, 26)}, (
-        f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
+    assert sizes == {"#manage-account-back": (36, 26), "#engine-detail-back": (36, 26),
+                     "#source-edit-back": (36, 26)}, (
+        f"the three back buttons in this panel no longer draw one 36x26 box: {sizes}")
 
 
 #: Reads which control, if any, takes a tap at a point: the element there, or the
@@ -7601,10 +7613,10 @@ _TAKES_THE_TAP = """([x, y]) => {
 }"""
 
 
-def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_the_reach(
+def test_on_a_touch_screen_an_icon_button_keeps_its_box_and_its_hit_area_keeps_the_reach(
         open_panel):
-    """#1051's own test: on a touch screen an icon button's box is its control height,
-    26px, while a tap 4px outside the box still lands on it.
+    """#1051's own test: on a touch screen an icon button's box is Supabase's icon-only
+    Button, 36x26, while a tap 4px outside the box still lands on it.
 
     WHAT IT REPLACED. `design/components.css`'s `(hover: none), (pointer: coarse)`
     block lifted `button` to `min-height: 2.75rem`, so a plain `icon-button` drew
@@ -7612,10 +7624,13 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
     stayed 26px squares (#1432's comment on #1051). The 44px is now the reach of
     Supabase's hit area, a ::before at negative insets
     (packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49), so the box is the
-    tiny Button's square on every pointer and the reach is still 44px tall.
+    tiny icon-only Button's on every pointer, tiny's px-2.5 py-1 around a 14px icon (#1430,
+    his ruling on #1457), and the reach is still 44px tall.
 
     EXACTLY 44, NOT MORE. A tap 21px from the centre lands; 23px does not, so a reach
-    that grew to --touch-target's 48 fails here as surely as one that shrank.
+    that grew to --touch-target's 48 fails here as surely as one that shrank. The box's
+    26px is 24 inside its border, so each inset is (24 - 44) / 2, -10px, and the reach
+    ends 9px past the border, 22px from the centre, above and below.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -7639,10 +7654,10 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (26, 26),
-                     "#accounts-card .account-menu-button": (26, 26),
-                     "#signout": (26, 26)}, (
-        f"on a touch screen an icon button's box is its 26px control height: {sizes}")
+    assert sizes == {"#plain-icon-button-probe": (36, 26),
+                     "#accounts-card .account-menu-button": (36, 26),
+                     "#signout": (36, 26)}, (
+        f"on a touch screen an icon button's box is Supabase's icon-only Button, 36x26: {sizes}")
 
     box = page.locator("#plain-icon-button-probe").bounding_box()
     cx, top, bottom = box["x"] + box["width"] / 2, box["y"], box["y"] + box["height"]
@@ -7658,6 +7673,14 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
         f"the reach grew past the 44px it was: {beyond}")
 
 
+#: Buttons the web UI draws as another element: the dataset picker's trigger is a <summary>
+#: and the source list's icon link an <a> (design/data-workspace.css). Each is held to the
+#: Button's size (tests/test_the_web_ui_controls_are_supabases_sizes.py) and, on a touch
+#: screen, to its reach (tests/test_no_reach_takes_another_controls_tap.py), which its
+#: `touch-reach` class draws as a Button's hit area (design/components.css).
+WEB_ALSO = ["summary.dataset-menu-trigger", "a.dataset-icon-button"]
+
+
 #: The Supabase component each control the sweeps read is, by the first selector it matches, and
 #: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
 #: it is written down. The sweep resolves the value against the page's own tokens. The listbox
@@ -7665,11 +7688,13 @@ def test_on_a_touch_screen_an_icon_button_is_its_square_and_its_hit_area_keeps_t
 #: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
 #: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
 #: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
+#: The web UI's Buttons drawn as another element are Buttons too, so their reach is read.
 _SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
     (".sx-select-trigger", SELECT_TRIGGER),
     (".finance-converter-row input", GROUP_INSIDE),
     ("input, select", INPUT),
-    ("button, .button", BUTTON))]
+    ("button, .button", BUTTON),
+    (", ".join(WEB_ALSO), BUTTON))]
 
 #: What every button and input reached on a touch screen before #1051: the coarse-pointer
 #: block's `min-height: 2.75rem`, which is --touch-floor now.
@@ -7698,7 +7723,7 @@ _SWEEP_SCREENS = (
 #:
 #: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
 #: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
-#: `pointer-events: none` on the three ::before selectors design/components.css draws a hit
+#: `pointer-events: none` on the four ::before selectors design/components.css draws a hit
 #: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
 #: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
 #: second read would be of another layout. A point the control never held is not counted:
@@ -7723,7 +7748,7 @@ _SWEEP = """([scopeSelector, sizes]) => {
   // Reads with `declaration` set on every hit area: design/components.css draws one with these.
   const withEveryHitArea = (declaration, read) => {
     const style = document.createElement('style');
-    style.textContent = `button::before, .button::before, .hit-area-2::before { ${declaration} !important; }`;
+    style.textContent = `button::before, .button::before, .touch-reach::before, .hit-area-2::before { ${declaration} !important; }`;
     document.head.append(style);
     try { return read(); } finally { style.remove(); }
   };
@@ -7764,7 +7789,7 @@ _SWEEP = """([scopeSelector, sizes]) => {
       const other = taker(x, y);
       if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
     });
-    if (!el.matches('button, .button, input:not([type=checkbox]):not([type=radio]), select')) continue;
+    if (el.matches('input[type=checkbox], input[type=radio]') || !heights.some(([selector]) => el.matches(selector))) continue;
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
     // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
@@ -7838,10 +7863,9 @@ def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: d
     assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
 
 
-_PADDING = ("#1430: its padding and type, or a literal height off Supabase's scale, stand it "
-            "taller than its SIZE height")
 _NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
               "44px floor on its box")
+#: The rail's items and the Engine screen's action rows: one reason for both lists below.
 _TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
                  "Supabase component it is cannot be computed")
 _A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
@@ -7857,16 +7881,6 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
-    **dict.fromkeys(["#clear-sel", "#select-all"], (32.5, _PADDING)),
-    "button.split-button-primary": (34, _PADDING),
-    **dict.fromkeys([
-        "#add-cur", "#console-open", "#cur-use", "#db-integrity-check", "#db-open-backups",
-        "#jobs-reload", "#manage-backup", "#open-workbook", "#run", "#runtime-upgrade",
-        "#source-edit-remove", "#source-edit-rename", "#source-edit-robots-look",
-        "#source-edit-save", "#source-edit-wipe", "#source-manager-add",
-        "button.ghost.source-manager-edit"], (36, _PADDING)),
-    **dict.fromkeys(["#engine-download", "#engine-recheck"], (40, _PADDING)),
-    "button.accounts-action": (56, _PADDING),
     **dict.fromkeys([
         "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
         "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
@@ -7874,14 +7888,15 @@ _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
-        "#tab-sources", "#workspace-toggle", ".appearance-scheme-picker > button",
-        "button.sx-select-option", "#runtime-restart", "#engine-diagnostics",
-        "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+        "#tab-sources", "#workspace-toggle", "button.sx-select-option", "#runtime-restart",
+        "#engine-diagnostics", "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    ".appearance-scheme-picker > button": (48, SCHEME_PICKER),
     "#engine-copy-details": (48.5, _TOUCH_TARGET),
     "button.engine-row": (103, _TOUCH_TARGET),
     "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
     "button.account-switch": (42, _A_ROW),
     "button.accounts-disclosure": (44, _A_ROW),
+    "button.accounts-action": (56, _A_ROW),
     "#drive-review-permissions": (48, _A_ROW),
     "button.workspace-destination": (80, _A_ROW),
     "button.link.sect.settings-toggle": (80.5, _A_ROW),
@@ -7893,11 +7908,14 @@ _TALLER_THAN_SUPABASE = {
 
 #: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
 #: keep and why. The least is what it reached before #1051, measured on main 333e680f, for all
-#: but the converter's amount, whose reason says what it lost. It may only shrink, the same way.
+#: but two whose reasons say what they lost: the converter's amount, and the backups button,
+#: whose box #1430 brought to the tiny Button's 26px. It may only shrink, the same way.
 _SHORT_OF_THE_FLOOR = {
     "#signout": (26, "its view's scroll edge clips the top of its reach; its own min-height "
                      "outranked the floor, so it was a 26px square"),
-    "#db-open-backups": (35.5, "the row button flush below it takes its own box, as it did"),
+    "#db-open-backups": (34.5, "the row button flush below it takes its own box, as it did, so "
+                               "below its centre it reaches only to its own bottom edge: half "
+                               "the tiny Button's 26px since #1430, where it was half of 36"),
     "#finance-converter-target-trigger": (41.5, "the source row above it stacks at z-index 2 and "
                                                 "takes their shared gap first, as it did"),
     "#finance-converter-amount": (32, "#1051, his to decide: it reached 44 only because the "
@@ -7944,6 +7962,47 @@ def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
     assert count >= 100 and len(read["controls"]) >= 70, (
         f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
     assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
+
+
+#: Each stack's spacing as the page computes it, from [[selector, property], ...] out of
+#: STACK_GAP: [selector, property, how many elements match, every distinct value]. A
+#: `margin-block` or `padding-block` is read on both its sides.
+STACK_GAPS = """(stacks) => stacks.map(([selector, prop]) => {
+  const sides = prop === 'row-gap' ? [prop] : [`${prop}-start`, `${prop}-end`];
+  const found = [...document.querySelectorAll(selector)];
+  const values = found.flatMap((el) => sides.map((side) => getComputedStyle(el).getPropertyValue(side)));
+  return [selector, prop, found.length, [...new Set(values)]];
+})"""
+
+
+def stacks_off_the_gap(page, stacks: list, label: str) -> list[str]:
+    """What STACK_GAPS reads for `stacks`, STACK_GAP's keys for one surface, on `page`, where
+    it is not his 18px on a touch screen, or half of it in a cell HALF_THE_GAP names."""
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        f"{label}: the page is not a touch screen, so nothing read here is about one")
+    found = page.evaluate(STACK_GAPS, [[selector, prop] for _sheet, selector, prop in stacks])
+    expected = {(selector, prop): "9px" if (sheet, selector, prop) in HALF_THE_GAP else "18px"
+                for sheet, selector, prop in stacks}
+    return [f"{label}: {selector} {prop} matched {count} and computed {values}"
+            for selector, prop, count, values in found
+            if count == 0 or values != [expected[(selector, prop)]]]
+
+
+def test_on_a_touch_screen_the_panels_stacks_stand_18px_apart_at_the_widths_they_failed(
+        open_panel):
+    """His ruling on #1457, read in a browser: on a touch screen the Engine screen's Download
+    and Check again, and Run's Select all and Clear, stand 18px apart, at 320, 420 and 500px,
+    where the stacks took each other's taps before it. The static guard holds where each
+    stack reads --touch-stack-gap, and a later rule scoped to a width that set the gap back
+    to 8px passed it, and the sweep, which reads only 360px."""
+    stacks = [where for where in STACK_GAP if where[0] == APP]
+    assert len(stacks) == 2, stacks
+    page = open_panel(touch=True)
+    off = []
+    for width in (320, 420, 500):
+        page.set_viewport_size({"width": width, "height": 800})
+        off += stacks_off_the_gap(page, stacks, f"{width}px")
+    assert not off, "a stack does not stand his 18px apart on a touch screen:\n  " + "\n  ".join(off)
 
 
 @pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
@@ -8005,13 +8064,13 @@ def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach
 def test_each_control_takes_its_supabase_components_default_size(open_panel):
     """A Button's floor is Supabase's tiny, 26px (Button.tsx@86c813ec:192), an Input's is
     small, 34px (input.tsx@86c813ec:31), and the `xs` and `compact` icon buttons are both the
-    tiny square, because Supabase's Button has no size below it (#1050).
+    tiny icon-only Button, 36x26, because Supabase's Button has no size below it (#1050, #1430).
 
     Read from the cascade, not the sheet: tests/test_the_control_heights_are_supabases_sizes.py
     holds each declaration, and a later rule that overrides one, in a surface's own sheet or a
-    media block, is seen only here. The squares are measured as boxes because `compact` brings
-    its own padding, which stood the 20px icon 30px tall in a 26px-wide box until
-    `.icon-button.compact` zeroed it."""
+    media block, is seen only here. The boxes are measured because `compact` brings its own
+    padding, which stood a 20px icon 30px tall in a 26px-wide box until `.icon-button.compact`
+    zeroed it; it is tiny's padding now, around tiny's 14px icon."""
     page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
@@ -8023,13 +8082,380 @@ def test_each_control_takes_its_supabase_components_default_size(open_panel):
     for selector in ("#signout", "#accounts-card .account-menu-button"):
         box = page.locator(selector).first.bounding_box()
         assert box, selector
-        assert (box["width"], box["height"]) == (pytest.approx(26, abs=0.01),
+        assert (box["width"], box["height"]) == (pytest.approx(36, abs=0.01),
                                                  pytest.approx(26, abs=0.01)), (selector, box)
 
     page.click(SOURCE_TAB)
     page.wait_for_selector("#view-source", state="visible")
     assert page.evaluate(
         "() => getComputedStyle(document.getElementById('url')).minHeight") == "34px"
+
+
+#: Supabase's SIZE height of the component a control is, at its default
+#: (constants.ts@86c813ec:61-62): a Button is tiny (Button.tsx@86c813ec:192), an Input small
+#: (input.tsx@86c813ec:31), and a Select small, the panel's own listbox trigger among them
+#: (select.tsx@86c813ec:37-38).
+_SIZE = {"button": 26, "field": 34}
+
+#: Every screen the size sweep reads, and how a person reaches it from the one before.
+_SIZE_SCREENS = (
+    ("#view-profile", ['nav.side-rail button[data-view="profile"]']),
+    ("#view-manage-account", ["#manage-account"]),
+    ("#view-engines", ["#tab-engines"]),
+    ("#view-engine-detail", ['#view-engines .engine-row[data-engine-id="scrapex-engine"]']),
+    ("#view-source", [SOURCE_TAB]),
+    ("#view-source", ['label[for="source-urls"]']),
+    ("#view-source", ['label[for="source-addsite"]']),
+    ("#view-run", [RUN_TAB]),
+    ("#view-jobs", ['nav.side-rail button[data-view="jobs"]']),
+    ("#view-data", [DATA_TAB]),
+    ("#view-data", ['.dataset-card[data-open="contractors"] .split-button-trigger']),
+    ("#view-finance", [FINANCE_TAB, ".finance-preferences-card > summary"]),
+    ("#view-appearance", ['nav.side-rail button[data-view="appearance"]']),
+    ("#view-sources", [SOURCES_TAB]),
+    ("#view-source-edit", ['[data-edit-source="SHORT"]']),
+    ("#view-console", ['nav.side-rail button[data-view="console"]']),
+    ("#view-database", ['nav.side-rail button[data-view="database"]']),
+    ("#view-settings", [SETTINGS_TAB]),
+    *(("#view-settings", [f'button.settings-toggle[data-sect="{section}"]'])
+      for section in ("s-engine", "s-storage", "s-sched", "s-output", "s-crawl", "s-timezone",
+                      "s-about")),
+    # A schedule row holds the panel's one native time field.
+    ("#view-settings", ["#view-settings details.sched-row > summary"]),
+    ("nav.side-rail", []),
+    ("#workspace-menu", ["#workspace-toggle"]),
+)
+
+#: Reads every Button and text field on one screen, as a name and a rendered box; `also`
+#: names Buttons drawn as another element. A name is the id, else the tag and its classes
+#: (state classes `is-*` left out). A visually hidden native <select>, 1px behind its own
+#: trigger, is not drawn and is not read; a <textarea> is Supabase's Textarea, which has no
+#: SIZE height (textarea.tsx@86c813ec:12). A Button that draws an icon and no text is an
+#: icon-only Button, `icon` its icon's width: a visually hidden label, in a box under 2px,
+#: draws none. `select` is a drop-down only: a list box, `multiple` or more than one row
+#: tall, keeps its rows and its padding (design/components.css `select[multiple]`).
+_READ_SIZES = """([scopeSelector, known, also = []]) => {
+  const FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
+    + ':not([type=range]):not([type=color]):not([type=file]), select, .sx-select-trigger';
+  const BUTTON = ['button', '.button', ...also].join(', ');
+  const name = (el) => el.id ? '#' + el.id : el.tagName.toLowerCase()
+    + [...el.classList].filter((c) => !c.startsWith('is-')).map((c) => '.' + c).join('');
+  const drawn = (box) => box.width >= 2 && box.height >= 2;
+  const drawsText = (el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent.trim() && drawn(node.parentElement.getBoundingClientRect())) return true;
+    }
+    return false;
+  };
+  const out = [];
+  for (const el of document.querySelector(scopeSelector).querySelectorAll(`${BUTTON}, ${FIELD}`)) {
+    const r = el.getBoundingClientRect();
+    if (!el.checkVisibility({visibilityProperty: true}) || !drawn(r)) continue;
+    const icons = [...el.querySelectorAll('svg')].map((svg) => svg.getBoundingClientRect())
+      .filter(drawn);
+    const field = el.matches(FIELD);
+    out.push({name: name(el), kind: field ? 'field' : 'button',
+              height: Math.round(r.height * 100) / 100, width: Math.round(r.width * 100) / 100,
+              iconOnly: !field && icons.length > 0 && !drawsText(el),
+              icon: icons.length ? Math.max(...icons.map((box) => Math.round(box.width * 100) / 100)) : null,
+              select: el.tagName === 'SELECT' && !el.multiple && el.size <= 1,
+              padTop: parseFloat(getComputedStyle(el).paddingTop),
+              known: known.find((selector) => el.matches(selector)) || null});
+  }
+  return out;
+}"""
+
+#: AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26 (#1430; his ruling on #1457): their "Only an icon"
+#: Button (button-icon.tsx@86c813ec:5) at tiny, px-2.5 py-1 around a 14px icon in a 1px border
+#: (constants.ts@86c813ec:54, :61, Button.tsx@86c813ec:127, :25), as (width, height, icon).
+_ICON_ONLY = (36, 26, 14)
+
+#: The panel's Buttons drawn as another element: the Data card's menu trigger is a <summary>,
+#: an icon-only Button with no primary half beside it. The split chevron beside one is #1059's.
+_ALSO = [".dataset-card .split-button-trigger"]
+
+#: Controls that are a Supabase component other than the plain Button or Input, each at that
+#: component's height.
+_ANOTHER_COMPONENT = {
+    ".engine-url-save": (24, "their InputGroupButton, h-6 (input-group.tsx@86c813ec:125, :130)"),
+    ".engine-url-field input": (32, "an InputGroupInput fills its group's 34px inside the "
+                                    "group's border (input-group.tsx@86c813ec:170, -m-px)"),
+    ".finance-converter-row input": (32, "an InputGroupInput, inside its group's border"),
+    ".finance-converter-select-trigger": (32, "a Select inside the converter's group, inside "
+                                              "its border"),
+    "#check": (34, "a Button at size small, h-[34px] (constants.ts@86c813ec:62), beside its "
+                   "34px field, by his ruling on #1457"),
+}
+
+#: Buttons and fields that are not at their Supabase SIZE height, each with why.
+#: THIS LIST ONLY SHRINKS: a selector that no longer matches a control off its size fails the
+#: test until it is taken out, and a control newly off its size fails until it is named here.
+_OFF_SIZE = {
+    ".side-rail .rail-item": _TOUCH_TARGET,
+    ".engine-action-row": _TOUCH_TARGET,
+    ".appearance-scheme-picker button": SCHEME_PICKER,
+    ".engine-row": _A_ROW,
+    ".workspace-destination": _A_ROW,
+    ".account-switch": _A_ROW,
+    ".accounts-disclosure": _A_ROW,
+    ".accounts-action": _A_ROW,
+    ".manage-account-row-button": _A_ROW,
+    ".settings-toggle": "a Settings section's disclosure header, a row",
+    ".appearance-palette-tile": "a palette's tile, which Supabase gives no control height",
+    ".split-button-option": ("their DropdownMenuItem, whose height is its padding and its text "
+                             "(dropdown-menu.tsx@86c813ec:104)"),
+    "button.link": "a text link drawn as a <button>, at the height of its line",
+    # The Add Site form's Fallback engines, `multiple size="3"` (extension/app.html).
+    "select[multiple]": "a list box, which Supabase gives no SIZE height: it keeps its rows",
+    ".coverage-open": "a line of a Data card's text that opens its coverage, drawn as text",
+}
+
+
+def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
+    """#1430's test. A bare <button> draws 26px tall, Supabase's Button at tiny, and `#url`
+    34px, their Input at small; each failed on main, at 36 and 38.25, because the Button's
+    text and padding (15px on a 1.2 line, 8px by 16px) and the Input's (a 1.35 line) stood
+    them taller than the floor #1050 gave them.
+
+    Then every Button and text field on every screen, read from the boxes the panel draws, as
+    #1437 (finding 2) asks: each is at its SIZE height, at its own component's in
+    `_ANOTHER_COMPONENT`, or named in `_OFF_SIZE`, which only shrinks."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    page.evaluate("""() => {
+      const probe = document.createElement('button');
+      probe.type = 'button';
+      probe.id = 'bare-button-probe';
+      probe.textContent = 'Probe';
+      document.querySelector('main').prepend(probe);
+    }""")
+    probe = page.locator("#bare-button-probe").bounding_box()
+    page.evaluate("() => document.getElementById('bare-button-probe').remove()")
+
+    known = [*_ANOTHER_COMPONENT, *_OFF_SIZE]
+    controls: dict[str, list[dict]] = {}
+
+    def read(scope):
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry animation moves every box it holds while it
+        # runs (settle_view says why). An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        for control in page.evaluate(_READ_SIZES, [scope, known, _ALSO]):
+            controls.setdefault(control["name"], []).append(control)
+
+    # The Add Site form opens only on a successful Test site, so no click in _SIZE_SCREENS
+    # reaches it: its fields, Add site and the panel's one list box (#1457's reviews).
+    _open_add_form(page)
+    read("#add-form")
+    for scope, steps in _SIZE_SCREENS:
+        for target in steps:
+            page.wait_for_selector(target, state="visible")
+            page.click(target)
+        read(scope)
+
+    assert {"a bare <button>": probe and round(probe["height"], 2),
+            "#url": {c["height"] for c in controls.get("#url", [])}} == {
+        "a bare <button>": _SIZE["button"], "#url": {_SIZE["field"]}}
+    seen = [c for found in controls.values() for c in found]
+    assert sum(c["select"] for c in seen) >= 3, "the sweep read no native <select>"
+    at_size = Counter(c["kind"] for c in seen if c["known"] is None)
+    # 70 Buttons and 32 fields read at their size when #1430 measured; fewer means a screen
+    # did not open.
+    assert at_size["button"] >= 60 and at_size["field"] >= 25, (
+        f"the sweep read {dict(at_size)} controls at their size; a screen did not open")
+
+    wrong = sorted({f"{c['name']} ({c['kind']}): {c['height']}px" for c in seen
+                    if c["known"] is None and abs(c["height"] - _SIZE[c["kind"]]) > 0.01})
+    assert not wrong, (
+        f"Buttons not {_SIZE['button']}px or fields not {_SIZE['field']}px tall, named nowhere: "
+        + "\n  ".join(["", *wrong]))
+    other = sorted({f"{c['name']}: {c['height']}px, not {_ANOTHER_COMPONENT[c['known']][0]}"
+                    for c in seen if c["known"] in _ANOTHER_COMPONENT
+                    and abs(c["height"] - _ANOTHER_COMPONENT[c["known"]][0]) > 0.01})
+    assert not other, "controls off their own component's height:\n  " + "\n  ".join(other)
+    unread = sorted(set(_ANOTHER_COMPONENT) - {c["known"] for c in seen})
+    assert not unread, f"named in _ANOTHER_COMPONENT and read on no screen: {unread}"
+    # Chromium lays a native <select> out at `line-height: normal`, a 21px line at 15px: with
+    # block padding inside 34px it cuts the descenders off (design/components.css).
+    padded = sorted({c["name"] for c in seen if c["select"] and c["padTop"]})
+    assert not padded, f"a native <select> with block padding inside its 34px: {padded}"
+    off = {c["known"] for c in seen if c["known"] in _OFF_SIZE
+           and abs(c["height"] - _SIZE[c["kind"]]) > 0.01}
+    assert off == set(_OFF_SIZE), (
+        "named in _OFF_SIZE and matching no control off its size, so take it out: "
+        f"{sorted(set(_OFF_SIZE) - off)}")
+
+    # Every icon-only Button is Supabase's 36x26 around its 14px icon, not a 26px square: the
+    # three back buttons, Sign out, each account's menu, the Workspace sheet's close and the
+    # Data card's menu, when #1430 measured.
+    icon_only = [c for c in seen if c["iconOnly"] and c["known"] is None]
+    assert len({c["name"] for c in icon_only}) >= 7, (
+        f"the sweep read {sorted({c['name'] for c in icon_only})} as icon-only Buttons; a "
+        f"screen did not open")
+    boxes = sorted({f"{c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
+                    for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})
+    assert not boxes, (f"icon-only Buttons not {_ICON_ONLY[0]}x{_ICON_ONLY[1]} around a "
+                       f"{_ICON_ONLY[2]}px icon:\n  " + "\n  ".join(boxes))
+
+
+#: (font-size, line-height, padding-top, padding-inline-start) of each control, read from the
+#: cascade. A probe stands for each shared variant, so a screen's own rule cannot hide it.
+_READ_TEXT = """(selectors) => Object.fromEntries(selectors.map((selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return [selector, null];
+  const s = getComputedStyle(el);
+  return [selector, [s.fontSize, s.lineHeight, s.paddingTop, s.paddingInlineStart]];
+}))"""
+
+#: SIZE_VARIANTS.tiny is `text-xs px-2.5 py-1` and .small `text-base md:text-sm leading-4 px-3
+#: py-2` (constants.ts@86c813ec:47-48, :54-55): 12px on a 16px line, 4px by 10px, for a Button
+#: and a `compact` one and a split button's primary; 15px on a 16px line, 8px by 12px, for an
+#: Input, and the panel's listbox trigger, a Select. Their Textarea takes the text's own line
+#: (textarea.tsx@86c813ec:12): text-base's 1.5, and from md text-sm's calc(1.25 / 0.875). A
+#: native <select> has no block padding: Chromium lays it out at `line-height: normal`, and its
+#: line is centred in its 34px.
+_TINY = ("12px", "16px", "4px", "10px")
+_TEXT_AT_360 = {
+    "#p-button": _TINY, "#p-compact": _TINY, "#p-split": _TINY,
+    "#p-input": ("15px", "16px", "8px", "12px"),
+    "#p-select": ("15px", "normal", "0px", "12px"),
+    "#p-textarea": ("15px", "22.5px", "8px", "12px"),
+    "#run-mode-trigger": ("15px", "16px", "8px", "12px"),
+    # Test site is a Button at size small, SIZE_VARIANTS.small's text and padding (his ruling on
+    # #1457), not tiny's.
+    "#check": ("15px", "16px", "8px", "12px"),
+    # A list box is no drop-down: it keeps the Input's text and its padding, and its rows.
+    "#p-list": ("15px", "16px", "8px", "12px"),
+    # Rows drawn as <button>s are not Buttons: each keeps the text around it on a 1.2 line.
+    "button.accounts-action": ("15px", "18px", "12px", "16px"),
+    "button.accounts-disclosure": ("15px", "18px", "12px", "16px"),
+    "button.workspace-destination": ("15px", "18px", "8px", "8px"),
+    "button.manage-account-row-button": ("15px", "18px", "12px", "16px"),
+    "button.engine-action-row": ("13px", "15.6px", "8px", "16px"),
+    "button.engine-row": ("15px", "18px", "12px", "16px"),
+}
+
+
+def _text(page, expected: dict) -> dict:
+    return {selector: read and tuple(read)
+            for selector, read in page.evaluate(_READ_TEXT, list(expected)).items()}
+
+
+def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
+    """#1430: the text and padding of a Button are SIZE tiny's and a field's SIZE small's, at
+    the panel's width and from Tailwind's md, 48rem, where small's text-sm takes over: their
+    text-base is 15px and their text-sm 13px (apps/studio/styles/globals.css@86c813ec:56-57).
+    The heights are `test_every_button_is_26px_and_every_field_34px_tall`'s; a 1.2 line on a
+    12px label still stands inside the 26px floor, so only this sees the text."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    page.evaluate("""() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button type="button" id="p-button">Button</button>'
+        + '<button type="button" id="p-compact" class="compact">Compact</button>'
+        + '<div class="split-button"><button type="button" id="p-split" '
+        + 'class="split-button-primary">Split</button></div>'
+        + '<input id="p-input"><select id="p-select"><option>One</option></select>'
+        + '<select id="p-list" multiple size="3"><option>One</option><option>Two</option>'
+        + '<option>Three</option></select>'
+        + '<textarea id="p-textarea"></textarea>';
+      document.querySelector('main').prepend(host);
+    }""")
+    assert _text(page, _TEXT_AT_360) == _TEXT_AT_360
+    # Taller than its three 16px rows, which the 34px a drop-down takes would cut to one.
+    rows = page.locator("#p-list").bounding_box()
+    assert rows and rows["height"] > 3 * 16, rows
+
+    page.set_viewport_size({"width": 768, "height": 800})
+    small = {"#p-input": ("13px", "16px", "8px", "12px"),
+             "#p-select": ("13px", "normal", "0px", "12px"),
+             "#p-textarea": ("13px", "18.5718px", "8px", "12px"),
+             "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY,
+             "#check": ("13px", "16px", "8px", "12px"),
+             "#p-list": ("13px", "16px", "8px", "12px")}
+    assert _text(page, small) == small
+
+
+#: The height, in CSS px, of what an element's screenshot draws inside its border and the edge
+#: of its inline padding: from the first row to the last that differs from its background. The
+#: harness stubs `fetch`, so the PNG is decoded from its bytes.
+_INK = """async ([png, scale]) => {
+  const bytes = Uint8Array.from(atob(png), (ch) => ch.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext('2d');
+  context.drawImage(bitmap, 0, 0);
+  const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  const light = (i) => (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+  const [top, side] = [Math.ceil(1.5 * scale), 4 * scale];
+  const ground = light(((bitmap.height >> 1) * bitmap.width + side) * 4);
+  const rows = [];
+  for (let y = top; y < bitmap.height - top; y++) {
+    for (let x = side; x < bitmap.width - side; x++) {
+      if (Math.abs(light((y * bitmap.width + x) * 4) - ground) > 0.12) { rows.push(y); break; }
+    }
+  }
+  return rows.length ? (rows[rows.length - 1] - rows[0] + 1) / scale : 0;
+}"""
+
+#: Text with marks over and under its letters: a shadda over a doubled lam, the harakat and
+#: Quranic brackets, and Latin accented capitals with descenders.
+_MARKED = ("عبد اللّه", "لِلْجُمْلَةِ ﴿ٱلْحَمْدُ﴾", "gjpqy ÁÉÍ")
+
+
+def _ink(page, selector: str, scale: int) -> float:
+    # The element's own screenshot, which waits for its box to stand still.
+    png = page.locator(selector).screenshot()
+    return page.evaluate(_INK, [base64.b64encode(png).decode(), scale])
+
+
+def test_a_field_draws_the_marks_over_and_under_its_letters(browser, tmp_path):
+    """#1457's tests pass, must fix 1. Supabase's Input is leading-4, a 16px line, with py-2 in
+    a fixed h-[34px] (constants.ts@86c813ec:48, :55, :62). On the 34px floor alone Chromium drew
+    the value only inside that 16px line: at 15px, below Tailwind's md, it cut the shadda off
+    عبد اللّه, the harakat off a phrase in Quranic brackets and 1.5px off the accents of ÁÉÍ,
+    where main's 1.35 line cut about 1px. At their fixed 34px, with the same py-2 and leading-4,
+    every mark draws whole, so a one-line field takes the 34px as its height
+    (design/components.css).
+
+    Each string's ink in the Add Site form's Arabic name field is read from a 4x screenshot and
+    compared with the same field on a `normal` line that is free to grow, where nothing is cut:
+    16 against 19px for the shadda on the floor, and 19 at the fixed height, when #1430
+    measured. At 800px the text is 13px."""
+    page_file = harness.build_page(tmp_path, harness.stub(), name="ink.html")
+    page = browser.new_page(viewport={"width": 360, "height": 900}, device_scale_factor=4)
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        _open_add_form(page)
+        page.evaluate("() => document.fonts.ready")
+        field = "#f-name-ar"
+        drawn, boxes = {}, set()
+        for width in (360, 800):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.locator(field).scroll_into_view_if_needed()
+            for text in _MARKED:
+                page.fill(field, text)
+                page.evaluate("() => document.activeElement.blur()")
+                boxes.add(round(page.locator(field).bounding_box()["height"], 2))
+                cut = _ink(page, field, 4)
+                page.evaluate("""(sel) => Object.assign(document.querySelector(sel).style,
+                  {lineHeight: 'normal', height: 'auto', paddingBlock: '8px'})""", field)
+                whole = _ink(page, field, 4)
+                page.evaluate("(sel) => document.querySelector(sel).removeAttribute('style')", field)
+                drawn[(width, text)] = (cut, whole)
+    finally:
+        page.close()
+    assert boxes == {34}, f"the field's box is not Supabase's 34px Input: {boxes}"
+    # One device pixel at 4x is the rounding of a line centred rather than padded.
+    lost = {key: ink for key, ink in drawn.items() if ink[1] - ink[0] > 0.25}
+    assert not lost, ("a field cut the marks off its value, (drawn, whole) in px: "
+                      f"{lost}")
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):

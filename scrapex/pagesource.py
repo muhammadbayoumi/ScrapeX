@@ -153,6 +153,29 @@ class Cell:
 WHOLE = Cell()
 
 
+@dataclass(frozen=True)
+class RowIdentity:
+    """What one listing row says about WHICH firm it is, beyond its record key.
+
+    THE EVIDENCE A DEPARTURE IS CHECKED AGAINST (#1333). A stored firm whose key a
+    complete crawl did not see has left -- unless this crawl shows it under another
+    key, and a key alone cannot say that. `contractors.mark_departures` looks for the
+    stored firm by the two things below before it records an absence. Here, beside
+    `Cell`, because a site's reader produces it and the crawl method consumes it, and
+    both already import this module.
+    """
+
+    #: The record key the row was read under -- what `read_ids` returns for it.
+    key: str
+    #: An id the site keeps for the firm WHATEVER its record key -- Oman's CR number.
+    #: `None` when the row leaves it blank: a blank is no evidence, and two blanks
+    #: are not one firm.
+    registration: str | None = None
+    #: The row's second copy of a key -- Oman's `getProcActivities('...')` argument.
+    #: Usually the record key again; on `ALWASIT`'s row it is `nabil`.
+    second_key: str | None = None
+
+
 class SliceNotSupported(NotImplementedError):
     """This site cannot decide slice membership from its listing pages.
 

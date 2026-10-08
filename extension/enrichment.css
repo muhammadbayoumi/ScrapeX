@@ -75,16 +75,16 @@ label > span {
   font-weight: var(--fw-medium);
 }
 
+/* An Input or a Select at small, Supabase's default (input.tsx@86c813ec:31): its text, its
+   padding and its 34px are the shared rule's in components.css, so this sets none of them
+   (#1430). A padding here would undo the <select>'s centred line there. */
 input, select {
   box-sizing: border-box;
   width: 100%;
-  min-height: 40px;
-  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  font: inherit;
 }
 
 /* The ring is the shared rule's (#745); this only marks the field's border. */
@@ -170,6 +170,15 @@ td code { white-space: pre-wrap; overflow-wrap: anywhere; }
    no `button` class, keeps the gap too: without it they stood 4px apart. */
 td.action-cell { white-space: nowrap; }
 td.action-cell > :is(button, .button) + :is(button, .button) { margin-inline-start: var(--sp-2); }
+
+/* ON A TOUCH SCREEN THE CELL'S PADDING HOLDS HALF THE STACK GAP ABOVE AND BELOW (his ruling
+   on #1457). There a 26px action reaches 9px past its box, and the row below stands its own
+   action under this one: with the cell's 8px each side and the row's 1px border, the two
+   stood 17px apart, and the lower action's reach cut the upper one's to 42.5px from 1024px
+   up. Half of --touch-stack-gap each side holds each reach in its own cell. */
+@media (hover: none), (pointer: coarse) {
+  td.action-cell { padding-block: calc(var(--touch-stack-gap) / 2); }
+}
 
 .hidden { display: none !important; }
 

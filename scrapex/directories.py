@@ -81,6 +81,11 @@ class Directory:
     #: field sets — `CARD_FIELDS` against `PROFILE_FIELD_ORDER` — and one callable
     #: taking both would have to guess which it was handed.
     profiles: ProfileReader | None = None
+    #: THE STORED FIELD THAT HOLDS `RowIdentity.registration`, or `None` for a directory
+    #: whose rows publish no id that outlives a change of record key. With it,
+    #: `contractors.mark_departures` finds a firm that changed key by the number it
+    #: kept, instead of recording it as gone (#1333).
+    registration_field: str | None = None
 
     def partition(self) -> Any:
         return self.partition_factory()
@@ -175,6 +180,7 @@ def _oman_tenderboard() -> Directory:
     from .extract.oman_tenderboard import (
         DATASET_KEY,
         IDENTITY_FIELD,
+        REGISTRATION_FIELD,
         bilingual_listing_candidate,
     )
     from .sites.oman_tenderboard import BASE_URL, LTR, RTL, SITE_KEY, OmanPartition
@@ -209,6 +215,9 @@ def _oman_tenderboard() -> Directory:
         candidate=bilingual_listing_candidate,
         locale_pairing=locale_in_query,
         partition_factory=OmanPartition,
+        # The CR number: on ~98% of rows (`join_languages` measured 2% blank), and the
+        # register's own join key between its two language views.
+        registration_field=REGISTRATION_FIELD,
     )
 
 

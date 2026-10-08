@@ -227,6 +227,19 @@
      (design/components.css, #1051). Supabase sets no touch size outside action cells, so
      it stays (#1040 rule 2) until the WCAG 2.2 SC 2.5.8 study is reviewed. */
   --touch-floor: 2.75rem;
+  /* How far apart stacked tiny Buttons stand on a touch screen: 18px, his ruling on #1457
+     (https://github.com/muhammadbayoumi/ScrapeX/pull/1457#issuecomment-6038619876). There a
+     26px Button reaches the 44px floor through its hit area, 9px past each edge of its box.
+     Supabase spaces adjacent hit areas so that they "meet at the midpoint but do not
+     overlap", and asks for "at least gap-x-2" between them
+     (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Two 9px reaches
+     meet at the midpoint of an 18px gap, which is the floor less the box. At gap-x-2's 8px
+     the Button below took the taps on the bottom edge of the box above. At 10px it took
+     none, but its reach covered the gap and the Button above reached only 35.5px. Each
+     stack reads this only in a top-level `(hover: none), (pointer: coarse)` block, at every
+     width, so with a mouse a stack keeps its own gap
+     (tests/test_the_hit_area_is_supabases.py names every read). */
+  --touch-stack-gap: calc(var(--touch-floor) - var(--control-height-tiny));
 
   /* Spacing — 4px base */
   --sp-0: 0;

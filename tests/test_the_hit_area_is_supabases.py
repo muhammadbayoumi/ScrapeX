@@ -1,8 +1,9 @@
 """A control's reach past its box is Supabase's hit area, and the visible box stays its size
 (#1051). This is the half a stylesheet can be read for, so it runs with no browser: what a hit
-area is, where one is drawn, and what each read of --touch-target is for. The reach a tap
-actually has is measured in tests/test_panel_dom.py (the panel) and
-tests/test_no_reach_takes_another_controls_tap.py (the web UI and the action cells).
+area is, where one is drawn, what each read of --touch-target is for, and where a stack of
+tiny Buttons stands far enough apart for two reaches. The reach a tap actually has is measured
+in tests/test_panel_dom.py (the panel) and tests/test_no_reach_takes_another_controls_tap.py
+(the web UI and the action cells).
 
 THE MECHANISM IS SUPABASE'S, declaration for declaration.
 packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49:
@@ -33,6 +34,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_the_control_heights_are_supabases_sizes import TOGGLE
+from tests.test_the_shadows_are_what_supabases_atoms_render import _rules_around
 from tools.value_literals import authored, declarations
 
 # Reads design/ sources copied into extension/ and extension/app.css; see
@@ -44,6 +47,7 @@ COMPONENTS = ROOT / "design" / "components.css"
 TOKENS = ROOT / "design" / "tokens.css"
 C = "design/components.css"
 APP = "extension/app.css"
+PAGES = "scrapex/webui/static/pages"
 
 #: hit-area.css@86c813ec:43-48, the ::before's geometry. Its `content: ''` (:42) is not here:
 #: a ::before with no content is not generated, so `content` is what says where one is drawn.
@@ -55,7 +59,7 @@ SUPABASE_BEFORE = {
     "left": "var(--hit-area-l, 0px)",
     "pointer-events": "inherit",
 }
-BEFORE = "button::before, .button::before, .hit-area-2::before"
+BEFORE = "button::before, .button::before, .touch-reach::before, .hit-area-2::before"
 COARSE = "@media (hover: none), (pointer: coarse)"
 
 #: Every read of --touch-target in a sheet this repository authors, and what it is. A REACH is
@@ -72,6 +76,11 @@ WHOLE_ROW = ("a whole row a tap toggles or opens, a <label> or a <summary>, whic
              "control height: its 48px box is its reach (#1040 rule 2)")
 HIS = ("#1051, his to decide: a control whose Supabase component cannot be computed, so its "
        "48px box is not moved into a reach")
+#: The scheme picker's item is computed: their ToggleGroup item, 40px. The panel's
+#: --touch-target stands it 48px, which the panel's touch sweep and size test name too.
+SCHEME_PICKER = (f"Supabase's ToggleGroup item, 40px ({TOGGLE}); #1051, his to decide: the "
+                 f"panel's --touch-target stands it 48px on every pointer, and that 48px box is "
+                 f"not moved into a reach")
 BOX = {
     (C, ".appearance-switch", "width"): "the switch's own invisible 48px target around its "
                                         "40x24 track, already a reach in all but name",
@@ -90,7 +99,7 @@ BOX = {
     (APP, ".side-rail .rail-item", "width"): HIS,
     (APP, ".side-rail .rail-item", "height"): HIS,
     (APP, ".side-rail .rail-item", "min-height"): HIS,
-    (APP, ".appearance-page .appearance-scheme-picker button", "min-height"): HIS,
+    (APP, ".appearance-page .appearance-scheme-picker button", "min-height"): SCHEME_PICKER,
     # Two headings and one <summary> (extension/app.html, Finance's preferences disclosure).
     (APP, ".finance-section-heading", "min-height"): WHOLE_ROW,
     (APP, ".finance-setting-row", "min-height"): WHOLE_ROW,
@@ -101,6 +110,28 @@ BOX = {
     (APP, ".engine-row", "min-height"): HIS,
     (APP, ".engine-action-row", "min-height"): HIS,
 }
+
+#: Every read of --touch-stack-gap, and the stack of tiny Buttons it spaces on a touch screen
+#: (his ruling on #1457). AN EQUALITY with the sheets, as REACH | BOX is: a stack that starts
+#: or stops reading it fails until it is named here or taken out. A stack reads the gap
+#: itself, but for the cells named in HALF_THE_GAP.
+STACK_GAP = {
+    ("extension/enrichment.css", "td.action-cell", "padding-block"): (
+        "the enrichment page's review actions, one row's over the next row's"),
+    (APP, "#site-search + .toolbar-spaced", "margin-block"): (
+        "Run's Select all and Clear, under the site search and over the site list"),
+    (APP, ".engine-detail-actions", "row-gap"): "the Engine screen's Download and Check again",
+    (f"{PAGES}/overview.css", ".overview-hero-actions", "row-gap"): "/'s two hero links",
+    (f"{PAGES}/exports.css", ".exports-hero-actions", "row-gap"): (
+        "/exports' hero link and Open folder"),
+    (f"{PAGES}/sync.css", ".sync-hero-actions, .sync-actions", "row-gap"): (
+        "/sync's two hero links and its rows of actions: Copy script and Show script, and "
+        "Save connection, Generate token and Revoke token"),
+}
+
+#: The stacks whose Buttons stand in table cells, one row's under another's: each cell holds
+#: half the gap above and below its action, so two rows' reaches meet at the row's border.
+HALF_THE_GAP = {("extension/enrichment.css", "td.action-cell", "padding-block")}
 
 
 def _declared(selector: str, css: str) -> dict[str, list[str]]:
@@ -163,9 +194,10 @@ def test_on_a_touch_screen_the_floor_is_a_buttons_reach_and_no_buttons_box():
     coarse = _split(COMPONENTS.read_text(encoding="utf-8"), COARSE)[0]
     assert coarse, f"{C} has no `{COARSE}` block"
     reach = "min(0px, (100% - var(--touch-floor)) / 2)"
-    assert _declared("button, .button", coarse) == {
+    assert _declared("button, .button, .touch-reach", coarse) == {
         "position": ["relative"], "--hit-area-t": [reach], "--hit-area-b": [reach]}
-    assert _declared("button::before, .button::before", coarse) == {"content": ['""']}
+    assert _declared("button::before, .button::before, .touch-reach::before", coarse) == {
+        "content": ['""']}
     assert _declared("input, select", coarse) == {"min-height": ["var(--touch-floor)"]}
     lifted = [(sel, value) for sel, prop, value, _line in declarations(coarse)
               if prop in {"min-height", "height"} and re.search(r"(^|[\s,])\.?button\b", sel)]
@@ -198,3 +230,47 @@ def test_every_read_of_touch_target_is_named_a_reach_or_a_box():
     for where in REACH:
         assert where[2].startswith("--hit-area-"), (
             f"{where} is named a reach but sets {where[2]}, which is not a hit area's inset")
+
+
+def test_a_stack_of_tiny_buttons_stands_two_reaches_apart_on_a_touch_screen():
+    """His ruling on #1457: on a touch screen stacked 26px Buttons stand 18px apart. Each
+    reaches the 44px floor 9px past each edge of its box, so two reaches meet at the midpoint
+    of the gap and do not overlap, which is how Supabase spaces adjacent hit areas
+    (apps/design-system/content/docs/components/table.mdx@86c813ec:197). The gap is the floor
+    less the box, so a change to either is a change to his 18px, and fails here."""
+    assert _token("--touch-stack-gap") == "calc(var(--touch-floor) - var(--control-height-tiny))"
+    floor, box = _token("--touch-floor"), _token("--control-height-tiny")
+    assert (floor, box) == ("2.75rem", "26px"), (
+        f"his ruling is 18px, 44 less 26, and the floor is {floor} and the box {box} now")
+
+
+def test_each_stack_reads_the_gap_in_a_top_level_coarse_block_at_every_width():
+    """The touch sweeps read one width, 360px, and the stacks took each other's taps at other
+    widths too: / at 800, 1024 and 1280px, the panel at 320, 420 and 500px, /exports and /sync
+    at 480px. So each read sits directly in a top-level `(hover: none), (pointer: coarse)`
+    block, with no other rule or at-rule around it. Scoped to a width, a stack keeps
+    gap-x-2's 8px at every other width, and no sweep sees it. With a mouse a stack keeps its
+    own gap. A read is held with every rule around it, so a width query inside the coarse
+    block, or around it, fails as one in its place does."""
+    reads = [((sheet.relative_to(ROOT).as_posix(), rules[-1], prop), rules[:-1], value)
+             for sheet in authored()
+             for rules, prop, value in _rules_around(sheet.read_text(encoding="utf-8"), r"[\w-]+")
+             if "--touch-stack-gap" in value]
+    found = sorted(where for where, _around, _value in reads)
+    assert found == sorted(STACK_GAP), (
+        f"reads of --touch-stack-gap and STACK_GAP disagree.\n"
+        f"  read: {found}\n"
+        f"  named: {sorted(STACK_GAP)}\n"
+        f"Name a new stack with what it holds, or take out one that no longer reads it.")
+    coarse = re.sub(r"\s", "", COARSE)
+    misplaced = {where: around for where, around, _value in reads
+                 if [re.sub(r"\s", "", rule) for rule in around] != [coarse]}
+    assert not misplaced, (
+        f"a stack reads --touch-stack-gap somewhere other than directly in a top-level "
+        f"`{COARSE}` block, so at some width it keeps its own gap: {misplaced}")
+    assert not HALF_THE_GAP - set(STACK_GAP), sorted(HALF_THE_GAP - set(STACK_GAP))
+    other = {where: value for where, _around, value in reads
+             if value != ("calc(var(--touch-stack-gap) / 2)" if where in HALF_THE_GAP
+                          else "var(--touch-stack-gap)")}
+    assert not other, (
+        f"a stack reads something other than the gap itself, or a cell other than half: {other}")
