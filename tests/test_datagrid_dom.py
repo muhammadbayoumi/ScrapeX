@@ -14,6 +14,7 @@ project's theme: what is under test is what the renderer does, not how it looks.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -65,6 +66,9 @@ PAGE = (
 )
 
 MARKUP = "<img src=x onerror=window.__pwned=1>"
+# Inert markup: parsed, it would make one `.probe` element, so a count of them
+# says whether a string was parsed anywhere it lands.
+PROBE = '<b class="probe">x</b>'
 
 
 @pytest.fixture(scope="module")
@@ -202,6 +206,34 @@ def test_a_string_a_formatter_returns_is_text_and_never_markup(page):
     assert page.locator('.dg-cell[data-field="node"] b').inner_text() == "bold"
 
 
+def test_a_title_a_title_formatter_and_the_placeholder_are_text_and_never_markup(page):
+    """Scraped text reaches the header too: the Datasets page titles its records
+    grid with each field's label, which a site's own name can fill. A title, a
+    string a titleFormatter returns, and the placeholder are text."""
+    build(page, f"""{{
+      columns: [{{title: {PROBE!r}, field: "a"}},
+                {{title: "B", field: "b", titleFormatter: () => {PROBE!r}}}],
+      data: [],
+      placeholder: {PROBE!r},
+    }}""")
+    assert page.locator("#mount .probe").count() == 0
+    assert page.locator(header(page, "a")).inner_text() == PROBE
+    assert page.locator(header(page, "b")).inner_text() == PROBE
+    assert page.locator(".dg-placeholder").inner_text() == PROBE
+
+
+def test_a_column_is_found_by_a_field_name_that_carries_selector_characters(page):
+    """A field name is a catalog key or a source's own column, never a selector:
+    a quote, a bracket or a backslash in it must not break the lookup."""
+    field = 'a"] b\\c'
+    build(page, f"""{{columns: [{{title: "Odd", field: {json.dumps(field)}}}], data: [{{}}]}}""")
+    assert page.evaluate(
+        "(f) => grid.getColumn(f).getElement() === document.querySelector('.dg-header .dg-col')",
+        field,
+    )
+    assert page.errors == []
+
+
 def test_a_header_icon_is_a_copied_node_a_made_one_or_nothing(page):
     """Icons arrive as nodes, never as markup: a node is copied into every header,
     a function is called for each, and a string is dropped rather than parsed."""
@@ -223,6 +255,52 @@ def test_a_header_icon_is_a_copied_node_a_made_one_or_nothing(page):
     }""")
     assert page.locator(".dg-header b").count() == 0
     assert page.locator(".dg-header .dg-sort").inner_text() == ""
+
+
+def test_the_options_and_handles_grid_js_relies_on_are_each_honoured(page):
+    """grid.js builds its grid with columnDefaults (a minimum width and a title
+    formatter), hozAlign, cssClass, a height and its own footer, reads every cell
+    through its handle, and opens the offer panel from rowSelectionChanged's
+    rows. Each is part of the renderer's contract, so each is asserted."""
+    page.evaluate("""() => {
+      window.__cells = [];
+      window.__chosen = [];
+      window.__footer = Object.assign(document.createElement("div"),
+                                      {className: "host-footer", textContent: "footer"});
+    }""")
+    build(page, """{
+      columnDefaults: {minWidth: 70, titleFormatter: (cell) => Object.assign(
+        document.createElement("span"), {className: "made-title", textContent: cell.getValue() + "!"})},
+      columns: [
+        {title: "Name", field: "name", cssClass: "host-class", formatter: (cell) => {
+          const element = cell.getElement();
+          window.__cells.push([cell.getValue(), cell.getField(),
+                               element instanceof HTMLElement && element.classList.contains("dg-cell")]);
+          return cell.getValue();
+        }},
+        {title: "Size", field: "size", hozAlign: "right", width: 50},
+      ],
+      data: [{name: "a", size: 1}, {name: "b", size: 2}],
+      height: "200px",
+      footerElement: window.__footer,
+      selectableRows: true,
+    }""")
+    page.evaluate("""() => grid.on("rowSelectionChanged", (data, rows) => window.__chosen.push(
+      [data.map((d) => d.name), rows.map((row) => [row.getData().name, row.isSelected()])]))""")
+
+    assert page.locator(".dg-header .made-title").all_inner_texts() == ["Name!", "Size!"]
+    assert page.evaluate("grid.getColumn('size').getWidth()") == 70, "the default minimum holds"
+    assert "host-class" in page.locator(header(page, "name")).get_attribute("class")
+    assert page.locator('.dg-body .dg-cell[data-field="name"].host-class').count() == 2
+    assert page.locator('.dg-body .dg-cell[data-field="size"].dg-align-right').count() == 2
+    assert page.evaluate("document.getElementById('mount').style.height") == "200px"
+    assert page.evaluate("""() => {
+      const mount = document.getElementById("mount");
+      return mount.lastElementChild === window.__footer && window.__footer.classList.contains("dg-footer");
+    }""")
+    assert page.evaluate("window.__cells") == [["a", "name", True], ["b", "name", True]]
+    page.locator('.dg-body .dg-row[data-index="1"] [data-field="name"]').click()
+    assert page.evaluate("window.__chosen") == [[["b"], [["b", True]]]]
 
 
 def test_a_row_number_counts_the_rows_in_the_order_shown(page):
@@ -260,6 +338,52 @@ def test_wrapped_rows_are_placed_by_their_own_height_and_others_by_one(page):
     rows = placements()
     assert len({round(row["height"]) for row in rows}) == 1, rows
     assert [round(row["top"]) for row in rows] == [round(i * rows[0]["height"]) for i in range(4)]
+
+
+def test_many_wrapped_rows_leave_no_gap_and_no_overlap_between_any_two(page):
+    """Measuring a wrapped row tells the virtualizer a size changed while the body
+    is still being painted. The paint must run again for that, or the rows that
+    come into reach once the first ones measure shorter than their estimate keep
+    the places the estimate gave them. Four rows all fit the first paint; two
+    hundred short ones, each under the estimate, do not."""
+    # Read in the same task as the construction, before any frame can repaint
+    # what the construction left, and again once the page has settled. The
+    # paint is counted too: one that starts inside another is the recursion
+    # the "finish, then run once more" loop exists to prevent.
+    moments = page.evaluate("""async () => {
+      const proto = DataGrid.prototype;
+      const paint = proto._paintBody;
+      let depth = 0, deepest = 0;
+      proto._paintBody = function () {
+        depth += 1; deepest = Math.max(deepest, depth);
+        try { return paint.call(this); } finally { depth -= 1; }
+      };
+      try {
+        const mount = document.getElementById("mount");
+        mount.classList.add("wrap");
+        if (window.grid) window.grid.destroy();
+        window.grid = new DataGrid(mount, {
+          columns: [{title: "Text", field: "t"}],
+          data: Array.from({length: 200}, (_, i) => ({t: "row " + i})),
+        });
+        const placements = () => Array.from(document.querySelectorAll(".dg-body .dg-row"))
+          .sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index))
+          .map((row) => ({index: Number(row.dataset.index),
+                          top: new DOMMatrix(getComputedStyle(row).transform).m42,
+                          height: row.getBoundingClientRect().height}));
+        const atOnce = placements();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {"at once": atOnce, "settled": placements(), deepest};
+      } finally {
+        proto._paintBody = paint;
+      }
+    }""")
+    assert moments.pop("deepest") == 1, "a paint started inside another"
+    for moment, rows in moments.items():
+        assert len(rows) > 12, (moment, rows)
+        assert [row["index"] for row in rows] == list(range(rows[0]["index"], rows[0]["index"] + len(rows)))
+        for above, below in zip(rows, rows[1:]):
+            assert below["top"] == pytest.approx(above["top"] + above["height"], abs=1), (moment, above, below)
 
 
 # ---- sorting ------------------------------------------------------------------
@@ -354,6 +478,16 @@ def test_a_filter_narrows_the_rows_and_says_so_once_per_change(page):
     assert page.evaluate("window.__filtered") == 3
 
 
+def test_like_is_case_blind_on_the_value_side_too(page):
+    """The header search reaches scraped names, and those carry capitals."""
+    build(page, """{columns: [{title: "Name", field: "name"}],
+                    data: [{name: "GAMMA"}, {name: "Beta"}, {name: "alpha"}]}""")
+    page.evaluate("() => grid.setFilter([{field: 'name', type: 'like', value: 'mm'}])")
+    assert column_texts(page, "name") == ["GAMMA"]
+    page.evaluate("() => grid.setFilter([{field: 'name', type: 'like', value: 'ETA'}])")
+    assert column_texts(page, "name") == ["Beta"]
+
+
 def test_a_filter_on_a_column_the_grid_does_not_have_is_dropped(page):
     build(page, NAMES)
     page.evaluate("() => grid.setFilter([{field: 'nobody', test: () => false}, null])")
@@ -434,8 +568,9 @@ def test_pinned_columns_stick_at_their_own_edge_after_those_before_them(page):
       columns: [{title: "A", field: "a", width: 100, frozen: "left"},
                 {title: "B", field: "b", width: 80, frozen: "left"},
                 {title: "C", field: "c", width: 400},
-                {title: "D", field: "d", width: 90, frozen: "right"}],
-      data: [{a: 1, b: 2, c: 3, d: 4}],
+                {title: "D", field: "d", width: 90, frozen: "right"},
+                {title: "E", field: "e", width: 70, frozen: "right"}],
+      data: [{a: 1, b: 2, c: 3, d: 4, e: 5}],
     }""")
     for scope in (".dg-header .dg-col", ".dg-body .dg-cell"):
         place = page.evaluate("""(scope) => Object.fromEntries(
@@ -445,8 +580,10 @@ def test_pinned_columns_stick_at_their_own_edge_after_those_before_them(page):
         assert "dg-pinned-start" in place["a"]["classes"] and place["a"]["start"] == "0px"
         assert "dg-pinned-start" in place["b"]["classes"] and place["b"]["start"] == "100px"
         assert "dg-pinned" not in place["c"]["classes"]
-        assert "dg-pinned-end" in place["d"]["classes"] and place["d"]["end"] == "0px"
-    assert page.evaluate("grid.getColumns().map((c) => c.getField())") == ["a", "b", "c", "d"]
+        # Measured from the end edge: the last column sits on it, the one before after it.
+        assert "dg-pinned-end" in place["e"]["classes"] and place["e"]["end"] == "0px"
+        assert "dg-pinned-end" in place["d"]["classes"] and place["d"]["end"] == "70px"
+    assert page.evaluate("grid.getColumns().map((c) => c.getField())") == ["a", "b", "c", "d", "e"]
 
 
 # ---- selection ----------------------------------------------------------------
@@ -478,6 +615,74 @@ def test_a_row_click_selects_and_a_control_inside_the_row_does_not(page):
     assert page.evaluate("window.__selected") == [["a"], []]
 
 
+def test_a_row_is_found_by_where_it_sits_not_by_a_class_a_cell_carries(page):
+    """A formatter's node may carry any class, `dg-row` included. The row a click
+    lands in is the body's own child that holds it."""
+    build(page, """{
+      columns: [{title: "Name", field: "name", formatter: (cell) => {
+        const span = document.createElement("span");
+        span.className = "dg-row";
+        span.textContent = cell.getValue();
+        return span; }}],
+      data: [{name: "a"}, {name: "b"}],
+      selectableRows: true,
+    }""")
+    page.locator('.dg-body .dg-row[data-index="1"] span.dg-row').click()
+    assert page.evaluate("grid.getSelectedRows().map((r) => r.getData().name)") == ["b"]
+    assert page.errors == []
+
+
+def test_a_row_the_table_cannot_find_is_an_error_that_shows(page):
+    """No silent failures: a drawn row whose id TanStack does not know is a
+    defect, and the click says so instead of doing nothing."""
+    build(page, NAMES.replace("data:", "selectableRows: true, data:"))
+    page.evaluate("""() => {
+      document.querySelector('.dg-body .dg-row[data-index="0"]').dataset.rowId = "nobody";
+    }""")
+    page.locator('.dg-body .dg-row[data-index="0"] [data-field="name"]').click()
+    page.wait_for_timeout(50)
+    assert len(page.errors) == 1, page.errors
+    assert page.evaluate("grid.getSelectedRows().length") == 0
+
+
+def test_a_change_is_drawn_once_so_the_rows_it_drew_stay(page):
+    """A sort, a filter or a click is drawn at once, and the store's word that
+    follows is about the same state. Drawing it again threw away every row and
+    the header just drawn, and measured every row once more."""
+    build(page, NAMES.replace("data:", "selectableRows: true, data:"))
+    kept = page.evaluate("""async () => {
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const drawn = () => [document.querySelector('.dg-body .dg-row[data-index="0"]'),
+                           document.querySelector(".dg-header .dg-col")];
+      const kept = {};
+      document.querySelector('.dg-body .dg-row[data-index="1"] [data-field="name"]').click();
+      let nodes = drawn(); await settle(); kept.click = nodes.map((n) => n.isConnected);
+      grid.setSort("size", "desc");
+      nodes = drawn(); await settle(); kept.sort = nodes.map((n) => n.isConnected);
+      grid.setFilter([{field: "name", test: (d) => d.name !== "gamma"}]);
+      nodes = drawn(); await settle(); kept.filter = nodes.map((n) => n.isConnected);
+      grid.getColumn("size").hide();  // drawn by redraw(), not _afterStateChange()
+      nodes = drawn(); await settle(); kept.hide = nodes.map((n) => n.isConnected);
+      return kept;
+    }""")
+    assert kept == {"click": [True, True], "sort": [True, True], "filter": [True, True],
+                    "hide": [True, True]}
+
+
+def test_a_change_made_another_way_is_still_drawn_and_heard(page):
+    """The store's word is still the net for a change that is not drawn at once:
+    part 3's header filter narrows the rows that way. The table is reached
+    directly here only to make such a change."""
+    build(page, NAMES)
+    page.evaluate("""() => {
+      window.__filtered = 0;
+      grid.on("dataFiltered", () => { window.__filtered += 1; });
+      grid._table.setColumnFilters([{id: "name", value: {test: (d) => d.name === "beta"}}]);
+    }""")
+    page.wait_for_function("window.__filtered === 1")
+    assert column_texts(page, "name") == ["beta"]
+
+
 def test_rows_do_not_select_unless_the_grid_is_selectable(page):
     build(page, NAMES)
     page.locator('.dg-body .dg-row[data-index="0"] [data-field="name"]').click()
@@ -493,13 +698,15 @@ def test_the_select_all_box_selects_every_row_and_shows_a_partial_choice(page):
       data: [{name: "a"}, {name: "b"}, {name: "c"}],
       selectableRows: true,
     }""")
+    box = page.locator(".dg-header .dg-select")
+    assert box.evaluate("(b) => [b.checked, b.indeterminate]") == [False, False], "nothing chosen"
     page.locator(".dg-header .dg-select").check()
     assert page.evaluate("grid.getSelectedRows().length") == 3
     assert page.locator(".dg-body .dg-select:checked").count() == 3
+    assert box.evaluate("(b) => [b.checked, b.indeterminate]") == [True, False], "all chosen"
     page.locator('.dg-body .dg-row[data-index="1"] .dg-select').uncheck()
     assert page.evaluate("grid.getSelectedRows().map((r) => r.getData().name)") == ["a", "c"]
-    box = page.locator(".dg-header .dg-select")
-    assert box.evaluate("(b) => [b.checked, b.indeterminate]") == [False, True]
+    assert box.evaluate("(b) => [b.checked, b.indeterminate]") == [False, True], "some chosen"
 
 
 # ---- events, lifetime, accessibility ------------------------------------------

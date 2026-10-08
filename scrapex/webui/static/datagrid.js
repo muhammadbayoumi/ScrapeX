@@ -178,6 +178,7 @@ export class DataGrid {
     this._rowElements = new Map();
     this._lastSelection = null;
     this._lastFilters = null;
+    this._renderedState = null;
 
     this._prepareColumns();
     this._prepareTable();
@@ -223,6 +224,7 @@ export class DataGrid {
     this._renderHeader();
     this._invalidateRows();
     this._renderBody();
+    this._renderedState = this._table.store.state;
   }
 
   getColumn(field) {
@@ -411,6 +413,7 @@ export class DataGrid {
     this._invalidateRows();
     this._renderHeader();
     this._renderBody();
+    this._renderedState = this._table.store.state;
     this._emitChanges();
   }
 
@@ -420,9 +423,16 @@ export class DataGrid {
     queueMicrotask(() => {
       this._renderQueued = false;
       if (this._destroyed) return;
-      this._invalidateRows();
-      this._renderHeader();
-      this._renderBody();
+      // DRAWN ONCE. _afterStateChange and redraw draw a change at once, so the
+      // store's word that follows is about a state already on screen, and
+      // drawing it again would throw away every row just drawn. The store's
+      // state is a snapshot that is a new object only when something changed.
+      if (this._table.store.state !== this._renderedState) {
+        this._invalidateRows();
+        this._renderHeader();
+        this._renderBody();
+        this._renderedState = this._table.store.state;
+      }
       this._emitChanges();
     });
   }
@@ -839,11 +849,14 @@ export class DataGrid {
   }
 
   _onBodyClick(event) {
-    const rowElement = event.target.closest(".dg-row");
-    if (!rowElement || !this._body.contains(rowElement)) return;
-    let row = null;
-    try { row = this._table.getRow(rowElement.dataset.rowId, true); } catch (err) { return; }
-    if (!row) return;
+    // The row is the body's own child that holds the click. A node a formatter
+    // returns may carry any class, so a class does not find it.
+    let rowElement = event.target;
+    while (rowElement && rowElement.parentElement !== this._body) rowElement = rowElement.parentElement;
+    if (!rowElement) return;
+    // Every row drawn carries its own id, so one TanStack cannot find is a
+    // defect, and its throw is left to be seen.
+    const row = this._table.getRow(rowElement.dataset.rowId, true);
     if (!this.options.selectableRows) return;
     // A link, a button or a box in a cell is its own control, not a row click.
     if (event.target.closest("a, button, input, label, select, textarea")) return;
