@@ -64,9 +64,10 @@ class RobotsCustom:
 
     #: False is today's shipped behaviour: crawl the path and disclose it.
     enforce_disallow: bool = False
-    #: None means "whatever the site asked for". A number overrides it, and
-    #: overriding DOWNWARDS is the one that needs the owner's eyes -- which is
-    #: why `decide` reports it rather than doing it quietly.
+    #: None means "whatever the site asked for". A number is APPLIED AS SET:
+    #: the site's Crawl-delay never raises it (#1413 -- the owner keeps the
+    #: final say). Overriding DOWNWARDS is the one that needs his eyes, so the
+    #: fetcher records a warning naming both numbers when it happens.
     crawl_delay_s: float | None = None
 
 
@@ -209,11 +210,19 @@ class Decision:
 def decide(report: RobotsReport, choice: RobotsChoice, *,
            custom: RobotsCustom | None = None,
            tool_default_obeys: bool = False,
+           honour_site_delay: bool = True,
            url_disallowed: bool = False) -> Decision:
     """Resolve one source's choice against what the site said.
 
     `tool_default_obeys` is the settings value, passed in rather than read:
     this module must stay usable from a test that never touches a database.
+    `honour_site_delay` is the tool-wide `crawl_honour_delay` switch, passed in
+    for the same reason.
+
+    THE DELAY RETURNED IS THE DELAY THE FETCHER APPLIES (#1413). It was not:
+    the fetcher decided the pace on its own, from the tool-wide switch alone,
+    so `GET /robots` could report a delay the crawl never used. Now
+    `HttpFetcher` asks this function, and the two cannot drift apart.
     """
     if choice is RobotsChoice.CUSTOM and custom is None:
         # Refused rather than defaulted, because the obvious default -- the
@@ -228,6 +237,10 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
         return Decision(may_fetch=True, delay_s=None,
                         reason=f"{report.host}: {why} — nothing to obey")
 
+    # THE TOOL-WIDE SWITCH GOVERNS ONLY A SOURCE THAT DEFERS TO THE SITE
+    # WITHOUT HAVING CHOSEN TO OBEY IT. Under `obey` the source's rule wins
+    # (#1413, the owner's ruling): obeying a site means its pace too.
+    site_delay = report.crawl_delay_s if honour_site_delay else None
     if choice is RobotsChoice.OBEY:
         enforce, delay = True, report.crawl_delay_s
         label = "set to obey this site's robots.txt"
@@ -239,10 +252,10 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
         # nothing to catch it. mypy found it; the tests could not, because the
         # impossible case is impossible until somebody makes it possible.
         enforce = custom.enforce_disallow
-        delay = report.crawl_delay_s if custom.crawl_delay_s is None else custom.crawl_delay_s
+        delay = site_delay if custom.crawl_delay_s is None else custom.crawl_delay_s
         label = "a custom rule for this site"
     else:
-        enforce, delay = tool_default_obeys, report.crawl_delay_s
+        enforce, delay = tool_default_obeys, site_delay
         label = ("the tool default, which obeys Disallow" if tool_default_obeys
                  else "the tool default, which discloses Disallow and crawls anyway")
 

@@ -593,6 +593,11 @@ class HttpFetcher:
         one place (Q1). Deliberately NOT inheriting validators, robots cache or
         counters either — those describe the crawl, and this is not the crawl.
         The caller closes it.
+
+        BUT IT DOES INHERIT THE SOURCE'S ROBOTS ANSWER (#1413). It did not: a
+        Zid source set to `obey` stopped obeying the moment a connector asked
+        for a fresh session, because the choice, the custom rule and the tool
+        default all fell back to the constructor's defaults.
         """
         return HttpFetcher(
             user_agent=self._user_agent,
@@ -601,6 +606,9 @@ class HttpFetcher:
             max_attempts=self._max_attempts,
             jitter=self._jitter,
             honour_crawl_delay=self._honour_crawl_delay,
+            robots_choice=self._robots_choice,
+            robots_custom=self._robots_custom,
+            obey_disallow=self._obey_disallow,
         )
 
     def remember_validators(self, state: dict[str, dict[str, str]]) -> None:
@@ -713,6 +721,7 @@ class HttpFetcher:
         if host in self._robots:
             return self._robots[host]
         parser = None
+        unreadable = ""
         try:
             robots_url = f"{urlsplit(url).scheme}://{host}/robots.txt"
             # The plain client, NOT self.get: a robots fetch inside _request
@@ -733,31 +742,125 @@ class HttpFetcher:
                 # lines. RobotFileParser answers questions and cannot be asked
                 # what it read.
                 self._robots_text[host] = answer.text
-        except Exception:
+            elif answer.status_code != 404:
+                # 404 is an ANSWER: the site has no file. Anything else means we
+                # never got to read one (#1413).
+                unreadable = f"HTTP {answer.status_code}"
+        except Exception as exc:
             parser = None
-        self._robots[host] = parser
+            unreadable = f"{type(exc).__name__}: {exc}"
+        if unreadable:
+            # AN UNREADABLE FILE IS TREATED AS NO FILE, AND SAYS SO (#1413, the
+            # owner's ruling). It was cached as "no rules" with nothing written,
+            # so a 503 on robots.txt switched every robots check off in silence
+            # -- under `obey` too. The tool's own rules apply, under every
+            # choice, and the run's log names the status or error that put them
+            # there. One line per host: this branch runs once per host.
+            self.robots_warnings.append(
+                f"{host}: robots.txt could not be read ({unreadable}) — treated "
+                f"as if the site had none; the tool's own rules apply "
+                f"(pace {self._min_interval_s:g}s)")
         if parser is not None:
-            delay = parser.crawl_delay(self._user_agent) or parser.crawl_delay("*")
-            if delay and float(delay) > self._min_interval_s:
-                if self._honour_crawl_delay:
-                    # The site's own asked-for pace WINS over our default.
-                    # Slowing down is never the wrong direction.
-                    self._min_interval_s = float(delay)
-                    self.robots_warnings.append(
-                        f"{host}: robots.txt asks for a {delay}s crawl delay — honoured")
-                else:
-                    # The owner turned it off for this run. Said OUT LOUD and
-                    # with the number, because the whole point of the switch is
-                    # that he knows what he is overriding — and because a run
-                    # that was fast for this reason must be distinguishable
-                    # afterwards from one that was fast because the site asked
-                    # for nothing.
-                    self.robots_warnings.append(
-                        f"{host}: robots.txt asks for a {delay}s crawl delay — "
-                        f"IGNORED at your request; this run paces itself at "
-                        f"{self._min_interval_s}s and may be rate-limited or "
-                        "blocked by the site")
+            self._apply_site_delay(host, url)
+        # CACHED LAST. `_apply_site_delay` raises for a custom choice with no
+        # rule stored; cached first, the next request would find the parser and
+        # skip the delay without a word.
+        self._robots[host] = parser
         return parser
+
+    def _robots_report(self, host: str, url: str) -> RobotsReport:
+        """What this host's robots.txt says for this crawler, read once."""
+        from ..robots import inspect
+
+        report = self._robots_reports.get(host)
+        if report is None:
+            report = inspect(url, self._robots_text.get(host),
+                             user_agent=self._user_agent)
+            self._robots_reports[host] = report
+        return report
+
+    def _robots_decision(self, host: str, url: str, *, url_disallowed: bool):
+        """`decide()` for this fetcher's source -- the ONE place both the pace and
+        the Disallow answer come from, so what `GET /robots` reports and what the
+        crawl does are the same function's answer (#1413)."""
+        from ..robots import RobotsChoice, RobotsCustom, decide
+
+        report = self._robots_report(host, url)
+        custom = None
+        if self._robots_choice == RobotsChoice.CUSTOM and self._robots_custom:
+            custom = RobotsCustom(
+                enforce_disallow=bool(self._robots_custom.get("enforce_disallow")),
+                crawl_delay_s=self._robots_custom.get("crawl_delay_s"))
+        return report, custom, decide(
+            report, RobotsChoice(self._robots_choice), custom=custom,
+            tool_default_obeys=self._obey_disallow,
+            honour_site_delay=self._honour_crawl_delay,
+            url_disallowed=url_disallowed)
+
+    def _apply_site_delay(self, host: str, url: str) -> None:
+        """Act on the Crawl-delay a readable robots.txt asks for, and say which way.
+
+        THE PACE IN FORCE BECOMES THE SLOWER OF ITSELF AND `decide()`'s DELAY,
+        and nothing else moves it -- that is the agreement #1413 asked for. Only a
+        site delay LONGER than the pace already in force needs a sentence: a
+        shorter one changes nothing whoever wins.
+        """
+        from ..robots import RobotsChoice
+
+        # A FILE THAT ASKS FOR NO DELAY ASKS NOTHING HERE. Checked before
+        # `decide()`, which refuses a custom choice with no rule stored: that
+        # refusal belongs to the question the rule answers, and on a site with no
+        # Crawl-delay the only such question is a disallowed path.
+        if not self._robots_report(host, url).crawl_delay_s:
+            return
+        report, custom, verdict = self._robots_decision(host, url, url_disallowed=False)
+        asked = report.crawl_delay_s
+        pace_before = self._min_interval_s
+        if verdict.delay_s and verdict.delay_s > self._min_interval_s:
+            # Slowing down is never the wrong direction.
+            self._min_interval_s = float(verdict.delay_s)
+        if not asked or asked <= pace_before:
+            return
+        if custom is not None and custom.crawl_delay_s is not None:
+            # THE OWNER'S PER-SOURCE WORD IS APPLIED AS SET (#1413). It was only a
+            # floor: the site's delay then raised it, so a custom 2s under a 10s
+            # site ran at 10s while `GET /robots` reported 2s. Said only when
+            # the site asked for MORE, because that is the override he must see.
+            if asked <= float(custom.crawl_delay_s):
+                return
+            self.robots_warnings.append(
+                f"{host}: robots.txt asks for a {asked:g}s crawl delay — your "
+                f"custom rule for this source sets {float(custom.crawl_delay_s):g}s "
+                f"and is applied as set; this run paces itself at "
+                f"{self._min_interval_s:g}s and may be rate-limited or blocked by "
+                "the site")
+            return
+        if verdict.delay_s:
+            # The site's own asked-for pace WON over our default, above.
+            if (not self._honour_crawl_delay
+                    and self._robots_choice == RobotsChoice.OBEY):
+                # THE SOURCE'S RULE WINS (#1413, the owner's ruling). Said
+                # apart from the plain "honoured" line, because the tool-wide
+                # switch reads OFF and this run is slow anyway: without the
+                # reason, that looks like the switch not working.
+                self.robots_warnings.append(
+                    f"{host}: robots.txt asks for a {asked:g}s crawl delay — "
+                    "honoured because this source is set to obey robots.txt, "
+                    "although the tool-wide switch to honour crawl delays is off")
+            else:
+                self.robots_warnings.append(
+                    f"{host}: robots.txt asks for a {asked:g}s crawl delay — honoured")
+            return
+        # The owner turned it off for this run. Said OUT LOUD and with the
+        # number, because the whole point of the switch is that he knows what
+        # he is overriding — and because a run that was fast for this reason
+        # must be distinguishable afterwards from one that was fast because the
+        # site asked for nothing.
+        self.robots_warnings.append(
+            f"{host}: robots.txt asks for a {asked:g}s crawl delay — "
+            f"IGNORED at your request; this run paces itself at "
+            f"{self._min_interval_s}s and may be rate-limited or "
+            "blocked by the site")
 
     def sitemap_urls(self, url: str) -> list[str]:
         """Sitemap addresses the site's own robots.txt advertises, in order.
@@ -788,23 +891,8 @@ class HttpFetcher:
             # writes the sentence that explains whichever happened.
             from urllib.parse import urlsplit
 
-            from ..robots import RobotsChoice, RobotsCustom, decide, inspect
-
             host = urlsplit(url).netloc
-            report = self._robots_reports.get(host)
-            if report is None:
-                report = inspect(url, self._robots_text.get(host),
-                                 user_agent=self._user_agent)
-                self._robots_reports[host] = report
-
-            custom = None
-            if self._robots_choice == RobotsChoice.CUSTOM and self._robots_custom:
-                custom = RobotsCustom(
-                    enforce_disallow=bool(self._robots_custom.get("enforce_disallow")),
-                    crawl_delay_s=self._robots_custom.get("crawl_delay_s"))
-            verdict = decide(report, RobotsChoice(self._robots_choice), custom=custom,
-                             tool_default_obeys=self._obey_disallow,
-                             url_disallowed=True)
+            _, _, verdict = self._robots_decision(host, url, url_disallowed=True)
 
             # ONE line per host: a 400-page crawl must not write 400 of them.
             marker = f"{host}: robots.txt disallows"
@@ -1065,6 +1153,10 @@ def resolve_fetcher(source: SourceEntry,
     # words: "slowing down is never the wrong direction". So a per-source pace
     # can hold a site back and can never push one forward past the owner's
     # setting — including a `crawl_pace_s` typed too small by accident.
+    #
+    # The site's Crawl-delay is NOT one of these opinions when the custom rule
+    # names a delay: that delay is applied as set, and `_apply_site_delay` does
+    # not raise it (#1413).
     paces = [1.0 if interval is None else float(interval)]
     if source.crawl_pace_s:
         paces.append(float(source.crawl_pace_s))

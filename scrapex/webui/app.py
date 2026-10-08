@@ -2350,6 +2350,9 @@ def create_app(
             crawl = crawl_settings(conn)
             agent = resolve_user_agent(entry.user_agent, crawl)
             obeys_by_default = bool(crawl.get("obey_disallow"))
+            # Absent reads as HONOUR, exactly as `resolve_fetcher` reads it: the
+            # delay shown here is the delay the crawl applies (#1413).
+            honours_delay = crawl.get("honour_crawl_delay") is not False
         finally:
             conn.close()
 
@@ -2383,7 +2386,8 @@ def create_app(
         # only case where the three choices differ at all.
         try:
             verdict = decide(report, choice, custom=custom,
-                             tool_default_obeys=obeys_by_default, url_disallowed=True)
+                             tool_default_obeys=obeys_by_default,
+                             honour_site_delay=honours_delay, url_disallowed=True)
             outcome = {"may_fetch": verdict.may_fetch, "delay_s": verdict.delay_s,
                        "reason": verdict.reason}
         except ValueError as exc:
