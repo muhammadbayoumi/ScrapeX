@@ -37,6 +37,8 @@ from .. import (
     datasetjob,
     directories,
     directoryjob,
+    interpreter,
+    lightfile,
     localinbox,
     nativehost,
     pricehistory,
@@ -925,9 +927,9 @@ def create_app(
         """Every listed dataset, in the shape a source listing already speaks.
 
         WHICH DATASETS, AND THE FLAG THAT GATES THEM, are
-        `extract_service.listed_datasets`'s: one list for this listing and the engine's
-        own `/source/{key}` page. This adds what only a listing needs: the freshness and
-        the work waiting.
+        `extract_service.listed_datasets`'s: one list for this listing, the engine's
+        own `/source/{key}` page and the light file (#1199). This adds what only a
+        listing needs: the freshness and the work waiting.
 
         `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
         Wipe and Rename, and every one of those is a price-path action that would
@@ -1146,7 +1148,8 @@ def create_app(
         if len(rows) < 2:
             return rows
         entries = {row["source_key"]: row for row in rows}
-        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule.
+        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule, so
+        # the light file's `folded_into` names the same ones.
         general = general_read_conn()
         try:
             folded_into = extract_service.dataset_folds(general, entries)
@@ -1763,7 +1766,7 @@ def create_app(
 
         The same ownership rule as the HTML page: an offer that is not this
         source's answers 404 without confirming whether the id exists at all.
-        `reports.offer_card` builds it, so a copy (#1199) can store this same body.
+        `reports.offer_card` builds it, so the light file stores this same body.
         """
         conn = read_conn()
         try:
@@ -2088,7 +2091,12 @@ def create_app(
                 # panel only draws it, the split `/api/version` already makes.
                 # It needs no database, so it answers when the database cannot.
                 "sqlite": {"version": sqlite3.sqlite_version,
-                           "wal_reset_bug": dbmod.wal_reset_bug()}}
+                           "wal_reset_bug": dbmod.wal_reset_bug()},
+                # WHICH PYTHON THIS PROCESS RUNS, against the pin (#1321). The
+                # launcher names its interpreter once, so a pin move leaves a
+                # source engine below it; the same split as `sqlite` above, and
+                # it needs no database either.
+                "python": interpreter.report()}
 
     @app.get("/api/version")
     def api_version(extension_version: str | None = None):
@@ -2207,8 +2215,8 @@ def create_app(
         contractor's 22.9 interests are invisible on every screen. This is the read
         half of the filter his ruling asked for.
 
-        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so a copy
-        (#1199) can store this same body.
+        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so the
+        light file stores this same body.
 
         WHOLE AND UNPAGED, because it is 214 nodes. The membership table it counts
         against is 407,384 rows and is scanned once, not once per node.
@@ -3452,8 +3460,8 @@ def create_app(
     #: that decision.
     RECEIVED_PREFIX = "from-drive-"
 
-    #: The panel pack lifted out of the bundle, named so the two files of one
-    #: backup share a stamp and sort together.
+    #: The panel pack lifted out of the bundle, named so the files of one backup
+    #: share a stamp and sort together.
     PANEL_SUFFIX = "-panel.jsonl.gz"
 
     #: How many built bundles stay on disk. NOTHING pruned these before
@@ -3482,7 +3490,7 @@ def create_app(
     #: only add a stale one to clear.
     _bundle_build_lock = threading.Lock()
 
-    #: `%Y%m%d-%H%M%S`, the stamp both files of a backup share.
+    #: `%Y%m%d-%H%M%S`, the stamp every file of a backup shares.
     _BUNDLE_STAMP = re.compile(rf"^{re.escape(BUNDLE_PREFIX)}(\d{{8}}-\d{{6}})")
 
     def _bundle_folder(conn) -> Path:
@@ -3515,7 +3523,7 @@ def create_app(
     def _prune_old_bundles(folder: Path, keep: int = BUNDLE_KEEP) -> None:
         """Keep the newest `keep` backups; delete every file of the older ones.
 
-        BY STAMP RATHER THAN BY MTIME, because the two files of one backup do not
+        BY STAMP RATHER THAN BY MTIME, because the files of one backup do not
         share an mtime: `shutil.copy2` gives the panel pack the timestamp of the
         staged file it was copied from, minutes before the archive beside it is
         closed. Pruning each suffix on its own could therefore keep an archive
@@ -3661,6 +3669,7 @@ def create_app(
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         staging = folder / f"{BUNDLE_PREFIX}{stamp}"
         archive = folder / f"{BUNDLE_PREFIX}{stamp}.zip"
+        light, light_error = None, None
         try:
             report = bundle.build(app.state.db_path, staging)
             if not report.ok:
@@ -3699,6 +3708,17 @@ def create_app(
                 except BaseException:
                     building.unlink(missing_ok=True)
                     raise
+            # THE LIGHT FILE (#1199), written from the copy inside this very zip and
+            # before the staging folder goes, so its parts describe exactly the
+            # warehouse.db the archive carries. It never fails the backup: the zip IS
+            # the backup, so a light file that could not be written is reported in
+            # the reply rather than raised. A table that failed is in its `faults`.
+            try:
+                light = lightfile.write(
+                    staging / "warehouse.db", folder / f"{BUNDLE_PREFIX}{stamp}",
+                    price_sources=app.state.manifest.sources)
+            except (OSError, sqlite3.Error) as error:
+                light_error = f"{type(error).__name__}: {error}"
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         finally:
@@ -3724,6 +3744,9 @@ def create_app(
                 "bytes": panel_pack.stat().st_size,
                 "sha256": bundle.sha256_of(panel_pack),
             } if panel_pack.is_file() else None,
+            # The light file's index, or None and the reason it was not written.
+            "light": light.index if light is not None else None,
+            "light_error": light_error,
         }
 
     @app.get("/api/bundle/archive")

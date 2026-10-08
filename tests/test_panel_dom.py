@@ -6135,6 +6135,112 @@ def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
         "a stopped engine's build stayed on the screen")
 
 
+def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
+        open_panel, tmp_path, monkeypatch):
+    """#1321: which Python the engine runs, beside its SQLite, and when it is behind.
+
+    His engine runs from source through a launcher that names its interpreter once,
+    so a pin move leaves it below `requires-python` and no screen said so. Every
+    payload but the unrecognised one is the engine's own `interpreter.report()`,
+    moved only by the pin it reads, so the panel is never tested against an answer
+    the engine would not give. And the NEGATIVE matters as much: a Python at the
+    pin wears no badge, or the badge becomes furniture.
+    """
+    import platform
+
+    from scrapex import interpreter
+
+    # EACH PIN IS WRITTEN FROM THIS INTERPRETER, never read from the checkout. After a
+    # pin move a machine's interpreter is below the real pin until it is upgraded, and
+    # a correct badge there must not fail the level state.
+    major, minor = sys.version_info[:2]
+
+    def pin_at(text: str):
+        pin = tmp_path / "pin" / text / ".python-version"
+        pin.parent.mkdir(parents=True)
+        pin.write_text(text + "\n", encoding="utf-8")
+        monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+        return pin
+
+    pin_at(f"{major}.{minor}")
+    level = open_panel()
+    level.click("#tab-engines")
+    open_engine(level)
+    assert text_of(level, "#engine-python-value") == platform.python_version()
+    assert level.locator("#engine-python-verdict").is_visible() is False, (
+        "a Python at the pin wore a badge")
+    assert text_of(level, "#engine-python-detail") == ""
+    # WHAT HE SEES, and not only what the DOM holds: `text_of` reads hidden text too.
+    assert text_of(level, "#engine-spec-python .engine-spec-label") == "Python"
+    assert level.locator("#engine-spec-python .engine-spec-label").is_visible() is True
+    assert level.locator("#engine-python-value").is_visible() is True, (
+        "the version he asked to see is not shown")
+
+    # THE PIN MOVES AND THE ENGINE STAYS, which #1267's weekly reminder makes routine.
+    ahead = f"{major}.{minor + 1}"
+    pin = pin_at(ahead)
+    behind = open_panel()
+    behind.click("#tab-engines")
+    open_engine(behind)
+    assert text_of(behind, "#engine-python-value") == platform.python_version()
+    assert behind.locator("#engine-python-verdict").is_visible() is True
+    assert text_of(behind, "#engine-python-verdict") == "Upgrade needed"
+    assert behind.get_attribute("#engine-python-verdict", "class") == "badge off", (
+        "the amber badge is the kit's one 'attend to this'")
+    assert f"ScrapeX needs Python {ahead} or newer." in text_of(
+        behind, "#engine-python-detail"), "the row must say which Python it needs"
+    assert behind.locator("#engine-python-detail").is_visible() is True, (
+        "the sentence that says which Python it needs is not shown")
+    # Three independent facts: a Python behind the pin is not an affected SQLite
+    # and not a stale build.
+    assert behind.locator("#engine-sqlite-verdict").is_visible() is False
+    assert behind.locator("#engine-build-verdict").is_visible() is False
+
+    # A PIN THE ENGINE COULD NOT READ is its own answer: neither a verdict nor a
+    # fault of this panel's.
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin.parent / "missing")
+    unread = open_panel()
+    unread.click("#tab-engines")
+    open_engine(unread)
+    assert text_of(unread, "#engine-python-value") == platform.python_version()
+    assert unread.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(unread, "#engine-python-detail") == (
+        "The engine could not read which Python ScrapeX needs.")
+    # With no badge, the sentence is the only thing that tells this state from one
+    # at the pin.
+    assert unread.locator("#engine-python-detail").is_visible() is True
+
+    # A VERDICT THIS PANEL DOES NOT KNOW — a newer engine's — is not dressed as a
+    # known one.
+    unknown = open_panel(engine_python={"version": "3.16.0", "floor": "3.14",
+                                        "verdict": "partly"})
+    unknown.click("#tab-engines")
+    open_engine(unknown)
+    assert text_of(unknown, "#engine-python-value") == "3.16.0"
+    assert unknown.locator("#engine-python-verdict").is_visible() is False, (
+        "an unrecognised verdict was dressed as a known one")
+    assert "does not recognise" in text_of(unknown, "#engine-python-detail")
+
+    # An engine from before the field is not an engine in trouble.
+    old = open_panel(engine_python=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-python-value") == "Not reported"
+    assert old.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(old, "#engine-python-detail") == ""
+
+    # AN ENGINE THAT STOPS takes its Python with it, as the SQLite row does.
+    behind.evaluate("() => FAIL.push('/api/health')")
+    behind.click("#engine-recheck")
+    behind.wait_for_function(
+        "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
+    behind.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    assert text_of(behind, "#engine-python-value") == "Not reported", (
+        "a stopped engine's Python verdict stayed on the screen")
+    assert behind.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(behind, "#engine-python-detail") == ""
+
+
 def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
     """OP-114. The value column resolved to 0px and the version printed VERTICALLY.
 
@@ -10045,6 +10151,62 @@ HARNESS_BUNDLE = {
     "bundle_format": 1,
     "panel_pack": {"bytes": 256},
 }
+
+
+def _backed_up_with(open_panel, **reply) -> str:
+    """Press Back up on Manage account with this build reply; return what it said."""
+    page = open_panel(
+        signed_in=ACCOUNT,
+        bundle={**HARNESS_BUNDLE, **reply},
+        drive={"folder": "folder-1", "files": [], "pointer": None},
+    )
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+    page.click("#manage-backup")
+    page.wait_for_function(
+        "() => /Backed up/.test("
+        "document.querySelector('#manage-backup-msg').innerText)",
+        timeout=30000)
+    return page.inner_text("#manage-backup-msg").strip()
+
+
+def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
+    """#1199: the light file never fails a backup, so a table it could not write is
+    said where he reads the result, or it is a silent failure."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]})
+
+    assert said.endswith(
+        "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+
+
+def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
+    """Each by its key, a dataset's as well as a price source's, and counted."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"},
+        {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
+         "problem": "LookupError: muqawil_org/contractor_profiles: listed, and its "
+                    "table resolves to nothing"}]})
+
+    assert said.endswith("The offline copy of the Data page left out 2 tables: "
+                         "ELSEWEDYSHOP, contractor_profiles."), said
+
+
+def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):
+    said = _backed_up_with(open_panel, light=None,
+                           light_error="OSError: [Errno 28] No space left on device")
+
+    assert said.endswith("The offline copy of the Data page was not written: "
+                         "OSError: [Errno 28] No space left on device."), said
+
+
+def test_a_whole_offline_copy_adds_nothing_to_the_sentence(open_panel):
+    said = _backed_up_with(open_panel, light={"faults": []}, light_error=None)
+
+    assert "offline copy" not in said, said
 
 
 def test_the_button_takes_a_whole_backup_and_the_list_below_it_updates(open_panel):
