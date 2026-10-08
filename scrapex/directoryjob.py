@@ -239,10 +239,14 @@ def log_politeness(conn: sqlite3.Connection, job_id: int, source_key: str,
 
     THE PRICE PATH'S DISCLOSURE, ON THE DIRECTORY PATH. `fetcher.robots_warnings`
     filled here as it does there -- a Crawl-delay honoured or ignored, a Disallow
-    crawled past, a robots.txt that would not read -- and nothing read it, so a
-    directory run's log carried no robots line at all. INFO, as `jobs.py` and
-    `capture.py` write them: how we behaved toward a site is worth a line, never a
-    warning that suggests the run needs review.
+    crawled past -- and nothing read it, so a directory run's log carried no robots
+    line at all. INFO, as `jobs.py` and `capture.py` write them: how we behaved
+    toward a site is worth a line, never a warning that suggests the run needs
+    review.
+
+    `fetcher.degradations` AT WARNING, as `capture.py` writes them: a robots.txt
+    that could not be read (#1413) -- the run went on without the site's rules --
+    and a request the site made costlier. Neither reached a directory run's log.
 
     AND THE PACE IN FORCE AT THE END, which is the pace actually used: the owner's
     setting, or slower where the site's Crawl-delay raised it. Said only when a
@@ -256,6 +260,9 @@ def log_politeness(conn: sqlite3.Connection, job_id: int, source_key: str,
 
     for note in list(getattr(fetcher, "robots_warnings", []) or []):
         jobs.append_log(conn, job_id, note, source_key=source_key)
+    for warning in list(dict.fromkeys(getattr(fetcher, "degradations", []) or [])):
+        jobs.append_log(conn, job_id, f"warning: {warning}",
+                        level=jobs.LogLevel.WARNING, source_key=source_key)
     pace = getattr(fetcher, "_min_interval_s", None)
     if pace is not None and getattr(fetcher, "requests_count", 0):
         jobs.append_log(

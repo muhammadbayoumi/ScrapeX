@@ -68,7 +68,7 @@ def _no_real_sleeping(monkeypatch):
     monkeypatch.setattr("scrapex.connectors.base.time.sleep", sleep)
 
 
-def _spy(monkeypatch, robots: str = "") -> dict:
+def _spy(monkeypatch, robots: str = "", robots_status: int = 200) -> dict:
     """Let the runner build its fetcher for real, then cut only the wire.
 
     What the real client was built with -- its headers and timeout -- is read BEFORE the
@@ -80,6 +80,8 @@ def _spy(monkeypatch, robots: str = "") -> dict:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url).endswith("/robots.txt"):
+            if robots_status != 200:
+                return httpx.Response(robots_status)
             return httpx.Response(200, text=robots) if robots else httpx.Response(404)
         return httpx.Response(200, text="<html></html>")
 
@@ -271,6 +273,22 @@ def test_robots_lines_reach_the_job_log_once_each_at_info(conn, monkeypatch, run
     assert len(delay) == 1, [line["message"] for line in lines]
     assert len(disallow) == 1, [line["message"] for line in lines]
     assert {line["level"] for line in delay + disallow} == {"info"}
+
+
+@RUNNERS
+def test_an_unreadable_robots_txt_reaches_the_job_log_once_as_a_warning(
+        conn, monkeypatch, run):
+    """A 503 on robots.txt: the run goes on under the tool's own rules (#1413), and
+    the directory run's log says so ONCE, at WARNING, as the price path does."""
+    _spy(monkeypatch, robots_status=503)
+    _visiting(monkeypatch, [f"https://{HOST}/en/a", f"https://{HOST}/en/b"])
+
+    ref = run(conn)
+
+    unreadable = [line for line in _lines(conn, ref)
+                  if "robots.txt could not be read (HTTP 503)" in line["message"]]
+    assert len(unreadable) == 1, [line["message"] for line in _lines(conn, ref)]
+    assert unreadable[0]["level"] == "warning"
 
 
 @RUNNERS
