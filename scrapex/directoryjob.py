@@ -272,6 +272,46 @@ def log_politeness(conn: sqlite3.Connection, job_id: int, source_key: str,
             source_key=source_key)
 
 
+def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
+                       source_key: str, blocked: connectors_base.CrawlBlocked,
+                       resume: str) -> None:
+    """Settle a directory job the SITE stopped as PAUSED, at WARNING, saying why.
+
+    THE PRICE PATH'S RULING ON THE DIRECTORY PATH. A `CrawlBlocked` -- the request
+    breaker (#1448) or an unreachable robots.txt (`RobotsUnreachable`, ES-2) -- is the
+    site saying "not now", and the owner ruled that a pause, never a failure. Both
+    directory runners fell through to `except Exception` and settled it FAILED, and the
+    profile sweep never saw it at all. `resume` is the runner's own sentence for what
+    its Resume skips: each knows its own unit.
+
+    THE ROW OUTRANKS THE EXCEPTION, as it does at every other stop here: a job something
+    else already settled is not re-settled, and a Cancel already pending is honoured as
+    a cancel rather than turned into a pause he would have to cancel again.
+
+    ONE CALLER PER COLLECTOR: the listing crawl below and `profilejob`'s sweep.
+    """
+    from . import jobs
+
+    said = connectors_base.stopped_because(blocked)
+    if not jobs.still_wanted(conn, job_ref):
+        jobs.append_log(conn, job["job_id"],
+                        f"{said} — this job is already settled, so it is left as it is",
+                        level=LogLevel.WARNING, source_key=source_key)
+    elif jobs._control_of(conn, job["job_id"]) == JobControl.CANCEL.value:
+        jobs.append_log(conn, job["job_id"],
+                        f"{said} — a cancel was already pending, so the job is "
+                        "cancelled rather than paused",
+                        level=LogLevel.WARNING, source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+    else:
+        jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
+                     control=JobControl.NONE.value, stage=None,
+                     last_heartbeat_at=utc_now_iso())
+        jobs.append_log(conn, job["job_id"], f"paused: {said}. {resume}",
+                        level=LogLevel.WARNING, source_key=source_key)
+    conn.commit()
+
+
 def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                                  admission=None) -> dict:
     """Execute one directory listing crawl to completion, or to a control boundary.
@@ -786,6 +826,16 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                 source_key=source_key)
         stopped.append(JobStatus.CANCELLED.value)
         conn.commit()
+        return jobs.get_job(conn, job_ref) or job
+    except connectors_base.CrawlBlocked as blocked:
+        # THE SITE'S STOP, AND IT REACHES HERE FROM THE FIRST REQUEST. That request is
+        # `crawl_partition`'s unguarded sizing of the whole partition, so robots.txt --
+        # read before it -- raises its `RobotsUnreachable` straight through. A breaker
+        # tripping INSIDE a cell does not: `pagewalk._get` files it as one failed page.
+        stopped.append(JobStatus.PAUSED.value)
+        pause_for_the_site(
+            conn, job, job_ref, source_key, blocked,
+            f"Resuming under {run_ref} skips the pages already stored")
         return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",

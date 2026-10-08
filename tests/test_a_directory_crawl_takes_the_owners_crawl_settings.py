@@ -281,17 +281,39 @@ def test_robots_lines_reach_the_job_log_once_each_at_info(conn, monkeypatch, run
 @RUNNERS
 def test_an_unreadable_robots_txt_reaches_the_job_log_once_as_a_warning(
         conn, monkeypatch, run):
-    """A 503 on robots.txt: the run goes on under the tool's own rules (#1413), and
-    the directory run's log says so ONCE, at WARNING, as the price path does."""
-    _spy(monkeypatch, robots_status=503)
+    """A 403 on robots.txt: the run goes on under the tool's own rules (#1413), and
+    the directory run's log says so ONCE, at WARNING, as the price path does. This was
+    a 503 until #1585: a 5xx now pauses the run -- the test below."""
+    _spy(monkeypatch, robots_status=403)
     _visiting(monkeypatch, [f"https://{HOST}/en/a", f"https://{HOST}/en/b"])
 
     ref = run(conn)
 
     unreadable = [line for line in _lines(conn, ref)
-                  if "robots.txt could not be read (HTTP 503)" in line["message"]]
+                  if "robots.txt could not be read (HTTP 403)" in line["message"]]
     assert len(unreadable) == 1, [line["message"] for line in _lines(conn, ref)]
     assert unreadable[0]["level"] == "warning"
+    assert jobs.get_job(conn, ref)["status"] == "completed"
+
+
+@RUNNERS
+def test_an_unreachable_robots_txt_pauses_the_directory_run(conn, monkeypatch, run):
+    """A 503 on robots.txt (#1585, ES-2): RFC 9309 §2.3.1.4 is complete disallow, so
+    the run PAUSES with the reason at WARNING, and no page of the site is asked for.
+    `_visiting` stands in for the crawl here; the real collectors are driven in
+    tests/test_an_unreachable_robots_txt_pauses_the_run.py."""
+    built = _spy(monkeypatch, robots_status=503)
+    _visiting(monkeypatch, [f"https://{HOST}/en/a", f"https://{HOST}/en/b"])
+
+    ref = run(conn)
+
+    assert jobs.get_job(conn, ref)["status"] == "paused"
+    assert built["fetcher"].requests_count == 0
+    paused = [line for line in _lines(conn, ref)
+              if "robots.txt could not be reached (HTTP 503)" in line["message"]]
+    assert len(paused) == 1, [line["message"] for line in _lines(conn, ref)]
+    assert paused[0]["level"] == "warning"
+    assert not any("could not be read" in line["message"] for line in _lines(conn, ref))
 
 
 @RUNNERS

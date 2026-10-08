@@ -2336,8 +2336,7 @@ def create_app(
         is true, choosing obey does not make this source polite, it makes it
         collect nothing while reporting success.
         """
-        import httpx
-
+        from ..connectors.base import general_fetcher, resolve_fetcher
         from ..robots import RobotsChoice, RobotsCustom, decide, inspect
 
         try:
@@ -2356,26 +2355,36 @@ def create_app(
         finally:
             conn.close()
 
-        text, unreadable = None, ""
+        # READ THROUGH THE CRAWL'S OWN FETCHER (#1585), so the pause reported here
+        # is the pause the crawl takes. This built its own client -- a 15s timeout
+        # against the crawl's 30s default, no browser headers, no HTTP/2, no
+        # retries -- and a slow or header-sensitive site read one way here and the
+        # other way in the crawl. `read_robots` is the read `_load_robots` makes:
+        # the same timeout, agent, headers, retries and classification.
+        #
+        # A BROWSER SOURCE GETS THE GENERAL FETCHER: `resolve_fetcher` would start
+        # Playwright for it. And the browser transport reads no robots.txt at all, so
+        # for that source the file is SHOWN and nothing is claimed about its crawl:
+        # no pause, no Disallow, no delay -- saying "the crawl pauses" there would be
+        # the disagreement this route exists to remove.
+        #
+        # ONE HOST: `base_url`'s. A source that reads another host too (heidelberg's
+        # API and corporate hosts) has each read by the crawl on first contact, and
+        # `robots_url` below says which one this answer is about.
+        browser = entry.fetcher == Fetcher.BROWSER
+        fetcher = (general_fetcher(crawl, source_user_agent=entry.user_agent)
+                   if browser else resolve_fetcher(entry, crawl))
         try:
-            base = urlsplit(entry.base_url)
-            with httpx.Client(timeout=15.0, follow_redirects=True,
-                              headers={"User-Agent": agent}) as client:
-                answer = client.get(f"{base.scheme}://{base.netloc}/robots.txt")
-            if answer.status_code == 200:
-                text = answer.text
-            elif answer.status_code not in (404, 410):
-                # 404 means there is no file, which is an ANSWER. Anything else
-                # means we did not get to read one, and the two must not look
-                # alike on the screen.
-                unreadable = f"HTTP {answer.status_code}"
-        except Exception as exc:
-            # Any failure to READ robots.txt is reported as a failure to read
-            # it, never as an empty file: "the site asks nothing" and "we could
-            # not find out" lead the owner to opposite choices.
-            unreadable = f"{type(exc).__name__}: {exc}"
+            # PROMPTLY: the panel is waiting, with no timeout of its own. A long
+            # Retry-After is reported instead of waited (`retry_after_s`), and the
+            # retries stop at one timeout's budget (`cut_short`).
+            read = fetcher.read_robots(entry.base_url, answer_promptly=True)
+        finally:
+            fetcher.close()
 
-        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable)
+        report = inspect(entry.base_url, read.text, user_agent=agent,
+                         unreadable=read.unreadable,
+                         unreachable=read.unreachable and not browser)
         choice = RobotsChoice(entry.robots or "default")
         custom = None
         if choice is RobotsChoice.CUSTOM and entry.robots_custom:
@@ -2384,25 +2393,58 @@ def create_app(
                 crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
         # Shown as "what would happen on a disallowed path", because that is the
         # only case where the three choices differ at all.
-        try:
-            verdict = decide(report, choice, custom=custom,
-                             tool_default_obeys=obeys_by_default,
-                             honour_site_delay=honours_delay, url_disallowed=True)
-            outcome = {"may_fetch": verdict.may_fetch, "delay_s": verdict.delay_s,
-                       "reason": verdict.reason}
-        except ValueError as exc:
-            outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        if browser:
+            outcome = {"may_fetch": True, "delay_s": None,
+                       "reason": f"{source_key} is crawled by a real browser, which "
+                                 "reads no robots.txt: no rule of this file, and no "
+                                 "pause, applies to its crawl"}
+        else:
+            try:
+                verdict = decide(report, choice, custom=custom,
+                                 tool_default_obeys=obeys_by_default,
+                                 honour_site_delay=honours_delay, url_disallowed=True)
+                outcome = {"may_fetch": verdict.may_fetch,
+                           "delay_s": verdict.delay_s, "reason": verdict.reason}
+            except ValueError as exc:
+                outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        said = [report.summary()]
+        if read.retry_after_s is not None:
+            said.append(f"The site asked to be retried after {read.retry_after_s:g}s; "
+                        "the crawl waits that long and retries before this answer "
+                        "is final.")
+        if read.cut_short:
+            said.append("This check stopped retrying at its time limit; the crawl "
+                        "keeps retrying before this answer is final.")
+        if browser:
+            said.append(outcome["reason"] + ".")
 
         return {
             "source_key": source_key,
             "host": report.host,
             "found": report.found,
             "unreadable": report.unreadable,
+            # TRUE MEANS THE CRAWL PAUSES on this site (a 5xx or no answer, ES-2);
+            # `on_a_disallowed_path.reason` says so in words.
+            "unreachable": report.unreachable,
+            # WHICH FILE was read: a source whose crawl touches a second host has
+            # that host's robots.txt read by the crawl, not by this route.
+            "robots_url": read.url,
+            # The site asked to be retried after this many seconds -- longer than
+            # this route waits. The crawl waits it and retries before deciding.
+            "retry_after_s": read.retry_after_s,
+            # The retries ran out of this route's time budget before their attempts;
+            # the crawl would have kept going.
+            "cut_short": read.cut_short,
+            # FALSE for a browser source: its crawl reads no robots.txt.
+            "crawl_reads_robots": not browser,
             "names_us": report.names_us,
             "user_agent": agent,
-            "crawl_delay_s": report.crawl_delay_s,
-            "would_block_everything": report.obeying_would_block_everything,
-            "summary": report.summary(),
+            # NULL FOR A BROWSER SOURCE: its crawl applies no Crawl-delay, so a
+            # number here would be a pace the crawl never keeps.
+            "crawl_delay_s": None if browser else report.crawl_delay_s,
+            "would_block_everything": (report.obeying_would_block_everything
+                                       and not browser),
+            "summary": " ".join(said),
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),
@@ -5000,7 +5042,7 @@ def _queued_behind(job: dict, queue: dict | None) -> dict | None:
 #: which it did, and the comment is why this sentence names none.
 PROGRESS_UNITS: dict[str, str] = {
     "organization_enrichment": "organizations",
-    # `profilejob.py:29` -- "progress is counted in PAGES", and `:295` writes
+    # `profilejob.py:29` -- "progress is counted in PAGES", and `:296` writes
     # `progress_total = wanted * 2`, which is one page per locale per contractor.
     profilejob.JOB_KIND: "page(s)",
     # `datasetjob` counts page PAIRS: `approve` collapses the en/ar halves of one page,
