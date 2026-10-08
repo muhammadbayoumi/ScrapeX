@@ -110,6 +110,11 @@ DOCUMENTS = (
     # sends the field to the wrong one. Measured before adding it, so it goes green rather
     # than arriving red: 30 citations, all resolving, none on a blank line.
     ".claude/skills/study-a-source/SKILL.md",
+    # `design-the-experience` JOINS FOR THE SAME REASON, in the commit that puts it in
+    # `CLAUDE.md`'s map: a session builds a screen from what it says. It cites this
+    # repository by path only, and Supabase as `path@86c813ec:line`, which this guard
+    # does not read as a citation here.
+    ".claude/skills/design-the-experience/SKILL.md",
     # THE DESIGN DOCUMENTS JOIN (#409), and at first they change no verdict: measured before
     # adding them, all three hold 0 `path:line` citations into this repository. They join so
     # the first one written is checked the day it lands. What this guard cannot see in them
