@@ -24,12 +24,16 @@ html {
   text-rendering: optimizeLegibility;
 }
 
+/* Supabase's body is `font-normal`, their --font-weight-normal 450, and never
+   synthesises a weight its face does not have (globals.css@86c813ec:35, :62, :64). */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  font-synthesis-weight: none;
   line-height: var(--lh);
 }
 
@@ -380,6 +384,17 @@ a.card:hover {
   background: var(--red-weak);
 }
 
+/* THE BUTTON IS SUPABASE'S AT ITS TINY DEFAULT (Button.tsx@86c813ec:192, #1430):
+   SIZE_VARIANTS.tiny is `text-xs px-2.5 py-1 h-[26px]` (constants.ts@86c813ec:47, :54,
+   :61, :96). text-xs is 0.75rem on a 1rem line, calc(1 / 0.75) (Tailwind 4.2.4
+   theme.css:347-348), and that line is --sp-4. px-2.5 is 2.5 steps of their 0.25rem
+   --spacing, 10px, which this ramp has no rung for, so it is written as Tailwind writes
+   it, 2.5 x --sp-1. 4 + 16 + 4 and the 1px border are the 26px floor exactly.
+   THE FLOOR STAYS A FLOOR. Their h-[26px] can be a fixed height because their label
+   never takes a second line: it is `truncate`d (Button.tsx@86c813ec:266). Here a label
+   wraps where its screen asks (the Engine page's Download states a failure in full), and
+   a fixed 26px would spill that line out of the box; on one line the floor is 26px.
+   Every <button> takes this rule, so a row or a tile drawn as one states its own text. */
 button,
 .button {
   min-height: var(--control-height-tiny);
@@ -388,13 +403,14 @@ button,
   justify-content: center;
   gap: var(--sp-2);
   flex: none;
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-1) calc(var(--sp-1) * 2.5);
   border: 1px solid var(--button-bg);
   border-radius: var(--radius);
   background: var(--button-bg);
   color: var(--button-text);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  line-height: 1.2;
+  line-height: var(--sp-4);
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
@@ -480,45 +496,41 @@ button.link:hover:not(:disabled),
   text-underline-offset: 0.16em;
 }
 
-button.icon-button,
-.button.icon-button {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
-  padding: 0;
+/* AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26, NOT A SQUARE (#1430; his ruling on #1457). Their
+   icon-only Button is the Button with an icon and no label (button-icon.tsx@86c813ec:5), at
+   its tiny default: tiny's px-2.5 py-1 (constants.ts@86c813ec:54), the Button rule's padding
+   above, around the icon, which tiny draws at 14px (`[&_svg]:h-[14px] [&_svg]:w-[14px]`,
+   Button.tsx@86c813ec:127), inside the Button's 1px border (`border`, :25). So 10 + 14 + 10
+   and the border are its 36px width, from that padding, and its height is the 26px floor; it
+   declares no width of its own. 14px is 3.5 steps of their 0.25rem --spacing. */
+button.icon-button .sx-icon,
+.button.icon-button .sx-icon {
+  width: calc(var(--sp-1) * 3.5);
+  height: calc(var(--sp-1) * 3.5);
 }
 
-/* WITH A MOUSE, THE THREE SQUARES ARE ONE SIZE. `compact` and `xs` were the
-   32px notches under a 40px default; Supabase's Button has no size below its
-   tiny default (constants.ts@86c813ec:61), so on a fine pointer all three are
-   that 26px square (#1050), and the width lines below restate `icon-button`'s.
-   ON A TOUCH SCREEN THEY PART. The `(hover: none), (pointer: coarse)` block at
-   the end of this sheet lifts a plain `icon-button` to its 44px floor, a 26x44
-   box until #1051 moves that reach into a hit area. `compact`, through
-   `button.compact`'s min-height, and `xs`, through its own, outrank that block
-   and stay 26px squares, under the 44px coarse-pointer floor: they are for
-   secondary icon controls, and a primary or destructive action uses a plain
-   `icon-button`. That `min-height` is the one line `xs` adds.
-   `padding: 0` keeps `compact`'s padding, which comes later in this sheet, from
-   standing a 20px icon 30px tall in a 26px-wide box. */
-button.icon-button.compact,
-.button.icon-button.compact {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
-  padding: 0;
-}
-
+/* WITH A MOUSE, THE THREE ARE ONE SIZE. `compact` and `xs` were the 32px notches
+   under a 40px default; Supabase's Button has no size below its tiny default
+   (constants.ts@86c813ec:61), so on a fine pointer all three are that 36x26 box,
+   and `compact`'s padding is tiny's too.
+   ON A TOUCH SCREEN TOO, and each of the three reaches 44px tall through its hit
+   area, the `(hover: none), (pointer: coarse)` block at the end of this sheet
+   (#1051). Until then that block drew a plain `icon-button` 26x44, while `compact`
+   and `xs`, whose min-height outranks it, stayed 26px with no more reach than
+   that. That `min-height` is the one line `xs` adds. */
 button.icon-button.xs,
 .button.icon-button.xs {
-  width: var(--control-height-tiny);
-  min-width: var(--control-height-tiny);
   min-height: var(--control-height-tiny);
 }
 
+/* `compact` is SIZE tiny by name, the smallest size Supabase has (constants.ts@86c813ec:47,
+   :54, :61). The plain Button is tiny because that is their default (Button.tsx@86c813ec:192);
+   were the default to move, this would not. */
 button.compact,
 .button.compact {
   min-height: var(--control-height-tiny);
-  padding: var(--sp-1) var(--sp-3);
-  font-size: var(--fs-sm);
+  padding: var(--sp-1) calc(var(--sp-1) * 2.5);
+  font-size: var(--fs-xs);
 }
 
 button.sect {
@@ -541,6 +553,13 @@ button.sect:hover:not(:disabled) {
   text-decoration: none;
 }
 
+/* AN INPUT AND A SELECT ARE SUPABASE'S AT SMALL (input.tsx@86c813ec:31,
+   select.tsx@86c813ec:37-38): `text-base md:text-sm leading-4 px-3 py-2 h-[34px]`
+   (constants.ts@86c813ec:48, :55, :62, :97). Their text-base is 0.9375rem and their
+   text-sm 0.8125rem (apps/studio/styles/globals.css@86c813ec:56-57), so a value is 15px
+   below Tailwind's md, 48rem (theme.css:328), and 13px from it, the @media block below;
+   leading-4 is a 1rem line. 8 + 16 + 8 and the border are the 34px floor (#1430); a <select>
+   and a one-line <input> take it as their height, below. */
 input,
 select,
 textarea {
@@ -551,16 +570,65 @@ textarea {
   border-radius: var(--radius);
   background: var(--control-bg);
   color: var(--text);
-  line-height: 1.35;
+  font-size: var(--fs);
+  line-height: var(--sp-4);
   transition:
     border-color var(--dur-fast),
     background-color var(--dur-fast),
     box-shadow var(--dur-fast);
 }
 
+/* Their Textarea takes the same text and padding with no leading-4
+   (textarea.tsx@86c813ec:12), so its line is the text's own: text-base's 1.5
+   (theme.css:352) below md, and text-sm's calc(1.25 / 0.875) (theme.css:350) from it,
+   written as its value, 1.4286, because tools/value_literals reads a calc() by its
+   operands. */
 textarea {
   min-height: 6rem;
+  line-height: var(--lh);
   resize: vertical;
+}
+
+@media (min-width: 48rem) {
+  input,
+  select,
+  textarea {
+    font-size: var(--fs-sm);
+  }
+
+  textarea {
+    line-height: 1.4286;
+  }
+}
+
+/* A NATIVE <select> TAKES THEIR HEIGHT, AND ITS LINE IS CENTRED IN IT. Chromium lays a
+   menulist out at `line-height: normal` whatever a sheet declares, a 21px line at 15px, so
+   with py-2 on the floor it drew 39px at 15px and 36px at 13px, and with py-2 inside 34px
+   it cut the descenders off. Their SelectTrigger is h-[34px], a fixed height
+   (constants.ts@86c813ec:62), with its one line centred (`items-center`,
+   select.tsx@86c813ec:50): so the height is theirs, and with no block padding Chromium
+   centres the line in it. A list box keeps its rows and its padding. */
+select {
+  height: var(--control-height-small);
+  padding-block: 0;
+}
+
+select[multiple] {
+  height: auto;
+  padding-block: var(--sp-2);
+}
+
+/* A ONE-LINE FIELD TAKES THEIR HEIGHT TOO. Their Input is h-[34px], a fixed height
+   (constants.ts@86c813ec:62), with py-2 and leading-4 inside it (:48, :55), and an <input>
+   never takes a second line. On the floor alone Chromium drew a value only inside leading-4's
+   16px line: at 15px that cut 3 to 3.75px off the marks over and under Arabic letters, the
+   shadda over a doubled lam among them, and 1.5px off an accented capital, where main's 1.35
+   line cut about 1px. At their fixed 34px, with the same py-2 and leading-4, it draws every
+   mark whole (#1457's tests pass, measured). A checkbox or a radio keeps its 1rem box, by its
+   own rule below. Chromium's date and time editor pads its own fields: on the floor alone it
+   stood a time field 37.64px and a date field 36px at 13px, and at 34px neither is cut. */
+input {
+  height: var(--control-height-small);
 }
 
 input:hover:not(:disabled),
@@ -800,6 +868,7 @@ button.chip {
   flex: none;
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
   line-height: inherit;
@@ -897,6 +966,24 @@ code {
   font-size: 0.9em;
 }
 
+/* THEIR MONO CONTEXT (#752). Supabase names it in
+   apps/design-system/styles/globals.css@86c813ec:70-75 -- `code, .code-content, pre,
+   kbd, samp, .font-mono` -- and re-declares --font-weight-normal as 400 inside it
+   (:89). This is that selector, with .tech and .code where they write .font-mono and
+   .code-content. It sets no weight: a bare mono run inherits body's 450, and only a
+   run that asks for the normal weight, var(--fw-regular), draws 400. A rule in
+   another sheet that sets var(--font-mono) is reached by none of it, so it
+   re-declares the token itself; tests/test_the_body_reads_supabases_normal_weight.py
+   names one that does not. */
+code,
+pre,
+kbd,
+samp,
+.tech,
+.code {
+  --fw-regular: var(--fw-regular-mono);
+}
+
 .page-header {
   display: flex;
   align-items: flex-end;
@@ -978,12 +1065,81 @@ code {
   }
 }
 
+/* A HIT AREA IS SUPABASE'S INVISIBLE EXTENSION OF A CONTROL, AND IT LEAVES THE BOX
+   WHERE IT IS (#1051). packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49
+   gives the control `position: relative` and a ::before with `content: ''`,
+   `position: absolute`, top, right, bottom and left at `var(--hit-area-t|r|b|l, 0px)`
+   and `pointer-events: inherit`; `hit-area-N` sets each inset to minus N spacing
+   steps. A tap on the ::before is a tap on its control.
+   THIS RULE IS WHAT A HIT AREA IS, and it draws nothing: a ::before with no `content`
+   is not generated. The two rules after it say where one is drawn. No button here
+   draws a ::before of its own (the palette tile's check is its ::after), and an
+   <input> or a <select> draws none at all, so neither can carry one.
+   `touch-reach` is a Button drawn as another element, a <summary> or an <a>, which
+   neither `button` nor `.button` selects: on a touch screen it reaches as a Button
+   does, and with a mouse it keeps its box, as a Button does. */
+button::before,
+.button::before,
+.touch-reach::before,
+.hit-area-2::before {
+  position: absolute;
+  top: var(--hit-area-t, 0px);
+  right: var(--hit-area-r, 0px);
+  bottom: var(--hit-area-b, 0px);
+  left: var(--hit-area-l, 0px);
+  pointer-events: inherit;
+}
+
+/* hit-area-2: 8px on each side, Supabase's for the compact controls in an action cell
+   (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Two actions
+   side by side keep at least --sp-2 between them, so their reaches meet in the gap and
+   neither covers the other's box. */
+.hit-area-2 {
+  position: relative;
+  --hit-area-t: calc(-1 * var(--sp-2));
+  --hit-area-r: calc(-1 * var(--sp-2));
+  --hit-area-b: calc(-1 * var(--sp-2));
+  --hit-area-l: calc(-1 * var(--sp-2));
+}
+
+.hit-area-2::before {
+  content: "";
+}
+
+/* ON A TOUCH SCREEN A BUTTON STILL REACHES 44PX TALL, THROUGH ITS HIT AREA (#1051).
+   This block lifted `button, .button, input, select` to `min-height: 2.75rem`, which
+   drew a 26px icon button 26x44. That floor, --touch-floor, is the hit area's reach
+   now, centred on the box: each inset is half of what the box lacks of it, and zero
+   once the box has it (`100%` is the box's height, the ::before's containing block).
+   The floor never widened a box, so the reach is not widened either. Supabase's Button
+   is `relative` already (Button.tsx@86c813ec:14).
+   AN <input> OR A <select> KEEPS THE FLOOR ON ITS BOX. It cannot carry a ::before, so
+   moving its reach is a choice between a 34px Input (input.tsx@86c813ec:31) and the
+   44px reach, and that choice is his (#1051). */
 @media (hover: none), (pointer: coarse) {
   button,
   .button,
+  .touch-reach {
+    position: relative;
+    --hit-area-t: min(0px, (100% - var(--touch-floor)) / 2);
+    --hit-area-b: min(0px, (100% - var(--touch-floor)) / 2);
+  }
+
+  button::before,
+  .button::before,
+  .touch-reach::before {
+    content: "";
+  }
+
+  /* Supabase's 8px, or the floor's reach where that is the larger. */
+  .hit-area-2 {
+    --hit-area-t: min(calc(-1 * var(--sp-2)), (100% - var(--touch-floor)) / 2);
+    --hit-area-b: min(calc(-1 * var(--sp-2)), (100% - var(--touch-floor)) / 2);
+  }
+
   input,
   select {
-    min-height: 2.75rem;
+    min-height: var(--touch-floor);
   }
 }
 
@@ -1106,10 +1262,13 @@ code {
   transform: translateX(200%);
 }
 
+/* Light, Dark and Device are one ToggleGroup, and its items are their Toggle at its
+   default size, h-10 (toggle.tsx@86c813ec:20, toggle-group.tsx@86c813ec:11): 2.5rem,
+   which is --sp-7. */
 .appearance-scheme-picker button {
   position: relative;
   z-index: 1;
-  min-height: 2.5rem;
+  min-height: var(--sp-7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1370,11 +1529,12 @@ code {
   background: transparent;
   color: var(--text);
 }
+/* Its padding is the Button's tiny px-2.5: their split's primary is a Button at its
+   default size (button-split-dropdown.tsx@86c813ec:14-20). */
 .split-button-primary {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  padding-inline: var(--sp-4);
   border-start-start-radius: calc(var(--radius) - 1px);
   border-end-start-radius: calc(var(--radius) - 1px);
   font-weight: var(--fw-heavy);
@@ -1533,6 +1693,7 @@ code {
 .split-button-option-tag {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 

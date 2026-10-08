@@ -1165,6 +1165,7 @@
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-xs);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
 }
 .selected-product-image-nav {

@@ -76,6 +76,8 @@ from .sightings import (
     record_absences,
     sighted_ids,
     sighting_frequencies,
+    stored_ids,
+    stored_values,
 )
 from .sites.muqawil import MuqawilPageSource
 from .snapshotbody import decode, label_for
@@ -532,6 +534,25 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
 
     IT SAYS WHY IT DECLINED. A crawl that silently marked nothing would be
     indistinguishable from one that found no departures, and those are opposite facts.
+
+    AND A FIRM WHOSE KEY CHANGED HAS NOT LEFT (#1333), which a proof over keys cannot
+    see: the old key is gone and a new one arrived, and the count closes either way.
+    So before a stored firm is recorded absent it is looked for in this crawl by two
+    other pieces of evidence -- the number it kept (`Directory.registration_field`,
+    Oman's CR number) and a row whose second key is its key, case aside (Oman's
+    activities argument). Found either way it CHANGED KEY: it is named, counted, and
+    neither recorded absent nor marked. Found neither way, the proof stands as before.
+    A firm with no stored number and no echoing row is therefore still marked on its
+    key alone -- the limit of the evidence, not a choice. If the site ever rekeyed every
+    firm, this says "23,600 changed key", not "departed".
+
+    THE KEY IT IS FOUND UNDER MUST BE NEW: one the warehouse has never stored, in any
+    status. His ruling on #1540's review. A firm that left and an established firm that
+    stays can share a CR number, and matching the second would spare the first on every
+    crawl for good. So the guard spares a firm ONCE, on the crawl that first shows its
+    new key; after that key is approved it is stored, the old key no longer matches,
+    and the old record is proved absent and marked like any other -- which is also what
+    retires the duplicate the change of key left behind.
     """
     if outcome.nested:
         say(f"departures not marked: this crawl proves {outcome.scope} only, and a "
@@ -545,14 +566,58 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
             f"delist them because the crawler had a bad afternoon")
         return
 
+    seen = {str(one) for one in outcome.ids}
+    unseen = set(stored_ids(conn, directory.dataset_key,
+                            id_field=directory.identity_field)) - seen
+    # EVERY STATUS, so a key stored and since marked unavailable or retired is not new.
+    known = set(stored_ids(conn, directory.dataset_key,
+                           id_field=directory.identity_field, active_only=False))
+    # SET-BASED, BOTH SIDES READ ONCE -- `stored_ids` on why a `json_extract` per id
+    # is the cost to avoid. Keys are folded to lower case on the second-key side only,
+    # because that is where the site was measured to differ in case.
+    by_registration: dict[str, set[str]] = {}
+    by_second_key: dict[str, set[str]] = {}
+    for row in outcome.identity_evidence:
+        if row.key in known:
+            continue
+        # A BLANK IS NEVER LOOKED UP: `stored_values` returns no blank number to look
+        # one up by, so a blank kept here is unreachable rather than a match.
+        if row.registration:
+            by_registration.setdefault(row.registration.strip(), set()).add(row.key)
+        if row.second_key:
+            by_second_key.setdefault(row.second_key.strip().lower(), set()).add(row.key)
+    registrations = (stored_values(conn, directory.dataset_key,
+                                   id_field=directory.identity_field,
+                                   field=directory.registration_field)
+                     if unseen and directory.registration_field else {})
+    #: old key -> {new key: the evidence that found it there}
+    rekeyed: dict[str, dict[str, str]] = {}
+    for old in sorted(unseen):
+        found: dict[str, list[str]] = {}
+        number = registrations.get(old)
+        for new in by_registration.get(number, ()) if number else ():
+            found.setdefault(new, []).append(str(directory.registration_field))
+        for new in by_second_key.get(old.lower(), ()):
+            found.setdefault(new, []).append("second key")
+        if found:
+            rekeyed[old] = {new: " and ".join(how) for new, how in sorted(found.items())}
+
     proven = record_absences(conn, directory.dataset_key,
-                            seen=outcome.ids, run_ref=run_ref,
+                            seen=seen | set(rekeyed), run_ref=run_ref,
                             id_field=directory.identity_field)
     marking = mark_unavailable(conn, directory.dataset_key,
-                               id_field=directory.identity_field)
+                               id_field=directory.identity_field, spared=rekeyed)
     say(f"the crawl is provably complete, so absence is evidence: "
         f"{proven:,} row(s) proved absent by {run_ref}")
     say(f"  {marking}")
+    if rekeyed:
+        say(f"  {len(rekeyed):,} firm(s) changed key rather than departed -- this crawl "
+            "shows each under a new key, so none is recorded absent:")
+        for old, where in list(rekeyed.items())[:20]:
+            say(f"    changed key: {old} → " + ", ".join(
+                f"{new} (by {how})" for new, how in where.items()))
+        if len(rekeyed) > 20:
+            say(f"    … and {len(rekeyed) - 20:,} more")
 
 
 
@@ -1555,6 +1620,9 @@ def approve(conn, directory: Directory, run_ref: str, *,
     linked = 0
     relinked = 0
     refused: list[tuple[str, str]] = []
+    #: What an APPROVED page warned about -- a row whose record key is in doubt, written
+    #: with its warning (#1333). Not `refused`, which counts whole pages.
+    warned: list[tuple[str, str]] = []
     #: Contractor ids the SITE would not serve, and the ones whose profile page read.
     #: Issue 794. Collected rather than written per page so one statement per direction
     #: settles the ledger, and so a run that changes nothing writes nothing.
@@ -1685,6 +1753,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
             continue
         conn.commit()
         made += 1
+        warned.extend((key, warning) for warning in candidate.warnings)
         kept_newer += int(result.get("kept_newer") or 0)
         if contractor is not None:
             # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
@@ -1741,6 +1810,10 @@ def approve(conn, directory: Directory, run_ref: str, *,
         say(f"  refused {key}: {why}")
     if len(refused) > 20:
         say(f"  … and {len(refused) - 20} more")
+    for key, why in warned[:20]:
+        say(f"  approved {key} with a warning: {why}")
+    if len(warned) > 20:
+        say(f"  … and {len(warned) - 20} more")
     # THE VERDICT IS RECORDED AND NOT ONLY PRINTED -- issue 794. Without this the
     # refusal lived in the job log, which `log_retention_days` prunes after 30 days, and
     # the ids stayed in `missing_profile_ids` for ever: his card said 37 contractors had
