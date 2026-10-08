@@ -111,3 +111,19 @@ test("obeying a site that disallows everything still warns", async () => {
 
   assert.equal(shown.warn, true);
 });
+
+test("a browser source's sentence is said once", async () => {
+  const reason = "BROWSED is crawled by a real browser, which reads no robots.txt: "
+    + "no rule of this file, and no pause, applies to its crawl";
+  const shown = await look({
+    summary: "shop.test: no robots.txt — the site asks for nothing " + reason + ".",
+    unreachable: false,
+    crawl_reads_robots: false,
+    would_block_everything: false,
+    on_a_disallowed_path: {may_fetch: true, delay_s: null, reason},
+  });
+
+  assert.doesNotMatch(shown.text, /On a disallowed path today/);
+  assert.equal(shown.text.match(/reads no robots\.txt/g).length, 1, shown.text);
+  assert.equal(shown.warn, false);
+});

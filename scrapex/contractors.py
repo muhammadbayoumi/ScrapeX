@@ -1033,13 +1033,16 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                 if number % 200 == 0:
                     say(f"  [{number:,}/{len(todo):,}] stored {stored:,}, "
                         f"failed {failed}")
-    except CrawlBlocked:
-        # THE RUN IS CLOSED ON THIS WAY OUT TOO, for `crawl`'s reason (issue 535): a row
-        # left `running` is permanent, since no sweep settles `crawl_run`. PARTIAL, as a
-        # pause closes it: what was stored is kept and a resume skips it. And the record
-        # may not destroy the outcome -- a locked database here must not turn the site's
-        # stop into a failure -- so a failed `close_run` write, the one write this
-        # clause makes, is said and the stop still travels.
+    except BaseException:
+        # THE RUN IS CLOSED ON EVERY WAY OUT, for `crawl`'s reason (issue 535) and with
+        # `crawl`'s clause: a row left `running` is permanent, since no sweep settles
+        # `crawl_run`. The site's stop is the way out this was written for; a worker
+        # that failed for another reason was the one it missed, leaving the row open
+        # and the notes unsaid. PARTIAL, as `crawl` closes it: what was stored is kept
+        # and a resume skips it. And the record may not destroy the outcome -- a
+        # locked database here must not turn the site's stop into a failure -- so a
+        # failed `close_run` write, the one write this clause makes, is said and the
+        # exception still travels.
         for note in notes:
             say(note)
         try:

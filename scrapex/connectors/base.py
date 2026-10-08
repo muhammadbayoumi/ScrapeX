@@ -939,6 +939,7 @@ class HttpFetcher:
                     break
                 if failure is None and answer.status_code not in self.RETRY_STATUSES:
                     break
+                asked: float | None = None
                 if failure is None:
                     asked = self._retry_after_s(answer)
                     if budget_s is not None and asked is not None and asked > budget_s:
@@ -946,7 +947,9 @@ class HttpFetcher:
                         break
                 wait = self._backoff_delay(attempt, answer)
                 if no_time_for(wait):
-                    cut_short = True
+                    # The site's own number, when it named one, is said here too:
+                    # within the budget, past what is left of it.
+                    cut_short, retry_after_s = True, asked
                     break
                 self.retry_count += 1
                 time.sleep(wait)

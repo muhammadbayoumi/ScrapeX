@@ -1509,3 +1509,105 @@ def test_a_host_not_yet_read_still_reads_once_under_the_lock():
         thread.join()
 
     assert asked.count("/robots.txt") == 1, asked
+
+
+# ---- #1588 third review ---------------------------------------------------------
+
+def test_a_wait_that_fits_but_not_with_the_pace_after_it_is_not_started(monkeypatch):
+    """The backoff (2 x a 4s pace = 8s) fits the 10s left; the pace owed after it
+    does not. Starting the wait would start an attempt past the deadline."""
+    _, slept = _clocked_sleeps(monkeypatch)
+    asked: list[int] = []
+
+    def busy(request):
+        asked.append(1)
+        return httpx.Response(503)
+
+    read = _prompt_fetcher(busy, timeout_s=10.0, pace=4.0).read_robots(
+        PAGE, answer_promptly=True)
+
+    assert asked == [1], "a second request went out past the deadline"
+    assert read.cut_short is True and slept == [], (read, slept)
+
+
+def test_a_retry_after_within_the_budget_but_past_the_time_left_is_still_said(
+        monkeypatch):
+    """Retry-After 8 is within a 10s budget; 3s of it are gone to a slow first
+    answer. The read is cut short, and the site's number still reaches the panel."""
+    now, _ = _clocked_sleeps(monkeypatch)
+
+    def slow_busy(request):
+        now[0] += 3.0
+        return httpx.Response(503, headers={"Retry-After": "8"})
+
+    read = _prompt_fetcher(slow_busy, timeout_s=10.0, pace=0.5).read_robots(
+        PAGE, answer_promptly=True)
+
+    assert read.cut_short is True and read.retry_after_s == 8.0, read
+
+
+def test_a_browser_source_is_never_told_obeying_blocks_everything(browser_panel,
+                                                                 monkeypatch):
+    """`Disallow: /` would make `obey` collect nothing -- for a crawl that reads
+    robots.txt. The browser's does not, and its Crawl-delay is not kept either."""
+    _sleeps(monkeypatch)
+    real_client = httpx.Client
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(
+            200, text="User-agent: *\nDisallow: /\nCrawl-delay: 10\n"))
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        shown = browser_panel.get("/api/sources/BROWSED/robots").json()
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+
+    assert shown["found"] is True, shown
+    assert shown["would_block_everything"] is False, shown
+    assert shown["crawl_delay_s"] is None, shown
+    assert shown["on_a_disallowed_path"]["may_fetch"] is True, shown
+
+
+@pytest.mark.parametrize("kind", ["unreachable", "refused"])
+def test_a_host_already_refused_or_paused_answers_without_the_lock(kind):
+    """The fast path covers every cache, not only the readable one: a host whose
+    answer is a pause or a refusal is answered while another host is being read."""
+    import threading
+
+    reading_b = threading.Event()
+    release_b = threading.Event()
+
+    def handler(request):
+        if request.url.host == "b.test":
+            reading_b.set()
+            release_b.wait(10)
+            return httpx.Response(404)
+        if kind == "unreachable":
+            return httpx.Response(503)
+        return httpx.Response(200, text=SLOW_SITE)
+
+    choice = ({} if kind == "unreachable"
+              else {"robots_choice": "custom", "robots_custom": None})
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0, max_attempts=1, **choice)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    expected = RobotsUnreachable if kind == "unreachable" else ValueError
+    with pytest.raises(expected):
+        fetcher.get(PAGE)                                # the answer is cached
+    other = threading.Thread(target=fetcher.get, args=("https://b.test/x",))
+    other.start()
+    assert reading_b.wait(5), "the second host's read never started"
+
+    answered = threading.Event()
+
+    def again():
+        try:
+            fetcher.get(PAGE)
+        except expected:
+            answered.set()
+    threading.Thread(target=again).start()
+    finished = answered.wait(2)
+    release_b.set()
+    other.join(5)
+
+    assert finished, f"a {kind} host waited behind another host's robots read"

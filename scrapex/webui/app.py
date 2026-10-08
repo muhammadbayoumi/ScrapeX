@@ -2439,7 +2439,9 @@ def create_app(
             "crawl_reads_robots": not browser,
             "names_us": report.names_us,
             "user_agent": agent,
-            "crawl_delay_s": report.crawl_delay_s,
+            # NULL FOR A BROWSER SOURCE: its crawl applies no Crawl-delay, so a
+            # number here would be a pace the crawl never keeps.
+            "crawl_delay_s": None if browser else report.crawl_delay_s,
             "would_block_everything": (report.obeying_would_block_everything
                                        and not browser),
             "summary": " ".join(said),

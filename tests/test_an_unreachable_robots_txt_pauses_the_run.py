@@ -501,6 +501,46 @@ def test_a_later_workers_other_failure_does_not_lose_the_sites_stop(conn,
     assert any("a worker failed: OperationalError" in line for line in said), said
 
 
+def test_another_worker_failure_with_no_block_still_closes_the_run(conn,
+                                                                   monkeypatch):
+    """No site's stop at all: a worker's connection will not open. The failure still
+    propagates -- it is not this function's to swallow -- but the run row closes and
+    the pages the other workers stored, and the failure itself, are said."""
+    import sqlite3
+    import threading
+
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    opened: list[int] = []
+    guard = threading.Lock()
+
+    def connect():
+        with guard:
+            opened.append(1)
+            n = len(opened)
+        if n == 2:
+            raise sqlite3.OperationalError("unable to open database file")
+        return dbmod.connect(db_file)
+
+    site = _Site(httpx.Response(404))
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
+    said: list[str] = []
+
+    with contractors.lines_go_to(said.append), \
+            pytest.raises(sqlite3.OperationalError):
+        contractors.details(conn, directoryjob.directories.get(SITE), fetch, fetcher,
+                            "failed-run", ids=("7101", "7102"), workers=2,
+                            connect=connect)
+    fetcher.close()
+
+    assert _runs(conn) == ["partial"], "the run row was left open"
+    assert any("a worker failed: OperationalError" in line for line in said), said
+    on_disk = conn.execute(
+        "SELECT COUNT(*) FROM generic_page_snapshot WHERE crawl_run_ref = 'failed-run'"
+    ).fetchone()[0]
+    assert conn.execute("SELECT rows_seen FROM crawl_run").fetchone()[0] == on_disk
+
+
 def test_one_dead_profile_is_still_one_failed_page(conn, monkeypatch):
     """THE ISOLATION THAT STAYS. A 404 is not the site's stop: filed, said, and the
     sweep carries on to `completed`."""

@@ -1962,8 +1962,10 @@ async function lookAtRobots() {
     // not only a disallowed path, so the summary -- which already says so -- is the
     // whole answer. The disallowed-path line would repeat it under a heading that
     // suggests the other paths are fine.
-    if (!report.unreachable && report.on_a_disallowed_path
-        && report.on_a_disallowed_path.reason) {
+    // NOR FOR A BROWSER SOURCE (`crawl_reads_robots` false): its crawl reads no
+    // robots.txt, the summary already says so, and the line would say it again.
+    if (!report.unreachable && report.crawl_reads_robots !== false
+        && report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
       lines.push("On a disallowed path today: " + report.on_a_disallowed_path.reason);
     }
     box.textContent = lines.join(" ");
