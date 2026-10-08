@@ -83,8 +83,9 @@ def _record_key(contractor_id: str) -> str:
     return _digest(_canonical([contractor_id]))
 
 
-def _stored(conn, *contractors: tuple[str, str], dataset: str = "contractors") -> None:
-    """Records for contractors we hold. Each is `(contractor_id, status)`."""
+def _stored(conn, *contractors: tuple[str, ...], dataset: str = "contractors") -> None:
+    """Records for contractors we hold. Each is `(contractor_id, status)`, or
+    `(contractor_id, status, cr_number)` for a firm that also stored a CR number."""
     if not conn.execute("SELECT COUNT(*) FROM source_site").fetchone()[0]:
         conn.execute(
             "INSERT INTO source_site (source_key, source_name, base_url) "
@@ -105,7 +106,10 @@ def _stored(conn, *contractors: tuple[str, str], dataset: str = "contractors") -
         "(dataset_definition_id, version_number, schema_hash) "
         "VALUES (?,1,?) RETURNING schema_version_id",
         (definition, f"h{definition}")).fetchone()[0]
-    for contractor_id, status in contractors:
+    for contractor_id, status, *cr in contractors:
+        body = {"contractor_id": contractor_id}
+        if cr:
+            body["cr_number"] = cr[0]
         conn.execute(
             "INSERT INTO generic_record "
             "(dataset_definition_id, record_key, schema_version_id, data_json, "
@@ -114,7 +118,7 @@ def _stored(conn, *contractors: tuple[str, str], dataset: str = "contractors") -
             "VALUES (?, ?, ?, ?, 1, 'x', ?, "
             "        '2026-08-20T00:00:00Z','2026-08-20T00:00:00Z', ?)",
             (definition, _record_key(contractor_id), version,
-             json.dumps({"contractor_id": contractor_id}),
+             json.dumps(body),
              f"h{contractor_id}", status))
     conn.commit()
 
@@ -392,7 +396,7 @@ def test_another_dataset_is_not_touched(conn):
 # they return, which is the failure mode `_record_key` above exists to avoid.
 
 def _outcome(*, declared_whole: int, declared_cell: int, ids: tuple[str, ...],
-             nested: bool = False):
+             nested: bool = False, evidence: tuple = ()):
     """A `PartitionOutcome` whose proof state is decided by arithmetic, as production's is."""
     from scrapex.pagesource import Cell
     from scrapex.partitioncrawl import (
@@ -411,7 +415,7 @@ def _outcome(*, declared_whole: int, declared_cell: int, ids: tuple[str, ...],
             size=CellSize(cell=cell, last_page=1, cards_per_page=declared_cell,
                           tail_cards=declared_cell, requests=1),
             attempts=(Attempt(ids=ids, pages_read=1, witnessed=False,
-                              note="", run_ref="r"),)),),
+                              note="", run_ref="r", identity_evidence=evidence),)),),
         whole_at_end=None, parent=cell if nested else WHOLE)
 
 
@@ -504,3 +508,335 @@ def test_declining_says_why_rather_than_saying_nothing(conn, capsys):
     said = capsys.readouterr().out
     assert "departures not marked" in said
     assert "bad afternoon" in said       # the reason, not just the refusal
+
+
+# ---- a firm that changed key has not left (#1333) ------------------------------------
+#
+# HIS RULING: smarter than a percentage. Before a complete crawl records a stored firm
+# absent, it looks for the firm in that crawl by its CR number and by a row whose second
+# key is its key. Found either way, it CHANGED KEY: named, counted, never marked.
+
+def _registered():
+    """Muqawil's directory with a registration field named, so the CR path is live."""
+    import dataclasses
+
+    return dataclasses.replace(_directory(), registration_field="cr_number")
+
+
+def _seen(*rows):
+    from scrapex.pagesource import RowIdentity
+
+    return tuple(RowIdentity(key=key, registration=cr, second_key=second)
+                 for key, cr, second in rows)
+
+
+def _ledger(conn, *ids: str) -> None:
+    """Every id sighted by an EARLIER crawl -- see the end-to-end test on why earlier."""
+    record_sightings(conn, "contractors", list(ids))
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-08-20T09:00:00Z'")
+    conn.commit()
+
+
+def _absent_at(conn, contractor_id: str):
+    return conn.execute(
+        "SELECT last_absent_at FROM dataset_sighting "
+        " WHERE dataset_key = 'contractors' AND external_id = ?",
+        (contractor_id,)).fetchone()[0]
+
+
+def _crawl(conn, directory, ids, evidence):
+    from scrapex.contractors import mark_departures
+
+    mark_departures(conn, directory,
+                    _outcome(declared_whole=len(ids), declared_cell=len(ids),
+                             ids=tuple(ids), evidence=_seen(*evidence)), "r9")
+
+
+def test_a_firm_found_under_a_new_key_by_its_cr_number_is_not_absent(conn, capsys):
+    _stored(conn, ("OLD", "active", "CR-7"), ("KEPT", "active", "CR-1"))
+    _ledger(conn, "OLD", "KEPT")
+
+    _crawl(conn, _registered(), ["KEPT", "NEW"],
+           [("KEPT", "CR-1", "kept"), ("NEW", "CR-7", "new")])
+
+    assert _absent_at(conn, "OLD") is None, "a firm that changed key is not absent"
+    assert _status(conn, "OLD") == "active"
+    said = capsys.readouterr().out
+    assert "1 firm(s) changed key rather than departed" in said, said
+    assert "changed key: OLD → NEW (by cr_number)" in said, said
+    assert "0 row(s) proved absent" in said, said
+
+
+def test_a_firm_found_by_a_rows_second_key_is_not_absent_and_case_is_not_a_difference(
+        conn, capsys):
+    """`nabil` was the key once; the row now printed `ALWASIT` says `nabil` in its
+    activities call -- so it is the same firm. The two copies were measured to differ
+    in case, so neither side's case decides: a stored `NABIL2` is found by `nabil2`,
+    and a stored `nabil` by `Nabil`."""
+    _stored(conn, ("nabil", "active"), ("NABIL2", "active"))
+    _ledger(conn, "nabil", "NABIL2")
+
+    _crawl(conn, _registered(), ["ALWASIT", "OTHER"],
+           [("ALWASIT", None, "Nabil"), ("OTHER", None, "nabil2")])
+
+    assert _absent_at(conn, "nabil") is None and _absent_at(conn, "NABIL2") is None
+    said = capsys.readouterr().out
+    assert "2 firm(s) changed key rather than departed" in said, said
+    assert "changed key: nabil → ALWASIT (by second key)" in said, said
+    assert "changed key: NABIL2 → OTHER (by second key)" in said, said
+
+
+def test_both_pieces_of_evidence_are_named_when_both_find_it(conn, capsys):
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "old")])
+
+    assert "changed key: OLD → NEW (by cr_number and second key)" in (
+        capsys.readouterr().out)
+
+
+def test_a_cr_number_printed_with_spaces_around_it_is_the_same_number(conn, capsys):
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", " CR-7 ", "new")])
+
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW (by cr_number)" in capsys.readouterr().out
+
+
+def test_a_firm_no_evidence_finds_is_marked_absent_as_before(conn, capsys):
+    """The guard is evidence, not leniency: a stored firm whose CR number and key appear
+    nowhere in a complete crawl has left, and is marked exactly as it always was."""
+    _stored(conn, ("GONE", "active", "CR-9"), ("OLD", "active", "CR-7"))
+    _ledger(conn, "GONE", "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+
+    assert _absent_at(conn, "GONE") is not None
+    assert _status(conn, "GONE") == STATE_UNAVAILABLE
+    assert _absent_at(conn, "OLD") is None
+    said = capsys.readouterr().out
+    assert "1 row(s) proved absent" in said and "1 marked unavailable" in said, said
+    assert "GONE →" not in said
+
+
+def test_a_firm_with_no_cr_number_and_no_echoing_row_is_marked_absent(conn, capsys):
+    """THE DOCUMENTED LIMIT. ~2% of Oman firms publish no CR number; one of them whose
+    key changes, on a row whose activities argument changed with it, has no evidence
+    left to find it by, and is marked absent on its key alone -- as before."""
+    _stored(conn, ("NOCR", "active"))
+    _ledger(conn, "NOCR")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", None, "new")])
+
+    assert _absent_at(conn, "NOCR") is not None
+    assert _status(conn, "NOCR") == STATE_UNAVAILABLE
+    assert "changed key" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("stored_cr, seen_cr", [
+    pytest.param("", None, id="blank-stored-none-seen"),
+    pytest.param("", "", id="blank-both"),
+    pytest.param("   ", "   ", id="whitespace-both"),
+    pytest.param(None, None, id="absent-both"),
+])
+def test_blank_cr_numbers_never_match_each_other(conn, capsys, stored_cr, seen_cr):
+    """Two blanks are not one firm. Matched, every firm without a CR number would
+    shelter every other one, and none of them could ever be marked gone."""
+    row = ("BLANK", "active") if stored_cr is None else ("BLANK", "active", stored_cr)
+    _stored(conn, row)
+    _ledger(conn, "BLANK")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", seen_cr, "new")])
+
+    assert _absent_at(conn, "BLANK") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_one_cr_number_under_two_new_keys_keeps_the_firm_and_names_both(conn, capsys):
+    """DECIDED: still not absent. The number the firm kept is still published, which is
+    the evidence asked for; which of the two new keys is the firm is not this function's
+    to guess, so both are named for him to read."""
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW-A", "NEW-B"],
+           [("NEW-A", "CR-7", "new-a"), ("NEW-B", "CR-7", "new-b")])
+
+    assert _absent_at(conn, "OLD") is None
+    assert ("changed key: OLD → NEW-A (by cr_number), NEW-B (by cr_number)"
+            in capsys.readouterr().out)
+
+
+def test_an_established_firm_sharing_the_cr_number_does_not_keep_a_departed_one(
+        conn, capsys):
+    """HIS RULING ON #1540's REVIEW: the key a firm is found under must be NEW. GONE left
+    and STAYS, stored and sighted long before, carries the same CR number. Matching
+    STAYS would spare GONE on this crawl and every one after it."""
+    _stored(conn, ("GONE", "active", "CR-1"), ("STAYS", "active", "CR-1"))
+    _ledger(conn, "GONE", "STAYS")
+
+    _crawl(conn, _registered(), ["STAYS"], [("STAYS", "CR-1", "stays")])
+
+    assert _absent_at(conn, "GONE") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_an_established_firm_echoing_the_key_does_not_keep_a_departed_one(conn, capsys):
+    """The same rule on the second-key evidence."""
+    _stored(conn, ("GONE", "active"), ("ECHO", "active"))
+    _ledger(conn, "GONE", "ECHO")
+
+    _crawl(conn, _registered(), ["ECHO"], [("ECHO", None, "gone")])
+
+    assert _absent_at(conn, "GONE") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_a_key_stored_in_any_status_is_not_new(conn, capsys):
+    """A key the warehouse holds as unavailable or retired is a firm it already knows,
+    not the new key of another."""
+    _stored(conn, ("OLD", "active", "CR-7"), ("BACK", "unavailable", "CR-7"),
+            ("HELD", "retired", "CR-8"), ("OLD2", "active", "CR-8"))
+    _ledger(conn, "OLD", "BACK", "HELD", "OLD2")
+
+    _crawl(conn, _registered(), ["BACK", "HELD"],
+           [("BACK", "CR-7", "back"), ("HELD", "CR-8", "held")])
+
+    assert _absent_at(conn, "OLD") is not None
+    assert _absent_at(conn, "OLD2") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def _add_record(conn, contractor_id: str, cr: str) -> None:
+    """A record approved into the dataset `_stored` already made -- what the approval
+    of the crawl that showed a new key leaves behind."""
+    definition, version = conn.execute(
+        "SELECT dataset_definition_id, schema_version_id FROM generic_record "
+        " LIMIT 1").fetchone()
+    conn.execute(
+        "INSERT INTO generic_record "
+        "(dataset_definition_id, record_key, schema_version_id, data_json, "
+        " source_snapshot_id, source_locator, content_hash, status) "
+        "VALUES (?, ?, ?, ?, 1, 'x', ?, 'active')",
+        (definition, _record_key(contractor_id), version,
+         json.dumps({"contractor_id": contractor_id, "cr_number": cr}),
+         f"h{contractor_id}"))
+    conn.commit()
+
+
+def test_the_guard_spares_once_and_the_next_crawl_retires_the_old_key(conn, capsys):
+    """Spared on the crawl that first shows the new key; once that key is approved it
+    is stored, it is no longer new, and the old record is proved absent and marked --
+    which is what retires the duplicate the change of key left behind."""
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW" in capsys.readouterr().out
+
+    _add_record(conn, "NEW", "CR-7")
+    _ledger(conn, "OLD", "NEW")
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+
+    assert _absent_at(conn, "OLD") is not None
+    assert _status(conn, "OLD") == "unavailable"
+    assert _status(conn, "NEW") == "active"
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_evidence_from_an_earlier_attempt_still_finds_the_firm(conn, capsys):
+    """Rows move between pages while a heavy cell is read more than once, so the row
+    that shows a firm's new key can be read by attempt 1 and missed by attempt 2. The
+    evidence of EVERY attempt is the crawl's evidence; the last one's alone would mark
+    the firm gone."""
+    import dataclasses
+
+    _stored(conn, ("OLD", "active", "CR-7"), ("KEPT", "active", "CR-1"))
+    _ledger(conn, "OLD", "KEPT")
+    outcome = _outcome(declared_whole=2, declared_cell=2, ids=("KEPT", "NEW"),
+                       evidence=_seen(("NEW", "CR-7", "new")))
+    cell = outcome.cells[0]
+    later = dataclasses.replace(cell.attempts[0], run_ref="r-a2", ids=("KEPT", "NEW"),
+                                identity_evidence=_seen(("KEPT", "CR-1", "kept")))
+    outcome = dataclasses.replace(outcome, cells=(dataclasses.replace(
+        cell, attempts=(cell.attempts[0], later)),))
+
+    from scrapex.contractors import mark_departures
+    mark_departures(conn, _registered(), outcome, "r9")
+
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW (by cr_number)" in capsys.readouterr().out
+
+
+def test_a_directory_with_no_registration_field_does_not_match_on_one(conn, capsys):
+    """Generic, not Oman's: muqawil names no registration field, so a CR-shaped value in
+    its evidence is not looked up and the departure stands on the key."""
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _directory(), ["NEW"], [("NEW", "CR-7", "new")])
+
+    assert _directory().registration_field is None
+    assert _absent_at(conn, "OLD") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_a_firm_proved_absent_earlier_and_found_under_a_new_key_is_not_marked(
+        conn, capsys):
+    """`record_absences` skipping it is not enough: a row proved absent by an EARLIER
+    crawl still carries that `last_absent_at`, and `mark_unavailable` would mark it on
+    the strength of it. The crawl that found it under a new key spares it."""
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+    _absence(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+
+    assert _status(conn, "OLD") == "active"
+    assert "changed key: OLD → NEW" in capsys.readouterr().out
+
+
+def test_a_register_that_rekeyed_every_firm_says_so_and_not_that_all_departed(
+        conn, capsys):
+    """The case the owner named: the log reads "N firms changed key", never "departed",
+    and names them -- the first twenty, then how many more."""
+    olds = [f"OLD{n:02}" for n in range(25)]
+    _stored(conn, *((old, "active", f"CR-{old}") for old in olds))
+    _ledger(conn, *olds)
+
+    news = [f"NEW{n:02}" for n in range(25)]
+    _crawl(conn, _registered(), news,
+           [(new, f"CR-{old}", new.lower())
+            for old, new in zip(olds, news, strict=True)])
+
+    said = capsys.readouterr().out
+    assert "25 firm(s) changed key rather than departed" in said, said
+    assert "0 row(s) proved absent" in said and "no status change" in said, said
+    assert said.count("changed key: OLD") == 20 and "… and 5 more" in said, said
+    assert all(_absent_at(conn, old) is None for old in olds)
+
+
+def test_mark_unavailable_never_marks_a_spared_id(conn):
+    _stored(conn, ("1301", "active"), ("1302", "active"))
+    _ledger(conn, "1301", "1302")
+    _absence(conn, "1301")
+    _absence(conn, "1302")
+
+    marking = mark_unavailable(conn, "contractors", spared=["1301"])
+
+    assert marking.marked == (_record_key("1302"),)
+    assert _status(conn, "1301") == "active"
+
+
+def test_the_stored_registration_is_read_in_one_pass_and_never_blank_or_inactive(conn):
+    from scrapex.sightings import stored_values
+
+    _stored(conn, ("A", "active", "CR-1"), ("B", "active", ""), ("C", "active", "  "),
+            ("D", "active"), ("E", "unavailable", "CR-5"))
+
+    assert stored_values(conn, "contractors", id_field="contractor_id",
+                         field="cr_number") == {"A": "CR-1"}

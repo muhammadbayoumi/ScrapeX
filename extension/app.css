@@ -17,8 +17,9 @@
      Input or Select small, 34px. A 48px floor stood here until R-85/OD-09 deleted
      it («احذفها», 2026-09-02), because Supabase's scale has no 48px step.
      `--touch-target` is not a control height: it keeps its explicit reads in this
-     file, where an element is sized for touch on purpose, and #1051 moves that
-     reach into an invisible hit area. */
+     file, where an element is sized for touch on purpose. On a touch screen the
+     Select trigger's 48px is the reach of its invisible hit area (#1051); the other
+     reads still size a box, and which of them become a hit area is his (#1051). */
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
@@ -58,6 +59,18 @@
   .field { display: flex; gap: var(--sp-2); }
   .field input, .field select { flex: 1; }
   .field .sx-select { flex: 1; }
+  /* "TEST SITE" IS SUPABASE'S BUTTON AT SIZE SMALL (his ruling on #1457): SIZE_VARIANTS.small,
+     `text-base md:text-sm leading-4 px-3 py-2 h-[34px]` (constants.ts@86c813ec:48, :55, :62,
+     :97), on the Button's 16px line. So it stands at the 34px of the field beside it by its
+     own size, not because its row stretches it. */
+  #check {
+    min-height: var(--control-height-small);
+    padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs);
+  }
+  @media (min-width: 48rem) {
+    #check { font-size: var(--fs-sm); }
+  }
   .sx-select {
     position: relative;
     width: 100%;
@@ -76,10 +89,11 @@
   }
   .sx-select-trigger {
     width: 100%;
-    min-height: var(--touch-target);
+    height: var(--control-height-small);
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    align-content: center;
     gap: var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
@@ -87,7 +101,14 @@
     border-radius: var(--radius);
     background: var(--control-bg);
     color: var(--text);
+    /* Supabase's SelectTrigger at small takes the Input's text, text-base md:text-sm on
+       a 1rem line (select.tsx@86c813ec:37-38, constants.ts@86c813ec:48); the line is the
+       Button's, so only the size is stated. */
+    font-size: var(--fs);
     text-align: start;
+  }
+  @media (min-width: 48rem) {
+    .sx-select-trigger { font-size: var(--fs-sm); }
   }
   .sx-select-trigger:hover:not(:disabled),
   .sx-select.is-open .sx-select-trigger {
@@ -101,6 +122,28 @@
   }
   .sx-select.is-open .sx-select-trigger .sx-icon {
     transform: rotate(180deg);
+  }
+  /* Its height is SelectTrigger's h-[34px], a height and not a floor, and its value is one
+     line, truncated, as Supabase's `[&>span]:truncate` (select.tsx@86c813ec:53,
+     constants.ts@86c813ec:62). As a floor, the 20px chevron stood it 38px, and the default
+     mode's label, wrapping on a 320px panel with a mouse, 54px (#1051). The row is centred
+     in the box, as their `items-center` line is (select.tsx@86c813ec:50): the chevron is
+     taller than the 16px inside the padding, and a grid sets a row taller than its box at
+     the top, so the value and the chevron sat 2px below the middle. */
+  .sx-select-trigger > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Supabase's SelectTrigger is small, 34px (select.tsx@86c813ec:37-38 at
+     SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:111), on every pointer. --touch-target,
+     48px, was its box until #1051; on a touch screen it is its reach, through its hit
+     area (design/components.css), and with a mouse the box is the reach, as Supabase's. */
+  @media (hover: none), (pointer: coarse) {
+    .sx-select-trigger {
+      --hit-area-t: min(0px, (100% - var(--touch-target)) / 2);
+      --hit-area-b: min(0px, (100% - var(--touch-target)) / 2);
+    }
   }
   .sx-select-list {
     position: absolute;
@@ -213,6 +256,13 @@
   .mb-2 { margin-bottom: var(--sp-2); }
   .my-2 { margin-block: var(--sp-2); }
   .toolbar-spaced { margin-block: var(--sp-2); }
+  /* On a touch screen Run's Select all and Clear stand --touch-stack-gap under the site search
+     and over the site list, so their 44px reach, 9px past each edge of their 26px boxes, takes
+     none of the field's taps and loses none to the list (his ruling on #1457;
+     design/tokens.css says why it is 18px). */
+  @media (hover: none), (pointer: coarse) {
+    #site-search + .toolbar-spaced { margin-block: var(--touch-stack-gap); }
+  }
   #adv-toggle[aria-expanded="true"] .sx-icon { transform: rotate(90deg); }
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
@@ -380,10 +430,12 @@
     background-clip: padding-box;
   }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
-                  color: var(--text); cursor: pointer;
+                  color: var(--text);
                   transition: border-color var(--dur-fast) var(--ease-in-out),
                               background var(--dur-fast) var(--ease-in-out); }
-  .dataset-card:hover {
+  /* Only a card that opens something looks as if it does (`loadDatasets`). */
+  .dataset-card[role="link"] { cursor: pointer; }
+  .dataset-card[role="link"]:hover {
     border-color: var(--accent);
     background: var(--surface-subtle);
   }
@@ -535,14 +587,24 @@
      LOCAL TO THIS CARD, like everything else in this block: `components.css` is
      generated from `design/components.css`, and the Activity log's split button —
      which has a primary half and is not broken — must not move. */
+  /* AN ICON-ONLY BUTTON, 36x26, the profile row's menu Button's box (#1430; his ruling on
+     #1457): tiny's px-2.5 py-1 around its 14px icon, in the Button's 1px border, here
+     transparent as their `text` variant's is (constants.ts@86c813ec:54,
+     Button.tsx@86c813ec:127, :25, :78). The shared trigger's 26px width is the split
+     chevron's, beside a primary half, which #1059 holds. */
   .dataset-card .split-button-trigger {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
+    width: auto;
+    min-width: auto;
     min-height: var(--control-height-tiny);
+    padding: var(--sp-1) calc(var(--sp-1) * 2.5);
     /* The shared rule draws a divider against the primary half. There is none. */
-    border-inline-start: 0;
+    border: 1px solid transparent;
     border-radius: var(--radius-pill);
     color: var(--muted);
+  }
+  .dataset-card .split-button-trigger .sx-icon {
+    width: calc(var(--sp-1) * 3.5);
+    height: calc(var(--sp-1) * 3.5);
   }
   /* One treatment for hover and for open, which is the profile row's behaviour:
      the accent fill it used to take while open is what read as a blue box. */
@@ -661,10 +723,16 @@
   }
   .source-edit-back {
     display: grid;
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     place-items: center;
+  }
+  /* The sticky heading holds this button at its view's scroll edge, which clips a hit
+     area reaching up, so on a touch screen it reaches down the whole of what its box
+     lacks of the 44px floor, as the floor's own box did (#1051). Centred, it kept 35. */
+  @media (hover: none), (pointer: coarse) {
+    .source-edit-back {
+      --hit-area-t: 0px;
+      --hit-area-b: min(0px, 100% - var(--touch-floor));
+    }
   }
   .source-edit-summary {
     display: flex;
@@ -854,7 +922,6 @@
   .engine-maintenance-actions .engine-action {
     width: 100%;
     min-height: var(--control-height-tiny);
-    padding: var(--sp-2) var(--sp-3);
     white-space: normal;
     border-radius: var(--radius-pill);
   }
@@ -912,6 +979,9 @@
   .engine-url-field > .sx-icon { color: var(--muted); }
   .engine-url-field input {
     min-width: 0;
+    /* The group's 34px inside its border, as a height too: a one-line Input takes its 34px
+       as a height (design/components.css, #1430). */
+    height: calc(var(--control-height-small) - 2px);
     min-height: calc(var(--control-height-small) - 2px);
     padding: 0;
     border: 0;
@@ -926,12 +996,18 @@
     outline-offset: var(--focus-ring-offset);
     box-shadow: var(--focus-ring-gap);
   }
+  /* Supabase's InputGroupButton (input-group.tsx@86c813ec:122-147): their Button at
+     variant `text` (:137), whose border is transparent (Button.tsx@86c813ec:78), with its
+     tiny size made h-6 px-2 rounded-md (:125, :130) over tiny's text-xs py-1. h-6 is
+     1.5rem, --sp-5: 4 + 16 + 4 with no border drawn. It sits in the group's inline-end
+     addon, pr-2 with mr-[-0.4rem] for a button (:87). Until #1430 it was a 32px segment
+     of the group with a divider. */
   .engine-url-save {
-    min-height: calc(var(--control-height-small) - 2px);
-    padding: 0 var(--sp-3);
+    min-height: var(--sp-5);
+    margin-inline-end: calc(var(--sp-2) - 0.4rem);
+    padding: var(--sp-1) var(--sp-2);
     border: 0;
-    border-inline-start: 1px solid var(--outline-variant);
-    border-radius: 0;
+    border-radius: var(--radius);
     background: transparent;
     color: var(--accent-ink);
   }
@@ -1085,6 +1161,16 @@
   /* The Add Site panel holds the full settings form. Capping it keeps the other
      choices reachable without scrolling past every field. */
   .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
+  /* "Use this page" is the last thing in its panel, which clips so that it can open, so a hit
+     area reaching down lost its last 4px to the clip and gave the panel 4px to scroll on a
+     touch screen. It reaches up the whole of what its box lacks of the 44px floor instead,
+     Supabase's one-sided hit-area-t (hit-area.css@86c813ec:82-95), into the gap above (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    #cur-use {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
+  }
   .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .source-preview-icon { width: 1.0625rem; height: 1.0625rem; flex: none; margin-top: .125rem; }
   .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
@@ -1784,6 +1870,17 @@
     color: var(--muted);
     font-size: var(--fs-xs);
   }
+  /* Signed in, the legal row sits on the bottom edge of the stage, the page's one scroller, so
+     a hit area reaching down past it made the page scroll by 10px on a touch screen. The row's
+     button reaches up the whole of what its box lacks of the 44px floor instead, Supabase's
+     one-sided hit-area-t (hit-area.css@86c813ec:82-95), over the row's top padding and the
+     page's free space above it, where no control stands (#1051). */
+  @media (hover: none), (pointer: coarse) {
+    .profile-legal button {
+      --hit-area-t: min(0px, 100% - var(--touch-floor));
+      --hit-area-b: 0px;
+    }
+  }
 
   /* ---- the accounts card ------------------------------------------------
      The identity block above is fixed; this is the part that grows with how
@@ -1893,6 +1990,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-medium);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   button.accounts-disclosure:hover:not(:disabled) {
@@ -1922,16 +2022,18 @@
   .account-row {
     position: relative;
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr) var(--control-height-tiny);
+    grid-template-columns: var(--sp-7) minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
   }
+  /* Supabase's Avatar, h-10 w-10 (avatar.tsx@86c813ec:14): 2.5rem, which is --sp-7, and
+     the row's first column is the face. */
   .account-face {
     display: grid;
     place-items: center;
-    width: 2rem;
-    height: 2rem;
+    width: var(--sp-7);
+    height: var(--sp-7);
     border-radius: 50%;
     object-fit: cover;
     background: var(--chip);
@@ -2104,6 +2206,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   button.accounts-action:hover:not(:disabled) {
@@ -2137,7 +2242,7 @@
   .manage-account-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -2145,9 +2250,6 @@
     background: var(--surface);
   }
   button.manage-account-back {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);
     background: transparent;
@@ -2268,6 +2370,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
   }
   button.manage-account-row-button:hover:not(:disabled) {
     border-color: transparent;
@@ -2296,6 +2401,7 @@
   /* Sizes and counts read as data, not prose. */
   .manage-account-figure {
     font-family: var(--font-mono);
+    --fw-regular: var(--fw-regular-mono);
   }
 
   /* The backup card: the same column as the danger card below it, without the
@@ -3277,6 +3383,9 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
     white-space: normal;
   }
@@ -3520,6 +3629,9 @@
     background: transparent;
     color: var(--text);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: the text around it on a 1.2 line, not the tiny Button's. */
+    font-size: inherit;
+    line-height: 1.2;
     text-align: start;
   }
   /* Written as button.engine-row and spelled out in full: the base `button`
@@ -3613,7 +3725,7 @@
   .engine-detail-heading {
     flex: none;
     display: grid;
-    grid-template-columns: var(--control-height-tiny) minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4);
@@ -3621,9 +3733,6 @@
     background: var(--surface);
   }
   button.engine-detail-back {
-    width: var(--control-height-tiny);
-    min-width: var(--control-height-tiny);
-    padding: 0;
     border-color: transparent;
     border-radius: var(--radius-pill);
     background: transparent;
@@ -3855,6 +3964,8 @@
     color: var(--text);
     font-size: var(--fs-sm);
     font-weight: var(--fw-regular);
+    /* A row, not a Button: a 1.2 line, not the tiny Button's. */
+    line-height: 1.2;
     text-align: start;
   }
   button.engine-action-row:hover:not(:disabled) {
@@ -3906,10 +4017,13 @@
     border-top: 1px solid var(--line);
     background: var(--surface);
   }
-  .engine-detail-actions > button {
-    min-height: 40px;
+  /* On a touch screen the two stand --touch-stack-gap apart, so their 44px reaches, 9px past
+     each edge of their 26px boxes, meet between them: Check again's takes none of Download's
+     taps, and neither is cut short (his ruling on #1457; design/tokens.css says why it is
+     18px). */
+  @media (hover: none), (pointer: coarse) {
+    .engine-detail-actions { row-gap: var(--touch-stack-gap); }
   }
-
   /* THE LABEL WRAPS INSIDE ITS OWN BUTTON, which is the rule
      `.engine-action-row > span` already makes for the rows above. `button` sets
      `white-space: nowrap` (components.css), so a label longer than its button

@@ -98,7 +98,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .connectors.base import declare_frontier
-from .pagesource import WHOLE, Cell, PageSource
+from .pagesource import WHOLE, Cell, PageSource, RowIdentity
 from .sightings import record_sightings
 from .snapshotbody import decode
 from .snapshotcrawl import already_stored, crawl_to_snapshots, read_scope
@@ -194,6 +194,10 @@ class PartitionedListing(Protocol):
     def read_ids(self, html: str) -> tuple[str, ...]:
         """Every row id on this page, IN PUBLISHED ORDER and keeping duplicates."""
 
+    def identity_evidence(self, html: str) -> tuple[RowIdentity, ...]:
+        """What each row on this page says about which firm it is, beyond its key.
+        Empty for a site whose rows publish nothing but the key. See `RowIdentity`."""
+
     def in_cell(self, cell: Cell, *, last_page: int) -> PageSource:
         """A `PageSource` naming exactly this cell's pages."""
 
@@ -251,6 +255,9 @@ class Attempt:
     #: `pages_read` and already stored as evidence. Adding them together made
     #: `CellOutcome.requests` report a cost the crawl never paid.
     parse_failures: tuple[tuple[str, str], ...] = ()
+    #: What the rows this read saw say about which firm each is -- the evidence
+    #: `contractors.mark_departures` checks before it calls a firm gone (#1333).
+    identity_evidence: tuple[RowIdentity, ...] = ()
     #: Pages this ref had already stored, so a resume did not store them twice.
     skipped: tuple[str, ...] = ()
     #: Pages whose ids were read back off disk instead of off the wire — a resume
@@ -483,6 +490,12 @@ class PartitionOutcome:
             if self.cells else frozenset()
 
     @property
+    def identity_evidence(self) -> frozenset[RowIdentity]:
+        """Every row's identity evidence, from every cell and attempt, once each."""
+        return frozenset(row for cell in self.cells for attempt in cell.attempts
+                         for row in attempt.identity_evidence)
+
+    @property
     def deficit(self) -> int:
         """`N_whole − |distinct ids|`, the number the owner's question reduces to."""
         return self.whole.declared - len(self.ids)
@@ -594,8 +607,29 @@ class PartitionOutcome:
                 f"({self.whole.declared:,} -> {self.whole_at_end.declared:,}), so a "
                 "cell ending one or two short of its declared count may have lost a "
                 "contractor rather than missed one")
+        lines.extend(self._what_the_reader_refused())
         lines.extend(self.notes)
         return "\n".join(lines)
+
+    def _what_the_reader_refused(self) -> list[str]:
+        """Pages the site served and the reader would not count, named.
+
+        WITHOUT THIS A REFUSAL READ AS THE SITE'S SHORTFALL. #1333: one Oman page was
+        refused on every crawl and the only trace of its fifty firms was `D=50`, which
+        says "the site did not show us fifty", not "we would not read a page". Each
+        attempt re-reads the same pages, so the same refusal is named once.
+        """
+        named = list(dict.fromkeys(entry for cell in self.cells
+                                   for attempt in cell.attempts
+                                   for entry in attempt.parse_failures))
+        if not named:
+            return []
+        lines = [f"{len(named):,} page(s) the reader refused, so none of their rows "
+                 "count:"]
+        lines.extend(f"  {url} — {why}" for url, why in named[:20])
+        if len(named) > 20:
+            lines.append(f"  … and {len(named) - 20:,} more")
+        return lines
 
 
 def size_cell(fetch: Fetch, partition: PartitionedListing, base_url: str,
@@ -671,8 +705,14 @@ class _Unstored:
 
 
 def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
-                   urls: Iterable[str]) -> dict[str, tuple[str, ...]]:
-    """Ids for pages this run had already stored, read back off the evidence.
+                   urls: Iterable[str]
+                   ) -> tuple[dict[str, tuple[str, ...]], list[RowIdentity]]:
+    """Ids for pages this run had already stored, read back off the evidence -- and
+    what their rows say about which firm each is.
+
+    THE IDENTITY EVIDENCE COMES BACK WITH THE IDS. A replayed page is read here and
+    nowhere else, so evidence not collected here is a firm that changed key on a
+    resumed run and is then marked as departed (#1333).
 
     THIS IS WHAT THE SNAPSHOTS ARE FOR, and without it a resumed run reports a
     false deficit. `snapshotcrawl`'s resume SKIPS urls this run already stored —
@@ -686,6 +726,7 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
     this attempt, and the retry that follows is the method working.
     """
     found: dict[str, tuple[str, ...]] = {}
+    evidence: list[RowIdentity] = []
     for url in urls:
         row = conn.execute(
             "SELECT page_snapshot_id, source_url, html_content, html_codec, "
@@ -695,13 +736,16 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
         if row is None:
             continue
         try:
-            found[url] = partition.read_ids(decode(conn, row))
+            html = decode(conn, row)
+            ids, rows = partition.read_ids(html), partition.identity_evidence(html)
+            found[url] = ids
+            evidence.extend(rows)
         except Exception:
             # A page that cannot be decoded or parsed contributes nothing and
             # must not end the crawl. It shows up as a smaller `recovered` set
             # against a larger `skipped` one, which is visible in the report.
             continue
-    return found
+    return found, evidence
 
 
 def witness(fetch: Fetch, partition: PartitionedListing, base_url: str,
@@ -769,13 +813,18 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
               for page in range(1, size.last_page + 1)}
     seen: dict[int, tuple[str, ...]] = {}
     parse_failures: list[tuple[str, str]] = []
+    evidence: list[RowIdentity] = []
 
     def harvesting(url: str) -> str:
         html = fetch(url)
         page = wanted.get(url)
         if page is not None:
             try:
-                seen[page] = partition.read_ids(html)
+                # BOTH READ BEFORE EITHER IS KEPT, so a page whose evidence cannot be
+                # read is a parse failure and not a page counted with none.
+                ids, rows = partition.read_ids(html), partition.identity_evidence(html)
+                seen[page] = ids
+                evidence.extend(rows)
             except Exception as exc:
                 # A PARSE MUST NOT BREAK A FETCH. The walker turns any exception
                 # from `fetch` into a failed page, so letting a parse error
@@ -808,8 +857,9 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
     # declined. Reading both means a change in either module leaves the arithmetic
     # right rather than quietly short by a page.
     left_out = [url for url in wanted if url in stored]
-    recovered = _ids_from_disk(
+    recovered, evidence_on_disk = _ids_from_disk(
         conn, partition, dict.fromkeys(left_out + list(outcome.skipped)))
+    evidence.extend(evidence_on_disk)
     for url, ids in recovered.items():
         if url in wanted:
             seen.setdefault(wanted[url], ids)
@@ -826,6 +876,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         note=note, run_ref=run_ref, snapshots=outcome.snapshots,
         unstored=outcome.unstored, failures=tuple(outcome.report.failures),
         parse_failures=tuple(parse_failures),
+        identity_evidence=tuple(evidence),
         skipped=tuple(left_out) + outcome.skipped,
         recovered=tuple(sorted(recovered)),
         witness_requests=0 if baseline is None else 1)
@@ -861,6 +912,7 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
                else max_attempts)
     union: set[str] = set()
     dry = 0
+    asked = 0
     for number in range(1, allowed + 1):
         attempt = _read_cell(
             conn, partition, base_url, size, fetch=fetch,
@@ -884,9 +936,14 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
         if len(union) == size.declared:
             break
         # AND STOP WHEN THE READS GO DRY, which is the third reason and the one
-        # that was missing. Counted from the SECOND attempt: the first cannot be
-        # dry, since an empty union means everything it read was new.
-        dry = dry + 1 if number > 1 and gained == 0 else 0
+        # that was missing. Counted from the SECOND attempt that asked the site:
+        # the first cannot be dry, since an empty union means everything it read
+        # was new. A REPLAY ASKED NOTHING (#1394) — its pages were stored by the
+        # run being resumed, so it gains zero by construction and leaves the
+        # count where it was. `CellOutcome.went_dry` applies the same rule.
+        if attempt.pages_read > 0:
+            asked += 1
+            dry = dry + 1 if asked > 1 and gained == 0 else 0
         if dry >= dry_attempts:
             break
     # RE-SIZED ONLY WHEN IT MATTERS. One request a cell over 56 cells is 56

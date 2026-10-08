@@ -271,6 +271,53 @@ def test_a_dataset_counts_only_its_active_rows_and_an_empty_one_counts_none(
             if row.get("kind") == "dataset"} == counted
 
 
+def test_a_retired_dataset_is_not_listed_and_its_live_link_folds_nothing(tmp_path):
+    """No writer sets `dataset_definition.valid_to` yet. Listed, a retired dataset
+    would draw a card over a table its resolver (`dataset_schema_fields`) no longer
+    finds. And the first writer may retire the dataset and leave its link live, so the
+    link must then fold nothing: `_dataset_listing` looks every folded child up among
+    the listed rows, and a retired one is not among them."""
+    conn = dbmod.connect(tmp_path / "retired.db")
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn)
+        conn.execute("UPDATE dataset_definition "
+                     "SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+                     "WHERE dataset_key = 'contractor_profiles'")
+        conn.commit()
+        keys = [row["dataset_key"] for row in service.listed_datasets(conn)]
+        folds = service.dataset_folds(conn, keys)
+    finally:
+        conn.close()
+
+    assert keys == ["contractors"]
+    assert folds == {}
+
+
+def test_the_list_reads_its_rows_by_position_whatever_the_row_factory(tmp_path):
+    """Both production connections hand back `sqlite3.Row`, which answers to a name as
+    well as a position, so a read by name would pass every other test in this file. A
+    plain connection hands back tuples, and only a read by position survives one."""
+    path = tmp_path / "plain.db"
+    conn = dbmod.connect(path)
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn)
+        by_row = service.listed_datasets(conn)
+    finally:
+        conn.close()
+    plain = sqlite3.connect(path)
+    try:
+        assert plain.row_factory is None
+        by_tuple = service.listed_datasets(plain)
+    finally:
+        plain.close()
+
+    assert by_tuple == by_row
+    assert sorted(row["dataset_key"] for row in by_row) == [
+        "contractor_profiles", "contractors"]
+
+
 def test_the_list_is_empty_when_the_catalogue_is_switched_off(tmp_path, monkeypatch):
     """The flag gates the advertisement, and this list is it."""
     monkeypatch.setattr(features, "_FEATURES", tuple(
@@ -299,6 +346,55 @@ def test_only_a_confirmed_one_to_one_link_folds_a_card(tmp_path, status, cardina
         _two_datasets_and_a_link(conn, status=status, cardinality=cardinality)
         keys = [row["dataset_key"] for row in service.listed_datasets(conn)]
         assert service.dataset_folds(conn, keys) == folds
+    finally:
+        conn.close()
+
+
+def test_a_retired_link_folds_no_card(tmp_path):
+    """No writer sets `dataset_relationship.valid_to` yet. A retired link no longer
+    holds, and folding on it would hide a card behind it."""
+    conn = dbmod.connect(tmp_path / "unlinked.db")
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn)
+        conn.execute("UPDATE dataset_relationship "
+                     "SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ','now')")
+        conn.commit()
+        keys = [row["dataset_key"] for row in service.listed_datasets(conn)]
+        folds = service.dataset_folds(conn, keys)
+    finally:
+        conn.close()
+
+    # Both ends are listed, so only the link's own `valid_to` can stop the fold.
+    assert sorted(keys) == ["contractor_profiles", "contractors"]
+    assert folds == {}
+
+
+@pytest.mark.parametrize("shape", [list, dict.fromkeys, iter],
+                         ids=["list", "dict", "iterator"])
+def test_the_listed_keys_fold_the_same_from_any_iterable(tmp_path, shape):
+    """`_dataset_listing` passes its rows keyed by dataset and these tests pass a list.
+    `Iterable[str]` promises an iterator too, which can be read only once."""
+    conn = dbmod.connect(tmp_path / "shapes.db")
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn)
+        folds = service.dataset_folds(conn, shape(["contractor_profiles", "contractors"]))
+    finally:
+        conn.close()
+
+    assert folds == {"contractor_profiles": "contractors"}
+
+
+def test_one_key_alone_is_refused_rather_than_split_into_letters(tmp_path):
+    """A `str` is an `Iterable[str]` too: it iterates its characters. One key passed
+    where the listed keys belong folded nothing and said nothing."""
+    conn = dbmod.connect(tmp_path / "one.db")
+    dbmod.migrate(conn)
+    try:
+        _two_datasets_and_a_link(conn)
+        with pytest.raises(TypeError, match="not one key"):
+            service.dataset_folds(conn, "contractors")
     finally:
         conn.close()
 
@@ -332,11 +428,16 @@ def test_a_child_that_is_itself_a_parent_keeps_its_card(tmp_path):
     assert folds == {"contractor_profiles": "contractors"}
 
 
-def test_a_link_to_a_dataset_that_is_not_listed_folds_nothing(tmp_path):
+@pytest.mark.parametrize("listed", [["contractor_profiles"], ["contractors"]],
+                         ids=["parent-unlisted", "child-unlisted"])
+def test_a_link_to_a_dataset_that_is_not_listed_folds_nothing(tmp_path, listed):
+    """Either end. A child folded under a parent that has no card would have none
+    either, and a folded child that has no card is one `_dataset_listing` cannot look
+    up."""
     conn = dbmod.connect(tmp_path / "unlisted.db")
     dbmod.migrate(conn)
     try:
         _two_datasets_and_a_link(conn)
-        assert service.dataset_folds(conn, ["contractor_profiles"]) == {}
+        assert service.dataset_folds(conn, listed) == {}
     finally:
         conn.close()

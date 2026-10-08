@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import normalize
-from ..pagesource import WHOLE, Cell, SliceNotSupported
+from ..pagesource import WHOLE, Cell, RowIdentity, SliceNotSupported
 
 #: Matches `source_site.source_key`, as `directories.Directory.key` requires.
 SITE_KEY = "oman_tenderboard"
@@ -126,6 +126,14 @@ class Firm:
     #: for is not in the public list at all.
     expiry_raw: str | None
     company_type: str | None
+    #: The row's `getProcActivities('...')` argument: the record key a second time, up
+    #: to case, on every row measured but one. `None` if the call carries no quoted
+    #: argument. Kept because it is evidence of WHICH firm a row is -- see `RowIdentity`.
+    activities_key: str | None = None
+    #: WHY THIS ROW'S KEY IS IN DOUBT, or `None` on a row whose two keys agree. Set on
+    #: `ALWASIT`'s row, whose activities argument is `nabil` (#1333): the row is still
+    #: a firm, keyed by its commented key, and the doubt travels with it to the Sheet.
+    key_warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -333,6 +341,12 @@ def read_rows(html: str) -> tuple[Firm, ...]:
     shape is asserted while doing it: exactly one comment per data row, holding exactly one
     cell, and its value equal to the `getProcActivities(...)` argument in the same row.
     Anything else and the assumption behind the uncommenting has stopped being true.
+
+    EXCEPT THE KEYS' AGREEMENT, WHICH IS RECORDED AND NOT REFUSED -- the owner's ruling
+    on #1333. Measured on job 191, 2026-10-03: one row in 23,619 disagrees, `ALWASIT`
+    against `nabil`. Refusing its page cost forty-nine firms on every crawl; refusing
+    the row alone left the register's count unable to close. So every such row is a
+    firm keyed by its COMMENTED key, carrying `key_warning`, however many a page holds.
     """
     firms: list[Firm] = []
     for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
@@ -388,13 +402,19 @@ def read_rows(html: str) -> tuple[Firm, ...]:
         # differed only in case on 2 -- `ZYPHARSPH` printed against `zypharsph` in the
         # call, and `ZZZZZZZ` against `zzzzzzz`. Both are the alphabetic keys; a
         # zero-padded numeric one is unaffected. None differed in any other way, so a
-        # genuine disagreement still raises.
+        # genuine disagreement is still news.
+        #
+        # A DISAGREEMENT BEYOND CASE IS WRITTEN ON THE ROW, NOT RAISED (#1333). The
+        # commented key stays the record key, because it is the one `IDENTITY_FIELD`
+        # names and the one every other row is stored under; which of the two is the
+        # firm's is unknown, and the warning says so where he reads the row.
         echoed = re.search(r"getProcActivities\('([^']*)'\)", row)
-        if echoed is not None and echoed.group(1).lower() != short_name.lower():
-            raise RegisterShapeError(
-                f"the row's commented key {short_name!r} and its activities argument "
-                f"{echoed.group(1)!r} disagree beyond case; one of the two has stopped "
-                "being the record key")
+        activities_key = echoed.group(1) if echoed is not None else None
+        key_warning = None
+        if activities_key is not None and activities_key.lower() != short_name.lower():
+            key_warning = (f"the row's commented key {short_name!r} and its activities "
+                           f"argument {activities_key!r} disagree beyond case; recorded "
+                           "under the commented key")
         # A BLANK FULL NAME IS DATA, NOT A BROKEN PAGE, and refusing it cost 200 firms.
         #
         # This line used to raise. Measured 2026-09-23 over all 942 stored pages of the
@@ -415,10 +435,10 @@ def read_rows(html: str) -> tuple[Firm, ...]:
         # `address`, which this source's extract already stores NULL by measurement.
         #
         # THE OTHER REFUSALS ABOVE STAY, and that is the whole point of separating them:
-        # a first cell that is not an integer, a missing short name, a cell count that
-        # is not eleven, and an activities argument that disagrees with the commented
-        # key are all evidence that this reader's understanding of the page has broken.
-        # A field the site leaves blank for one class of registrant is not.
+        # a first cell that is not an integer, a missing short name and a cell count
+        # that is not eleven are all evidence that this reader's understanding of the
+        # page has broken. A field the site leaves blank for one class of registrant is
+        # not, and neither -- since #1333 -- is one row whose two keys disagree.
         firms.append(Firm(
             short_name=short_name,
             name=cells[2] or None,
@@ -429,6 +449,8 @@ def read_rows(html: str) -> tuple[Firm, ...]:
             category_raw=cells[7],
             expiry_raw=cells[8] or None,
             company_type=cells[9] or None,
+            activities_key=activities_key,
+            key_warning=key_warning,
         ))
     return tuple(firms)
 
@@ -537,6 +559,10 @@ def read_ids(html: str) -> tuple[str, ...]:
     arithmetic counts what the page published, and de-duplicating here would hide a
     register that repeated a firm rather than report it. Measured over 102 rows there were
     none, which is a reason to watch for one rather than to assume it away.
+
+    A ROW WHOSE TWO KEYS DISAGREE IS AN ID HERE, under its commented key (#1333). Left
+    out, the cell's count could never reach what the page publishes, and every crawl
+    paid two extra full reads trying.
     """
     return tuple(firm.short_name for firm in read_rows(html))
 
@@ -626,6 +652,12 @@ class OmanPartition:
 
     def read_ids(self, html: str) -> tuple[str, ...]:
         return read_ids(html)
+
+    def identity_evidence(self, html: str) -> tuple[RowIdentity, ...]:
+        """Each row's key, CR number and activities argument, in published order."""
+        return tuple(RowIdentity(key=firm.short_name, registration=firm.cr_number,
+                                 second_key=firm.activities_key)
+                     for firm in read_rows(html))
 
     def in_cell(self, cell: Cell, *, last_page: int) -> OmanPageSource:
         return OmanPageSource(last_page=last_page, locales=self.locales, cell=cell)

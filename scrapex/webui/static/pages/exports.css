@@ -10,6 +10,11 @@
   line-height:var(--lh-relaxed)}
 .exports-hero-actions{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;
   margin-top:var(--sp-5)}
+/* On a touch screen the two stand --touch-stack-gap apart when they wrap, so their 44px
+   reaches, 9px past each edge of their 26px boxes, meet between them: the lower one takes
+   none of the upper one's taps, and neither is cut short (his ruling on #1457;
+   design/tokens.css says why it is 18px). */
+@media(hover:none),(pointer:coarse){.exports-hero-actions{row-gap:var(--touch-stack-gap)}}
 .exports-action-output{display:block;min-height:1.2rem;margin-top:var(--sp-2)}
 .exports-hero-summary{display:flex;min-width:0;flex-direction:column;gap:var(--sp-2)}
 .exports-summary-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
@@ -40,7 +45,7 @@
   align-items:start;gap:var(--sp-4);padding-bottom:var(--sp-5);border-bottom:1px solid var(--line)}
 .exports-step-number{display:grid;width:2.35rem;height:2.35rem;place-items:center;
   border:1px solid color-mix(in srgb,var(--accent) 42%,var(--line));border-radius:50%;
-  background:var(--accent-weak);color:var(--accent-ink);font-family:var(--font-mono);
+  background:var(--accent-weak);color:var(--accent-ink);font-family:var(--font-mono);--fw-regular:var(--fw-regular-mono);
   font-size:var(--fs-sm);font-weight:var(--fw-bold)}
 .exports-step-kicker{display:block;margin-bottom:var(--sp-1);color:var(--muted);
   font-size:var(--fs-xs);font-weight:var(--fw-medium);letter-spacing:.06em;text-transform:uppercase}
@@ -104,7 +109,7 @@
 .exports-input-suffix input:focus{outline:0;box-shadow:none}
 .exports-input-suffix span{align-self:stretch;display:grid;place-items:center;
   padding-inline:var(--sp-3);border-inline-start:1px solid var(--line);background:var(--chip);
-  color:var(--muted);font-family:var(--font-mono);font-size:var(--fs-xs)}
+  color:var(--muted);font-family:var(--font-mono);--fw-regular:var(--fw-regular-mono);font-size:var(--fs-xs)}
 .exports-settings-actions{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
 .exports-sidebar{position:sticky;top:calc(var(--sticky-tabs) + var(--sp-4));display:flex;
   min-width:0;flex-direction:column;gap:var(--sp-4)}

@@ -6,9 +6,11 @@ import json as _json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.connectors.magento import MagentoGraphqlConnector
+from scrapex.connectors.magento import GraphqlRefused, MagentoGraphqlConnector
 from scrapex.ingest import ingest_payloads
 from scrapex.rowspec import PRODUCT_PRICES, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
@@ -1018,3 +1020,79 @@ def test_a_store_that_declines_to_name_an_attribute_is_reported():
     assert len(notes) == 1
     assert "voltage" in notes[0] and "wattage" in notes[0]
     assert "manufacturer" not in notes[0], "a code that WAS named must not be reported"
+
+
+# --- a GraphQL `errors` answer is a refusal, not the end of the catalogue (#1261) ----
+
+#: What `www.ahmedelsallab.com` answered the connector's own `_QUERY`, verbatim, with
+#: HTTP 200 (#1260, request 13).
+_REFUSAL = {"errors": [{
+    "message": 'Cannot query field "is_qty_decimal" on type "SimpleProduct".',
+    "extensions": {"category": "graphql"}}]}
+
+
+class _RefusingFetcher(_StubFetcher):
+    """The fixture on every page before `refuse_on`, then a 200 carrying `errors`."""
+
+    def __init__(self, refuse_on: int, answer: dict = _REFUSAL):
+        super().__init__()
+        self.refuse_on, self.answer = refuse_on, answer
+
+    def post(self, url, json=None, **kwargs):
+        query = (json or {}).get("query", "")
+        page = (json or {}).get("variables", {}).get("currentPage", 1)
+        if ("categoryList" not in query and not (kwargs.get("headers") or {}).get("Store")
+                and page >= self.refuse_on):
+            self.requests_count += 1
+            return _StubResponse(self.answer)
+        if "categoryList" in query or (kwargs.get("headers") or {}).get("Store"):
+            return super().post(url, json=json, **kwargs)
+        # THREE PAGES DECLARED, so a refusal on page 2 lands inside the catalogue and
+        # not after its last page, where stopping would be right.
+        self.requests_count += 1
+        return _StubResponse({"data": {"products": {
+            "items": FIXTURE["data"]["products"]["items"],
+            "page_info": {"current_page": page, "total_pages": 3}}}})
+
+
+def test_an_errors_answer_on_page_one_fails_the_run_with_the_stores_words():
+    """It used to end the loop with no rows: the volume canary said "zero rows" and
+    the store's reason -- the exact field it does not have -- was thrown away."""
+    with pytest.raises(GraphqlRefused) as refused:
+        list(MagentoGraphqlConnector(_RefusingFetcher(refuse_on=1)).fetch(make_entry()))
+
+    said = str(refused.value)
+    assert 'Cannot query field "is_qty_decimal"' in said, said
+    assert "page 1" in said and "zero rows" in said, said
+
+
+def test_an_errors_answer_on_a_later_page_is_not_a_truncated_catalogue_reported_clean():
+    """The case nothing could see: page 1's rows yielded, then a 200 `errors` on page 2
+    read as the last page, and the crawl ended as a success over half a catalogue."""
+    tables = []
+    with pytest.raises(GraphqlRefused) as refused:
+        for table in MagentoGraphqlConnector(_RefusingFetcher(refuse_on=2)).fetch(
+                make_entry()):
+            tables.append(table)
+
+    assert [t.page_token for t in tables] == ["page-1"], (
+        "page 1 is kept for the resume; page 2 must not have been taken as the end")
+    assert "page 2" in str(refused.value) and "truncated" in str(refused.value)
+
+
+def test_an_errors_answer_carrying_partial_data_is_still_a_refusal():
+    """GraphQL may answer `errors` beside a partial `data`; a page some of whose fields
+    failed is not a page to publish as whole."""
+    partial = {"errors": [{"message": "Internal server error"}],
+               "data": FIXTURE["data"]}
+    with pytest.raises(GraphqlRefused, match="Internal server error"):
+        list(MagentoGraphqlConnector(_RefusingFetcher(refuse_on=1, answer=partial))
+             .fetch(make_entry()))
+
+
+def test_an_empty_errors_list_is_not_a_refusal():
+    """`"errors": []` names nothing, so the page is read as the page it is."""
+    clean = {"errors": [], **FIXTURE}
+    tables = list(MagentoGraphqlConnector(_RefusingFetcher(refuse_on=1, answer=clean))
+                  .fetch(make_entry()))
+    assert tables and tables[0].rows

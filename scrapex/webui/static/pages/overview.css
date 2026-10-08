@@ -46,6 +46,16 @@
   gap: var(--sp-2);
 }
 
+/* On a touch screen the two stand --touch-stack-gap apart, stacked in a column or wrapped, so
+   their 44px reaches, 9px past each edge of their 26px boxes, meet between them: the lower
+   one takes none of the upper one's taps, and neither is cut short (his ruling on #1457;
+   design/tokens.css says why it is 18px). */
+@media (hover: none), (pointer: coarse) {
+  .overview-hero-actions {
+    row-gap: var(--touch-stack-gap);
+  }
+}
+
 .overview-healthline {
   display: flex;
   align-items: center;
@@ -271,6 +281,7 @@
   background: var(--chip);
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
 }
@@ -442,6 +453,7 @@
 .overview-activity-row time {
   color: var(--muted);
   font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
   font-size: var(--fs-2xs);
   white-space: nowrap;
 }
