@@ -155,6 +155,36 @@ def test_a_custom_rule_with_no_delay_keeps_the_sites_own(site):
         "leaving the delay unset must mean 'whatever the site asked for', not 'none'")
 
 
+def test_the_tool_wide_switch_off_drops_the_sites_delay_from_the_default(site):
+    """#1413: the delay `decide()` returns is the delay the fetcher applies, so it
+    must know the `crawl_honour_delay` switch the fetcher obeys."""
+    verdict = decide(site, RobotsChoice.DEFAULT, honour_site_delay=False)
+
+    assert verdict.delay_s is None
+
+
+def test_obey_keeps_the_sites_delay_when_the_switch_is_off(site):
+    """#1413, the owner's ruling: under obey the source's rule wins."""
+    verdict = decide(site, RobotsChoice.OBEY, honour_site_delay=False)
+
+    assert verdict.delay_s == 5.0
+
+
+def test_a_custom_delay_is_its_own_whatever_the_switch(site):
+    for honour in (True, False):
+        verdict = decide(site, RobotsChoice.CUSTOM,
+                         custom=RobotsCustom(crawl_delay_s=1.0), honour_site_delay=honour)
+        assert verdict.delay_s == 1.0, f"switch {honour} moved the owner's own delay"
+
+
+def test_a_null_custom_delay_follows_the_switch_like_the_default(site):
+    on = decide(site, RobotsChoice.CUSTOM, custom=RobotsCustom())
+    off = decide(site, RobotsChoice.CUSTOM, custom=RobotsCustom(), honour_site_delay=False)
+
+    assert on.delay_s == 5.0
+    assert off.delay_s is None
+
+
 def test_custom_with_no_rule_stored_is_refused_not_defaulted():
     """Falling back to the tool default here would hand the owner the exact
     behaviour he chose CUSTOM to escape, under his own label."""

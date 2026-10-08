@@ -382,7 +382,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         register -- and every cell has published its own page count by then.
 
         THAT IS NOT THE DENOMINATOR, AND THE DIFFERENCE IS MEASURED. `expect_requests`
-        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:500`): sizing spends
+        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:507`): sizing spends
         two per cell -- page 1 and page L -- before the frontier is known, so Oman's
         panel reads about 947, not 943. An expectation that ignored them would be short
         by exactly those pages and the bar would arrive at 100% early.

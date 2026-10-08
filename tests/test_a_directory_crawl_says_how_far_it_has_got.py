@@ -215,7 +215,7 @@ def test_the_declared_frontier_becomes_the_panels_denominator(conn, monkeypatch)
     progress = _drive(conn, monkeypatch, pages=7, frontier=943)["progress"]
 
     # 947, NOT 943, AND THE FOUR ARE THE POINT. `expect_requests` counts from the
-    # requests ALREADY MADE (`connectors/base.py:500`) -- sizing spends page 1 and page L
+    # requests ALREADY MADE (`connectors/base.py:507`) -- sizing spends page 1 and page L
     # per cell before the frontier is known, and those are real requests through this
     # same fetcher. A denominator that ignored them would be short by exactly those pages
     # and the bar would arrive at 100% early. The first version of this test wrote
