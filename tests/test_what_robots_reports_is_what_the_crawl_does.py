@@ -7,6 +7,10 @@ Four defects, each measured on the fetcher before this file existed:
    under `obey` too. Ruled: treated as if the site had no file, the tool's own
    rules apply, and the run's log says so once per host. A 404 is still "no file",
    with nothing written.
+   RE-RULED FOR THE SERVER AND THE NETWORK (#1585, ES-2): RFC 9309 §2.3.1.4 makes a
+   5xx or no answer at all "complete disallow", so those now PAUSE the site's run
+   with `RobotsUnreachable` and no page is fetched. A 4xx (§2.3.1.3) keeps #1413's
+   answer exactly: crawled under the tool's own rules, said once at WARNING.
 2. The site's Crawl-delay was applied only when the tool-wide `crawl_honour_delay`
    was on, whatever the source chose. Ruled: under `obey` the source's rule wins.
 3. `robots_custom.crawl_delay_s` was only a floor: the site's delay raised it, so a
@@ -26,8 +30,14 @@ import httpx
 import pytest
 
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.connectors.base import HttpFetcher, RobotsDisallowed, resolve_fetcher
-from scrapex.robots import RobotsChoice, RobotsCustom, decide, inspect
+from scrapex.connectors.base import (
+    CrawlBlocked,
+    HttpFetcher,
+    RobotsDisallowed,
+    RobotsUnreachable,
+    resolve_fetcher,
+)
+from scrapex.robots import RobotsChoice, RobotsCustom, decide, inspect, is_unreachable
 from scrapex.vocab import ExtractKind, ExtractScope
 
 HOST = "shop.test"
@@ -102,11 +112,22 @@ def _unreadable_notes(fetcher: HttpFetcher) -> list[str]:
 
 # ---- 1. an unreadable robots.txt is no robots.txt, said out loud --------------
 
+#: The 4xx answers #1413's ruling still governs (RFC 9309 §2.3.1.3). The 503, 500 and
+#: dropped connection that stood here moved to UNREACHABLE below (#1585): they pause.
 UNREADABLE = [
+    pytest.param(httpx.Response(403), "HTTP 403", id="403"),
+    pytest.param(httpx.Response(410), "HTTP 410", id="410"),
+    pytest.param(httpx.Response(401), "HTTP 401", id="401"),
+    pytest.param(httpx.Response(429), "HTTP 429", id="429"),
+]
+#: RFC 9309 §2.3.1.4: "server or network errors". The crawl pauses on every one.
+UNREACHABLE = [
     pytest.param(httpx.Response(503), "HTTP 503", id="503"),
     pytest.param(httpx.Response(500), "HTTP 500", id="500"),
-    pytest.param(httpx.Response(403), "HTTP 403", id="403"),
+    pytest.param(httpx.Response(502), "HTTP 502", id="502"),
+    pytest.param(httpx.Response(599), "HTTP 599", id="599"),
     pytest.param(httpx.ConnectError("connection refused"), "ConnectError", id="exception"),
+    pytest.param(httpx.ReadTimeout("timed out"), "ReadTimeout", id="timeout"),
 ]
 CHOICES = [
     pytest.param({}, id="default"),
@@ -154,7 +175,7 @@ def test_an_unreadable_file_is_treated_as_no_file_under_every_choice(robots, nam
 
 
 def test_the_unreadable_line_names_the_pace_the_run_used_instead():
-    fetcher, _ = _fetcher(httpx.Response(503), min_interval_s=2.5)
+    fetcher, _ = _fetcher(httpx.Response(403), min_interval_s=2.5)
 
     fetcher.get(PAGE)
 
@@ -184,7 +205,7 @@ def test_a_readable_file_writes_no_unreadable_line():
 
 def test_an_unreadable_file_on_one_host_does_not_speak_for_another():
     """One line per HOST, so a second host that also fails gets its own."""
-    fetcher, _ = _fetcher(httpx.Response(503))
+    fetcher, _ = _fetcher(httpx.Response(403))
 
     fetcher.get(PAGE)
     fetcher.get("https://other.test/x")
@@ -193,6 +214,158 @@ def test_an_unreadable_file_on_one_host_does_not_speak_for_another():
     assert len(notes) == 2, notes
     assert any(n.startswith(f"{HOST}:") for n in notes)
     assert any(n.startswith("other.test:") for n in notes)
+
+
+# ---- 1b. an unreachable robots.txt pauses the site's run (#1585) ---------------
+
+#: Every robots choice a source can hold, the custom one with NO rule stored included:
+#: the pause comes before any choice is consulted, so that one must pause too rather
+#: than raise its "no custom rule" ValueError.
+EVERY_CHOICE = [
+    *CHOICES,
+    pytest.param({"robots_choice": "custom", "robots_custom": None},
+                 id="custom-with-no-rule"),
+    pytest.param({"honour_crawl_delay": False}, id="ignore-the-delay"),
+]
+
+
+def _counting(robots) -> tuple[HttpFetcher, list[str]]:
+    """A fetcher whose site records EVERY request, robots.txt included."""
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        if str(request.url).endswith("/robots.txt"):
+            if isinstance(robots, Exception):
+                raise robots
+            return robots
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    return fetcher, asked
+
+
+@pytest.mark.parametrize("choice", EVERY_CHOICE)
+@pytest.mark.parametrize("robots,named", UNREACHABLE)
+def test_an_unreachable_file_pauses_the_run_under_every_choice(robots, named, choice):
+    """RFC 9309 §2.3.1.4: complete disallow. No page goes out, whatever the source
+    chose -- there is no rule of the site's for a choice to act on."""
+    fetcher, seen = _fetcher(robots, **choice)
+
+    with pytest.raises(RobotsUnreachable) as raised:
+        fetcher.get(PAGE)
+
+    assert seen == [], "a page went out after robots.txt could not be reached"
+    assert fetcher.requests_count == 0
+    said = str(raised.value)
+    assert HOST in said and named in said, said
+    assert "RFC 9309 §2.3.1.4" in said and "paused" in said, said
+
+
+@pytest.mark.parametrize("robots,named", UNREACHABLE)
+def test_the_pause_is_a_crawl_blocked_so_every_page_guard_lets_it_through(robots,
+                                                                          named):
+    """Every connector's per-page guard re-raises CrawlBlocked by name; a fresh
+    exception type would be filed as one dead page and the walk would go on."""
+    fetcher, _ = _fetcher(robots)
+
+    with pytest.raises(CrawlBlocked):
+        fetcher.get(PAGE)
+
+
+@pytest.mark.parametrize("robots,named", UNREACHABLE)
+def test_an_unreachable_file_is_read_once_and_every_later_page_pauses_too(robots,
+                                                                          named):
+    """Cached per host, as a refusal is: page two re-raises without asking the site
+    for robots.txt again, and without asking for the page either."""
+    fetcher, asked = _counting(robots)
+
+    for n in range(3):
+        with pytest.raises(RobotsUnreachable, match=named):
+            fetcher.get(f"{PAGE}?page={n}")
+
+    assert asked == [f"https://{HOST}/robots.txt"], asked
+
+
+@pytest.mark.parametrize("robots,named", UNREACHABLE)
+def test_an_unreachable_file_writes_no_crawled_anyway_line(robots, named):
+    """The 4xx sentence says the run went on under the tool's own rules. Here it did
+    not, so that line would be a false account of the run."""
+    fetcher, _ = _fetcher(robots)
+
+    with pytest.raises(RobotsUnreachable):
+        fetcher.get(PAGE)
+
+    assert fetcher.degradations == [], fetcher.degradations
+    assert fetcher.robots_warnings == [], fetcher.robots_warnings
+
+
+def test_an_unreachable_file_on_one_host_does_not_pause_another():
+    """Per HOST, like every robots answer: a second site whose file reads crawls."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == HOST and request.url.path == "/robots.txt":
+            return httpx.Response(503)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(RobotsUnreachable):
+        fetcher.get(PAGE)
+    assert fetcher.get("https://other.test/x").status_code == 200
+    with pytest.raises(RobotsUnreachable):
+        fetcher.get(PAGE)
+
+
+def test_the_robots_read_that_failed_still_owes_the_pace(monkeypatch):
+    """Unchanged by the pause (#1302): the read is paced like a request, so a site
+    that answered 503 is not asked again sooner than the pace allows."""
+    slept = _clocked(monkeypatch)
+    fetcher, _ = _fetcher(httpx.Response(503), min_interval_s=3.0)
+
+    with pytest.raises(RobotsUnreachable):
+        fetcher.get(PAGE)
+    fetcher._throttle()
+
+    assert slept == [3.0], slept
+
+
+@pytest.mark.parametrize("status,pauses", [
+    (None, True), (500, True), (503, True), (599, True),
+    (400, False), (403, False), (404, False), (410, False), (429, False),
+    (499, False), (200, False), (301, False),
+])
+def test_only_the_server_or_the_network_counts_as_unreachable(status, pauses):
+    """The boundary, at both edges: §2.3.1.4 is 5xx and no answer; §2.3.1.3 is 4xx."""
+    assert is_unreachable(status) is pauses
+
+
+@pytest.mark.parametrize("choice", list(RobotsChoice))
+def test_decide_pauses_an_unreachable_report_under_every_choice(choice):
+    """What `GET /robots` reports comes from `decide()`, so it must say "not fetched"
+    where the fetcher raises -- before the custom-rule refusal, as the fetcher does."""
+    report = inspect(PAGE, None, unreadable="HTTP 503", unreachable=True)
+
+    verdict = decide(report, choice, custom=None, tool_default_obeys=False,
+                     url_disallowed=False)
+
+    assert verdict.may_fetch is False
+    assert "RFC 9309" in verdict.reason and "paused" in verdict.reason, verdict.reason
+    assert "could not be reached" in report.summary(), report.summary()
+    assert "pauses" in report.summary(), report.summary()
+
+
+def test_decide_still_crawls_past_a_4xx_report():
+    report = inspect(PAGE, None, unreadable="HTTP 403")
+
+    verdict = decide(report, RobotsChoice.OBEY, url_disallowed=True)
+
+    assert verdict.may_fetch is True
+    assert report.unreachable is False
+    assert "could not be read (HTTP 403)" in report.summary()
 
 
 # ---- 2. under `obey`, the source's rule wins over the tool-wide switch --------
@@ -550,3 +723,64 @@ def test_the_route_reports_the_delay_the_crawl_applies(panel, monkeypatch, key, 
     assert fetcher._min_interval_s == max(owners_pace, reported or 0.0), (
         f"{key}: the route reports {reported}s, the crawl runs at "
         f"{fetcher._min_interval_s}s")
+
+
+# ---- the route says the crawl pauses where the fetcher pauses (#1585) ---------
+
+ROUTE_ROBOTS = [
+    pytest.param(httpx.Response(503), True, id="503"),
+    pytest.param(httpx.Response(500), True, id="500"),
+    pytest.param(httpx.ConnectError("connection refused"), True, id="exception"),
+    pytest.param(httpx.Response(403), False, id="403"),
+    pytest.param(httpx.Response(429), False, id="429"),
+    pytest.param(httpx.Response(404), False, id="404"),
+]
+
+
+def _ask_the_route(panel, monkeypatch, key: str, robots) -> dict:
+    """`GET /robots` over a site whose robots.txt answers `robots`."""
+    real_client = httpx.Client
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if isinstance(robots, Exception):
+            raise robots
+        return robots
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(answer)
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        response = panel.get(f"/api/sources/{key}/robots")
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.parametrize("key", list(ROUTE_SOURCES))
+@pytest.mark.parametrize("robots,pauses", ROUTE_ROBOTS)
+def test_the_route_reports_the_pause_the_crawl_takes(panel, monkeypatch, key, robots,
+                                                     pauses):
+    """THE #1413 AGREEMENT, FOR THE NEW ANSWER. Where the fetcher raises
+    `RobotsUnreachable` the route says the crawl will not fetch, and why; where it
+    crawls on, the route says so. Asked of the route and of the real fetcher alike."""
+    shown = _ask_the_route(panel, monkeypatch, key, robots)
+
+    choice, custom = ROUTE_SOURCES[key]
+    fetcher, seen = _over(robots, resolve_fetcher(entry(robots=choice,
+                                                        robots_custom=custom),
+                                                  {"min_interval_s": 0.0}))
+    try:
+        fetcher.get(PAGE)
+        crawl_paused = False
+    except RobotsUnreachable:
+        crawl_paused = True
+
+    assert crawl_paused is pauses, f"the fetcher's answer moved: {seen}"
+    assert shown["unreachable"] is pauses, shown
+    assert shown["on_a_disallowed_path"]["may_fetch"] is (not pauses), shown
+    if pauses:
+        reason = shown["on_a_disallowed_path"]["reason"]
+        assert "RFC 9309 §2.3.1.4" in reason and "paused" in reason, reason
+        assert "pauses" in shown["summary"], shown["summary"]

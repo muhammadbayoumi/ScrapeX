@@ -291,6 +291,30 @@ class CrawlInterrupted(CrawlBlocked):
         self.control = control
 
 
+class RobotsUnreachable(CrawlBlocked):
+    """The site's robots.txt could not be reached: a 5xx, or no answer at all.
+
+    RFC 9309 §2.3.1.4 makes that "complete disallow" (ES-2, the owner's ruling on
+    #1585), so the run for this site PAUSES -- as a block by the site does since
+    #1448 -- rather than crawling under the tool's own rules, which is what #1413
+    did with it. A CrawlBlocked for the reason CrawlInterrupted gives: every
+    connector's per-page guard already re-raises one, so no page of the host goes
+    out after it and no guard needs a new clause.
+    """
+
+
+def stopped_because(blocked: CrawlBlocked) -> str:
+    """How a job log names what stopped a site's run -- ONE spelling for every runner.
+
+    AN UNREACHABLE robots.txt IS NOT A BLOCK, and "blocked by the site" over a
+    refused connection would send him looking for a ban that does not exist. Its
+    own sentence already names the host, the status and RFC 9309 (ES-2).
+    """
+    if isinstance(blocked, RobotsUnreachable):
+        return str(blocked)
+    return f"blocked by the site ({blocked})"
+
+
 def declare_frontier(fetcher, pages: int) -> None:
     """"I now know I will fetch `pages` more pages" — for any fetcher, or none.
 
@@ -469,6 +493,10 @@ class HttpFetcher:
         #: the source, not the request, so it is given again without a second
         #: robots.txt fetch -- uncached, every page re-fetched the file.
         self._robots_refused: dict[str, ValueError] = {}
+        #: host -> why its robots.txt could not be reached (ES-2). Cached for the
+        #: refusal's reason: every later request of that host re-raises without a
+        #: second robots.txt fetch, and without a page fetch either.
+        self._robots_unreachable: dict[str, str] = {}
         #: One robots.txt read per host, however many workers share this
         #: fetcher (#1572). Unlocked, every worker whose first request left
         #: before the first answer arrived fetched the file itself: 6 workers,
@@ -734,13 +762,19 @@ class HttpFetcher:
         from urllib.parse import urlsplit
         from urllib.robotparser import RobotFileParser
 
+        from ..robots import is_unreachable, unreachable_reason
+
         host = urlsplit(url).netloc
         if host in self._robots:
             return self._robots[host]
         if host in self._robots_refused:
             raise ValueError(str(self._robots_refused[host]))
+        if host in self._robots_unreachable:
+            raise RobotsUnreachable(self._robots_unreachable[host])
         parser = None
         unreadable = ""
+        #: None until the site answers: a read that raised got no status at all.
+        status: int | None = None
         try:
             robots_url = f"{urlsplit(url).scheme}://{host}/robots.txt"
             # The plain client, NOT self.get: a robots fetch inside _request
@@ -754,6 +788,7 @@ class HttpFetcher:
             finally:
                 with self._throttle_lock:
                     self._last_request_at = time.monotonic()
+            status = answer.status_code
             if answer.status_code == 200:
                 parser = RobotFileParser()
                 parser.parse(answer.text.splitlines())
@@ -768,14 +803,26 @@ class HttpFetcher:
         except Exception as exc:
             parser = None
             unreadable = f"{type(exc).__name__}: {exc}"
+        if unreadable and is_unreachable(status):
+            # A SERVER OR NETWORK FAILURE IS COMPLETE DISALLOW (ES-2, the owner's
+            # ruling on #1585, replacing #1413's for these). #1413 crawled on under
+            # the tool's own rules; RFC 9309 says MUST NOT, so the site's run
+            # pauses -- under every choice, since no rule of the site's was read
+            # for a choice to act on. No degradation line: the pause carries this
+            # reason into the log, and two lines for one fact disagree in time.
+            reason = unreachable_reason(host, unreadable)
+            self._robots_unreachable[host] = reason
+            raise RobotsUnreachable(reason)
         if unreadable:
             # AN UNREADABLE FILE IS TREATED AS NO FILE, AND SAYS SO (#1413, the
             # owner's ruling). It was cached as "no rules" with nothing written,
             # so a 503 on robots.txt switched every robots check off in silence
-            # -- under `obey` too. The tool's own rules apply, under every
-            # choice, and the run's log names the status or error that put them
-            # there. One line per host: this branch runs once per host. A
-            # WARNING, not a note: the site's own rules were never read.
+            # -- under `obey` too. NOW ONLY A 4xx (and a 200 that would not
+            # parse) reaches here: RFC 9309 §2.3.1.3 lets a 4xx mean "no file".
+            # The tool's own rules apply, under every choice, and the run's log
+            # names the status that put them there. One line per host: this
+            # branch runs once per host. A WARNING, not a note: the site's own
+            # rules were never read.
             self.degradations.append(
                 f"{host}: robots.txt could not be read ({unreadable}) — treated "
                 f"as if the site had none; the tool's own rules apply "

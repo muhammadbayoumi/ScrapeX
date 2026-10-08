@@ -110,6 +110,10 @@ class RobotsReport:
     #: Set when the file could not be read at all, so "no rules" is never
     #: mistaken for "nothing to obey".
     unreadable: str = ""
+    #: The failure to read it was the SERVER's or the NETWORK's (a 5xx, or no
+    #: answer at all) rather than a 4xx: `is_unreachable()` below. The crawl then
+    #: pauses instead of crawling under the tool's own rules (ES-2).
+    unreachable: bool = False
 
     @property
     def obeying_would_block_everything(self) -> bool:
@@ -118,6 +122,13 @@ class RobotsReport:
 
     def summary(self) -> str:
         """One sentence, for a log line or a panel subtitle."""
+        if self.unreachable:
+            # NOT "could not be read" ALONE: that is the 4xx sentence, whose crawl
+            # goes on. This one's crawl does not, and the subtitle is where he reads
+            # it before choosing anything.
+            return (f"{self.host}: robots.txt could not be reached "
+                    f"({self.unreadable}) — every crawl of this site pauses until it "
+                    "can be read (RFC 9309)")
         if self.unreadable:
             return f"{self.host}: robots.txt could not be read ({self.unreadable})"
         if not self.found:
@@ -131,6 +142,29 @@ class RobotsReport:
             parts.append(f"asks for {self.crawl_delay_s:g}s between requests")
         return f"{self.host}: " + (", ".join(parts) if parts
                                    else "allows this source, asks for no delay")
+
+
+def is_unreachable(status_code: int | None) -> bool:
+    """Whether a failed robots.txt read means the crawl must PAUSE (ES-2).
+
+    `None` is a read that got no answer at all -- a refused connection, a timeout,
+    a TLS failure. RFC 9309 §2.3.1.4: when robots.txt is unreachable "due to server
+    or network errors", the crawler "MUST assume complete disallow". §2.3.1.3 lets
+    a 4xx mean there is no file, which is why a 403 or a 410 is NOT this: those
+    stay "treated as if the site had none" (#1413).
+
+    ONE ANSWER FOR THE FETCHER AND FOR `GET /robots`, so what the owner is shown
+    before choosing is what the crawl does -- the #1413 principle.
+    """
+    return status_code is None or 500 <= status_code <= 599
+
+
+def unreachable_reason(host: str, why: str) -> str:
+    """The sentence the pause carries into the job log and onto the panel."""
+    return (f"{host}: robots.txt could not be reached ({why}). RFC 9309 §2.3.1.4 "
+            "says a crawler must then treat the whole site as disallowed, so this "
+            "site's run is paused and none of its pages is fetched until robots.txt "
+            "can be read")
 
 
 def _parse(text: str) -> tuple[RobotFileParser, list[tuple[str, str, str]]]:
@@ -159,16 +193,18 @@ def _parse(text: str) -> tuple[RobotFileParser, list[tuple[str, str, str]]]:
 
 
 def inspect(base_url: str, robots_text: str | None, *,
-            user_agent: str = "*", unreadable: str = "") -> RobotsReport:
+            user_agent: str = "*", unreadable: str = "",
+            unreachable: bool = False) -> RobotsReport:
     """Turn a robots.txt into what it MEANS for one source.
 
     The text is passed in rather than fetched: this module has no opinion about
     HTTP, and a test that had to stand up a server to ask "what does this file
-    mean" would be testing the server.
+    mean" would be testing the server. `unreachable` is `is_unreachable(status)`
+    of the read the caller made, for the same reason.
     """
     host = urlsplit(base_url).netloc or base_url
     if unreadable:
-        return RobotsReport(host=host, unreadable=unreadable)
+        return RobotsReport(host=host, unreadable=unreadable, unreachable=unreachable)
     if robots_text is None:
         return RobotsReport(host=host, found=False)
 
@@ -224,6 +260,14 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
     so `GET /robots` could report a delay the crawl never used. Now
     `HttpFetcher` asks this function, and the two cannot drift apart.
     """
+    if report.unreachable:
+        # BEFORE EVERY CHOICE, the custom refusal below included, because the
+        # fetcher pauses before it reads any rule (ES-2): no choice of the owner's
+        # is consulted for a file nobody could read, and "obey", "default" and a
+        # custom rule all pause alike.
+        return Decision(may_fetch=False, delay_s=None,
+                        reason=unreachable_reason(report.host, report.unreadable))
+
     if choice is RobotsChoice.CUSTOM and custom is None:
         # Refused rather than defaulted, because the obvious default -- the
         # tool-wide setting -- is the very thing the owner chose CUSTOM to get

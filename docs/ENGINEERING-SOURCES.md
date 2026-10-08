@@ -120,3 +120,30 @@ protects.
 If a chained interpret is ever measured holding the write lock long enough to block a
 crawl he started, entry 3 of the precedence order applies — a number from his machine
 outranks the practice above — and this entry is superseded rather than argued with.
+
+## ES-2 · An unreachable robots.txt is complete disallow
+
+**Governs:** what a crawl does when a site's robots.txt cannot be read — by status class.
+
+**Cited at:** `scrapex/robots.py`, `scrapex/connectors/base.py`, `scrapex/webui/app.py`.
+
+### The source
+
+| source | what it contributes |
+|---|---|
+| [RFC 9309 — Robots Exclusion Protocol, §2.3.1.3 and §2.3.1.4](https://www.rfc-editor.org/rfc/rfc9309#section-2.3.1.3) | §2.3.1.4: *"If the robots.txt is unreachable due to server or network errors, this means the robots.txt is undefined and the crawler MUST assume complete disallow."* §2.3.1.3: on a 4xx (*"unavailable"*) the crawler *"MAY access any resources on the server"*. |
+
+### What it decides
+
+A 5xx, or a read that got no answer at all, **pauses** the site's run (`RobotsUnreachable`,
+a `CrawlBlocked`) and no page of that host is fetched, under every robots choice. A 4xx
+keeps #1413's answer: crawled under the tool's own rules, said once at WARNING.
+`GET /api/sources/{key}/robots` gives the same answer from the same function,
+`robots.is_unreachable`.
+
+**Decided** by the owner on #1585, replacing that part of the #1413 ruling.
+
+### How to re-open this
+
+Level 1 of the precedence order: nothing below an RFC outranks it. A later RFC that
+updates 9309 supersedes this entry rather than being argued with.

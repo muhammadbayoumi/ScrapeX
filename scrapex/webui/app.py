@@ -2338,7 +2338,7 @@ def create_app(
         """
         import httpx
 
-        from ..robots import RobotsChoice, RobotsCustom, decide, inspect
+        from ..robots import RobotsChoice, RobotsCustom, decide, inspect, is_unreachable
 
         try:
             entry = app.state.manifest.get(source_key)
@@ -2357,11 +2357,15 @@ def create_app(
             conn.close()
 
         text, unreadable = None, ""
+        #: None until the site answers -- `is_unreachable` reads that as a network
+        #: failure, which the crawl pauses on (ES-2), exactly as the fetcher does.
+        status: int | None = None
         try:
             base = urlsplit(entry.base_url)
             with httpx.Client(timeout=15.0, follow_redirects=True,
                               headers={"User-Agent": agent}) as client:
                 answer = client.get(f"{base.scheme}://{base.netloc}/robots.txt")
+            status = answer.status_code
             if answer.status_code == 200:
                 text = answer.text
             elif answer.status_code not in (404, 410):
@@ -2375,7 +2379,8 @@ def create_app(
             # not find out" lead the owner to opposite choices.
             unreadable = f"{type(exc).__name__}: {exc}"
 
-        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable)
+        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable,
+                         unreachable=bool(unreadable) and is_unreachable(status))
         choice = RobotsChoice(entry.robots or "default")
         custom = None
         if choice is RobotsChoice.CUSTOM and entry.robots_custom:
@@ -2398,6 +2403,9 @@ def create_app(
             "host": report.host,
             "found": report.found,
             "unreadable": report.unreadable,
+            # TRUE MEANS THE CRAWL PAUSES on this site (a 5xx or no answer, ES-2);
+            # `on_a_disallowed_path.reason` says so in words.
+            "unreachable": report.unreachable,
             "names_us": report.names_us,
             "user_agent": agent,
             "crawl_delay_s": report.crawl_delay_s,
