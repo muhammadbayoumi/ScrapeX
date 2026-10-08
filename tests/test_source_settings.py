@@ -790,6 +790,14 @@ def test_a_real_agent_with_spaces_is_taken_at_every_door(conn, manifest):
         == REAL_AGENT
 
 
-def test_a_shipped_custom_choice_with_no_rule_is_refused_when_the_manifest_loads():
+def test_a_shipped_custom_choice_with_no_rule_is_refused_when_the_manifest_loads(
+        conn, manifest):
+    """At the door, and -- for an entry that got past it -- by `effective`, rather than
+    handed on as custom-with-no-rule for `robots.decide` to refuse mid-crawl."""
     with pytest.raises(ValueError, match="needs its rule"):
         Manifest.model_validate({"sources": [_entry(SHOP, robots="custom")]})
+
+    bypassed = manifest.get(SHOP).model_copy(update={"robots": "custom",
+                                                     "robots_custom": None})
+    with pytest.raises(SourceSettingError, match="a custom robots rule is"):
+        effective(conn, SHOP, bypassed)

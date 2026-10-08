@@ -337,9 +337,11 @@ def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
             raise ValueError(
                 f"asked for {source_key!r} with {shipped.source_key!r}'s manifest entry")
         robots = _checked(source_key, checked_robots, shipped.robots)
+        # Under custom the rule is checked even when it is missing: custom with no rule
+        # is what `robots.decide` refuses at crawl time, so it is refused here, with the
+        # checker's sentence, rather than handed on as "no rule".
         custom = (_checked(source_key, checked_robots_custom, shipped.robots_custom)
-                  if robots is RobotsChoice.CUSTOM and shipped.robots_custom is not None
-                  else None)
+                  if robots is RobotsChoice.CUSTOM else None)
         return SourceRules(active=bool(shipped.active), robots=robots, robots_custom=custom,
                            user_agent=shipped.user_agent, crawl_pace_s=shipped.crawl_pace_s)
     if isinstance(shipped, Directory):
