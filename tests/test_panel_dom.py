@@ -10218,9 +10218,10 @@ def _carried_without_the_light_file(page) -> str:
 
 def test_an_engine_older_than_the_light_route_still_backs_up_and_says_restart(
         open_panel):
-    """#1199: engine 0.4.45 sends the light file's index and 404s its route, and it
-    keeps running after the extension reloads. The zip is the backup, so it still
-    reaches Drive, and the sentence names the step that carries the copy."""
+    """#1199: an engine from between #1488 and the light route sends the light
+    file's index and 404s its route, and it keeps running after the extension
+    reloads. The zip is the backup, so it still reaches Drive, and the sentence
+    names the step that carries the copy."""
     page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None,
                           harness={"bundle_light_route": False})
 
@@ -10258,13 +10259,41 @@ def test_a_light_file_with_every_table_left_out_is_not_asked_for(open_panel):
 
 def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
     """#1199: the light file never fails a backup, so a table it could not write is
-    said where he reads the result, or it is a silent failure."""
-    said = _backed_up_with(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
+    said where he reads the result, or it is a silent failure. The rest of the copy
+    still opens, so it is still carried."""
+    page = _press_back_up(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
         {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
          "problem": "RuntimeError: the second card"}]})
 
+    said = page.inner_text("#manage-backup-msg").strip()
     assert said.endswith(
         "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+    assert page.evaluate("() => window.__sx_light_reads") == 1
+    assert HARNESS_LIGHT["parts_file"]["name"] in page.evaluate("() => window.__sx_uploads")
+
+
+def test_a_copy_with_faults_that_was_not_carried_says_so_and_not_the_faults(open_panel):
+    """The tables it left out describe a copy that is not in Drive, so the sentence
+    is the one about carrying it, with the restart that would."""
+    page = _press_back_up(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]},
+        harness={"bundle_light_route": False})
+
+    said = _carried_without_the_light_file(page)
+    assert "left out" not in said, said
+    assert said.endswith("Restart it from the Engine page, then back up again."), said
+
+
+def test_a_light_read_that_times_out_never_fails_the_backup(open_panel):
+    """A timeout is not an HTTP answer, and it is the panel's own sentence, which
+    already ends in a period."""
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None,
+                          harness={"blackhole_routes": ("/api/bundle/light",)})
+
+    said = _carried_without_the_light_file(page)
+    assert said.endswith("The offline copy of the Data page was not carried to Drive: "
+                         "The request exceeded its 5000 ms deadline."), said
 
 
 def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):

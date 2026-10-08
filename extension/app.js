@@ -8756,9 +8756,10 @@ async function backUpToDrive(token, report = "drive-msg") {
   // THE LIGHT FILE (#1199) NEVER FAILS A BACKUP, on this side as in the engine
   // (`_build_one_bundle`): the zip IS the backup. One this panel cannot read is
   // left behind and said, and `backUp` is handed a manifest without it, or its
-  // size check would refuse the archive over it. A 404 is not hypothetical:
-  // engine 0.4.45 sends the index and has no route for the file, and it keeps
-  // running after the extension reloads, until he restarts it. Not asked for at
+  // size check would refuse the archive over it. A 404 is not hypothetical: the
+  // index shipped a release before this route (#1488), so an engine from between
+  // the two sends it and has no route for the file, and it keeps running after
+  // the extension reloads, until he restarts it. Not asked for at
   // all when it holds no bytes -- every table failed, and the faults sentence
   // below names them. Bytes that differ from the index are still refused by
   // `backUp`, archive and all: that is an engine describing one file and

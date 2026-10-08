@@ -182,9 +182,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     and this stub did not — so the panel was being tested against an engine that
     stays silent about the one thing that can refuse an impossible pair.
 
-    `bundle_light_route=False` is engine 0.4.45: its build reply carries the light
-    file's index, and `GET /api/bundle/light` answers FastAPI's 404, because the
-    route came one version after the file (#1199).
+    `bundle_light_route=False` is an engine from after #1488 and before the light
+    route: its build reply carries the light file's index, and
+    `GET /api/bundle/light` answers FastAPI's 404, because the route shipped a
+    release after the file (#1199).
     """
     from scrapex.native import PROTOCOL_VERSION
     from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
