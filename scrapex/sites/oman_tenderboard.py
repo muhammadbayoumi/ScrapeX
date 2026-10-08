@@ -18,7 +18,7 @@ The register renders eleven cells and labels ten; the second one is
 
 with its header commented out the same way. `Company Short Name` is fetched, written into
 the response, and hidden from every browser -- 50 values a page, 23,502 in the register.
-**An HTML parser that strips comments loses the record key**, so `read_page` uncomments
+**An HTML parser that strips comments loses the record key**, so `read_rows` uncomments
 deliberately and asserts the shape it expects while doing it. The same value appears again,
 uncommented, as the argument to the row's own `getProcActivities('0000')`, and the two are
 checked against each other.
@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import normalize
-from ..pagesource import WHOLE, Cell, SliceNotSupported
+from ..pagesource import WHOLE, Cell, RowIdentity, SliceNotSupported
 
 #: Matches `source_site.source_key`, as `directories.Directory.key` requires.
 SITE_KEY = "oman_tenderboard"
@@ -126,6 +126,14 @@ class Firm:
     #: for is not in the public list at all.
     expiry_raw: str | None
     company_type: str | None
+    #: The row's `getProcActivities('...')` argument: the record key a second time, up
+    #: to case, on every row measured but one. `None` if the call carries no quoted
+    #: argument. Kept because it is evidence of WHICH firm a row is -- see `RowIdentity`.
+    activities_key: str | None = None
+    #: WHY THIS ROW'S KEY IS IN DOUBT, or `None` on a row whose two keys agree. Set on
+    #: `ALWASIT`'s row, whose activities argument is `nabil` (#1333): the row is still
+    #: a firm, keyed by its commented key, and the doubt travels with it to the Sheet.
+    key_warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -139,29 +147,6 @@ class CategorySplit:
 
     names: tuple[str, ...]
     remainder: str
-
-
-@dataclass(frozen=True)
-class RefusedRow:
-    """One register row the reader would not turn into a firm, and why.
-
-    A ROW, NOT A PAGE, and that is the owner's ruling on #1333. Page 369 carries one row
-    whose commented key `ALWASIT` and activities argument `nabil` disagree; refusing the
-    page for it cost the forty-nine firms beside it on every crawl. The row is still not
-    a record -- which of its two keys is the firm is unknown -- so it is carried here,
-    named, for every caller to report.
-    """
-
-    short_name: str
-    reason: str
-
-
-@dataclass(frozen=True)
-class RegisterPage:
-    """What one register page yielded: its firms, and the rows it would not read."""
-
-    firms: tuple[Firm, ...]
-    refused: tuple[RefusedRow, ...]
 
 
 def listing_url(base_url: str = BASE_URL, *, locale: str = LTR, page: int = 1,
@@ -348,7 +333,7 @@ def read_last_page(html: str) -> int:
     return total
 
 
-def read_page(html: str) -> RegisterPage:
+def read_rows(html: str) -> tuple[Firm, ...]:
     """Every firm on one register page, with the commented-out identifier recovered.
 
     THE UNCOMMENTING IS THE POINT. The record key is inside `<!-- <td>0000</td> -->`, so
@@ -357,13 +342,13 @@ def read_page(html: str) -> RegisterPage:
     cell, and its value equal to the `getProcActivities(...)` argument in the same row.
     Anything else and the assumption behind the uncommenting has stopped being true.
 
-    ONE ROW WHOSE TWO KEYS DISAGREE IS REFUSED ALONE, AND TWO REFUSE THE PAGE. Measured
-    on job 191, 2026-10-03: one such row in 23,619 (#1333). A second on the same page is
-    no longer a row the site mistyped; it is the evidence this reader's key has stopped
-    being the record key, and that still raises.
+    EXCEPT THE KEYS' AGREEMENT, WHICH IS RECORDED AND NOT REFUSED -- the owner's ruling
+    on #1333. Measured on job 191, 2026-10-03: one row in 23,619 disagrees, `ALWASIT`
+    against `nabil`. Refusing its page cost forty-nine firms on every crawl; refusing
+    the row alone left the register's count unable to close. So every such row is a
+    firm keyed by its COMMENTED key, carrying `key_warning`, however many a page holds.
     """
     firms: list[Firm] = []
-    refused: list[RefusedRow] = []
     for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
         # A DATA ROW IS ONE THAT CARRIES `getProcActivities(`, and the alternative was
         # measured wrong: filtering on a cell count keeps the paginator, which is a `<tr
@@ -417,19 +402,19 @@ def read_page(html: str) -> RegisterPage:
         # differed only in case on 2 -- `ZYPHARSPH` printed against `zypharsph` in the
         # call, and `ZZZZZZZ` against `zzzzzzz`. Both are the alphabetic keys; a
         # zero-padded numeric one is unaffected. None differed in any other way, so a
-        # genuine disagreement still raises.
+        # genuine disagreement is still news.
+        #
+        # A DISAGREEMENT BEYOND CASE IS WRITTEN ON THE ROW, NOT RAISED (#1333). The
+        # commented key stays the record key, because it is the one `IDENTITY_FIELD`
+        # names and the one every other row is stored under; which of the two is the
+        # firm's is unknown, and the warning says so where he reads the row.
         echoed = re.search(r"getProcActivities\('([^']*)'\)", row)
-        if echoed is not None and echoed.group(1).lower() != short_name.lower():
-            reason = (f"the row's commented key {short_name!r} and its activities "
-                      f"argument {echoed.group(1)!r} disagree beyond case, so which of "
-                      "the two is this firm's record key is unknown")
-            if refused:
-                raise RegisterShapeError(
-                    f"two rows on one page have keys that disagree -- "
-                    f"{refused[0].short_name!r} and {short_name!r}; one of the two "
-                    "has stopped being the record key. Latest: " + reason)
-            refused.append(RefusedRow(short_name=short_name, reason=reason))
-            continue
+        activities_key = echoed.group(1) if echoed is not None else None
+        key_warning = None
+        if activities_key is not None and activities_key.lower() != short_name.lower():
+            key_warning = (f"the row's commented key {short_name!r} and its activities "
+                           f"argument {activities_key!r} disagree beyond case; recorded "
+                           "under the commented key")
         # A BLANK FULL NAME IS DATA, NOT A BROKEN PAGE, and refusing it cost 200 firms.
         #
         # This line used to raise. Measured 2026-09-23 over all 942 stored pages of the
@@ -450,10 +435,10 @@ def read_page(html: str) -> RegisterPage:
         # `address`, which this source's extract already stores NULL by measurement.
         #
         # THE OTHER REFUSALS ABOVE STAY, and that is the whole point of separating them:
-        # a first cell that is not an integer, a missing short name, a cell count that
-        # is not eleven, and an activities argument that disagrees with the commented
-        # key are all evidence that this reader's understanding of the page has broken.
-        # A field the site leaves blank for one class of registrant is not.
+        # a first cell that is not an integer, a missing short name and a cell count
+        # that is not eleven are all evidence that this reader's understanding of the
+        # page has broken. A field the site leaves blank for one class of registrant is
+        # not, and neither -- since #1333 -- is one row whose two keys disagree.
         firms.append(Firm(
             short_name=short_name,
             name=cells[2] or None,
@@ -464,8 +449,10 @@ def read_page(html: str) -> RegisterPage:
             category_raw=cells[7],
             expiry_raw=cells[8] or None,
             company_type=cells[9] or None,
+            activities_key=activities_key,
+            key_warning=key_warning,
         ))
-    return RegisterPage(firms=tuple(firms), refused=tuple(refused))
+    return tuple(firms)
 
 
 def decompose_categories(cell: str, vocabulary: dict[str, str]) -> CategorySplit:
@@ -573,10 +560,11 @@ def read_ids(html: str) -> tuple[str, ...]:
     register that repeated a firm rather than report it. Measured over 102 rows there were
     none, which is a reason to watch for one rather than to assume it away.
 
-    A REFUSED ROW IS NOT AN ID HERE: its key is the thing in doubt. `refused_rows` on
-    `OmanPartition` names it, so the cell's deficit says why it is short.
+    A ROW WHOSE TWO KEYS DISAGREE IS AN ID HERE, under its commented key (#1333). Left
+    out, the cell's count could never reach what the page publishes, and every crawl
+    paid two extra full reads trying.
     """
-    return tuple(firm.short_name for firm in read_page(html).firms)
+    return tuple(firm.short_name for firm in read_rows(html))
 
 
 class OmanPageSource:
@@ -665,9 +653,11 @@ class OmanPartition:
     def read_ids(self, html: str) -> tuple[str, ...]:
         return read_ids(html)
 
-    def refused_rows(self, html: str) -> tuple[str, ...]:
-        return tuple(f"{row.short_name}: {row.reason}"
-                     for row in read_page(html).refused)
+    def identity_evidence(self, html: str) -> tuple[RowIdentity, ...]:
+        """Each row's key, CR number and activities argument, in published order."""
+        return tuple(RowIdentity(key=firm.short_name, registration=firm.cr_number,
+                                 second_key=firm.activities_key)
+                     for firm in read_rows(html))
 
     def in_cell(self, cell: Cell, *, last_page: int) -> OmanPageSource:
         return OmanPageSource(last_page=last_page, locales=self.locales, cell=cell)
