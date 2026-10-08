@@ -42,7 +42,10 @@
 -- `Field(gt=0)` (`config.py`). A custom crawl delay may be 0 -- "do not wait for this
 -- site" -- because `robots.decide` applies a custom delay AS SET (#1413). `typeof` is in
 -- the REAL checks because a comparison does not refuse text in SQLite: `'abc' > 0` is
--- true, so a CHECK of the bound alone would store a word as a pace.
+-- true, so a CHECK of the bound alone would store a word as a pace. `< 9e999` is "finite":
+-- SQLite reads 9e999 as infinity, and an infinite pace is a crawl that never makes its
+-- next request. `source_settings._seconds` refuses the same values, and
+-- `config.SourceEntry.crawl_pace_s` does too (`allow_inf_nan=False`).
 --
 -- THE CUSTOM RULE EXISTS EXACTLY WHEN THE CHOICE IS `custom`, both ways round. Custom
 -- with no rule is what `robots.decide` refuses at crawl time, so it is refused here at
@@ -70,16 +73,23 @@ CREATE TABLE source_setting (
     -- NULL under custom means "the site's own Crawl-delay".
     robots_crawl_delay_s    REAL CHECK (robots_crawl_delay_s IS NULL OR (
                                 typeof(robots_crawl_delay_s) = 'real'
-                                AND robots_crawl_delay_s >= 0)),
+                                AND robots_crawl_delay_s >= 0
+                                AND robots_crawl_delay_s < 9e999)),
     -- An empty agent would read as "unset" to `resolve_user_agent`'s `or` chain while
-    -- this row claimed a choice; clearing is NULL, so empty is refused.
+    -- this row claimed a choice; clearing is NULL, so empty is refused. Printable ASCII
+    -- only (0x20-0x7E), because a header value is: httpx refuses a request whose agent
+    -- holds anything else, so 'متصفح/1' stored here would fail the source's next crawl.
+    -- `GLOB '*[^ -~]*'` finds any character outside space..tilde; with every other
+    -- whitespace refused by it, `trim` -- which strips spaces only -- is enough for blank.
     user_agent              TEXT CHECK (user_agent IS NULL OR (
                                 typeof(user_agent) = 'text'
+                                AND user_agent NOT GLOB '*[^ -~]*'
                                 AND length(trim(user_agent)) > 0)),
     -- Seconds between requests for this source alone. It can only slow a crawl:
     -- `connectors.base.resolve_fetcher` takes the slowest of every opinion.
     crawl_pace_s            REAL CHECK (crawl_pace_s IS NULL OR (
-                                typeof(crawl_pace_s) = 'real' AND crawl_pace_s > 0)),
+                                typeof(crawl_pace_s) = 'real' AND crawl_pace_s > 0
+                                AND crawl_pace_s < 9e999)),
     updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     CHECK ((robots_choice IS 'custom' AND robots_enforce_disallow IS NOT NULL)
            OR (robots_choice IS NOT 'custom'

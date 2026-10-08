@@ -2686,7 +2686,8 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("schedule", "When a source should run by itself."),
          ("source_setting", "What you chose for one source: active, robots, agent "
                             "and pace. An empty field follows what the source shipped "
-                            "with."),
+                            "with or, where it shipped nothing, your general "
+                            "settings."),
          ("retention_policy", "How long raw material is kept."),
          ("retention_run", "What a retention pass actually removed."),
          ("retention_pin", "What you pinned so retention never touches it."),

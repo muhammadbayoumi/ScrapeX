@@ -385,7 +385,10 @@ class SourceEntry(BaseModel):
     # opinion and the tool-wide pace stands. It can only ever SLOW a crawl:
     # `resolve_fetcher` takes the slowest of every opinion, so naming 0.1 here
     # cannot make a source faster than the owner's own setting.
-    crawl_pace_s: float | None = Field(default=None, gt=0)
+    # FINITE as well as positive: an infinite pace is a crawl that never makes its next
+    # request, and NaN passes `gt=0` by comparing false to everything. The same bound as
+    # `source_setting.crawl_pace_s` (migration 0022) and `source_settings._seconds`.
+    crawl_pace_s: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     # Ordered families to try if `family` fails (spec 32). Recorded per source so
     # the choice is visible in the manifest rather than hidden in code.
     fallback_families: list[ConnectorFamily] = Field(default_factory=list)

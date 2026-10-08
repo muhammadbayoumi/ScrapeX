@@ -42,22 +42,28 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from .config import Manifest, SourceEntry
-from .robots import RobotsChoice
+from .robots import RobotsChoice, RobotsCustom
 from .vocab import ConnectorFamily
 
 #: The fields `save` accepts and `read` returns. A key outside this set is refused
 #: rather than ignored, for `settings.SETTINGS`' reason: a typo must not look saved.
 FIELDS = ("active", "robots", "robots_custom", "user_agent", "crawl_pace_s")
 
-#: The custom rule's two knobs, `robots.RobotsCustom`'s fields by name.
-_CUSTOM_KEYS = frozenset({"enforce_disallow", "crawl_delay_s"})
+#: The custom rule's knobs, READ OFF `robots.RobotsCustom` rather than written again
+#: here: a knob added to the rule the crawl obeys is a knob this module accepts.
+_CUSTOM_KEYS = frozenset(field.name for field in fields(RobotsCustom))
 
 
-class UnknownSourceError(KeyError):
-    """No `source_site` row has this key, so there is nothing to attach a choice to."""
+class UnknownSourceError(LookupError):
+    """No `source_site` row has this key, so there is nothing to attach a choice to.
+
+    `LookupError` and not `KeyError`: `str()` of a KeyError is the repr of its argument,
+    so the sentence below would reach the panel wrapped in quotes. A caller catching
+    `LookupError` still catches it, as it catches `Manifest.get`'s KeyError.
+    """
 
 
 class SourceSettingError(ValueError):
@@ -134,10 +140,17 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
       * a value of the wrong kind or out of the bounds the table's CHECKs hold;
       * `custom` with no rule, or a rule under any other choice -- except that changing
         the choice away from custom clears the rule, as `/api/sources/{key}/edit` does;
-      * `active` on a source whose family is still TBD-probe, which `SourceEntry`
-        refuses in the manifest for the same reason (A3: no family until proven).
+      * a change that sets `active` on a source whose family is still TBD-probe, which
+        `SourceEntry` refuses in the manifest for the same reason (A3: no family until
+        proven).
     """
-    unknown = sorted(set(changes) - set(FIELDS))
+    if not isinstance(changes, dict):
+        raise SourceSettingError(
+            f"{source_key}: the choices must be a mapping of field to value, "
+            f"not {changes!r}")
+    # A list and not a sorted set: a key that is not a string cannot be sorted against
+    # the strings, and the refusal must be this sentence rather than a TypeError.
+    unknown = [key for key in changes if key not in FIELDS]
     if unknown:
         raise SourceSettingError(
             f"{source_key}: {unknown} are not per-source choices; the fields are "
@@ -160,6 +173,16 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
             raise SourceSettingError(
                 f"{source_key}: active must be true, false or null, not {active!r}")
         columns["active"] = None if active is None else int(active)
+        shipped = _shipped(manifest, source_key)
+        if active is True and shipped is not None \
+                and shipped.family == ConnectorFamily.TBD_PROBE:
+            # Only when THIS change activates it: a pace edit to a source whose stored
+            # `active` predates its family reverting to TBD-probe is not an activation,
+            # and `effective` already reads that source as inactive.
+            raise SourceSettingError(
+                f"{source_key}: family is TBD-probe, so there is no collector to run "
+                "yet; it cannot be activated until the site is probed and its family "
+                "is set")
     if "robots" in changes:
         choice = changes["robots"]
         if choice is not None:
@@ -179,18 +202,8 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
         if rule is None:
             enforce, delay = None, None
         else:
-            if not isinstance(rule, dict) or not set(rule) <= _CUSTOM_KEYS \
-                    or "enforce_disallow" not in rule:
-                raise SourceSettingError(
-                    f"{source_key}: a custom robots rule is {{enforce_disallow: "
-                    f"true|false, crawl_delay_s: seconds|null}}, not {rule!r}")
-            enforce, delay = rule["enforce_disallow"], rule.get("crawl_delay_s")
-            if type(enforce) is not bool:
-                raise SourceSettingError(
-                    f"{source_key}: enforce_disallow must be true or false, "
-                    f"not {enforce!r}")
-            if delay is not None:
-                delay = _seconds(source_key, "crawl_delay_s", delay, allow_zero=True)
+            checked = _custom_rule(source_key, rule)
+            enforce, delay = checked["enforce_disallow"], checked["crawl_delay_s"]
         # Written over whatever `robots` above cleared: a rule sent beside a choice
         # other than custom is then refused below as the contradiction it is, rather
         # than silently dropped.
@@ -204,11 +217,14 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
         # Empty CLEARS, as it does in `settings.save`: an emptied text box is the
         # panel's way of saying "no agent of my own".
         agent = (agent or "").strip() or None
-        if agent is not None and any(ord(ch) < 32 or ord(ch) == 127 for ch in agent):
-            # A control character in a header value is a request httpx refuses, and a
-            # line break is a header injected; refused here, not at the first crawl.
+        if agent is not None and not all(" " <= ch <= "~" for ch in agent):
+            # PRINTABLE ASCII, 0x20-0x7E, because a header value is: httpx refuses to
+            # send anything else -- Arabic letters, an accented one, a line break that
+            # would inject a header -- so it is refused here and not at the source's
+            # next crawl. The table's CHECK is the same range (`NOT GLOB '*[^ -~]*'`).
             raise SourceSettingError(
-                f"{source_key}: user_agent must be one line of printable text")
+                f"{source_key}: user_agent must be one line of printable ASCII text "
+                "(English letters, digits, spaces and punctuation)")
         columns["user_agent"] = agent
     if "crawl_pace_s" in changes:
         pace = changes["crawl_pace_s"]
@@ -238,12 +254,6 @@ def save(conn: sqlite3.Connection, manifest: Manifest, source_key: str,
         raise SourceSettingError(
             f"{source_key}: a custom robots rule needs robots = custom, and this source's "
             f"choice is {after['robots_choice'] or 'not set'}")
-    shipped = _shipped(manifest, source_key)
-    if after["active"] == 1 and shipped is not None \
-            and shipped.family == ConnectorFamily.TBD_PROBE:
-        raise SourceSettingError(
-            f"{source_key}: family is TBD-probe, so there is no collector to run yet; "
-            "it cannot be activated until the site is probed and its family is set")
 
     # AN UPDATE OR AN INSERT, AND NOT `INSERT ... ON CONFLICT DO UPDATE`. SQLite checks
     # a row's CHECKs on the row the INSERT proposes, before it looks for the conflict,
@@ -275,11 +285,19 @@ def effective(conn: sqlite3.Connection, manifest: Manifest, source_key: str) -> 
     A source with no `source_site` row is not refused here, unlike in `save`. A price
     source's first crawl happens before its first ingest registers it, and that crawl
     still needs its shipped agent -- Zid answers 403 to any other.
+
+    A shipped custom rule is checked by the rules `save` applies, and a misspelt shipped
+    choice fails, both as `SourceSettingError`: the manifest is hand-edited, and a wrong
+    value there must stop the crawl that would act on it rather than be guessed at.
     """
     chosen = read(conn, source_key)
     shipped = _shipped(manifest, source_key)
 
-    if "active" in chosen:
+    if shipped is not None and shipped.family == ConnectorFamily.TBD_PROBE:
+        # Whatever was stored: a source can be activated and then see a later release
+        # put its family back to TBD-probe, and there is then no collector to run.
+        active = False
+    elif "active" in chosen:
         active = chosen["active"]
     else:
         active = bool(shipped.active) if shipped is not None else False
@@ -289,8 +307,17 @@ def effective(conn: sqlite3.Connection, manifest: Manifest, source_key: str) -> 
     elif shipped is not None:
         # `RobotsChoice(...)` and not the string: a manifest typo fails here, loudly,
         # instead of comparing unequal to every choice and acting as the default.
-        robots = RobotsChoice(shipped.robots or RobotsChoice.DEFAULT)
-        custom = shipped.robots_custom if robots is RobotsChoice.CUSTOM else None
+        try:
+            robots = RobotsChoice(shipped.robots or RobotsChoice.DEFAULT)
+        except ValueError:
+            raise SourceSettingError(
+                f"{source_key}: sources.yaml says robots: {shipped.robots!r}, which is "
+                f"none of {[str(c) for c in RobotsChoice]}") from None
+        # A NEW dict, never the manifest's own: a consumer that edits the rule it was
+        # handed must not be editing the manifest every later crawl reads.
+        custom = (_custom_rule(source_key, shipped.robots_custom)
+                  if robots is RobotsChoice.CUSTOM and shipped.robots_custom is not None
+                  else None)
     else:
         robots, custom = RobotsChoice.DEFAULT, None
 
@@ -316,17 +343,48 @@ def _shipped(manifest: Manifest, source_key: str) -> SourceEntry | None:
                  if entry.source_key == source_key), None)
 
 
+def _custom_rule(source_key: str, rule: object) -> dict:
+    """A custom robots rule, checked, as a NEW `{enforce_disallow, crawl_delay_s}`.
+
+    `enforce_disallow` is required although `RobotsCustom` defaults it: a rule that does
+    not say whether it obeys Disallow is a rule nobody decided, and reading it as False
+    would be deciding for him.
+    """
+    if not isinstance(rule, dict) or not set(rule) <= _CUSTOM_KEYS \
+            or "enforce_disallow" not in rule:
+        raise SourceSettingError(
+            f"{source_key}: a custom robots rule is {{enforce_disallow: "
+            f"true|false, crawl_delay_s: seconds|null}}, not {rule!r}")
+    enforce, delay = rule["enforce_disallow"], rule.get("crawl_delay_s")
+    if type(enforce) is not bool:
+        raise SourceSettingError(
+            f"{source_key}: enforce_disallow must be true or false, not {enforce!r}")
+    if delay is not None:
+        delay = _seconds(source_key, "crawl_delay_s", delay, allow_zero=True)
+    return {"enforce_disallow": enforce, "crawl_delay_s": delay}
+
+
 def _seconds(source_key: str, name: str, value: object, *, allow_zero: bool) -> float:
     """A duration in seconds, refused unless it is a finite number in bounds.
 
     Finite because SQLite stores NaN as NULL -- a pace he set would read back as "not
-    chosen" -- and an infinite pace is a crawl that never makes its next request. Not a
-    bool, because `True` is an int in Python and would be stored as one second.
+    chosen" -- and an infinite pace is a crawl that never makes its next request. The
+    table's `< 9e999` and `SourceEntry`'s `allow_inf_nan=False` hold the same bound. An
+    integer too large for a float (`10**400`) is refused here, not raised as
+    OverflowError. Not a bool, because `True` is an int in Python and would be stored as
+    one second.
     """
-    if type(value) not in (int, float) or not math.isfinite(value):
+    if type(value) not in (int, float):
         raise SourceSettingError(
             f"{source_key}: {name} must be a number of seconds or null, not {value!r}")
-    if value < 0 or (value == 0 and not allow_zero):
+    try:
+        seconds = float(value)
+    except OverflowError:
+        seconds = math.inf
+    if not math.isfinite(seconds):
+        raise SourceSettingError(
+            f"{source_key}: {name} must be a finite number of seconds, not {value!r}")
+    if seconds < 0 or (seconds == 0 and not allow_zero):
         bound = "0 or more" if allow_zero else "more than 0"
         raise SourceSettingError(f"{source_key}: {name} must be {bound}, not {value!r}")
-    return float(value)
+    return seconds

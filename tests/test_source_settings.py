@@ -108,8 +108,10 @@ def test_a_new_warehouse_has_the_table_with_every_rule_column_nullable(conn):
         assert columns[name]["notnull"] == 0, f"{name} must be nullable: NULL inherits"
         assert columns[name]["dflt_value"] is None, f"{name} must default to inherit"
     assert columns["updated_at"]["notnull"] == 1
-    assert [tuple(r)[2:5] for r in conn.execute("PRAGMA foreign_key_list(source_setting)")] \
-        == [("source_site", "source_id", "source_id")]
+    # NO ACTION on delete, deliberately: `source_site` rows are never deleted -- a wipe
+    # keeps the registry row -- and a cascade would erase his choices with nothing said.
+    assert [tuple(r)[2:7] for r in conn.execute("PRAGMA foreign_key_list(source_setting)")] \
+        == [("source_site", "source_id", "source_id", "NO ACTION", "NO ACTION")]
     assert conn.execute("SELECT 1 FROM database_migration WHERE migration_name = ?",
                         (MIGRATION,)).fetchone(), "the ledger does not record 0022"
 
@@ -178,6 +180,14 @@ def test_the_robots_vocabulary_is_the_enums_and_nothing_else(conn):
     pytest.param("robots_crawl_delay_s", (2.0,), id="a-delay-with-no-choice"),
     pytest.param("user_agent", ("",), id="empty-agent"),
     pytest.param("user_agent", ("   ",), id="blank-agent"),
+    pytest.param("user_agent", ("\u0645\u062a\u0635\u0641\u062d/1",), id="arabic-agent"),
+    pytest.param("user_agent", ("\x85",), id="agent-c1-control"),
+    pytest.param("user_agent", ("caf\u00e9/1",), id="agent-accented"),
+    pytest.param("user_agent", ("A/1\tB",), id="agent-tab"),
+    pytest.param("user_agent", (b"A/1",), id="agent-a-blob"),
+    pytest.param("crawl_pace_s", (float("inf"),), id="infinite-pace"),
+    pytest.param("robots_choice, robots_enforce_disallow, robots_crawl_delay_s",
+                 ("custom", 0, float("inf")), id="infinite-custom-delay"),
     pytest.param("crawl_pace_s", (0.0,), id="zero-pace"),
     pytest.param("crawl_pace_s", (-1.0,), id="negative-pace"),
     pytest.param("crawl_pace_s", ("fast",), id="pace-text"),
@@ -378,6 +388,21 @@ def test_an_unknown_source_is_refused_and_nothing_is_written(conn, manifest):
     pytest.param({"user_agent": 7}, "text or null", id="agent-not-text"),
     pytest.param({"user_agent": "A/1\r\nX-Injected: 1"}, "one line", id="agent-two-lines"),
     pytest.param({"user_agent": "A/1\x00"}, "one line", id="agent-control-character"),
+    pytest.param({"user_agent": "A\r/1"}, "one line", id="agent-carriage-return"),
+    pytest.param({"user_agent": "A\x0b/1"}, "one line", id="agent-vertical-tab"),
+    pytest.param({"user_agent": "A\x1f/1"}, "one line", id="agent-unit-separator"),
+    pytest.param({"user_agent": "A\x7f/1"}, "one line", id="agent-delete"),
+    pytest.param({"user_agent": "\u0645\u062a\u0635\u0641\u062d/1"}, "printable ASCII",
+                 id="agent-arabic"),
+    pytest.param({"user_agent": "A\x85/1"}, "printable ASCII", id="agent-c1-control"),
+    pytest.param({"user_agent": "caf\u00e9/1"}, "printable ASCII", id="agent-accented"),
+    pytest.param({"crawl_pace_s": 10**400}, "finite", id="pace-too-large-for-a-float"),
+    pytest.param({"robots": "custom",
+                  "robots_custom": {"enforce_disallow": False, "crawl_delay_s": 10**400}},
+                 "finite", id="custom-delay-too-large-for-a-float"),
+    pytest.param({1: True}, "not per-source choices", id="a-key-that-is-not-text"),
+    pytest.param({1: True, "actve": True}, "not per-source choices",
+                 id="a-key-that-is-not-text-beside-a-misspelt-one"),
 ])
 def test_a_refused_choice_says_why_and_writes_nothing(conn, manifest, changes, says):
     save(conn, manifest, SHOP, {"crawl_pace_s": 8.0})
@@ -511,3 +536,176 @@ def test_a_price_source_never_crawled_still_gets_what_it_shipped_with(conn, mani
     that crawl still needs its shipped agent: a Zid shop answers 403 to any other."""
     assert read(conn, NEVER_CRAWLED) == {}
     assert effective(conn, manifest, NEVER_CRAWLED).user_agent == "ZidNeedsThis/1.0"
+
+
+# ---- the bounds agree wherever a pace is written, and the edges the review found -----
+
+@pytest.mark.parametrize(("value", "allowed"), [
+    pytest.param(0, False, id="zero"),
+    pytest.param(0.001, True, id="a-thousandth"),
+    pytest.param(math.inf, False, id="infinite"),
+    pytest.param(math.nan, False, id="nan"),
+    pytest.param(-1, False, id="negative"),
+    pytest.param(10**400, False, id="too-large-for-a-float"),
+])
+def test_a_pace_means_the_same_in_the_manifest_the_module_and_the_table(conn, manifest,
+                                                                        value, allowed):
+    """THREE PLACES HOLD THE PACE'S BOUND -- `SourceEntry.crawl_pace_s`, `_seconds` and
+    the table's CHECK -- and a value one of them takes and another refuses is a pace that
+    works from the manifest and fails from the panel, or the reverse. NaN reaches the
+    table as NULL, which is "not chosen", so the table "accepting" it stores no pace."""
+    from scrapex.config import SourceEntry
+
+    try:
+        SourceEntry.model_validate(_entry(SHOP, crawl_pace_s=value))
+        by_manifest = True
+    except ValueError:
+        by_manifest = False
+    try:
+        save(conn, manifest, SHOP, {"crawl_pace_s": value})
+        by_module = True
+    except SourceSettingError:
+        by_module = False
+    try:
+        # Bound as text and cast, because sqlite3 cannot bind an int past 64 bits; the
+        # CAST turns 10**400 into the infinity SQLite would hold for it.
+        conn.execute("INSERT INTO source_setting (source_id, crawl_pace_s) "
+                     "VALUES (?, CAST(? AS REAL))", (_source_id(conn, PLAIN), repr(value)
+                                                    if isinstance(value, int)
+                                                    else value))
+        stored = conn.execute("SELECT crawl_pace_s FROM source_setting WHERE source_id = ?",
+                              (_source_id(conn, PLAIN),)).fetchone()[0]
+        by_table = stored is not None
+    except sqlite3.IntegrityError:
+        by_table = False
+
+    assert (by_manifest, by_module, by_table) == (allowed, allowed, allowed)
+
+
+def test_the_custom_rule_takes_exactly_the_knobs_the_crawl_obeys(conn, manifest):
+    """`robots.RobotsCustom` is the rule the fetcher builds. A knob added there and not
+    accepted here would be a rule the panel could never write."""
+    from dataclasses import asdict
+
+    from scrapex.robots import RobotsCustom
+
+    rule = asdict(RobotsCustom(enforce_disallow=True, crawl_delay_s=2.0))
+
+    assert save(conn, manifest, SHOP, {"robots": "custom", "robots_custom": rule}
+                )["robots_custom"] == rule
+
+
+def test_choices_that_are_not_a_mapping_are_refused(conn, manifest):
+    with pytest.raises(SourceSettingError, match="mapping"):
+        save(conn, manifest, SHOP, [("active", True)])
+
+
+def test_an_unknown_source_reads_as_a_sentence_not_a_quoted_key(conn, manifest):
+    """`str()` of a KeyError is its argument's repr, so the sentence reached the panel in
+    quotes. It is still a LookupError, which is what a caller catching lookups expects."""
+    with pytest.raises(LookupError) as raised:
+        save(conn, manifest, "NOBODY", {"active": True})
+
+    assert not isinstance(raised.value, KeyError)
+    assert str(raised.value) == raised.value.args[0]
+
+
+def test_a_source_whose_family_went_back_to_tbd_probe_is_not_active(conn, manifest):
+    """A later release can put a family back to TBD-probe after he activated the source.
+    There is then no collector, so `effective` reads it inactive whatever was stored --
+    and an unrelated edit to it is not refused for an activation he made earlier."""
+    save(conn, manifest, SHOP, {"active": True})
+    reverted = Manifest.model_validate({"sources": [_entry(SHOP, family="TBD-probe")]})
+
+    assert effective(conn, reverted, SHOP).active is False
+    assert save(conn, reverted, SHOP, {"crawl_pace_s": 2.0})["crawl_pace_s"] == 2.0
+    with pytest.raises(SourceSettingError, match="TBD-probe"):
+        save(conn, reverted, SHOP, {"active": True})
+
+
+def test_the_shipped_rule_handed_out_is_a_copy(conn):
+    """A consumer that edits the rule it was handed must not be editing the manifest
+    every later crawl of every source reads."""
+    rule = {"enforce_disallow": True, "crawl_delay_s": 9}
+    shipped = Manifest.model_validate({"sources": [_entry(
+        SHOP, robots="custom", robots_custom=rule)]})
+
+    handed = effective(conn, shipped, SHOP).robots_custom
+    handed["crawl_delay_s"] = 0
+
+    assert shipped.get(SHOP).robots_custom == {"enforce_disallow": True, "crawl_delay_s": 9}
+    assert effective(conn, shipped, SHOP).robots_custom == {"enforce_disallow": True,
+                                                           "crawl_delay_s": 9.0}
+
+
+@pytest.mark.parametrize("rule", [
+    pytest.param({"crawl_delay_s": 5}, id="no-enforce"),
+    pytest.param({"enforce_disallow": True, "crawl_delay_s": -1}, id="negative-delay"),
+    pytest.param({"enforce_disallow": "yes"}, id="enforce-text"),
+    pytest.param({"enforce_disallow": True, "delay": 5}, id="stray-key"),
+])
+def test_a_shipped_custom_rule_is_held_to_the_rules_a_saved_one_is(conn, rule):
+    """The manifest is hand-edited; a rule there that `save` would refuse must stop the
+    crawl that would act on it, not be read with defaults filled in."""
+    shipped = Manifest.model_validate({"sources": [_entry(
+        SHOP, robots="custom", robots_custom=rule)]})
+
+    with pytest.raises(SourceSettingError):
+        effective(conn, shipped, SHOP)
+
+
+def test_the_schema_page_says_what_an_empty_field_follows():
+    """Not only the shipped value: a directory source shipped nothing, and its empty
+    field follows his general settings."""
+    from scrapex.reports import TABLE_GROUPS
+
+    purpose = dict(row for _title, _note, rows in TABLE_GROUPS for row in rows)["source_setting"]
+
+    assert "shipped with" in purpose and "general settings" in purpose
+
+
+def test_one_sources_change_never_touches_anothers(conn, manifest):
+    """Every statement `save` runs is scoped to ONE source: the read of the stored row
+    and the UPDATE both. Unscoped, the third save below would rewrite the directory's row
+    or judge SHOP's change against it."""
+    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    save(conn, manifest, DIRECTORY, {"user_agent": "Dir/1"})
+    save(conn, manifest, SHOP, {"crawl_pace_s": 3.0})
+
+    assert read(conn, DIRECTORY) == {"user_agent": "Dir/1"}
+    assert read(conn, SHOP) == {"crawl_pace_s": 3.0}
+
+
+def test_a_rule_on_one_source_does_not_decide_anothers_change(conn, manifest):
+    save(conn, manifest, DIRECTORY, {"robots": "custom",
+                                     "robots_custom": {"enforce_disallow": True}})
+
+    with pytest.raises(SourceSettingError, match="needs its rule"):
+        save(conn, manifest, SHOP, {"robots": "custom"})
+
+
+def test_an_empty_change_to_a_stored_row_writes_nothing(conn, manifest):
+    """No field named is no write: the row keeps its date, because nothing changed."""
+    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    conn.execute("UPDATE source_setting SET updated_at = '2000-01-01T00:00:00Z'")
+
+    assert save(conn, manifest, SHOP, {}) == {"crawl_pace_s": 2.0}
+    assert _row(conn, SHOP)["updated_at"] == "2000-01-01T00:00:00Z"
+
+
+def test_a_new_row_is_stamped_now_in_the_warehouses_own_format(conn, manifest):
+    """The format every stored timestamp uses (`payload.py`), UTC, and the moment of the
+    write -- not a constant and not epoch seconds."""
+    from datetime import UTC, datetime
+
+    save(conn, manifest, SHOP, {"crawl_pace_s": 2.0})
+    stamp = _row(conn, SHOP)["updated_at"]
+
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", stamp)
+    written = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    assert abs((datetime.now(UTC) - written).total_seconds()) < 120
+
+
+def test_a_rule_without_a_choice_names_what_is_missing(conn, manifest):
+    with pytest.raises(SourceSettingError, match="choice is not set"):
+        save(conn, manifest, SHOP, {"robots_custom": {"enforce_disallow": True}})
