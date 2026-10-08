@@ -1450,6 +1450,17 @@ def test_the_route_closes_the_fetcher_it_read_with(panel, monkeypatch):
 
 # ---- a cached host never waits behind another host's read (#1588 re-review) ----
 
+def _recorded(outcomes: dict, name: str, call):
+    """A thread target that keeps `call`'s result -- or its exception -- in
+    `outcomes[name]`, so nothing a worker raises escapes the thread unasserted."""
+    def run():
+        try:
+            outcomes[name] = call()
+        except Exception as exc:
+            outcomes[name] = exc
+    return run
+
+
 def test_a_cached_host_does_not_wait_behind_another_hosts_robots_read():
     """One lock serves every host, and a read can back off for minutes: a page of a
     host whose answer is cached must not queue behind it."""
@@ -1470,18 +1481,23 @@ def test_a_cached_host_does_not_wait_behind_another_hosts_robots_read():
     fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher.get(f"https://{HOST}/first")                 # HOST's answer is cached
-    other = threading.Thread(target=fetcher.get, args=("https://b.test/x",))
+    outcomes: dict[str, object] = {}
+    other = threading.Thread(target=_recorded(
+        outcomes, "b", lambda: fetcher.get("https://b.test/x").status_code))
     other.start()
     assert reading_b.wait(5), "the second host's read never started"
 
-    done = threading.Event()
-    threading.Thread(target=lambda: (fetcher.get(f"https://{HOST}/second"),
-                                     done.set())).start()
-    finished = done.wait(2)
+    second = threading.Thread(target=_recorded(
+        outcomes, "second", lambda: fetcher.get(f"https://{HOST}/second").status_code))
+    second.start()
+    second.join(2)
+    finished = not second.is_alive()
     release_b.set()
     other.join(5)
+    second.join(5)
 
     assert finished, "a cached host's page waited behind another host's robots read"
+    assert outcomes == {"b": 200, "second": 200}, outcomes
 
 
 def test_a_host_not_yet_read_still_reads_once_under_the_lock():
@@ -1501,7 +1517,9 @@ def test_a_host_not_yet_read_still_reads_once_under_the_lock():
 
     fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
-    threads = [threading.Thread(target=fetcher.get, args=(f"{PAGE}?n={n}",))
+    outcomes: dict[str, object] = {}
+    threads = [threading.Thread(target=_recorded(
+                   outcomes, str(n), lambda n=n: fetcher.get(f"{PAGE}?n={n}").status_code))
                for n in range(4)]
     for thread in threads:
         thread.start()
@@ -1509,6 +1527,7 @@ def test_a_host_not_yet_read_still_reads_once_under_the_lock():
         thread.join()
 
     assert asked.count("/robots.txt") == 1, asked
+    assert outcomes == {str(n): 200 for n in range(4)}, outcomes
 
 
 # ---- #1588 third review ---------------------------------------------------------
@@ -1580,12 +1599,17 @@ def test_a_host_already_refused_or_paused_answers_without_the_lock(kind):
 
     def handler(request):
         if request.url.host == "b.test":
+            if request.url.path != "/robots.txt":
+                return httpx.Response(200, text="ok")
             reading_b.set()
             release_b.wait(10)
             return httpx.Response(404)
         if kind == "unreachable":
             return httpx.Response(503)
         return httpx.Response(200, text=SLOW_SITE)
+
+    #: Every thread's outcome, collected rather than left to escape the thread.
+    outcomes: dict[str, object] = {}
 
     choice = ({} if kind == "unreachable"
               else {"robots_choice": "custom", "robots_custom": None})
@@ -1594,20 +1618,20 @@ def test_a_host_already_refused_or_paused_answers_without_the_lock(kind):
     expected = RobotsUnreachable if kind == "unreachable" else ValueError
     with pytest.raises(expected):
         fetcher.get(PAGE)                                # the answer is cached
-    other = threading.Thread(target=fetcher.get, args=("https://b.test/x",))
+    other = threading.Thread(target=_recorded(
+        outcomes, "b", lambda: fetcher.get("https://b.test/x").status_code))
     other.start()
     assert reading_b.wait(5), "the second host's read never started"
 
-    answered = threading.Event()
-
-    def again():
-        try:
-            fetcher.get(PAGE)
-        except expected:
-            answered.set()
-    threading.Thread(target=again).start()
-    finished = answered.wait(2)
+    again = threading.Thread(target=_recorded(outcomes, "again",
+                                              lambda: fetcher.get(PAGE)))
+    again.start()
+    again.join(2)
+    finished = not again.is_alive()
     release_b.set()
     other.join(5)
+    again.join(5)
 
     assert finished, f"a {kind} host waited behind another host's robots read"
+    assert isinstance(outcomes["again"], expected), outcomes
+    assert outcomes["b"] == 200, outcomes
