@@ -1147,22 +1147,13 @@ def resolve_user_agent(source_user_agent: str | None,
 
 def resolve_fetcher(source: SourceEntry,
                     crawl_settings: dict | None = None) -> HttpFetcher | BrowserFetcher:
-    """Build the transport for a source.
+    """Build the transport for a source: the general rules, then this source's own.
 
     The user agent is `resolve_user_agent`'s decision — see it for the four
     levels and why each exists.
     """
     if source.fetcher == Fetcher.BROWSER:
         return BrowserFetcher()
-    chosen = crawl_settings or {}
-    # `or` would treat a deliberate 0 as "unset" and silently restore the 1-second
-    # default, so a setting the owner changed would appear not to work at all.
-    interval = chosen.get("min_interval_s")
-    timeout = chosen.get("timeout_s")
-    # Absent means HONOUR. A missing setting must never be read as permission
-    # to ignore a site's asked-for pace — the safe reading of silence is the
-    # polite one.
-    honour = chosen.get("honour_crawl_delay")
     # ONE PLACE DECIDES THE PACE, AND IT TAKES THE SLOWEST OPINION.
     #
     # There were three of these and only one was connected. The owner's setting
@@ -1181,30 +1172,70 @@ def resolve_fetcher(source: SourceEntry,
     # The site's Crawl-delay is NOT one of these opinions when the custom rule
     # names a delay: that delay is applied as set, and `_apply_site_delay` does
     # not raise it (#1413).
-    paces = [1.0 if interval is None else float(interval)]
+    source_paces = []
     if source.crawl_pace_s:
-        paces.append(float(source.crawl_pace_s))
+        source_paces.append(float(source.crawl_pace_s))
     custom_delay = (source.robots_custom or {}).get("crawl_delay_s")
     if custom_delay:
-        paces.append(float(custom_delay))
-
-    return HttpFetcher(
-        user_agent=resolve_user_agent(source.user_agent, chosen),
-        # The panel's own brands, and ONLY when the panel's own agent is the one
-        # being used. A source that declares its agent gets no hints at all
-        # (`browser_headers`), and the owner's typed agent is not the panel's
-        # browser either — sending this machine's brands beside a different
-        # agent would be the mismatch the hints exist to avoid.
-        client_hints=("" if (source.user_agent or chosen.get("user_agent"))
-                      else chosen.get("client_hints", "")),
-        min_interval_s=max(paces),
-        timeout_s=30.0 if timeout is None else float(timeout),
-        honour_crawl_delay=True if honour is None else bool(honour),
+        source_paces.append(float(custom_delay))
+    return general_fetcher(
+        crawl_settings,
+        source_user_agent=source.user_agent,
+        source_paces=tuple(source_paces),
         # The source's own answer, and what it means when the source did not
         # give one. Read HERE and not inside the fetcher because a single crawl
         # can run several sources and each may have answered differently.
         robots_choice=source.robots or "default",
         robots_custom=source.robots_custom,
+    )
+
+
+def general_fetcher(crawl_settings: dict | None = None, *,
+                    source_user_agent: str | None = None,
+                    source_paces: tuple[float, ...] = (),
+                    robots_choice: str = "default",
+                    robots_custom: dict | None = None) -> HttpFetcher:
+    """An `HttpFetcher` built from the owner's crawl settings — the GENERAL rules.
+
+    ONE READING OF THE SETTINGS FOR EVERY COLLECTOR (#1414). `resolve_fetcher`
+    needs a `SourceEntry`, and a directory is not one: muqawil and the Oman
+    register have no manifest entry, no family and no extract spec, so building a
+    `SourceEntry` for them would be a contract that says nothing true. They took
+    `HttpFetcher(min_interval_s=1.0)` instead, and no pace, timeout, agent or
+    robots switch the owner set ever reached them. So the settings half lives
+    here, and each caller adds what it alone knows: a price source its per-source
+    rules, a directory nothing yet — the tool default for robots.
+
+    `crawl_settings` is `capture.crawl_settings(conn)`'s dict; a key it lacks
+    reads as the shipped default, which is what the command line passes.
+    """
+    chosen = crawl_settings or {}
+    # `or` would treat a deliberate 0 as "unset" and silently restore the 1-second
+    # default, so a setting the owner changed would appear not to work at all.
+    interval = chosen.get("min_interval_s")
+    timeout = chosen.get("timeout_s")
+    # Absent means HONOUR. A missing setting must never be read as permission
+    # to ignore a site's asked-for pace — the safe reading of silence is the
+    # polite one.
+    honour = chosen.get("honour_crawl_delay")
+    # The owner's pace is the floor every source-level opinion is weighed
+    # against — `resolve_fetcher` says why the slowest wins.
+    paces = [1.0 if interval is None else float(interval), *source_paces]
+
+    return HttpFetcher(
+        user_agent=resolve_user_agent(source_user_agent, chosen),
+        # The panel's own brands, and ONLY when the panel's own agent is the one
+        # being used. A source that declares its agent gets no hints at all
+        # (`browser_headers`), and the owner's typed agent is not the panel's
+        # browser either — sending this machine's brands beside a different
+        # agent would be the mismatch the hints exist to avoid.
+        client_hints=("" if (source_user_agent or chosen.get("user_agent"))
+                      else chosen.get("client_hints", "")),
+        min_interval_s=max(paces),
+        timeout_s=30.0 if timeout is None else float(timeout),
+        honour_crawl_delay=True if honour is None else bool(honour),
+        robots_choice=robots_choice,
+        robots_custom=robots_custom,
         obey_disallow=bool(chosen.get("obey_disallow")),
     )
 
