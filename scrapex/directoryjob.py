@@ -48,9 +48,9 @@ from .vocab import (
 JOB_KIND = "directory_crawl"
 
 #: Seconds between heartbeats while a cell is being fetched. A request takes about a
-#: second at the shipped `crawl_min_interval_s`, so this is roughly one small write every twenty pages --
-#: often enough that the job card is never more than twenty seconds behind, rare enough
-#: that it is not a write per request.
+#: second at the shipped `crawl_min_interval_s`, so this is roughly one small write every
+#: twenty pages -- often enough that the job card is never more than twenty seconds
+#: behind, rare enough that it is not a write per request.
 #:
 #: AT MODULE SCOPE BECAUSE IT WAS A LOCAL AND THAT HID IT. A tuning number inside the
 #: function cannot be varied by a test or seen by anyone reading the module, and the guard
