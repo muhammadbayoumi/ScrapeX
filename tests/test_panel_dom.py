@@ -10218,7 +10218,7 @@ def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
 
 def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
     """Each by its key, a dataset's as well as a price source's, and counted."""
-    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+    said = _backed_up_with(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
         {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
          "problem": "RuntimeError: the second card"},
         {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
