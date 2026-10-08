@@ -469,6 +469,11 @@ class HttpFetcher:
         #: the source, not the request, so it is given again without a second
         #: robots.txt fetch -- uncached, every page re-fetched the file.
         self._robots_refused: dict[str, ValueError] = {}
+        #: One robots.txt read per host, however many workers share this
+        #: fetcher (#1572). Unlocked, every worker whose first request left
+        #: before the first answer arrived fetched the file itself: 6 workers,
+        #: 6 fetches, all outside the pacer.
+        self._robots_lock = threading.Lock()
         self._user_agent = user_agent
         # The owner's per-run choice (2026-07-28). Default TRUE: a crawler that
         # ignores a site's asked-for pace by default is one that gets the owner
@@ -719,6 +724,13 @@ class HttpFetcher:
         return self._request("POST", url, **kwargs)
 
     def _robots_for(self, url: str):
+        # HELD ACROSS THE FETCH, so a worker that arrives while the file is being
+        # read waits for that answer instead of asking again. One lock for every
+        # host: a fetcher crawls one site, and the wait is one request at most.
+        with self._robots_lock:
+            return self._load_robots(url)
+
+    def _load_robots(self, url: str):
         from urllib.parse import urlsplit
         from urllib.robotparser import RobotFileParser
 
