@@ -1089,3 +1089,104 @@ def test_the_route_says_which_robots_txt_it_read(panel, monkeypatch):
         {})
 
     assert shown["robots_url"] == f"https://{HOST}/robots.txt", shown
+
+
+# ---- the route answers promptly; the crawl keeps the full wait (#1588 ruling) ----
+
+def _sleeps(monkeypatch) -> list[float]:
+    slept: list[float] = []
+    monkeypatch.setattr("scrapex.connectors.base.time.sleep", slept.append)
+    return slept
+
+
+def _route_only(panel, monkeypatch, handler) -> dict:
+    """The route alone, so every recorded wait is the route's own."""
+    monkeypatch.setattr("scrapex.webui.app.crawl_settings",
+                        lambda conn: {"min_interval_s": 0.0, "timeout_s": 30.0})
+    real_client = httpx.Client
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        response = panel.get("/api/sources/DEF/robots")
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_route_does_not_wait_a_long_retry_after_and_says_so(panel, monkeypatch):
+    """A 503 asking Retry-After 900: the route answers at once, says the site asked
+    for 900s, and keeps the pause as the answer it has -- the crawl would wait it."""
+    slept = _sleeps(monkeypatch)
+    asked: list[str] = []
+
+    def busy(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        return httpx.Response(503, headers={"Retry-After": "900"})
+
+    shown = _route_only(panel, monkeypatch, busy)
+
+    assert asked == ["/robots.txt"], "the route asked again instead of answering"
+    assert slept == [], f"the route waited: {slept}"
+    assert shown["retry_after_s"] == 900.0, shown
+    assert shown["unreachable"] is True, shown
+    assert "retried after 900s" in shown["summary"], shown["summary"]
+
+
+def test_the_route_waits_a_short_retry_after_and_retries(panel, monkeypatch):
+    """Within the cap the route waits as the crawl does, and reads the file."""
+    slept = _sleeps(monkeypatch)
+    calls: list[int] = []
+
+    def once_busy(request: httpx.Request) -> httpx.Response:
+        if request.url.path != "/robots.txt":
+            return httpx.Response(200, text="ok")
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, headers={"Retry-After": "5"})
+        return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+
+    shown = _route_only(panel, monkeypatch, once_busy)
+
+    assert len(calls) == 2, calls
+    assert 5.0 in slept, slept
+    assert shown["found"] is True and shown["retry_after_s"] is None, shown
+
+
+def test_a_prompt_read_caps_every_wait_at_the_timeout(monkeypatch):
+    """The exponential backoff too: a 100s pace would back off 200s, 400s."""
+    slept = _sleeps(monkeypatch)
+    fetcher = HttpFetcher(min_interval_s=100.0, jitter=0.0, timeout_s=10.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(
+        lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused"))),
+        timeout=10.0)
+
+    read = fetcher.read_robots(PAGE, answer_promptly=True)
+
+    assert read.unreachable is True and read.retry_after_s is None
+    backoffs = [wait for wait in slept if wait != 100.0]   # the pace is not a backoff
+    assert backoffs and all(wait <= 10.0 for wait in backoffs), slept
+
+
+def test_the_crawl_still_waits_the_full_retry_after(monkeypatch):
+    """The crawl is not the route: Retry-After 900 is waited, then retried."""
+    slept = _sleeps(monkeypatch)
+    fetcher, asked = _scripted(httpx.Response(503, headers={"Retry-After": "900"}),
+                               httpx.Response(404))
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert 900.0 in slept, slept
+    assert asked == ["/robots.txt", "/robots.txt", "/products/1"], asked
+
+
+def test_the_crawls_read_never_reports_a_retry_after(monkeypatch):
+    _sleeps(monkeypatch)
+    fetcher, _ = _scripted(httpx.Response(503, headers={"Retry-After": "900"}))
+
+    read = fetcher.read_robots(PAGE)
+
+    assert read.retry_after_s is None and read.unreachable is True

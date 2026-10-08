@@ -7,22 +7,25 @@
 // sentence under "On a disallowed path today:", which reads as if only those
 // paths were affected.
 //
-// READ AS SOURCE TEXT, like `the-panel-lends-the-crawl-its-agent.test.mjs`:
-// `extension/app.js` exports nothing and touches `chrome.*` at module scope. The
+// READ AS SOURCE TEXT, like `appearance-applies-only-colour.test.mjs`:
+// `extension/app.js` exports nothing and touches `chrome.*` at module scope, so the
+// one function is evaluated alone in a `vm` context holding only what it reads. The
 // regex is asserted, so renaming the function fails loudly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import vm from "node:vm";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "..", "app.js"), "utf8");
 const BODY = SOURCE.match(/^async function lookAtRobots\(\) \{[\s\S]*?\n\}/m);
 assert.ok(BODY, "lookAtRobots is no longer where this guard reads it from in app.js");
 
-// `$`, `state` and `api` arrive as PARAMETERS and shadow the panel's globals.
-const make = new Function("$", "state", "api", BODY[0] + "\nreturn lookAtRobots;");
+// `$`, `state` and `api` are the context's globals, standing in for the panel's.
+const make = ($, state, api) =>
+  vm.runInNewContext(`${BODY[0]}\nlookAtRobots;`, {$, state, api});
 
 async function look(report) {
   const classes = new Set();

@@ -2372,7 +2372,9 @@ def create_app(
                    if entry.fetcher == Fetcher.BROWSER
                    else resolve_fetcher(entry, crawl))
         try:
-            read = fetcher.read_robots(entry.base_url)
+            # PROMPTLY: the panel is waiting, so no backoff outlasts the timeout and
+            # a long Retry-After is reported instead of waited (`retry_after_s`).
+            read = fetcher.read_robots(entry.base_url, answer_promptly=True)
         finally:
             fetcher.close()
 
@@ -2406,11 +2408,17 @@ def create_app(
             # WHICH FILE was read: a source whose crawl touches a second host has
             # that host's robots.txt read by the crawl, not by this route.
             "robots_url": read.url,
+            # The site asked to be retried after this many seconds -- longer than
+            # this route waits. The crawl waits it and retries before deciding.
+            "retry_after_s": read.retry_after_s,
             "names_us": report.names_us,
             "user_agent": agent,
             "crawl_delay_s": report.crawl_delay_s,
             "would_block_everything": report.obeying_would_block_everything,
-            "summary": report.summary(),
+            "summary": report.summary() + (
+                f" The site asked to be retried after {read.retry_after_s:g}s; the "
+                "crawl waits that long and retries before this answer is final."
+                if read.retry_after_s is not None else ""),
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),

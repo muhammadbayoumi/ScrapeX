@@ -394,6 +394,9 @@ class RobotsRead:
     unreadable: str
     #: RFC 9309 §2.3.1.4: the crawl must pause (`robots.is_unreachable`).
     unreachable: bool
+    #: Only from `read_robots(answer_promptly=True)`: the site asked to be retried
+    #: after this many seconds, more than the route will wait. The crawl waits it.
+    retry_after_s: float | None = None
 
 
 class RobotsDisallowed(RuntimeError):
@@ -835,7 +838,7 @@ class HttpFetcher:
         self._robots[host] = parser
         return parser
 
-    def read_robots(self, url: str) -> RobotsRead:
+    def read_robots(self, url: str, *, answer_promptly: bool = False) -> RobotsRead:
         """Read the robots.txt of `url`'s host as the crawl reads it. Caches nothing.
 
         TWO CALLERS, ONE READ: `_load_robots` and `GET /api/sources/{key}/robots`.
@@ -854,6 +857,14 @@ class HttpFetcher:
         the interval after it. Outside the pacer, page one left 1.2 s and 2.3 s
         later on two studies -- the second against the `Crawl-delay: 10` this very
         file asked for. A retry waits its backoff AND the pace, as `_request`'s does.
+
+        `answer_promptly` IS THE ROUTE'S, AND ONLY THE ROUTE'S (the coordinator's ruling
+        on #1588). The panel waits on that answer, and a 503 naming Retry-After 900
+        would hold it fifteen minutes per retry. So each wait is capped at this
+        fetcher's own timeout, and a site that asks for longer than that is not waited
+        for: the read ends on the answer it has and says what the site asked, in
+        `retry_after_s`. Same attempts, same statuses, same classification -- only the
+        WAIT differs, and the crawl keeps the full one.
         """
         from urllib.parse import urlsplit
 
@@ -863,6 +874,9 @@ class HttpFetcher:
         robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
         text, unreadable = None, ""
         outcome: int | Exception
+        cap_s = (self._client.timeout.read or 30.0) if answer_promptly else None
+        #: Set only under `answer_promptly`, when the site asked for a longer wait.
+        retry_after_s: float | None = None
         try:
             answer = None
             for attempt in range(1, self._max_attempts + 1):
@@ -876,15 +890,19 @@ class HttpFetcher:
                     if attempt == self._max_attempts:
                         raise
                     self.retry_count += 1
-                    self._sleep_backoff(attempt)
+                    self._sleep_backoff(attempt, cap_s=cap_s)
                     continue
                 finally:
                     with self._throttle_lock:
                         self._last_request_at = time.monotonic()
                 if (answer.status_code in self.RETRY_STATUSES
                         and attempt < self._max_attempts):
+                    asked = self._retry_after_s(answer)
+                    if cap_s is not None and asked is not None and asked > cap_s:
+                        retry_after_s = asked
+                        break
                     self.retry_count += 1
-                    self._sleep_backoff(attempt, answer)
+                    self._sleep_backoff(attempt, answer, cap_s=cap_s)
                     continue
                 break
             assert answer is not None, "the loop runs at least once"
@@ -901,7 +919,8 @@ class HttpFetcher:
             outcome = exc
             text, unreadable = None, f"{type(exc).__name__}: {exc}"
         return RobotsRead(url=robots_url, text=text, unreadable=unreadable,
-                          unreachable=is_unreachable(outcome))
+                          unreachable=is_unreachable(outcome),
+                          retry_after_s=retry_after_s)
 
     def _robots_report(self, host: str, url: str) -> RobotsReport:
         """What this host's robots.txt says for this crawler, read once."""
@@ -1104,26 +1123,40 @@ class HttpFetcher:
                 f"on {url}). Stopping rather than pressing a site that has said no — "
                 "slow the crawl down or spread it over more runs, and retry later.")
 
-    def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
+    @staticmethod
+    def _retry_after_s(response: httpx.Response) -> float | None:
+        """The delay a response's Retry-After names in seconds, or None.
+
+        None also for an HTTP date: the default backoff stands for that, as it
+        always has. One reading, for `_sleep_backoff` and `read_robots` alike.
+        """
+        try:
+            return float(response.headers.get("Retry-After", ""))
+        except ValueError:
+            return None
+
+    def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None,
+                       *, cap_s: float | None = None) -> None:
         """Retry-After when the server names a delay, else exponential backoff.
 
         A server-named delay gets its own, much higher ceiling: silently
         shrinking a requested hour to two minutes was the OPPOSITE of
         honouring it, and re-knocking early is how a polite crawler stops
         being welcome. When the cap does bite, it is recorded, not hidden.
+
+        `cap_s` is `read_robots(answer_promptly=True)`'s alone: the crawl never
+        passes it, so no crawl wait is shortened by it.
         """
         delay = min(self._min_interval_s * (2 ** attempt), self.MAX_BACKOFF_S)
-        if response is not None:
-            named = response.headers.get("Retry-After", "")
-            try:
-                asked = float(named)
-                delay = min(asked, self.MAX_RETRY_AFTER_S)
-                if asked > self.MAX_RETRY_AFTER_S:
-                    self.robots_warnings.append(
-                        f"server asked for Retry-After {asked:.0f}s; waited the "
-                        f"{self.MAX_RETRY_AFTER_S:.0f}s ceiling instead")
-            except ValueError:
-                pass          # Retry-After may be an HTTP date; the default stands
+        asked = self._retry_after_s(response) if response is not None else None
+        if asked is not None:
+            delay = min(asked, self.MAX_RETRY_AFTER_S)
+            if asked > self.MAX_RETRY_AFTER_S:
+                self.robots_warnings.append(
+                    f"server asked for Retry-After {asked:.0f}s; waited the "
+                    f"{self.MAX_RETRY_AFTER_S:.0f}s ceiling instead")
+        if cap_s is not None:
+            delay = min(delay, cap_s)
         time.sleep(max(0.0, delay))
 
     def _throttle(self) -> None:
