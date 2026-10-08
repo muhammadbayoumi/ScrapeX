@@ -1623,3 +1623,19 @@ def test_a_stop_does_not_crawl_the_cells_that_have_not_started(registry):
         assert len(started) < 8, "no cell was spared, so the stop stopped nothing"
     finally:
         conn.close()
+
+
+def test_each_replayed_attempt_reads_back_its_own_pages_and_not_the_newest_copy(conn):
+    """#1534. Every attempt stores the same URLs under its own ref, so a replay that read
+    back the newest copy of a URL whatever its ref got the LAST attempt's ids for every
+    attempt: measured on this shape, the first run's attempts saw 11 distinct ids and
+    its four replays recovered 9 -- one attempt's worth. Each replay must return exactly
+    what the attempt it replays saw."""
+    first, second, _ = _resume_a_cell_that_went_dry(conn, region_id=12,
+                                                     shape=never_converges)
+
+    replays = [a for a in second.attempts if a.pages_read == 0]
+    assert len(replays) == len(first.attempts) > 1, "the fixture must replay attempts"
+    for original, replay in zip(first.attempts, replays, strict=False):
+        assert set(replay.ids) == set(original.ids), (original.run_ref, _gains(second))
+    assert {one for a in replays for one in a.ids} == set(first.ids)

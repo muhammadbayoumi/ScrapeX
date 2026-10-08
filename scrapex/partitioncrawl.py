@@ -705,7 +705,7 @@ class _Unstored:
 
 
 def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
-                   urls: Iterable[str]
+                   urls: Iterable[str], *, run_ref: str
                    ) -> tuple[dict[str, tuple[str, ...]], list[RowIdentity]]:
     """Ids for pages this run had already stored, read back off the evidence -- and
     what their rows say about which firm each is.
@@ -724,6 +724,14 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
     than a shortcoming. Pages recovered from disk were read in an earlier
     generation; the cell was NOT read inside one, so it cannot be proven from
     this attempt, and the retry that follows is the method working.
+
+    THIS ATTEMPT'S OWN COPY, BY `run_ref` (#1534). Every attempt stores the same URLs
+    under its own ref, so the newest copy of a URL is the LAST attempt's: read by URL
+    alone, every replay returned that one attempt's ids, and a resumed cell's union
+    shrank to it -- 9 of 11 on the rolling fixture. Both callers' URLs are stored under
+    `run_ref` by definition: `_Unstored` removed them for it and `snapshotcrawl`
+    skipped them for it. And `idx_snapshot_run_url` serves the lookup, which the URL
+    alone had no index for.
     """
     found: dict[str, tuple[str, ...]] = {}
     evidence: list[RowIdentity] = []
@@ -731,8 +739,9 @@ def _ids_from_disk(conn: sqlite3.Connection, partition: PartitionedListing,
         row = conn.execute(
             "SELECT page_snapshot_id, source_url, html_content, html_codec, "
             "       html_dict_id FROM generic_page_snapshot "
-            " WHERE source_url = ? ORDER BY page_snapshot_id DESC LIMIT 1",
-            (url,)).fetchone()
+            " WHERE crawl_run_ref = ? AND source_url = ? "
+            " ORDER BY page_snapshot_id DESC LIMIT 1",
+            (run_ref, url)).fetchone()
         if row is None:
             continue
         try:
@@ -858,7 +867,8 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
     # right rather than quietly short by a page.
     left_out = [url for url in wanted if url in stored]
     recovered, evidence_on_disk = _ids_from_disk(
-        conn, partition, dict.fromkeys(left_out + list(outcome.skipped)))
+        conn, partition, dict.fromkeys(left_out + list(outcome.skipped)),
+        run_ref=run_ref)
     evidence.extend(evidence_on_disk)
     for url, ids in recovered.items():
         if url in wanted:
