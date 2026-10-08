@@ -614,6 +614,46 @@ test("an older light file is deleted only after the new pointer names its own", 
   assert.ok(!drive.events.includes(`delete id-${LIGHT_NAME}`), "the new light file was deleted");
 });
 
+test("the light prune deletes light files only, and counts none of them as a backup", async () => {
+  // A folder as Drive holds it, not light files alone: a match on the bundle prefix
+  // would take the archive the new pointer names, and one on ".gz" the pack.
+  const archive = "scrapex-bundle-20261005-000000.zip";
+  const drive = recordingDrive([
+    {id: `id-${archive}`, name: archive, createdTime: "2026-10-05T00:00:00Z"},
+    {id: "older-zip", name: "scrapex-bundle-20261004-000000.zip",
+     createdTime: "2026-10-04T00:00:00Z"},
+    {id: "pack", name: PANEL_PACK},
+    {id: "old-ptr", name: LATEST},
+    {id: "old-light", name: "scrapex-bundle-20261004-000000-light.gz"},
+    {id: `id-${LIGHT_NAME}`, name: LIGHT_NAME},
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["a"]), name: archive,
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.events.filter((e) => e.startsWith("delete")),
+    ["delete old-ptr", "delete old-light"]);
+  assert.deepEqual(result.pruned, []);
+});
+
+test("a light file that left out a table is still carried and named", async () => {
+  // Its other tables still open, and the panel has just said which one is missing.
+  const partial = {...LIGHT_INDEX, faults: [
+    {kind: "price", site_key: "ELSEWEDYSHOP", key: "ELSEWEDYSHOP", problem: "boom"}]};
+  const drive = recordingDrive();
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["light!"]), manifest: {light: partial},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.pointer().light, {file_id: `id-${LIGHT_NAME}`, index: partial});
+});
+
 test("a failed light upload leaves the pointer and the old light file alone", async () => {
   const events = [];
   let naming = null;

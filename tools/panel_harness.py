@@ -147,7 +147,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
          worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
-         bundle=None, ui=None) -> str:
+         bundle=None, bundle_light_route=True, ui=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -181,6 +181,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     it since the handshake moved onto the transport that carries the traffic,
     and this stub did not — so the panel was being tested against an engine that
     stays silent about the one thing that can refuse an impossible pair.
+
+    `bundle_light_route=False` is engine 0.4.45: its build reply carries the light
+    file's index, and `GET /api/bundle/light` answers FastAPI's 404, because the
+    route came one version after the file (#1199).
     """
     from scrapex.native import PROTOCOL_VERSION
     from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
@@ -572,6 +576,7 @@ const DRIVE = {json.dumps(drive)};
 // this feature has had -- a 541,531,989-byte read that returned 0, and two
 // builds spliced into one Drive object -- were both on the happy path.
 const BUNDLE = {json.dumps(bundle)};
+const BUNDLE_LIGHT_ROUTE = {str(bundle_light_route).lower()};
 // One validator for the whole session, which is what a real engine serves
 // while the file on disk does not change. `range()` sends it back as
 // `If-Range`; a fake that varied it would fail every chunk after the first.
@@ -762,6 +767,10 @@ window.fetch = async (url, options = {{}}) => {{
     if (path.startsWith("/api/bundle/light")) {{
       // The light file's parts (#1199), as long as the build reply said they are.
       window.__sx_light_reads = (window.__sx_light_reads || 0) + 1;
+      if (!BUNDLE_LIGHT_ROUTE) {{
+        return {{ ok: false, status: 404, statusText: "Not Found",
+                  json: async () => ({{detail: "Not Found"}}) }};
+      }}
       const size = Number(((BUNDLE.light || {{}}).parts_file || {{}}).bytes || 0);
       return {{ ok: true, status: 200, headers: {{get: () => null}},
                 blob: async () => filler(size), json: async () => ({{}}) }};

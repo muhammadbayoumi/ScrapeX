@@ -8753,11 +8753,28 @@ async function backUpToDrive(token, report = "drive-msg") {
   const panelPack = built.panel_pack
     ? await bytes("/api/bundle/panel-pack")
     : null;
-  // THE LIGHT FILE (#1199), asked for only when the reply names one, so an engine
-  // that never wrote it is never asked a route it may not have.
-  const light = built.light
-    ? await bytes("/api/bundle/light")
-    : null;
+  // THE LIGHT FILE (#1199) NEVER FAILS A BACKUP, on this side as in the engine
+  // (`_build_one_bundle`): the zip IS the backup. One this panel cannot read is
+  // left behind and said, and `backUp` is handed a manifest without it, or its
+  // size check would refuse the archive over it. A 404 is not hypothetical:
+  // engine 0.4.45 sends the index and has no route for the file, and it keeps
+  // running after the extension reloads, until he restarts it. Not asked for at
+  // all when it holds no bytes -- every table failed, and the faults sentence
+  // below names them. Bytes that differ from the index are still refused by
+  // `backUp`, archive and all: that is an engine describing one file and
+  // serving another, not a copy that is missing.
+  let light = null;
+  let lightLeft = "";
+  if (built.light?.parts_file?.bytes) {
+    try {
+      light = await bytes("/api/bundle/light");
+    } catch (error) {
+      lightLeft = error?.kind === "http" && error?.status === 404
+        ? "the engine running is older than this panel. Restart it from the " +
+          "Engine page, then back up again"
+        : String(error?.message || error).replace(/\.$/, "");
+    }
+  }
 
   // `manifest: built` is not decoration. WHAT THE ENGINE DESCRIBED AND WHAT
   // ARRIVED ARE TWO DIFFERENT FACTS -- the manifest comes from the POST above,
@@ -8767,7 +8784,8 @@ async function backUpToDrive(token, report = "drive-msg") {
   // them now, because it is handed both.
   const stored = await backUp(token, {
     archive, name: built.name, panelPack, light,
-    manifest: built, bundleFormat: built.bundle_format,
+    manifest: light ? built : {...built, light: null},
+    bundleFormat: built.bundle_format,
     // Both bars, because only the visible one exists on any given screen and
     // `driveProgress` is a no-op for the other. Cheaper and plainer than
     // threading the caller's choice through `backUpToDrive`.
@@ -8781,15 +8799,18 @@ async function backUpToDrive(token, report = "drive-msg") {
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
     : "";
-  // THE LIGHT FILE (#1199) never fails a backup, so what it could not write is
-  // said here, where he reads the result, rather than left in the reply.
+  // THE LIGHT FILE (#1199) never fails a backup, so what the engine could not
+  // write, or this panel could not carry, is said here, where he reads the
+  // result, rather than left in the reply.
   const faults = built.light?.faults || [];
   const lightNote = built.light_error
     ? ` The offline copy of the Data page was not written: ${built.light_error}.`
-    : faults.length
-      ? ` The offline copy of the Data page left out ${faults.length} ` +
-        `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
-      : "";
+    : lightLeft
+      ? ` The offline copy of the Data page was not carried to Drive: ${lightLeft}.`
+      : faults.length
+        ? ` The offline copy of the Data page left out ${faults.length} ` +
+          `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
+        : "";
   return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${lightNote}`;
 }
 
