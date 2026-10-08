@@ -430,8 +430,10 @@ export function expectSize(what, blob, described) {
   if (typeof described !== "number") return;
   const size = blob ? blob.size : 0;
   if (size === described) return;
+  // "an archive", "an offline copy", "a panel pack": the label picks its article.
+  const article = /^[aeiou]/i.test(what) ? "an" : "a";
   throw new DriveError(
-    `The engine built a ${what} of ${described} bytes and this panel read ` +
+    `The engine built ${article} ${what} of ${described} bytes and this panel read ` +
     `${size}. Nothing was uploaded, and the backup already in Drive is ` +
     "untouched. Restart the engine from the Engine page, then try again.",
     null, "mismatched");

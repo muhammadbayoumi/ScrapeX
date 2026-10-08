@@ -822,6 +822,19 @@ test("a size of zero does not disable the size check", () => {
                 (error) => error.kind === "mismatched");
 });
 
+test("the size refusal reads as a sentence for each thing it guards", () => {
+  // He reads this sentence, and the template read "built a archive" once a label
+  // started with a vowel; the light file's label is the second that does.
+  for (const [what, says] of [
+    ["archive", "The engine built an archive of 2 bytes"],
+    ["panel pack", "The engine built a panel pack of 2 bytes"],
+    ["offline copy", "The engine built an offline copy of 2 bytes"],
+  ]) {
+    assert.throws(() => expectSize(what, new Blob(["abc"]), 2),
+                  (error) => error.message.startsWith(says));
+  }
+});
+
 test("a size the engine did not describe is still forgiven", () => {
   // A caller with no manifest is legitimate; absent is not the same as zero.
   expectSize("archive", new Blob(["abc"]), undefined);
